@@ -96,6 +96,17 @@ if inv_file and sales_file:
             df["ReorderPriority"] = df.apply(reorder_tag, axis=1)
             df = df.sort_values(["ReorderPriority", "AvgNetSalesPerDay"], ascending=[True, False])
 
+            total_sales = filtered_sales["NetSales"].sum()
+            active_categories = df.shape[0]
+            reorder_asap = df[df["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
+            watchlist_items = df[df["ReorderPriority"] == "2 – Watch Closely"].shape[0]
+
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            kpi1.metric("Total Net Sales", f"${total_sales:,.2f}")
+            kpi2.metric("Active Categories", active_categories)
+            kpi3.metric("Watchlist Items", watchlist_items)
+            kpi4.metric("Reorder ASAP", reorder_asap)
+
             def highlight_low_days(val):
                 try:
                     val = int(val)
