@@ -5,7 +5,6 @@ import numpy as np
 
 st.set_page_config(page_title="Cannabis Buyer Dashboard", layout="wide", page_icon="🌿")
 
-# ---------------------- Background Styling ----------------------
 background_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
 
 st.markdown(f"""
@@ -35,7 +34,6 @@ st.markdown(f"""
 st.title("🌿 Cannabis Buyer Dashboard")
 st.markdown("Streamlined purchasing visibility powered by Dutchie data.\n")
 
-# ---------------------- SIDEBAR ----------------------
 st.sidebar.header("📂 Upload Reports")
 inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
 sales_file = st.sidebar.file_uploader("Sales XLSX (30-60 days)", type=["xlsx"])
@@ -43,12 +41,11 @@ product_sales_file = st.sidebar.file_uploader("Product Sales Report (60 Days)", 
 inventory_aging_file = st.sidebar.file_uploader("Inventory Aging Report", type=["csv", "xlsx"])
 sold_out_file = st.sidebar.file_uploader("Sold Out Report (Optional)", type=["csv", "xlsx"])
 
-# Controls
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
-metric_filter = st.sidebar.radio("Filter by KPI Click", ("None", "Watchlist", "Reorder ASAP"))
 
-# ---------------------- DATA PROCESSING ----------------------
+filter_state = st.session_state.setdefault("metric_filter", "None")
+
 if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
@@ -102,11 +99,11 @@ if inv_file and sales_file:
             reorder_asap = df[df["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
             watchlist_items = df[df["ReorderPriority"] == "2 – Watch Closely"].shape[0]
 
-            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-            kpi1.metric("Total Net Sales", f"${total_sales:,.2f}")
-            kpi2.metric("Active Categories", active_categories)
-            kpi3.metric("Watchlist Items", watchlist_items)
-            kpi4.metric("Reorder ASAP", reorder_asap)
+            c1, c2, c3, c4 = st.columns(4)
+            if c1.button(f"Total Net Sales: ${total_sales:,.2f}"): st.session_state.metric_filter = "None"
+            if c2.button(f"Active Categories: {active_categories}"): st.session_state.metric_filter = "None"
+            if c3.button(f"Watchlist Items: {watchlist_items}"): st.session_state.metric_filter = "Watchlist"
+            if c4.button(f"Reorder ASAP: {reorder_asap}"): st.session_state.metric_filter = "Reorder ASAP"
 
             def highlight_low_days(val):
                 try:
@@ -115,9 +112,9 @@ if inv_file and sales_file:
                 except:
                     return ""
 
-            if metric_filter == "Watchlist":
+            if st.session_state.metric_filter == "Watchlist":
                 df = df[df["ReorderPriority"] == "2 – Watch Closely"]
-            elif metric_filter == "Reorder ASAP":
+            elif st.session_state.metric_filter == "Reorder ASAP":
                 df = df[df["ReorderPriority"] == "1 – Reorder ASAP"]
 
             styled_df = df.style.applymap(highlight_low_days, subset=["DaysOnHand"])
