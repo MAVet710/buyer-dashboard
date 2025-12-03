@@ -55,11 +55,16 @@ if inv_file and sales_file:
         inv_df["onhandunits"] = pd.to_numeric(inv_df.get("onhandunits", 0), errors="coerce").fillna(0)
         inv_df["subcategory"] = inv_df["subcategory"].str.strip().str.lower()
 
-        def extract_size(name):
-            match = re.search(r"(\d+\.?\d*\s?(g|oz))", str(name).lower())
+        def extract_size(name, subcat):
+            name = str(name).lower()
+            subcat = str(subcat).lower()
+            if "edible" in subcat:
+                match = re.search(r"(\d+\s?mg)", name)
+            else:
+                match = re.search(r"(\d+\.?\d*\s?(g|oz))", name)
             return match.group(1) if match else "unspecified"
 
-        inv_df["packagesize"] = inv_df["itemname"].apply(extract_size)
+        inv_df["packagesize"] = inv_df.apply(lambda row: extract_size(row["itemname"], row["subcategory"]), axis=1)
         inv_df["subcat_group"] = inv_df["subcategory"] + " – " + inv_df["packagesize"]
         inv_df = inv_df[["itemname", "packagesize", "subcategory", "subcat_group", "onhandunits"]]
 
@@ -126,12 +131,9 @@ if inv_file and sales_file:
                 detail = detail[detail["ReorderPriority"] == "1 – Reorder ASAP"]
 
             st.markdown("### Inventory Forecast Table")
-            master_groups = detail.groupby("subcategory")
-            for cat, group in master_groups:
-                avg_doh = int(np.floor(group["DaysOnHand"].mean()))
-                with st.expander(f"{cat.title()} – Avg Days On Hand: {avg_doh}"):
-                    styled_cat_df = group.style.applymap(highlight_low_days, subset=["DaysOnHand"])
-                    st.dataframe(styled_cat_df, use_container_width=True)
+            styled_table = detail.style.applymap(highlight_low_days, subset=["DaysOnHand"])
+            st.dataframe(styled_table, use_container_width=True)
+
         else:
             st.warning("Start date must be before or equal to end date.")
     except Exception as e:
