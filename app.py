@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import numpy as np
+import plotly.express as px
+from datetime import datetime
 import re
 
 st.set_page_config(page_title="Cannabis Buyer Dashboard", layout="wide", page_icon="🌿")
@@ -33,105 +34,131 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 st.title("🌿 Cannabis Buyer Dashboard")
-st.markdown("Streamlined purchasing visibility powered by Dutchie data.\n")
+st.markdown("Streamlined purchasing visibility powered by Dutchie data.")
 
 st.sidebar.header("📂 Upload Reports")
 inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product (60 Days)", type=["xlsx"])
-
+sales_file = st.sidebar.file_uploader("Sales Breakdown by Product XLSX", type=["xlsx"])
+product_sales_file = st.sidebar.file_uploader("Product Sales Report (60 Days)", type=["csv", "xlsx"])
+inventory_aging_file = st.sidebar.file_uploader("Inventory Aging Report", type=["csv", "xlsx"])
+sold_out_file = st.sidebar.file_uploader("Sold Out Report (Optional)", type=["csv", "xlsx"])
 
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
-velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
-
-filter_state = st.session_state.setdefault("metric_filter", "None")
+velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
+metric_filter = st.sidebar.radio("Filter by KPI", ("None", "Watchlist", "Reorder ASAP"))
 
 if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
-        inv_df.columns = inv_df.columns.str.strip().str.lower()
-        inv_df = inv_df.rename(columns={"product": "itemname", "category": "subcategory", "available": "onhandunits"})
-        inv_df["onhandunits"] = pd.to_numeric(inv_df.get("onhandunits", 0), errors="coerce").fillna(0)
-        inv_df["subcategory"] = inv_df["subcategory"].str.strip().str.lower()
+        inv_df.columns = inv_df.columns.str.strip().str.lower().str.replace(" ", "")
 
-        def extract_size(name):
-            name = str(name).lower()
-            mg_match = re.search(r"(\d+\s?mg)", name)
-            g_match = re.search(r"(\d+\.?\d*\s?(g|oz))", name)
-            return mg_match.group(1) if mg_match else (g_match.group(1) if g_match else "unspecified")
+        column_map = {
+            "product": "itemname",
+            "category": "mastercategory",
+            "available": "onhandunits"
+        }
+        rename_cols = {k: v for k, v in column_map.items() if k in inv_df.columns}
+        inv_df = inv_df.rename(columns=rename_cols)
 
-        inv_df["packagesize"] = inv_df["itemname"].apply(extract_size)
-        inv_df["subcat_group"] = inv_df["subcategory"] + " – " + inv_df["packagesize"]
-        inv_df = inv_df[["itemname", "packagesize", "subcategory", "subcat_group", "onhandunits"]]
+        required_cols = ["itemname", "mastercategory", "onhandunits"]
+        missing_cols = [col for col in required_cols if col not in inv_df.columns]
+        if missing_cols:
+            st.error(f"Missing columns in inventory file: {', '.join(missing_cols)}")
+            st.stop()
 
-        sales_raw = pd.read_excel(sales_file, header=4)
-        sales_raw.columns = sales_raw.iloc[0]
+        def extract_package_size(name):
+            match = re.search(r'(\d+\.?\d*)\s?(g|oz|mg)', str(name).lower())
+            return match.group() if match else 'unspecified'
+
+        inv_df["packagesize"] = inv_df["itemname"].apply(extract_package_size)
+        inv_df["subcategory"] = inv_df["mastercategory"].str.lower() + " – " + inv_df["packagesize"]
+
+        sales_raw = pd.read_excel(sales_file, header=3)
         sales_df = sales_raw[1:].copy()
-        sales_df.columns = sales_df.columns.astype(str)
+        sales_df.columns = sales_raw.iloc[0]
+
+        sales_df.columns = sales_df.columns.str.strip()
+        date_col = next((col for col in sales_df.columns if str(col).lower() in ["order date", "sales date", "date"]), None)
+        cat_col = next((col for col in sales_df.columns if str(col).lower() in ["master category", "category"]), None)
+        qty_col = next((col for col in sales_df.columns if "qty" in str(col).lower() and "sold" in str(col).lower()), None)
+
+        if not date_col or not cat_col or not qty_col:
+            st.error("Missing one of the required columns: Date, Category, or Quantity Sold")
+            st.stop()
 
         sales_df = sales_df.rename(columns={
-            "Category": "MasterCategory",
-            "QuantitySold": "UnitsSold",
-            "Product": "Product"
+            date_col: "OrderDate",
+            cat_col: "MasterCategory",
+            qty_col: "UnitsSold"
         })
+
         sales_df = sales_df[sales_df["MasterCategory"].notna()].copy()
-        sales_df["MasterCategory"] = sales_df["MasterCategory"].str.strip().str.lower()
+        sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors="coerce")
+        sales_df["MasterCategory"] = sales_df["MasterCategory"].str.lower()
         sales_df = sales_df[~sales_df["MasterCategory"].str.contains("accessor")]
         sales_df = sales_df[sales_df["MasterCategory"] != "all"]
 
-        inventory_summary = inv_df.groupby(["subcategory", "packagesize"])["onhandunits"].sum().reset_index()
+        date_range = sales_df["OrderDate"].dropna().sort_values().unique()
+        date_start = st.sidebar.selectbox("Start Date", date_range)
+        date_end = st.sidebar.selectbox("End Date", date_range[::-1])
 
-        unique_subcats = sorted(sales_df["MasterCategory"].unique())
-        st.sidebar.write("Select timeframe length (in days):")
-        date_diff = st.sidebar.slider("Days in Sales Period", min_value=7, max_value=90, value=60)
+        if date_start <= date_end:
+            mask = (sales_df["OrderDate"] >= date_start) & (sales_df["OrderDate"] <= date_end)
+            filtered_sales = sales_df[mask]
+            date_diff = (pd.to_datetime(date_end) - pd.to_datetime(date_start)).days + 1
 
-        agg = sales_df.groupby("MasterCategory").agg({"UnitsSold": "sum"}).reset_index()
-        agg["AvgUnitsPerDay"] = agg["UnitsSold"].astype(float) / date_diff * velocity_adjustment
+            agg = filtered_sales.groupby("MasterCategory").agg({"UnitsSold": "sum", "OrderDate": pd.Series.nunique}).reset_index()
+            agg = agg.rename(columns={"OrderDate": "DaysSold"})
+            agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
+            agg["AvgUnitsPerDay"] = (agg["UnitsSold"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
 
-        detail = pd.merge(inventory_summary, agg, left_on="subcategory", right_on="MasterCategory", how="left").fillna(0)
-        detail["DaysOnHand"] = np.where(detail["AvgUnitsPerDay"] > 0, detail["onhandunits"] / detail["AvgUnitsPerDay"], np.nan)
-        detail["DaysOnHand"] = detail["DaysOnHand"].replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
-        detail["ReorderQty"] = np.where(detail["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - detail["DaysOnHand"]) * detail["AvgUnitsPerDay"]).astype(int), 0)
+            inventory_summary = inv_df.groupby(["mastercategory", "subcategory"])["onhandunits"].sum().reset_index()
+            inventory_summary["onhandunits"] = pd.to_numeric(inventory_summary["onhandunits"], errors="coerce").fillna(0)
 
-        def reorder_tag(row):
-            if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
-            if row["DaysOnHand"] <= 21: return "2 – Watch Closely"
-            if row["AvgUnitsPerDay"] == 0: return "4 – Dead Item"
-            return "3 – Comfortable Cover"
+            df = pd.merge(inventory_summary, agg, left_on="mastercategory", right_on="MasterCategory", how="left")
+            df["AvgUnitsPerDay"] = df["AvgUnitsPerDay"].fillna(0)
+            df["DaysOnHand"] = (df["onhandunits"] / df["AvgUnitsPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
+            df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
+            df["ReorderQty"] = np.where(df["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - df["DaysOnHand"]) * df["AvgUnitsPerDay"]).astype(int), 0)
 
-        detail["ReorderPriority"] = detail.apply(reorder_tag, axis=1)
-        detail = detail.sort_values(["ReorderPriority", "AvgUnitsPerDay"], ascending=[True, False])
+            def reorder_tag(row):
+                if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
+                if row["DaysOnHand"] <= 21: return "2 – Watch Closely"
+                if row["AvgUnitsPerDay"] == 0: return "4 – Dead Item"
+                return "3 – Comfortable Cover"
 
-        total_units = sales_df["UnitsSold"].astype(float).sum()
-        active_categories = detail["subcategory"].nunique()
-        reorder_asap = detail[detail["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
-        watchlist_items = detail[detail["ReorderPriority"] == "2 – Watch Closely"].shape[0]
+            df["ReorderPriority"] = df.apply(reorder_tag, axis=1)
 
-        c1, c2, c3, c4 = st.columns(4)
-        if c1.button(f"Total Units Sold: {int(total_units)}"): st.session_state.metric_filter = "None"
-        if c2.button(f"Active Categories: {active_categories}"): st.session_state.metric_filter = "None"
-        if c3.button(f"Watchlist Items: {watchlist_items}"): st.session_state.metric_filter = "Watchlist"
-        if c4.button(f"Reorder ASAP: {reorder_asap}"): st.session_state.metric_filter = "Reorder ASAP"
+            if metric_filter == "Watchlist":
+                df = df[df["ReorderPriority"] == "2 – Watch Closely"]
+            elif metric_filter == "Reorder ASAP":
+                df = df[df["ReorderPriority"] == "1 – Reorder ASAP"]
 
-        def highlight_low_days(val):
-            try:
-                val = int(val)
-                return "color: #FF3131; font-weight: bold;" if val < doh_threshold else ""
-            except:
-                return ""
+            total_units = filtered_sales["UnitsSold"].sum()
+            active_categories = df["mastercategory"].nunique()
+            reorder_asap = df[df["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
+            watchlist_items = df[df["ReorderPriority"] == "2 – Watch Closely"].shape[0]
 
-        if st.session_state.metric_filter == "Watchlist":
-            detail = detail[detail["ReorderPriority"] == "2 – Watch Closely"]
-        elif st.session_state.metric_filter == "Reorder ASAP":
-            detail = detail[detail["ReorderPriority"] == "1 – Reorder ASAP"]
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            kpi1.metric("Total Units Sold", f"{total_units:,}")
+            kpi2.metric("Active Categories", active_categories)
+            if st.button("Watchlist", key="watchlist"): st.experimental_set_query_params(filter="Watchlist")
+            kpi3.metric("Watchlist Items", watchlist_items)
+            if st.button("Reorder ASAP", key="reorder"): st.experimental_set_query_params(filter="Reorder ASAP")
+            kpi4.metric("Reorder ASAP", reorder_asap)
 
-        st.markdown("### Inventory Forecast Table")
-        master_groups = detail.groupby("subcategory")
-        for cat, group in master_groups:
-            avg_doh = int(np.floor(group["DaysOnHand"].mean()))
-            with st.expander(f"{cat.title()} – Avg Days On Hand: {avg_doh}"):
-                styled_cat_df = group.style.applymap(highlight_low_days, subset=["DaysOnHand"])
-                st.dataframe(styled_cat_df, use_container_width=True)
+            st.markdown("### Inventory Forecast by Category")
+            for cat in df["mastercategory"].unique():
+                sub_df = df[df["mastercategory"] == cat].copy()
+                avg_days = int(np.floor(sub_df["DaysOnHand"].mean()))
+                with st.expander(f"{cat.title()} – Avg Days On Hand: {avg_days}"):
+                    styled = sub_df.style.applymap(lambda v: "color:#FF3131;font-weight:bold" if isinstance(v, (int, float)) and v < doh_threshold else "", subset=["DaysOnHand"])
+                    st.dataframe(styled, use_container_width=True)
+
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button("Download CSV", csv, "buyer_forecast.csv", "text/csv")
+
+        else:
+            st.warning("Start date must be before or equal to end date.")
     except Exception as e:
-        st.error(f"Error processing files: {e}")
-else:
-    st.info("Please upload both the inventory and product-level sales report to continue.")
+        st.error(f"Error processing files:
