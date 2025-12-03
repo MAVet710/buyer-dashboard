@@ -66,53 +66,51 @@ if inv_file and sales_file:
         sales_raw = pd.read_excel(sales_file, header=4)
         sales_raw.columns = sales_raw.iloc[0]
         sales_df = sales_raw[1:].copy()
-        sales_df.columns = sales_df.columns.astype(str)
+        sales_df.columns = sales_df.columns.astype(str).str.strip().str.lower()
 
-        # Handle Category as fallback for MasterCategory
-        sales_df.columns = sales_df.columns.str.strip()
-        if "MasterCategory" not in sales_df.columns and "Category" in sales_df.columns:
-            sales_df = sales_df.rename(columns={"Category": "MasterCategory"})
+        if "mastercategory" not in sales_df.columns and "category" in sales_df.columns:
+            sales_df = sales_df.rename(columns={"category": "mastercategory"})
 
         sales_df = sales_df.rename(columns={
-            "QuantitySold": "UnitsSold",
-            "Product": "Product"
+            "quantitysold": "unitssold",
+            "product": "product"
         })
 
-        if "MasterCategory" not in sales_df.columns:
-            raise KeyError("Missing MasterCategory column and no fallback Category column found.")
+        if "mastercategory" not in sales_df.columns:
+            raise KeyError("Missing mastercategory column and no fallback category column found.")
 
-        sales_df = sales_df[sales_df["MasterCategory"].notna()].copy()
-        sales_df["MasterCategory"] = sales_df["MasterCategory"].str.strip().str.lower()
-        sales_df = sales_df[~sales_df["MasterCategory"].str.contains("accessor")]
-        sales_df = sales_df[sales_df["MasterCategory"] != "all"]
+        sales_df = sales_df[sales_df["mastercategory"].notna()].copy()
+        sales_df["mastercategory"] = sales_df["mastercategory"].str.strip().str.lower()
+        sales_df = sales_df[~sales_df["mastercategory"].str.contains("accessor")]
+        sales_df = sales_df[sales_df["mastercategory"] != "all"]
 
         inventory_summary = inv_df.groupby(["subcategory", "packagesize"])["onhandunits"].sum().reset_index()
 
-        unique_subcats = sorted(sales_df["MasterCategory"].unique())
+        unique_subcats = sorted(sales_df["mastercategory"].unique())
         st.sidebar.write("Select timeframe length (in days):")
         date_diff = st.sidebar.slider("Days in Sales Period", min_value=7, max_value=90, value=60)
 
-        agg = sales_df.groupby("MasterCategory").agg({"UnitsSold": "sum"}).reset_index()
-        agg["AvgUnitsPerDay"] = agg["UnitsSold"].astype(float) / date_diff * velocity_adjustment
+        agg = sales_df.groupby("mastercategory").agg({"unitssold": "sum"}).reset_index()
+        agg["avgunitsperday"] = agg["unitssold"].astype(float) / date_diff * velocity_adjustment
 
-        detail = pd.merge(inventory_summary, agg, left_on="subcategory", right_on="MasterCategory", how="left").fillna(0)
-        detail["DaysOnHand"] = np.where(detail["AvgUnitsPerDay"] > 0, detail["onhandunits"] / detail["AvgUnitsPerDay"], np.nan)
-        detail["DaysOnHand"] = detail["DaysOnHand"].replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
-        detail["ReorderQty"] = np.where(detail["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - detail["DaysOnHand"]) * detail["AvgUnitsPerDay"]).astype(int), 0)
+        detail = pd.merge(inventory_summary, agg, left_on="subcategory", right_on="mastercategory", how="left").fillna(0)
+        detail["daysonhand"] = np.where(detail["avgunitsperday"] > 0, detail["onhandunits"] / detail["avgunitsperday"], np.nan)
+        detail["daysonhand"] = detail["daysonhand"].replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
+        detail["reorderqty"] = np.where(detail["daysonhand"] < doh_threshold, np.ceil((doh_threshold - detail["daysonhand"]) * detail["avgunitsperday"]).astype(int), 0)
 
         def reorder_tag(row):
-            if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
-            if row["DaysOnHand"] <= 21: return "2 – Watch Closely"
-            if row["AvgUnitsPerDay"] == 0: return "4 – Dead Item"
+            if row["daysonhand"] <= 7: return "1 – Reorder ASAP"
+            if row["daysonhand"] <= 21: return "2 – Watch Closely"
+            if row["avgunitsperday"] == 0: return "4 – Dead Item"
             return "3 – Comfortable Cover"
 
-        detail["ReorderPriority"] = detail.apply(reorder_tag, axis=1)
-        detail = detail.sort_values(["ReorderPriority", "AvgUnitsPerDay"], ascending=[True, False])
+        detail["reorderpriority"] = detail.apply(reorder_tag, axis=1)
+        detail = detail.sort_values(["reorderpriority", "avgunitsperday"], ascending=[True, False])
 
-        total_units = sales_df["UnitsSold"].astype(float).sum()
+        total_units = sales_df["unitssold"].astype(float).sum()
         active_categories = detail["subcategory"].nunique()
-        reorder_asap = detail[detail["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
-        watchlist_items = detail[detail["ReorderPriority"] == "2 – Watch Closely"].shape[0]
+        reorder_asap = detail[detail["reorderpriority"] == "1 – Reorder ASAP"].shape[0]
+        watchlist_items = detail[detail["reorderpriority"] == "2 – Watch Closely"].shape[0]
 
         c1, c2, c3, c4 = st.columns(4)
         if c1.button(f"Total Units Sold: {int(total_units)}"): st.session_state.metric_filter = "None"
@@ -128,16 +126,16 @@ if inv_file and sales_file:
                 return ""
 
         if st.session_state.metric_filter == "Watchlist":
-            detail = detail[detail["ReorderPriority"] == "2 – Watch Closely"]
+            detail = detail[detail["reorderpriority"] == "2 – Watch Closely"]
         elif st.session_state.metric_filter == "Reorder ASAP":
-            detail = detail[detail["ReorderPriority"] == "1 – Reorder ASAP"]
+            detail = detail[detail["reorderpriority"] == "1 – Reorder ASAP"]
 
         st.markdown("### Inventory Forecast Table")
         master_groups = detail.groupby("subcategory")
         for cat, group in master_groups:
-            avg_doh = int(np.floor(group["DaysOnHand"].mean()))
+            avg_doh = int(np.floor(group["daysonhand"].mean()))
             with st.expander(f"{cat.title()} – Avg Days On Hand: {avg_doh}"):
-                styled_cat_df = group.style.applymap(highlight_low_days, subset=["DaysOnHand"])
+                styled_cat_df = group.style.applymap(highlight_low_days, subset=["daysonhand"])
                 st.dataframe(styled_cat_df, use_container_width=True)
 
         csv = detail.to_csv(index=False).encode("utf-8")
