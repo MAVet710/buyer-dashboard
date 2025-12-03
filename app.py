@@ -37,15 +37,15 @@ st.markdown("Streamlined purchasing visibility powered by Dutchie data.\n")
 
 st.sidebar.header("📂 Upload Reports")
 inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product", type="xlsx")
+sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product (Optional)", type="xlsx")
 product_sales_file = st.sidebar.file_uploader("Product Sales Report", type="xlsx")
-aging_file = st.sidebar.file_uploader("Inventory Aging Report", type="xlsx")
+aging_file = st.sidebar.file_uploader("Inventory Aging Report (Optional)", type="xlsx")
 
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
 filter_state = st.session_state.setdefault("metric_filter", "None")
 
-if inv_file and sales_file:
+if inv_file and product_sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
         inv_df.columns = inv_df.columns.str.strip().str.lower()
@@ -63,7 +63,7 @@ if inv_file and sales_file:
         inv_df["subcat_group"] = inv_df["subcategory"] + " – " + inv_df["packagesize"]
         inv_df = inv_df[["itemname", "packagesize", "subcategory", "subcat_group", "onhandunits"]]
 
-        sales_raw = pd.read_excel(sales_file)
+        sales_raw = pd.read_excel(product_sales_file)
         sales_raw.columns = sales_raw.columns.astype(str).str.strip().str.lower()
 
         if "mastercategory" not in sales_raw.columns and "category" in sales_raw.columns:
@@ -139,4 +139,4 @@ if inv_file and sales_file:
     except Exception as e:
         st.error(f"Error processing files: {e}")
 else:
-    st.info("Please upload inventory and sales files to continue.")
+    st.info("Please upload inventory and product sales files to continue.")
