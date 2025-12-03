@@ -175,3 +175,4 @@ if inv_file and sales_file:
         st.error(f"Error processing files: {e}")
 else:
     st.info("Please upload both inventory and sales files.")
+
