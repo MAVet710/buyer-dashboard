@@ -27,14 +27,30 @@ if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
         inv_df.columns = inv_df.columns.str.strip().str.lower()
-        inv_df = inv_df.rename(columns={
-            "product": "ItemName",
-            "category": "SubCategory",
-            "available": "OnHandUnits",
-            "inventory date": "InventoryDate",
-            "master category": "MasterCategory"
-        })
-        inv_df = inv_df[["ItemName", "SubCategory", "OnHandUnits", "InventoryDate", "MasterCategory"]]
+        st.write("Original Inventory Columns:", inv_df.columns.tolist())
+
+        rename_map = {
+            "product": "itemname",
+            "category": "subcategory",
+            "available": "onhandunits",
+            "inventory date": "inventorydate",
+            "master category": "mastercategory"
+        }
+        inv_df = inv_df.rename(columns={k: v for k, v in rename_map.items() if k in inv_df.columns})
+
+        required_cols = ["itemname", "subcategory", "onhandunits"]
+        optional_cols = ["inventorydate", "mastercategory"]
+
+        missing = [col for col in required_cols if col not in inv_df.columns]
+        if missing:
+            st.error(f"Missing required columns in inventory file: {missing}")
+            st.stop()
+
+        for col in optional_cols:
+            if col not in inv_df.columns:
+                inv_df[col] = ""
+
+        inv_df = inv_df[required_cols + optional_cols]
 
         sales_raw = pd.read_excel(sales_file, header=3)
         if sales_raw.shape[0] > 1:
@@ -48,7 +64,7 @@ if inv_file and sales_file:
             sales_df = sales_df[sales_df["MasterCategory"].notna()].copy()
             sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors='coerce')
 
-            inventory_summary = inv_df.groupby("MasterCategory")["OnHandUnits"].sum().reset_index()
+            inventory_summary = inv_df.groupby("mastercategory")["onhandunits"].sum().reset_index()
 
             date_range = sales_df["OrderDate"].dropna().sort_values().unique()
             date_start = st.selectbox("Start Date", date_range)
@@ -64,8 +80,8 @@ if inv_file and sales_file:
                 agg = agg.rename(columns={"OrderDate": "DaysSold"})
                 agg["AvgNetSalesPerDay"] = agg["NetSales"] / agg["DaysSold"]
 
-                df = agg.merge(inventory_summary, on="MasterCategory", how="left").fillna(0)
-                df["CoverageIndex"] = df["OnHandUnits"] / df["AvgNetSalesPerDay"]
+                df = agg.merge(inventory_summary, left_on="MasterCategory", right_on="mastercategory", how="left").fillna(0)
+                df["CoverageIndex"] = df["onhandunits"] / df["AvgNetSalesPerDay"]
 
                 def reorder_tag(row):
                     if row["CoverageIndex"] <= 7: return "1 – Reorder ASAP"
@@ -79,7 +95,7 @@ if inv_file and sales_file:
                 st.dataframe(df, use_container_width=True)
 
                 fig = px.bar(df, x="MasterCategory", y="NetSales", title="Sales by Category",
-                             color="ReorderPriority", text="OnHandUnits")
+                             color="ReorderPriority", text="onhandunits")
                 fig.update_layout(paper_bgcolor="black", plot_bgcolor="black", font_color="white")
                 st.plotly_chart(fig, use_container_width=True)
 
