@@ -1,80 +1,141 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 from datetime import datetime
+import re
 
 st.set_page_config(page_title="Cannabis Buyer Dashboard", layout="wide", page_icon="🌿")
-st.markdown("""
+
+background_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
+
+st.markdown(f"""
     <style>
-    body { background-color: #000; color: #fff; font-family: Arial, sans-serif; }
-    .css-1d391kg { color: white; }
+    .stApp {{
+        background-image: url('{background_url}');
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        color: white;
+    }}
+    .block-container {{
+        background-color: rgba(0, 0, 0, 0.75);
+        padding: 2rem;
+        border-radius: 12px;
+    }}
+    .dataframe td {{
+        color: white;
+    }}
+    .neon-red {{
+        color: #FF3131;
+        font-weight: bold;
+    }}
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🍃 Cannabis Buyer Dashboard")
-st.markdown("Upload Dutchie Inventory and 30-Day Sales Reports")
+st.title("🌿 Cannabis Buyer Dashboard")
+st.markdown("Streamlined purchasing visibility powered by Dutchie data.")
 
-inv_file = st.file_uploader("Upload Inventory CSV", type="csv")
-sales_file = st.file_uploader("Upload Sales XLSX", type="xlsx")
+# Sidebar upload and controls
+st.sidebar.header("📂 Upload Reports")
+inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
+sales_file = st.sidebar.file_uploader("Sales XLSX (30-60 days)", type=["xlsx"])
+product_sales_file = st.sidebar.file_uploader("Product Sales Report (60 Days)", type=["csv", "xlsx"])
+inventory_aging_file = st.sidebar.file_uploader("Inventory Aging Report", type=["csv", "xlsx"])
+sold_out_file = st.sidebar.file_uploader("Sold Out Report (Optional)", type=["csv", "xlsx"])
 
+doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
+velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
+metric_filter = st.sidebar.radio("Filter by KPI", ("None", "Watchlist", "Reorder ASAP"))
+
+# Process data
 if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
-        inv_df = inv_df[["Product", "Category", "Available", "Inventory date", "Master category"]].copy()
-        inv_df.columns = ["ItemName", "SubCategory", "OnHandUnits", "InventoryDate", "MasterCategory"]
+        inv_df.columns = inv_df.columns.str.strip().str.lower()
+        inv_df = inv_df.rename(columns={"product": "itemname", "category": "subcategory", "available": "onhandunits", "master category": "mastercategory"})
+        inv_df = inv_df[["itemname", "subcategory", "onhandunits", "mastercategory"]]
+
+        def extract_package_size(name):
+            match = re.search(r'(\d+\.?\d*)\s?(g|oz)', name.lower())
+            return match.group() if match else 'unspecified'
+
+        inv_df["packagesize"] = inv_df["itemname"].apply(extract_package_size)
+        inv_df["subcategory"] = inv_df["subcategory"].str.lower() + " – " + inv_df["packagesize"]
 
         sales_raw = pd.read_excel(sales_file, header=3)
-        if sales_raw.shape[0] > 1:
-            sales_df = sales_raw[1:].copy()
-            sales_df.columns = sales_raw.iloc[0]
+        sales_df = sales_raw[1:].copy()
+        sales_df.columns = sales_raw.iloc[0]
+        sales_df = sales_df.rename(columns={"Master Category": "MasterCategory", "Order Date": "OrderDate", "Net Sales": "NetSales"})
+        sales_df = sales_df[sales_df["MasterCategory"].notna()].copy()
+        sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors="coerce")
+        sales_df["MasterCategory"] = sales_df["MasterCategory"].str.lower()
+        sales_df = sales_df[~sales_df["MasterCategory"].str.contains("accessor")]
+        sales_df = sales_df[sales_df["MasterCategory"] != "all"]
 
-            sales_df = sales_df.rename(columns={
-                "Master Category": "MasterCategory",
-                "Order Date": "OrderDate",
-                "Net Sales": "NetSales"
-            })
-            sales_df = sales_df[sales_df["MasterCategory"].notna()].copy()
-            sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors='coerce')
+        date_range = sales_df["OrderDate"].dropna().sort_values().unique()
+        date_start = st.sidebar.selectbox("Start Date", date_range)
+        date_end = st.sidebar.selectbox("End Date", date_range[::-1])
 
-            # Date Filter
-            dates = sales_df["OrderDate"].dropna().unique()
-            if len(dates) >= 2:
-                start_date = st.date_input("Start Date", value=min(dates))
-                end_date = st.date_input("End Date", value=max(dates))
+        if date_start <= date_end:
+            mask = (sales_df["OrderDate"] >= date_start) & (sales_df["OrderDate"] <= date_end)
+            filtered_sales = sales_df[mask]
+            date_diff = (pd.to_datetime(date_end) - pd.to_datetime(date_start)).days + 1
+            
+            agg = filtered_sales.groupby("MasterCategory").agg({"NetSales": "sum", "OrderDate": pd.Series.nunique}).reset_index()
+            agg = agg.rename(columns={"OrderDate": "DaysSold"})
+            agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
+            agg["AvgNetSalesPerDay"] = (agg["NetSales"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
 
-                if start_date > end_date:
-                    st.warning("Start date must be before end date")
-                else:
-                    mask = (sales_df["OrderDate"] >= pd.to_datetime(start_date)) & (sales_df["OrderDate"] <= pd.to_datetime(end_date))
-                    filtered = sales_df[mask]
+            inventory_summary = inv_df.groupby(["mastercategory", "subcategory"])["onhandunits"].sum().reset_index()
+            inventory_summary["onhandunits"] = pd.to_numeric(inventory_summary["onhandunits"], errors="coerce").fillna(0)
 
-                    sales_summary = filtered.groupby("MasterCategory").agg({
-                        "NetSales": "sum", "OrderDate": pd.Series.nunique
-                    }).reset_index().rename(columns={"OrderDate": "DaysSold"})
-                    sales_summary["AvgNetSalesPerDay"] = sales_summary["NetSales"] / sales_summary["DaysSold"]
+            df = pd.merge(inventory_summary, agg, on="mastercategory", how="left")
+            df["AvgNetSalesPerDay"] = df["AvgNetSalesPerDay"].fillna(0)
+            df["DaysOnHand"] = (df["onhandunits"] / df["AvgNetSalesPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
+            df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
+            df["ReorderQty"] = np.where(df["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - df["DaysOnHand"]) * df["AvgNetSalesPerDay"]).astype(int), 0)
 
-                    inventory_summary = inv_df.groupby("MasterCategory")["OnHandUnits"].sum().reset_index()
-                    df = sales_summary.merge(inventory_summary, on="MasterCategory", how="left").fillna(0)
-                    df["CoverageIndex"] = df["OnHandUnits"] / df["AvgNetSalesPerDay"]
+            def reorder_tag(row):
+                if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
+                if row["DaysOnHand"] <= 21: return "2 – Watch Closely"
+                if row["AvgNetSalesPerDay"] == 0: return "4 – Dead Item"
+                return "3 – Comfortable Cover"
 
-                    def reorder(row):
-                        if row["CoverageIndex"] <= 7: return "1 – Reorder ASAP"
-                        if row["CoverageIndex"] <= 21: return "2 – Watch Closely"
-                        if row["AvgNetSalesPerDay"] == 0: return "4 – Dead Item"
-                        return "3 – Comfortable Cover"
+            df["ReorderPriority"] = df.apply(reorder_tag, axis=1)
 
-                    df["ReorderPriority"] = df.apply(reorder, axis=1)
-                    df = df.sort_values(["ReorderPriority", "AvgNetSalesPerDay"], ascending=[True, False])
+            if metric_filter == "Watchlist":
+                df = df[df["ReorderPriority"] == "2 – Watch Closely"]
+            elif metric_filter == "Reorder ASAP":
+                df = df[df["ReorderPriority"] == "1 – Reorder ASAP"]
 
-                    st.dataframe(df, use_container_width=True)
+            total_sales = filtered_sales["NetSales"].sum()
+            active_categories = df["mastercategory"].nunique()
+            reorder_asap = df[df["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
+            watchlist_items = df[df["ReorderPriority"] == "2 – Watch Closely"].shape[0]
 
-                    fig = px.bar(df, x="MasterCategory", y="NetSales", title="Sales by Category",
-                                 color="ReorderPriority", text="OnHandUnits")
-                    fig.update_layout(paper_bgcolor="black", plot_bgcolor="black", font_color="white")
-                    st.plotly_chart(fig, use_container_width=True)
+            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+            kpi1.metric("Total Net Sales", f"${total_sales:,.2f}")
+            kpi2.metric("Active Categories", active_categories)
+            if st.button("Watchlist", key="watchlist"): st.experimental_set_query_params(filter="Watchlist")
+            kpi3.metric("Watchlist Items", watchlist_items)
+            if st.button("Reorder ASAP", key="reorder"): st.experimental_set_query_params(filter="Reorder ASAP")
+            kpi4.metric("Reorder ASAP", reorder_asap)
 
-                    csv = df.to_csv(index=False).encode('utf-8')
-                    st.download_button("Download CSV", csv, "Buyer_View.csv", "text/csv")
+            st.markdown("### Inventory Forecast by Category")
+            for cat in df["mastercategory"].unique():
+                sub_df = df[df["mastercategory"] == cat].copy()
+                avg_days = int(np.floor(sub_df["DaysOnHand"].mean()))
+                with st.expander(f"{cat.title()} – Avg Days On Hand: {avg_days}"):
+                    styled = sub_df.style.applymap(lambda v: "color:#FF3131;font-weight:bold" if isinstance(v, (int, float)) and v < doh_threshold else "", subset=["DaysOnHand"])
+                    st.dataframe(styled, use_container_width=True)
 
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button("Download CSV", csv, "buyer_forecast.csv", "text/csv")
+
+        else:
+            st.warning("Start date must be before or equal to end date.")
     except Exception as e:
         st.error(f"Error processing files: {e}")
+else:
+    st.info("Please upload both inventory and sales files.")
