@@ -36,9 +36,9 @@ st.markdown(f"""
 st.title("🌿 Cannabis Buyer Dashboard")
 st.markdown("Streamlined purchasing visibility powered by Dutchie data.")
 
-st.sidebar.header("📂 Upload Reports")
-inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product XLSX", type=["xlsx"])
+with st.sidebar.expander("📂 Upload Reports", expanded=False):
+    inv_file = st.file_uploader("Inventory CSV", type="csv")
+    sales_file = st.file_uploader("Detailed Sales Breakdown by Product XLSX", type=["xlsx"])
 
 # Controls
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
