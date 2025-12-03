@@ -135,7 +135,7 @@ if inv_file and sales_file:
                 subset = merged[merged["subcategory"] == master]
                 avg_doh = int(np.floor(subset["DaysOnHand"].mean()))
                 with st.expander(f"{master.title()} – Avg Days On Hand: {avg_doh}"):
-                    styled_df = subset.style.applymap(highlight_low_days, subset=["DaysOnHand"])
+                    styled_df = subset[["itemname", "packagesize", "onhandunits", "AvgNetSalesPerDay", "DaysOnHand", "ReorderQty", "ReorderPriority"]].style.applymap(highlight_low_days, subset=["DaysOnHand"])
                     st.dataframe(styled_df, use_container_width=True)
         else:
             st.warning("Start date must be before or equal to end date.")
