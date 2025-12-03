@@ -68,16 +68,16 @@ if inv_file and sales_file:
         sales_df = sales_raw[1:].copy()
         sales_df.columns = sales_df.columns.astype(str).str.strip().str.lower()
 
-        if "mastercategory" not in sales_df.columns and "category" in sales_df.columns:
-            sales_df = sales_df.rename(columns={"category": "mastercategory"})
+        if "mastercategory" not in sales_df.columns:
+            if "category" in sales_df.columns:
+                sales_df = sales_df.rename(columns={"category": "mastercategory"})
+            else:
+                raise KeyError("Missing mastercategory column and no fallback category column found.")
 
         sales_df = sales_df.rename(columns={
             "quantitysold": "unitssold",
             "product": "product"
         })
-
-        if "mastercategory" not in sales_df.columns:
-            raise KeyError("Missing mastercategory column and no fallback category column found.")
 
         sales_df = sales_df[sales_df["mastercategory"].notna()].copy()
         sales_df["mastercategory"] = sales_df["mastercategory"].str.strip().str.lower()
