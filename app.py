@@ -36,10 +36,9 @@ st.markdown(f"""
 st.title("🌿 Cannabis Buyer Dashboard")
 st.markdown("Streamlined purchasing visibility powered by Dutchie data.")
 
-# Sidebar upload and controls
 st.sidebar.header("📂 Upload Reports")
 inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-sales_file = st.sidebar.file_uploader("Sales XLSX (30-60 days)", type=["xlsx"])
+sales_file = st.sidebar.file_uploader("Sales Breakdown by Product XLSX", type=["xlsx"])
 product_sales_file = st.sidebar.file_uploader("Product Sales Report (60 Days)", type=["csv", "xlsx"])
 inventory_aging_file = st.sidebar.file_uploader("Inventory Aging Report", type=["csv", "xlsx"])
 sold_out_file = st.sidebar.file_uploader("Sold Out Report (Optional)", type=["csv", "xlsx"])
@@ -48,13 +47,11 @@ doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, m
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
 metric_filter = st.sidebar.radio("Filter by KPI", ("None", "Watchlist", "Reorder ASAP"))
 
-# Process data
 if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
         inv_df.columns = inv_df.columns.str.strip().str.lower()
 
-        # Map flexible variations
         column_map = {
             "product": "itemname",
             "category": "subcategory",
@@ -62,7 +59,6 @@ if inv_file and sales_file:
             "master category": "mastercategory",
             "mastercategory": "mastercategory"
         }
-
         rename_cols = {k: v for k, v in column_map.items() if k in inv_df.columns}
         inv_df = inv_df.rename(columns=rename_cols)
 
@@ -75,7 +71,7 @@ if inv_file and sales_file:
         inv_df = inv_df[required_cols]
 
         def extract_package_size(name):
-            match = re.search(r'(\d+\.?\d*)\s?(g|oz)', str(name).lower())
+            match = re.search(r'(\d+\.?\d*)\s?(g|oz|mg)', str(name).lower())
             return match.group() if match else 'unspecified'
 
         inv_df["packagesize"] = inv_df["itemname"].apply(extract_package_size)
@@ -84,7 +80,7 @@ if inv_file and sales_file:
         sales_raw = pd.read_excel(sales_file, header=3)
         sales_df = sales_raw[1:].copy()
         sales_df.columns = sales_raw.iloc[0]
-        sales_df = sales_df.rename(columns={"Master Category": "MasterCategory", "Order Date": "OrderDate", "Net Sales": "NetSales"})
+        sales_df = sales_df.rename(columns={"Master Category": "MasterCategory", "Order Date": "OrderDate", "Qty Sold": "UnitsSold"})
         sales_df = sales_df[sales_df["MasterCategory"].notna()].copy()
         sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors="coerce")
         sales_df["MasterCategory"] = sales_df["MasterCategory"].str.lower()
@@ -100,24 +96,24 @@ if inv_file and sales_file:
             filtered_sales = sales_df[mask]
             date_diff = (pd.to_datetime(date_end) - pd.to_datetime(date_start)).days + 1
 
-            agg = filtered_sales.groupby("MasterCategory").agg({"NetSales": "sum", "OrderDate": pd.Series.nunique}).reset_index()
+            agg = filtered_sales.groupby("MasterCategory").agg({"UnitsSold": "sum", "OrderDate": pd.Series.nunique}).reset_index()
             agg = agg.rename(columns={"OrderDate": "DaysSold"})
             agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
-            agg["AvgNetSalesPerDay"] = (agg["NetSales"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
+            agg["AvgUnitsPerDay"] = (agg["UnitsSold"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
 
             inventory_summary = inv_df.groupby(["mastercategory", "subcategory"])["onhandunits"].sum().reset_index()
             inventory_summary["onhandunits"] = pd.to_numeric(inventory_summary["onhandunits"], errors="coerce").fillna(0)
 
             df = pd.merge(inventory_summary, agg, left_on="mastercategory", right_on="MasterCategory", how="left")
-            df["AvgNetSalesPerDay"] = df["AvgNetSalesPerDay"].fillna(0)
-            df["DaysOnHand"] = (df["onhandunits"] / df["AvgNetSalesPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
+            df["AvgUnitsPerDay"] = df["AvgUnitsPerDay"].fillna(0)
+            df["DaysOnHand"] = (df["onhandunits"] / df["AvgUnitsPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
             df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
-            df["ReorderQty"] = np.where(df["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - df["DaysOnHand"]) * df["AvgNetSalesPerDay"]).astype(int), 0)
+            df["ReorderQty"] = np.where(df["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - df["DaysOnHand"]) * df["AvgUnitsPerDay"]).astype(int), 0)
 
             def reorder_tag(row):
                 if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
                 if row["DaysOnHand"] <= 21: return "2 – Watch Closely"
-                if row["AvgNetSalesPerDay"] == 0: return "4 – Dead Item"
+                if row["AvgUnitsPerDay"] == 0: return "4 – Dead Item"
                 return "3 – Comfortable Cover"
 
             df["ReorderPriority"] = df.apply(reorder_tag, axis=1)
@@ -127,13 +123,13 @@ if inv_file and sales_file:
             elif metric_filter == "Reorder ASAP":
                 df = df[df["ReorderPriority"] == "1 – Reorder ASAP"]
 
-            total_sales = filtered_sales["NetSales"].sum()
+            total_units = filtered_sales["UnitsSold"].sum()
             active_categories = df["mastercategory"].nunique()
             reorder_asap = df[df["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
             watchlist_items = df[df["ReorderPriority"] == "2 – Watch Closely"].shape[0]
 
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-            kpi1.metric("Total Net Sales", f"${total_sales:,.2f}")
+            kpi1.metric("Total Units Sold", f"{total_units:,}")
             kpi2.metric("Active Categories", active_categories)
             if st.button("Watchlist", key="watchlist"): st.experimental_set_query_params(filter="Watchlist")
             kpi3.metric("Watchlist Items", watchlist_items)
