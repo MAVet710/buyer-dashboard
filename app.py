@@ -99,13 +99,12 @@ if inv_file and sales_file:
             filtered_sales = sales_df[mask]
             date_diff = (pd.to_datetime(date_end) - pd.to_datetime(date_start)).days + 1
 
-            agg = filtered_sales.groupby("MasterCategory").agg({"UnitsSold": "sum", "OrderDate": pd.Series.nunique}).reset_index()
+            agg = filtered_sales.groupby("MasterCategory", as_index=False).agg({"UnitsSold": "sum", "OrderDate": pd.Series.nunique})
             agg = agg.rename(columns={"OrderDate": "DaysSold"})
             agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
             agg["AvgUnitsPerDay"] = (agg["UnitsSold"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
 
-            inventory_summary = inv_df.groupby(["mastercategory", "subcategory"])['onhandunits'].sum().reset_index()
-            inventory_summary = inventory_summary.loc[~inventory_summary.index.duplicated(keep='first')]
+            inventory_summary = inv_df.groupby(["mastercategory", "subcategory"], as_index=False)['onhandunits'].sum()
             inventory_summary["onhandunits"] = pd.to_numeric(inventory_summary["onhandunits"], errors="coerce").fillna(0)
 
             df = pd.merge(inventory_summary, agg, left_on="mastercategory", right_on="MasterCategory", how="left")
@@ -139,7 +138,7 @@ if inv_file and sales_file:
             kpi4.metric("Reorder ASAP", reorder_asap)
 
             st.markdown("### Inventory Forecast by Category")
-            for cat in df["mastercategory"].unique():
+            for cat in df["mastercategory"].drop_duplicates():
                 sub_df = df[df["mastercategory"] == cat].copy()
                 avg_days = int(np.floor(sub_df["DaysOnHand"].mean()))
                 with st.expander(f"{cat.title()} – Avg Days On Hand: {avg_days}"):
