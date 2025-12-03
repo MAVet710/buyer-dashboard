@@ -79,12 +79,14 @@ if inv_file and sales_file:
         if date_start <= date_end:
             mask = (sales_df["OrderDate"] >= date_start) & (sales_df["OrderDate"] <= date_end)
             filtered_sales = sales_df[mask]
+            date_diff = (pd.to_datetime(date_end) - pd.to_datetime(date_start)).days + 1
             agg = filtered_sales.groupby("MasterCategory").agg({
                 "NetSales": "sum",
                 "OrderDate": pd.Series.nunique
             }).reset_index()
             agg = agg.rename(columns={"OrderDate": "DaysSold"})
-            agg["AvgNetSalesPerDay"] = agg["NetSales"] / agg["DaysSold"]
+            agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
+            agg["AvgNetSalesPerDay"] = agg["NetSales"] / agg["DaysSold"].replace(0, np.nan)
 
             df = agg.merge(inventory_summary, left_on="MasterCategory", right_on="subcategory", how="left").fillna(0)
             df["DaysOnHand"] = (df["onhandunits"] / df["AvgNetSalesPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
@@ -137,7 +139,7 @@ if inv_file and sales_file:
             st.plotly_chart(fig, use_container_width=True)
 
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Buyer View CSV", csv, "Buyer_View.csv", "text/csv")
+            st.download_button("📅 Download Buyer View CSV", csv, "Buyer_View.csv", "text/csv")
         else:
             st.warning("Start date must be before or equal to end date.")
     except Exception as e:
