@@ -54,14 +54,13 @@ if inv_file and sales_file:
 
         column_map = {
             "product": "itemname",
-            "category": "subcategory",
-            "available": "onhandunits",
-            "mastercategory": "mastercategory"
+            "category": "mastercategory",
+            "available": "onhandunits"
         }
         rename_cols = {k: v for k, v in column_map.items() if k in inv_df.columns}
         inv_df = inv_df.rename(columns=rename_cols)
 
-        required_cols = ["itemname", "subcategory", "onhandunits", "mastercategory"]
+        required_cols = ["itemname", "mastercategory", "onhandunits"]
         missing_cols = [col for col in required_cols if col not in inv_df.columns]
         if missing_cols:
             st.error(f"Missing columns in inventory file: {', '.join(missing_cols)}")
@@ -74,12 +73,12 @@ if inv_file and sales_file:
             return match.group() if match else 'unspecified'
 
         inv_df["packagesize"] = inv_df["itemname"].apply(extract_package_size)
-        inv_df["subcategory"] = inv_df["subcategory"].str.lower() + " – " + inv_df["packagesize"]
+        inv_df["subcategory"] = inv_df["mastercategory"].str.lower() + " – " + inv_df["packagesize"]
 
         sales_raw = pd.read_excel(sales_file, header=3)
         sales_df = sales_raw[1:].copy()
         sales_df.columns = sales_raw.iloc[0]
-        sales_df = sales_df.rename(columns={"Master Category": "MasterCategory", "Order Date": "OrderDate", "Qty Sold": "UnitsSold"})
+        sales_df = sales_df.rename(columns={"Category": "MasterCategory", "Order Date": "OrderDate", "Qty Sold": "UnitsSold"})
         sales_df = sales_df[sales_df["MasterCategory"].notna()].copy()
         sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors="coerce")
         sales_df["MasterCategory"] = sales_df["MasterCategory"].str.lower()
