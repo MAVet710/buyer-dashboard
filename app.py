@@ -32,16 +32,13 @@ if sales_file and detailed_file and inventory_file:
             df_ps = df_ps.rename(columns={'master_category': 'mastercategory'})
         if 'mastercategory' not in df_ps.columns and 'category' in df_ps.columns:
             df_ps['mastercategory'] = df_ps['category']
-        # Identify units sold column
-        units_col = None
-        for col in df_ps.columns:
-            if 'unit' in col and ('sold' in col or 'qty' in col or 'quantity' in col):
-                units_col = col
-                break
-        if units_col is None:
+        # Map Quantity Sold to units_sold
+        if 'quantity_sold' in df_ps.columns:
+            df_ps = df_ps.rename(columns={'quantity_sold': 'units_sold'})
+        units_col = 'units_sold'
+        if units_col not in df_ps.columns:
             st.error("Could not find 'Units Sold' column in Product Sales Report.")
             st.stop()
-        df_ps = df_ps.rename(columns={units_col: 'units_sold'})
         df_ps['units_sold'] = pd.to_numeric(df_ps['units_sold'], errors='coerce').fillna(0)
         total_units_sold = int(df_ps['units_sold'].sum())
         # Active categories from product sales
