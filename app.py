@@ -40,6 +40,8 @@ st.sidebar.header("📂 Upload Reports")
 inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
 sales_file = st.sidebar.file_uploader("Sales XLSX (30 days)", type=["xlsx"])
 
+threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
+
 # ---------------------- MAIN LOGIC ----------------------
 if inv_file and sales_file:
     try:
@@ -122,7 +124,7 @@ if inv_file and sales_file:
             def highlight_low_days(val):
                 try:
                     val = int(val)
-                    return "color: #FF3131; font-weight: bold;" if val < 100 else ""
+                    return "color: #FF3131; font-weight: bold;" if val < threshold else ""
                 except:
                     return ""
 
