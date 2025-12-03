@@ -77,6 +77,10 @@ if inv_file and sales_file:
             "QuantitySold": "UnitsSold",
             "Product": "Product"
         })
+
+        if "MasterCategory" not in sales_df.columns:
+            raise KeyError("Missing MasterCategory column and no fallback Category column found.")
+
         sales_df = sales_df[sales_df["MasterCategory"].notna()].copy()
         sales_df["MasterCategory"] = sales_df["MasterCategory"].str.strip().str.lower()
         sales_df = sales_df[~sales_df["MasterCategory"].str.contains("accessor")]
