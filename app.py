@@ -78,8 +78,6 @@ if inv_file and sales_file:
         sales_df = sales_df[~sales_df["MasterCategory"].str.contains("accessor")]
         sales_df = sales_df[sales_df["MasterCategory"] != "all"]
 
-        inventory_summary = inv_df.groupby(["subcategory", "packagesize"])["onhandunits"].sum().reset_index()
-
         date_range = sales_df["OrderDate"].dropna().sort_values().unique()
         date_start = st.sidebar.selectbox("Start Date", date_range)
         date_end = st.sidebar.selectbox("End Date", date_range[::-1])
@@ -88,15 +86,16 @@ if inv_file and sales_file:
             mask = (sales_df["OrderDate"] >= date_start) & (sales_df["OrderDate"] <= date_end)
             filtered_sales = sales_df[mask]
             date_diff = (pd.to_datetime(date_end) - pd.to_datetime(date_start)).days + 1
-            agg = filtered_sales.groupby("MasterCategory").agg({"NetSales": "sum", "OrderDate": pd.Series.nunique}).reset_index()
-            agg = agg.rename(columns={"OrderDate": "DaysSold"})
-            agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
-            agg["AvgNetSalesPerDay"] = np.where(agg["DaysSold"] > 0, (agg["NetSales"] / agg["DaysSold"]) * velocity_adjustment, 0)
 
-            detail = pd.merge(inventory_summary, agg, left_on="subcategory", right_on="MasterCategory", how="left").fillna(0)
-            detail["DaysOnHand"] = np.where(detail["AvgNetSalesPerDay"] > 0, detail["onhandunits"] / detail["AvgNetSalesPerDay"], np.nan)
-            detail["DaysOnHand"] = detail["DaysOnHand"].replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
-            detail["ReorderQty"] = np.where(detail["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - detail["DaysOnHand"]) * detail["AvgNetSalesPerDay"]).astype(int), 0)
+            subcat_sales = filtered_sales.groupby("MasterCategory").agg({"NetSales": "sum", "OrderDate": pd.Series.nunique}).reset_index()
+            subcat_sales = subcat_sales.rename(columns={"OrderDate": "DaysSold"})
+            subcat_sales["DaysSold"] = subcat_sales["DaysSold"].clip(upper=date_diff)
+            subcat_sales["AvgNetSalesPerDay"] = np.where(subcat_sales["DaysSold"] > 0, (subcat_sales["NetSales"] / subcat_sales["DaysSold"]) * velocity_adjustment, 0)
+
+            merged = pd.merge(inv_df, subcat_sales, left_on="subcategory", right_on="MasterCategory", how="left").fillna(0)
+            merged["DaysOnHand"] = np.where(merged["AvgNetSalesPerDay"] > 0, merged["onhandunits"] / merged["AvgNetSalesPerDay"], np.nan)
+            merged["DaysOnHand"] = merged["DaysOnHand"].replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
+            merged["ReorderQty"] = np.where(merged["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - merged["DaysOnHand"]) * merged["AvgNetSalesPerDay"]).astype(int), 0)
 
             def reorder_tag(row):
                 if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
@@ -104,13 +103,13 @@ if inv_file and sales_file:
                 if row["AvgNetSalesPerDay"] == 0: return "4 – Dead Item"
                 return "3 – Comfortable Cover"
 
-            detail["ReorderPriority"] = detail.apply(reorder_tag, axis=1)
-            detail = detail.sort_values(["ReorderPriority", "AvgNetSalesPerDay"], ascending=[True, False])
+            merged["ReorderPriority"] = merged.apply(reorder_tag, axis=1)
+            merged = merged.sort_values(["ReorderPriority", "AvgNetSalesPerDay"], ascending=[True, False])
 
             total_sales = filtered_sales["NetSales"].sum()
-            active_categories = detail["subcategory"].nunique()
-            reorder_asap = detail[detail["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
-            watchlist_items = detail[detail["ReorderPriority"] == "2 – Watch Closely"].shape[0]
+            active_categories = merged["subcategory"].nunique()
+            reorder_asap = merged[merged["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
+            watchlist_items = merged[merged["ReorderPriority"] == "2 – Watch Closely"].shape[0]
 
             c1, c2, c3, c4 = st.columns(4)
             if c1.button(f"Total Net Sales: ${total_sales:,.2f}"): st.session_state.metric_filter = "None"
@@ -126,14 +125,14 @@ if inv_file and sales_file:
                     return ""
 
             if st.session_state.metric_filter == "Watchlist":
-                detail = detail[detail["ReorderPriority"] == "2 – Watch Closely"]
+                merged = merged[merged["ReorderPriority"] == "2 – Watch Closely"]
             elif st.session_state.metric_filter == "Reorder ASAP":
-                detail = detail[detail["ReorderPriority"] == "1 – Reorder ASAP"]
+                merged = merged[merged["ReorderPriority"] == "1 – Reorder ASAP"]
 
             st.markdown("### Inventory Forecast Table")
-            master_categories = detail["subcategory"].unique()
+            master_categories = merged["subcategory"].unique()
             for master in sorted(master_categories):
-                subset = detail[detail["subcategory"] == master]
+                subset = merged[merged["subcategory"] == master]
                 avg_doh = int(np.floor(subset["DaysOnHand"].mean()))
                 with st.expander(f"{master.title()} – Avg Days On Hand: {avg_doh}"):
                     styled_df = subset.style.applymap(highlight_low_days, subset=["DaysOnHand"])
