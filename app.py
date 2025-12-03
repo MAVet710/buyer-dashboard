@@ -21,8 +21,15 @@ sales_file = st.file_uploader("Upload Sales XLSX", type="xlsx")
 if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
-        inv_df = inv_df[["Product", "Category", "Available", "Inventory date", "Master category"]].copy()
-        inv_df.columns = ["ItemName", "SubCategory", "OnHandUnits", "InventoryDate", "MasterCategory"]
+       df.columns = df.columns.str.strip().str.lower()
+
+inv_df = df.rename(columns={
+    "product": "ItemName",
+    "category": "SubCategory",
+    "available": "OnHandUnits",
+    "inventory date": "InventoryDate",
+    "master category": "MasterCategory"
+})[["ItemName", "SubCategory", "OnHandUnits", "InventoryDate", "MasterCategory"]]
 
         sales_raw = pd.read_excel(sales_file, header=3)
         if sales_raw.shape[0] > 1:
