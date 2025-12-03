@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import numpy as np
 
 st.set_page_config(page_title="Cannabis Buyer Dashboard", layout="wide", page_icon="🌿")
 
@@ -20,6 +21,13 @@ st.markdown(f"""
         background-color: rgba(0, 0, 0, 0.75);
         padding: 2rem;
         border-radius: 12px;
+    }}
+    .dataframe td {{
+        color: white;
+    }}
+    .neon-red {{
+        color: #FF3131;
+        font-weight: bold;
     }}
     </style>
 """, unsafe_allow_html=True)
@@ -77,11 +85,11 @@ if inv_file and sales_file:
             agg["AvgNetSalesPerDay"] = agg["NetSales"] / agg["DaysSold"]
 
             df = agg.merge(inventory_summary, left_on="MasterCategory", right_on="subcategory", how="left").fillna(0)
-            df["CoverageIndex"] = df["onhandunits"] / df["AvgNetSalesPerDay"]
+            df["DaysOnHand"] = np.floor(df["onhandunits"] / df["AvgNetSalesPerDay"]).astype(int)
 
             def reorder_tag(row):
-                if row["CoverageIndex"] <= 7: return "1 – Reorder ASAP"
-                if row["CoverageIndex"] <= 21: return "2 – Watch Closely"
+                if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
+                if row["DaysOnHand"] <= 21: return "2 – Watch Closely"
                 if row["AvgNetSalesPerDay"] == 0: return "4 – Dead Item"
                 return "3 – Comfortable Cover"
 
@@ -110,7 +118,15 @@ if inv_file and sales_file:
             elif selected_filter == "Active":
                 df = df[df["NetSales"] > 0]
 
-            st.dataframe(df, use_container_width=True)
+            def highlight_low_days(val):
+                try:
+                    val = int(val)
+                    return "color: #FF3131; font-weight: bold;" if val < 100 else ""
+                except:
+                    return ""
+
+            styled_df = df.style.applymap(highlight_low_days, subset=["DaysOnHand"])
+            st.dataframe(styled_df, use_container_width=True)
 
             fig = px.bar(df, x="MasterCategory", y="NetSales", title="Sales by Category",
                          color="ReorderPriority", text="onhandunits")
