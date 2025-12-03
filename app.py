@@ -4,17 +4,21 @@ import plotly.express as px
 
 st.set_page_config(page_title="Cannabis Buyer Dashboard", layout="wide", page_icon="🌿")
 
-# ---------------------- Styling ----------------------
+# ---------------------- Background Styling ----------------------
 st.markdown("""
     <style>
-    body, .stApp {
-        background-color: #000;
-        color: #fff;
+    .stApp {
+        background-image: url("/mnt/data/IMG_7158.PNG");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        color: #ffffff;
     }
-    .css-1d391kg { background-color: #000 !important; }
-    .css-1v0mbdj { background-color: #111 !important; border-radius: 8px; padding: 10px; }
-    .metric-label { font-weight: 600; font-size: 14px; color: #ccc; }
-    .metric-value { font-size: 20px; font-weight: bold; color: #fff; }
+    .block-container {
+        background-color: rgba(0, 0, 0, 0.75);
+        padding: 2rem;
+        border-radius: 12px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -96,7 +100,7 @@ if inv_file and sales_file:
 
             fig = px.bar(df, x="MasterCategory", y="NetSales", title="Sales by Category",
                          color="ReorderPriority", text="onhandunits")
-            fig.update_layout(paper_bgcolor="#111", plot_bgcolor="#111", font_color="white")
+            fig.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", font_color="white")
             st.plotly_chart(fig, use_container_width=True)
 
             # ---------------------- EXPORT ----------------------
