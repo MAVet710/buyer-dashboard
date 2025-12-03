@@ -63,23 +63,19 @@ if inv_file and sales_file:
         inv_df["subcat_group"] = inv_df["subcategory"] + " – " + inv_df["packagesize"]
         inv_df = inv_df[["itemname", "packagesize", "subcategory", "subcat_group", "onhandunits"]]
 
-        sales_raw = pd.read_excel(sales_file, header=4)
-        sales_raw.columns = sales_raw.iloc[0]
-        sales_df = sales_raw[1:].copy()
-        sales_df.columns = sales_df.columns.astype(str).str.strip().str.lower()
+        sales_raw = pd.read_excel(sales_file)
+        sales_raw.columns = sales_raw.columns.astype(str).str.strip().str.lower()
 
-        if "mastercategory" not in sales_df.columns:
-            if "category" in sales_df.columns:
-                sales_df = sales_df.rename(columns={"category": "mastercategory"})
-            else:
-                raise KeyError("Missing mastercategory column and no fallback category column found.")
+        if "category" in sales_raw.columns and "mastercategory" not in sales_raw.columns:
+            sales_raw = sales_raw.rename(columns={"category": "mastercategory"})
 
-        sales_df = sales_df.rename(columns={
-            "quantitysold": "unitssold",
-            "product": "product"
+        sales_raw = sales_raw.rename(columns={
+            "product": "product",
+            "quantity sold": "unitssold",
+            "weight": "packagesize"
         })
 
-        sales_df = sales_df[sales_df["mastercategory"].notna()].copy()
+        sales_df = sales_raw[sales_raw["mastercategory"].notna()].copy()
         sales_df["mastercategory"] = sales_df["mastercategory"].str.strip().str.lower()
         sales_df = sales_df[~sales_df["mastercategory"].str.contains("accessor")]
         sales_df = sales_df[sales_df["mastercategory"] != "all"]
