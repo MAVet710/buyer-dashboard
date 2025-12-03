@@ -91,6 +91,11 @@ if inv_file and sales_file:
             df = agg.merge(inventory_summary, left_on="MasterCategory", right_on="subcategory", how="left").fillna(0)
             df["DaysOnHand"] = (df["onhandunits"] / df["AvgNetSalesPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
             df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
+            df["ReorderQty"] = np.where(
+                df["DaysOnHand"] < threshold,
+                np.ceil((threshold - df["DaysOnHand"]) * df["AvgNetSalesPerDay"]).astype(int),
+                0
+            )
 
             def reorder_tag(row):
                 if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
