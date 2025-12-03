@@ -50,13 +50,12 @@ metric_filter = st.sidebar.radio("Filter by KPI", ("None", "Watchlist", "Reorder
 if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
-        inv_df.columns = inv_df.columns.str.strip().str.lower()
+        inv_df.columns = inv_df.columns.str.strip().str.lower().str.replace(" ", "")
 
         column_map = {
             "product": "itemname",
             "category": "subcategory",
             "available": "onhandunits",
-            "master category": "mastercategory",
             "mastercategory": "mastercategory"
         }
         rename_cols = {k: v for k, v in column_map.items() if k in inv_df.columns}
