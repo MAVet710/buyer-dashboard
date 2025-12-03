@@ -46,6 +46,7 @@ sold_out_file = st.sidebar.file_uploader("Sold Out Report (Optional)", type=["cs
 # Controls
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
+metric_filter = st.sidebar.radio("Filter by KPI Click", ("None", "Watchlist", "Reorder ASAP"))
 
 # ---------------------- DATA PROCESSING ----------------------
 if inv_file and sales_file:
@@ -113,6 +114,11 @@ if inv_file and sales_file:
                     return "color: #FF3131; font-weight: bold;" if val < doh_threshold else ""
                 except:
                     return ""
+
+            if metric_filter == "Watchlist":
+                df = df[df["ReorderPriority"] == "2 – Watch Closely"]
+            elif metric_filter == "Reorder ASAP":
+                df = df[df["ReorderPriority"] == "1 – Reorder ASAP"]
 
             styled_df = df.style.applymap(highlight_low_days, subset=["DaysOnHand"])
             st.markdown("### Inventory Forecast Table")
