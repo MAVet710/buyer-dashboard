@@ -85,7 +85,8 @@ if inv_file and sales_file:
             agg["AvgNetSalesPerDay"] = agg["NetSales"] / agg["DaysSold"]
 
             df = agg.merge(inventory_summary, left_on="MasterCategory", right_on="subcategory", how="left").fillna(0)
-            df["DaysOnHand"] = np.floor(df["onhandunits"] / df["AvgNetSalesPerDay"]).astype(int)
+            df["DaysOnHand"] = (df["onhandunits"] / df["AvgNetSalesPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
+            df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
 
             def reorder_tag(row):
                 if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
