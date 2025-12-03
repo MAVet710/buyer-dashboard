@@ -81,65 +81,66 @@ if inv_file and sales_file:
         inv_df["subcategory"] = inv_df["mastercategory"] + " – " + inv_df["packagesize"]
 
         sales_raw = pd.read_excel(sales_file, header=3)
-        sales_raw.columns = sales_raw.columns.str.strip()
+        sales_raw.columns = sales_raw.columns.str.strip().str.lower()
 
-        if "Master Category" in sales_raw.columns:
-            sales_raw = sales_raw.rename(columns={"Master Category": "MasterCategory"})
-        elif "Category" in sales_raw.columns:
-            sales_raw = sales_raw.rename(columns={"Category": "MasterCategory"})
+        sales_raw = sales_raw.rename(columns={
+            "master category": "mastercategory",
+            "category": "mastercategory",
+            "order date": "orderdate",
+            "qty sold": "unitssold",
+            "quantity sold": "unitssold",
+            "units sold": "unitssold"
+        })
 
-        sales_raw = sales_raw.rename(columns={"Order Date": "OrderDate", "Qty Sold": "UnitsSold"})
-
-        if "MasterCategory" not in sales_raw.columns:
-            st.error("Missing 'MasterCategory' or 'Category' column in sales file.")
+        if "mastercategory" not in sales_raw.columns:
+            st.error("Missing 'mastercategory' or 'category' column in sales file.")
             st.stop()
 
-        sales_df = sales_raw[sales_raw["MasterCategory"].notna()].copy()
-        sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors="coerce")
-        sales_df["MasterCategory"] = sales_df["MasterCategory"].str.lower()
-        sales_df = sales_df[~sales_df["MasterCategory"].str.contains("accessor")]
-        sales_df = sales_df[sales_df["MasterCategory"] != "all"]
+        sales_df = sales_raw[sales_raw["mastercategory"].notna()].copy()
+        sales_df["orderdate"] = pd.to_datetime(sales_df["orderdate"], errors="coerce")
+        sales_df = sales_df[~sales_df["mastercategory"].str.contains("accessor", na=False)]
+        sales_df = sales_df[sales_df["mastercategory"] != "all"]
 
-        date_range = sales_df["OrderDate"].dropna().sort_values().unique()
+        date_range = sales_df["orderdate"].dropna().sort_values().unique()
         date_start = st.sidebar.selectbox("Start Date", date_range)
         date_end = st.sidebar.selectbox("End Date", date_range[::-1])
 
         if date_start <= date_end:
-            mask = (sales_df["OrderDate"] >= date_start) & (sales_df["OrderDate"] <= date_end)
+            mask = (sales_df["orderdate"] >= date_start) & (sales_df["orderdate"] <= date_end)
             filtered_sales = sales_df[mask]
             date_diff = (pd.to_datetime(date_end) - pd.to_datetime(date_start)).days + 1
 
-            agg = filtered_sales.groupby("MasterCategory", as_index=False).agg({"UnitsSold": "sum", "OrderDate": pd.Series.nunique})
-            agg = agg.rename(columns={"OrderDate": "DaysSold"})
-            agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
-            agg["AvgUnitsPerDay"] = (agg["UnitsSold"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
+            agg = filtered_sales.groupby("mastercategory", as_index=False).agg({"unitssold": "sum", "orderdate": pd.Series.nunique})
+            agg = agg.rename(columns={"orderdate": "dayssold"})
+            agg["dayssold"] = agg["dayssold"].clip(upper=date_diff)
+            agg["avgunitsperday"] = (agg["unitssold"] / agg["dayssold"].replace(0, np.nan)) * velocity_adjustment
 
             inventory_summary = inv_df.groupby(["mastercategory", "subcategory"], as_index=False)['onhandunits'].sum()
             inventory_summary["onhandunits"] = pd.to_numeric(inventory_summary["onhandunits"], errors="coerce").fillna(0)
 
-            df = pd.merge(inventory_summary, agg, left_on="mastercategory", right_on="MasterCategory", how="left")
-            df["AvgUnitsPerDay"] = df["AvgUnitsPerDay"].fillna(0)
-            df["DaysOnHand"] = (df["onhandunits"] / df["AvgUnitsPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
-            df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
-            df["ReorderQty"] = np.where(df["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - df["DaysOnHand"]) * df["AvgUnitsPerDay"]).astype(int), 0)
+            df = pd.merge(inventory_summary, agg, on="mastercategory", how="left")
+            df["avgunitsperday"] = df["avgunitsperday"].fillna(0)
+            df["daysonhand"] = (df["onhandunits"] / df["avgunitsperday"]).replace([np.inf, -np.inf], np.nan).fillna(0)
+            df["daysonhand"] = np.floor(df["daysonhand"]).astype(int)
+            df["reorderqty"] = np.where(df["daysonhand"] < doh_threshold, np.ceil((doh_threshold - df["daysonhand"]) * df["avgunitsperday"]).astype(int), 0)
 
             def reorder_tag(row):
-                if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
-                if row["DaysOnHand"] <= 21: return "2 – Watch Closely"
-                if row["AvgUnitsPerDay"] == 0: return "4 – Dead Item"
+                if row["daysonhand"] <= 7: return "1 – Reorder ASAP"
+                if row["daysonhand"] <= 21: return "2 – Watch Closely"
+                if row["avgunitsperday"] == 0: return "4 – Dead Item"
                 return "3 – Comfortable Cover"
 
-            df["ReorderPriority"] = df.apply(reorder_tag, axis=1)
+            df["reorderpriority"] = df.apply(reorder_tag, axis=1)
 
             if metric_filter == "Watchlist":
-                df = df[df["ReorderPriority"] == "2 – Watch Closely"]
+                df = df[df["reorderpriority"] == "2 – Watch Closely"]
             elif metric_filter == "Reorder ASAP":
-                df = df[df["ReorderPriority"] == "1 – Reorder ASAP"]
+                df = df[df["reorderpriority"] == "1 – Reorder ASAP"]
 
-            total_units = filtered_sales["UnitsSold"].sum()
+            total_units = filtered_sales["unitssold"].sum()
             active_categories = df["mastercategory"].nunique()
-            reorder_asap = df[df["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
-            watchlist_items = df[df["ReorderPriority"] == "2 – Watch Closely"].shape[0]
+            reorder_asap = df[df["reorderpriority"] == "1 – Reorder ASAP"].shape[0]
+            watchlist_items = df[df["reorderpriority"] == "2 – Watch Closely"].shape[0]
 
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("Total Units Sold", f"{total_units:,}")
@@ -150,11 +151,11 @@ if inv_file and sales_file:
             st.markdown("### Inventory Forecast by Category")
             for cat in df["mastercategory"].drop_duplicates():
                 sub_df = df[df["mastercategory"] == cat].copy()
-                avg_days = int(np.floor(sub_df["DaysOnHand"].mean()))
+                avg_days = int(np.floor(sub_df["daysonhand"].mean()))
                 with st.expander(f"{cat.title()} – Avg Days On Hand: {avg_days}"):
                     styled = sub_df.style.applymap(
                         lambda v: "color:#FF3131;font-weight:bold" if isinstance(v, (int, float)) and v < doh_threshold else "",
-                        subset=["DaysOnHand"]
+                        subset=["daysonhand"]
                     )
                     st.dataframe(styled, use_container_width=True)
 
