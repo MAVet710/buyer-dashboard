@@ -37,12 +37,12 @@ st.markdown("Streamlined purchasing visibility powered by Dutchie data.\n")
 
 st.sidebar.header("📂 Upload Reports")
 inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product (60 Days)", type=["xlsx"])
-
+sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product", type="xlsx")
+product_sales_file = st.sidebar.file_uploader("Product Sales Report", type="xlsx")
+aging_file = st.sidebar.file_uploader("Inventory Aging Report", type="xlsx")
 
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
-
 filter_state = st.session_state.setdefault("metric_filter", "None")
 
 if inv_file and sales_file:
@@ -131,7 +131,11 @@ if inv_file and sales_file:
             with st.expander(f"{cat.title()} – Avg Days On Hand: {avg_doh}"):
                 styled_cat_df = group.style.applymap(highlight_low_days, subset=["DaysOnHand"])
                 st.dataframe(styled_cat_df, use_container_width=True)
+
+        csv = detail.to_csv(index=False).encode("utf-8")
+        st.download_button("Download CSV", csv, "buyer_forecast.csv", "text/csv")
+
     except Exception as e:
         st.error(f"Error processing files: {e}")
 else:
-    st.info("Please upload both the inventory and product-level sales report to continue.")
+    st.info("Please upload inventory and sales files to continue.")
