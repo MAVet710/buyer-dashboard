@@ -75,14 +75,17 @@ if inv_file and sales_file:
 
         sales_raw = pd.read_excel(sales_file, header=3)
         sales_raw.columns = sales_raw.columns.str.strip()
-        sales_raw = sales_raw.rename(columns={
-            "Master Category": "MasterCategory",
-            "Order Date": "OrderDate",
-            "Qty Sold": "UnitsSold"
-        })
 
-        if "MasterCategory" not in sales_raw.columns and "Category" in sales_raw.columns:
+        if "Master Category" in sales_raw.columns:
+            sales_raw = sales_raw.rename(columns={"Master Category": "MasterCategory"})
+        elif "Category" in sales_raw.columns:
             sales_raw = sales_raw.rename(columns={"Category": "MasterCategory"})
+
+        sales_raw = sales_raw.rename(columns={"Order Date": "OrderDate", "Qty Sold": "UnitsSold"})
+
+        if "MasterCategory" not in sales_raw.columns:
+            st.error("Missing 'MasterCategory' or 'Category' column in sales file.")
+            st.stop()
 
         sales_df = sales_raw[sales_raw["MasterCategory"].notna()].copy()
         sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors="coerce")
