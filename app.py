@@ -40,6 +40,7 @@ st.sidebar.header("📂 Upload Reports")
 inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
 sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product XLSX", type=["xlsx"])
 
+# Controls
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
 metric_filter = st.sidebar.radio("Filter by KPI", ("None", "Watchlist", "Reorder ASAP"))
@@ -67,8 +68,13 @@ if inv_file and sales_file:
             st.stop()
 
         def extract_package_size(name):
-            match = re.search(r'(\d+\.?\d*)\s?(mg|g|oz)', str(name).lower())
-            return match.group() if match else 'unspecified'
+            name = str(name).lower()
+            if 'mg' in name:
+                match = re.search(r'(\d+\.?\d*)\s?mg', name)
+                return match.group() if match else 'unspecified'
+            else:
+                match = re.search(r'(\d+\.?\d*)\s?(g|oz)', name)
+                return match.group() if match else 'unspecified'
 
         inv_df["packagesize"] = inv_df["itemname"].apply(extract_package_size)
         inv_df["subcategory"] = inv_df["mastercategory"] + " – " + inv_df["packagesize"]
