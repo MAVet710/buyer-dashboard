@@ -53,8 +53,15 @@ if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
         inv_df.columns = inv_df.columns.str.strip().str.lower()
-        inv_df = inv_df.rename(columns={"product": "itemname", "category": "subcategory", "available": "onhandunits", "master category": "mastercategory"})
-        inv_df = inv_df[["itemname", "subcategory", "onhandunits", "mastercategory"]]
+        column_map = {
+            "product": "itemname",
+            "category": "subcategory",
+            "available": "onhandunits",
+            "master category": "mastercategory"
+        }
+        inv_df = inv_df.rename(columns={k: v for k, v in column_map.items() if k in inv_df.columns})
+        required_cols = ["itemname", "subcategory", "onhandunits", "mastercategory"]
+        inv_df = inv_df[[col for col in required_cols if col in inv_df.columns]]
 
         def extract_package_size(name):
             match = re.search(r'(\d+\.?\d*)\s?(g|oz)', name.lower())
