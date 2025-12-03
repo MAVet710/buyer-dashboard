@@ -29,23 +29,31 @@ st.markdown(f"""
         color: #FF3131;
         font-weight: bold;
     }}
+    .stButton>button {{
+        background-color: rgba(255, 255, 255, 0.1);
+        color: white;
+        border: 1px solid white;
+    }}
+    .stButton>button:hover {{
+        background-color: rgba(255, 255, 255, 0.3);
+    }}
     </style>
 """, unsafe_allow_html=True)
 
 st.title("🌿 Cannabis Buyer Dashboard")
 st.markdown("Streamlined purchasing visibility powered by Dutchie data.\n")
 
-with st.sidebar.expander("📂 Upload Reports", expanded=False):
-    inv_file = st.file_uploader("Inventory CSV", type="csv")
-    sales_file = st.file_uploader("Detailed Sales Breakdown by Product", type="xlsx")
-    product_sales_file = st.file_uploader("Product Sales Report", type="xlsx")
-    aging_file = st.file_uploader("Inventory Aging Report", type="xlsx")
+st.sidebar.header("📂 Upload Reports")
+inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
+sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product", type="xlsx")
+product_sales_file = st.sidebar.file_uploader("Product Sales Report", type="xlsx")
+aging_file = st.sidebar.file_uploader("Inventory Aging Report", type="xlsx")
 
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
 filter_state = st.session_state.setdefault("metric_filter", "None")
 
-if inv_file and sales_file:
+if inv_file and product_sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
         inv_df.columns = inv_df.columns.str.strip().str.lower()
@@ -63,7 +71,7 @@ if inv_file and sales_file:
         inv_df["subcat_group"] = inv_df["subcategory"] + " – " + inv_df["packagesize"]
         inv_df = inv_df[["itemname", "packagesize", "subcategory", "subcat_group", "onhandunits"]]
 
-        sales_raw = pd.read_excel(sales_file)
+        sales_raw = pd.read_excel(product_sales_file)
         sales_raw.columns = sales_raw.columns.astype(str).str.strip().str.lower()
 
         if "mastercategory" not in sales_raw.columns and "category" in sales_raw.columns:
