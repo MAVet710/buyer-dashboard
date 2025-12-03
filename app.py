@@ -35,11 +35,11 @@ st.markdown(f"""
 st.title("🌿 Cannabis Buyer Dashboard")
 st.markdown("Streamlined purchasing visibility powered by Dutchie data.\n")
 
-st.sidebar.header("📂 Upload Reports")
-inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product", type="xlsx")
-product_sales_file = st.sidebar.file_uploader("Product Sales Report", type="xlsx")
-aging_file = st.sidebar.file_uploader("Inventory Aging Report", type="xlsx")
+with st.sidebar.expander("📂 Upload Reports", expanded=False):
+    inv_file = st.file_uploader("Inventory CSV", type="csv")
+    sales_file = st.file_uploader("Detailed Sales Breakdown by Product", type="xlsx")
+    product_sales_file = st.file_uploader("Product Sales Report", type="xlsx")
+    aging_file = st.file_uploader("Inventory Aging Report", type="xlsx")
 
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
@@ -61,8 +61,6 @@ if inv_file and sales_file:
 
         inv_df["packagesize"] = inv_df["itemname"].apply(extract_size)
         inv_df["subcat_group"] = inv_df["subcategory"] + " – " + inv_df["packagesize"]
-        inv_df = inv_df[~inv_df["subcategory"].str.contains("accessor")]
-        inv_df = inv_df[~inv_df["itemname"].str.contains("accessor", case=False, na=False)]
         inv_df = inv_df[["itemname", "packagesize", "subcategory", "subcat_group", "onhandunits"]]
 
         sales_raw = pd.read_excel(sales_file)
@@ -91,7 +89,6 @@ if inv_file and sales_file:
         agg["avgunitsperday"] = agg["unitssold"].astype(float) / date_diff * velocity_adjustment
 
         detail = pd.merge(inventory_summary, agg, left_on="subcategory", right_on="mastercategory", how="left").fillna(0)
-        detail = detail[~detail["subcategory"].str.contains("accessor")]
         detail["daysonhand"] = np.where(detail["avgunitsperday"] > 0, detail["onhandunits"] / detail["avgunitsperday"], np.nan)
         detail["daysonhand"] = detail["daysonhand"].replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
         detail["reorderqty"] = np.where(detail["daysonhand"] < doh_threshold, np.ceil((doh_threshold - detail["daysonhand"]) * detail["avgunitsperday"]).astype(int), 0)
@@ -143,4 +140,3 @@ if inv_file and sales_file:
         st.error(f"Error processing files: {e}")
 else:
     st.info("Please upload inventory and sales files to continue.")
-
