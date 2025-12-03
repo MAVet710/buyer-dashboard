@@ -27,7 +27,7 @@ if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
         inv_df.columns = inv_df.columns.str.strip().str.lower()
-        st.write("Original Inventory Columns:", inv_df.columns.tolist())
+        st.write("Inventory Columns (After Lowercase):", inv_df.columns.tolist())
 
         rename_map = {
             "product": "itemname",
@@ -37,6 +37,8 @@ if inv_file and sales_file:
             "master category": "mastercategory"
         }
         inv_df = inv_df.rename(columns={k: v for k, v in rename_map.items() if k in inv_df.columns})
+
+        inv_df["onhandunits"] = pd.to_numeric(inv_df.get("onhandunits", 0), errors="coerce").fillna(0)
 
         required_cols = ["itemname", "subcategory", "onhandunits"]
         optional_cols = ["inventorydate", "mastercategory"]
@@ -65,6 +67,9 @@ if inv_file and sales_file:
             sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors='coerce')
 
             inventory_summary = inv_df.groupby("mastercategory")["onhandunits"].sum().reset_index()
+
+            sales_df["MasterCategory"] = sales_df["MasterCategory"].str.strip().str.lower()
+            inventory_summary["mastercategory"] = inventory_summary["mastercategory"].str.strip().str.lower()
 
             date_range = sales_df["OrderDate"].dropna().sort_values().unique()
             date_start = st.selectbox("Start Date", date_range)
