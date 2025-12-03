@@ -38,11 +38,9 @@ st.markdown("Streamlined purchasing visibility powered by Dutchie data.")
 
 st.sidebar.header("📂 Upload Reports")
 inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-sales_file = st.sidebar.file_uploader("Sales Breakdown by Product XLSX", type=["xlsx"])
-product_sales_file = st.sidebar.file_uploader("Product Sales Report (60 Days)", type=["csv", "xlsx"])
-inventory_aging_file = st.sidebar.file_uploader("Inventory Aging Report", type=["csv", "xlsx"])
-sold_out_file = st.sidebar.file_uploader("Sold Out Report (Optional)", type=["csv", "xlsx"])
+sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product", type="xlsx")
 
+# Sidebar inputs
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
 metric_filter = st.sidebar.radio("Filter by KPI", ("None", "Watchlist", "Reorder ASAP"))
@@ -67,58 +65,55 @@ if inv_file and sales_file:
             st.stop()
 
         def extract_package_size(name):
-            match = re.search(r'(\d+\.?\d*)\s?(g|oz|mg)', str(name).lower())
+            match = re.search(r'(\d+\.?\d*)\s?(mg|g|oz)', str(name).lower())
             return match.group() if match else 'unspecified'
 
         inv_df["packagesize"] = inv_df["itemname"].apply(extract_package_size)
-        inv_df["subcategory"] = inv_df["mastercategory"].str.lower() + " – " + inv_df["packagesize"]
+        inv_df["subcategory"] = inv_df["mastercategory"] + " – " + inv_df["packagesize"]
+        inv_df_grouped = inv_df.groupby(["mastercategory", "subcategory"], as_index=False)["onhandunits"].sum()
 
+        # Load sales file
         sales_raw = pd.read_excel(sales_file, header=3)
+        sales_raw.columns = sales_raw.iloc[0].str.strip().str.replace(" ", "")
         sales_df = sales_raw[1:].copy()
-        sales_df.columns = sales_raw.iloc[0]
+        sales_df.columns = sales_raw.columns
 
-        sales_df.columns = sales_df.columns.str.strip()
-        date_col = next((col for col in sales_df.columns if str(col).lower() in ["order date", "sales date", "date"]), None)
-        cat_col = next((col for col in sales_df.columns if str(col).lower() in ["master category", "category"]), None)
-        qty_col = next((col for col in sales_df.columns if "qty" in str(col).lower() and "sold" in str(col).lower()), None)
+        # Dynamic column detection
+        master_col = next((col for col in sales_df.columns if "mastercategory" in col.lower()), None)
+        date_col = next((col for col in sales_df.columns if "date" in col.lower()), None)
+        qty_col = next((col for col in sales_df.columns if "qty" in col.lower() or "sold" in col.lower()), None)
 
-        if not date_col or not cat_col or not qty_col:
-            st.error("Missing one of the required columns: Date, Category, or Quantity Sold")
+        if not all([master_col, date_col, qty_col]):
+            st.error("Could not detect all required columns in sales file.")
             st.stop()
 
-        sales_df = sales_df.rename(columns={
-            date_col: "OrderDate",
-            cat_col: "MasterCategory",
-            qty_col: "UnitsSold"
+        sales_df = sales_df[[master_col, date_col, qty_col]].rename(columns={
+            master_col: "mastercategory",
+            date_col: "orderdate",
+            qty_col: "unitssold"
         })
+        sales_df["orderdate"] = pd.to_datetime(sales_df["orderdate"], errors="coerce")
+        sales_df = sales_df.dropna(subset=["orderdate", "unitssold", "mastercategory"])
+        sales_df["unitssold"] = pd.to_numeric(sales_df["unitssold"], errors="coerce").fillna(0)
 
-        sales_df = sales_df[sales_df["MasterCategory"].notna()].copy()
-        sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors="coerce")
-        sales_df["MasterCategory"] = sales_df["MasterCategory"].str.lower()
-        sales_df = sales_df[~sales_df["MasterCategory"].str.contains("accessor")]
-        sales_df = sales_df[sales_df["MasterCategory"] != "all"]
-
-        date_range = sales_df["OrderDate"].dropna().sort_values().unique()
+        # Date filtering
+        date_range = pd.to_datetime(sales_df["orderdate"].unique()).sort_values()
         date_start = st.sidebar.selectbox("Start Date", date_range)
         date_end = st.sidebar.selectbox("End Date", date_range[::-1])
 
         if date_start <= date_end:
-            mask = (sales_df["OrderDate"] >= date_start) & (sales_df["OrderDate"] <= date_end)
+            mask = (sales_df["orderdate"] >= date_start) & (sales_df["orderdate"] <= date_end)
             filtered_sales = sales_df[mask]
             date_diff = (pd.to_datetime(date_end) - pd.to_datetime(date_start)).days + 1
 
-            agg = filtered_sales.groupby("MasterCategory").agg({"UnitsSold": "sum", "OrderDate": pd.Series.nunique}).reset_index()
-            agg = agg.rename(columns={"OrderDate": "DaysSold"})
+            agg = filtered_sales.groupby("mastercategory").agg({"unitssold": "sum", "orderdate": pd.Series.nunique}).reset_index()
+            agg = agg.rename(columns={"orderdate": "DaysSold"})
             agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
-            agg["AvgUnitsPerDay"] = (agg["UnitsSold"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
+            agg["AvgUnitsPerDay"] = (agg["unitssold"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
 
-            inventory_summary = inv_df.groupby(["mastercategory", "subcategory"])["onhandunits"].sum().reset_index()
-            inventory_summary["onhandunits"] = pd.to_numeric(inventory_summary["onhandunits"], errors="coerce").fillna(0)
-
-            df = pd.merge(inventory_summary, agg, left_on="mastercategory", right_on="MasterCategory", how="left")
+            df = pd.merge(inv_df_grouped, agg, on="mastercategory", how="left")
             df["AvgUnitsPerDay"] = df["AvgUnitsPerDay"].fillna(0)
-            df["DaysOnHand"] = (df["onhandunits"] / df["AvgUnitsPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
-            df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
+            df["DaysOnHand"] = (df["onhandunits"] / df["AvgUnitsPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
             df["ReorderQty"] = np.where(df["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - df["DaysOnHand"]) * df["AvgUnitsPerDay"]).astype(int), 0)
 
             def reorder_tag(row):
@@ -134,7 +129,7 @@ if inv_file and sales_file:
             elif metric_filter == "Reorder ASAP":
                 df = df[df["ReorderPriority"] == "1 – Reorder ASAP"]
 
-            total_units = filtered_sales["UnitsSold"].sum()
+            total_units = filtered_sales["unitssold"].sum()
             active_categories = df["mastercategory"].nunique()
             reorder_asap = df[df["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
             watchlist_items = df[df["ReorderPriority"] == "2 – Watch Closely"].shape[0]
@@ -142,9 +137,7 @@ if inv_file and sales_file:
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("Total Units Sold", f"{total_units:,}")
             kpi2.metric("Active Categories", active_categories)
-            if st.button("Watchlist", key="watchlist"): st.experimental_set_query_params(filter="Watchlist")
             kpi3.metric("Watchlist Items", watchlist_items)
-            if st.button("Reorder ASAP", key="reorder"): st.experimental_set_query_params(filter="Reorder ASAP")
             kpi4.metric("Reorder ASAP", reorder_asap)
 
             st.markdown("### Inventory Forecast by Category")
@@ -155,10 +148,4 @@ if inv_file and sales_file:
                     styled = sub_df.style.applymap(lambda v: "color:#FF3131;font-weight:bold" if isinstance(v, (int, float)) and v < doh_threshold else "", subset=["DaysOnHand"])
                     st.dataframe(styled, use_container_width=True)
 
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download CSV", csv, "buyer_forecast.csv", "text/csv")
-
-        else:
-            st.warning("Start date must be before or equal to end date.")
-    except Exception as e:
-        st.error(f"Error processing files:
+            csv = df.to_csv(index=False).encod
