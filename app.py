@@ -150,4 +150,6 @@ if inv_file and sales_file:
             st.warning("Start date must be before or equal to end date.")
 
     except Exception as e:
-        st.er
+        st.error(f"Error processing files: {e}")
+else:
+    st.info("Please upload both inventory and sales files.")
