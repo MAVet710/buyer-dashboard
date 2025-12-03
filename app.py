@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import numpy as np
+import re
 
 st.set_page_config(page_title="Cannabis Buyer Dashboard", layout="wide", page_icon="🌿")
 
@@ -53,7 +54,14 @@ if inv_file and sales_file:
         inv_df = inv_df.rename(columns={"product": "itemname", "category": "subcategory", "available": "onhandunits"})
         inv_df["onhandunits"] = pd.to_numeric(inv_df.get("onhandunits", 0), errors="coerce").fillna(0)
         inv_df["subcategory"] = inv_df["subcategory"].str.strip().str.lower()
-        inv_df = inv_df[["itemname", "subcategory", "onhandunits"]]
+
+        def extract_size(name):
+            match = re.search(r"(\d+\.?\d*\s?(g|oz))", str(name).lower())
+            return match.group(1) if match else "unspecified"
+
+        inv_df["packagesize"] = inv_df["itemname"].apply(extract_size)
+        inv_df["subcat_group"] = inv_df["subcategory"] + " – " + inv_df["packagesize"]
+        inv_df = inv_df[["itemname", "packagesize", "subcategory", "subcat_group", "onhandunits"]]
 
         sales_raw = pd.read_excel(sales_file, header=3)
         sales_df = sales_raw[1:].copy()
@@ -65,7 +73,8 @@ if inv_file and sales_file:
         sales_df = sales_df[~sales_df["MasterCategory"].str.contains("accessor")]
         sales_df = sales_df[sales_df["MasterCategory"] != "all"]
 
-        inventory_summary = inv_df.groupby("subcategory")["onhandunits"].sum().reset_index()
+        inventory_summary = inv_df.groupby("subcat_group")["onhandunits"].sum().reset_index()
+        inventory_summary[["subcategory", "packagesize"]] = inventory_summary["subcat_group"].str.split(" – ", expand=True)
 
         date_range = sales_df["OrderDate"].dropna().sort_values().unique()
         date_start = st.sidebar.selectbox("Start Date", date_range)
@@ -80,7 +89,7 @@ if inv_file and sales_file:
             agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
             agg["AvgNetSalesPerDay"] = (agg["NetSales"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
 
-            df = agg.merge(inventory_summary, left_on="MasterCategory", right_on="subcategory", how="left").fillna(0)
+            df = pd.merge(inventory_summary, agg, left_on="subcategory", right_on="MasterCategory", how="left").fillna(0)
             df["DaysOnHand"] = (df["onhandunits"] / df["AvgNetSalesPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
             df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
             df["ReorderQty"] = np.where(df["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - df["DaysOnHand"]) * df["AvgNetSalesPerDay"]).astype(int), 0)
