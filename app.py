@@ -73,8 +73,7 @@ if inv_file and sales_file:
         sales_df = sales_df[~sales_df["MasterCategory"].str.contains("accessor")]
         sales_df = sales_df[sales_df["MasterCategory"] != "all"]
 
-        inventory_summary = inv_df.groupby("subcat_group")["onhandunits"].sum().reset_index()
-        inventory_summary[["subcategory", "packagesize"]] = inventory_summary["subcat_group"].str.split(" – ", expand=True)
+        inventory_summary = inv_df.groupby(["subcategory", "packagesize"])["onhandunits"].sum().reset_index()
 
         date_range = sales_df["OrderDate"].dropna().sort_values().unique()
         date_start = st.sidebar.selectbox("Start Date", date_range)
@@ -89,10 +88,10 @@ if inv_file and sales_file:
             agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
             agg["AvgNetSalesPerDay"] = (agg["NetSales"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
 
-            df = pd.merge(inventory_summary, agg, left_on="subcategory", right_on="MasterCategory", how="left").fillna(0)
-            df["DaysOnHand"] = (df["onhandunits"] / df["AvgNetSalesPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
-            df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
-            df["ReorderQty"] = np.where(df["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - df["DaysOnHand"]) * df["AvgNetSalesPerDay"]).astype(int), 0)
+            detail = pd.merge(inventory_summary, agg, left_on="subcategory", right_on="MasterCategory", how="left").fillna(0)
+            detail["DaysOnHand"] = (detail["onhandunits"] / detail["AvgNetSalesPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
+            detail["DaysOnHand"] = np.floor(detail["DaysOnHand"]).astype(int)
+            detail["ReorderQty"] = np.where(detail["DaysOnHand"] < doh_threshold, np.ceil((doh_threshold - detail["DaysOnHand"]) * detail["AvgNetSalesPerDay"]).astype(int), 0)
 
             def reorder_tag(row):
                 if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
@@ -100,13 +99,13 @@ if inv_file and sales_file:
                 if row["AvgNetSalesPerDay"] == 0: return "4 – Dead Item"
                 return "3 – Comfortable Cover"
 
-            df["ReorderPriority"] = df.apply(reorder_tag, axis=1)
-            df = df.sort_values(["ReorderPriority", "AvgNetSalesPerDay"], ascending=[True, False])
+            detail["ReorderPriority"] = detail.apply(reorder_tag, axis=1)
+            detail = detail.sort_values(["ReorderPriority", "AvgNetSalesPerDay"], ascending=[True, False])
 
             total_sales = filtered_sales["NetSales"].sum()
-            active_categories = df.shape[0]
-            reorder_asap = df[df["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
-            watchlist_items = df[df["ReorderPriority"] == "2 – Watch Closely"].shape[0]
+            active_categories = detail["subcategory"].nunique()
+            reorder_asap = detail[detail["ReorderPriority"] == "1 – Reorder ASAP"].shape[0]
+            watchlist_items = detail[detail["ReorderPriority"] == "2 – Watch Closely"].shape[0]
 
             c1, c2, c3, c4 = st.columns(4)
             if c1.button(f"Total Net Sales: ${total_sales:,.2f}"): st.session_state.metric_filter = "None"
@@ -122,13 +121,16 @@ if inv_file and sales_file:
                     return ""
 
             if st.session_state.metric_filter == "Watchlist":
-                df = df[df["ReorderPriority"] == "2 – Watch Closely"]
+                detail = detail[detail["ReorderPriority"] == "2 – Watch Closely"]
             elif st.session_state.metric_filter == "Reorder ASAP":
-                df = df[df["ReorderPriority"] == "1 – Reorder ASAP"]
+                detail = detail[detail["ReorderPriority"] == "1 – Reorder ASAP"]
 
-            styled_df = df.style.applymap(highlight_low_days, subset=["DaysOnHand"])
             st.markdown("### Inventory Forecast Table")
-            st.dataframe(styled_df, use_container_width=True)
+            for cat in sorted(detail["subcategory"].unique()):
+                with st.expander(cat.title()):
+                    cat_df = detail[detail["subcategory"] == cat]
+                    styled_cat_df = cat_df.style.applymap(highlight_low_days, subset=["DaysOnHand"])
+                    st.dataframe(styled_cat_df, use_container_width=True)
         else:
             st.warning("Start date must be before or equal to end date.")
     except Exception as e:
