@@ -131,9 +131,13 @@ if inv_file and sales_file:
                 detail = detail[detail["ReorderPriority"] == "1 – Reorder ASAP"]
 
             st.markdown("### Inventory Forecast Table")
-            styled_table = detail.style.applymap(highlight_low_days, subset=["DaysOnHand"])
-            st.dataframe(styled_table, use_container_width=True)
-
+            master_categories = detail["subcategory"].unique()
+            for master in sorted(master_categories):
+                subset = detail[detail["subcategory"] == master]
+                avg_doh = int(np.floor(subset["DaysOnHand"].mean()))
+                with st.expander(f"{master.title()} – Avg Days On Hand: {avg_doh}"):
+                    styled_df = subset.style.applymap(highlight_low_days, subset=["DaysOnHand"])
+                    st.dataframe(styled_df, use_container_width=True)
         else:
             st.warning("Start date must be before or equal to end date.")
     except Exception as e:
