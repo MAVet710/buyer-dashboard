@@ -40,7 +40,6 @@ st.sidebar.header("📂 Upload Reports")
 inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
 sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product XLSX", type=["xlsx"])
 
-
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
 metric_filter = st.sidebar.radio("Filter by KPI", ("None", "Watchlist", "Reorder ASAP"))
@@ -57,6 +56,9 @@ if inv_file and sales_file:
         }
         rename_cols = {k: v for k, v in column_map.items() if k in inv_df.columns}
         inv_df = inv_df.rename(columns=rename_cols)
+
+        if "mastercategory" not in inv_df.columns and "category" in inv_df.columns:
+            inv_df = inv_df.rename(columns={"category": "mastercategory"})
 
         required_cols = ["itemname", "mastercategory", "onhandunits"]
         missing_cols = [col for col in required_cols if col not in inv_df.columns]
@@ -79,6 +81,9 @@ if inv_file and sales_file:
             "Qty Sold": "UnitsSold"
         })
 
+        if "MasterCategory" not in sales_raw.columns and "Category" in sales_raw.columns:
+            sales_raw = sales_raw.rename(columns={"Category": "MasterCategory"})
+
         sales_df = sales_raw[sales_raw["MasterCategory"].notna()].copy()
         sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors="coerce")
         sales_df["MasterCategory"] = sales_df["MasterCategory"].str.lower()
@@ -99,7 +104,8 @@ if inv_file and sales_file:
             agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
             agg["AvgUnitsPerDay"] = (agg["UnitsSold"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
 
-            inventory_summary = inv_df.groupby(["mastercategory", "subcategory"])["onhandunits"].sum().reset_index()
+            inventory_summary = inv_df.groupby(["mastercategory", "subcategory"])['onhandunits'].sum().reset_index()
+            inventory_summary = inventory_summary.loc[~inventory_summary.index.duplicated(keep='first')]
             inventory_summary["onhandunits"] = pd.to_numeric(inventory_summary["onhandunits"], errors="coerce").fillna(0)
 
             df = pd.merge(inventory_summary, agg, left_on="mastercategory", right_on="MasterCategory", how="left")
