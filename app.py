@@ -68,8 +68,12 @@ if inv_file and sales_file:
         sales_df = sales_raw[1:].copy()
         sales_df.columns = sales_df.columns.astype(str)
 
+        # Handle Category as fallback for MasterCategory
+        sales_df.columns = sales_df.columns.str.strip()
+        if "MasterCategory" not in sales_df.columns and "Category" in sales_df.columns:
+            sales_df = sales_df.rename(columns={"Category": "MasterCategory"})
+
         sales_df = sales_df.rename(columns={
-            "Category": "MasterCategory",
             "QuantitySold": "UnitsSold",
             "Product": "Product"
         })
