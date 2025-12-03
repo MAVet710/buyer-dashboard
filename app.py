@@ -38,9 +38,10 @@ st.markdown("Streamlined purchasing visibility powered by Dutchie data.\n")
 # ---------------------- SIDEBAR ----------------------
 st.sidebar.header("📂 Upload Reports")
 inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-sales_file = st.sidebar.file_uploader("Sales XLSX (30 days)", type=["xlsx"])
+sales_file = st.sidebar.file_uploader("Sales XLSX (30-60 days)", type=["xlsx"])
 
-threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
+doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
+velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
 
 # ---------------------- MAIN LOGIC ----------------------
 if inv_file and sales_file:
@@ -86,16 +87,19 @@ if inv_file and sales_file:
             }).reset_index()
             agg = agg.rename(columns={"OrderDate": "DaysSold"})
             agg["DaysSold"] = agg["DaysSold"].clip(upper=date_diff)
-            agg["AvgNetSalesPerDay"] = agg["NetSales"] / agg["DaysSold"].replace(0, np.nan)
+            agg["AvgNetSalesPerDay"] = (agg["NetSales"] / agg["DaysSold"].replace(0, np.nan)) * velocity_adjustment
 
             df = agg.merge(inventory_summary, left_on="MasterCategory", right_on="subcategory", how="left").fillna(0)
             df["DaysOnHand"] = (df["onhandunits"] / df["AvgNetSalesPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
             df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
             df["ReorderQty"] = np.where(
-                df["DaysOnHand"] < threshold,
-                np.ceil((threshold - df["DaysOnHand"]) * df["AvgNetSalesPerDay"]).astype(int),
+                df["DaysOnHand"] < doh_threshold,
+                np.ceil((doh_threshold - df["DaysOnHand"]) * df["AvgNetSalesPerDay"]).astype(int),
                 0
             )
+            df["SellThrough%"] = np.round((filtered_sales.groupby("MasterCategory")["NetSales"].count() / 
+                                            (filtered_sales.groupby("MasterCategory")["NetSales"].count() + df["onhandunits"])) * 100, 2)
+            df["SellThrough%"] = df["SellThrough%"].fillna(0)
 
             def reorder_tag(row):
                 if row["DaysOnHand"] <= 7: return "1 – Reorder ASAP"
@@ -131,7 +135,7 @@ if inv_file and sales_file:
             def highlight_low_days(val):
                 try:
                     val = int(val)
-                    return "color: #FF3131; font-weight: bold;" if val < threshold else ""
+                    return "color: #FF3131; font-weight: bold;" if val < doh_threshold else ""
                 except:
                     return ""
 
@@ -144,10 +148,10 @@ if inv_file and sales_file:
             st.plotly_chart(fig, use_container_width=True)
 
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📅 Download Buyer View CSV", csv, "Buyer_View.csv", "text/csv")
+            st.download_button("🗕️ Download Buyer View CSV", csv, "Buyer_View.csv", "text/csv")
         else:
             st.warning("Start date must be before or equal to end date.")
     except Exception as e:
         st.error(f"Error processing files: {e}")
 else:
-    st.info("Please upload both the inventory and 30-day sales files to continue.")
+    st.info("Please upload both the inventory and 30–60 day sales files to continue.")
