@@ -29,36 +29,28 @@ st.markdown(f"""
         color: #FF3131;
         font-weight: bold;
     }}
-    button[kind="secondary"] {{
-        background-color: #333 !important;
-        color: white !important;
-        border: 1px solid white !important;
-    }}
     </style>
 """, unsafe_allow_html=True)
 
 st.title("🌿 Cannabis Buyer Dashboard")
 st.markdown("Streamlined purchasing visibility powered by Dutchie data.\n")
 
-with st.sidebar:
-    with st.expander("📂 Upload Reports"):
-        inv_file = st.file_uploader("Inventory CSV", type="csv")
-        sales_file = st.file_uploader("Detailed Sales Breakdown by Product", type="xlsx")
-        product_sales_file = st.file_uploader("Product Sales Report", type="xlsx")
-        aging_file = st.file_uploader("Inventory Aging Report", type="xlsx")
+st.sidebar.header("📂 Upload Reports")
+inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
+sales_file = st.sidebar.file_uploader("Daily Sales Breakdown", type="xlsx")
+product_sales_file = st.sidebar.file_uploader("Product Sales Report", type="xlsx")
+aging_file = st.sidebar.file_uploader("Inventory Aging Report", type="xlsx")
 
-    doh_threshold = st.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
-    velocity_adjustment = st.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
-    filter_state = st.session_state.setdefault("metric_filter", "None")
-    date_diff = st.slider("Days in Sales Period", min_value=7, max_value=90, value=60)
+doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
+velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
+filter_state = st.session_state.setdefault("metric_filter", "None")
 
-if inv_file and product_sales_file:
+if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
         inv_df.columns = inv_df.columns.str.strip().str.lower()
-        inv_df = inv_df.rename(columns={"product": "itemname", "category": "subcategory", "available": "onhandunits"})
+        inv_df = inv_df.rename(columns={"product": "itemname", "available": "onhandunits"})
         inv_df["onhandunits"] = pd.to_numeric(inv_df.get("onhandunits", 0), errors="coerce").fillna(0)
-        inv_df["subcategory"] = inv_df["subcategory"].str.strip().str.lower()
 
         def extract_size(name):
             name = str(name).lower()
@@ -67,10 +59,11 @@ if inv_file and product_sales_file:
             return mg_match.group(1) if mg_match else (g_match.group(1) if g_match else "unspecified")
 
         inv_df["packagesize"] = inv_df["itemname"].apply(extract_size)
-        inv_df["subcat_group"] = inv_df["subcategory"] + " – " + inv_df["packagesize"]
-        inv_df = inv_df[["itemname", "packagesize", "subcategory", "subcat_group", "onhandunits"]]
+        inv_df["category"] = inv_df.get("category", "unspecified").astype(str).str.lower().fillna("unspecified")
+        inv_df["subcategory"] = inv_df["category"] + " – " + inv_df["packagesize"]
+        inv_df = inv_df[["itemname", "packagesize", "subcategory", "onhandunits"]]
 
-        sales_raw = pd.read_excel(product_sales_file)
+        sales_raw = pd.read_excel(sales_file)
         sales_raw.columns = sales_raw.columns.astype(str).str.strip().str.lower()
 
         if "mastercategory" not in sales_raw.columns and "category" in sales_raw.columns:
@@ -79,8 +72,7 @@ if inv_file and product_sales_file:
         sales_raw = sales_raw.rename(columns={
             "product": "product",
             "quantity sold": "unitssold",
-            "weight": "packagesize",
-            "subcategory": "subcategory"
+            "weight": "packagesize"
         })
 
         sales_df = sales_raw[sales_raw["mastercategory"].notna()].copy()
@@ -90,10 +82,13 @@ if inv_file and product_sales_file:
 
         inventory_summary = inv_df.groupby(["subcategory", "packagesize"])["onhandunits"].sum().reset_index()
 
-        agg = sales_df.groupby(["subcategory", "packagesize"]).agg({"unitssold": "sum"}).reset_index()
+        st.sidebar.write("Select timeframe length (in days):")
+        date_diff = st.sidebar.slider("Days in Sales Period", min_value=7, max_value=90, value=60)
+
+        agg = sales_df.groupby("mastercategory").agg({"unitssold": "sum"}).reset_index()
         agg["avgunitsperday"] = agg["unitssold"].astype(float) / date_diff * velocity_adjustment
 
-        detail = pd.merge(inventory_summary, agg, on=["subcategory", "packagesize"], how="left").fillna(0)
+        detail = pd.merge(inventory_summary, agg, left_on="subcategory", right_on="mastercategory", how="left").fillna(0)
         detail["daysonhand"] = np.where(detail["avgunitsperday"] > 0, detail["onhandunits"] / detail["avgunitsperday"], np.nan)
         detail["daysonhand"] = detail["daysonhand"].replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
         detail["reorderqty"] = np.where(detail["daysonhand"] < doh_threshold, np.ceil((doh_threshold - detail["daysonhand"]) * detail["avgunitsperday"]).astype(int), 0)
@@ -144,4 +139,4 @@ if inv_file and product_sales_file:
     except Exception as e:
         st.error(f"Error processing files: {e}")
 else:
-    st.info("Please upload inventory and product sales files to continue.")
+    st.info("Please upload inventory and sales files to continue.")
