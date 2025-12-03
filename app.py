@@ -117,6 +117,7 @@ if inv_file and sales_file:
             inventory_summary["onhandunits"] = pd.to_numeric(inventory_summary["onhandunits"], errors="coerce").fillna(0)
 
             df = pd.merge(inventory_summary, agg, left_on="mastercategory", right_on="MasterCategory", how="left")
+            df = df.loc[:, ~df.columns.duplicated()]
             df["AvgUnitsPerDay"] = df["AvgUnitsPerDay"].fillna(0)
             df["DaysOnHand"] = (df["onhandunits"] / df["AvgUnitsPerDay"]).replace([np.inf, -np.inf], np.nan).fillna(0)
             df["DaysOnHand"] = np.floor(df["DaysOnHand"]).astype(int)
