@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import io
 
 st.set_page_config(page_title="Cannabis Buyer Dashboard", layout="wide", page_icon="🌿")
 
@@ -25,35 +24,28 @@ sales_file = st.file_uploader("Upload Sales XLSX", type=["xlsx"])
 
 if inv_file and sales_file:
     try:
+        # Load inventory and normalize columns
         inv_df = pd.read_csv(inv_file)
         inv_df.columns = inv_df.columns.str.strip().str.lower()
-        st.write("Inventory Columns (After Lowercase):", inv_df.columns.tolist())
+        st.write("Inventory Columns (Detected):", inv_df.columns.tolist())
 
         rename_map = {
             "product": "itemname",
             "category": "subcategory",
-            "available": "onhandunits",
-            "inventory date": "inventorydate",
-            "master category": "mastercategory"
+            "available": "onhandunits"
         }
         inv_df = inv_df.rename(columns={k: v for k, v in rename_map.items() if k in inv_df.columns})
-
         inv_df["onhandunits"] = pd.to_numeric(inv_df.get("onhandunits", 0), errors="coerce").fillna(0)
 
         required_cols = ["itemname", "subcategory", "onhandunits"]
-        optional_cols = ["inventorydate", "mastercategory"]
-
         missing = [col for col in required_cols if col not in inv_df.columns]
         if missing:
             st.error(f"Missing required columns in inventory file: {missing}")
             st.stop()
 
-        for col in optional_cols:
-            if col not in inv_df.columns:
-                inv_df[col] = ""
+        inv_df = inv_df[required_cols]
 
-        inv_df = inv_df[required_cols + optional_cols]
-
+        # Load and prep sales data
         sales_raw = pd.read_excel(sales_file, header=3)
         if sales_raw.shape[0] > 1:
             sales_df = sales_raw[1:].copy()
@@ -66,11 +58,14 @@ if inv_file and sales_file:
             sales_df = sales_df[sales_df["MasterCategory"].notna()].copy()
             sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors='coerce')
 
-            inventory_summary = inv_df.groupby("mastercategory")["onhandunits"].sum().reset_index()
+            # Summarize inventory by mastercategory using subcategory as a proxy
+            inventory_summary = inv_df.groupby("subcategory")["onhandunits"].sum().reset_index()
 
+            # Normalize merge keys
             sales_df["MasterCategory"] = sales_df["MasterCategory"].str.strip().str.lower()
-            inventory_summary["mastercategory"] = inventory_summary["mastercategory"].str.strip().str.lower()
+            inventory_summary["subcategory"] = inventory_summary["subcategory"].str.strip().str.lower()
 
+            # Date filtering
             date_range = sales_df["OrderDate"].dropna().sort_values().unique()
             date_start = st.selectbox("Start Date", date_range)
             date_end = st.selectbox("End Date", date_range[::-1])
@@ -85,7 +80,8 @@ if inv_file and sales_file:
                 agg = agg.rename(columns={"OrderDate": "DaysSold"})
                 agg["AvgNetSalesPerDay"] = agg["NetSales"] / agg["DaysSold"]
 
-                df = agg.merge(inventory_summary, left_on="MasterCategory", right_on="mastercategory", how="left").fillna(0)
+                # Merge using subcategory-to-master mapping
+                df = agg.merge(inventory_summary, left_on="MasterCategory", right_on="subcategory", how="left").fillna(0)
                 df["CoverageIndex"] = df["onhandunits"] / df["AvgNetSalesPerDay"]
 
                 def reorder_tag(row):
