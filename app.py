@@ -53,6 +53,11 @@ if inv_file and sales_file:
     try:
         inv_df = pd.read_csv(inv_file)
         inv_df.columns = inv_df.columns.str.strip().str.lower()
+
+        if "master category" not in inv_df.columns:
+            st.error("Missing 'master category' column in the uploaded inventory CSV. Please verify the file format.")
+            st.stop()
+
         column_map = {
             "product": "itemname",
             "category": "subcategory",
@@ -60,11 +65,17 @@ if inv_file and sales_file:
             "master category": "mastercategory"
         }
         inv_df = inv_df.rename(columns={k: v for k, v in column_map.items() if k in inv_df.columns})
+
         required_cols = ["itemname", "subcategory", "onhandunits", "mastercategory"]
-        inv_df = inv_df[[col for col in required_cols if col in inv_df.columns]]
+        missing_cols = [col for col in required_cols if col not in inv_df.columns]
+        if missing_cols:
+            st.error(f"Missing columns in inventory file: {', '.join(missing_cols)}")
+            st.stop()
+
+        inv_df = inv_df[required_cols]
 
         def extract_package_size(name):
-            match = re.search(r'(\d+\.?\d*)\s?(g|oz)', name.lower())
+            match = re.search(r'(\d+\.?\d*)\s?(g|oz)', str(name).lower())
             return match.group() if match else 'unspecified'
 
         inv_df["packagesize"] = inv_df["itemname"].apply(extract_package_size)
