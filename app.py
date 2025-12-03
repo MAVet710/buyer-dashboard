@@ -5,20 +5,22 @@ import plotly.express as px
 st.set_page_config(page_title="Cannabis Buyer Dashboard", layout="wide", page_icon="🌿")
 
 # ---------------------- Background Styling ----------------------
-st.markdown("""
+background_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
+
+st.markdown(f"""
     <style>
-    .stApp {
-        background-image: url("/mnt/data/IMG_7158.PNG");
+    .stApp {{
+        background-image: url('{background_url}');
         background-size: cover;
         background-position: center;
         background-attachment: fixed;
-        color: #ffffff;
-    }
-    .block-container {
+        color: white;
+    }}
+    .block-container {{
         background-color: rgba(0, 0, 0, 0.75);
         padding: 2rem;
         border-radius: 12px;
-    }
+    }}
     </style>
 """, unsafe_allow_html=True)
 
