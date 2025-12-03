@@ -35,7 +35,6 @@ sales_file = st.sidebar.file_uploader("Sales XLSX (30 days)", type=["xlsx"])
 # ---------------------- MAIN LOGIC ----------------------
 if inv_file and sales_file:
     try:
-        # --- INVENTORY ---
         inv_df = pd.read_csv(inv_file)
         inv_df.columns = inv_df.columns.str.strip().str.lower()
         inv_df = inv_df.rename(columns={
@@ -47,7 +46,6 @@ if inv_file and sales_file:
         inv_df["subcategory"] = inv_df["subcategory"].str.strip().str.lower()
         inv_df = inv_df[["itemname", "subcategory", "onhandunits"]]
 
-        # --- SALES ---
         sales_raw = pd.read_excel(sales_file, header=3)
         sales_df = sales_raw[1:].copy()
         sales_df.columns = sales_raw.iloc[0]
@@ -60,6 +58,7 @@ if inv_file and sales_file:
         sales_df["OrderDate"] = pd.to_datetime(sales_df["OrderDate"], errors="coerce")
         sales_df["MasterCategory"] = sales_df["MasterCategory"].str.strip().str.lower()
         sales_df = sales_df[~sales_df["MasterCategory"].str.contains("accessor")]
+        sales_df = sales_df[sales_df["MasterCategory"] != "all"]
 
         inventory_summary = inv_df.groupby("subcategory")["onhandunits"].sum().reset_index()
 
@@ -89,15 +88,28 @@ if inv_file and sales_file:
             df["ReorderPriority"] = df.apply(reorder_tag, axis=1)
             df = df.sort_values(["ReorderPriority", "AvgNetSalesPerDay"], ascending=[True, False])
 
-            # ---------------------- METRICS ----------------------
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Total Sales", f"${df['NetSales'].sum():,.0f}")
-            col2.metric("Active Categories", df['MasterCategory'].nunique())
-            col3.metric("Watchlist Items", (df['ReorderPriority'] == "2 – Watch Closely").sum())
-            col4.metric("Reorder ASAP", (df['ReorderPriority'] == "1 – Reorder ASAP").sum())
+            selected_filter = st.session_state.get("selected_filter", "All")
 
-            # ---------------------- DATA & CHART ----------------------
-            st.subheader("📊 Inventory Coverage & Sales")
+            col1, col2, col3, col4 = st.columns(4)
+            if col1.button(f"Total Sales: ${df['NetSales'].sum():,.0f}"):
+                st.session_state.selected_filter = "All"
+            if col2.button(f"Active Categories: {df['MasterCategory'].nunique()}"):
+                st.session_state.selected_filter = "Active"
+            if col3.button(f"Watchlist Items: {(df['ReorderPriority'] == '2 – Watch Closely').sum()}"):
+                st.session_state.selected_filter = "Watch"
+            if col4.button(f"Reorder ASAP: {(df['ReorderPriority'] == '1 – Reorder ASAP').sum()}"):
+                st.session_state.selected_filter = "Reorder"
+
+            selected_filter = st.session_state.get("selected_filter", "All")
+            st.markdown(f"### Showing: {selected_filter} Categories")
+
+            if selected_filter == "Watch":
+                df = df[df["ReorderPriority"] == "2 – Watch Closely"]
+            elif selected_filter == "Reorder":
+                df = df[df["ReorderPriority"] == "1 – Reorder ASAP"]
+            elif selected_filter == "Active":
+                df = df[df["NetSales"] > 0]
+
             st.dataframe(df, use_container_width=True)
 
             fig = px.bar(df, x="MasterCategory", y="NetSales", title="Sales by Category",
@@ -105,7 +117,6 @@ if inv_file and sales_file:
             fig.update_layout(paper_bgcolor="#000000", plot_bgcolor="#000000", font_color="white")
             st.plotly_chart(fig, use_container_width=True)
 
-            # ---------------------- EXPORT ----------------------
             csv = df.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Download Buyer View CSV", csv, "Buyer_View.csv", "text/csv")
         else:
