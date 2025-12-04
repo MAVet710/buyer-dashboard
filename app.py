@@ -25,7 +25,7 @@ PLOTLY_AVAILABLE = False
 # =========================
 # CONFIG & BRANDING
 # =========================
-CLIENT_NAME = "Rebelle Cannabis"
+CLIENT_NAME = "MA Vet 710"
 APP_TITLE = f"{CLIENT_NAME} Purchasing Dashboard"
 APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data."
 LICENSE_FOOTER = f"Licensed exclusively to {CLIENT_NAME} • Powered by MAVet710 Analytics"
