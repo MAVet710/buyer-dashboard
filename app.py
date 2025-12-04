@@ -46,9 +46,8 @@ st.set_page_config(
     page_icon=page_icon_url,
 )
 
-# Background image
-background_url = (
-    ""https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
+# background_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
+
 )
 
 # =========================
