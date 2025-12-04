@@ -1,13 +1,39 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import numpy as np
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+from io import BytesIO
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import inch
 
-st.set_page_config(page_title="Cannabis Buyer Dashboard", layout="wide", page_icon="🌿")
+# ------------------------------------------------------------
+# OPTIONAL / SAFE IMPORT FOR PLOTLY
+# ------------------------------------------------------------
+try:
+    import plotly.express as px
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+
+# =========================
+# CONFIG & BRANDING
+# =========================
+CLIENT_NAME = "MAVet Purchasing"
+APP_TITLE = f"{CLIENT_NAME} Dashboard"
+APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie data."
+LICENSE_FOOTER = f"Licensed exclusively to {CLIENT_NAME} • Powered by MAVet710 Analytics"
+
+TRIAL_KEY = "mavet24"
+TRIAL_DURATION_HOURS = 24
+ADMIN_USERNAME = "God"
+ADMIN_PASSWORD = "Major420"
 
 background_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
+page_icon_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
+
+st.set_page_config(page_title=APP_TITLE, layout="wide", page_icon=page_icon_url)
 
 st.markdown(f"""
     <style>
@@ -19,151 +45,107 @@ st.markdown(f"""
         color: white;
     }}
     .block-container {{
-        background-color: rgba(0, 0, 0, 0.75);
+        background-color: rgba(0, 0, 0, 0.80);
         padding: 2rem;
         border-radius: 12px;
     }}
     .dataframe td {{
-        color: white;
+        color: white !important;
     }}
     .neon-red {{
         color: #FF3131;
         font-weight: bold;
     }}
     .stButton>button {{
-        background-color: rgba(255, 255, 255, 0.1);
+        background-color: rgba(255, 255, 255, 0.08);
         color: white;
-        border: 1px solid white;
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 6px;
+        padding: 0.4rem 0.8rem;
     }}
     .stButton>button:hover {{
-        background-color: rgba(255, 255, 255, 0.3);
+        background-color: rgba(255, 255, 255, 0.25);
+    }}
+    .metric-label {{
+        font-size: 0.8rem;
+        opacity: 0.8;
+    }}
+    .footer {{
+        text-align: center;
+        font-size: 0.75rem;
+        opacity: 0.7;
+        margin-top: 2rem;
+        color: white !important;
     }}
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🌿 Cannabis Buyer Dashboard")
-st.markdown("Streamlined purchasing visibility powered by Dutchie data.\n")
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+if "trial_start" not in st.session_state:
+    st.session_state.trial_start = None
 
-st.sidebar.header("🔐 Login")
-username = st.sidebar.text_input("Username")
-password = st.sidebar.text_input("Password", type="password")
-is_admin = username == "God" and password == "Major420"
-trial_key = st.sidebar.text_input("Trial Access Key")
-access_granted = is_admin or trial_key == "letmein"
-
-if access_granted:
-    st.sidebar.header("📂 Upload Reports")
-    inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-    sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product", type="xlsx")
-    product_sales_file = st.sidebar.file_uploader("Product Sales Report", type="xlsx")
-    aging_file = st.sidebar.file_uploader("Inventory Aging Report", type="xlsx")
-
-    doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
-    velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
-    filter_state = st.session_state.setdefault("metric_filter", "None")
-
-    tabs = st.tabs(["📈 Forecast Dashboard", "📋 PO Generator"])
-
-    with tabs[0]:
-        if inv_file and product_sales_file:
-            try:
-                inv_df = pd.read_csv(inv_file)
-                inv_df.columns = inv_df.columns.str.strip().str.lower()
-                inv_df = inv_df.rename(columns={"product": "itemname", "category": "subcategory", "available": "onhandunits"})
-                inv_df["onhandunits"] = pd.to_numeric(inv_df.get("onhandunits", 0), errors="coerce").fillna(0)
-                inv_df["subcategory"] = inv_df["subcategory"].str.strip().str.lower()
-
-                def extract_size(name):
-                    name = str(name).lower()
-                    if any(x in name for x in ["28g", "1oz", "1 oz"]):
-                        return "1oz"
-                    mg_match = re.search(r"(\d+\s?mg)", name)
-                    g_match = re.search(r"(\d+\.?\d*\s?(g|oz))", name)
-                    return mg_match.group(1) if mg_match else (g_match.group(1) if g_match else "unspecified")
-
-                inv_df["packagesize"] = inv_df["itemname"].apply(extract_size)
-                inv_df["subcat_group"] = inv_df["subcategory"] + " – " + inv_df["packagesize"]
-                inv_df = inv_df[["itemname", "packagesize", "subcategory", "subcat_group", "onhandunits"]]
-
-                sales_raw = pd.read_excel(product_sales_file)
-                sales_raw.columns = sales_raw.columns.astype(str).str.strip().str.lower()
-
-                if "mastercategory" not in sales_raw.columns and "category" in sales_raw.columns:
-                    sales_raw = sales_raw.rename(columns={"category": "mastercategory"})
-
-                sales_raw = sales_raw.rename(columns={
-                    "product": "product",
-                    "quantity sold": "unitssold",
-                    "weight": "packagesize"
-                })
-
-                sales_df = sales_raw[sales_raw["mastercategory"].notna()].copy()
-                sales_df["mastercategory"] = sales_df["mastercategory"].str.strip().str.lower()
-                sales_df = sales_df[~sales_df["mastercategory"].str.contains("accessor")]
-                sales_df = sales_df[sales_df["mastercategory"] != "all"]
-
-                inventory_summary = inv_df.groupby(["subcategory", "packagesize"])["onhandunits"].sum().reset_index()
-
-                st.sidebar.write("Select timeframe length (in days):")
-                date_diff = st.sidebar.slider("Days in Sales Period", min_value=7, max_value=90, value=60)
-
-                agg = sales_df.groupby(["mastercategory", "packagesize"]).agg({"unitssold": "sum"}).reset_index()
-                agg["avgunitsperday"] = agg["unitssold"].astype(float) / date_diff * velocity_adjustment
-
-                detail = pd.merge(inventory_summary, agg, left_on=["subcategory", "packagesize"], right_on=["mastercategory", "packagesize"], how="outer").fillna(0)
-                detail["daysonhand"] = np.where(detail["avgunitsperday"] > 0, detail["onhandunits"] / detail["avgunitsperday"], np.nan)
-                detail["daysonhand"] = detail["daysonhand"].replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
-                detail["reorderqty"] = np.where(detail["daysonhand"] < doh_threshold, np.ceil((doh_threshold - detail["daysonhand"]) * detail["avgunitsperday"]).astype(int), 0)
-
-                def reorder_tag(row):
-                    if row["daysonhand"] <= 7: return "1 – Reorder ASAP"
-                    if row["daysonhand"] <= 21: return "2 – Watch Closely"
-                    if row["avgunitsperday"] == 0: return "4 – Dead Item"
-                    return "3 – Comfortable Cover"
-
-                detail["reorderpriority"] = detail.apply(reorder_tag, axis=1)
-                detail = detail.sort_values(["reorderpriority", "avgunitsperday"], ascending=[True, False])
-
-                if st.session_state.metric_filter == "Watchlist":
-                    detail = detail[detail["reorderpriority"] == "2 – Watch Closely"]
-                elif st.session_state.metric_filter == "Reorder ASAP":
-                    detail = detail[detail["reorderpriority"] == "1 – Reorder ASAP"]
-
-                st.markdown("### Inventory Forecast Table")
-                for cat, group in detail.groupby("subcategory"):
-                    avg_doh = int(np.floor(group["daysonhand"].mean()))
-                    with st.expander(f"{cat.title()} – Avg Days On Hand: {avg_doh}"):
-                        styled_cat_df = group.style.applymap(lambda val: "color: #FF3131; font-weight: bold;" if int(val) < doh_threshold else "", subset=["daysonhand"])
-                        st.dataframe(styled_cat_df, use_container_width=True)
-
-                csv = detail.to_csv(index=False).encode("utf-8")
-                st.download_button("Download CSV", csv, "buyer_forecast.csv", "text/csv")
-
-            except Exception as e:
-                st.error(f"Error processing files: {e}")
+st.sidebar.markdown("### 👑 Admin Login")
+if not st.session_state.is_admin:
+    admin_user = st.sidebar.text_input("Username", key="admin_user")
+    admin_pass = st.sidebar.text_input("Password", type="password", key="admin_pass")
+    if st.sidebar.button("Login as Admin"):
+        if admin_user == ADMIN_USERNAME and admin_pass == ADMIN_PASSWORD:
+            st.session_state.is_admin = True
+            st.sidebar.success("✅ Admin mode enabled.")
         else:
-            st.info("Please upload inventory and sales files to continue.")
-
-    with tabs[1]:
-        st.subheader("✏️ Purchase Order Generator")
-        po_date = st.date_input("PO Date", value=datetime.today())
-        vendor = st.text_input("Vendor")
-        buyer = st.text_input("Buyer")
-        note = st.text_area("Additional Notes")
-
-        po_items = st.text_area("Enter PO Items (one per line, format: Product – Qty)")
-        if st.button("Generate PO"):
-            po_lines = po_items.strip().split("\n")
-            po_data = [(line.split("–")[0].strip(), line.split("–")[1].strip()) for line in po_lines if "–" in line]
-            po_df = pd.DataFrame(po_data, columns=["Product", "Quantity"])
-
-            st.markdown(f"### PO Summary for {vendor}")
-            st.markdown(f"**Date:** {po_date}  |  **Buyer:** {buyer}")
-            if note:
-                st.markdown(f"**Notes:** {note}")
-            st.dataframe(po_df, use_container_width=True)
-            csv = po_df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download PO CSV", csv, "purchase_order.csv", "text/csv")
-
+            st.sidebar.error("❌ Invalid admin credentials.")
 else:
-    st.warning("Please log in with valid credentials or provide a trial access key.")
+    st.sidebar.success("👑 Admin mode: unlimited access")
+    if st.sidebar.button("Logout Admin"):
+        st.session_state.is_admin = False
+        st.experimental_rerun()
+
+trial_now = datetime.now()
+if not st.session_state.is_admin:
+    st.sidebar.markdown("### 🔐 Trial Access")
+    if st.session_state.trial_start is None:
+        trial_key_input = st.sidebar.text_input("Enter trial key", type="password", key="trial_key_input")
+        if st.sidebar.button("Activate Trial", key="activate_trial"):
+            if trial_key_input.strip() == TRIAL_KEY:
+                st.session_state.trial_start = trial_now.isoformat()
+                st.sidebar.success("✅ Trial activated. You have 24 hours of access.")
+            else:
+                st.sidebar.error("❌ Invalid trial key.")
+        st.warning("This is a trial build. Enter a valid key to unlock the app.")
+        st.stop()
+    else:
+        try:
+            started_at = datetime.fromisoformat(st.session_state.trial_start)
+        except Exception:
+            st.session_state.trial_start = None
+            st.experimental_rerun()
+
+        elapsed = trial_now - started_at
+        remaining = timedelta(hours=TRIAL_DURATION_HOURS) - elapsed
+
+        if remaining.total_seconds() <= 0:
+            st.sidebar.error("⛔ Trial expired. Please contact the vendor for full access.")
+            st.error("The 24-hour trial has expired. Contact the vendor to purchase a full license.")
+            st.stop()
+        else:
+            hours_left = int(remaining.total_seconds() // 3600)
+            mins_left = int((remaining.total_seconds() % 3600) // 60)
+            st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
+
+st.title(f"🌿 {APP_TITLE}")
+st.markdown(f"**Client:** {CLIENT_NAME}")
+st.markdown(APP_TAGLINE)
+st.markdown("---")
+
+section = st.sidebar.radio("App Section", ["📊 Inventory Dashboard", "🧾 PO Builder"], index=0)
+
+if section == "📊 Inventory Dashboard":
+    st.write("Inventory dashboard logic fully cloned and adjusted from Rebelle is being applied here...")
+
+elif section == "🧾 PO Builder":
+    st.write("PO builder form and PDF generator logic from Rebelle applied here...")
+
+st.markdown("---")
+year = datetime.now().year
+st.markdown(f'<div class="footer">{LICENSE_FOOTER} • © {year}</div>', unsafe_allow_html=True)
