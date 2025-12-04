@@ -5,19 +5,22 @@ import re
 from datetime import datetime, timedelta
 from io import BytesIO
 
+
 # For PDF generation
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 
+
 # ------------------------------------------------------------
 # OPTIONAL / SAFE IMPORT FOR PLOTLY
 # ------------------------------------------------------------
 try:
-    import plotly.express as px
-    PLOTLY_AVAILABLE = True
+import plotly.express as px
+PLOTLY_AVAILABLE = True
 except ImportError:
-    PLOTLY_AVAILABLE = False
+PLOTLY_AVAILABLE = False
+
 
 # =========================
 # CONFIG & BRANDING
@@ -27,102 +30,54 @@ APP_TITLE = f"{CLIENT_NAME} Purchasing Dashboard"
 APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data."
 LICENSE_FOOTER = f"Licensed exclusively to {CLIENT_NAME} • Powered by MAVet710 Analytics"
 
+
 # 🔐 TRIAL SETTINGS
-TRIAL_KEY = "rebelle24"        # Rebelle 24-hour trial key
+TRIAL_KEY = "rebelle24" # Rebelle 24-hour trial key
 TRIAL_DURATION_HOURS = 24
+
 
 # 👑 ADMIN CREDS
 ADMIN_USERNAME = "God"
 ADMIN_PASSWORD = "Major420"
 
+
 # Tab icon (favicon)
 page_icon_url = (
-    "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
+"https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
 )
+
 
 st.set_page_config(
-    page_title=APP_TITLE,
-    layout="wide",
-    page_icon=page_icon_url,
+page_title=APP_TITLE,
+layout="wide",
+page_icon=page_icon_url,
 )
 
-# background_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
 
+# Background image
+background_url = (
+"https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
 )
+
 
 # =========================
 # GLOBAL STYLING
 # =========================
 st.markdown(
-    f"""
-    <style>
-    .stApp {{
-        background-image: url('{background_url}');
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }}
+f"""
+<style>
+.stApp {{
+background-image: url('{background_url}');
+background-size: cover;
+background-position: center;
+background-attachment: fixed;
+}}
 
-    /* Main content area (center) */
-    .block-container {{
-        background-color: rgba(0, 0, 0, 0.80);
-        padding: 2rem;
-        border-radius: 12px;
-        color: #ffffff !important;
-    }}
 
-    /* Force almost all text in main area to white, but keep input text default */
-    .block-container *:not(input):not(textarea):not(select) {{
-        color: #ffffff !important;
-    }}
-
-    /* Keep tables readable on dark background */
-    .dataframe td {{
-        color: #ffffff !important;
-    }}
-
-    .stButton>button {{
-        background-color: rgba(255, 255, 255, 0.08);
-        color: #ffffff;
-        border: 1px solid rgba(255, 255, 255, 0.8);
-        border-radius: 6px;
-    }}
-
-    .stButton>button:hover {{
-        background-color: rgba(255, 255, 255, 0.25);
-    }}
-
-    .metric-label {{
-        font-size: 0.8rem;
-        opacity: 0.8;
-    }}
-
-    .footer {{
-        text-align: center;
-        font-size: 0.75rem;
-        opacity: 0.7;
-        margin-top: 2rem;
-        color: #ffffff !important;
-    }}
-
-    /* Sidebar: force dark text on light gray for readability */
-    [data-testid="stSidebar"] {{
-        background-color: #f5f5f5 !important;
-    }}
-    [data-testid="stSidebar"] * {{
-        color: #111111 !important;
-    }}
-
-    /* PO-only labels in main content */
-    .po-label {{
-        color: #ffffff !important;
-        font-weight: 600;
-        font-size: 0.9rem;
-        margin-bottom: 0.1rem;
-    }}
-    </style>
-    """,
-    unsafe_allow_html=True,
+/* Main content area (center) */
+.block-container {{
+background-color: rgba(0, 0, 0, 0.80);
+padding: 2rem;
 )
 
 # =========================
