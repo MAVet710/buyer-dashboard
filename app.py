@@ -89,10 +89,10 @@ def normalize_col(col: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(col).lower())
 
 def detect_column(columns, aliases):
-    """
+    
     Auto-detect a column by comparing normalized names
     against a list of alias keys (already normalized).
-    """
+    
     norm_map = {normalize_col(c): c for c in columns}
     for alias in aliases:
         if alias in norm_map:
