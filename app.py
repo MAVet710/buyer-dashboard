@@ -3,8 +3,14 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 import re
+from datetime import datetime
 
 st.set_page_config(page_title="Cannabis Buyer Dashboard", layout="wide", page_icon="🌿")
+
+CLIENT_NAME = "MAVet710"
+APP_TITLE = "Cannabis Buyer Dashboard"
+APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie data."
+LICENSE_FOOTER = f"Licensed exclusively to {CLIENT_NAME} • Powered by MAVet710 Analytics"
 
 background_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
 
@@ -37,21 +43,44 @@ st.markdown(f"""
     .stButton>button:hover {{
         background-color: rgba(255, 255, 255, 0.3);
     }}
+    .metric-label {{
+        font-size: 0.8rem;
+        opacity: 0.8;
+    }}
+    .footer {{
+        text-align: center;
+        font-size: 0.75rem;
+        opacity: 0.7;
+        margin-top: 2rem;
+    }}
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🌿 Cannabis Buyer Dashboard")
-st.markdown("Streamlined purchasing visibility powered by Dutchie data.\n")
+st.title(f"🌿 {APP_TITLE}")
+st.markdown(f"**Client:** {CLIENT_NAME}")
+st.markdown(APP_TAGLINE)
+st.markdown("---")
 
-st.sidebar.header("📂 Upload Reports")
-inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-sales_file = st.sidebar.file_uploader("Detailed Sales Breakdown by Product", type="xlsx")
-product_sales_file = st.sidebar.file_uploader("Product Sales Report", type="xlsx")
-aging_file = st.sidebar.file_uploader("Inventory Aging Report", type="xlsx")
+with st.sidebar.expander("📂 Upload Reports", expanded=False):
+    inv_file = st.file_uploader("Inventory CSV", type="csv")
+    sales_file = st.file_uploader("Detailed Sales Breakdown by Product (optional)", type="xlsx")
+    product_sales_file = st.file_uploader("Product Sales Report (required)", type="xlsx")
+    aging_file = st.file_uploader("Inventory Aging Report (optional)", type="xlsx")
+
+st.sidebar.write("Select timeframe length (in days):")
+date_diff = st.sidebar.slider("Days in Sales Period", min_value=7, max_value=90, value=60)
 
 doh_threshold = st.sidebar.number_input("Days on Hand Threshold", min_value=1, max_value=30, value=21)
 velocity_adjustment = st.sidebar.number_input("Velocity Adjustment (e.g. 0.5 for slower stores)", min_value=0.01, max_value=5.0, value=0.5, step=0.01)
 filter_state = st.session_state.setdefault("metric_filter", "None")
+
+def extract_size(name):
+    name = str(name).lower()
+    if "28g" in name or "1oz" in name or "1 oz" in name:
+        return "28g"
+    mg_match = re.search(r"(\d+\s?mg)", name)
+    g_match = re.search(r"(\d+\.?\d*\s?(g|oz))", name)
+    return mg_match.group(1) if mg_match else (g_match.group(1) if g_match else "unspecified")
 
 if inv_file and product_sales_file:
     try:
@@ -60,13 +89,6 @@ if inv_file and product_sales_file:
         inv_df = inv_df.rename(columns={"product": "itemname", "category": "subcategory", "available": "onhandunits"})
         inv_df["onhandunits"] = pd.to_numeric(inv_df.get("onhandunits", 0), errors="coerce").fillna(0)
         inv_df["subcategory"] = inv_df["subcategory"].str.strip().str.lower()
-
-        def extract_size(name):
-            name = str(name).lower()
-            mg_match = re.search(r"(\d+\s?mg)", name)
-            g_match = re.search(r"(\d+\.?\d*\s?(g|oz))", name)
-            return mg_match.group(1) if mg_match else (g_match.group(1) if g_match else "unspecified")
-
         inv_df["packagesize"] = inv_df["itemname"].apply(extract_size)
         inv_df["subcat_group"] = inv_df["subcategory"] + " – " + inv_df["packagesize"]
         inv_df = inv_df[["itemname", "packagesize", "subcategory", "subcat_group", "onhandunits"]]
@@ -77,26 +99,29 @@ if inv_file and product_sales_file:
         if "mastercategory" not in sales_raw.columns and "category" in sales_raw.columns:
             sales_raw = sales_raw.rename(columns={"category": "mastercategory"})
 
-        sales_raw = sales_raw.rename(columns={
-            "product": "product",
-            "quantity sold": "unitssold",
-            "weight": "packagesize"
-        })
+        product_cols = ["product", "product name", "item", "name"]
+        name_col = next((c for c in product_cols if c in sales_raw.columns), None)
+        sales_raw["product_name"] = sales_raw[name_col].astype(str)
+
+        if "unitssold" not in sales_raw.columns:
+            qty_cols = ["quantity sold", "qty sold", "units"]
+            qty_col = next((c for c in qty_cols if c in sales_raw.columns), None)
+            sales_raw["unitssold"] = sales_raw[qty_col] if qty_col else 0
 
         sales_df = sales_raw[sales_raw["mastercategory"].notna()].copy()
         sales_df["mastercategory"] = sales_df["mastercategory"].str.strip().str.lower()
         sales_df = sales_df[~sales_df["mastercategory"].str.contains("accessor")]
         sales_df = sales_df[sales_df["mastercategory"] != "all"]
+        sales_df["packagesize"] = sales_df["product_name"].apply(extract_size)
+        sales_df["unitssold"] = pd.to_numeric(sales_df.get("unitssold", 0), errors="coerce").fillna(0)
 
         inventory_summary = inv_df.groupby(["subcategory", "packagesize"])["onhandunits"].sum().reset_index()
-
-        st.sidebar.write("Select timeframe length (in days):")
-        date_diff = st.sidebar.slider("Days in Sales Period", min_value=7, max_value=90, value=60)
-
-        agg = sales_df.groupby("mastercategory").agg({"unitssold": "sum"}).reset_index()
+        agg = sales_df.groupby(["mastercategory", "packagesize"]).agg({"unitssold": "sum"}).reset_index()
         agg["avgunitsperday"] = agg["unitssold"].astype(float) / date_diff * velocity_adjustment
 
-        detail = pd.merge(inventory_summary, agg, left_on="subcategory", right_on="mastercategory", how="left").fillna(0)
+        detail = pd.merge(inventory_summary, agg, left_on=["subcategory", "packagesize"], right_on=["mastercategory", "packagesize"], how="left")
+        detail["unitssold"] = pd.to_numeric(detail.get("unitssold", 0), errors="coerce").fillna(0)
+        detail["avgunitsperday"] = pd.to_numeric(detail.get("avgunitsperday", 0), errors="coerce").fillna(0)
         detail["daysonhand"] = np.where(detail["avgunitsperday"] > 0, detail["onhandunits"] / detail["avgunitsperday"], np.nan)
         detail["daysonhand"] = detail["daysonhand"].replace([np.inf, -np.inf], np.nan).fillna(0).astype(int)
         detail["reorderqty"] = np.where(detail["daysonhand"] < doh_threshold, np.ceil((doh_threshold - detail["daysonhand"]) * detail["avgunitsperday"]).astype(int), 0)
@@ -148,3 +173,7 @@ if inv_file and product_sales_file:
         st.error(f"Error processing files: {e}")
 else:
     st.info("Please upload inventory and sales files to continue.")
+
+st.markdown("---")
+year = datetime.now().year
+st.markdown(f'<div class="footer">{LICENSE_FOOTER} • © {year}</div>', unsafe_allow_html=True)
