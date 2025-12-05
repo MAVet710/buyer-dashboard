@@ -110,14 +110,22 @@ st.markdown(
         color: #ffffff !important;
     }}
 
-    /* Sidebar: high-contrast light panel */
+    /* Sidebar: light, high-contrast, readable */
     [data-testid="stSidebar"] {{
         background-color: #f4f4f4 !important;
         border-right: 1px solid #cccccc;
     }}
-    [data-testid="stSidebar"] * {{
+
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] h4,
+    [data-testid="stSidebar"] h5,
+    [data-testid="stSidebar"] h6,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span {{
         color: #111111 !important;
-        font-size: 0.9rem;
     }}
 
     [data-testid="stSidebar"] input,
