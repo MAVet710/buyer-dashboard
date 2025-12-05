@@ -110,20 +110,36 @@ st.markdown(
         color: #ffffff !important;
     }}
 
-    /* Sidebar: dark but high-contrast labels */
+    /* Sidebar: high-contrast light panel */
     [data-testid="stSidebar"] {{
-        background-color: #181818 !important;
+        background-color: #f4f4f4 !important;
+        border-right: 1px solid #cccccc;
     }}
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3,
-    [data-testid="stSidebar"] h4,
-    [data-testid="stSidebar"] h5,
-    [data-testid="stSidebar"] h6,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span {{
-        color: #f5f5f5 !important;
+    [data-testid="stSidebar"] * {{
+        color: #111111 !important;
+        font-size: 0.9rem;
+    }}
+
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] textarea,
+    [data-testid="stSidebar"] select {{
+        background-color: #ffffff !important;
+        color: #111111 !important;
+        border: 1px solid #b0b0b0 !important;
+    }}
+
+    [data-testid="stSidebar"] .stNumberInput input {{
+        text-align: center;
+    }}
+
+    [data-testid="stSidebar"] .stButton>button {{
+        background-color: #111111 !important;
+        color: #ffffff !important;
+        border-radius: 4px;
+    }}
+
+    [data-testid="stSidebar"] .stButton>button:hover {{
+        background-color: #333333 !important;
     }}
 
     /* PO-only labels in main content */
