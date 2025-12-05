@@ -23,19 +23,19 @@ except ImportError:
 # CONFIG & BRANDING
 # =========================
 CLIENT_NAME = "MAVet710 Analytics"
-APP_TITLE = f"{CLIENT_NAME} Purchasing Dashboard"
-APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data."
-LICENSE_FOOTER = "Semper Paratus • MAVet710 Analytics"
+APP_TITLE = f"{CLIENT_NAME} Buyer Dashboard"
+APP_TAGLINE = "Inventory, purchasing, and vendor tracking — built by a buyer for buyers."
+LICENSE_FOOTER = "Semper Paratus (Always Ready) • MAVet710 Analytics"
 
 # 🔐 TRIAL SETTINGS
-TRIAL_KEY = "rebelle24"        # You can change this if you want a different trial key
+TRIAL_KEY = "mavet24"        # MAVet 24-hour trial key
 TRIAL_DURATION_HOURS = 24
 
 # 👑 ADMIN CREDS
 ADMIN_USERNAME = "God"
 ADMIN_PASSWORD = "Major420"
 
-# ✅ Canonical categories
+# ✅ Canonical category names you care about (values, not column names)
 REB_CATEGORIES = [
     "flower",
     "pre rolls",
@@ -47,14 +47,12 @@ REB_CATEGORIES = [
     "topicals",
 ]
 
-# Tab icon & background (MAVet version)
-page_icon_url = (
-    "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
-)
+# ====== IMAGES (DROP YOUR MAVet URLs HERE) ======
+# Favicon / tab icon
+page_icon_url = "https://YOUR_MAVET_FAVICON_URL_HERE.png"
 
-background_url = (
-    "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
-)
+# Background image
+background_url = "https://YOUR_MAVET_BACKGROUND_URL_HERE.png"
 
 st.set_page_config(
     page_title=APP_TITLE,
@@ -112,12 +110,20 @@ st.markdown(
         color: #ffffff !important;
     }}
 
-    /* Sidebar: light panel + dark text for readability */
+    /* Sidebar: dark but high-contrast labels */
     [data-testid="stSidebar"] {{
-        background-color: #f5f5f5 !important;
+        background-color: #181818 !important;
     }}
-    [data-testid="stSidebar"] * {{
-        color: #111111 !important;
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] h4,
+    [data-testid="stSidebar"] h5,
+    [data-testid="stSidebar"] h6,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span {{
+        color: #f5f5f5 !important;
     }}
 
     /* PO-only labels in main content */
@@ -146,26 +152,15 @@ if "inv_raw_df" not in st.session_state:
 if "sales_raw_df" not in st.session_state:
     st.session_state.sales_raw_df = None
 if "vendor_df" not in st.session_state:
-    st.session_state.vendor_df = pd.DataFrame(
-        columns=[
-            "Vendor Name",
-            "Brands",
-            "Contact Name",
-            "Email",
-            "Phone",
-            "Net Terms",
-            "Spotlight SKUs",
-            "Notes",
-        ]
-    )
+    st.session_state.vendor_df = None
 
 # =========================
 # HELPERS
 # =========================
+
 def normalize_col(col: str) -> str:
     """Lower + strip non-alphanumerics for matching (no spaces, etc.)."""
     return re.sub(r"[^a-z0-9]", "", str(col).lower())
-
 
 def detect_column(columns, aliases):
     """
@@ -178,9 +173,8 @@ def detect_column(columns, aliases):
             return norm_map[alias]
     return None
 
-
 def normalize_rebelle_category(raw):
-    """Map similar names to canonical categories (Rebelle/MAVet style)."""
+    """Map similar names to canonical category buckets."""
     s = str(raw).lower().strip()
 
     # Flower
@@ -217,7 +211,6 @@ def normalize_rebelle_category(raw):
 
     return s  # unchanged if not matched
 
-
 def extract_strain_type(name, subcat):
     s = str(name).lower()
     base = "unspecified"
@@ -230,7 +223,7 @@ def extract_strain_type(name, subcat):
     elif "cbd" in s:
         base = "cbd"
 
-    # Recognize vapes / pens / carts
+    # Recognize vapes / pens
     vape = any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
     preroll = any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
 
@@ -243,7 +236,6 @@ def extract_strain_type(name, subcat):
         return base + " infused" if base != "unspecified" else "infused"
 
     return base
-
 
 def extract_size(text, context=None):
     s = str(text).lower()
@@ -262,14 +254,13 @@ def extract_size(text, context=None):
             return "28g"
         return val_lower
 
-    # 0.5g style vapes / pens
+    # 0.5g style vapes (if "vape", "cart", "pen", "pod" appears)
     if any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"]):
         half = re.search(r"\b0\.5\b|\b\.5\b", s)
         if half:
             return "0.5g"
 
     return "unspecified"
-
 
 # =========================
 # PDF GENERATION FOR PO
@@ -484,10 +475,10 @@ def generate_po_pdf(
     buffer.close()
     return pdf
 
-
 # =========================
 # 🔐 ADMIN + TRIAL GATE
 # =========================
+
 st.sidebar.markdown("### 👑 Admin Login")
 
 if not st.session_state.is_admin:
@@ -533,8 +524,8 @@ if not st.session_state.is_admin:
         remaining = timedelta(hours=TRIAL_DURATION_HOURS) - elapsed
 
         if remaining.total_seconds() <= 0:
-            st.sidebar.error("⛔ Trial expired. Please contact the vendor for full access.")
-            st.error("The 24-hour trial has expired. Contact the vendor to purchase a full license.")
+            st.sidebar.error("⛔ Trial expired. Contact MAVet710 for a full license.")
+            st.error("The 24-hour trial has expired. Contact MAVet710 to purchase a full license.")
             st.stop()
         else:
             hours_left = int(remaining.total_seconds() // 3600)
@@ -544,8 +535,7 @@ if not st.session_state.is_admin:
 # =========================
 # HEADER
 # =========================
-st.title(f"🌿 {APP_TITLE}")
-st.markdown(f"**Client:** {CLIENT_NAME}")
+st.title(f"📈 {APP_TITLE}")
 st.markdown(APP_TAGLINE)
 st.markdown("---")
 
@@ -569,7 +559,6 @@ section = st.sidebar.radio(
 # ============================================================
 if section == "📊 Inventory Dashboard":
 
-    # Data source selector (for future hooks)
     st.sidebar.markdown("### 🧩 Data Source")
     data_source = st.sidebar.selectbox(
         "Select POS / Data Source",
@@ -581,7 +570,15 @@ if section == "📊 Inventory Dashboard":
     st.sidebar.header("📂 Upload Core Reports")
 
     inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-    product_sales_file = st.sidebar.file_uploader("Product Sales Report", type="xlsx")
+
+    sales_header_row = st.sidebar.number_input(
+        "Product Sales header row (0-based)",
+        min_value=0,
+        max_value=10,
+        value=0,
+        help="If your Excel has branding / metadata in the first few rows, set this to the row that contains actual column headers.",
+    )
+    product_sales_file = st.sidebar.file_uploader("Product Sales / Sales by Product (Excel)", type="xlsx")
 
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Forecast Settings")
@@ -596,7 +593,7 @@ if section == "📊 Inventory Dashboard":
         st.session_state.inv_raw_df = inv_df_raw
 
     if product_sales_file is not None:
-        sales_raw_raw = pd.read_excel(product_sales_file)
+        sales_raw_raw = pd.read_excel(product_sales_file, header=sales_header_row)
         st.session_state.sales_raw_df = sales_raw_raw
 
     if st.session_state.inv_raw_df is not None and st.session_state.sales_raw_df is not None:
@@ -607,7 +604,6 @@ if section == "📊 Inventory Dashboard":
             # -------- INVENTORY --------
             inv_df.columns = inv_df.columns.str.strip().str.lower()
 
-            # Auto-detect core inventory columns (supports BLAZE & Dutchie)
             inv_name_aliases = [
                 "product", "productname", "item", "itemname", "name", "skuname", "skuid"
             ]
@@ -616,7 +612,7 @@ if section == "📊 Inventory Dashboard":
             ]
             inv_qty_aliases = [
                 "available", "onhand", "onhandunits", "quantity", "qty", "quantityonhand",
-                "instock", "current quantity", "currentquantity"
+                "instock", "currentquantity", "current quantity"
             ]
 
             name_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_name_aliases])
@@ -641,7 +637,6 @@ if section == "📊 Inventory Dashboard":
             inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
             inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
 
-            # Strain Type + Package Size
             inv_df["strain_type"] = inv_df.apply(
                 lambda x: extract_strain_type(x["itemname"], x["subcategory"]), axis=1
             )
@@ -649,7 +644,6 @@ if section == "📊 Inventory Dashboard":
                 lambda x: extract_size(x["itemname"], x["subcategory"]), axis=1
             )
 
-            # Group inventory by subcategory + strain + size
             inv_summary = (
                 inv_df.groupby(["subcategory", "strain_type", "packagesize"])["onhandunits"]
                 .sum()
@@ -659,43 +653,39 @@ if section == "📊 Inventory Dashboard":
             # -------- SALES --------
             sales_raw.columns = sales_raw.columns.astype(str).str.lower()
 
-            # Auto-detect product name column
             sales_name_aliases = [
-                "product", "productname", "product title", "producttitle", "product name",
-                "item", "itemname", "name", "skuname", "sku", "description", "product sku",
-                "product sku name"
+                "product", "productname", "product title", "producttitle",
+                "product name", "product_name", "item", "itemname", "sku", "skuname",
+                "description"
             ]
             name_col_sales = detect_column(
                 sales_raw.columns, [normalize_col(a) for a in sales_name_aliases]
             )
 
-            # Auto-detect quantity/units sold column
             qty_aliases = [
-                "quantitysold", "qtysold", "unitssold", "unitsold",
-                "units", "totalunits", "quantity", "quantity sold", "qty", "sold quantity",
-                "quantitysoldtotal"
+                "quantitysold", "quantity sold", "qtysold", "qty sold",
+                "unitssold", "units sold", "units", "totalunits",
+                "quantity", "qty", "items sold"
             ]
             qty_col_sales = detect_column(
                 sales_raw.columns, [normalize_col(a) for a in qty_aliases]
             )
 
-            # Auto-detect category/mastercategory column
             mc_aliases = [
-                "mastercategory", "category", "master_category",
-                "productcategory", "product category"
+                "mastercategory", "master category", "category",
+                "productcategory", "product category", "subcategory", "department"
             ]
             mc_col = detect_column(sales_raw.columns, [normalize_col(a) for a in mc_aliases])
 
             if not (name_col_sales and qty_col_sales and mc_col):
                 st.error(
-                    "Product Sales report missing a recognizable product, quantity, "
-                    "or category column.\n\n"
-                    "Tip: Use Dutchie 'Total Sales by Product' or Blaze 'Sales by Product' "
-                    "exports without manually editing headers."
+                    "Product Sales report missing a recognizable product, quantity, or category column.\n\n"
+                    "Tip: Use Dutchie 'Total Sales by Product' or Blaze 'Sales by Product' exports "
+                    "without manually editing the headers, and adjust the 'header row' selector "
+                    "if there are logo / metadata rows above the header."
                 )
                 st.stop()
 
-            # Normalize to internal names
             sales_raw = sales_raw.rename(
                 columns={
                     name_col_sales: "product_name",
@@ -708,22 +698,18 @@ if section == "📊 Inventory Dashboard":
                 sales_raw["unitssold"], errors="coerce"
             ).fillna(0)
 
-            # normalize categories here as well
             sales_raw["mastercategory"] = sales_raw["mastercategory"].apply(normalize_rebelle_category)
 
-            # Filter out accessories / 'all' (anything with "accessor")
             sales_df = sales_raw[
                 ~sales_raw["mastercategory"].astype(str).str.contains("accessor")
                 & (sales_raw["mastercategory"] != "all")
             ].copy()
 
-            # Add package size on the sales side (granular per size)
             sales_df["packagesize"] = sales_df.apply(
                 lambda row: extract_size(row["product_name"], row["mastercategory"]),
                 axis=1,
             )
 
-            # Category + size level velocity
             sales_summary = (
                 sales_df.groupby(["mastercategory", "packagesize"])["unitssold"]
                 .sum()
@@ -733,7 +719,6 @@ if section == "📊 Inventory Dashboard":
                 sales_summary["unitssold"] / date_diff
             ) * velocity_adjustment
 
-            # Merge inventory summary with size-level velocity
             detail = pd.merge(
                 inv_summary,
                 sales_summary,
@@ -764,10 +749,31 @@ if section == "📊 Inventory Dashboard":
             if missing_rows:
                 detail = pd.concat([detail, pd.DataFrame(missing_rows)], ignore_index=True)
 
-            # DOH + Reorder (granular per row)
-            detail["daysonhand"] = np.where(
+            # ============================
+            # STRAIN-LEVEL COVERAGE LOGIC
+            # ============================
+            group_cols = ["subcategory", "strain_type"]
+
+            group_summary = (
+                detail.groupby(group_cols, as_index=False)
+                .agg(
+                    group_onhand=("onhandunits", "sum"),
+                    group_units_sold=("unitssold", "sum"),
+                    group_avgunitsperday=("avgunitsperday", "sum"),
+                )
+            )
+
+            detail = detail.merge(group_summary, on=group_cols, how="left")
+
+            detail["eff_avgunitsperday"] = np.where(
                 detail["avgunitsperday"] > 0,
-                detail["onhandunits"] / detail["avgunitsperday"],
+                detail["avgunitsperday"],
+                detail["group_avgunitsperday"],
+            )
+
+            detail["daysonhand"] = np.where(
+                detail["group_avgunitsperday"] > 0,
+                detail["group_onhand"] / detail["group_avgunitsperday"],
                 0,
             )
             detail["daysonhand"] = (
@@ -779,7 +785,7 @@ if section == "📊 Inventory Dashboard":
 
             detail["reorderqty"] = np.where(
                 detail["daysonhand"] < doh_threshold,
-                np.ceil((doh_threshold - detail["daysonhand"]) * detail["avgunitsperday"]),
+                np.ceil((doh_threshold - detail["daysonhand"]) * detail["eff_avgunitsperday"]),
                 0,
             ).astype(int)
 
@@ -788,7 +794,7 @@ if section == "📊 Inventory Dashboard":
                     return "1 – Reorder ASAP"
                 if row["daysonhand"] <= 21:
                     return "2 – Watch Closely"
-                if row["avgunitsperday"] == 0:
+                if row["eff_avgunitsperday"] == 0:
                     return "4 – Dead Item"
                 return "3 – Comfortable Cover"
 
@@ -816,7 +822,6 @@ if section == "📊 Inventory Dashboard":
                 ):
                     st.session_state.metric_filter = "Reorder ASAP"
 
-            # Apply metric filter to detail for display
             if st.session_state.metric_filter == "Reorder ASAP":
                 detail_view = detail[detail["reorderpriority"] == "1 – Reorder ASAP"].copy()
             else:
@@ -835,7 +840,6 @@ if section == "📊 Inventory Dashboard":
                 except Exception:
                     return ""
 
-            # Category filter (ordered by canonical list first) **after** metric filter
             all_cats = sorted(detail_view["subcategory"].unique())
 
             def cat_sort_key(c):
@@ -853,7 +857,6 @@ if section == "📊 Inventory Dashboard":
             )
             detail_view = detail_view[detail_view["subcategory"].isin(selected_cats)]
 
-            # Make sure cannabis type (strain_type) is visible
             display_cols = [
                 "mastercategory",
                 "subcategory",
@@ -862,13 +865,13 @@ if section == "📊 Inventory Dashboard":
                 "onhandunits",
                 "unitssold",
                 "avgunitsperday",
+                "eff_avgunitsperday",
                 "daysonhand",
                 "reorderqty",
                 "reorderpriority",
             ]
             display_cols = [c for c in display_cols if c in detail_view.columns]
 
-            # Use same category ordering for expanders
             for cat in sorted(detail_view["subcategory"].unique(), key=cat_sort_key):
                 group = detail_view[detail_view["subcategory"] == cat]
                 with st.expander(cat.title()):
@@ -894,16 +897,13 @@ elif section == "🧾 PO Builder":
         "The words above each PO field are white on the dark background for clarity."
     )
 
-    # -------------------------
-    # HEADER INFO
-    # -------------------------
     st.markdown("### PO Header")
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown('<div class="po-label">Store / Ship-To Name</div>', unsafe_allow_html=True)
-        store_name = st.text_input("", value=CLIENT_NAME, key="store_name")
+        store_name = st.text_input("", value="MAVet710 Analytics", key="store_name")
 
         st.markdown('<div class="po-label">Store #</div>', unsafe_allow_html=True)
         store_number = st.text_input("", key="store_number")
@@ -944,9 +944,6 @@ elif section == "🧾 PO Builder":
 
     st.markdown("---")
 
-    # -------------------------
-    # LINE ITEMS
-    # -------------------------
     st.markdown("### Line Items")
 
     num_lines = st.number_input("Number of Line Items", 1, 50, 5)
@@ -1004,9 +1001,6 @@ elif section == "🧾 PO Builder":
 
     st.markdown("---")
 
-    # -------------------------
-    # TOTALS + PDF EXPORT
-    # -------------------------
     if not po_df.empty:
 
         subtotal = float(po_df["Line Total"].sum())
@@ -1062,7 +1056,7 @@ elif section == "🧾 PO Builder":
         st.download_button(
             "📥 Download PO (PDF)",
             data=pdf_bytes,
-            file_name=f"PO_{po_number or 'mavet'}.pdf",
+            file_name=f"PO_{po_number or 'MAVet'}.pdf",
             mime="application/pdf",
         )
 
@@ -1072,95 +1066,63 @@ elif section == "🧾 PO Builder":
 # ============================================================
 # PAGE 3 – VENDOR TRACKER
 # ============================================================
-else:
+else:  # "📇 Vendor Tracker"
     st.subheader("📇 Vendor Tracker")
 
     st.markdown(
-        "Track vendor contacts, brands, terms, and notes in one place. "
-        "Data is stored in this session; you can upload/download CSVs to persist it."
+        "Central spot for **vendor contacts, license numbers, and notes**. "
+        "You can upload an existing sheet or build it here and download as CSV."
     )
 
-    # Upload CSV to load vendor table
-    st.markdown("### Import Vendors from CSV")
-    uploaded_vendor_file = st.file_uploader("Upload Vendor CSV", type=["csv"], key="vendor_csv")
-    if uploaded_vendor_file is not None:
+    st.markdown("### Upload Existing Vendor Sheet (Optional)")
+    vfile = st.file_uploader("Vendor CSV / Excel", type=["csv", "xlsx"])
+
+    if vfile is not None:
         try:
-            df_up = pd.read_csv(uploaded_vendor_file)
-            # Basic normalization: ensure expected columns exist
-            expected_cols = [
+            if vfile.name.lower().endswith(".csv"):
+                vdf = pd.read_csv(vfile)
+            else:
+                vdf = pd.read_excel(vfile)
+
+            st.session_state.vendor_df = vdf
+            st.success("Vendor sheet loaded into the tracker.")
+        except Exception as e:
+            st.error(f"Could not read vendor file: {e}")
+
+    if st.session_state.vendor_df is None:
+        # Default scaffold
+        st.session_state.vendor_df = pd.DataFrame(
+            columns=[
                 "Vendor Name",
-                "Brands",
-                "Contact Name",
+                "License Number",
+                "Brand(s)",
+                "Primary Contact",
                 "Email",
                 "Phone",
-                "Net Terms",
-                "Spotlight SKUs",
+                "Region / Territory",
+                "Delivery Days / Cutoff",
+                "Standard Terms",
                 "Notes",
             ]
-            for col in expected_cols:
-                if col not in df_up.columns:
-                    df_up[col] = ""
-            st.session_state.vendor_df = df_up[expected_cols]
-            st.success("Vendor list imported into this session.")
-        except Exception as e:
-            st.error(f"Error reading vendor CSV: {e}")
-
-    st.markdown("---")
-    st.markdown("### Add / Update Vendor")
-
-    with st.expander("➕ Add New Vendor", expanded=False):
-        c1, c2 = st.columns(2)
-        with c1:
-            v_name = st.text_input("Vendor Name", key="vn_name")
-            v_brands = st.text_input("Brands (comma-separated)", key="vn_brands")
-            v_contact = st.text_input("Contact Name", key="vn_contact")
-            v_email = st.text_input("Email", key="vn_email")
-        with c2:
-            v_phone = st.text_input("Phone", key="vn_phone")
-            v_terms = st.text_input("Net Terms (e.g. Net 30, COD)", key="vn_terms")
-            v_spotlight = st.text_input("Spotlight SKUs / Products", key="vn_spotlight")
-            v_notes = st.text_area("Notes", key="vn_notes", height=80)
-
-        if st.button("Add Vendor", key="add_vendor_btn"):
-            new_row = {
-                "Vendor Name": v_name,
-                "Brands": v_brands,
-                "Contact Name": v_contact,
-                "Email": v_email,
-                "Phone": v_phone,
-                "Net Terms": v_terms,
-                "Spotlight SKUs": v_spotlight,
-                "Notes": v_notes,
-            }
-            st.session_state.vendor_df = pd.concat(
-                [st.session_state.vendor_df, pd.DataFrame([new_row])],
-                ignore_index=True,
-            )
-            st.success("Vendor added to this session.")
-
-    st.markdown("---")
-    st.markdown("### Vendor List (Editable)")
-
-    if not st.session_state.vendor_df.empty:
-        edited_df = st.data_editor(
-            st.session_state.vendor_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="vendor_editor",
         )
-        # Update session with edits
-        st.session_state.vendor_df = edited_df
 
-        # Download as CSV
-        csv_bytes = st.session_state.vendor_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "📥 Download Vendors as CSV",
-            data=csv_bytes,
-            file_name="vendor_tracker_mavet710.csv",
-            mime="text/csv",
-        )
-    else:
-        st.info("No vendors yet. Add one above or import from CSV.")
+    st.markdown("### Edit Vendor Contacts")
+
+    edited_df = st.data_editor(
+        st.session_state.vendor_df,
+        num_rows="dynamic",
+        use_container_width=True,
+    )
+    st.session_state.vendor_df = edited_df
+
+    st.markdown("### Export Vendor List")
+    csv_data = st.session_state.vendor_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "📤 Download Vendor Tracker (CSV)",
+        data=csv_data,
+        file_name="MAVet_Vendor_Tracker.csv",
+        mime="text/csv",
+    )
 
 # =========================
 # FOOTER
