@@ -110,12 +110,10 @@ st.markdown(
         color: #ffffff !important;
     }}
 
-    /* Sidebar: light, high-contrast, readable */
+    /* Sidebar: dark but high-contrast labels */
     [data-testid="stSidebar"] {{
-        background-color: #f4f4f4 !important;
-        border-right: 1px solid #cccccc;
+        background-color: #181818 !important;
     }}
-
     [data-testid="stSidebar"] h1,
     [data-testid="stSidebar"] h2,
     [data-testid="stSidebar"] h3,
@@ -125,29 +123,7 @@ st.markdown(
     [data-testid="stSidebar"] label,
     [data-testid="stSidebar"] p,
     [data-testid="stSidebar"] span {{
-        color: #111111 !important;
-    }}
-
-    [data-testid="stSidebar"] input,
-    [data-testid="stSidebar"] textarea,
-    [data-testid="stSidebar"] select {{
-        background-color: #ffffff !important;
-        color: #111111 !important;
-        border: 1px solid #b0b0b0 !important;
-    }}
-
-    [data-testid="stSidebar"] .stNumberInput input {{
-        text-align: center;
-    }}
-
-    [data-testid="stSidebar"] .stButton>button {{
-        background-color: #111111 !important;
-        color: #ffffff !important;
-        border-radius: 4px;
-    }}
-
-    [data-testid="stSidebar"] .stButton>button:hover {{
-        background-color: #333333 !important;
+        color: #f5f5f5 !important;
     }}
 
     /* PO-only labels in main content */
@@ -186,6 +162,7 @@ def normalize_col(col: str) -> str:
     """Lower + strip non-alphanumerics for matching (no spaces, etc.)."""
     return re.sub(r"[^a-z0-9]", "", str(col).lower())
 
+
 def detect_column(columns, aliases):
     """
     Auto-detect a column by comparing normalized names
@@ -196,6 +173,7 @@ def detect_column(columns, aliases):
         if alias in norm_map:
             return norm_map[alias]
     return None
+
 
 def normalize_rebelle_category(raw):
     """Map similar names to canonical category buckets."""
@@ -235,6 +213,7 @@ def normalize_rebelle_category(raw):
 
     return s  # unchanged if not matched
 
+
 def extract_strain_type(name, subcat):
     s = str(name).lower()
     base = "unspecified"
@@ -261,6 +240,7 @@ def extract_strain_type(name, subcat):
 
     return base
 
+
 def extract_size(text, context=None):
     s = str(text).lower()
 
@@ -285,6 +265,57 @@ def extract_size(text, context=None):
             return "0.5g"
 
     return "unspecified"
+
+
+# ---------- SALES HEADER AUTO-DETECT (Option A) ----------
+
+SALES_NAME_ALIASES = [
+    "product", "productname", "product title", "producttitle",
+    "product name", "product_name", "item", "itemname", "sku", "skuname",
+    "description"
+]
+
+SALES_QTY_ALIASES = [
+    "quantitysold", "quantity sold", "qtysold", "qty sold",
+    "unitssold", "units sold", "units", "totalunits",
+    "quantity", "qty", "items sold"
+]
+
+SALES_CAT_ALIASES = [
+    "mastercategory", "master category", "category",
+    "productcategory", "product category", "subcategory", "department"
+]
+
+
+def find_sales_header_row(raw_df, max_search_rows=20):
+    """
+    Scan the first N rows and find the first row that can serve as a header:
+    we must be able to detect product, quantity, AND category columns.
+    """
+    name_aliases_norm = [normalize_col(a) for a in SALES_NAME_ALIASES]
+    qty_aliases_norm = [normalize_col(a) for a in SALES_QTY_ALIASES]
+    cat_aliases_norm = [normalize_col(a) for a in SALES_CAT_ALIASES]
+
+    max_rows = min(max_search_rows, len(raw_df))
+
+    for i in range(max_rows):
+        row_vals = raw_df.iloc[i].tolist()
+        cols = [str(v) for v in row_vals]
+
+        # Skip completely empty rows
+        if all((c is None or str(c).strip() == "" or str(c).lower() == "nan") for c in cols):
+            continue
+
+        name_col = detect_column(cols, name_aliases_norm)
+        qty_col = detect_column(cols, qty_aliases_norm)
+        cat_col = detect_column(cols, cat_aliases_norm)
+
+        if name_col and qty_col and cat_col:
+            return i
+
+    # Fallback if nothing matched
+    return 0
+
 
 # =========================
 # PDF GENERATION FOR PO
@@ -594,15 +625,9 @@ if section == "📊 Inventory Dashboard":
     st.sidebar.header("📂 Upload Core Reports")
 
     inv_file = st.sidebar.file_uploader("Inventory CSV", type="csv")
-
-    sales_header_row = st.sidebar.number_input(
-        "Product Sales header row (0-based)",
-        min_value=0,
-        max_value=10,
-        value=0,
-        help="If your Excel has branding / metadata in the first few rows, set this to the row that contains actual column headers.",
+    product_sales_file = st.sidebar.file_uploader(
+        "Product Sales / Sales by Product (Excel)", type="xlsx"
     )
-    product_sales_file = st.sidebar.file_uploader("Product Sales / Sales by Product (Excel)", type="xlsx")
 
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Forecast Settings")
@@ -617,8 +642,15 @@ if section == "📊 Inventory Dashboard":
         st.session_state.inv_raw_df = inv_df_raw
 
     if product_sales_file is not None:
-        sales_raw_raw = pd.read_excel(product_sales_file, header=sales_header_row)
-        st.session_state.sales_raw_df = sales_raw_raw
+        # Read once without headers, auto-detect header row, then re-read
+        try:
+            temp_df = pd.read_excel(product_sales_file, header=None)
+            detected_header = find_sales_header_row(temp_df)
+            sales_raw_raw = pd.read_excel(product_sales_file, header=detected_header)
+            st.session_state.sales_raw_df = sales_raw_raw
+            st.sidebar.info(f"Detected Product Sales header row: {detected_header}")
+        except Exception as e:
+            st.sidebar.error(f"Could not read Product Sales file: {e}")
 
     if st.session_state.inv_raw_df is not None and st.session_state.sales_raw_df is not None:
         try:
@@ -677,36 +709,21 @@ if section == "📊 Inventory Dashboard":
             # -------- SALES --------
             sales_raw.columns = sales_raw.columns.astype(str).str.lower()
 
-            sales_name_aliases = [
-                "product", "productname", "product title", "producttitle",
-                "product name", "product_name", "item", "itemname", "sku", "skuname",
-                "description"
-            ]
             name_col_sales = detect_column(
-                sales_raw.columns, [normalize_col(a) for a in sales_name_aliases]
+                sales_raw.columns, [normalize_col(a) for a in SALES_NAME_ALIASES]
             )
-
-            qty_aliases = [
-                "quantitysold", "quantity sold", "qtysold", "qty sold",
-                "unitssold", "units sold", "units", "totalunits",
-                "quantity", "qty", "items sold"
-            ]
             qty_col_sales = detect_column(
-                sales_raw.columns, [normalize_col(a) for a in qty_aliases]
+                sales_raw.columns, [normalize_col(a) for a in SALES_QTY_ALIASES]
             )
-
-            mc_aliases = [
-                "mastercategory", "master category", "category",
-                "productcategory", "product category", "subcategory", "department"
-            ]
-            mc_col = detect_column(sales_raw.columns, [normalize_col(a) for a in mc_aliases])
+            mc_col = detect_column(
+                sales_raw.columns, [normalize_col(a) for a in SALES_CAT_ALIASES]
+            )
 
             if not (name_col_sales and qty_col_sales and mc_col):
                 st.error(
                     "Product Sales report missing a recognizable product, quantity, or category column.\n\n"
                     "Tip: Use Dutchie 'Total Sales by Product' or Blaze 'Sales by Product' exports "
-                    "without manually editing the headers, and adjust the 'header row' selector "
-                    "if there are logo / metadata rows above the header."
+                    "without manually editing the headers."
                 )
                 st.stop()
 
@@ -789,15 +806,15 @@ if section == "📊 Inventory Dashboard":
 
             detail = detail.merge(group_summary, on=group_cols, how="left")
 
-            # If this size has no direct velocity, borrow strain/category velocity
+            # Use row-level velocity when present, otherwise strain-level
             detail["eff_avgunitsperday"] = np.where(
                 detail["avgunitsperday"] > 0,
                 detail["avgunitsperday"],
                 detail["group_avgunitsperday"],
             )
 
-            # --- NEW DAYS-ON-HAND LOGIC ---
-            # Row-level days on hand; if on-hand is 0, treat as 0 days cover
+            # DOH is based on THIS ROW'S on-hand and effective velocity.
+            # If on-hand is 0, DOH = 0 (forces reorder based on strain-level velocity).
             detail["daysonhand"] = np.where(
                 (detail["onhandunits"] > 0) & (detail["eff_avgunitsperday"] > 0),
                 detail["onhandunits"] / detail["eff_avgunitsperday"],
@@ -810,27 +827,21 @@ if section == "📊 Inventory Dashboard":
                 .astype(int)
             )
 
-            # Reorder qty:
-            # - If zero on hand but velocity > 0 → full target DOH worth of stock
-            # - Otherwise → top-up to target DOH based on current daysonhand
+            # Reorder recommendation:
+            # If DOH < target and we have velocity, order enough to cover target DOH.
             detail["reorderqty"] = np.where(
-                (detail["onhandunits"] == 0) & (detail["eff_avgunitsperday"] > 0),
-                np.ceil(doh_threshold * detail["eff_avgunitsperday"]),
-                np.where(
-                    detail["daysonhand"] < doh_threshold,
-                    np.ceil((doh_threshold - detail["daysonhand"]) * detail["eff_avgunitsperday"]),
-                    0,
-                ),
+                (detail["daysonhand"] < doh_threshold) & (detail["eff_avgunitsperday"] > 0),
+                np.ceil((doh_threshold - detail["daysonhand"]) * detail["eff_avgunitsperday"]),
+                0,
             ).astype(int)
 
             def tag(row):
-                # Dead item if no movement at all
+                if row["daysonhand"] <= 7 and row["eff_avgunitsperday"] > 0:
+                    return "1 – Reorder ASAP"
+                if row["daysonhand"] <= 21 and row["eff_avgunitsperday"] > 0:
+                    return "2 – Watch Closely"
                 if row["eff_avgunitsperday"] == 0:
                     return "4 – Dead Item"
-                if row["daysonhand"] <= 7:
-                    return "1 – Reorder ASAP"
-                if row["daysonhand"] <= 21:
-                    return "2 – Watch Closely"
                 return "3 – Comfortable Cover"
 
             detail["reorderpriority"] = detail.apply(tag, axis=1)
