@@ -24,31 +24,45 @@ except ImportError:
 # ------------------------------------------------------------
 # OPTIONAL / SAFE IMPORT FOR OPENAI (AI INVENTORY CHECK)
 # ------------------------------------------------------------
+import os
+
 OPENAI_AVAILABLE = False
 ai_client = None
 
 try:
     from openai import OpenAI
 
-    # Single, direct source of truth: Streamlit secrets
-    OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", None)
+    # Try reading from Streamlit secrets
+    key_from_secrets = st.secrets.get("OPENAI_API_KEY", None)
 
-    # Fallback to env var only if needed
-    if not OPENAI_API_KEY:
-        OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
+    # Try environment variable as fallback
+    key_from_env = os.environ.get("OPENAI_API_KEY")
 
-    if OPENAI_API_KEY and str(OPENAI_API_KEY).strip():
-        ai_client = OpenAI(api_key=str(OPENAI_API_KEY).strip())
+    # Normalize whatever we found
+    OPENAI_API_KEY = None
+    if key_from_secrets and str(key_from_secrets).strip():
+        OPENAI_API_KEY = str(key_from_secrets).strip()
+    elif key_from_env and str(key_from_env).strip():
+        OPENAI_API_KEY = str(key_from_env).strip()
+
+    # Debug display — REMOVE later if you want
+    with st.sidebar:
+        st.write("🔍 **AI Debug Info**")
+        st.write(f"Secrets found: {bool(key_from_secrets)}")
+        st.write(f"Env var found: {bool(key_from_env)}")
+        st.write(f"Using key: {bool(OPENAI_API_KEY)}")
+
+    # If we have a key, create the client
+    if OPENAI_API_KEY:
+        ai_client = OpenAI(api_key=OPENAI_API_KEY)
         OPENAI_AVAILABLE = True
     else:
         OPENAI_AVAILABLE = False
 
 except Exception as e:
-    # If anything goes wrong here, we just keep AI off
     OPENAI_AVAILABLE = False
-    # Optional debug (you can uncomment this while testing)
-    # st.sidebar.write(f"AI init error: {e}")
-
+    with st.sidebar:
+        st.error(f"AI init failed: {e}")
 
 # =========================
 # CONFIG & BRANDING
