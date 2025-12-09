@@ -90,8 +90,6 @@ def init_openai_client():
 
 # Run once on app start
 init_openai_client()
-
-
 # =========================
 # CONFIG & BRANDING
 # =========================
