@@ -1041,13 +1041,26 @@ if section == "📊 Inventory Dashboard":
                 right_on=["mastercategory", "packagesize"],
             ).fillna(0)
 
-            # --- Ensure Flower 28g / 1oz always shows ---
+            # --- Ensure Flower 28g / 1oz always shows with educated guess ---
             flower_mask = detail["subcategory"].str.contains("flower", na=False)
             flower_cats = detail.loc[flower_mask, "subcategory"].unique()
 
             missing_rows = []
             for cat in flower_cats:
-                if not ((detail["subcategory"] == cat) & (detail["packagesize"] == "28g")).any():
+                has_28 = ((detail["subcategory"] == cat) & (detail["packagesize"] == "28g")).any()
+                if not has_28:
+                    # Pull historical velocity for 28g in this category, if it exists
+                    sales_28 = sales_summary[
+                        (sales_summary["mastercategory"] == cat) &
+                        (sales_summary["packagesize"] == "28g")
+                    ]
+                    if not sales_28.empty:
+                        units_28 = float(sales_28["unitssold"].iloc[0])
+                        avg_28 = float(sales_28["avgunitsperday"].iloc[0])
+                    else:
+                        units_28 = 0.0
+                        avg_28 = 0.0
+
                     missing_rows.append(
                         {
                             "subcategory": cat,
@@ -1055,21 +1068,33 @@ if section == "📊 Inventory Dashboard":
                             "packagesize": "28g",
                             "onhandunits": 0,
                             "mastercategory": cat,
-                            "unitssold": 0,
-                            "avgunitsperday": 0,
+                            "unitssold": units_28,
+                            "avgunitsperday": avg_28,
                         }
                     )
 
             if missing_rows:
                 detail = pd.concat([detail, pd.DataFrame(missing_rows)], ignore_index=True)
 
-            # --- Ensure Edibles 500mg high-dose row always shows (acts like 28g for flower) ---
+            # --- Ensure Edibles 500mg high-dose row always shows with educated guess ---
             edibles_mask = detail["subcategory"].str.contains("edible", na=False)
             edibles_cats = detail.loc[edibles_mask, "subcategory"].unique()
 
             edibles_missing = []
             for cat in edibles_cats:
-                if not ((detail["subcategory"] == cat) & (detail["packagesize"] == "500mg")).any():
+                has_500 = ((detail["subcategory"] == cat) & (detail["packagesize"] == "500mg")).any()
+                if not has_500:
+                    sales_500 = sales_summary[
+                        (sales_summary["mastercategory"] == cat) &
+                        (sales_summary["packagesize"] == "500mg")
+                    ]
+                    if not sales_500.empty:
+                        units_500 = float(sales_500["unitssold"].iloc[0])
+                        avg_500 = float(sales_500["avgunitsperday"].iloc[0])
+                    else:
+                        units_500 = 0.0
+                        avg_500 = 0.0
+
                     edibles_missing.append(
                         {
                             "subcategory": cat,
@@ -1077,8 +1102,8 @@ if section == "📊 Inventory Dashboard":
                             "packagesize": "500mg",
                             "onhandunits": 0,
                             "mastercategory": cat,
-                            "unitssold": 0,
-                            "avgunitsperday": 0,
+                            "unitssold": units_500,
+                            "avgunitsperday": avg_500,
                         }
                     )
 
