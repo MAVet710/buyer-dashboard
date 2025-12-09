@@ -48,7 +48,7 @@ APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data
 LICENSE_FOOTER = f"Licensed exclusively to {CLIENT_NAME} • Powered by MAVet710 Analytics"
 
 # 🔐 TRIAL SETTINGS
-TRIAL_KEY = "rebelle24"        # Rebelle 24-hour trial key
+TRIAL_KEY = "Payup24"        # Rebelle 24-hour trial key
 TRIAL_DURATION_HOURS = 24
 
 # 👑 ADMIN CREDS
