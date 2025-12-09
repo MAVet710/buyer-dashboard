@@ -1,4 +1,4 @@
-import streamlit as st
+import streamlit as st 
 import pandas as pd
 import numpy as np
 import re
@@ -301,30 +301,12 @@ def extract_size(text, context=None):
 
 def read_inventory_file(uploaded_file):
     """
-    Read inventory CSV or Excel.
-
-    For Dutchie inventory exports, 'Available' is the on-hand quantity and
-    is on the very first header row. We FIRST try a simple header=0 read and
-    only fall back to header-scanning if we do NOT see an 'Available'-type
-    column in the first row.
+    Read inventory CSV or Excel while being robust to 3–5 line headers
+    (e.g., Dutchie/BLAZE 'Export Date / From Date / To Date' at the top).
     """
     name = uploaded_file.name.lower()
     uploaded_file.seek(0)
 
-    # ---------- 1) Try simple header=0 (this matches Dutchie Inventory CSV) ----------
-    if name.endswith(".csv"):
-        df_try = pd.read_csv(uploaded_file)
-    else:
-        df_try = pd.read_excel(uploaded_file)
-
-    norm_cols = [normalize_col(c) for c in df_try.columns]
-
-    if "available" in norm_cols or "inventoryavailable" in norm_cols:
-        # This is almost certainly the Dutchie inventory export – use it as-is
-        return df_try
-
-    # ---------- 2) Fallback: old header detection for weird files ----------
-    uploaded_file.seek(0)
     if name.endswith(".csv"):
         tmp = pd.read_csv(uploaded_file, header=None)
     else:
@@ -775,7 +757,7 @@ if section == "📊 Inventory Dashboard":
     st.sidebar.markdown("### 🧩 Data Source")
     data_source = st.sidebar.selectbox(
         "Select POS / Data Source",
-        ["Dutchie", "BLAZE"],
+        ["BLAZE", "Dutchie"],
         index=0,
         help="Changes how column names are interpreted. Files are still just CSV/XLSX exports.",
     )
@@ -936,7 +918,7 @@ if section == "📊 Inventory Dashboard":
                     "Product Sales file detected but could not find required columns.\n\n"
                     "Looked for some variant of: product / product name, quantity or items sold, "
                     "and category or product category.\n\n"
-                    "Tip: Use Dutchie 'Product Sales' exports "
+                    "Tip: Use Dutchie 'Product Sales' or Blaze 'Sales by Product' exports "
                     "without manually editing the headers."
                 )
                 st.stop()
@@ -1009,6 +991,45 @@ if section == "📊 Inventory Dashboard":
 
             if missing_rows:
                 detail = pd.concat([detail, pd.DataFrame(missing_rows)], ignore_index=True)
+
+            # --- Impute velocity for Flower 28g rows with 0 velocity ---
+            flower_28g_zero_mask = (
+                detail["subcategory"].str.contains("flower", na=False)
+                & (detail["packagesize"] == "28g")
+                & (detail["avgunitsperday"] == 0)
+            )
+
+            if flower_28g_zero_mask.any():
+                # overall flower median velocity (backup)
+                flower_vel_mask = (
+                    detail["subcategory"].str.contains("flower", na=False)
+                    & (detail["avgunitsperday"] > 0)
+                )
+                overall_flower_median = None
+                if flower_vel_mask.any():
+                    overall_flower_median = detail.loc[
+                        flower_vel_mask, "avgunitsperday"
+                    ].median()
+
+                for cat in detail.loc[flower_28g_zero_mask, "subcategory"].unique():
+                    cat_vel_mask = (
+                        (detail["subcategory"] == cat)
+                        & (detail["avgunitsperday"] > 0)
+                    )
+
+                    if cat_vel_mask.any():
+                        base_vel = detail.loc[
+                            cat_vel_mask, "avgunitsperday"
+                        ].median()
+                    else:
+                        base_vel = overall_flower_median
+
+                    if base_vel and base_vel > 0:
+                        est_vel = base_vel * 0.1  # treat 28g as slower mover
+                        detail.loc[
+                            flower_28g_zero_mask & (detail["subcategory"] == cat),
+                            "avgunitsperday",
+                        ] = est_vel
 
             # DOH + Reorder (granular per row)
             detail["daysonhand"] = np.where(
@@ -1124,14 +1145,6 @@ if section == "📊 Inventory Dashboard":
                         use_container_width=True,
                     )
 
-            # -------- Optional debug: peek at mapped inventory -------
-            with st.expander("Debug: First 10 mapped inventory groups", expanded=False):
-                st.write(
-                    inv_summary[
-                        ["subcategory", "strain_type", "packagesize", "onhandunits"]
-                    ].head(10)
-                )
-
             # =======================
             # AI INVENTORY CHECK
             # =======================
@@ -1233,7 +1246,7 @@ else:
 
             with c2:
                 st.markdown('<div class="po-label">SKU Name / Description</div>', unsafe_allow_html=True)
-                desc = st.text_input("", key=f"desc_{i}")
+                desc = st.text_input("", key=f"desc_{i}"])
 
             with c3:
                 st.markdown('<div class="po-label">Strain / Type</div>', unsafe_allow_html=True)
