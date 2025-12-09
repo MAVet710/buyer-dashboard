@@ -110,22 +110,14 @@ st.markdown(
         color: #ffffff !important;
     }}
 
-    /* Sidebar: light, high-contrast, readable */
+    /* Sidebar: high-contrast light panel */
     [data-testid="stSidebar"] {{
         background-color: #f4f4f4 !important;
         border-right: 1px solid #cccccc;
     }}
-
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3,
-    [data-testid="stSidebar"] h4,
-    [data-testid="stSidebar"] h5,
-    [data-testid="stSidebar"] h6,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span {{
+    [data-testid="stSidebar"] * {{
         color: #111111 !important;
+        font-size: 0.9rem;
     }}
 
     [data-testid="stSidebar"] input,
@@ -789,18 +781,15 @@ if section == "📊 Inventory Dashboard":
 
             detail = detail.merge(group_summary, on=group_cols, how="left")
 
-            # If this size has no direct velocity, borrow strain/category velocity
             detail["eff_avgunitsperday"] = np.where(
                 detail["avgunitsperday"] > 0,
                 detail["avgunitsperday"],
                 detail["group_avgunitsperday"],
             )
 
-            # --- NEW DAYS-ON-HAND LOGIC ---
-            # Row-level days on hand; if on-hand is 0, treat as 0 days cover
             detail["daysonhand"] = np.where(
-                (detail["onhandunits"] > 0) & (detail["eff_avgunitsperday"] > 0),
-                detail["onhandunits"] / detail["eff_avgunitsperday"],
+                detail["group_avgunitsperday"] > 0,
+                detail["group_onhand"] / detail["group_avgunitsperday"],
                 0,
             )
             detail["daysonhand"] = (
@@ -810,27 +799,19 @@ if section == "📊 Inventory Dashboard":
                 .astype(int)
             )
 
-            # Reorder qty:
-            # - If zero on hand but velocity > 0 → full target DOH worth of stock
-            # - Otherwise → top-up to target DOH based on current daysonhand
             detail["reorderqty"] = np.where(
-                (detail["onhandunits"] == 0) & (detail["eff_avgunitsperday"] > 0),
-                np.ceil(doh_threshold * detail["eff_avgunitsperday"]),
-                np.where(
-                    detail["daysonhand"] < doh_threshold,
-                    np.ceil((doh_threshold - detail["daysonhand"]) * detail["eff_avgunitsperday"]),
-                    0,
-                ),
+                detail["daysonhand"] < doh_threshold,
+                np.ceil((doh_threshold - detail["daysonhand"]) * detail["eff_avgunitsperday"]),
+                0,
             ).astype(int)
 
             def tag(row):
-                # Dead item if no movement at all
-                if row["eff_avgunitsperday"] == 0:
-                    return "4 – Dead Item"
                 if row["daysonhand"] <= 7:
                     return "1 – Reorder ASAP"
                 if row["daysonhand"] <= 21:
                     return "2 – Watch Closely"
+                if row["eff_avgunitsperday"] == 0:
+                    return "4 – Dead Item"
                 return "3 – Comfortable Cover"
 
             detail["reorderpriority"] = detail.apply(tag, axis=1)
