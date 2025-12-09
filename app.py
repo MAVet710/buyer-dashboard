@@ -1,4 +1,4 @@
-import streamlit as st 
+import streamlit as st
 import pandas as pd
 import numpy as np
 import re
@@ -301,12 +301,30 @@ def extract_size(text, context=None):
 
 def read_inventory_file(uploaded_file):
     """
-    Read inventory CSV or Excel while being robust to 3–5 line headers
-    (e.g., Dutchie/BLAZE 'Export Date / From Date / To Date' at the top).
+    Read inventory CSV or Excel.
+
+    For Dutchie inventory exports, 'Available' is the on-hand quantity and
+    is on the very first header row. We FIRST try a simple header=0 read and
+    only fall back to header-scanning if we do NOT see an 'Available'-type
+    column in the first row.
     """
     name = uploaded_file.name.lower()
     uploaded_file.seek(0)
 
+    # ---------- 1) Try simple header=0 (this matches Dutchie Inventory CSV) ----------
+    if name.endswith(".csv"):
+        df_try = pd.read_csv(uploaded_file)
+    else:
+        df_try = pd.read_excel(uploaded_file)
+
+    norm_cols = [normalize_col(c) for c in df_try.columns]
+
+    if "available" in norm_cols or "inventoryavailable" in norm_cols:
+        # This is almost certainly the Dutchie inventory export – use it as-is
+        return df_try
+
+    # ---------- 2) Fallback: old header detection for weird files ----------
+    uploaded_file.seek(0)
     if name.endswith(".csv"):
         tmp = pd.read_csv(uploaded_file, header=None)
     else:
@@ -333,8 +351,7 @@ def read_sales_file(uploaded_file):
     """
     Read Excel sales report with smart header detection.
     Looks for a row that contains something like 'category' and 'product'
-    (Dutchie 'Total Sales by Product' / 'Product Sales Report' style)
-    and uses that as the header.
+    (Dutchie 'Total Sales by Product' style) and uses that as the header.
     """
     uploaded_file.seek(0)
     tmp = pd.read_excel(uploaded_file, header=None)
@@ -758,7 +775,7 @@ if section == "📊 Inventory Dashboard":
     st.sidebar.markdown("### 🧩 Data Source")
     data_source = st.sidebar.selectbox(
         "Select POS / Data Source",
-        ["BLAZE", "Dutchie"],
+        ["Dutchie", "BLAZE"],
         index=0,
         help="Changes how column names are interpreted. Files are still just CSV/XLSX exports.",
     )
@@ -825,16 +842,10 @@ if section == "📊 Inventory Dashboard":
                 "category", "subcategory", "productcategory", "department",
                 "mastercategory", "product category", "cannabis"
             ]
-
-            # *** IMPORTANT: more specific quantity aliases first, no plain "available" ***
             inv_qty_aliases = [
-                "inventoryavailable", "inventory available",
-                "quantityonhand", "quantity on hand",
-                "onhandunits", "on hand units",
-                "onhand", "on hand",
-                "currentquantity", "current quantity",
-                "instock", "in stock",
-                "quantity", "qty",
+                "available", "onhand", "onhandunits", "quantity", "qty",
+                "quantityonhand", "instock", "currentquantity", "current quantity",
+                "inventoryavailable", "inventory available"
             ]
 
             name_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_name_aliases])
@@ -925,7 +936,7 @@ if section == "📊 Inventory Dashboard":
                     "Product Sales file detected but could not find required columns.\n\n"
                     "Looked for some variant of: product / product name, quantity or items sold, "
                     "and category or product category.\n\n"
-                    "Tip: Use Dutchie 'Product Sales Report' or Blaze 'Sales by Product' exports "
+                    "Tip: Use Dutchie 'Product Sales' exports "
                     "without manually editing the headers."
                 )
                 st.stop()
@@ -968,13 +979,6 @@ if section == "📊 Inventory Dashboard":
                 sales_summary["unitssold"] / max(date_diff, 1)
             ) * velocity_adjustment
 
-            # ---- Category-level backup velocity (for DOH fallback) ----
-            cat_velocity_series = (
-                sales_df.groupby("mastercategory")["unitssold"]
-                .sum()
-                / max(date_diff, 1)
-            ) * velocity_adjustment
-
             # Merge inventory summary with size-level velocity
             detail = pd.merge(
                 inv_summary,
@@ -1005,22 +1009,6 @@ if section == "📊 Inventory Dashboard":
 
             if missing_rows:
                 detail = pd.concat([detail, pd.DataFrame(missing_rows)], ignore_index=True)
-
-            # ---- Fallback: if avgunitsperday is 0, use category-level velocity
-            #      for lines that have inventory or are 28g flower lines.
-            def apply_fallback_velocity(row):
-                if row["avgunitsperday"] > 0:
-                    return row["avgunitsperday"]
-                cat = row["subcategory"]
-                base_vel = float(cat_velocity_series.get(cat, 0.0))
-                if base_vel <= 0:
-                    return row["avgunitsperday"]
-                # Use fallback if this line actually matters
-                if row["onhandunits"] > 0 or str(row.get("packagesize", "")).lower() == "28g":
-                    return base_vel
-                return row["avgunitsperday"]
-
-            detail["avgunitsperday"] = detail.apply(apply_fallback_velocity, axis=1)
 
             # DOH + Reorder (granular per row)
             detail["daysonhand"] = np.where(
@@ -1135,6 +1123,14 @@ if section == "📊 Inventory Dashboard":
                         g.style.applymap(red_low, subset=["daysonhand"]),
                         use_container_width=True,
                     )
+
+            # -------- Optional debug: peek at mapped inventory -------
+            with st.expander("Debug: First 10 mapped inventory groups", expanded=False):
+                st.write(
+                    inv_summary[
+                        ["subcategory", "strain_type", "packagesize", "onhandunits"]
+                    ].head(10)
+                )
 
             # =======================
             # AI INVENTORY CHECK
