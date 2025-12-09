@@ -42,45 +42,55 @@ def init_openai_client():
 
     key = None
 
-    # --- Try Streamlit secrets first ---
+    # --- Debug: what does Streamlit actually see? ---
     try:
-        # SAFETY DEBUG: show what keys Streamlit actually sees
-        st.sidebar.markdown("### 🔍 AI Debug Info")
-        try:
-            secret_keys = list(st.secrets.keys())
-            st.sidebar.write(f"Secrets keys: {secret_keys}")
-            secrets_found = "OPENAI_API_KEY" in st.secrets
-        except Exception:
-            secret_keys = []
-            secrets_found = False
-
-        # Env var as well
-        env_found = "OPENAI_API_KEY" in os.environ
-
-        st.sidebar.write(f"Secrets has OPENAI_API_KEY: {secrets_found}")
-        st.sidebar.write(f"Env has OPENAI_API_KEY: {env_found}")
-
-        if secrets_found:
-            key = st.secrets["OPENAI_API_KEY"]
+        top_keys = list(st.secrets.keys())
     except Exception:
-        # If st.secrets itself is not available, skip gracefully
+        top_keys = []
+
+    st.sidebar.markdown("### 🔍 AI Debug Info")
+    st.sidebar.write(f"Top-level keys: {top_keys}")
+
+    # 1) Try top-level OPENAI_API_KEY
+    try:
+        if "OPENAI_API_KEY" in st.secrets:
+            key = str(st.secrets["OPENAI_API_KEY"]).strip()
+            st.sidebar.write("Found OPENAI_API_KEY at top level.")
+    except Exception:
         pass
 
-    # --- Fallback: environment variable ---
+    # 2) Try nested under gcp_service_account (your current layout)
     if not key:
-        key = os.environ.get("OPENAI_API_KEY", None)
+        try:
+            if (
+                "gcp_service_account" in st.secrets
+                and "OPENAI_API_KEY" in st.secrets["gcp_service_account"]
+            ):
+                key = str(st.secrets["gcp_service_account"]["OPENAI_API_KEY"]).strip()
+                st.sidebar.write("Found OPENAI_API_KEY under [gcp_service_account].")
+        except Exception:
+            pass
 
-    if key and str(key).strip():
-        ai_client = OpenAI(api_key=str(key).strip())
+    # 3) Fallback to environment variable
+    if not key:
+        env_key = os.environ.get("OPENAI_API_KEY")
+        if env_key:
+            key = env_key.strip()
+            st.sidebar.write("Using OPENAI_API_KEY from environment.")
+
+    # Finalize
+    if key:
+        ai_client = OpenAI(api_key=key)
         OPENAI_AVAILABLE = True
+        st.sidebar.write("Using key: True")
     else:
         OPENAI_AVAILABLE = False
         ai_client = None
         st.sidebar.write("Using key: False")
 
-
 # Run once on app start
 init_openai_client()
+
 
 # =========================
 # CONFIG & BRANDING
