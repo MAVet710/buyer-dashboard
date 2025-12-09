@@ -162,28 +162,57 @@ def normalize_col(col: str) -> str:
     """Lower + strip non-alphanumerics for matching (no spaces, etc.)."""
     return re.sub(r"[^a-z0-9]", "", str(col).lower())
 
+
+def detect_column(columns, aliases):
+    """
+    Auto-detect a column by comparing normalized names
+    against a list of alias keys (already normalized).
+    """
+    norm_map = {normalize_col(c): c for c in columns}
+    for alias in aliases:
+        if alias in norm_map:
+            return norm_map[alias]
+    return None
+
+
 def normalize_rebelle_category(raw):
     """Map similar names to canonical category buckets."""
     s = str(raw).lower().strip()
 
+    # Flower
     if any(k in s for k in ["flower", "bud", "buds", "cannabis flower"]):
         return "flower"
+
+    # Pre Rolls
     if any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint", "joints"]):
         return "pre rolls"
+
+    # Vapes
     if any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"]):
         return "vapes"
+
+    # Edibles
     if any(k in s for k in ["edible", "gummy", "chocolate", "chew", "cookies"]):
         return "edibles"
+
+    # Beverages
     if any(k in s for k in ["beverage", "drink", "drinkable", "shot", "beverages"]):
         return "beverages"
+
+    # Concentrates
     if any(k in s for k in ["concentrate", "wax", "shatter", "crumble", "resin", "rosin", "dab"]):
         return "concentrates"
+
+    # Tinctures
     if any(k in s for k in ["tincture", "tinctures", "drops", "sublingual", "dropper"]):
         return "tinctures"
+
+    # Topicals
     if any(k in s for k in ["topical", "lotion", "cream", "salve", "balm"]):
         return "topicals"
 
-    return s  # fallback unchanged
+    return s  # unchanged if not matched
+
 
 def extract_strain_type(name, subcat):
     s = str(name).lower()
@@ -197,37 +226,46 @@ def extract_strain_type(name, subcat):
     elif "cbd" in s:
         base = "cbd"
 
+    # Recognize vapes / pens
     vape = any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
-    preroll = any(k in s for k in ["pre roll", "preroll", "joint"])
+    preroll = any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
 
+    # Disposables (vapes)
     if ("disposable" in s or "dispos" in s) and vape:
         return base + " disposable" if base != "unspecified" else "disposable"
 
+    # Infused pre-rolls
     if "infused" in s and preroll:
         return base + " infused" if base != "unspecified" else "infused"
 
     return base
 
+
 def extract_size(text, context=None):
     s = str(text).lower()
 
+    # mg doses
     mg = re.search(r"(\d+(\.\d+)?\s?mg)", s)
     if mg:
         return mg.group(1).replace(" ", "")
 
+    # grams / ounces: normalize 1oz/1 oz/28g to "28g"
     g = re.search(r"((?:\d+\.?\d*|\.\d+)\s?(g|oz))", s)
     if g:
-        val = g.group(1).replace(" ", "").lower()
-        if val in ["1oz", "1.0oz", "28g", "28.0g"]:
+        val = g.group(1).replace(" ", "")
+        val_lower = val.lower()
+        if val_lower in ["1oz", "1.0oz", "28g", "28.0g"]:
             return "28g"
-        return val
+        return val_lower
 
-    if any(k in s for k in ["vape", "cart", "pen", "pod"]):
+    # 0.5g style vapes (if "vape", "cart", "pen", "pod" appears)
+    if any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"]):
         half = re.search(r"\b0\.5\b|\b\.5\b", s)
         if half:
             return "0.5g"
 
     return "unspecified"
+
 
 # ---------- SALES HEADER AUTO-DETECT (Option A) ----------
 
