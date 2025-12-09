@@ -333,7 +333,8 @@ def read_sales_file(uploaded_file):
     """
     Read Excel sales report with smart header detection.
     Looks for a row that contains something like 'category' and 'product'
-    (Dutchie 'Total Sales by Product' style) and uses that as the header.
+    (Dutchie 'Total Sales by Product' / 'Product Sales Report' style)
+    and uses that as the header.
     """
     uploaded_file.seek(0)
     tmp = pd.read_excel(uploaded_file, header=None)
@@ -779,8 +780,7 @@ if section == "📊 Inventory Dashboard":
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Forecast Settings")
     doh_threshold = st.sidebar.number_input("Target Days on Hand", 1, 60, 21)
-    # 🔧 default velocity adjustment = 1.0 so we don't silently halve your velocity
-    velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", 0.01, 5.0, 1.0)
+    velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", 0.01, 5.0, 0.5)
     date_diff = st.sidebar.slider("Days in Sales Period", 7, 90, 60)
 
     # Cache raw dataframes when new files are uploaded
@@ -825,10 +825,16 @@ if section == "📊 Inventory Dashboard":
                 "category", "subcategory", "productcategory", "department",
                 "mastercategory", "product category", "cannabis"
             ]
+
+            # *** IMPORTANT: more specific quantity aliases first, no plain "available" ***
             inv_qty_aliases = [
-                "available", "onhand", "onhandunits", "quantity", "qty",
-                "quantityonhand", "instock", "currentquantity", "current quantity",
-                "inventoryavailable", "inventory available"
+                "inventoryavailable", "inventory available",
+                "quantityonhand", "quantity on hand",
+                "onhandunits", "on hand units",
+                "onhand", "on hand",
+                "currentquantity", "current quantity",
+                "instock", "in stock",
+                "quantity", "qty",
             ]
 
             name_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_name_aliases])
@@ -870,7 +876,7 @@ if section == "📊 Inventory Dashboard":
             )
 
             # -------- SALES (qty-based ONLY) --------
-            sales_raw.columns = sales_raw.columns.astype(str).str.strip().str.lower()
+            sales_raw.columns = sales_raw.columns.astype(str).str.lower()
 
             # Auto-detect product name column
             sales_name_aliases = [
@@ -919,7 +925,7 @@ if section == "📊 Inventory Dashboard":
                     "Product Sales file detected but could not find required columns.\n\n"
                     "Looked for some variant of: product / product name, quantity or items sold, "
                     "and category or product category.\n\n"
-                    "Tip: Use Dutchie 'Product Sales' or Blaze 'Sales by Product' exports "
+                    "Tip: Use Dutchie 'Product Sales Report' or Blaze 'Sales by Product' exports "
                     "without manually editing the headers."
                 )
                 st.stop()
@@ -958,12 +964,16 @@ if section == "📊 Inventory Dashboard":
                 .sum()
                 .reset_index()
             )
-
-            # 🔢 avg units per day (raw + adjusted)
-            lookback_days = max(int(date_diff), 1)
             sales_summary["avgunitsperday"] = (
-                sales_summary["unitssold"] / lookback_days
-            ) * float(velocity_adjustment)
+                sales_summary["unitssold"] / max(date_diff, 1)
+            ) * velocity_adjustment
+
+            # ---- Category-level backup velocity (for DOH fallback) ----
+            cat_velocity_series = (
+                sales_df.groupby("mastercategory")["unitssold"]
+                .sum()
+                / max(date_diff, 1)
+            ) * velocity_adjustment
 
             # Merge inventory summary with size-level velocity
             detail = pd.merge(
@@ -996,33 +1006,38 @@ if section == "📊 Inventory Dashboard":
             if missing_rows:
                 detail = pd.concat([detail, pd.DataFrame(missing_rows)], ignore_index=True)
 
-            # ======================
-            # DOH + REORDER LOGIC
-            # ======================
-            # DOH = on hand / avg units per day
-            detail["avgunitsperday"] = pd.to_numeric(
-                detail["avgunitsperday"], errors="coerce"
-            ).fillna(0.0)
+            # ---- Fallback: if avgunitsperday is 0, use category-level velocity
+            #      for lines that have inventory or are 28g flower lines.
+            def apply_fallback_velocity(row):
+                if row["avgunitsperday"] > 0:
+                    return row["avgunitsperday"]
+                cat = row["subcategory"]
+                base_vel = float(cat_velocity_series.get(cat, 0.0))
+                if base_vel <= 0:
+                    return row["avgunitsperday"]
+                # Use fallback if this line actually matters
+                if row["onhandunits"] > 0 or str(row.get("packagesize", "")).lower() == "28g":
+                    return base_vel
+                return row["avgunitsperday"]
 
+            detail["avgunitsperday"] = detail.apply(apply_fallback_velocity, axis=1)
+
+            # DOH + Reorder (granular per row)
             detail["daysonhand"] = np.where(
                 detail["avgunitsperday"] > 0,
                 detail["onhandunits"] / detail["avgunitsperday"],
-                0.0,
+                0,
             )
-
             detail["daysonhand"] = (
                 detail["daysonhand"]
-                .replace([np.inf, -np.inf], 0.0)
-                .fillna(0.0)
-                .round(1)   # keep one decimal so it doesn't fall to 0 all the time
+                .replace([np.inf, -np.inf], 0)
+                .fillna(0)
+                .astype(int)
             )
 
-            # Reorder quantity = units needed to hit target DOH, if positive
-            target_units = doh_threshold * detail["avgunitsperday"]
-            deficit = np.maximum(target_units - detail["onhandunits"], 0)
             detail["reorderqty"] = np.where(
-                detail["avgunitsperday"] > 0,
-                np.ceil(deficit),
+                detail["daysonhand"] < doh_threshold,
+                np.ceil((doh_threshold - detail["daysonhand"]) * detail["avgunitsperday"]),
                 0,
             ).astype(int)
 
@@ -1073,7 +1088,7 @@ if section == "📊 Inventory Dashboard":
 
             def red_low(val):
                 try:
-                    v = float(val)
+                    v = int(val)
                     return "color:#FF3131" if v < doh_threshold else ""
                 except Exception:
                     return ""
