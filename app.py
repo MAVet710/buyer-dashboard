@@ -29,40 +29,58 @@ import os
 OPENAI_AVAILABLE = False
 ai_client = None
 
-try:
-    from openai import OpenAI
+def init_openai_client():
+    """Try to load OpenAI client from Streamlit secrets or env, and debug keys."""
+    global OPENAI_AVAILABLE, ai_client
 
-    # Try reading from Streamlit secrets
-    key_from_secrets = st.secrets.get("OPENAI_API_KEY", None)
+    try:
+        from openai import OpenAI
+    except Exception:
+        OPENAI_AVAILABLE = False
+        ai_client = None
+        return
 
-    # Try environment variable as fallback
-    key_from_env = os.environ.get("OPENAI_API_KEY")
+    key = None
 
-    # Normalize whatever we found
-    OPENAI_API_KEY = None
-    if key_from_secrets and str(key_from_secrets).strip():
-        OPENAI_API_KEY = str(key_from_secrets).strip()
-    elif key_from_env and str(key_from_env).strip():
-        OPENAI_API_KEY = str(key_from_env).strip()
+    # --- Try Streamlit secrets first ---
+    try:
+        # SAFETY DEBUG: show what keys Streamlit actually sees
+        st.sidebar.markdown("### 🔍 AI Debug Info")
+        try:
+            secret_keys = list(st.secrets.keys())
+            st.sidebar.write(f"Secrets keys: {secret_keys}")
+            secrets_found = "OPENAI_API_KEY" in st.secrets
+        except Exception:
+            secret_keys = []
+            secrets_found = False
 
-    # Debug display — REMOVE later if you want
-    with st.sidebar:
-        st.write("🔍 **AI Debug Info**")
-        st.write(f"Secrets found: {bool(key_from_secrets)}")
-        st.write(f"Env var found: {bool(key_from_env)}")
-        st.write(f"Using key: {bool(OPENAI_API_KEY)}")
+        # Env var as well
+        env_found = "OPENAI_API_KEY" in os.environ
 
-    # If we have a key, create the client
-    if OPENAI_API_KEY:
-        ai_client = OpenAI(api_key=OPENAI_API_KEY)
+        st.sidebar.write(f"Secrets has OPENAI_API_KEY: {secrets_found}")
+        st.sidebar.write(f"Env has OPENAI_API_KEY: {env_found}")
+
+        if secrets_found:
+            key = st.secrets["OPENAI_API_KEY"]
+    except Exception:
+        # If st.secrets itself is not available, skip gracefully
+        pass
+
+    # --- Fallback: environment variable ---
+    if not key:
+        key = os.environ.get("OPENAI_API_KEY", None)
+
+    if key and str(key).strip():
+        ai_client = OpenAI(api_key=str(key).strip())
         OPENAI_AVAILABLE = True
     else:
         OPENAI_AVAILABLE = False
+        ai_client = None
+        st.sidebar.write("Using key: False")
 
-except Exception as e:
-    OPENAI_AVAILABLE = False
-    with st.sidebar:
-        st.error(f"AI init failed: {e}")
+
+# Run once on app start
+init_openai_client()
 
 # =========================
 # CONFIG & BRANDING
