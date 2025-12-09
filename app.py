@@ -1246,7 +1246,7 @@ else:
 
             with c2:
                 st.markdown('<div class="po-label">SKU Name / Description</div>', unsafe_allow_html=True)
-                desc = st.text_input("", key=f"desc_{i}"])
+                desc = st.text_input("", key=f"desc_{i}")
 
             with c3:
                 st.markdown('<div class="po-label">Strain / Type</div>', unsafe_allow_html=True)
