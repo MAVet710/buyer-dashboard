@@ -26,23 +26,15 @@ except ImportError:
 # ------------------------------------------------------------
 OPENAI_AVAILABLE = False
 ai_client = None
+
 try:
     from openai import OpenAI
 
-    # Try multiple places / key names for the API key
-    OPENAI_API_KEY = (
-        st.secrets.get("OPENAI_API_KEY", None)
-        or st.secrets.get("openai_api_key", None)
-    )
+    # Single, direct source of truth: Streamlit secrets
+    OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", None)
 
-    # Nested style: [openai]["api_key"]
-    if OPENAI_API_KEY is None and "openai" in st.secrets:
-        maybe = st.secrets["openai"]
-        if isinstance(maybe, dict):
-            OPENAI_API_KEY = maybe.get("api_key")
-
-    # Environment fallback
-    if OPENAI_API_KEY is None:
+    # Fallback to env var only if needed
+    if not OPENAI_API_KEY:
         OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
 
     if OPENAI_API_KEY and str(OPENAI_API_KEY).strip():
@@ -50,8 +42,13 @@ try:
         OPENAI_AVAILABLE = True
     else:
         OPENAI_AVAILABLE = False
-except Exception:
+
+except Exception as e:
+    # If anything goes wrong here, we just keep AI off
     OPENAI_AVAILABLE = False
+    # Optional debug (you can uncomment this while testing)
+    # st.sidebar.write(f"AI init error: {e}")
+
 
 # =========================
 # CONFIG & BRANDING
