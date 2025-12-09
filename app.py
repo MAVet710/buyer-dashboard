@@ -247,6 +247,13 @@ def normalize_rebelle_category(raw):
 
 
 def extract_strain_type(name, subcat):
+    """
+    Strain type + vape oil type decoration.
+    Examples:
+      - 'indica live resin'
+      - 'hybrid distillate'
+      - 'sativa disposable live resin'
+    """
     s = str(name).lower()
     base = "unspecified"
     if "indica" in s:
@@ -262,13 +269,35 @@ def extract_strain_type(name, subcat):
     vape = any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
     preroll = any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
 
+    # Vape oil types
+    oil_type = None
+    if vape:
+        if any(k in s for k in ["live resin", "llr", "liquid live resin"]):
+            oil_type = "live resin"
+        elif "cured" in s and "resin" in s:
+            oil_type = "cured resin"
+        elif "rosin" in s:
+            oil_type = "rosin"
+        elif any(k in s for k in ["distillate", "disty", "disti"]):
+            oil_type = "distillate"
+
     # Disposables (vapes)
     if ("disposable" in s or "dispos" in s) and vape:
-        return base + " disposable" if base != "unspecified" else "disposable"
+        label_base = base if base != "unspecified" else ""
+        parts = [p for p in [label_base, "disposable", oil_type] if p]
+        return " ".join(parts) if parts else "disposable"
 
     # Infused pre-rolls
     if "infused" in s and preroll:
-        return base + " infused" if base != "unspecified" else "infused"
+        label_base = base if base != "unspecified" else ""
+        parts = [p for p in [label_base, "infused"] if p]
+        return " ".join(parts)
+
+    # Regular vapes w/ oil type
+    if vape and oil_type:
+        label_base = base if base != "unspecified" else ""
+        parts = [p for p in [label_base, oil_type] if p]
+        return " ".join(parts)
 
     return base
 
@@ -961,6 +990,70 @@ if section == "📊 Inventory Dashboard":
                 sales_summary["unitssold"] / max(date_diff, 1)
             ) * velocity_adjustment
 
+            # -----------------------------------
+            # Virtual velocities:
+            #  - Flower → equivalent 28g units/day
+            #  - Edibles → equivalent 500mg units/day
+            # -----------------------------------
+            flower_oz_velocity = {}
+            edibles_500_velocity = {}
+
+            # Flower → grams → oz
+            try:
+                flower_rows = sales_summary[
+                    sales_summary["mastercategory"].astype(str).str.contains("flower", na=False)
+                ].copy()
+
+                def grams_from_size(size_str):
+                    s = str(size_str).lower()
+                    m = re.search(r"(\d+(\.\d+)?)g", s)
+                    if m:
+                        return float(m.group(1))
+                    if "oz" in s:
+                        return 28.0
+                    return None
+
+                flower_rows["grams"] = flower_rows["packagesize"].apply(grams_from_size)
+                flower_rows = flower_rows[flower_rows["grams"].notna()]
+
+                if not flower_rows.empty:
+                    flower_rows["grams_per_day"] = (
+                        flower_rows["avgunitsperday"] * flower_rows["grams"]
+                    )
+                    for cat, grp in flower_rows.groupby("mastercategory"):
+                        total_grams_per_day = grp["grams_per_day"].sum()
+                        if total_grams_per_day > 0:
+                            flower_oz_velocity[cat] = total_grams_per_day / 28.0
+            except Exception:
+                flower_oz_velocity = {}
+
+            # Edibles → mg → 500mg packs
+            try:
+                edible_rows = sales_summary[
+                    sales_summary["mastercategory"].astype(str).str.contains("edible", na=False)
+                ].copy()
+
+                def mg_from_size(size_str):
+                    s = str(size_str).lower()
+                    m = re.search(r"(\d+(\.\d+)?)mg", s)
+                    if m:
+                        return float(m.group(1))
+                    return None
+
+                edible_rows["mg"] = edible_rows["packagesize"].apply(mg_from_size)
+                edible_rows = edible_rows[edible_rows["mg"].notna()]
+
+                if not edible_rows.empty:
+                    edible_rows["mg_per_day"] = (
+                        edible_rows["avgunitsperday"] * edible_rows["mg"]
+                    )
+                    for cat, grp in edible_rows.groupby("mastercategory"):
+                        total_mg_per_day = grp["mg_per_day"].sum()
+                        if total_mg_per_day > 0:
+                            edibles_500_velocity[cat] = total_mg_per_day / 500.0
+            except Exception:
+                edibles_500_velocity = {}
+
             # Merge inventory summary with size-level velocity
             detail = pd.merge(
                 inv_summary,
@@ -989,47 +1082,46 @@ if section == "📊 Inventory Dashboard":
                         }
                     )
 
+            # --- Ensure Edibles 500mg row exists (high-dose pack) ---
+            edible_mask = detail["subcategory"].str.contains("edible", na=False)
+            edible_cats = detail.loc[edible_mask, "subcategory"].unique()
+
+            for cat in edible_cats:
+                if not ((detail["subcategory"] == cat) & (detail["packagesize"] == "500mg")).any():
+                    missing_rows.append(
+                        {
+                            "subcategory": cat,
+                            "strain_type": "unspecified",
+                            "packagesize": "500mg",
+                            "onhandunits": 0,
+                            "mastercategory": cat,
+                            "unitssold": 0,
+                            "avgunitsperday": 0,
+                        }
+                    )
+
             if missing_rows:
                 detail = pd.concat([detail, pd.DataFrame(missing_rows)], ignore_index=True)
 
-            # --- Impute velocity for Flower 28g rows with 0 velocity ---
-            flower_28g_zero_mask = (
-                detail["subcategory"].str.contains("flower", na=False)
-                & (detail["packagesize"] == "28g")
-                & (detail["avgunitsperday"] == 0)
-            )
-
-            if flower_28g_zero_mask.any():
-                # overall flower median velocity (backup)
-                flower_vel_mask = (
-                    detail["subcategory"].str.contains("flower", na=False)
-                    & (detail["avgunitsperday"] > 0)
-                )
-                overall_flower_median = None
-                if flower_vel_mask.any():
-                    overall_flower_median = detail.loc[
-                        flower_vel_mask, "avgunitsperday"
-                    ].median()
-
-                for cat in detail.loc[flower_28g_zero_mask, "subcategory"].unique():
-                    cat_vel_mask = (
-                        (detail["subcategory"] == cat)
-                        & (detail["avgunitsperday"] > 0)
+            # Apply virtual velocities for 28g flower rows
+            if flower_oz_velocity:
+                for cat, oz_v in flower_oz_velocity.items():
+                    mask = (detail["subcategory"] == cat) & (detail["packagesize"] == "28g")
+                    # Only fill where velocity is zero / missing
+                    detail.loc[mask & (detail["avgunitsperday"] <= 0), "avgunitsperday"] = oz_v
+                    # Back-calc unitssold for that virtual row (for reporting only)
+                    detail.loc[mask & (detail["unitssold"] <= 0), "unitssold"] = (
+                        oz_v * max(date_diff, 1) / velocity_adjustment
                     )
 
-                    if cat_vel_mask.any():
-                        base_vel = detail.loc[
-                            cat_vel_mask, "avgunitsperday"
-                        ].median()
-                    else:
-                        base_vel = overall_flower_median
-
-                    if base_vel and base_vel > 0:
-                        est_vel = base_vel * 0.1  # treat 28g as slower mover
-                        detail.loc[
-                            flower_28g_zero_mask & (detail["subcategory"] == cat),
-                            "avgunitsperday",
-                        ] = est_vel
+            # Apply virtual velocities for 500mg edibles rows
+            if edibles_500_velocity:
+                for cat, v_500 in edibles_500_velocity.items():
+                    mask = (detail["subcategory"] == cat) & (detail["packagesize"] == "500mg")
+                    detail.loc[mask & (detail["avgunitsperday"] <= 0), "avgunitsperday"] = v_500
+                    detail.loc[mask & (detail["unitssold"] <= 0), "unitssold"] = (
+                        v_500 * max(date_diff, 1) / velocity_adjustment
+                    )
 
             # DOH + Reorder (granular per row)
             detail["daysonhand"] = np.where(
