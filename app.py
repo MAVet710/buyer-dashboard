@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import re
 import json
-import os
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -24,89 +23,39 @@ except ImportError:
 # ------------------------------------------------------------
 # OPTIONAL / SAFE IMPORT FOR OPENAI (AI INVENTORY CHECK)
 # ------------------------------------------------------------
-import os
-
 OPENAI_AVAILABLE = False
 ai_client = None
+try:
+    from openai import OpenAI
 
-def init_openai_client():
-    """Try to load OpenAI client from Streamlit secrets or env, and debug keys."""
-    global OPENAI_AVAILABLE, ai_client
+    # Read API key from Streamlit secrets
+    OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", None)
 
-    try:
-        from openai import OpenAI
-    except Exception:
-        OPENAI_AVAILABLE = False
-        ai_client = None
-        return
-
-    key = None
-
-    # --- Debug: what does Streamlit actually see? ---
-    try:
-        top_keys = list(st.secrets.keys())
-    except Exception:
-        top_keys = []
-
-    st.sidebar.markdown("### 🔍 AI Debug Info")
-    st.sidebar.write(f"Top-level keys: {top_keys}")
-
-    # 1) Try top-level OPENAI_API_KEY
-    try:
-        if "OPENAI_API_KEY" in st.secrets:
-            key = str(st.secrets["OPENAI_API_KEY"]).strip()
-            st.sidebar.write("Found OPENAI_API_KEY at top level.")
-    except Exception:
-        pass
-
-    # 2) Try nested under gcp_service_account (your current layout)
-    if not key:
-        try:
-            if (
-                "gcp_service_account" in st.secrets
-                and "OPENAI_API_KEY" in st.secrets["gcp_service_account"]
-            ):
-                key = str(st.secrets["gcp_service_account"]["OPENAI_API_KEY"]).strip()
-                st.sidebar.write("Found OPENAI_API_KEY under [gcp_service_account].")
-        except Exception:
-            pass
-
-    # 3) Fallback to environment variable
-    if not key:
-        env_key = os.environ.get("OPENAI_API_KEY")
-        if env_key:
-            key = env_key.strip()
-            st.sidebar.write("Using OPENAI_API_KEY from environment.")
-
-    # Finalize
-    if key:
-        ai_client = OpenAI(api_key=key)
+    if OPENAI_API_KEY and OPENAI_API_KEY.strip():
+        ai_client = OpenAI(api_key=OPENAI_API_KEY)
         OPENAI_AVAILABLE = True
-        st.sidebar.write("Using key: True")
     else:
         OPENAI_AVAILABLE = False
-        ai_client = None
-        st.sidebar.write("Using key: False")
+except Exception:
+    OPENAI_AVAILABLE = False
 
-# Run once on app start
-init_openai_client()
 # =========================
 # CONFIG & BRANDING
 # =========================
-CLIENT_NAME = "Rebelle Cannabis"
+CLIENT_NAME = "MAVet710"
 APP_TITLE = f"{CLIENT_NAME} Purchasing Dashboard"
 APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data."
-LICENSE_FOOTER = f"Licensed exclusively to {CLIENT_NAME} • Powered by MAVet710 Analytics"
+LICENSE_FOOTER = "MAVet710 Buyer Tools • Powered by MAVet710 Analytics"
 
 # 🔐 TRIAL SETTINGS
-TRIAL_KEY = "rebelle24"        # Rebelle 24-hour trial key
+TRIAL_KEY = "mavet24"        # MAVet 24-hour trial key
 TRIAL_DURATION_HOURS = 24
 
 # 👑 ADMIN CREDS
 ADMIN_USERNAME = "God"
 ADMIN_PASSWORD = "Major420"
 
-# ✅ Canonical Rebelle category names (values, not column names)
+# ✅ Canonical category names (values, not column names)
 REB_CATEGORIES = [
     "flower",
     "pre rolls",
@@ -118,10 +67,9 @@ REB_CATEGORIES = [
     "topicals",
 ]
 
-# Tab icon (favicon)
+# Tab icon (favicon) – MAVet image
 page_icon_url = (
-    "https://raw.githubusercontent.com/MAVet710/Rebelle-Purchasing-Dash/"
-    "ef50d34e20caf45231642e957137d6141082dbb9/rebelle.jpg"
+    "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
 )
 
 st.set_page_config(
@@ -130,10 +78,9 @@ st.set_page_config(
     page_icon=page_icon_url,
 )
 
-# Background image
+# Background image – MAVet image
 background_url = (
-    "https://raw.githubusercontent.com/MAVet710/Rebelle-Purchasing-Dash/"
-    "ef50d34e20caf45231642e957137d6141082dbb9/rebelle%20main.png"
+    "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
 )
 
 # =========================
@@ -259,7 +206,7 @@ def detect_column(columns, aliases):
 
 
 def normalize_rebelle_category(raw):
-    """Map similar names to canonical Rebelle categories."""
+    """Map similar names to canonical categories."""
     s = str(raw).lower().strip()
 
     # Flower
@@ -275,7 +222,7 @@ def normalize_rebelle_category(raw):
         return "vapes"
 
     # Edibles
-    if any(k in s for k in ["edible", "gummy", "gummies", "chocolate", "chew", "cookies"]):
+    if any(k in s for k in ["edible", "gummy", "chocolate", "chew", "cookies"]):
         return "edibles"
 
     # Beverages
@@ -283,7 +230,7 @@ def normalize_rebelle_category(raw):
         return "beverages"
 
     # Concentrates
-    if any(k in s for k in ["concentrate", "wax", "shatter", "crumble", "resin", "rosin", "dab", "rso"]):
+    if any(k in s for k in ["concentrate", "wax", "shatter", "crumble", "resin", "rosin", "dab"]):
         return "concentrates"
 
     # Tinctures
@@ -298,20 +245,7 @@ def normalize_rebelle_category(raw):
 
 
 def extract_strain_type(name, subcat):
-    """
-    Strain/type logic:
-
-    - Base: indica / sativa / hybrid / cbd / unspecified
-    - Vapes: detect oil type (distillate, live resin / LLR, cured resin, rosin)
-    - Edibles: detect form (gummy, chocolate)
-    - Concentrates: detect RSO
-    - Pre-rolls: keep 'infused' logic
-    - Disposables: keep disposable logic for vapes
-    """
     s = str(name).lower()
-    cat = str(subcat).lower()
-
-    # Base strain call
     base = "unspecified"
     if "indica" in s:
         base = "indica"
@@ -322,61 +256,17 @@ def extract_strain_type(name, subcat):
     elif "cbd" in s:
         base = "cbd"
 
-    # Flags
-    vape_flag = any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
-    preroll_flag = any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
-
-    # --- VAPES: oil type detection ---
-    oil = None
-    if "vape" in cat or vape_flag:
-        if any(k in s for k in ["live resin", "llr", "liquid live resin"]):
-            oil = "live resin"
-        elif "cured resin" in s:
-            oil = "cured resin"
-        elif "rosin" in s:
-            oil = "rosin"
-        elif any(k in s for k in ["distillate", "disty"]):
-            oil = "distillate"
+    # Recognize vapes / pens
+    vape = any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
+    preroll = any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
 
     # Disposables (vapes)
-    if ("disposable" in s or "dispos" in s) and vape_flag:
-        if oil:
-            oil = f"{oil} disposable"
-        else:
-            # If we don't know oil, still tag disposable
-            if base != "unspecified":
-                return f"{base} disposable"
-            return "disposable"
+    if ("disposable" in s or "dispos" in s) and vape:
+        return base + " disposable" if base != "unspecified" else "disposable"
 
     # Infused pre-rolls
-    if "infused" in s and preroll_flag:
+    if "infused" in s and preroll:
         return base + " infused" if base != "unspecified" else "infused"
-
-    # --- EDIBLES: form detection (gummy / chocolate) ---
-    if "edible" in cat or "edibles" in cat:
-        form = None
-        if any(k in s for k in ["gummy", "gummies", "chew", "fruit chew"]):
-            form = "gummy"
-        elif any(k in s for k in ["chocolate", "choc "]):
-            form = "chocolate"
-
-        if form:
-            if base != "unspecified":
-                return f"{base} {form}"
-            return form
-
-    # --- CONCENTRATES: RSO tagging ---
-    if "concentrate" in cat or "concentrates" in cat:
-        if "rso" in s or "rick simpson" in s:
-            if base != "unspecified":
-                return f"{base} rso"
-            return "rso"
-
-    # If we have an oil type for vapes, return that layered with base
-    if oil:
-        if base != "unspecified":
-            return f"{base} {oil}"
-        return oil
 
     return base
 
@@ -720,8 +610,8 @@ Each row is a category/size/strain combo with its sales and coverage.
 
 Fields:
 - mastercategory / subcategory (normalized product category)
-- strain_type (indica / sativa / hybrid / disposable / infused / gummy / chocolate / rso etc.)
-- packagesize (like 3.5g, 1g, 5mg, 28g, 500mg)
+- strain_type (indica / sativa / hybrid / disposable / infused etc.)
+- packagesize (like 3.5g, 1g, 5mg, 28g)
 - onhandunits (current inventory units in stock)
 - unitssold (units sold in the lookback window)
 - avgunitsperday (velocity estimate)
@@ -958,7 +848,7 @@ if section == "📊 Inventory Dashboard":
             )
 
             inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
-            # normalize to Rebelle canonical categories
+            # normalize to canonical categories
             inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
 
             # Strain Type + Package Size
@@ -1029,6 +919,8 @@ if section == "📊 Inventory Dashboard":
                     "Tip: Use Dutchie 'Product Sales' or Blaze 'Sales by Product' exports "
                     "without manually editing the headers."
                 )
+           
+
                 st.stop()
 
             # Normalize to internal names
@@ -1078,26 +970,13 @@ if section == "📊 Inventory Dashboard":
                 right_on=["mastercategory", "packagesize"],
             ).fillna(0)
 
-            # --- Ensure Flower 28g / 1oz always shows with educated guess ---
+            # --- Ensure Flower 28g / 1oz always shows ---
             flower_mask = detail["subcategory"].str.contains("flower", na=False)
             flower_cats = detail.loc[flower_mask, "subcategory"].unique()
 
             missing_rows = []
             for cat in flower_cats:
-                has_28 = ((detail["subcategory"] == cat) & (detail["packagesize"] == "28g")).any()
-                if not has_28:
-                    # Pull historical velocity for 28g in this category, if it exists
-                    sales_28 = sales_summary[
-                        (sales_summary["mastercategory"] == cat) &
-                        (sales_summary["packagesize"] == "28g")
-                    ]
-                    if not sales_28.empty:
-                        units_28 = float(sales_28["unitssold"].iloc[0])
-                        avg_28 = float(sales_28["avgunitsperday"].iloc[0])
-                    else:
-                        units_28 = 0.0
-                        avg_28 = 0.0
-
+                if not ((detail["subcategory"] == cat) & (detail["packagesize"] == "28g")).any():
                     missing_rows.append(
                         {
                             "subcategory": cat,
@@ -1105,47 +984,13 @@ if section == "📊 Inventory Dashboard":
                             "packagesize": "28g",
                             "onhandunits": 0,
                             "mastercategory": cat,
-                            "unitssold": units_28,
-                            "avgunitsperday": avg_28,
+                            "unitssold": 0,
+                            "avgunitsperday": 0,
                         }
                     )
 
             if missing_rows:
                 detail = pd.concat([detail, pd.DataFrame(missing_rows)], ignore_index=True)
-
-            # --- Ensure Edibles 500mg high-dose row always shows with educated guess ---
-            edibles_mask = detail["subcategory"].str.contains("edible", na=False)
-            edibles_cats = detail.loc[edibles_mask, "subcategory"].unique()
-
-            edibles_missing = []
-            for cat in edibles_cats:
-                has_500 = ((detail["subcategory"] == cat) & (detail["packagesize"] == "500mg")).any()
-                if not has_500:
-                    sales_500 = sales_summary[
-                        (sales_summary["mastercategory"] == cat) &
-                        (sales_summary["packagesize"] == "500mg")
-                    ]
-                    if not sales_500.empty:
-                        units_500 = float(sales_500["unitssold"].iloc[0])
-                        avg_500 = float(sales_500["avgunitsperday"].iloc[0])
-                    else:
-                        units_500 = 0.0
-                        avg_500 = 0.0
-
-                    edibles_missing.append(
-                        {
-                            "subcategory": cat,
-                            "strain_type": "unspecified",
-                            "packagesize": "500mg",
-                            "onhandunits": 0,
-                            "mastercategory": cat,
-                            "unitssold": units_500,
-                            "avgunitsperday": avg_500,
-                        }
-                    )
-
-            if edibles_missing:
-                detail = pd.concat([detail, pd.DataFrame(edibles_missing)], ignore_index=True)
 
             # DOH + Reorder (granular per row)
             detail["daysonhand"] = np.where(
@@ -1218,7 +1063,7 @@ if section == "📊 Inventory Dashboard":
                 except Exception:
                     return ""
 
-            # Category filter (ordered by Rebelle categories first) **after** metric filter
+            # Category filter (ordered by canonical categories first) **after** metric filter
             all_cats = sorted(detail_view["subcategory"].unique())
 
             def cat_sort_key(c):
@@ -1303,7 +1148,7 @@ else:
 
     with col1:
         st.markdown('<div class="po-label">Store / Ship-To Name</div>', unsafe_allow_html=True)
-        store_name = st.text_input("", value="Rebelle Cannabis", key="store_name")
+        store_name = st.text_input("", value="MAVet710", key="store_name")
 
         st.markdown('<div class="po-label">Store #</div>', unsafe_allow_html=True)
         store_number = st.text_input("", key="store_number")
@@ -1462,7 +1307,7 @@ else:
         st.download_button(
             "📥 Download PO (PDF)",
             data=pdf_bytes,
-            file_name=f"PO_{po_number or 'rebelle'}.pdf",
+            file_name=f"PO_{po_number or 'mavet'}.pdf",
             mime="application/pdf",
         )
 
