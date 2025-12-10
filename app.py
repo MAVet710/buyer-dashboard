@@ -29,7 +29,7 @@ ai_client = None
 try:
     from openai import OpenAI
 
-    # Try secrets first, then env var
+    # Try to load from Streamlit secrets first, then env
     OPENAI_API_KEY = None
     try:
         OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", None)
@@ -37,7 +37,7 @@ try:
         OPENAI_API_KEY = None
 
     if not OPENAI_API_KEY:
-        OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
+        OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
     if OPENAI_API_KEY and str(OPENAI_API_KEY).strip():
         ai_client = OpenAI(api_key=str(OPENAI_API_KEY).strip())
@@ -57,14 +57,16 @@ APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data
 LICENSE_FOOTER = "MAVet710 Buyer Tools • Powered by MAVet710 Analytics"
 
 # 🔐 TRIAL SETTINGS
-TRIAL_KEY = "mavet24"        # MAVet 24-hour trial key
+TRIAL_KEY = "mavet24"        # 24-hour trial key
 TRIAL_DURATION_HOURS = 24
 
 # 👑 ADMIN CREDS (multiple admins)
-ADMIN_USERS = {
+ADMIN_CREDENTIALS = {
     "God": "Major420",
     "JVas": "UPG2025",
 }
+
+ADMIN_USERNAME_PRIMARY = "God"  # for God-only features
 
 # ✅ Canonical category names (values, not column names)
 REB_CATEGORIES = [
@@ -102,9 +104,7 @@ if "is_admin" not in st.session_state:
 if "trial_start" not in st.session_state:
     st.session_state.trial_start = None
 if "metric_filter" not in st.session_state:
-    st.session_state.metric_filter = "All"   # legacy; we now use problem_view
-if "problem_view" not in st.session_state:
-    st.session_state.problem_view = "None"
+    st.session_state.metric_filter = "All"   # All / Reorder ASAP
 if "inv_raw_df" not in st.session_state:
     st.session_state.inv_raw_df = None
 if "sales_raw_df" not in st.session_state:
@@ -113,6 +113,11 @@ if "extra_sales_df" not in st.session_state:
     st.session_state.extra_sales_df = None
 if "theme" not in st.session_state:
     st.session_state.theme = "Dark"  # Dark by default
+if "logged_in_user" not in st.session_state:
+    st.session_state.logged_in_user = "Guest"
+if "upload_log" not in st.session_state:
+    # list of dicts: {timestamp, uploader, file_type, file_name}
+    st.session_state.upload_log = []
 
 theme = st.session_state.theme
 
@@ -262,14 +267,12 @@ def extract_strain_type(name, subcat):
     Strain/type logic:
 
     - Base: indica / sativa / hybrid / cbd / unspecified
-    - Vapes: disposable handling
-    - Pre-rolls: infused handling
-    (Oil types / RSO / form were removed here to keep behavior consistent.)
+    - Pre-rolls: infused logic
+    - Disposables: disposable tag for vapes
     """
     s = str(name).lower()
     cat = str(subcat).lower()
 
-    # Base strain call
     base = "unspecified"
     if "indica" in s:
         base = "indica"
@@ -280,16 +283,16 @@ def extract_strain_type(name, subcat):
     elif "cbd" in s:
         base = "cbd"
 
-    # Flags
-    vape_flag = any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
-    preroll_flag = any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
+    # Recognize vapes / pens
+    vape = any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
+    preroll = any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
 
     # Disposables (vapes)
-    if ("disposable" in s or "dispos" in s) and vape_flag:
+    if ("disposable" in s or "dispos" in s) and vape:
         return base + " disposable" if base != "unspecified" else "disposable"
 
     # Infused pre-rolls
-    if "infused" in s and preroll_flag:
+    if "infused" in s and preroll:
         return base + " infused" if base != "unspecified" else "infused"
 
     return base
@@ -298,7 +301,7 @@ def extract_strain_type(name, subcat):
 def extract_size(text, context=None):
     s = str(text).lower()
 
-    # mg doses (edibles, tinctures, etc.)
+    # mg doses
     mg = re.search(r"(\d+(\.\d+)?\s?mg)", s)
     if mg:
         return mg.group(1).replace(" ", "")
@@ -354,8 +357,7 @@ def read_inventory_file(uploaded_file):
 def read_sales_file(uploaded_file):
     """
     Read Excel sales report with smart header detection.
-    Looks for a row that contains something like 'category' and 'product'
-    (Dutchie 'Total Sales by Product' style) and uses that as the header.
+    Looks for a row that contains something like 'category' and 'product'.
     """
     uploaded_file.seek(0)
     tmp = pd.read_excel(uploaded_file, header=None)
@@ -596,16 +598,15 @@ def ai_inventory_check(detail_view, doh_threshold, data_source):
     if not OPENAI_AVAILABLE or ai_client is None:
         return (
             "AI is not enabled. Add OPENAI_API_KEY to Streamlit secrets "
-            "or the environment to turn on the buyer-assist checks."
+            "or environment to turn on the buyer-assist checks."
         )
 
     # Keep payload modest
     sample = detail_view.copy()
     # Focus on lines that actually matter to a buyer
-    if "reorderpriority" in sample.columns and "daysonhand" in sample.columns:
-        sample = sample.sort_values(
-            ["reorderpriority", "daysonhand"], ascending=[True, True]
-        )
+    sample = sample.sort_values(
+        ["reorderpriority", "daysonhand"], ascending=[True, True]
+    )
     sample = sample.head(80)
 
     # Only send the key columns
@@ -691,23 +692,44 @@ if theme_choice != st.session_state.theme:
     st.session_state.theme = theme_choice
     st.experimental_rerun()
 
+# ---- Admin login ----
 st.sidebar.markdown("### 👑 Admin Login")
 
 if not st.session_state.is_admin:
     admin_user = st.sidebar.text_input("Username", key="admin_user")
     admin_pass = st.sidebar.text_input("Password", type="password", key="admin_pass")
     if st.sidebar.button("Login as Admin"):
-        if admin_user in ADMIN_USERS and admin_pass == ADMIN_USERS[admin_user]:
+        if admin_user in ADMIN_CREDENTIALS and admin_pass == ADMIN_CREDENTIALS[admin_user]:
             st.session_state.is_admin = True
-            st.sidebar.success("✅ Admin mode enabled.")
+            st.session_state.logged_in_user = admin_user
+            st.sidebar.success(f"✅ Admin mode enabled ({admin_user}).")
         else:
             st.sidebar.error("❌ Invalid admin credentials.")
 else:
-    st.sidebar.success("👑 Admin mode: unlimited access")
+    st.sidebar.success(f"👑 Admin mode: {st.session_state.logged_in_user}")
     if st.sidebar.button("Logout Admin"):
         st.session_state.is_admin = False
+        st.session_state.logged_in_user = "Guest"
         st.experimental_rerun()
 
+# ---- God-only upload log viewer in sidebar ----
+if (
+    st.session_state.is_admin
+    and st.session_state.logged_in_user == ADMIN_USERNAME_PRIMARY
+):
+    st.sidebar.markdown("### 📁 Upload Log (God only)")
+    if st.session_state.upload_log:
+        log_df = pd.DataFrame(st.session_state.upload_log)
+        log_df = log_df.sort_values("timestamp", ascending=False)
+        st.sidebar.dataframe(
+            log_df,
+            use_container_width=True,
+            height=250,
+        )
+    else:
+        st.sidebar.caption("No uploads yet this session.")
+
+# ---- Trial gate ----
 trial_now = datetime.now()
 
 if not st.session_state.is_admin:
@@ -720,6 +742,7 @@ if not st.session_state.is_admin:
         if st.sidebar.button("Activate Trial", key="activate_trial"):
             if trial_key_input.strip() == TRIAL_KEY:
                 st.session_state.trial_start = trial_now.isoformat()
+                st.session_state.logged_in_user = "TrialUser"
                 st.sidebar.success("✅ Trial activated. You have 24 hours of access.")
             else:
                 st.sidebar.error("❌ Invalid trial key.")
@@ -759,7 +782,8 @@ st.markdown("---")
 if not PLOTLY_AVAILABLE:
     st.warning(
         "⚠️ Plotly is not installed in this environment. Charts will be disabled.\n\n"
-        "If using Streamlit Cloud, add `plotly` and `reportlab` to your `requirements.txt` file."
+        "If using Streamlit Cloud, add `plotly`, `reportlab`, and `xlsxwriter` "
+        "to your `requirements.txt` file."
     )
 
 # =========================
@@ -781,7 +805,7 @@ if section == "📊 Inventory Dashboard":
     data_source = st.sidebar.selectbox(
         "Select POS / Data Source",
         ["BLAZE", "Dutchie"],
-        index=0,
+        index=1,
         help="Changes how column names are interpreted. Files are still just CSV/XLSX exports.",
     )
 
@@ -805,47 +829,22 @@ if section == "📊 Inventory Dashboard":
     velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", 0.01, 5.0, 0.5)
     date_diff = st.sidebar.slider("Days in Sales Period", 7, 90, 60)
 
-    # 🧪 Scenario Mode (Option 7)
-    st.sidebar.markdown("### 🧪 Scenario Mode (What-if)")
-    scenario_enabled = st.sidebar.checkbox("Enable Scenario Mode (what-if)", value=False)
-    scenario_doh = None
-    scenario_velocity_mult = None
-    scenario_categories = None
+    # Cache raw dataframes when new files are uploaded + log who uploaded
+    uploader_name = st.session_state.get("logged_in_user", "Guest")
 
-    if scenario_enabled:
-        scenario_doh = st.sidebar.number_input(
-            "Scenario Target DOH",
-            min_value=1,
-            max_value=90,
-            value=doh_threshold,
-            help="Used only for Scenario Forecast; Actuals remain based on Target DOH above.",
-        )
-        scenario_velocity_mult = st.sidebar.number_input(
-            "Scenario Velocity Multiplier",
-            min_value=0.1,
-            max_value=3.0,
-            value=1.0,
-            step=0.1,
-            help="Multiply current velocity for what-if (e.g. 1.2 = +20% demand).",
-        )
-
-    # 🧨 Problem Views (Option 4)
-    st.sidebar.markdown("### 🧨 Problem Views")
-    problem_view_choice = st.sidebar.selectbox(
-        "Focus subset",
-        ["None", "Reorder ASAP Only", "High Velocity / Low Stock", "Overstock / Dead"],
-        index=["None", "Reorder ASAP Only", "High Velocity / Low Stock", "Overstock / Dead"]
-        .index(st.session_state.problem_view if st.session_state.problem_view in [
-            "None", "Reorder ASAP Only", "High Velocity / Low Stock", "Overstock / Dead"
-        ] else "None"),
-    )
-    st.session_state.problem_view = problem_view_choice
-
-    # Cache raw dataframes when new files are uploaded
     if inv_file is not None:
         try:
             inv_df_raw = read_inventory_file(inv_file)
             st.session_state.inv_raw_df = inv_df_raw
+
+            st.session_state.upload_log.append(
+                {
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),
+                    "uploader": uploader_name,
+                    "file_type": "Inventory",
+                    "file_name": inv_file.name,
+                }
+            )
         except Exception as e:
             st.error(f"Error reading inventory file: {e}")
             st.stop()
@@ -854,6 +853,15 @@ if section == "📊 Inventory Dashboard":
         try:
             sales_raw_raw = read_sales_file(product_sales_file)
             st.session_state.sales_raw_df = sales_raw_raw
+
+            st.session_state.upload_log.append(
+                {
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),
+                    "uploader": uploader_name,
+                    "file_type": "Product Sales",
+                    "file_name": product_sales_file.name,
+                }
+            )
         except Exception as e:
             st.error(f"Error reading Product Sales report: {e}")
             st.stop()
@@ -862,55 +870,22 @@ if section == "📊 Inventory Dashboard":
         try:
             extra_sales_raw = read_sales_file(extra_sales_file)
             st.session_state.extra_sales_df = extra_sales_raw
+
+            st.session_state.upload_log.append(
+                {
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),
+                    "uploader": uploader_name,
+                    "file_type": "Extra Sales",
+                    "file_name": extra_sales_file.name,
+                }
+            )
         except Exception:
-            # Not critical – we can ignore failures here
             st.session_state.extra_sales_df = None
-
-    # Multi-store detection (Option 6)
-    store_selection = None
-    store_col_inv = None
-    store_col_sales = None
-
-    if st.session_state.inv_raw_df is not None and st.session_state.sales_raw_df is not None:
-        inv_df_probe = st.session_state.inv_raw_df.copy()
-        sales_raw_probe = st.session_state.sales_raw_df.copy()
-
-        store_aliases = [
-            "store", "store_name", "storename",
-            "location", "site", "dispensary", "shop"
-        ]
-
-        store_col_inv = detect_column(inv_df_probe.columns, [normalize_col(a) for a in store_aliases])
-        store_col_sales = detect_column(sales_raw_probe.columns, [normalize_col(a) for a in store_aliases])
-
-        store_options = set()
-        if store_col_inv:
-            store_options.update(
-                inv_df_probe[store_col_inv].dropna().astype(str).unique().tolist()
-            )
-        if store_col_sales:
-            store_options.update(
-                sales_raw_probe[store_col_sales].dropna().astype(str).unique().tolist()
-            )
-
-        if store_options:
-            st.sidebar.markdown("### 🏬 Store Filter")
-            store_selection = st.sidebar.selectbox(
-                "Store",
-                ["All Stores"] + sorted(store_options),
-            )
 
     if st.session_state.inv_raw_df is not None and st.session_state.sales_raw_df is not None:
         try:
             inv_df = st.session_state.inv_raw_df.copy()
             sales_raw = st.session_state.sales_raw_df.copy()
-
-            # Apply store filter BEFORE any normalization (Option 6)
-            if store_selection and store_selection != "All Stores":
-                if store_col_inv and store_col_inv in inv_df.columns:
-                    inv_df = inv_df[inv_df[store_col_inv].astype(str) == str(store_selection)]
-                if store_col_sales and store_col_sales in sales_raw.columns:
-                    sales_raw = sales_raw[sales_raw[store_col_sales].astype(str) == str(store_selection)]
 
             # -------- INVENTORY --------
             inv_df.columns = inv_df.columns.str.strip().str.lower()
@@ -994,7 +969,7 @@ if section == "📊 Inventory Dashboard":
                 sales_raw.columns, [normalize_col(a) for a in qty_aliases]
             )
 
-            # Extra safety: if the matched column is clearly a revenue column, reject it
+            # Extra safety: reject obvious revenue columns
             if qty_col_sales is not None:
                 norm_qty_name = normalize_col(qty_col_sales)
                 revenue_like = {
@@ -1013,16 +988,6 @@ if section == "📊 Inventory Dashboard":
             ]
             mc_col = detect_column(sales_raw.columns, [normalize_col(a) for a in mc_aliases])
 
-            # Vendor / Brand alias for Vendor Scorecard (Option 1)
-            vendor_aliases = [
-                "brand", "brandname", "brand name",
-                "vendor", "vendorname", "vendor name",
-                "producer", "manufacturer"
-            ]
-            vendor_col_raw = detect_column(
-                sales_raw.columns, [normalize_col(a) for a in vendor_aliases]
-            )
-
             if not (name_col_sales and qty_col_sales and mc_col):
                 st.error(
                     "Product Sales file detected but could not find required columns.\n\n"
@@ -1034,24 +999,24 @@ if section == "📊 Inventory Dashboard":
                 st.stop()
 
             # Normalize to internal names
-            rename_map = {
-                name_col_sales: "product_name",
-                qty_col_sales: "unitssold",
-                mc_col: "mastercategory",
-            }
-            if vendor_col_raw:
-                rename_map[vendor_col_raw] = "vendor"
-
-            sales_raw = sales_raw.rename(columns=rename_map)
+            sales_raw = sales_raw.rename(
+                columns={
+                    name_col_sales: "product_name",
+                    qty_col_sales: "unitssold",
+                    mc_col: "mastercategory",
+                }
+            )
 
             sales_raw["unitssold"] = pd.to_numeric(
                 sales_raw["unitssold"], errors="coerce"
             ).fillna(0)
 
             # normalize categories here as well
-            sales_raw["mastercategory"] = sales_raw["mastercategory"].apply(normalize_rebelle_category)
+            sales_raw["mastercategory"] = sales_raw["mastercategory"].apply(
+                normalize_rebelle_category
+            )
 
-            # Filter out accessories / 'all' (anything with "accessor")
+            # Filter out accessories / 'all'
             sales_df = sales_raw[
                 ~sales_raw["mastercategory"].astype(str).str.contains("accessor")
                 & (sales_raw["mastercategory"] != "all")
@@ -1088,11 +1053,14 @@ if section == "📊 Inventory Dashboard":
 
             missing_rows = []
             for cat in flower_cats:
-                has_28 = ((detail["subcategory"] == cat) & (detail["packagesize"] == "28g")).any()
+                has_28 = (
+                    (detail["subcategory"] == cat)
+                    & (detail["packagesize"] == "28g")
+                ).any()
                 if not has_28:
                     sales_28 = sales_summary[
-                        (sales_summary["mastercategory"] == cat) &
-                        (sales_summary["packagesize"] == "28g")
+                        (sales_summary["mastercategory"] == cat)
+                        & (sales_summary["packagesize"] == "28g")
                     ]
                     if not sales_28.empty:
                         units_28 = float(sales_28["unitssold"].iloc[0])
@@ -1122,11 +1090,14 @@ if section == "📊 Inventory Dashboard":
 
             edibles_missing = []
             for cat in edibles_cats:
-                has_500 = ((detail["subcategory"] == cat) & (detail["packagesize"] == "500mg")).any()
+                has_500 = (
+                    (detail["subcategory"] == cat)
+                    & (detail["packagesize"] == "500mg")
+                ).any()
                 if not has_500:
                     sales_500 = sales_summary[
-                        (sales_summary["mastercategory"] == cat) &
-                        (sales_summary["packagesize"] == "500mg")
+                        (sales_summary["mastercategory"] == cat)
+                        & (sales_summary["packagesize"] == "500mg")
                     ]
                     if not sales_500.empty:
                         units_500 = float(sales_500["unitssold"].iloc[0])
@@ -1194,39 +1165,23 @@ if section == "📊 Inventory Dashboard":
                     f"Units Sold (Granular Size-Level): {total_units}",
                     key="btn_total_units",
                 ):
-                    st.session_state.problem_view = "None"
+                    st.session_state.metric_filter = "All"
             with col2:
                 if st.button(
                     f"Reorder ASAP (Lines): {reorder_asap}",
                     key="btn_reorder_asap",
                 ):
-                    st.session_state.problem_view = "Reorder ASAP Only"
+                    st.session_state.metric_filter = "Reorder ASAP"
+
+            # Apply metric filter to detail for display
+            if st.session_state.metric_filter == "Reorder ASAP":
+                detail_view = detail[detail["reorderpriority"] == "1 – Reorder ASAP"].copy()
+            else:
+                detail_view = detail.copy()
 
             st.markdown(
-                f"*Current focus:* **{st.session_state.problem_view}**"
+                f"*Current filter:* **{st.session_state.metric_filter}**"
             )
-
-            # Base detail view
-            detail_view = detail.copy()
-
-            # Apply Problem Views (Option 4)
-            pv = st.session_state.problem_view
-            if pv == "Reorder ASAP Only":
-                detail_view = detail_view[detail_view["reorderpriority"] == "1 – Reorder ASAP"]
-            elif pv == "High Velocity / Low Stock":
-                # tweakable thresholds
-                hv_threshold = 0.5  # units per day
-                low_doh = 7
-                detail_view = detail_view[
-                    (detail_view["avgunitsperday"] > hv_threshold) &
-                    (detail_view["daysonhand"] < low_doh)
-                ]
-            elif pv == "Overstock / Dead":
-                high_doh = 60
-                detail_view = detail_view[
-                    (detail_view["daysonhand"] > high_doh) |
-                    ((detail_view["daysonhand"] > 30) & (detail_view["avgunitsperday"] <= 0.1))
-                ]
 
             st.markdown("### Forecast Table")
 
@@ -1237,7 +1192,7 @@ if section == "📊 Inventory Dashboard":
                 except Exception:
                     return ""
 
-            # Category filter (ordered by canonical categories first) **after** problem view
+            # Category filter (ordered by canonical categories first) **after** metric filter
             all_cats = sorted(detail_view["subcategory"].unique())
 
             def cat_sort_key(c):
@@ -1255,20 +1210,6 @@ if section == "📊 Inventory Dashboard":
             )
             detail_view = detail_view[detail_view["subcategory"].isin(selected_cats)]
 
-            # 📥 Export Forecast to Excel (current view)
-            if not detail_view.empty:
-                export_buffer = BytesIO()
-                with pd.ExcelWriter(export_buffer, engine="xlsxwriter") as writer:
-                    detail_view.to_excel(writer, index=False, sheet_name="Forecast")
-                export_buffer.seek(0)
-                st.download_button(
-                    "📥 Export Forecast (Excel)",
-                    data=export_buffer,
-                    file_name="forecast_export.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-
-            # Make sure cannabis type (strain_type) is visible
             display_cols = [
                 "mastercategory",
                 "subcategory",
@@ -1293,57 +1234,24 @@ if section == "📊 Inventory Dashboard":
                         use_container_width=True,
                     )
 
-            # =======================
-            # Scenario Forecast (Option 7)
-            # =======================
-            if scenario_enabled and scenario_doh is not None and scenario_velocity_mult is not None:
-                st.markdown("---")
-                st.markdown("### 🧪 Scenario Forecast (What-if)")
-
-                scenario_detail = detail.copy()
-
-                # Apply same category selection as main view
-                scenario_detail = scenario_detail[scenario_detail["subcategory"].isin(selected_cats)]
-
-                # Scenario velocity
-                scenario_detail["avgunitsperday_scen"] = scenario_detail["avgunitsperday"] * scenario_velocity_mult
-
-                scenario_detail["daysonhand_scen"] = np.where(
-                    scenario_detail["avgunitsperday_scen"] > 0,
-                    scenario_detail["onhandunits"] / scenario_detail["avgunitsperday_scen"],
-                    0,
+            # ---- Export Forecast as Excel ----
+            st.markdown("### 📤 Export Forecast")
+            try:
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                    detail_view.to_excel(writer, index=False, sheet_name="Forecast")
+                output.seek(0)
+                st.download_button(
+                    "📥 Download Forecast as Excel",
+                    data=output,
+                    file_name="forecast_detail_view.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
-                scenario_detail["daysonhand_scen"] = (
-                    scenario_detail["daysonhand_scen"]
-                    .replace([np.inf, -np.inf], 0)
-                    .fillna(0)
-                    .astype(int)
+            except Exception as e:
+                st.info(
+                    "To enable Excel export, ensure `xlsxwriter` is installed "
+                    "in your environment (`pip install xlsxwriter`)."
                 )
-
-                scenario_detail["reorderqty_scen"] = np.where(
-                    scenario_detail["daysonhand_scen"] < scenario_doh,
-                    np.ceil((scenario_doh - scenario_detail["daysonhand_scen"]) * scenario_detail["avgunitsperday_scen"]),
-                    0,
-                ).astype(int)
-
-                scen_cols = [
-                    "mastercategory",
-                    "subcategory",
-                    "strain_type",
-                    "packagesize",
-                    "onhandunits",
-                    "unitssold",
-                    "avgunitsperday_scen",
-                    "daysonhand_scen",
-                    "reorderqty_scen",
-                ]
-                scen_cols = [c for c in scen_cols if c in scenario_detail.columns]
-
-                for cat in sorted(scenario_detail["subcategory"].unique(), key=cat_sort_key):
-                    group = scenario_detail[scenario_detail["subcategory"] == cat]
-                    with st.expander(f"(Scenario) {cat.title()}", expanded=False):
-                        g = group[scen_cols].copy()
-                        st.dataframe(g, use_container_width=True)
 
             # =======================
             # AI INVENTORY CHECK
@@ -1359,46 +1267,39 @@ if section == "📊 Inventory Dashboard":
             else:
                 st.info(
                     "AI buyer-assist is disabled because no `OPENAI_API_KEY` was found in "
-                    "Streamlit secrets or the environment. Add one to turn this on."
+                    "Streamlit secrets or environment. Add one to turn this on."
                 )
 
             # =======================
-            # Vendor Scorecard (Option 1)
+            # GOD-ONLY RAW UPLOAD VIEWER
             # =======================
-            st.markdown("---")
-            st.markdown("### 🏷️ Vendor / Brand Scorecard")
+            if (
+                st.session_state.is_admin
+                and st.session_state.logged_in_user == ADMIN_USERNAME_PRIMARY
+            ):
+                st.markdown("---")
+                st.markdown("### 👁️ God View: Raw Uploaded Files")
 
-            if "vendor" in sales_df.columns:
-                vs = sales_df.copy()
-                vs["vendor"] = vs["vendor"].fillna("Unspecified").astype(str)
+                if st.session_state.inv_raw_df is not None:
+                    with st.expander("Inventory file (raw data)"):
+                        st.dataframe(
+                            st.session_state.inv_raw_df,
+                            use_container_width=True,
+                        )
 
-                vendor_summary = (
-                    vs.groupby("vendor")
-                    .agg(
-                        total_units=("unitssold", "sum"),
-                        sku_count=("product_name", "nunique"),
-                    )
-                    .reset_index()
-                )
+                if st.session_state.sales_raw_df is not None:
+                    with st.expander("Product Sales file (raw data)"):
+                        st.dataframe(
+                            st.session_state.sales_raw_df,
+                            use_container_width=True,
+                        )
 
-                if not vendor_summary.empty:
-                    total_units_all = vendor_summary["total_units"].sum()
-                    vendor_summary["share_of_units_%"] = (
-                        vendor_summary["total_units"] / total_units_all * 100
-                    ).round(1)
-
-                    vendor_summary = vendor_summary.sort_values(
-                        "total_units", ascending=False
-                    )
-
-                    st.dataframe(vendor_summary, use_container_width=True)
-                else:
-                    st.info("Vendor data exists but no units sold in this period.")
-            else:
-                st.info(
-                    "Vendor / brand column not detected in the Product Sales report. "
-                    "If available, make sure there's a 'Brand' or 'Vendor' column in the export."
-                )
+                if st.session_state.extra_sales_df is not None:
+                    with st.expander("Extra Sales file (raw data)"):
+                        st.dataframe(
+                            st.session_state.extra_sales_df,
+                            use_container_width=True,
+                        )
 
         except Exception as e:
             st.error(f"Error: {e}")
