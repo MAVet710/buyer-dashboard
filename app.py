@@ -18,40 +18,82 @@ from reportlab.lib.units import inch
 try:
     import plotly.express as px  # noqa: F401
     PLOTLY_AVAILABLE = True
-except ImportError:
+except Exception:
     PLOTLY_AVAILABLE = False
+
 
 # ------------------------------------------------------------
 # OPTIONAL / SAFE IMPORT FOR OPENAI (AI INVENTORY CHECK)
 # ------------------------------------------------------------
 OPENAI_AVAILABLE = False
 ai_client = None
-try:
-    from openai import OpenAI
 
-    key = ""
-    # 1) Try Streamlit secrets
+def _find_openai_key():
+    """
+    Robust key lookup:
+    1) st.secrets["OPENAI_API_KEY"] at top-level
+    2) Any nested table that contains OPENAI_API_KEY
+    3) os.environ["OPENAI_API_KEY"]
+    Returns (key or None, where_found_str)
+    """
+    key = None
+    found_where = None
+
+    # 1) top-level
     try:
-        key = str(st.secrets.get("OPENAI_API_KEY", "")).strip()
+        if "OPENAI_API_KEY" in st.secrets:
+            k = str(st.secrets["OPENAI_API_KEY"]).strip()
+            if k:
+                return k, "secrets:top"
     except Exception:
-        key = ""
+        pass
 
-    # 2) Fallback to env var
-    if not key:
-        key = os.environ.get("OPENAI_API_KEY", "").strip()
+    # 2) nested
+    try:
+        for k0 in list(st.secrets.keys()):
+            try:
+                v = st.secrets.get(k0)
+                if isinstance(v, dict) and "OPENAI_API_KEY" in v:
+                    k = str(v["OPENAI_API_KEY"]).strip()
+                    if k:
+                        return k, f"secrets:{k0}"
+            except Exception:
+                continue
+    except Exception:
+        pass
 
+    # 3) env
+    envk = os.environ.get("OPENAI_API_KEY", "").strip()
+    if envk:
+        return envk, "env"
+
+    return None, None
+
+
+def init_openai_client():
+    global OPENAI_AVAILABLE, ai_client
+    try:
+        from openai import OpenAI  # type: ignore
+    except Exception:
+        OPENAI_AVAILABLE = False
+        ai_client = None
+        return
+
+    key, where = _find_openai_key()
     if key:
-        ai_client = OpenAI(api_key=key)
-        OPENAI_AVAILABLE = True
+        try:
+            ai_client = OpenAI(api_key=key)
+            OPENAI_AVAILABLE = True
+        except Exception:
+            OPENAI_AVAILABLE = False
+            ai_client = None
     else:
         OPENAI_AVAILABLE = False
         ai_client = None
-except Exception:
-    OPENAI_AVAILABLE = False
-    ai_client = None
+
 
 # =========================
-# CONFIG & BRANDING
+# CONFIG & BRANDING (MAVet)
 # =========================
 CLIENT_NAME = "MAVet710"
 APP_TITLE = f"{CLIENT_NAME} Purchasing Dashboard"
@@ -59,10 +101,10 @@ APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data
 LICENSE_FOOTER = "MAVet710 Buyer Tools • Powered by MAVet710 Analytics"
 
 # 🔐 TRIAL SETTINGS
-TRIAL_KEY = "mavet24"        # MAVet 24-hour trial key
+TRIAL_KEY = "mavet24"
 TRIAL_DURATION_HOURS = 24
 
-# 👑 ADMIN CREDS (multi-user)
+# 👑 ADMIN CREDS (multiple admins)
 ADMIN_USERS = {
     "God": "Major420",
     "JVas": "UPG2025",
@@ -101,10 +143,12 @@ background_url = (
 # =========================
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
+if "admin_user" not in st.session_state:
+    st.session_state.admin_user = None
 if "trial_start" not in st.session_state:
     st.session_state.trial_start = None
 if "metric_filter" not in st.session_state:
-    st.session_state.metric_filter = "All"   # All / Reorder ASAP
+    st.session_state.metric_filter = "All"  # All / Reorder ASAP
 if "inv_raw_df" not in st.session_state:
     st.session_state.inv_raw_df = None
 if "sales_raw_df" not in st.session_state:
@@ -114,10 +158,18 @@ if "extra_sales_df" not in st.session_state:
 if "theme" not in st.session_state:
     st.session_state.theme = "Dark"  # Dark by default
 
+# Upload tracking (God-only viewer)
+if "upload_log" not in st.session_state:
+    st.session_state.upload_log = []  # list of dicts
+if "uploaded_files_store" not in st.session_state:
+    # key: upload_id -> {"name":..., "bytes":..., "uploader":..., "ts":...}
+    st.session_state.uploaded_files_store = {}
+
 theme = st.session_state.theme
 
+
 # =========================
-# GLOBAL STYLING (theme-aware)
+# GLOBAL STYLING (theme-aware) — DO NOT CHANGE LOOK
 # =========================
 main_bg = "rgba(0, 0, 0, 0.85)" if theme == "Dark" else "rgba(255, 255, 255, 0.94)"
 main_text = "#ffffff" if theme == "Dark" else "#111111"
@@ -169,7 +221,7 @@ st.markdown(
         color: {main_text} !important;
     }}
 
-    /* Sidebar: light, high-contrast for typing */
+    /* Sidebar: high-contrast, readable (fixes white/hard-to-see issues) */
     [data-testid="stSidebar"] {{
         background-color: #f3f4f6 !important;
     }}
@@ -197,10 +249,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 # =========================
 # HELPER FUNCTIONS
 # =========================
-
 def normalize_col(col: str) -> str:
     """Lower + strip non-alphanumerics for matching (no spaces, etc.)."""
     return re.sub(r"[^a-z0-9]", "", str(col).lower())
@@ -257,21 +309,58 @@ def normalize_rebelle_category(raw):
     return s  # unchanged if not matched
 
 
+def extract_size(text, context=None):
+    """
+    Parse package size:
+    - mg doses: "500mg"
+    - grams/oz: normalize 1oz/28g to "28g"
+    - vapes: detect 0.5g if appears as ".5" etc
+    """
+    s = str(text).lower()
+
+    # mg
+    mg = re.search(r"(\d+(\.\d+)?\s?mg)\b", s)
+    if mg:
+        return mg.group(1).replace(" ", "")
+
+    # g / oz
+    g = re.search(r"((?:\d+\.?\d*|\.\d+)\s?(g|oz))\b", s)
+    if g:
+        val = g.group(1).replace(" ", "").lower()
+        if val in ["1oz", "1.0oz", "28g", "28.0g"]:
+            return "28g"
+        return val
+
+    # vapes .5
+    if any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"]):
+        half = re.search(r"\b0\.5\b|\b\.5\b", s)
+        if half:
+            return "0.5g"
+
+    return "unspecified"
+
+
+def _stack_parts(*parts):
+    parts_clean = [p.strip() for p in parts if p and str(p).strip() and str(p).strip() != "unspecified"]
+    if not parts_clean:
+        return "unspecified"
+    return " ".join(parts_clean)
+
+
 def extract_strain_type(name, subcat):
     """
-    Strain/type logic:
-
+    Stacked strain/type logic:
     - Base: indica / sativa / hybrid / cbd / unspecified
-    - Vapes: detect oil type (distillate, live resin / LLR, cured resin, rosin)
-    - Edibles: detect form (gummy, chocolate)
-    - Concentrates: detect RSO
-    - Pre-rolls: keep 'infused' logic
-    - Disposables: keep disposable logic for vapes
+    - Flower: add Shake/Popcorn/Small Buds/Super Shake (stacked)
+    - Vapes: detect oil type (distillate, live resin / LLR, cured resin, rosin) stacked with base
+    - Edibles: detect form (gummy, chocolate) stacked with base
+    - Concentrates: detect RSO stacked with base
+    - Pre-rolls: infused
+    - Disposables: disposable (vapes)
     """
     s = str(name).lower()
     cat = str(subcat).lower()
 
-    # Base strain call
     base = "unspecified"
     if "indica" in s:
         base = "indica"
@@ -282,14 +371,25 @@ def extract_strain_type(name, subcat):
     elif "cbd" in s:
         base = "cbd"
 
-    # Flags
-    vape_flag = any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
-    preroll_flag = any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
+    vape_flag = ("vape" in cat) or any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
+    preroll_flag = ("pre roll" in cat) or ("pre rolls" in cat) or any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
 
-    # --- VAPES: oil type detection ---
+    # Flower: special buckets stacked
+    flower_bucket = None
+    if "flower" in cat:
+        if "super shake" in s:
+            flower_bucket = "super shake"
+        elif re.search(r"\bshake\b", s):
+            flower_bucket = "shake"
+        elif any(k in s for k in ["small buds", "smalls", "small bud"]):
+            flower_bucket = "small buds"
+        elif "popcorn" in s:
+            flower_bucket = "popcorn"
+
+    # Vapes: oil type detection
     oil = None
-    if "vape" in cat or vape_flag:
-        if any(k in s for k in ["live resin", "llr", "liquid live resin"]):
+    if vape_flag:
+        if any(k in s for k in ["liquid live resin", "live resin", "llr"]):
             oil = "live resin"
         elif "cured resin" in s:
             oil = "cured resin"
@@ -298,78 +398,53 @@ def extract_strain_type(name, subcat):
         elif any(k in s for k in ["distillate", "disty"]):
             oil = "distillate"
 
-    # Disposables (vapes)
-    if ("disposable" in s or "dispos" in s) and vape_flag:
-        if oil:
-            oil = f"{oil} disposable"
-        else:
-            if base != "unspecified":
-                return f"{base} disposable"
-            return "disposable"
+    # Disposable handling
+    is_disposable = ("disposable" in s) or ("dispos" in s)
+    if vape_flag and is_disposable:
+        oil = _stack_parts(oil, "disposable")
 
-    # Infused pre-rolls
-    if "infused" in s and preroll_flag:
-        return base + " infused" if base != "unspecified" else "infused"
+    # Pre-roll infused
+    infused = None
+    if preroll_flag and "infused" in s:
+        infused = "infused"
 
-    # --- EDIBLES: form detection (gummy / chocolate) ---
-    if "edible" in cat or "edibles" in cat:
-        form = None
+    # Edibles: form detection
+    edible_form = None
+    if "edible" in cat:
         if any(k in s for k in ["gummy", "gummies", "chew", "fruit chew"]):
-            form = "gummy"
-        elif any(k in s for k in ["chocolate", "choc "]):
-            form = "chocolate"
+            edible_form = "gummy"
+        elif any(k in s for k in ["chocolate", "choc"]):
+            edible_form = "chocolate"
 
-        if form:
-            if base != "unspecified":
-                return f"{base} {form}"
-            return form
+    # Concentrates: RSO
+    conc_tag = None
+    if "concentrate" in cat and ("rso" in s or "rick simpson" in s):
+        conc_tag = "rso"
 
-    # --- CONCENTRATES: RSO tagging ---
-    if "concentrate" in cat or "concentrates" in cat:
-        if "rso" in s or "rick simpson" in s:
-            if base != "unspecified":
-                return f"{base} rso"
-            return "rso"
+    # Compose stacked type
+    # Priority: base + category-specific tags
+    if "flower" in cat:
+        return _stack_parts(base, flower_bucket)
 
-    # If we have an oil type for vapes, return that layered with base
-    if oil:
-        if base != "unspecified":
-            return f"{base} {oil}"
-        return oil
+    if vape_flag:
+        return _stack_parts(base, oil)
+
+    if "edible" in cat:
+        return _stack_parts(base, edible_form)
+
+    if "concentrate" in cat:
+        return _stack_parts(base, conc_tag)
+
+    if preroll_flag:
+        return _stack_parts(base, infused)
 
     return base
 
 
-def extract_size(text, context=None):
-    s = str(text).lower()
-
-    # mg doses
-    mg = re.search(r"(\d+(\.\d+)?\s?mg)", s)
-    if mg:
-        return mg.group(1).replace(" ", "")
-
-    # grams / ounces: normalize 1oz/1 oz/28g to "28g"
-    g = re.search(r"((?:\d+\.?\d*|\.\d+)\s?(g|oz))", s)
-    if g:
-        val = g.group(1).replace(" ", "")
-        val_lower = val.lower()
-        if val_lower in ["1oz", "1.0oz", "28g", "28.0g"]:
-            return "28g"
-        return val_lower
-
-    # 0.5g style vapes (if "vape", "cart", "pen", "pod" appears)
-    if any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"]):
-        half = re.search(r"\b0\.5\b|\b\.5\b", s)
-        if half:
-            return "0.5g"
-
-    return "unspecified"
-
-
 def read_inventory_file(uploaded_file):
     """
-    Read inventory CSV or Excel while being robust to 3–5 line headers
-    (e.g., Dutchie/BLAZE 'Export Date / From Date / To Date' at the top).
+    Read inventory CSV or Excel while being robust to 3–10 line headers
+    (e.g., Dutchie exports with Export Date / filters at the top).
     """
     name = uploaded_file.name.lower()
     uploaded_file.seek(0)
@@ -380,10 +455,10 @@ def read_inventory_file(uploaded_file):
         tmp = pd.read_excel(uploaded_file, header=None)
 
     header_row = 0
-    max_scan = min(10, len(tmp))
+    max_scan = min(15, len(tmp))
     for i in range(max_scan):
         row_text = " ".join(str(v) for v in tmp.iloc[i].tolist()).lower()
-        if any(tok in row_text for tok in ["product", "item", "sku", "name"]):
+        if any(tok in row_text for tok in ["product", "item", "sku", "name", "available"]):
             header_row = i
             break
 
@@ -400,12 +475,12 @@ def read_sales_file(uploaded_file):
     """
     Read Excel sales report with smart header detection.
     Looks for a row that contains something like 'category' and 'product'
-    (Dutchie 'Total Sales by Product' style) and uses that as the header.
+    (Dutchie 'Product Sales Report' style).
     """
     uploaded_file.seek(0)
     tmp = pd.read_excel(uploaded_file, header=None)
     header_row = 0
-    max_scan = min(15, len(tmp))
+    max_scan = min(20, len(tmp))
     for i in range(max_scan):
         row_text = " ".join(str(v) for v in tmp.iloc[i].tolist()).lower()
         if "category" in row_text and ("product" in row_text or "name" in row_text):
@@ -414,6 +489,71 @@ def read_sales_file(uploaded_file):
     uploaded_file.seek(0)
     df = pd.read_excel(uploaded_file, header=header_row)
     return df
+
+
+def _parse_grams_from_size(size_str):
+    """
+    Convert '3.5g' -> 3.5
+            '1g' -> 1
+            '28g' -> 28
+            '1oz' -> 28
+    Return float grams or None
+    """
+    s = str(size_str).lower().strip()
+    if s == "28g":
+        return 28.0
+    if s in ("1oz", "1.0oz"):
+        return 28.0
+    m = re.match(r"^(\d+(\.\d+)?)g$", s)
+    if m:
+        return float(m.group(1))
+    m2 = re.match(r"^(\d+(\.\d+)?)oz$", s)
+    if m2:
+        return float(m2.group(1)) * 28.0
+    return None
+
+
+def _parse_mg_from_size(size_str):
+    """
+    Convert '100mg' -> 100
+    Return float mg or None
+    """
+    s = str(size_str).lower().strip()
+    m = re.match(r"^(\d+(\.\d+)?)mg$", s)
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def track_upload(uploaded_file, uploader_username: str, file_role: str):
+    """
+    Store uploaded file bytes in session_state so 'God' can view/download later.
+    """
+    if uploaded_file is None:
+        return
+
+    try:
+        uploaded_file.seek(0)
+        b = uploaded_file.read()
+        uploaded_file.seek(0)
+    except Exception:
+        return
+
+    upload_id = f"{datetime.now().isoformat()}::{uploader_username}::{file_role}::{uploaded_file.name}"
+    st.session_state.uploaded_files_store[upload_id] = {
+        "name": uploaded_file.name,
+        "bytes": b,
+        "uploader": uploader_username,
+        "role": file_role,
+        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    st.session_state.upload_log.append({
+        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "uploader": uploader_username,
+        "role": file_role,
+        "filename": uploaded_file.name,
+        "upload_id": upload_id,
+    })
 
 
 # =========================
@@ -644,15 +784,11 @@ def ai_inventory_check(detail_view, doh_threshold, data_source):
             "to turn on the buyer-assist checks."
         )
 
-    # Keep payload modest
     sample = detail_view.copy()
-    # Focus on lines that actually matter to a buyer
-    sample = sample.sort_values(
-        ["reorderpriority", "daysonhand"], ascending=[True, True]
-    )
+    if "reorderpriority" in sample.columns:
+        sample = sample.sort_values(["reorderpriority", "daysonhand"], ascending=[True, True])
     sample = sample.head(80)
 
-    # Only send the key columns
     cols = [
         c
         for c in [
@@ -675,17 +811,17 @@ def ai_inventory_check(detail_view, doh_threshold, data_source):
 You are an expert cannabis retail buyer and inventory strategist.
 
 You are looking at a slice of an inventory dashboard for a store using {data_source}.
-Each row is a category/size/strain combo with its sales and coverage.
+Each row is a category/size/type combo with its sales and coverage.
 
 Fields:
-- mastercategory / subcategory (normalized product category)
-- strain_type (indica / sativa / hybrid / disposable / infused / gummy / chocolate / rso etc.)
+- mastercategory / subcategory
+- strain_type (stacked; e.g. indica live resin, hybrid gummy, indica popcorn, etc.)
 - packagesize (like 3.5g, 1g, 5mg, 28g, 500mg)
-- onhandunits (current inventory units in stock)
-- unitssold (units sold in the lookback window)
-- avgunitsperday (velocity estimate)
-- daysonhand (coverage in days)
-- reorderqty (suggested buy quantity)
+- onhandunits (current inventory units)
+- unitssold (units sold in lookback window)
+- avgunitsperday
+- daysonhand
+- reorderqty
 - reorderpriority (1=ASAP, 2=Watch, 3=Comfortable, 4=Dead)
 
 Target days on hand: {doh_threshold}
@@ -694,23 +830,16 @@ Data (JSON list of rows):
 {json.dumps(sample_records, indent=2)}
 
 Tasks:
-1. Call out any rows that look obviously wrong or risky
-   (for example: 0 onhand but lots of units sold, DOH way above 120,
-   or suggest reorder but DOH is already high).
-2. Briefly explain what a buyer should pay attention to in this slice:
-   - top 3 categories that are in danger of stockout
-   - anything that looks dead/overbought and could be discounted down.
-3. Keep it short, punchy, and buyer-friendly. No code, just bullet-style advice.
+1. Call out any rows that look obviously wrong or risky (0 onhand but strong sales, etc.)
+2. Top 3 categories in danger + anything dead/overbought.
+3. Keep it short, punchy, buyer-friendly.
 """
 
     try:
         resp = ai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a sharp, no-BS cannabis retail buyer coach.",
-                },
+                {"role": "system", "content": "You are a sharp, no-BS cannabis retail buyer coach."},
                 {"role": "user", "content": prompt},
             ],
             max_tokens=600,
@@ -721,10 +850,31 @@ Tasks:
 
 
 # =========================
+# INIT OPENAI + SHOW DEBUG (kept)
+# =========================
+init_openai_client()
+
+# Always show debug panel (requested to keep) — does NOT reveal the key.
+with st.sidebar.expander("🔍 AI Debug Info", expanded=False):
+    key1 = False
+    key2 = False
+    where = None
+    try:
+        key, where = _find_openai_key()
+        key1 = bool(key)
+    except Exception:
+        key1 = False
+    key2 = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    st.write(f"Secrets has OPENAI_API_KEY: {key1}")
+    st.write(f"Env has OPENAI_API_KEY: {key2}")
+    st.write(f"Using key: {OPENAI_AVAILABLE}")
+    if where:
+        st.write(f"Found via: {where}")
+
+
+# =========================
 # 🔐 THEME TOGGLE + ADMIN + TRIAL GATE
 # =========================
-
-# Theme toggle in sidebar
 st.sidebar.markdown("### 🎨 Theme")
 theme_choice = st.sidebar.radio(
     "Mode",
@@ -738,18 +888,20 @@ if theme_choice != st.session_state.theme:
 st.sidebar.markdown("### 👑 Admin Login")
 
 if not st.session_state.is_admin:
-    admin_user = st.sidebar.text_input("Username", key="admin_user")
-    admin_pass = st.sidebar.text_input("Password", type="password", key="admin_pass")
+    admin_user = st.sidebar.text_input("Username", key="admin_user_input")
+    admin_pass = st.sidebar.text_input("Password", type="password", key="admin_pass_input")
     if st.sidebar.button("Login as Admin"):
         if admin_user in ADMIN_USERS and admin_pass == ADMIN_USERS[admin_user]:
             st.session_state.is_admin = True
+            st.session_state.admin_user = admin_user
             st.sidebar.success("✅ Admin mode enabled.")
         else:
             st.sidebar.error("❌ Invalid admin credentials.")
 else:
-    st.sidebar.success("👑 Admin mode: unlimited access")
+    st.sidebar.success(f"👑 Admin mode: {st.session_state.admin_user}")
     if st.sidebar.button("Logout Admin"):
         st.session_state.is_admin = False
+        st.session_state.admin_user = None
         st.experimental_rerun()
 
 trial_now = datetime.now()
@@ -758,9 +910,7 @@ if not st.session_state.is_admin:
     st.sidebar.markdown("### 🔐 Trial Access")
 
     if st.session_state.trial_start is None:
-        trial_key_input = st.sidebar.text_input(
-            "Enter trial key", type="password", key="trial_key_input"
-        )
+        trial_key_input = st.sidebar.text_input("Enter trial key", type="password", key="trial_key_input")
         if st.sidebar.button("Activate Trial", key="activate_trial"):
             if trial_key_input.strip() == TRIAL_KEY:
                 st.session_state.trial_start = trial_now.isoformat()
@@ -788,11 +938,12 @@ if not st.session_state.is_admin:
             mins_left = int((remaining.total_seconds() % 3600) // 60)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
 
+
 # =========================
 # HEADER
 # =========================
 st.title(f"🌿 {APP_TITLE}")
-st.markdown(f"**Client:** {CLIENT_NAME}")
+st.markdown(f"**Brand:** {CLIENT_NAME}")
 st.markdown(APP_TAGLINE)
 if OPENAI_AVAILABLE:
     st.markdown("✅ AI buyer-assist is **ON** for this session.")
@@ -806,6 +957,33 @@ if not PLOTLY_AVAILABLE:
         "If using Streamlit Cloud, add `plotly` and `reportlab` to your `requirements.txt` file."
     )
 
+
+# =========================
+# GOD-ONLY: Upload viewer (requested)
+# =========================
+if st.session_state.is_admin and st.session_state.admin_user == "God":
+    with st.sidebar.expander("🗂️ Upload Viewer (God)", expanded=False):
+        if len(st.session_state.upload_log) == 0:
+            st.write("No uploads logged yet.")
+        else:
+            log_df = pd.DataFrame(st.session_state.upload_log)
+            st.dataframe(log_df, use_container_width=True)
+            st.markdown("#### Download an uploaded file")
+            upload_ids = [r["upload_id"] for r in st.session_state.upload_log]
+            selected = st.selectbox("Select upload", upload_ids)
+            if selected and selected in st.session_state.uploaded_files_store:
+                meta = st.session_state.uploaded_files_store[selected]
+                st.write(f"Uploader: {meta['uploader']}")
+                st.write(f"Role: {meta['role']}")
+                st.write(f"File: {meta['name']}")
+                st.download_button(
+                    "⬇️ Download uploaded file",
+                    data=meta["bytes"],
+                    file_name=meta["name"],
+                    mime="application/octet-stream",
+                )
+
+
 # =========================
 # PAGE SWITCH
 # =========================
@@ -815,49 +993,46 @@ section = st.sidebar.radio(
     index=0,
 )
 
-# Helper: Excel export for forecast table
-def forecast_to_excel(df):
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False, sheet_name="Forecast")
-    buffer.seek(0)
-    return buffer
-
 # ============================================================
 # PAGE 1 – INVENTORY DASHBOARD
 # ============================================================
 if section == "📊 Inventory Dashboard":
 
-    # Data source selector (for future hooks)
+    # Data source selector
     st.sidebar.markdown("### 🧩 Data Source")
     data_source = st.sidebar.selectbox(
         "Select POS / Data Source",
-        ["BLAZE", "Dutchie"],
+        ["Dutchie", "BLAZE"],
         index=0,
-        help="Changes how column names are interpreted. Files are still just CSV/XLSX exports.",
+        help="Changes how column names are interpreted. Files are still CSV/XLSX exports.",
     )
 
     st.sidebar.header("📂 Upload Core Reports")
 
-    # Accept both CSV and Excel for inventory
     inv_file = st.sidebar.file_uploader("Inventory File (CSV or Excel)", type=["csv", "xlsx", "xls"])
-    product_sales_file = st.sidebar.file_uploader(
-        "Product Sales Report (qty-based Excel)", type=["xlsx", "xls"]
-    )
+    product_sales_file = st.sidebar.file_uploader("Product Sales Report (qty-based Excel)", type=["xlsx", "xls"])
     extra_sales_file = st.sidebar.file_uploader(
         "Optional Extra Sales Detail (revenue)",
         type=["xlsx", "xls"],
-        help="Optional: Dutchie 'Total Sales by Product' or similar. "
-             "Currently **ignored for velocity** until revenue views are added.",
+        help="Optional: revenue detail. Currently not used for velocity.",
     )
+
+    # Track uploads for God viewer
+    current_user = st.session_state.admin_user if st.session_state.is_admin else "trial_user"
+    if inv_file is not None:
+        track_upload(inv_file, current_user, "inventory")
+    if product_sales_file is not None:
+        track_upload(product_sales_file, current_user, "product_sales")
+    if extra_sales_file is not None:
+        track_upload(extra_sales_file, current_user, "extra_sales")
 
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Forecast Settings")
     doh_threshold = st.sidebar.number_input("Target Days on Hand", 1, 60, 21)
     velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", 0.01, 5.0, 0.5)
-    date_diff = st.sidebar.slider("Days in Sales Period", 7, 90, 60)
+    date_diff = st.sidebar.slider("Days in Sales Period", 7, 120, 60)
 
-    # Cache raw dataframes when new files are uploaded
+    # Cache raw dataframes
     if inv_file is not None:
         try:
             inv_df_raw = read_inventory_file(inv_file)
@@ -879,7 +1054,6 @@ if section == "📊 Inventory Dashboard":
             extra_sales_raw = read_sales_file(extra_sales_file)
             st.session_state.extra_sales_df = extra_sales_raw
         except Exception:
-            # Not critical – we can ignore failures here
             st.session_state.extra_sales_df = None
 
     if st.session_state.inv_raw_df is not None and st.session_state.sales_raw_df is not None:
@@ -888,29 +1062,29 @@ if section == "📊 Inventory Dashboard":
             sales_raw = st.session_state.sales_raw_df.copy()
 
             # -------- INVENTORY --------
-            inv_df.columns = inv_df.columns.str.strip().str.lower()
+            inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
 
-            # Auto-detect core inventory columns (supports BLAZE & Dutchie)
             inv_name_aliases = [
                 "product", "productname", "item", "itemname", "name", "skuname",
-                "skuid", "product name"
+                "skuid", "product name", "product_name", "product title", "title"
             ]
             inv_cat_aliases = [
                 "category", "subcategory", "productcategory", "department",
-                "mastercategory", "product category", "cannabis"
+                "mastercategory", "product category", "cannabis", "product_category"
             ]
+            # Dutchie inventory uses "available" as on-hand per your note
             inv_qty_aliases = [
                 "available", "onhand", "onhandunits", "quantity", "qty",
                 "quantityonhand", "instock", "currentquantity", "current quantity",
-                "inventoryavailable", "inventory available"
-            ]
-            inv_sku_aliases = [
-                "sku", "product sku", "productsku", "skuid", "product id", "productid"
+                "inventoryavailable", "inventory available", "available quantity"
             ]
 
             name_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_name_aliases])
             cat_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_cat_aliases])
             qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_qty_aliases])
+
+            # SKU column (optional but used for drilldowns)
+            inv_sku_aliases = ["sku", "skuid", "productid", "product_id", "itemid", "item_id"]
             sku_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_sku_aliases])
 
             if not (name_col and cat_col and qty_col):
@@ -920,31 +1094,31 @@ if section == "📊 Inventory Dashboard":
                 )
                 st.stop()
 
-            rename_map = {
-                name_col: "itemname",
-                cat_col: "subcategory",
-                qty_col: "onhandunits",
-            }
+            inv_df = inv_df.rename(
+                columns={
+                    name_col: "itemname",
+                    cat_col: "subcategory",
+                    qty_col: "onhandunits",
+                }
+            )
             if sku_col:
-                rename_map[sku_col] = "sku"
-
-            inv_df = inv_df.rename(columns=rename_map)
+                inv_df = inv_df.rename(columns={sku_col: "sku"})
 
             inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
-            # normalize to canonical categories
+
             inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
 
-            # Strain Type + Package Size
             inv_df["strain_type"] = inv_df.apply(
-                lambda x: extract_strain_type(x["itemname"], x["subcategory"]), axis=1
+                lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")),
+                axis=1,
             )
             inv_df["packagesize"] = inv_df.apply(
-                lambda x: extract_size(x["itemname"], x["subcategory"]), axis=1
+                lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")),
+                axis=1,
             )
 
-            # Group inventory by subcategory + strain + size
             inv_summary = (
-                inv_df.groupby(["subcategory", "strain_type", "packagesize"])["onhandunits"]
+                inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["onhandunits"]
                 .sum()
                 .reset_index()
             )
@@ -952,17 +1126,13 @@ if section == "📊 Inventory Dashboard":
             # -------- SALES (qty-based ONLY) --------
             sales_raw.columns = sales_raw.columns.astype(str).str.lower()
 
-            # Auto-detect product name column
             sales_name_aliases = [
                 "product", "productname", "product title", "producttitle",
                 "productid", "name", "item", "itemname", "skuname",
-                "sku", "description", "product name"
+                "sku", "description", "product name", "product_name"
             ]
-            name_col_sales = detect_column(
-                sales_raw.columns, [normalize_col(a) for a in sales_name_aliases]
-            )
+            name_col_sales = detect_column(sales_raw.columns, [normalize_col(a) for a in sales_name_aliases])
 
-            # Auto-detect quantity/units sold column – STRICTLY counts, not $$
             qty_aliases = [
                 "quantitysold", "quantity sold",
                 "qtysold", "qty sold",
@@ -971,21 +1141,8 @@ if section == "📊 Inventory Dashboard":
                 "totalunits", "total units",
                 "quantity", "qty",
             ]
-            qty_col_sales = detect_column(
-                sales_raw.columns, [normalize_col(a) for a in qty_aliases]
-            )
+            qty_col_sales = detect_column(sales_raw.columns, [normalize_col(a) for a in qty_aliases])
 
-            # Extra safety: if the matched column is clearly a revenue column, reject it
-            if qty_col_sales is not None:
-                norm_qty_name = normalize_col(qty_col_sales)
-                revenue_like = {
-                    "sales", "netsales", "totalsales", "retailvalue",
-                    "grosssales", "saleamount"
-                }
-                if norm_qty_name in revenue_like:
-                    qty_col_sales = None
-
-            # Auto-detect category/mastercategory column
             mc_aliases = [
                 "mastercategory", "category", "master_category",
                 "productcategory", "product category",
@@ -994,17 +1151,18 @@ if section == "📊 Inventory Dashboard":
             ]
             mc_col = detect_column(sales_raw.columns, [normalize_col(a) for a in mc_aliases])
 
+            # SKU (optional for drilldowns)
+            sales_sku_aliases = ["sku", "skuid", "productid", "product_id"]
+            sales_sku_col = detect_column(sales_raw.columns, [normalize_col(a) for a in sales_sku_aliases])
+
             if not (name_col_sales and qty_col_sales and mc_col):
                 st.error(
                     "Product Sales file detected but could not find required columns.\n\n"
-                    "Looked for some variant of: product / product name, quantity or items sold, "
-                    "and category or product category.\n\n"
-                    "Tip: Use Dutchie 'Product Sales' or Blaze 'Sales by Product' exports "
-                    "without manually editing the headers."
+                    "Looked for: product name, units/quantity sold, and category.\n\n"
+                    "Tip: Use Dutchie 'Product Sales Report' (qty) without editing headers."
                 )
                 st.stop()
 
-            # Normalize to internal names
             sales_raw = sales_raw.rename(
                 columns={
                     name_col_sales: "product_name",
@@ -1012,42 +1170,35 @@ if section == "📊 Inventory Dashboard":
                     mc_col: "mastercategory",
                 }
             )
+            if sales_sku_col:
+                sales_raw = sales_raw.rename(columns={sales_sku_col: "sku"})
 
-            sales_raw["unitssold"] = pd.to_numeric(
-                sales_raw["unitssold"], errors="coerce"
-            ).fillna(0)
-
-            # normalize categories here as well
+            sales_raw["unitssold"] = pd.to_numeric(sales_raw["unitssold"], errors="coerce").fillna(0)
             sales_raw["mastercategory"] = sales_raw["mastercategory"].apply(normalize_rebelle_category)
 
-            # Filter out accessories / 'all' (anything with "accessor")
+            # Filter out accessories/all
             sales_df = sales_raw[
-                ~sales_raw["mastercategory"].astype(str).str.contains("accessor")
+                ~sales_raw["mastercategory"].astype(str).str.contains("accessor", na=False)
                 & (sales_raw["mastercategory"] != "all")
             ].copy()
 
-            # Add package size on the sales side (granular per size)
+            # Add parsed size + strain_type (for SKU drilldown / weighting)
             sales_df["packagesize"] = sales_df.apply(
-                lambda row: extract_size(row["product_name"], row["mastercategory"]),
+                lambda row: extract_size(row.get("product_name", ""), row.get("mastercategory", "")),
+                axis=1,
+            )
+            sales_df["strain_type"] = sales_df.apply(
+                lambda row: extract_strain_type(row.get("product_name", ""), row.get("mastercategory", "")),
                 axis=1,
             )
 
-            # Category + size level velocity (summary)
+            # Aggregate sales at category+size
             sales_summary = (
-                sales_df.groupby(["mastercategory", "packagesize"])["unitssold"]
+                sales_df.groupby(["mastercategory", "packagesize"], dropna=False)["unitssold"]
                 .sum()
                 .reset_index()
             )
-            sales_summary["avgunitsperday"] = (
-                sales_summary["unitssold"] / max(date_diff, 1)
-            ) * velocity_adjustment
-
-            # SKU-level sales for drilldown
-            sku_sales = (
-                sales_df.groupby(["mastercategory", "packagesize", "product_name"])["unitssold"]
-                .sum()
-                .reset_index()
-            )
+            sales_summary["avgunitsperday"] = (sales_summary["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
 
             # Merge inventory summary with size-level velocity
             detail = pd.merge(
@@ -1058,26 +1209,56 @@ if section == "📊 Inventory Dashboard":
                 right_on=["mastercategory", "packagesize"],
             ).fillna(0)
 
-            # --- Ensure Flower 28g / 1oz always shows with educated guess ---
-            flower_mask = detail["subcategory"].str.contains("flower", na=False)
-            flower_cats = detail.loc[flower_mask, "subcategory"].unique()
+            # ============================================================
+            # EDUCATED GUESS ROWS (DO NOT REMOVE)
+            # - Flower: ensure 28g row exists and has estimated velocity if possible
+            # - Edibles: ensure 500mg row exists and has estimated velocity if possible
+            # ============================================================
+
+            # ---- FLOWER 28g educated guess ----
+            flower_mask = detail["subcategory"].astype(str).str.contains("flower", na=False)
+            flower_cats = detail.loc[flower_mask, "subcategory"].unique().tolist()
+
+            def estimate_28g_from_flower_sales(cat_name: str):
+                """
+                If direct 28g sales exist, use them.
+                Otherwise estimate ounces by converting other gram-based sales into grams -> /28.
+                """
+                # direct
+                direct = sales_df[
+                    (sales_df["mastercategory"] == cat_name) & (sales_df["packagesize"] == "28g")
+                ]
+                if not direct.empty:
+                    units_28 = float(direct["unitssold"].sum())
+                    avg_28 = (units_28 / max(int(date_diff), 1)) * float(velocity_adjustment)
+                    return units_28, avg_28
+
+                # estimate grams sold across sizes
+                cat_sales = sales_df[sales_df["mastercategory"] == cat_name].copy()
+                if cat_sales.empty:
+                    return 0.0, 0.0
+
+                # convert each row to grams sold
+                total_grams = 0.0
+                for _, r in cat_sales.iterrows():
+                    sz = r.get("packagesize", "unspecified")
+                    grams = _parse_grams_from_size(sz)
+                    if grams is None:
+                        continue
+                    total_grams += float(r.get("unitssold", 0)) * grams
+
+                if total_grams <= 0:
+                    return 0.0, 0.0
+
+                est_oz_units = total_grams / 28.0
+                avg_oz = (est_oz_units / max(int(date_diff), 1)) * float(velocity_adjustment)
+                return float(est_oz_units), float(avg_oz)
 
             missing_rows = []
             for cat in flower_cats:
                 has_28 = ((detail["subcategory"] == cat) & (detail["packagesize"] == "28g")).any()
                 if not has_28:
-                    # Pull historical velocity for 28g in this category, if it exists
-                    sales_28 = sales_summary[
-                        (sales_summary["mastercategory"] == cat) &
-                        (sales_summary["packagesize"] == "28g")
-                    ]
-                    if not sales_28.empty:
-                        units_28 = float(sales_28["unitssold"].iloc[0])
-                        avg_28 = float(sales_28["avgunitsperday"].iloc[0])
-                    else:
-                        units_28 = 0.0
-                        avg_28 = 0.0
-
+                    units_28, avg_28 = estimate_28g_from_flower_sales(cat)
                     missing_rows.append(
                         {
                             "subcategory": cat,
@@ -1089,29 +1270,61 @@ if section == "📊 Inventory Dashboard":
                             "avgunitsperday": avg_28,
                         }
                     )
+                else:
+                    # If it exists but has zero velocity AND we can estimate, patch it (still minimal change)
+                    row_mask = (detail["subcategory"] == cat) & (detail["packagesize"] == "28g")
+                    if row_mask.any():
+                        cur_avg = float(detail.loc[row_mask, "avgunitsperday"].iloc[0])
+                        if cur_avg == 0:
+                            units_28, avg_28 = estimate_28g_from_flower_sales(cat)
+                            if avg_28 > 0:
+                                detail.loc[row_mask, "unitssold"] = units_28
+                                detail.loc[row_mask, "avgunitsperday"] = avg_28
 
             if missing_rows:
                 detail = pd.concat([detail, pd.DataFrame(missing_rows)], ignore_index=True)
 
-            # --- Ensure Edibles 500mg high-dose row always shows with educated guess ---
-            edibles_mask = detail["subcategory"].str.contains("edible", na=False)
-            edibles_cats = detail.loc[edibles_mask, "subcategory"].unique()
+            # ---- EDIBLES 500mg educated guess ----
+            edibles_mask = detail["subcategory"].astype(str).str.contains("edible", na=False)
+            edibles_cats = detail.loc[edibles_mask, "subcategory"].unique().tolist()
+
+            def estimate_500mg_from_edible_sales(cat_name: str):
+                """
+                If direct 500mg sales exist, use them.
+                Otherwise estimate by converting other mg-based sales into total mg -> /500.
+                """
+                direct = sales_df[
+                    (sales_df["mastercategory"] == cat_name) & (sales_df["packagesize"] == "500mg")
+                ]
+                if not direct.empty:
+                    units_500 = float(direct["unitssold"].sum())
+                    avg_500 = (units_500 / max(int(date_diff), 1)) * float(velocity_adjustment)
+                    return units_500, avg_500
+
+                cat_sales = sales_df[sales_df["mastercategory"] == cat_name].copy()
+                if cat_sales.empty:
+                    return 0.0, 0.0
+
+                total_mg = 0.0
+                for _, r in cat_sales.iterrows():
+                    sz = r.get("packagesize", "unspecified")
+                    mg = _parse_mg_from_size(sz)
+                    if mg is None:
+                        continue
+                    total_mg += float(r.get("unitssold", 0)) * mg
+
+                if total_mg <= 0:
+                    return 0.0, 0.0
+
+                est_500_units = total_mg / 500.0
+                avg_500 = (est_500_units / max(int(date_diff), 1)) * float(velocity_adjustment)
+                return float(est_500_units), float(avg_500)
 
             edibles_missing = []
             for cat in edibles_cats:
                 has_500 = ((detail["subcategory"] == cat) & (detail["packagesize"] == "500mg")).any()
                 if not has_500:
-                    sales_500 = sales_summary[
-                        (sales_summary["mastercategory"] == cat) &
-                        (sales_summary["packagesize"] == "500mg")
-                    ]
-                    if not sales_500.empty:
-                        units_500 = float(sales_500["unitssold"].iloc[0])
-                        avg_500 = float(sales_500["avgunitsperday"].iloc[0])
-                    else:
-                        units_500 = 0.0
-                        avg_500 = 0.0
-
+                    units_500, avg_500 = estimate_500mg_from_edible_sales(cat)
                     edibles_missing.append(
                         {
                             "subcategory": cat,
@@ -1123,11 +1336,22 @@ if section == "📊 Inventory Dashboard":
                             "avgunitsperday": avg_500,
                         }
                     )
+                else:
+                    row_mask = (detail["subcategory"] == cat) & (detail["packagesize"] == "500mg")
+                    if row_mask.any():
+                        cur_avg = float(detail.loc[row_mask, "avgunitsperday"].iloc[0])
+                        if cur_avg == 0:
+                            units_500, avg_500 = estimate_500mg_from_edible_sales(cat)
+                            if avg_500 > 0:
+                                detail.loc[row_mask, "unitssold"] = units_500
+                                detail.loc[row_mask, "avgunitsperday"] = avg_500
 
             if edibles_missing:
                 detail = pd.concat([detail, pd.DataFrame(edibles_missing)], ignore_index=True)
 
-            # DOH + Reorder (granular per row)
+            # ============================================================
+            # DOH + Reorder
+            # ============================================================
             detail["daysonhand"] = np.where(
                 detail["avgunitsperday"] > 0,
                 detail["onhandunits"] / detail["avgunitsperday"],
@@ -1147,9 +1371,9 @@ if section == "📊 Inventory Dashboard":
             ).astype(int)
 
             def tag(row):
-                if row["daysonhand"] <= 7:
+                if row["daysonhand"] <= 7 and row["avgunitsperday"] > 0:
                     return "1 – Reorder ASAP"
-                if row["daysonhand"] <= 21:
+                if row["daysonhand"] <= 21 and row["avgunitsperday"] > 0:
                     return "2 – Watch Closely"
                 if row["avgunitsperday"] == 0:
                     return "4 – Dead Item"
@@ -1163,32 +1387,22 @@ if section == "📊 Inventory Dashboard":
             st.markdown("### Inventory Summary")
 
             total_units = int(detail["unitssold"].sum())
-            reorder_asap = (detail["reorderpriority"] == "1 – Reorder ASAP").sum()
+            reorder_asap = int((detail["reorderpriority"] == "1 – Reorder ASAP").sum())
 
             col1, col2 = st.columns(2)
             with col1:
-                if st.button(
-                    f"Units Sold (Granular Size-Level): {total_units}",
-                    key="btn_total_units",
-                ):
+                if st.button(f"Units Sold (Granular Size-Level): {total_units}", key="btn_total_units"):
                     st.session_state.metric_filter = "All"
             with col2:
-                if st.button(
-                    f"Reorder ASAP (Lines): {reorder_asap}",
-                    key="btn_reorder_asap",
-                ):
+                if st.button(f"Reorder ASAP (Lines): {reorder_asap}", key="btn_reorder_asap"):
                     st.session_state.metric_filter = "Reorder ASAP"
 
-            # Apply metric filter to detail for display
             if st.session_state.metric_filter == "Reorder ASAP":
                 detail_view = detail[detail["reorderpriority"] == "1 – Reorder ASAP"].copy()
             else:
                 detail_view = detail.copy()
 
-            st.markdown(
-                f"*Current filter:* **{st.session_state.metric_filter}**"
-            )
-
+            st.markdown(f"*Current filter:* **{st.session_state.metric_filter}**")
             st.markdown("### Forecast Table")
 
             def red_low(val):
@@ -1198,7 +1412,7 @@ if section == "📊 Inventory Dashboard":
                 except Exception:
                     return ""
 
-            # Category filter (ordered by canonical categories first) **after** metric filter
+            # Category filter order
             all_cats = sorted(detail_view["subcategory"].unique())
 
             def cat_sort_key(c):
@@ -1216,7 +1430,6 @@ if section == "📊 Inventory Dashboard":
             )
             detail_view = detail_view[detail_view["subcategory"].isin(selected_cats)]
 
-            # Make sure cannabis type (strain_type) is visible
             display_cols = [
                 "mastercategory",
                 "subcategory",
@@ -1231,9 +1444,88 @@ if section == "📊 Inventory Dashboard":
             ]
             display_cols = [c for c in display_cols if c in detail_view.columns]
 
-            # Use same category ordering for expanders
+            # ========= Export Forecast Table (Excel) — requested =========
+            def build_forecast_export_bytes(df: pd.DataFrame) -> bytes:
+                """
+                Export using openpyxl (no xlsxwriter).
+                """
+                buf = BytesIO()
+                with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                    df.to_excel(writer, index=False, sheet_name="Forecast")
+                buf.seek(0)
+                return buf.read()
+
+            export_df = detail_view[display_cols].copy()
+            excel_bytes = build_forecast_export_bytes(export_df)
+            st.download_button(
+                "📥 Export Forecast Table (Excel)",
+                data=excel_bytes,
+                file_name="forecast_table.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+            # ========= SKU drilldown for flagged reorder products (weighted) =========
+            # We show this inside each category expander, and only for rows that are flagged.
+            # Weighted based on per-item estimated units/day.
+            def sku_drilldown_table(cat, size, strain_type):
+                """
+                Returns per-item view for this row, combining sales + inventory hints.
+                Weighted by velocity.
+                """
+                # sales slice
+                sd = sales_df[
+                    (sales_df["mastercategory"] == cat) &
+                    (sales_df["packagesize"] == size)
+                ].copy()
+
+                # Try to match strain_type roughly (but don't exclude too aggressively)
+                # If strain_type is "unspecified", we do not filter on it.
+                if str(strain_type).lower() != "unspecified":
+                    sd = sd[sd["strain_type"].astype(str).str.lower() == str(strain_type).lower()]
+
+                if sd.empty:
+                    return pd.DataFrame()
+
+                sd["est_units_per_day"] = (sd["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
+
+                # inventory slice
+                idf = inv_df[
+                    (inv_df["subcategory"] == cat) &
+                    (inv_df["packagesize"] == size)
+                ].copy()
+                if str(strain_type).lower() != "unspecified":
+                    idf = idf[idf["strain_type"].astype(str).str.lower() == str(strain_type).lower()]
+
+                # build display
+                cols = []
+                if "sku" in sd.columns:
+                    cols.append("sku")
+                cols += ["product_name", "unitssold", "est_units_per_day"]
+                sd_disp = sd[cols].copy()
+
+                # attach onhand if possible (by name match)
+                if not idf.empty:
+                    idf_small = idf[["itemname", "onhandunits"]].copy()
+                    idf_small = idf_small.rename(columns={"itemname": "product_name"})
+                    sd_disp = pd.merge(
+                        sd_disp,
+                        idf_small,
+                        how="left",
+                        on="product_name",
+                    )
+
+                sd_disp["onhandunits"] = sd_disp.get("onhandunits", 0)
+                sd_disp["onhandunits"] = pd.to_numeric(sd_disp["onhandunits"], errors="coerce").fillna(0)
+
+                # sort weighted
+                sd_disp = sd_disp.sort_values("est_units_per_day", ascending=False).head(50)
+
+                return sd_disp
+
+            # Expanders by category
             for cat in sorted(detail_view["subcategory"].unique(), key=cat_sort_key):
-                group = detail_view[detail_view["subcategory"] == cat]
+                group = detail_view[detail_view["subcategory"] == cat].copy()
+
                 with st.expander(cat.title()):
                     g = group[display_cols].copy()
                     st.dataframe(
@@ -1241,128 +1533,22 @@ if section == "📊 Inventory Dashboard":
                         use_container_width=True,
                     )
 
-            # -------------------------
-            # Export Forecast Table to Excel
-            # -------------------------
-            st.markdown("### 📤 Export Forecast")
-            export_df = detail_view[display_cols].copy()
-            excel_bytes = forecast_to_excel(export_df)
-            st.download_button(
-                "📥 Export Forecast to Excel",
-                data=excel_bytes,
-                file_name="forecast_table.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
-            # -------------------------
-            # SKU DRILLDOWN FOR REORDER LINES
-            # -------------------------
-            st.markdown("---")
-            st.markdown("### 🔎 SKU Drilldown for Reorder Lines")
-
-            reorder_lines = detail_view[detail_view["reorderpriority"] == "1 – Reorder ASAP"].copy()
-            if reorder_lines.empty:
-                st.info("No lines currently flagged as '1 – Reorder ASAP'.")
-            else:
-                # Build labels for selectbox
-                labels = []
-                mapping = {}
-                for idx, row in reorder_lines.reset_index().iterrows():
-                    label = (
-                        f"{row['subcategory']} | {row['packagesize']} | "
-                        f"{row['strain_type']} | DOH {int(row['daysonhand'])} | "
-                        f"Reorder {int(row['reorderqty'])}"
-                    )
-                    labels.append(label)
-                    mapping[label] = {
-                        "subcategory": row["subcategory"],
-                        "packagesize": row["packagesize"],
-                        "avgunitsperday": float(row["avgunitsperday"]),
-                    }
-
-                selected_label = st.selectbox(
-                    "Select a line to view SKU-level detail (weighted by velocity):",
-                    labels,
-                )
-
-                if selected_label:
-                    info = mapping[selected_label]
-                    cat_sel = info["subcategory"]
-                    size_sel = info["packagesize"]
-                    cat_avg_per_day = info["avgunitsperday"]
-
-                    # Filter inventory SKUs for this category/size
-                    sku_base = inv_df[
-                        (inv_df["subcategory"] == cat_sel)
-                        & (inv_df["packagesize"] == size_sel)
-                    ].copy()
-
-                    if sku_base.empty:
-                        st.info("No underlying SKUs found for this line in the inventory file.")
-                    else:
-                        # Merge with SKU-level sales
-                        local_sales = sku_sales[
-                            (sku_sales["mastercategory"] == cat_sel)
-                            & (sku_sales["packagesize"] == size_sel)
-                        ].copy()
-
-                        sku_merged = pd.merge(
-                            sku_base,
-                            local_sales,
-                            how="left",
-                            left_on=["subcategory", "packagesize", "itemname"],
-                            right_on=["mastercategory", "packagesize", "product_name"],
-                        ).fillna({"unitssold": 0})
-
-                        # Compute velocity share per SKU
-                        total_units_cat = sku_merged["unitssold"].sum()
-                        if total_units_cat > 0 and cat_avg_per_day > 0:
-                            sku_merged["sku_velocity"] = (
-                                sku_merged["unitssold"] / total_units_cat
-                            ) * cat_avg_per_day
-                        else:
-                            sku_merged["sku_velocity"] = 0.0
-
-                        # SKU-level DOH
-                        sku_merged["sku_daysonhand"] = np.where(
-                            sku_merged["sku_velocity"] > 0,
-                            sku_merged["onhandunits"] / sku_merged["sku_velocity"],
-                            0,
-                        )
-                        sku_merged["sku_daysonhand"] = (
-                            sku_merged["sku_daysonhand"]
-                            .replace([np.inf, -np.inf], 0)
-                            .fillna(0)
-                            .astype(int)
-                        )
-
-                        # Sort by velocity (highest first)
-                        sku_merged = sku_merged.sort_values(
-                            "sku_velocity", ascending=False
-                        )
-
-                        # Columns to show
-                        sku_cols = []
-                        if "sku" in sku_merged.columns:
-                            sku_cols.append("sku")
-                        sku_cols.extend(
-                            [
-                                "itemname",
-                                "onhandunits",
-                                "unitssold",
-                                "sku_velocity",
-                                "sku_daysonhand",
-                            ]
-                        )
-                        sku_cols = [c for c in sku_cols if c in sku_merged.columns]
-
-                        with st.expander(
-                            f"SKU Breakdown: {cat_sel.title()} • {size_sel}", expanded=True
-                        ):
-                            st.dataframe(
-                                sku_merged[sku_cols],
-                                use_container_width=True,
-                            )
+                    # For flagged lines, show “View SKUs” expanders per row
+                    flagged = group[group["reorderpriority"] == "1 – Reorder ASAP"].copy()
+                    if not flagged.empty:
+                        st.markdown("#### 🔎 Flagged Reorder Lines — View SKUs (Weighted by Velocity)")
+                        for _, r in flagged.iterrows():
+                            row_label = f"{r.get('strain_type','unspecified')} • {r.get('packagesize','unspecified')} • Reorder Qty: {int(r.get('reorderqty',0))}"
+                            with st.expander(f"View SKUs — {row_label}", expanded=False):
+                                sku_df = sku_drilldown_table(
+                                    cat=r.get("subcategory"),
+                                    size=r.get("packagesize"),
+                                    strain_type=r.get("strain_type"),
+                                )
+                                if sku_df.empty:
+                                    st.info("No matching SKU-level sales rows found for this slice.")
+                                else:
+                                    st.dataframe(sku_df, use_container_width=True)
 
             # =======================
             # AI INVENTORY CHECK
@@ -1378,7 +1564,7 @@ if section == "📊 Inventory Dashboard":
             else:
                 st.info(
                     "AI buyer-assist is disabled because no `OPENAI_API_KEY` was found in "
-                    "Streamlit secrets or environment. Add one to turn this on."
+                    "Streamlit secrets or environment."
                 )
 
         except Exception as e:
@@ -1386,6 +1572,7 @@ if section == "📊 Inventory Dashboard":
 
     else:
         st.info("Upload inventory + product sales files to continue.")
+
 
 # ============================================================
 # PAGE 2 – PO BUILDER
@@ -1397,9 +1584,6 @@ else:
         "The words above each PO field are white on the dark background for clarity."
     )
 
-    # -------------------------
-    # HEADER INFO
-    # -------------------------
     st.markdown("### PO Header")
 
     col1, col2 = st.columns(2)
@@ -1447,9 +1631,6 @@ else:
 
     st.markdown("---")
 
-    # -------------------------
-    # LINE ITEMS
-    # -------------------------
     st.markdown("### Line Items")
 
     num_lines = st.number_input("Number of Line Items", 1, 50, 5)
@@ -1507,11 +1688,7 @@ else:
 
     st.markdown("---")
 
-    # -------------------------
-    # TOTALS + PDF EXPORT
-    # -------------------------
     if not po_df.empty:
-
         subtotal = float(po_df["Line Total"].sum())
 
         c1, c2, c3 = st.columns(3)
@@ -1571,6 +1748,7 @@ else:
 
     else:
         st.info("Add at least one line item to generate totals and PDF.")
+
 
 # =========================
 # FOOTER
