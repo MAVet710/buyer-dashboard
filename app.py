@@ -341,10 +341,25 @@ def extract_size(text, context=None):
 
 
 def _stack_parts(*parts):
-    parts_clean = [p.strip() for p in parts if p and str(p).strip() and str(p).strip() != "unspecified"]
-    if not parts_clean:
-        return "unspecified"
-    return " ".join(parts_clean)
+    """
+    Stack parts into a single string:
+    - Removes 'unspecified'
+    - Removes duplicates (preserves order)
+    """
+    seen = set()
+    out = []
+    for p in parts:
+        if p is None:
+            continue
+        p2 = str(p).strip()
+        if not p2 or p2 == "unspecified":
+            continue
+        key = p2.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p2)
+    return " ".join(out) if out else "unspecified"
 
 
 def extract_strain_type(name, subcat):
@@ -352,6 +367,7 @@ def extract_strain_type(name, subcat):
     Stacked strain/type logic:
     - Base: indica / sativa / hybrid / cbd / unspecified
     - Flower: add Shake/Popcorn/Small Buds/Super Shake (stacked)
+    - Flower: Rise= sativa, Refresh= hybrid, Rest= indica (stacked)
     - Vapes: detect oil type (distillate, live resin / LLR, cured resin, rosin) stacked with base
     - Edibles: detect form (gummy, chocolate) stacked with base
     - Concentrates: detect RSO stacked with base
@@ -376,7 +392,17 @@ def extract_strain_type(name, subcat):
 
     # Flower: special buckets stacked
     flower_bucket = None
+    flower_brand_map = None  # Rise/Refresh/Rest mapping (stacked)
     if "flower" in cat:
+        # Rise/Refresh/Rest mapping (word-boundary so we don't hit 'sunrise' etc.)
+        if re.search(r"\brise\b", s):
+            flower_brand_map = _stack_parts(flower_brand_map, "sativa")
+        if re.search(r"\brefresh\b", s):
+            flower_brand_map = _stack_parts(flower_brand_map, "hybrid")
+        if re.search(r"\brest\b", s):
+            flower_brand_map = _stack_parts(flower_brand_map, "indica")
+
+        # bucket tags
         if "super shake" in s:
             flower_bucket = "super shake"
         elif re.search(r"\bshake\b", s):
@@ -422,9 +448,8 @@ def extract_strain_type(name, subcat):
         conc_tag = "rso"
 
     # Compose stacked type
-    # Priority: base + category-specific tags
     if "flower" in cat:
-        return _stack_parts(base, flower_bucket)
+        return _stack_parts(base, flower_brand_map, flower_bucket)
 
     if vape_flag:
         return _stack_parts(base, oil)
