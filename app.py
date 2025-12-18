@@ -36,9 +36,6 @@ def _find_openai_key():
     3) os.environ["OPENAI_API_KEY"]
     Returns (key or None, where_found_str)
     """
-    key = None
-    found_where = None
-
     # 1) top-level
     try:
         if "OPENAI_API_KEY" in st.secrets:
@@ -341,25 +338,10 @@ def extract_size(text, context=None):
 
 
 def _stack_parts(*parts):
-    """
-    Stack parts into a single string:
-    - Removes 'unspecified'
-    - Removes duplicates (preserves order)
-    """
-    seen = set()
-    out = []
-    for p in parts:
-        if p is None:
-            continue
-        p2 = str(p).strip()
-        if not p2 or p2 == "unspecified":
-            continue
-        key = p2.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(p2)
-    return " ".join(out) if out else "unspecified"
+    parts_clean = [p.strip() for p in parts if p and str(p).strip() and str(p).strip() != "unspecified"]
+    if not parts_clean:
+        return "unspecified"
+    return " ".join(parts_clean)
 
 
 def extract_strain_type(name, subcat):
@@ -367,7 +349,7 @@ def extract_strain_type(name, subcat):
     Stacked strain/type logic:
     - Base: indica / sativa / hybrid / cbd / unspecified
     - Flower: add Shake/Popcorn/Small Buds/Super Shake (stacked)
-    - Flower: Rise= sativa, Refresh= hybrid, Rest= indica (stacked)
+    - Flower: Rise/Refresh/Rest mapping (rise=sativa, refresh=hybrid, rest=indica) stacked
     - Vapes: detect oil type (distillate, live resin / LLR, cured resin, rosin) stacked with base
     - Edibles: detect form (gummy, chocolate) stacked with base
     - Concentrates: detect RSO stacked with base
@@ -387,22 +369,28 @@ def extract_strain_type(name, subcat):
     elif "cbd" in s:
         base = "cbd"
 
+    # Rise/Refresh/Rest mapping for flower (only if base not already explicit)
+    rr_tag = None
+    if "flower" in cat:
+        if re.search(r"\brise\b", s):
+            rr_tag = "rise"
+            if base == "unspecified":
+                base = "sativa"
+        elif re.search(r"\brefresh\b", s):
+            rr_tag = "refresh"
+            if base == "unspecified":
+                base = "hybrid"
+        elif re.search(r"\brest\b", s):
+            rr_tag = "rest"
+            if base == "unspecified":
+                base = "indica"
+
     vape_flag = ("vape" in cat) or any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
     preroll_flag = ("pre roll" in cat) or ("pre rolls" in cat) or any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
 
     # Flower: special buckets stacked
     flower_bucket = None
-    flower_brand_map = None  # Rise/Refresh/Rest mapping (stacked)
     if "flower" in cat:
-        # Rise/Refresh/Rest mapping (word-boundary so we don't hit 'sunrise' etc.)
-        if re.search(r"\brise\b", s):
-            flower_brand_map = _stack_parts(flower_brand_map, "sativa")
-        if re.search(r"\brefresh\b", s):
-            flower_brand_map = _stack_parts(flower_brand_map, "hybrid")
-        if re.search(r"\brest\b", s):
-            flower_brand_map = _stack_parts(flower_brand_map, "indica")
-
-        # bucket tags
         if "super shake" in s:
             flower_bucket = "super shake"
         elif re.search(r"\bshake\b", s):
@@ -449,7 +437,7 @@ def extract_strain_type(name, subcat):
 
     # Compose stacked type
     if "flower" in cat:
-        return _stack_parts(base, flower_brand_map, flower_bucket)
+        return _stack_parts(base, flower_bucket, rr_tag)
 
     if vape_flag:
         return _stack_parts(base, oil)
@@ -1014,7 +1002,7 @@ if st.session_state.is_admin and st.session_state.admin_user == "God":
 # =========================
 section = st.sidebar.radio(
     "App Section",
-    ["📊 Inventory Dashboard", "🧾 PO Builder"],
+    ["📊 Inventory Dashboard", "📈 Trends", "🧾 PO Builder"],
     index=0,
 )
 
@@ -1039,7 +1027,7 @@ if section == "📊 Inventory Dashboard":
     extra_sales_file = st.sidebar.file_uploader(
         "Optional Extra Sales Detail (revenue)",
         type=["xlsx", "xls"],
-        help="Optional: revenue detail. Currently not used for velocity.",
+        help="Optional: revenue detail. Can be used for pricing trends.",
     )
 
     # Track uploads for God viewer
@@ -1097,7 +1085,7 @@ if section == "📊 Inventory Dashboard":
                 "category", "subcategory", "productcategory", "department",
                 "mastercategory", "product category", "cannabis", "product_category"
             ]
-            # Dutchie inventory uses "available" as on-hand per your note
+            # Dutchie inventory uses "available" as on-hand
             inv_qty_aliases = [
                 "available", "onhand", "onhandunits", "quantity", "qty",
                 "quantityonhand", "instock", "currentquantity", "current quantity",
@@ -1296,7 +1284,7 @@ if section == "📊 Inventory Dashboard":
                         }
                     )
                 else:
-                    # If it exists but has zero velocity AND we can estimate, patch it (still minimal change)
+                    # If it exists but has zero velocity AND we can estimate, patch it
                     row_mask = (detail["subcategory"] == cat) & (detail["packagesize"] == "28g")
                     if row_mask.any():
                         cur_avg = float(detail.loc[row_mask, "avgunitsperday"].iloc[0])
@@ -1504,7 +1492,6 @@ if section == "📊 Inventory Dashboard":
                 ].copy()
 
                 # Try to match strain_type roughly (but don't exclude too aggressively)
-                # If strain_type is "unspecified", we do not filter on it.
                 if str(strain_type).lower() != "unspecified":
                     sd = sd[sd["strain_type"].astype(str).str.lower() == str(strain_type).lower()]
 
@@ -1600,7 +1587,193 @@ if section == "📊 Inventory Dashboard":
 
 
 # ============================================================
-# PAGE 2 – PO BUILDER
+# PAGE 2 – TRENDS (NEW PAGE; DOES NOT CHANGE EXISTING LAYOUT)
+# ============================================================
+elif section == "📈 Trends":
+    st.subheader("📈 Trends")
+
+    st.markdown(
+        "This page reads the same uploaded Dutchie/BLAZE exports (if present) and surfaces "
+        "quick signals: category mix, package-size mix, and velocity movers.\n\n"
+        "**Note:** If you haven’t uploaded files yet, go to **Inventory Dashboard** first."
+    )
+
+    # Pull cached data (uploaded on Inventory Dashboard page)
+    inv_df_raw = st.session_state.inv_raw_df
+    sales_raw_df = st.session_state.sales_raw_df
+    extra_sales_df = st.session_state.extra_sales_df
+
+    if sales_raw_df is None:
+        st.info("Upload at least the Product Sales report on the Inventory Dashboard page to see Trends.")
+        st.stop()
+
+    # ---- Trend settings (adjustable run rates) ----
+    st.sidebar.markdown("### 📈 Trend Settings")
+    trend_days = st.sidebar.slider("Trend window (days)", 7, 120, 30, key="trend_days")
+    compare_days = st.sidebar.slider("Comparison window (prior days)", 7, 120, 30, key="compare_days")
+    run_rate_multiplier = st.sidebar.number_input("Run-rate multiplier", 0.1, 3.0, 1.0, 0.1, key="run_rate_mult")
+
+    # Normalize sales columns similarly to inventory page
+    sales = sales_raw_df.copy()
+    sales.columns = sales.columns.astype(str).str.lower()
+
+    sales_name_aliases = [
+        "product", "productname", "product title", "producttitle",
+        "productid", "name", "item", "itemname", "skuname",
+        "sku", "description", "product name", "product_name"
+    ]
+    name_col_sales = detect_column(sales.columns, [normalize_col(a) for a in sales_name_aliases])
+
+    qty_aliases = [
+        "quantitysold", "quantity sold",
+        "qtysold", "qty sold",
+        "itemsold", "item sold", "items sold",
+        "unitssold", "units sold", "unit sold", "unitsold", "units",
+        "totalunits", "total units",
+        "quantity", "qty",
+    ]
+    qty_col_sales = detect_column(sales.columns, [normalize_col(a) for a in qty_aliases])
+
+    mc_aliases = [
+        "mastercategory", "category", "master_category",
+        "productcategory", "product category",
+        "department", "dept", "subcategory", "productcategoryname",
+        "product category name"
+    ]
+    mc_col = detect_column(sales.columns, [normalize_col(a) for a in mc_aliases])
+
+    # Optional revenue / net sales columns (for pricing trends)
+    rev_aliases = [
+        "netsales", "net sales", "sales", "totalsales", "total sales",
+        "revenue", "grosssales", "gross sales"
+    ]
+    rev_col = detect_column(sales.columns, [normalize_col(a) for a in rev_aliases])
+
+    if not (name_col_sales and qty_col_sales and mc_col):
+        st.error(
+            "Could not detect required columns in Product Sales report for Trends.\n\n"
+            "Need: product name + units sold + category."
+        )
+        st.stop()
+
+    sales = sales.rename(columns={name_col_sales: "product_name", qty_col_sales: "unitssold", mc_col: "mastercategory"})
+    if rev_col:
+        sales = sales.rename(columns={rev_col: "revenue"})
+
+    sales["unitssold"] = pd.to_numeric(sales["unitssold"], errors="coerce").fillna(0)
+    if "revenue" in sales.columns:
+        sales["revenue"] = pd.to_numeric(sales["revenue"], errors="coerce").fillna(0)
+
+    sales["mastercategory"] = sales["mastercategory"].apply(normalize_rebelle_category)
+    sales = sales[
+        ~sales["mastercategory"].astype(str).str.contains("accessor", na=False)
+        & (sales["mastercategory"] != "all")
+    ].copy()
+
+    sales["packagesize"] = sales.apply(lambda r: extract_size(r.get("product_name", ""), r.get("mastercategory", "")), axis=1)
+    sales["strain_type"] = sales.apply(lambda r: extract_strain_type(r.get("product_name", ""), r.get("mastercategory", "")), axis=1)
+
+    # ---- Trend math (since Dutchie exports often don't include daily timestamps in these reports) ----
+    # We treat the "trend window" as a run-rate lens: units/day = units_sold / trend_days * multiplier.
+    # Comparison uses compare_days.
+    cat_units = sales.groupby("mastercategory", dropna=False)["unitssold"].sum().reset_index()
+    cat_units["units_per_day"] = (cat_units["unitssold"] / max(int(trend_days), 1)) * float(run_rate_multiplier)
+
+    # Mix by category
+    total_units = float(cat_units["unitssold"].sum()) if not cat_units.empty else 0.0
+    cat_units["unit_share"] = np.where(total_units > 0, cat_units["unitssold"] / total_units, 0.0)
+
+    st.markdown("### Category Mix (Units)")
+    st.dataframe(
+        cat_units.sort_values("unitssold", ascending=False),
+        use_container_width=True
+    )
+
+    # Mix by package size (all categories)
+    size_units = sales.groupby("packagesize", dropna=False)["unitssold"].sum().reset_index()
+    size_units["units_per_day"] = (size_units["unitssold"] / max(int(trend_days), 1)) * float(run_rate_multiplier)
+    st.markdown("### Package Size Mix (Units)")
+    st.dataframe(size_units.sort_values("unitssold", ascending=False), use_container_width=True)
+
+    # Movers by "velocity" (units/day) at SKU level
+    st.markdown("### Top Movers (SKU-level)")
+    sku_cols = ["product_name", "mastercategory", "strain_type", "packagesize", "unitssold"]
+    if "revenue" in sales.columns:
+        sku_cols.append("revenue")
+    sku_view = sales[sku_cols].copy()
+    sku_view["units_per_day"] = (sku_view["unitssold"] / max(int(trend_days), 1)) * float(run_rate_multiplier)
+
+    if "revenue" in sku_view.columns:
+        sku_view["avg_price"] = np.where(sku_view["unitssold"] > 0, sku_view["revenue"] / sku_view["unitssold"], 0.0)
+
+    st.dataframe(sku_view.sort_values("units_per_day", ascending=False).head(50), use_container_width=True)
+
+    # If inventory is available, show "fast movers low stock" quick hit
+    if inv_df_raw is not None:
+        inv_df = inv_df_raw.copy()
+        inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
+
+        inv_name_aliases = [
+            "product", "productname", "item", "itemname", "name", "skuname",
+            "skuid", "product name", "product_name", "product title", "title"
+        ]
+        inv_cat_aliases = [
+            "category", "subcategory", "productcategory", "department",
+            "mastercategory", "product category", "cannabis", "product_category"
+        ]
+        inv_qty_aliases = [
+            "available", "onhand", "onhandunits", "quantity", "qty",
+            "quantityonhand", "instock", "currentquantity", "current quantity",
+            "inventoryavailable", "inventory available", "available quantity"
+        ]
+        name_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_name_aliases])
+        cat_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_cat_aliases])
+        qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_qty_aliases])
+
+        if name_col and cat_col and qty_col:
+            inv_df = inv_df.rename(columns={name_col: "itemname", cat_col: "subcategory", qty_col: "onhandunits"})
+            inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
+            inv_df["packagesize"] = inv_df.apply(lambda r: extract_size(r.get("itemname", ""), r.get("subcategory", "")), axis=1)
+            inv_df["strain_type"] = inv_df.apply(lambda r: extract_strain_type(r.get("itemname", ""), r.get("subcategory", "")), axis=1)
+            inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
+
+            inv_small = inv_df[["itemname", "subcategory", "packagesize", "strain_type", "onhandunits"]].copy()
+            sku_tmp = sku_view.rename(columns={"product_name": "itemname", "mastercategory": "subcategory"}).copy()
+            merged = pd.merge(
+                sku_tmp,
+                inv_small,
+                how="left",
+                on=["itemname", "subcategory", "packagesize", "strain_type"],
+            )
+            merged["onhandunits"] = pd.to_numeric(merged.get("onhandunits", 0), errors="coerce").fillna(0)
+
+            # "risk score": high velocity and low onhand
+            merged["risk_score"] = merged["units_per_day"] / np.maximum(merged["onhandunits"], 1)
+            st.markdown("### Fast Movers + Low Stock (SKU-level)")
+            st.dataframe(
+                merged.sort_values("risk_score", ascending=False).head(50),
+                use_container_width=True
+            )
+        else:
+            st.info("Inventory file is loaded but Trends couldn't auto-detect columns for a stock overlay.")
+
+    # Optional: Pricing signal if revenue exists
+    if "revenue" in sales.columns:
+        st.markdown("### Pricing Signals (If Revenue is in Your Export)")
+        price_view = sku_view.copy()
+        price_view = price_view[price_view["unitssold"] > 0].copy()
+        price_view = price_view.sort_values("avg_price", ascending=False)
+        st.dataframe(price_view.head(50), use_container_width=True)
+        st.caption("If your sales export includes revenue/net sales, this page computes a simple avg price (revenue ÷ units).")
+
+    # Optional external market benchmark notes (kept lightweight)
+    st.markdown("---")
+    st.markdown("#### Market Context (MA)")
+    st.caption("If you’re benchmarking pricing, Headset’s MA market page is a good outside reference for category pricing and market mix.")
+
+
+# ============================================================
+# PAGE 3 – PO BUILDER
 # ============================================================
 else:
     st.subheader("🧾 Purchase Order Builder")
