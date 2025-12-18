@@ -107,6 +107,14 @@ ADMIN_USERS = {
     "JVas": "UPG2025",
 }
 
+
+
+# 👤 STANDARD USER CREDS (non-admin)
+# NOTE: These users can access the app without admin rights.
+USER_USERS = {
+    "KHuston": "ChangeMe!",
+    "ERoots": "Test420",
+}
 # ✅ Canonical category names (values, not column names)
 REB_CATEGORIES = [
     "flower",
@@ -142,6 +150,10 @@ if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 if "admin_user" not in st.session_state:
     st.session_state.admin_user = None
+if "user_authenticated" not in st.session_state:
+    st.session_state.user_authenticated = False
+if "user_user" not in st.session_state:
+    st.session_state.user_user = None
 if "trial_start" not in st.session_state:
     st.session_state.trial_start = None
 if "metric_filter" not in st.session_state:
@@ -917,9 +929,33 @@ else:
         st.session_state.admin_user = None
         st.experimental_rerun()
 
+
+# -------------------------
+# 👤 STANDARD USER LOGIN (non-admin)
+# -------------------------
+st.sidebar.markdown("### 👤 User Login")
+
+if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
+    u_user = st.sidebar.text_input("Username", key="user_user_input")
+    u_pass = st.sidebar.text_input("Password", type="password", key="user_pass_input")
+    if st.sidebar.button("Login", key="login_user_btn"):
+        if u_user in USER_USERS and u_pass == USER_USERS[u_user]:
+            st.session_state.user_authenticated = True
+            st.session_state.user_user = u_user
+            st.sidebar.success("✅ User access enabled.")
+        else:
+            st.sidebar.error("❌ Invalid user credentials.")
+elif (not st.session_state.is_admin) and st.session_state.user_authenticated:
+    st.sidebar.success(f"👤 User: {st.session_state.user_user}")
+    if st.sidebar.button("Logout", key="logout_user_btn"):
+        st.session_state.user_authenticated = False
+        st.session_state.user_user = None
+        st.experimental_rerun()
+
+
 trial_now = datetime.now()
 
-if not st.session_state.is_admin:
+if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
     st.sidebar.markdown("### 🔐 Trial Access")
 
     if st.session_state.trial_start is None:
@@ -1031,7 +1067,7 @@ if section == "📊 Inventory Dashboard":
     )
 
     # Track uploads for God viewer
-    current_user = st.session_state.admin_user if st.session_state.is_admin else "trial_user"
+    current_user = st.session_state.admin_user if st.session_state.is_admin else (st.session_state.user_user if st.session_state.user_authenticated else "trial_user")
     if inv_file is not None:
         track_upload(inv_file, current_user, "inventory")
     if product_sales_file is not None:
