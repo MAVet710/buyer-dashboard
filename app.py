@@ -1165,6 +1165,45 @@ if section == "📊 Inventory Dashboard":
 
             inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
 
+
+
+            # -------- Optional batch de-duplication (prevents accidental double-counting) --------
+            # If the Inventory export includes a Batch/Package identifier, we use it to collapse
+            # duplicate rows that represent the same SKU+Batch (or Name+Batch) appearing more than once.
+            # This keeps on-hand totals honest without changing layout or downstream logic.
+            if "batch" in inv_df.columns:
+                inv_df["batch"] = inv_df["batch"].astype(str).str.strip()
+                # treat empty strings as missing
+                inv_df["batch"] = inv_df["batch"].replace({"": np.nan, "nan": np.nan, "none": np.nan})
+
+                has_batch = inv_df["batch"].notna()
+                if has_batch.any():
+                    if "sku" in inv_df.columns:
+                        dedupe_keys = ["sku", "batch"]
+                    else:
+                        dedupe_keys = ["itemname", "batch"]
+
+                    inv_with = inv_df[has_batch].copy()
+                    inv_without = inv_df[~has_batch].copy()
+
+                    agg_map = {"onhandunits": "max"}
+                    # keep representative fields for downstream parsing
+                    for c in ["itemname", "subcategory"]:
+                        if c in inv_with.columns and c not in dedupe_keys:
+                            agg_map[c] = "first"
+                    if "sku" in inv_with.columns and "sku" not in dedupe_keys:
+                        agg_map["sku"] = "first"
+                    if "batch" in inv_with.columns and "batch" not in dedupe_keys:
+                        agg_map["batch"] = "first"
+
+                    inv_with = (
+                        inv_with.sort_values("onhandunits", ascending=False)
+                        .groupby(dedupe_keys, dropna=False, as_index=False)
+                        .agg(agg_map)
+                    )
+
+                    inv_df = pd.concat([inv_with, inv_without], ignore_index=True)
+
             inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
 
             inv_df["strain_type"] = inv_df.apply(
@@ -1542,7 +1581,7 @@ if section == "📊 Inventory Dashboard":
                     sd = sd[sd["strain_type"].astype(str).str.lower() == str(strain_type).lower()]
 
                 if sd.empty:
-                    return pd.DataFrame()
+                    return pd.DataFrame(), pd.DataFrame()
 
                 sd["est_units_per_day"] = (sd["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
 
