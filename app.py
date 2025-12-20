@@ -1503,6 +1503,37 @@ if section == "📊 Inventory Dashboard":
             st.markdown(f"*Current filter:* **{st.session_state.metric_filter}**")
             st.markdown("### Forecast Table")
 
+            # Quick view: Category DOS at a glance (no clicking)
+            try:
+                cat_quick = (
+                    detail_view.groupby("subcategory", dropna=False)
+                    .agg(
+                        onhandunits=("onhandunits", "sum"),
+                        avgunitsperday=("avgunitsperday", "sum"),
+                        reorder_lines=("reorderpriority", lambda x: int((x == "1 – Reorder ASAP").sum())),
+                    )
+                    .reset_index()
+                )
+                cat_quick["category_dos"] = np.where(
+                    cat_quick["avgunitsperday"] > 0,
+                    cat_quick["onhandunits"] / cat_quick["avgunitsperday"],
+                    0,
+                )
+                cat_quick["category_dos"] = (
+                    cat_quick["category_dos"].replace([np.inf, -np.inf], 0).fillna(0).astype(int)
+                )
+                st.markdown("#### Category DOS (at a glance)")
+                st.dataframe(
+                    cat_quick[["subcategory", "category_dos", "reorder_lines"]].sort_values(
+                        ["reorder_lines", "category_dos"], ascending=[False, True]
+                    ),
+                    use_container_width=True,
+                )
+            except Exception:
+                pass
+
+
+
             def red_low(val):
                 try:
                     v = int(val)
@@ -1565,81 +1596,89 @@ if section == "📊 Inventory Dashboard":
             # ========= SKU drilldown for flagged reorder products (weighted) =========
             # We show this inside each category expander, and only for rows that are flagged.
             # Weighted based on per-item estimated units/day.
+            
             def sku_drilldown_table(cat, size, strain_type):
                 """
-                Returns per-item view for this row, combining sales + inventory hints.
-                Weighted by velocity.
+                Returns two tables:
+                1) SKU-level view (sales-weighted) for this row slice
+                2) Batch rollup (if inventory batch data exists)
+
+                IMPORTANT: Always returns (sku_df, batch_df) so callers can safely unpack.
                 """
-                # sales slice
+                empty = (pd.DataFrame(), pd.DataFrame())
+
+                # --- SALES SLICE ---
                 sd = sales_df[
                     (sales_df["mastercategory"] == cat) &
                     (sales_df["packagesize"] == size)
                 ].copy()
 
-                # Try to match strain_type roughly (but don't exclude too aggressively)
+                # If strain_type is specified, keep it tight
                 if str(strain_type).lower() != "unspecified":
                     sd = sd[sd["strain_type"].astype(str).str.lower() == str(strain_type).lower()]
 
                 if sd.empty:
-                    return pd.DataFrame(), pd.DataFrame()
+                    return empty
 
                 sd["est_units_per_day"] = (sd["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
 
-                # inventory slice
+                # --- INVENTORY SLICE ---
                 idf = inv_df[
                     (inv_df["subcategory"] == cat) &
                     (inv_df["packagesize"] == size)
                 ].copy()
+
                 if str(strain_type).lower() != "unspecified":
                     idf = idf[idf["strain_type"].astype(str).str.lower() == str(strain_type).lower()]
 
-                # build display
+                # SKU-level display
                 cols = []
                 if "sku" in sd.columns:
                     cols.append("sku")
                 cols += ["product_name", "unitssold", "est_units_per_day"]
-                sd_disp = sd[cols].copy()
+                sku_df = sd[cols].copy()
 
-                # attach onhand if possible (by name match)
+                # Attach on-hand where possible (by exact name match)
                 if not idf.empty:
-                    idf_small = idf[["itemname", "onhandunits"]].copy()
-                    idf_small = idf_small.rename(columns={"itemname": "product_name"})
-                    sd_disp = pd.merge(
-                        sd_disp,
-                        idf_small,
-                        how="left",
-                        on="product_name",
+                    inv_cols = ["itemname", "onhandunits"]
+                    if "batch" in idf.columns:
+                        inv_cols.append("batch")
+                    inv_small = idf[inv_cols].copy().rename(columns={"itemname": "product_name"})
+                    sku_df = pd.merge(sku_df, inv_small, how="left", on="product_name")
+
+                if "onhandunits" not in sku_df.columns:
+                    sku_df["onhandunits"] = 0
+                sku_df["onhandunits"] = pd.to_numeric(sku_df["onhandunits"], errors="coerce").fillna(0)
+
+                # Sort weighted and cap
+                sku_df = sku_df.sort_values("est_units_per_day", ascending=False).head(50)
+
+                # Batch rollup (inventory side only)
+                batch_df = pd.DataFrame()
+                if not idf.empty and "batch" in idf.columns:
+                    batch_df = (
+                        idf.groupby("batch", dropna=False)["onhandunits"]
+                        .sum()
+                        .reset_index()
+                        .rename(columns={"onhandunits": "batch_onhandunits"})
+                        .sort_values("batch_onhandunits", ascending=False)
                     )
 
-                sd_disp["onhandunits"] = sd_disp.get("onhandunits", 0)
-                sd_disp["onhandunits"] = pd.to_numeric(sd_disp["onhandunits"], errors="coerce").fillna(0)
+                return sku_df, batch_df
 
-                # sort weighted
-                sd_disp = sd_disp.sort_values("est_units_per_day", ascending=False).head(50)
-
-                # Optional: batch / lot breakdown (inventory export may include this)
-                batch_df = pd.DataFrame()
-                try:
-                    if "batch" in idf.columns:
-                        bdf = idf.copy()
-                        bdf["batch"] = bdf["batch"].astype(str)
-                        bdf = bdf.rename(columns={"itemname": "product_name"})
-                        batch_df = (
-                            bdf.groupby(["product_name", "batch"], dropna=False)["onhandunits"]
-                            .sum()
-                            .reset_index()
-                            .sort_values("onhandunits", ascending=False)
-                        )
-                except Exception:
-                    batch_df = pd.DataFrame()
-
-                return sd_disp, batch_df
 
             # Expanders by category
             for cat in sorted(detail_view["subcategory"].unique(), key=cat_sort_key):
                 group = detail_view[detail_view["subcategory"] == cat].copy()
 
                 with st.expander(cat.title()):
+                    # Category-level DOS (so you don't have to click into every row)
+                    try:
+                        denom = float(group["avgunitsperday"].sum())
+                        cat_dos = (float(group["onhandunits"].sum()) / denom) if denom > 0 else 0.0
+                    except Exception:
+                        cat_dos = 0.0
+                    st.markdown(f"**Category DOS:** {int(cat_dos)} days")
                     g = group[display_cols].copy()
                     st.dataframe(
                         g.style.applymap(red_low, subset=["daysonhand"]),
