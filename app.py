@@ -1136,6 +1136,14 @@ if section == "📊 Inventory Dashboard":
             inv_sku_aliases = ["sku", "skuid", "productid", "product_id", "itemid", "item_id"]
             sku_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_sku_aliases])
 
+            # Batch / Lot column (optional; helps distinguish duplicate items by batch)
+            inv_batch_aliases = [
+                "batch", "batchnumber", "batch number", "lot", "lotnumber", "lot number",
+                "batchid", "batch id", "lotid", "lot id", "inventorybatch", "inventory batch",
+                "packageid", "package id",
+            ]
+            batch_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_batch_aliases])
+
             if not (name_col and cat_col and qty_col):
                 st.error(
                     "Could not auto-detect inventory columns (product / category / on-hand). "
@@ -1152,6 +1160,8 @@ if section == "📊 Inventory Dashboard":
             )
             if sku_col:
                 inv_df = inv_df.rename(columns={sku_col: "sku"})
+            if batch_col:
+                inv_df = inv_df.rename(columns={batch_col: "batch"})
 
             inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
 
@@ -1568,7 +1578,23 @@ if section == "📊 Inventory Dashboard":
                 # sort weighted
                 sd_disp = sd_disp.sort_values("est_units_per_day", ascending=False).head(50)
 
-                return sd_disp
+                # Optional: batch / lot breakdown (inventory export may include this)
+                batch_df = pd.DataFrame()
+                try:
+                    if "batch" in idf.columns:
+                        bdf = idf.copy()
+                        bdf["batch"] = bdf["batch"].astype(str)
+                        bdf = bdf.rename(columns={"itemname": "product_name"})
+                        batch_df = (
+                            bdf.groupby(["product_name", "batch"], dropna=False)["onhandunits"]
+                            .sum()
+                            .reset_index()
+                            .sort_values("onhandunits", ascending=False)
+                        )
+                except Exception:
+                    batch_df = pd.DataFrame()
+
+                return sd_disp, batch_df
 
             # Expanders by category
             for cat in sorted(detail_view["subcategory"].unique(), key=cat_sort_key):
@@ -1588,7 +1614,7 @@ if section == "📊 Inventory Dashboard":
                         for _, r in flagged.iterrows():
                             row_label = f"{r.get('strain_type','unspecified')} • {r.get('packagesize','unspecified')} • Reorder Qty: {int(r.get('reorderqty',0))}"
                             with st.expander(f"View SKUs — {row_label}", expanded=False):
-                                sku_df = sku_drilldown_table(
+                                sku_df, batch_df = sku_drilldown_table(
                                     cat=r.get("subcategory"),
                                     size=r.get("packagesize"),
                                     strain_type=r.get("strain_type"),
@@ -1597,6 +1623,9 @@ if section == "📊 Inventory Dashboard":
                                     st.info("No matching SKU-level sales rows found for this slice.")
                                 else:
                                     st.dataframe(sku_df, use_container_width=True)
+                                if not batch_df.empty:
+                                    st.markdown("##### 🧬 Batch / Lot Breakdown (On-Hand)")
+                                    st.dataframe(batch_df, use_container_width=True)
 
             # =======================
             # AI INVENTORY CHECK
