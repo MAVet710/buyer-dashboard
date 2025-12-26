@@ -114,6 +114,7 @@ ADMIN_USERS = {
 USER_USERS = {
     "KHuston": "ChangeMe!",
     "ERoots": "Test420",
+     "AFreed": "Tester710",
 }
 # ✅ Canonical category names (values, not column names)
 REB_CATEGORIES = [
