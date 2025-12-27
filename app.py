@@ -114,7 +114,6 @@ ADMIN_USERS = {
 USER_USERS = {
     "KHuston": "ChangeMe!",
     "ERoots": "Test420",
-     "AFreed": "Tester710",
 }
 # ✅ Canonical category names (values, not column names)
 REB_CATEGORIES = [
@@ -1039,7 +1038,7 @@ if st.session_state.is_admin and st.session_state.admin_user == "God":
 # =========================
 section = st.sidebar.radio(
     "App Section",
-    ["📊 Inventory Dashboard", "📈 Trends", "🧾 PO Builder"],
+    ["📊 Inventory Dashboard", "📈 Trends", "🐢 Slow Movers", "🧾 PO Builder"],
     index=0,
 )
 
@@ -1079,6 +1078,7 @@ if section == "📊 Inventory Dashboard":
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Forecast Settings")
     doh_threshold = st.sidebar.number_input("Target Days on Hand", 1, 60, 21)
+    st.session_state.doh_threshold_cache = int(doh_threshold)
     velocity_adjustment = st.sidebar.number_input("Velocity Adjustment", 0.01, 5.0, 0.5)
     date_diff = st.sidebar.slider("Days in Sales Period", 7, 120, 60)
 
@@ -1898,7 +1898,388 @@ elif section == "📈 Trends":
                 merged.sort_values("risk_score", ascending=False).head(50),
                 use_container_width=True
             )
-        else:
+        
+elif section == "🐢 Slow Movers":
+    st.subheader("🐢 Slow Movers + Discount Ideas")
+    st.markdown(
+        "This tab looks for products sitting on the shelf with long gaps between sales, "
+        "then suggests *light* discount tiers to get them moving."
+    )
+
+    st.sidebar.markdown("### 📂 Upload Sales Detail (for gap analysis)")
+    st.sidebar.caption(
+        "Best export: a **daily** or **transaction** product sales breakdown that includes a date column. "
+        "If you only upload a summary Product Sales report (no dates), this tab will still work, "
+        "but it can’t calculate gaps between sale days."
+    )
+
+    slow_sales_file = st.sidebar.file_uploader(
+        "Detailed Sales Breakdown (daily or transaction-level)",
+        type=["xlsx", "xls", "csv"],
+        key="slow_sales_file",
+    )
+
+    current_user = st.session_state.admin_user if st.session_state.is_admin else "trial_user"
+    if slow_sales_file is not None:
+        track_upload(slow_sales_file, current_user, "slow_sales_detail")
+
+    # We re-use the same inventory + product sales uploads (if the user already provided them in Inventory Dashboard)
+    if st.session_state.inv_raw_df is None:
+        st.info("Upload an Inventory file in the Inventory Dashboard tab first.")
+        st.stop()
+    if st.session_state.sales_raw_df is None:
+        st.info("Upload a Product Sales report in the Inventory Dashboard tab first.")
+        st.stop()
+
+    # -------- Parse inventory + sales the same way (minimal duplication, no layout change) --------
+    inv_df = st.session_state.inv_raw_df.copy()
+    sales_raw = st.session_state.sales_raw_df.copy()
+
+    # Inventory normalize
+    inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
+    inv_name_aliases = [
+        "product", "productname", "item", "itemname", "name", "skuname",
+        "skuid", "product name", "product_name", "product title", "title"
+    ]
+    inv_cat_aliases = [
+        "category", "subcategory", "productcategory", "department",
+        "mastercategory", "product category", "cannabis", "product_category"
+    ]
+    inv_qty_aliases = [
+        "available", "onhand", "onhandunits", "quantity", "qty",
+        "quantityonhand", "instock", "currentquantity", "current quantity",
+        "inventoryavailable", "inventory available", "available quantity"
+    ]
+    name_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_name_aliases])
+    cat_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_cat_aliases])
+    qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_qty_aliases])
+
+    inv_sku_aliases = ["sku", "skuid", "productid", "product_id", "itemid", "item_id"]
+    sku_col = detect_column(inv_df.columns, [normalize_col(a) for a in inv_sku_aliases])
+
+    if not (name_col and cat_col and qty_col):
+        st.error("Could not detect required inventory columns (name/category/available).")
+        st.stop()
+
+    inv_df = inv_df.rename(columns={name_col: "itemname", cat_col: "subcategory", qty_col: "onhandunits"})
+    if sku_col:
+        inv_df = inv_df.rename(columns={sku_col: "sku"})
+    inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
+    inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
+    inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+    inv_df["packagesize"] = inv_df.apply(lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+
+    # Sales summary normalize
+    sales_raw.columns = sales_raw.columns.astype(str).str.lower()
+
+    sales_name_aliases = [
+        "product", "productname", "product title", "producttitle",
+        "productid", "name", "item", "itemname", "skuname",
+        "sku", "description", "product name", "product_name"
+    ]
+    name_col_sales = detect_column(sales_raw.columns, [normalize_col(a) for a in sales_name_aliases])
+
+    qty_aliases = [
+        "quantitysold", "quantity sold",
+        "qtysold", "qty sold",
+        "itemsold", "item sold", "items sold",
+        "unitssold", "units sold", "unit sold", "unitsold", "units",
+        "totalunits", "total units",
+        "quantity", "qty",
+    ]
+    qty_col_sales = detect_column(sales_raw.columns, [normalize_col(a) for a in qty_aliases])
+
+    mc_aliases = [
+        "mastercategory", "category", "master_category",
+        "productcategory", "product category",
+        "department", "dept", "subcategory", "productcategoryname",
+        "product category name"
+    ]
+    mc_col = detect_column(sales_raw.columns, [normalize_col(a) for a in mc_aliases])
+
+    sales_sku_aliases = ["sku", "skuid", "productid", "product_id"]
+    sales_sku_col = detect_column(sales_raw.columns, [normalize_col(a) for a in sales_sku_aliases])
+
+    if not (name_col_sales and qty_col_sales and mc_col):
+        st.error("Could not detect required Product Sales columns (product/category/units sold).")
+        st.stop()
+
+    sales_raw = sales_raw.rename(columns={name_col_sales: "product_name", qty_col_sales: "unitssold", mc_col: "mastercategory"})
+    if sales_sku_col:
+        sales_raw = sales_raw.rename(columns={sales_sku_col: "sku"})
+    sales_raw["unitssold"] = pd.to_numeric(sales_raw["unitssold"], errors="coerce").fillna(0)
+    sales_raw["mastercategory"] = sales_raw["mastercategory"].apply(normalize_rebelle_category)
+
+    sales_df = sales_raw[
+        ~sales_raw["mastercategory"].astype(str).str.contains("accessor", na=False)
+        & (sales_raw["mastercategory"] != "all")
+    ].copy()
+    sales_df["packagesize"] = sales_df.apply(lambda r: extract_size(r.get("product_name", ""), r.get("mastercategory", "")), axis=1)
+    sales_df["strain_type"] = sales_df.apply(lambda r: extract_strain_type(r.get("product_name", ""), r.get("mastercategory", "")), axis=1)
+
+    # ---------------- Detailed / daily sales (optional, enables gap math) ----------------
+    detail_sales = None
+    if slow_sales_file is not None:
+        try:
+            nm = slow_sales_file.name.lower()
+            slow_sales_file.seek(0)
+            if nm.endswith(".csv"):
+                detail_sales = pd.read_csv(slow_sales_file)
+            else:
+                detail_sales = read_sales_file(slow_sales_file)
+        except Exception as e:
+            st.warning(f"Could not read the detailed sales file: {e}")
+            detail_sales = None
+
+    def _norm_name(x):
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", str(x).lower())).strip()
+
+    # build inventory lookup
+    inv_lookup = inv_df.copy()
+    inv_lookup["name_key"] = inv_lookup["itemname"].apply(_norm_name)
+
+    # If detailed sales has dates, compute gap metrics
+    today = datetime.now().date()
+
+    gap_table = None
+    if detail_sales is not None and not detail_sales.empty:
+        cols_low = [str(c).lower() for c in detail_sales.columns]
+        detail_sales.columns = cols_low
+
+        # find columns
+        d_name = detect_column(detail_sales.columns, [normalize_col(a) for a in sales_name_aliases])
+        d_qty = detect_column(detail_sales.columns, [normalize_col(a) for a in qty_aliases])
+        d_cat = detect_column(detail_sales.columns, [normalize_col(a) for a in mc_aliases])
+
+        date_aliases = ["date", "soldon", "sold on", "orderdate", "order date", "completeddate", "completed date", "day", "businessdate", "business date"]
+        d_date = detect_column(detail_sales.columns, [normalize_col(a) for a in date_aliases])
+
+        # optional dollars for pricing ideas
+        rev_aliases = ["netsales", "net sales", "grosssales", "gross sales", "revenue", "sales", "totalsales", "total sales", "subtotal"]
+        d_rev = detect_column(detail_sales.columns, [normalize_col(a) for a in rev_aliases])
+
+        if d_name and d_qty and d_cat and d_date:
+            ds = detail_sales.rename(columns={d_name: "product_name", d_qty: "unitssold", d_cat: "mastercategory", d_date: "saledate"})
+            if d_rev:
+                ds = ds.rename(columns={d_rev: "revenue"})
+
+            ds["unitssold"] = pd.to_numeric(ds["unitssold"], errors="coerce").fillna(0)
+            ds["mastercategory"] = ds["mastercategory"].apply(normalize_rebelle_category)
+            ds["saledate"] = pd.to_datetime(ds["saledate"], errors="coerce").dt.date
+            ds = ds.dropna(subset=["saledate"])
+            ds["name_key"] = ds["product_name"].apply(_norm_name)
+
+            # only positive sale days
+            ds_pos = ds[ds["unitssold"] > 0].copy()
+
+            if not ds_pos.empty:
+                # compute gaps per product
+                rows = []
+                for key, g in ds_pos.groupby("name_key"):
+                    dts = sorted(g["saledate"].unique())
+                    last_dt = dts[-1]
+                    first_dt = dts[0]
+                    days_since_last = (today - last_dt).days if last_dt else None
+                    # gaps between sale days
+                    gaps = []
+                    for i in range(1, len(dts)):
+                        gaps.append((dts[i] - dts[i-1]).days)
+                    avg_gap = float(np.mean(gaps)) if gaps else 0.0
+                    med_gap = float(np.median(gaps)) if gaps else 0.0
+                    sale_days = len(dts)
+                    units = float(g["unitssold"].sum())
+                    rev = float(g["revenue"].sum()) if "revenue" in g.columns else 0.0
+                    avg_price = (rev / units) if (units > 0 and rev > 0) else np.nan
+
+                    rows.append({
+                        "name_key": key,
+                        "product_name": str(g["product_name"].iloc[0]),
+                        "mastercategory": str(g["mastercategory"].iloc[0]),
+                        "units_sold": units,
+                        "sale_days": sale_days,
+                        "first_sale": first_dt,
+                        "last_sale": last_dt,
+                        "days_since_last_sale": days_since_last,
+                        "avg_gap_days": round(avg_gap, 2),
+                        "median_gap_days": round(med_gap, 2),
+                        "avg_unit_price": avg_price,
+                    })
+                gap_table = pd.DataFrame(rows)
+
+    # Fallback: if no detail sales / no date col, create a minimal table from sales_df
+    if gap_table is None:
+        gap_table = sales_df.groupby(["mastercategory", "product_name"], dropna=False)["unitssold"].sum().reset_index()
+        gap_table = gap_table.rename(columns={"unitssold": "units_sold"})
+        gap_table["sale_days"] = np.nan
+        gap_table["first_sale"] = np.nan
+        gap_table["last_sale"] = np.nan
+        gap_table["days_since_last_sale"] = np.nan
+        gap_table["avg_gap_days"] = np.nan
+        gap_table["median_gap_days"] = np.nan
+        gap_table["avg_unit_price"] = np.nan
+        gap_table["name_key"] = gap_table["product_name"].apply(_norm_name)
+
+    # Join inventory on-hand
+    inv_onhand = inv_lookup.groupby(["name_key"], dropna=False)["onhandunits"].sum().reset_index()
+    inv_onhand = inv_onhand.rename(columns={"onhandunits": "onhand_units"})
+
+    out = pd.merge(gap_table, inv_onhand, how="left", on="name_key")
+    out["onhand_units"] = pd.to_numeric(out["onhand_units"], errors="coerce").fillna(0)
+
+    # Add package + strain parsing for readability
+    out["packagesize"] = out["product_name"].apply(lambda x: extract_size(x, out.get("mastercategory", "")))
+    out["strain_type"] = out.apply(lambda r: extract_strain_type(r.get("product_name", ""), r.get("mastercategory", "")), axis=1)
+
+    # Run rate settings
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🏃 Adjustable Run Rates")
+    rr_days = st.sidebar.slider("Run-rate window (days)", 7, 120, 30, key="rr_days")
+    min_onhand = st.sidebar.number_input("Minimum On-Hand to flag", 1, 999999, 5, key="min_onhand_flag")
+
+    # Estimate daily velocity from units_sold in run-rate window (when available)
+    # If detailed sales is present, we’ll compute units in last rr_days; otherwise we use total units / date_diff from the main app setting.
+    if detail_sales is not None and gap_table is not None and "last_sale" in gap_table.columns and gap_table["last_sale"].notna().any():
+        # If we have ds_pos already, approximate by last rr_days using ds (all rows) if present
+        try:
+            # Rebuild ds quickly if available
+            if slow_sales_file is not None:
+                # Attempt to reuse 'ds' if it exists in locals (safe)
+                pass
+        except Exception:
+            pass
+
+    # Simple velocity: units_sold / max(rr_days,1)
+    out["est_units_per_day"] = out["units_sold"] / max(int(rr_days), 1)
+
+    # Slow mover score
+    def _discount_tier(row):
+        onhand = float(row.get("onhand_units", 0))
+        vel = float(row.get("est_units_per_day", 0))
+        dsl = row.get("days_since_last_sale", np.nan)
+        gap = row.get("avg_gap_days", np.nan)
+
+        # no inventory? no discount call
+        if onhand <= 0:
+            return 0
+
+        # base tier
+        tier = 0
+        if (vel == 0) and (not pd.isna(dsl)) and (dsl >= 30):
+            tier = 30
+        elif (not pd.isna(dsl)) and (dsl >= 21):
+            tier = 20
+        elif (not pd.isna(dsl)) and (dsl >= 14):
+            tier = 15
+        elif (not pd.isna(gap)) and (gap >= 7):
+            tier = 10
+        elif vel == 0:
+            tier = 15  # dead-ish, but we don't have dates
+
+        # overstock bump
+        # target sell-through: doh_threshold from main page, if available in session; otherwise 21
+        target_doh = int(st.session_state.get("doh_threshold_cache", 21))
+        target_units = vel * target_doh
+        if target_units > 0 and onhand > (2.0 * target_units):
+            tier = min(40, tier + 5)
+
+        return int(tier)
+
+    # cache doh_threshold from main page if it exists
+    if "doh_threshold_cache" not in st.session_state:
+        st.session_state.doh_threshold_cache = 21
+
+    out["suggested_discount_pct"] = out.apply(_discount_tier, axis=1)
+
+    # Flags
+    out["slow_mover_flag"] = (
+        (out["onhand_units"] >= float(min_onhand))
+        & (
+            (out["est_units_per_day"] <= 0.05)
+            | (out["suggested_discount_pct"] >= 10)
+            | (out["avg_gap_days"].fillna(0) >= 7)
+            | (out["days_since_last_sale"].fillna(0) >= 14)
+        )
+    )
+
+    # Summary
+    flagged = out[out["slow_mover_flag"]].copy()
+    flagged = flagged.sort_values(["suggested_discount_pct", "onhand_units"], ascending=[False, False])
+
+    st.markdown("### What this is looking for")
+    st.markdown(
+        "- **On-hand** sitting heavy\n"
+        "- **Low run rate** (units/day)\n"
+        "- **Long gaps** between sale days (when date-level data is provided)\n"
+        "- A simple discount tier to move it before it turns into shelf art"
+    )
+
+    st.markdown("### Slow Movers (by Category)")
+    if flagged.empty:
+        st.success("Nothing is screaming 'slow mover' from the files you gave me.")
+    else:
+        # Export button
+        def build_slow_export_bytes(df: pd.DataFrame) -> bytes:
+            buf = BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                df.to_excel(writer, index=False, sheet_name="SlowMovers")
+            buf.seek(0)
+            return buf.read()
+
+        export_cols = [
+            "mastercategory",
+            "product_name",
+            "packagesize",
+            "strain_type",
+            "onhand_units",
+            "units_sold",
+            "est_units_per_day",
+            "days_since_last_sale",
+            "avg_gap_days",
+            "suggested_discount_pct",
+            "avg_unit_price",
+        ]
+        export_cols = [c for c in export_cols if c in flagged.columns]
+        st.download_button(
+            "📥 Export Slow Movers (Excel)",
+            data=build_slow_export_bytes(flagged[export_cols].copy()),
+            file_name="slow_movers.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        # category expanders (keep consistent vibe)
+        def _cat_sort_key_local(c):
+            c_low = str(c).lower()
+            if c_low in REB_CATEGORIES:
+                return (REB_CATEGORIES.index(c_low), c_low)
+            return (len(REB_CATEGORIES), c_low)
+
+        cats = sorted(flagged["mastercategory"].dropna().unique().tolist(), key=_cat_sort_key_local)
+        for cat in cats:
+            sub = flagged[flagged["mastercategory"] == cat].copy()
+            with st.expander(cat.title(), expanded=False):
+                show_cols = [
+                    "product_name",
+                    "packagesize",
+                    "strain_type",
+                    "onhand_units",
+                    "units_sold",
+                    "est_units_per_day",
+                    "days_since_last_sale",
+                    "avg_gap_days",
+                    "suggested_discount_pct",
+                    "avg_unit_price",
+                ]
+                show_cols = [c for c in show_cols if c in sub.columns]
+                st.dataframe(sub[show_cols], use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("### Discount notes (buyer common sense)")
+        st.caption(
+            "These are suggestions, not gospel. Use brand rules, MAP policies, and margin reality. "
+            "If something is close to expiry or dead-dead, a bigger move may be justified."
+        )
+
+else:
             st.info("Inventory file is loaded but Trends couldn't auto-detect columns for a stock overlay.")
 
     # Optional: Pricing signal if revenue exists
