@@ -2279,9 +2279,9 @@ elif section == "🐢 Slow Movers":
             "If something is close to expiry or dead-dead, a bigger move may be justified."
         )
 
-else:
-            st.info("Inventory file is loaded but Trends couldn't auto-detect columns for a stock overlay.")
-
+if False:
+    st.info("Inventory file is loaded but Trends couldn't auto-detect columns for a stock overlay.")
+    st.stop()
     # Optional: Pricing signal if revenue exists
     if "revenue" in sales.columns:
         st.markdown("### Pricing Signals (If Revenue is in Your Export)")
