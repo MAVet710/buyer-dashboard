@@ -1058,13 +1058,65 @@ if section == "📊 Inventory Dashboard":
 
     st.sidebar.header("📂 Upload Core Reports")
 
-    inv_file = st.sidebar.file_uploader("Inventory File (CSV or Excel)", type=["csv", "xlsx", "xls"])
-    product_sales_file = st.sidebar.file_uploader("Product Sales Report (qty-based Excel)", type=["xlsx", "xls"])
+    inv_file = st.sidebar.file_uploader("Inventory File (CSV or Excel)", type=["csv", "xlsx", "xls"], key="inv_upload")
+    product_sales_file = st.sidebar.file_uploader("Product Sales Report (qty-based Excel)", type=["xlsx", "xls"], key="sales_upload")
     extra_sales_file = st.sidebar.file_uploader(
         "Optional Extra Sales Detail (revenue)",
         type=["xlsx", "xls"],
         help="Optional: revenue detail. Can be used for pricing trends.",
+        key="extra_sales_upload",
     )
+
+    # ------------------------------------------------------------
+    # UPLOAD CACHE (prevents uploads from wiping when switching tabs)
+    # ------------------------------------------------------------
+    class _UploadedFileLike(BytesIO):
+        def __init__(self, b: bytes, name: str):
+            super().__init__(b)
+            self.name = name
+
+    def _cache_upload(file_obj, cache_key: str):
+        if file_obj is None:
+            return
+        try:
+            file_obj.seek(0)
+            b = file_obj.read()
+            file_obj.seek(0)
+            st.session_state[cache_key] = {"name": getattr(file_obj, "name", "upload"), "bytes": b}
+        except Exception:
+            return
+
+    def _load_cached(cache_key: str):
+        obj = st.session_state.get(cache_key)
+        if isinstance(obj, dict) and obj.get("bytes"):
+            return _UploadedFileLike(obj["bytes"], obj.get("name", "cached_upload"))
+        return None
+
+    # Save latest uploads into cache
+    _cache_upload(inv_file, "_cache_inv")
+    _cache_upload(product_sales_file, "_cache_sales")
+    _cache_upload(extra_sales_file, "_cache_extra_sales")
+
+    # Restore from cache if user navigated away and back
+    if inv_file is None:
+        inv_file = _load_cached("_cache_inv")
+        if inv_file is not None:
+            st.sidebar.caption(f"Using cached Inventory file: {inv_file.name}")
+    if product_sales_file is None:
+        product_sales_file = _load_cached("_cache_sales")
+        if product_sales_file is not None:
+            st.sidebar.caption(f"Using cached Product Sales file: {product_sales_file.name}")
+    if extra_sales_file is None:
+        extra_sales_file = _load_cached("_cache_extra_sales")
+        if extra_sales_file is not None:
+            st.sidebar.caption(f"Using cached Extra Sales file: {extra_sales_file.name}")
+
+    if st.sidebar.button("🧹 Clear cached uploads"):
+        for k in ["_cache_inv", "_cache_sales", "_cache_extra_sales"]:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.experimental_rerun()
+
 
     # Track uploads for God viewer
     current_user = st.session_state.admin_user if st.session_state.is_admin else (st.session_state.user_user if st.session_state.user_authenticated else "trial_user")
@@ -1851,6 +1903,21 @@ elif section == "📈 Trends":
         sku_view["avg_price"] = np.where(sku_view["unitssold"] > 0, sku_view["revenue"] / sku_view["unitssold"], 0.0)
 
     st.dataframe(sku_view.sort_values("units_per_day", ascending=False).head(50), use_container_width=True)
+
+    # Best Sellers by Category (requested)
+    st.markdown("### Best Sellers by Category")
+    top_n = st.number_input("Top N per category", 1, 50, 10, key="trend_top_n")
+    cat_list = sorted([c for c in sales["mastercategory"].dropna().unique().tolist()])
+    if len(cat_list) == 0:
+        st.info("No categories found in sales data.")
+    else:
+        for cat in cat_list:
+            with st.expander(f"{str(cat).title()} — Top {int(top_n)}", expanded=False):
+                cat_df = sku_view[sku_view["mastercategory"] == cat].copy()
+                st.dataframe(
+                    cat_df.sort_values("units_per_day", ascending=False).head(int(top_n)),
+                    use_container_width=True,
+                )
 
     # If inventory is available, show "fast movers low stock" quick hit
     if inv_df_raw is not None:
