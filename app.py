@@ -95,7 +95,7 @@ def init_openai_client():
 CLIENT_NAME = "MAVet710"
 APP_TITLE = f"{CLIENT_NAME} Purchasing Dashboard"
 APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data."
-LICENSE_FOOTER = "MAVet710 Buyer Tools • Powered by MAVet710 Analytics"
+LICENSE_FOOTER = "Semper Paratus • Powered by Good Weed and Data"
 
 # 🔐 TRIAL SETTINGS
 TRIAL_KEY = "mavet24"
@@ -114,6 +114,7 @@ ADMIN_USERS = {
 USER_USERS = {
     "KHuston": "ChangeMe!",
     "ERoots": "Test420",
+    "AFreed": "Test710"
 }
 # ✅ Canonical category names (values, not column names)
 REB_CATEGORIES = [
