@@ -2367,7 +2367,7 @@ if False:
 # ============================================================
 # PAGE 3 – PO BUILDER
 # ============================================================
-else:
+elif section == "🧾 PO Builder":
     st.subheader("🧾 Purchase Order Builder")
 
     st.markdown(
@@ -2541,6 +2541,10 @@ else:
 
 
 # =========================
+
+else:
+    st.error("Unknown section selection. Please choose a page from the sidebar.")
+
 # FOOTER
 # =========================
 st.markdown("---")
