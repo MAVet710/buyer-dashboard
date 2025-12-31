@@ -2553,7 +2553,8 @@ year = datetime.now().year
 st.markdown(
     f'<div class="footer">{LICENSE_FOOTER} • © {year}</div>',
     unsafe_allow_html=True,
-)import streamlit as st
+)
+import streamlit as st
 import pandas as pd
 import numpy as np
 import re
