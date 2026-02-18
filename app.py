@@ -208,7 +208,7 @@ STRAIN_DATABASE = {
     "mimosa": "hybrid", "runtz": "hybrid", "biscotti": "hybrid",
     "cookies and cream": "hybrid", "animal cookies": "hybrid", "platinum cookies": "hybrid",
     "thin mint": "hybrid", "thin mint cookies": "hybrid", "scooby snacks": "hybrid",
-    "london pound cake": "hybrid", "Gary payton": "hybrid", "apples and bananas": "hybrid",
+    "london pound cake": "hybrid", "apples and bananas": "hybrid",
     "cereal milk": "hybrid", "rainbow belts": "hybrid", "jealousy": "hybrid",
     "grape gasoline": "hybrid", "oreoz": "hybrid", "gary payton": "hybrid",
     "obama kush": "hybrid", "tahoe og": "hybrid", "sfv og": "hybrid",
@@ -669,12 +669,18 @@ def extract_strain_type(name, subcat):
     if "concentrate" in cat and ("rso" in s or "rick simpson" in s):
         conc_tag = "rso"
 
-    # AI-powered strain lookup for flower and pre-rolls when base is unspecified
+    # Free strain database lookup for flower and pre-rolls when base is unspecified
     if base == "unspecified" and ("flower" in cat or preroll_flag):
-        # Try to use AI to determine the strain type from the product name
-        ai_result = ai_lookup_strain_type(name, subcat)
-        if ai_result != "unspecified":
-            base = ai_result
+        # Check if strain lookup is enabled in settings
+        try:
+            if st.session_state.ai_strain_lookup_enabled:
+                # Use free database to determine the strain type from the product name
+                lookup_result = ai_lookup_strain_type(name, subcat)
+                if lookup_result != "unspecified":
+                    base = lookup_result
+        except Exception:
+            # If session state not available yet, skip lookup
+            pass
 
     # Compose stacked type
     if "flower" in cat:
