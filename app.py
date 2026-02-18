@@ -226,6 +226,12 @@ PRODUCT_TYPE_PATTERN = re.compile(r'\b(flower|pre[-\s]?roll|joint|blunt|eighth|q
 # Pre-sort strain names by length (longest first) for matching priority
 SORTED_STRAIN_NAMES = sorted(STRAIN_DATABASE.keys(), key=len, reverse=True)
 
+# Pre-compile strain matching patterns for performance
+STRAIN_PATTERNS = {
+    strain: re.compile(r'\b' + re.escape(strain) + r'\b')
+    for strain in STRAIN_DATABASE.keys()
+}
+
 # Cache for strain lookups
 strain_lookup_cache = {}
 
@@ -265,13 +271,12 @@ def free_strain_lookup(product_name, category):
         strain_lookup_cache[cache_key] = result
         return result
     
-    # Try partial matching - uses pre-sorted list for performance
+    # Try partial matching - uses pre-compiled patterns and pre-sorted list
     # Longer strain names are checked first to prefer specific over generic matches
     for strain_name in SORTED_STRAIN_NAMES:
-        # Use word boundary matching to avoid false matches
+        # Use pre-compiled word boundary pattern to avoid false matches
         # e.g., "og" should match "OG Kush" but not "dOGfood"
-        pattern = r'\b' + re.escape(strain_name) + r'\b'
-        if re.search(pattern, clean_name):
+        if STRAIN_PATTERNS[strain_name].search(clean_name):
             result = STRAIN_DATABASE[strain_name]
             strain_lookup_cache[cache_key] = result
             return result
@@ -283,9 +288,12 @@ def free_strain_lookup(product_name, category):
 
 def ai_lookup_strain_type(product_name, category):
     """
-    DEPRECATED: Use free_strain_lookup() instead for cost-free strain detection.
+    DEPRECATED (v2.0): Use free_strain_lookup() instead for cost-free strain detection.
     
     This function is kept for backward compatibility but now redirects to the free lookup.
+    Will be removed in v3.0 (planned for Q2 2026).
+    
+    Migration: Replace `ai_lookup_strain_type(name, cat)` with `free_strain_lookup(name, cat)`
     """
     return free_strain_lookup(product_name, category)
 
@@ -682,9 +690,14 @@ def extract_strain_type(name, subcat):
                 lookup_result = free_strain_lookup(name, subcat)
                 if lookup_result != "unspecified":
                     base = lookup_result
-        except Exception:
-            # If session state not available yet, skip lookup
+        except AttributeError:
+            # Session state not available yet (app initialization), skip lookup
             pass
+        except Exception as e:
+            # Unexpected error in strain lookup - log but don't fail
+            # This ensures product processing continues even if lookup has a bug
+            import sys
+            print(f"Warning: Strain lookup error for '{name}': {type(e).__name__}", file=sys.stderr)
 
     # Compose stacked type
     if "flower" in cat:
