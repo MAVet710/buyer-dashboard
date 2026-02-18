@@ -4,8 +4,6 @@ import numpy as np
 import re
 import json
 import os
-import logging
-import traceback
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -214,11 +212,19 @@ STRAIN_DATABASE = {
     "obama kush": "hybrid", "tahoe og": "hybrid", "sfv og": "hybrid",
     "larry og": "hybrid", "triple og": "hybrid", "wifi og": "hybrid",
     
-    # Additional strain variations and abbreviations
-    "og": "hybrid", "kush": "indica", "haze": "sativa", "cookies": "hybrid",
+    # Generic strain-related terms (with word boundaries to avoid false positives)
+    # These match only when appearing as standalone words
+    "kush": "indica", "haze": "sativa", "cookies": "hybrid",
     "diesel": "sativa", "skunk": "sativa", "cheese": "hybrid", "punch": "indica",
     "cake": "indica", "pie": "indica", "breath": "hybrid", "sherb": "indica",
 }
+
+# Pre-compile regex patterns for performance
+SIZE_PATTERN = re.compile(r'\b\d+\.?\d*\s*(g|mg|oz|ml|ct|count|pk|pack)\b')
+PRODUCT_TYPE_PATTERN = re.compile(r'\b(flower|pre[-\s]?roll|joint|blunt|eighth|quarter|half|ounce)\b')
+
+# Pre-sort strain names by length (longest first) for matching priority
+SORTED_STRAIN_NAMES = sorted(STRAIN_DATABASE.keys(), key=len, reverse=True)
 
 # Cache for strain lookups
 strain_lookup_cache = {}
@@ -248,9 +254,9 @@ def free_strain_lookup(product_name, category):
     name_lower = product_name.lower().strip()
     
     # Remove common size indicators and product types to focus on strain name
-    # This helps match "Blue Dream 3.5g" or "Gelato Flower" to the strain name
-    clean_name = re.sub(r'\b\d+\.?\d*\s*(g|mg|oz|ml|ct|count|pk|pack)\b', '', name_lower)
-    clean_name = re.sub(r'\b(flower|pre[-\s]?roll|joint|blunt|eighth|quarter|half|ounce)\b', '', clean_name)
+    # Uses pre-compiled regex patterns for better performance
+    clean_name = SIZE_PATTERN.sub('', name_lower)
+    clean_name = PRODUCT_TYPE_PATTERN.sub('', clean_name)
     clean_name = clean_name.strip()
     
     # Try exact match first (most accurate)
@@ -259,11 +265,9 @@ def free_strain_lookup(product_name, category):
         strain_lookup_cache[cache_key] = result
         return result
     
-    # Try partial matching - look for strain names within the product name
-    # Sort by length (longer matches first to prefer specific strains over generic terms)
-    sorted_strains = sorted(STRAIN_DATABASE.keys(), key=len, reverse=True)
-    
-    for strain_name in sorted_strains:
+    # Try partial matching - uses pre-sorted list for performance
+    # Longer strain names are checked first to prefer specific over generic matches
+    for strain_name in SORTED_STRAIN_NAMES:
         # Use word boundary matching to avoid false matches
         # e.g., "og" should match "OG Kush" but not "dOGfood"
         pattern = r'\b' + re.escape(strain_name) + r'\b'
