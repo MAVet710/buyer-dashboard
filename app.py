@@ -195,7 +195,7 @@ def ai_lookup_strain_type(product_name, category):
         if not st.session_state.ai_strain_lookup_enabled:
             return "unspecified"
     except Exception:
-        # If session state is not available yet, default to disabled
+        # Fallback if session state is not initialized yet (early in app startup)
         return "unspecified"
     
     # Check cache first
@@ -212,12 +212,7 @@ Research the strain name and return ONLY ONE of these exact words:
 - cbd
 - unspecified (if you cannot determine with confidence)
 
-Look for strain names in the product name and use your knowledge of cannabis strains to classify them.
-
-Product name: {product_name}
-Category: {category}
-
-Return only the strain type word, nothing else."""
+Look for strain names in the product name and use your knowledge of cannabis strains to classify them. Return only the strain type word, nothing else."""
 
     try:
         resp = ai_client.chat.completions.create(
@@ -239,7 +234,11 @@ Return only the strain type word, nothing else."""
         else:
             strain_lookup_cache[cache_key] = "unspecified"
             return "unspecified"
-    except Exception:
+    except Exception as e:
+        # Log API errors for debugging (without exposing sensitive data)
+        import traceback
+        print(f"AI strain lookup error for '{product_name}': {type(e).__name__}")
+        traceback.print_exc()
         # On error, return unspecified and don't cache
         return "unspecified"
 
@@ -321,7 +320,7 @@ if "daily_sales_raw_df" not in st.session_state:
 if "theme" not in st.session_state:
     st.session_state.theme = "Dark"  # Dark by default
 if "ai_strain_lookup_enabled" not in st.session_state:
-    st.session_state.ai_strain_lookup_enabled = True  # Enabled by default when OpenAI is available
+    st.session_state.ai_strain_lookup_enabled = True  # Default value; actual availability checked at runtime
 
 # Upload tracking (God-only viewer)
 if "upload_log" not in st.session_state:
