@@ -713,13 +713,15 @@ def read_sales_file(uploaded_file):
         tmp = pd.read_excel(uploaded_file, header=None)
     else:
         # Unsupported format - try Excel as fallback for backward compatibility
+        # (some Excel files might have non-standard extensions)
         try:
             tmp = pd.read_excel(uploaded_file, header=None)
-        except Exception:
+        except (ValueError, FileNotFoundError, OSError, Exception) as e:
             # If Excel parsing fails, provide helpful error message
             raise ValueError(
-                f"Unsupported file format: {name}. "
-                "Please upload a CSV or Excel file (.csv, .xlsx, .xls)"
+                f"Unsupported file format or unable to read file: {name}. "
+                "Please upload a CSV or Excel file (.csv, .xlsx, .xls). "
+                f"Error: {str(e)}"
             )
     
     # Detect header row by looking for actual column names
