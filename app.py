@@ -1621,6 +1621,12 @@ if section == "📊 Inventory Dashboard":
         help="Optional: revenue detail. Can be used for pricing trends.",
         key="extra_sales_upload",
     )
+    quarantine_file = st.sidebar.file_uploader(
+        "Quarantine List (CSV or Excel)",
+        type=["csv", "xlsx", "xls"],
+        help="Optional: list of items in quarantine to exclude from slow movers analysis.",
+        key="quarantine_upload",
+    )
 
     # ------------------------------------------------------------
     # UPLOAD CACHE (prevents uploads from wiping when switching tabs)
@@ -1650,6 +1656,7 @@ if section == "📊 Inventory Dashboard":
     _cache_upload(inv_file, "_cache_inv")
     _cache_upload(product_sales_file, "_cache_sales")
     _cache_upload(extra_sales_file, "_cache_extra_sales")
+    _cache_upload(quarantine_file, "_cache_quarantine")
 
     if inv_file is None:
         inv_file = _load_cached("_cache_inv")
@@ -1663,9 +1670,13 @@ if section == "📊 Inventory Dashboard":
         extra_sales_file = _load_cached("_cache_extra_sales")
         if extra_sales_file is not None:
             st.sidebar.caption(f"Using cached Extra Sales file: {extra_sales_file.name}")
+    if quarantine_file is None:
+        quarantine_file = _load_cached("_cache_quarantine")
+        if quarantine_file is not None:
+            st.sidebar.caption(f"Using cached Quarantine file: {quarantine_file.name}")
 
     if st.sidebar.button("🧹 Clear cached uploads"):
-        for k in ["_cache_inv", "_cache_sales", "_cache_extra_sales"]:
+        for k in ["_cache_inv", "_cache_sales", "_cache_extra_sales", "_cache_quarantine"]:
             if k in st.session_state:
                 del st.session_state[k]
         _safe_rerun()
@@ -1682,6 +1693,8 @@ if section == "📊 Inventory Dashboard":
         track_upload(product_sales_file, current_user, "product_sales")
     if extra_sales_file is not None:
         track_upload(extra_sales_file, current_user, "extra_sales")
+    if quarantine_file is not None:
+        track_upload(quarantine_file, current_user, "quarantine")
 
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Forecast Settings")
@@ -1713,6 +1726,33 @@ if section == "📊 Inventory Dashboard":
             st.session_state.extra_sales_df = extra_sales_raw
         except Exception:
             st.session_state.extra_sales_df = None
+
+    # Process quarantine file and extract product names
+    if quarantine_file is not None:
+        try:
+            quarantine_df = read_inventory_file(quarantine_file)
+            # Normalize column names
+            quarantine_df.columns = quarantine_df.columns.astype(str).str.strip().str.lower()
+            # Detect product name column
+            quarantine_name_col = detect_column(
+                quarantine_df.columns, 
+                [normalize_col(a) for a in INV_NAME_ALIASES]
+            )
+            if quarantine_name_col:
+                # Extract and normalize product names
+                quarantined_items = set(
+                    quarantine_df[quarantine_name_col].astype(str).str.strip().tolist()
+                )
+                st.session_state.quarantined_items = quarantined_items
+            else:
+                st.warning("Could not detect product name column in quarantine file. Quarantine filter not applied.")
+                st.session_state.quarantined_items = set()
+        except Exception as e:
+            st.error(f"Error reading quarantine file: {e}")
+            st.session_state.quarantined_items = set()
+    else:
+        # No quarantine file uploaded
+        st.session_state.quarantined_items = set()
 
     if st.session_state.inv_raw_df is None or st.session_state.sales_raw_df is None:
         st.info("Upload inventory + product sales files to continue.")
@@ -2522,6 +2562,17 @@ elif section == "🐢 Slow Movers":
         inv_df, num_dupes, dedupe_msg = deduplicate_inventory(inv_df)
         if num_dupes > 0:
             st.info(dedupe_msg)
+        
+        # Filter out quarantined items
+        quarantined_items = st.session_state.get('quarantined_items', set())
+        if quarantined_items:
+            original_count = len(inv_df)
+            inv_df = inv_df[~inv_df["itemname"].isin(quarantined_items)].copy()
+            filtered_count = original_count - len(inv_df)
+            if filtered_count > 0:
+                st.info(f"🚫 Filtered out {filtered_count} quarantined item(s) from slow movers analysis.")
+        else:
+            st.info("ℹ️ No quarantine list uploaded. All items included in analysis.")
         
         # Merge with inventory
         slow_movers = inv_df.merge(
