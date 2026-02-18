@@ -1965,17 +1965,513 @@ elif section == "📈 Trends":
 # PAGE – DELIVERY IMPACT
 # ============================================================
 elif section == "🚚 Delivery Impact":
-    # (UNCHANGED from your code)
     st.subheader("Delivery Impact Analysis")
     st.write(
         "Use this page to measure whether deliveries correlate with an uptick in sales. "
         "For best results, upload (1) a delivery/receiving report with a received date and quantities, "
         "and (2) a daily sales report that includes a date column."
     )
-    # --- keep the rest of your existing Delivery Impact code exactly as-is ---
-    # NOTE: You can paste your existing Delivery Impact + Slow Movers + PO Builder blocks here unchanged.
-    st.info("Delivery Impact / Slow Movers / PO Builder sections unchanged — paste your existing blocks below this line.")
-    st.stop()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 📦 Delivery File")
+        delivery_file = st.file_uploader(
+            "Upload delivery/receiving report (CSV or XLSX)",
+            type=["csv", "xlsx"],
+            key="delivery_upload"
+        )
+    
+    with col2:
+        st.markdown("#### 📈 Daily Sales File")
+        daily_sales_file = st.file_uploader(
+            "Upload daily sales report (CSV or XLSX)",
+            type=["csv", "xlsx"],
+            key="daily_sales_upload"
+        )
+    
+    if delivery_file and daily_sales_file:
+        try:
+            # Parse delivery file
+            if delivery_file.name.endswith('.csv'):
+                delivery_df = pd.read_csv(delivery_file)
+            else:
+                delivery_df = pd.read_excel(delivery_file)
+            
+            # Parse daily sales file
+            if daily_sales_file.name.endswith('.csv'):
+                daily_sales_df = pd.read_csv(daily_sales_file)
+            else:
+                daily_sales_df = pd.read_excel(daily_sales_file)
+            
+            # Normalize column names
+            delivery_df.columns = delivery_df.columns.str.lower().str.strip()
+            daily_sales_df.columns = daily_sales_df.columns.str.lower().str.strip()
+            
+            # Find date columns
+            delivery_date_cols = [col for col in delivery_df.columns if 'date' in col or 'received' in col]
+            sales_date_cols = [col for col in daily_sales_df.columns if 'date' in col]
+            
+            if delivery_date_cols and sales_date_cols:
+                delivery_df['delivery_date'] = pd.to_datetime(delivery_df[delivery_date_cols[0]], errors='coerce')
+                daily_sales_df['sale_date'] = pd.to_datetime(daily_sales_df[sales_date_cols[0]], errors='coerce')
+                
+                # Find category columns
+                delivery_cat_cols = [col for col in delivery_df.columns if 'category' in col or 'product' in col]
+                sales_cat_cols = [col for col in daily_sales_df.columns if 'category' in col or 'product' in col]
+                
+                if delivery_cat_cols:
+                    delivery_df['category'] = delivery_df[delivery_cat_cols[0]]
+                else:
+                    delivery_df['category'] = 'All Products'
+                
+                if sales_cat_cols:
+                    daily_sales_df['category'] = daily_sales_df[sales_cat_cols[0]]
+                else:
+                    daily_sales_df['category'] = 'All Products'
+                
+                # Group by date and category
+                delivery_by_date = delivery_df.groupby(['delivery_date', 'category']).size().reset_index(name='delivery_count')
+                sales_by_date = daily_sales_df.groupby(['sale_date', 'category']).size().reset_index(name='sales_count')
+                
+                st.markdown("### 📊 Analysis Results")
+                
+                # Show delivery dates
+                st.markdown("#### Delivery Dates")
+                st.dataframe(delivery_by_date.sort_values('delivery_date', ascending=False), use_container_width=True)
+                
+                # Analyze impact for each delivery
+                st.markdown("#### Impact Analysis")
+                impact_results = []
+                
+                for _, delivery in delivery_by_date.iterrows():
+                    del_date = delivery['delivery_date']
+                    category = delivery['category']
+                    
+                    # Get sales 7 days before and after delivery
+                    pre_sales = sales_by_date[
+                        (sales_by_date['category'] == category) &
+                        (sales_by_date['sale_date'] >= del_date - timedelta(days=7)) &
+                        (sales_by_date['sale_date'] < del_date)
+                    ]['sales_count'].mean()
+                    
+                    post_sales = sales_by_date[
+                        (sales_by_date['category'] == category) &
+                        (sales_by_date['sale_date'] > del_date) &
+                        (sales_by_date['sale_date'] <= del_date + timedelta(days=7))
+                    ]['sales_count'].mean()
+                    
+                    if pd.notna(pre_sales) and pd.notna(post_sales) and pre_sales > 0:
+                        impact_pct = ((post_sales - pre_sales) / pre_sales) * 100
+                    else:
+                        impact_pct = 0
+                    
+                    impact_results.append({
+                        'Delivery Date': del_date,
+                        'Category': category,
+                        'Avg Daily Sales (7d Before)': round(pre_sales, 2) if pd.notna(pre_sales) else 0,
+                        'Avg Daily Sales (7d After)': round(post_sales, 2) if pd.notna(post_sales) else 0,
+                        'Impact %': round(impact_pct, 2)
+                    })
+                
+                if impact_results:
+                    impact_df = pd.DataFrame(impact_results)
+                    st.dataframe(impact_df.sort_values('Impact %', ascending=False), use_container_width=True)
+                    
+                    # Summary metrics
+                    st.markdown("#### Category-Level Metrics")
+                    category_summary = impact_df.groupby('Category').agg({
+                        'Impact %': 'mean'
+                    }).reset_index()
+                    category_summary.columns = ['Category', 'Avg Impact %']
+                    category_summary['Avg Impact %'] = category_summary['Avg Impact %'].round(2)
+                    st.dataframe(category_summary, use_container_width=True)
+                else:
+                    st.warning("No impact data could be calculated. Ensure your files have overlapping date ranges.")
+            else:
+                st.error("Could not find date columns in the uploaded files.")
+        
+        except Exception as e:
+            st.error(f"Error processing files: {str(e)}")
+            st.write("Please ensure your files have date columns and are properly formatted.")
+    else:
+        st.info("👆 Upload both files to see the analysis")
+
+# ============================================================
+# PAGE – SLOW MOVERS
+# ============================================================
+elif section == "🐢 Slow Movers":
+    st.subheader("Slow Movers Analysis")
+    st.write(
+        "Identify products that are sitting on the shelf with long gaps between sales. "
+        "Get discount recommendations to move slow inventory faster."
+    )
+    
+    if st.session_state.inv_raw_df is None or st.session_state.sales_raw_df is None:
+        st.warning("⚠️ Please upload inventory and sales files in the Inventory Dashboard section first.")
+        st.stop()
+    
+    try:
+        # Get data from session state
+        inv_df = st.session_state.inv_raw_df.copy()
+        sales_df = st.session_state.sales_raw_df.copy()
+        
+        # Normalize column names
+        inv_df.columns = inv_df.columns.str.lower()
+        sales_df.columns = sales_df.columns.str.lower()
+        
+        # Calculate sales velocity
+        st.markdown("### 📊 Slow Movers Identification")
+        
+        # Find product name column in sales
+        sales_name_col = None
+        for alias in SALES_NAME_ALIASES:
+            if alias in sales_df.columns:
+                sales_name_col = alias
+                break
+        
+        # Find quantity sold column in sales
+        sales_qty_col = None
+        for alias in SALES_QTY_ALIASES:
+            if alias in sales_df.columns:
+                sales_qty_col = alias
+                break
+        
+        if sales_name_col and sales_qty_col:
+            sales_velocity = sales_df.groupby(sales_name_col).agg({
+                sales_qty_col: 'sum'
+            }).reset_index()
+            sales_velocity.columns = ['product', 'total_sold']
+            
+            # Calculate daily run rate - find date column
+            date_cols = [col for col in sales_df.columns if 'date' in col]
+            if date_cols:
+                sales_df[date_cols[0]] = pd.to_datetime(sales_df[date_cols[0]], errors='coerce')
+                date_range = (sales_df[date_cols[0]].max() - sales_df[date_cols[0]].min()).days
+                if date_range > 0:
+                    sales_velocity['days_of_data'] = date_range
+                    sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / date_range
+                else:
+                    sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / 30
+            else:
+                sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / 30  # Assume 30 days
+        else:
+            st.error(f"Sales data does not have required columns. Looking for name column (tried: {SALES_NAME_ALIASES[:3]}...) and quantity column (tried: {SALES_QTY_ALIASES[:3]}...)")
+            st.stop()
+        
+        # Find inventory columns
+        inv_name_col = None
+        for alias in INV_NAME_ALIASES:
+            if alias in inv_df.columns:
+                inv_name_col = alias
+                break
+        
+        inv_qty_col = None
+        for alias in INV_QTY_ALIASES:
+            if alias in inv_df.columns:
+                inv_qty_col = alias
+                break
+        
+        # Merge with inventory
+        if inv_name_col and inv_qty_col:
+            slow_movers = inv_df.merge(
+                sales_velocity,
+                left_on=inv_name_col,
+                right_on='product',
+                how='left'
+            )
+            
+            # Calculate days of supply
+            slow_movers['daily_run_rate'] = slow_movers['daily_run_rate'].fillna(0)
+            slow_movers['days_of_supply'] = np.where(
+                slow_movers['daily_run_rate'] > 0,
+                slow_movers[inv_qty_col] / slow_movers['daily_run_rate'],
+                999
+            )
+            
+            # Identify slow movers (more than 60 days of supply)
+            slow_movers_filtered = slow_movers[slow_movers['days_of_supply'] > 60].copy()
+            
+            if not slow_movers_filtered.empty:
+                # Add discount tier suggestions
+                def suggest_discount(days):
+                    if days > 180:
+                        return "30-50% (Urgent)"
+                    elif days > 120:
+                        return "20-30% (High Priority)"
+                    elif days > 90:
+                        return "15-20% (Medium Priority)"
+                    elif days > 60:
+                        return "10-15% (Low Priority)"
+                    else:
+                        return "No discount needed"
+                
+                slow_movers_filtered['suggested_discount'] = slow_movers_filtered['days_of_supply'].apply(suggest_discount)
+                
+                # Find category column
+                cat_col = None
+                for alias in INV_CAT_ALIASES:
+                    if alias in slow_movers_filtered.columns:
+                        cat_col = alias
+                        break
+                
+                # Display results
+                display_cols = [inv_name_col, inv_qty_col, 'daily_run_rate', 'days_of_supply', 'suggested_discount']
+                col_names = ['Product', 'On Hand', 'Daily Run Rate', 'Days of Supply', 'Suggested Discount']
+                
+                if cat_col:
+                    display_cols.insert(1, cat_col)
+                    col_names.insert(1, 'Category')
+                
+                display_df = slow_movers_filtered[display_cols].copy()
+                display_df.columns = col_names
+                display_df['Days of Supply'] = display_df['Days of Supply'].round(1)
+                display_df['Daily Run Rate'] = display_df['Daily Run Rate'].round(2)
+                display_df = display_df.sort_values('Days of Supply', ascending=False)
+                
+                st.markdown(f"**Found {len(display_df)} slow moving products**")
+                st.dataframe(display_df, use_container_width=True)
+                
+                # Summary by discount tier
+                st.markdown("### 📉 Discount Tier Summary")
+                tier_summary = display_df.groupby('Suggested Discount').agg({
+                    'Product': 'count',
+                    'On Hand': 'sum'
+                }).reset_index()
+                tier_summary.columns = ['Discount Tier', 'Product Count', 'Total Units']
+                st.dataframe(tier_summary, use_container_width=True)
+                
+                # Export to Excel
+                st.markdown("### 📥 Export")
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    display_df.to_excel(writer, sheet_name='Slow Movers', index=False)
+                    tier_summary.to_excel(writer, sheet_name='Summary', index=False)
+                output.seek(0)
+                
+                st.download_button(
+                    label="📥 Download Slow Movers Report (Excel)",
+                    data=output,
+                    file_name=f"slow_movers_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.success("✅ No slow movers found! All products are moving well.")
+        else:
+            st.error(f"Inventory data does not have required columns. Looking for name column (tried: {INV_NAME_ALIASES[:3]}...) and quantity column (tried: {INV_QTY_ALIASES[:3]}...)")
+    
+    except Exception as e:
+        st.error(f"Error analyzing slow movers: {str(e)}")
+        import traceback
+        st.write("Debug info:", traceback.format_exc())
+
+# ============================================================
+# PAGE – PO BUILDER
+# ============================================================
+elif section == "🧾 PO Builder":
+    st.subheader("Purchase Order Builder")
+    st.write("Create professional purchase orders with automatic calculations and PDF export.")
+    
+    # Initialize session state for PO
+    if 'po_items' not in st.session_state:
+        st.session_state.po_items = []
+    
+    # Store and Vendor Information
+    st.markdown("### 📋 Order Information")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        store_name = st.text_input("Store Name", value="Cannabis Store")
+        store_address = st.text_area("Store Address", value="123 Main St\nCity, State 12345", height=100)
+    
+    with col2:
+        vendor_name = st.text_input("Vendor Name", value="")
+        vendor_address = st.text_area("Vendor Address", value="", height=100)
+    
+    with col3:
+        po_number = st.text_input("PO Number", value=f"PO-{datetime.now().strftime('%Y%m%d')}")
+        po_date = st.date_input("PO Date", value=datetime.now())
+    
+    # Line Items
+    st.markdown("### 📦 Line Items")
+    
+    with st.form("add_item_form"):
+        col1, col2, col3, col4, col5, col6 = st.columns([2, 3, 2, 2, 1, 1])
+        
+        with col1:
+            sku = st.text_input("SKU")
+        with col2:
+            description = st.text_input("Description")
+        with col3:
+            strain = st.text_input("Strain")
+        with col4:
+            size = st.text_input("Size")
+        with col5:
+            quantity = st.number_input("Qty", min_value=1, value=1)
+        with col6:
+            price = st.number_input("Price", min_value=0.0, value=0.0, step=0.01)
+        
+        submitted = st.form_submit_button("➕ Add Item")
+        if submitted and description:
+            st.session_state.po_items.append({
+                'SKU': sku,
+                'Description': description,
+                'Strain': strain,
+                'Size': size,
+                'Quantity': quantity,
+                'Price': price,
+                'Total': quantity * price
+            })
+            _safe_rerun()
+    
+    # Display current items
+    if st.session_state.po_items:
+        st.markdown("#### Current Items")
+        items_df = pd.DataFrame(st.session_state.po_items)
+        st.dataframe(items_df, use_container_width=True)
+        
+        # Subtotal
+        subtotal = sum(item['Total'] for item in st.session_state.po_items)
+        
+        # Calculations
+        st.markdown("### 💰 Totals")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            tax_rate = st.number_input("Tax Rate (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.1)
+        with col2:
+            discount = st.number_input("Discount ($)", min_value=0.0, value=0.0, step=1.0)
+        with col3:
+            shipping = st.number_input("Shipping ($)", min_value=0.0, value=0.0, step=1.0)
+        
+        tax_amount = subtotal * (tax_rate / 100)
+        total = subtotal + tax_amount - discount + shipping
+        
+        # Display totals
+        st.markdown("---")
+        totals_col1, totals_col2 = st.columns([3, 1])
+        with totals_col2:
+            st.markdown(f"**Subtotal:** ${subtotal:,.2f}")
+            if tax_rate > 0:
+                st.markdown(f"**Tax ({tax_rate}%):** ${tax_amount:,.2f}")
+            if discount > 0:
+                st.markdown(f"**Discount:** -${discount:,.2f}")
+            if shipping > 0:
+                st.markdown(f"**Shipping:** ${shipping:,.2f}")
+            st.markdown(f"### **Total:** ${total:,.2f}")
+        
+        # Action buttons
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("🗑️ Clear All Items"):
+                st.session_state.po_items = []
+                _safe_rerun()
+        
+        with col2:
+            if st.button("📄 Generate PDF"):
+                # Generate PDF
+                pdf_buffer = BytesIO()
+                c = canvas.Canvas(pdf_buffer, pagesize=letter)
+                width, height = letter
+                
+                # Header
+                c.setFont("Helvetica-Bold", 20)
+                c.drawString(1*inch, height - 1*inch, "PURCHASE ORDER")
+                
+                # PO Info
+                c.setFont("Helvetica", 10)
+                c.drawString(1*inch, height - 1.3*inch, f"PO Number: {po_number}")
+                c.drawString(1*inch, height - 1.5*inch, f"Date: {po_date}")
+                
+                # Store info
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(1*inch, height - 2*inch, "FROM:")
+                c.setFont("Helvetica", 10)
+                y = height - 2.2*inch
+                c.drawString(1*inch, y, store_name)
+                for line in store_address.split('\n'):
+                    y -= 0.15*inch
+                    c.drawString(1*inch, y, line)
+                
+                # Vendor info
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(4*inch, height - 2*inch, "TO:")
+                c.setFont("Helvetica", 10)
+                y = height - 2.2*inch
+                c.drawString(4*inch, y, vendor_name)
+                for line in vendor_address.split('\n'):
+                    y -= 0.15*inch
+                    c.drawString(4*inch, y, line)
+                
+                # Items table
+                y = height - 3.5*inch
+                c.setFont("Helvetica-Bold", 10)
+                c.drawString(1*inch, y, "SKU")
+                c.drawString(2*inch, y, "Description")
+                c.drawString(4*inch, y, "Strain")
+                c.drawString(5*inch, y, "Size")
+                c.drawString(5.5*inch, y, "Qty")
+                c.drawString(6*inch, y, "Price")
+                c.drawString(6.7*inch, y, "Total")
+                
+                c.line(1*inch, y - 0.05*inch, 7.5*inch, y - 0.05*inch)
+                
+                y -= 0.25*inch
+                c.setFont("Helvetica", 9)
+                for item in st.session_state.po_items:
+                    c.drawString(1*inch, y, str(item['SKU'])[:10])
+                    c.drawString(2*inch, y, str(item['Description'])[:20])
+                    c.drawString(4*inch, y, str(item['Strain'])[:10])
+                    c.drawString(5*inch, y, str(item['Size'])[:8])
+                    c.drawString(5.5*inch, y, str(item['Quantity']))
+                    c.drawString(6*inch, y, f"${item['Price']:.2f}")
+                    c.drawString(6.7*inch, y, f"${item['Total']:.2f}")
+                    y -= 0.2*inch
+                    if y < 2*inch:  # New page if needed
+                        c.showPage()
+                        y = height - 1*inch
+                
+                # Totals
+                y -= 0.3*inch
+                c.line(5.5*inch, y, 7.5*inch, y)
+                y -= 0.25*inch
+                c.setFont("Helvetica", 10)
+                c.drawString(6*inch, y, "Subtotal:")
+                c.drawString(6.7*inch, y, f"${subtotal:,.2f}")
+                
+                if tax_rate > 0:
+                    y -= 0.2*inch
+                    c.drawString(6*inch, y, f"Tax ({tax_rate}%):")
+                    c.drawString(6.7*inch, y, f"${tax_amount:,.2f}")
+                
+                if discount > 0:
+                    y -= 0.2*inch
+                    c.drawString(6*inch, y, "Discount:")
+                    c.drawString(6.7*inch, y, f"-${discount:,.2f}")
+                
+                if shipping > 0:
+                    y -= 0.2*inch
+                    c.drawString(6*inch, y, "Shipping:")
+                    c.drawString(6.7*inch, y, f"${shipping:,.2f}")
+                
+                y -= 0.25*inch
+                c.line(6*inch, y, 7.5*inch, y)
+                y -= 0.25*inch
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(6*inch, y, "TOTAL:")
+                c.drawString(6.7*inch, y, f"${total:,.2f}")
+                
+                c.save()
+                pdf_buffer.seek(0)
+                
+                st.download_button(
+                    label="📥 Download PDF",
+                    data=pdf_buffer,
+                    file_name=f"PO_{po_number}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf"
+                )
+    else:
+        st.info("👆 Add items to your purchase order using the form above")
 
 # FOOTER
 st.markdown("---")
