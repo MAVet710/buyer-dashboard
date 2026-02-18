@@ -168,6 +168,83 @@ def init_openai_client():
 
 
 # =========================
+# AI STRAIN LOOKUP CACHE
+# =========================
+# Cache to store strain lookups to avoid repeated API calls
+strain_lookup_cache = {}
+
+
+def ai_lookup_strain_type(product_name, category):
+    """
+    Use OpenAI to research and determine the strain type (indica, sativa, hybrid, cbd)
+    for a given product name when it's not explicitly stated in the name.
+    
+    Args:
+        product_name: The product name to research
+        category: The product category (e.g., "flower", "pre rolls")
+    
+    Returns:
+        str: The detected strain type (indica, sativa, hybrid, cbd) or "unspecified"
+    """
+    # Check if AI is available and enabled
+    if not OPENAI_AVAILABLE or ai_client is None:
+        return "unspecified"
+    
+    # Check if the feature is enabled in session state
+    try:
+        if not st.session_state.ai_strain_lookup_enabled:
+            return "unspecified"
+    except Exception:
+        # If session state is not available yet, default to disabled
+        return "unspecified"
+    
+    # Check cache first
+    cache_key = f"{product_name.lower().strip()}|{category.lower().strip()}"
+    if cache_key in strain_lookup_cache:
+        return strain_lookup_cache[cache_key]
+    
+    prompt = f"""You are a cannabis strain expert. Based on the product name "{product_name}" in the category "{category}", determine the strain type.
+
+Research the strain name and return ONLY ONE of these exact words:
+- indica
+- sativa
+- hybrid
+- cbd
+- unspecified (if you cannot determine with confidence)
+
+Look for strain names in the product name and use your knowledge of cannabis strains to classify them.
+
+Product name: {product_name}
+Category: {category}
+
+Return only the strain type word, nothing else."""
+
+    try:
+        resp = ai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a cannabis strain classification expert. Respond with only one word: indica, sativa, hybrid, cbd, or unspecified."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=10,
+            temperature=0,
+        )
+        result = resp.choices[0].message.content.strip().lower()
+        
+        # Validate the result
+        valid_types = ["indica", "sativa", "hybrid", "cbd", "unspecified"]
+        if result in valid_types:
+            strain_lookup_cache[cache_key] = result
+            return result
+        else:
+            strain_lookup_cache[cache_key] = "unspecified"
+            return "unspecified"
+    except Exception:
+        # On error, return unspecified and don't cache
+        return "unspecified"
+
+
+# =========================
 # CONFIG & BRANDING (MAVet)
 # =========================
 CLIENT_NAME = "MAVet710"
@@ -243,6 +320,8 @@ if "daily_sales_raw_df" not in st.session_state:
     st.session_state.daily_sales_raw_df = None
 if "theme" not in st.session_state:
     st.session_state.theme = "Dark"  # Dark by default
+if "ai_strain_lookup_enabled" not in st.session_state:
+    st.session_state.ai_strain_lookup_enabled = True  # Enabled by default when OpenAI is available
 
 # Upload tracking (God-only viewer)
 if "upload_log" not in st.session_state:
@@ -547,6 +626,13 @@ def extract_strain_type(name, subcat):
     conc_tag = None
     if "concentrate" in cat and ("rso" in s or "rick simpson" in s):
         conc_tag = "rso"
+
+    # AI-powered strain lookup for flower and pre-rolls when base is unspecified
+    if base == "unspecified" and ("flower" in cat or preroll_flag):
+        # Try to use AI to determine the strain type from the product name
+        ai_result = ai_lookup_strain_type(name, subcat)
+        if ai_result != "unspecified":
+            base = ai_result
 
     # Compose stacked type
     if "flower" in cat:
@@ -1283,6 +1369,21 @@ with st.sidebar.expander("🔍 AI Debug Info", expanded=False):
     st.write(f"Using key: {OPENAI_AVAILABLE}")
     if where:
         st.write(f"Found via: {where}")
+    
+    # AI Strain Lookup Toggle
+    if OPENAI_AVAILABLE:
+        st.markdown("---")
+        st.markdown("**AI Strain Lookup**")
+        ai_strain_enabled = st.checkbox(
+            "Enable AI strain lookup for flower/pre-rolls",
+            value=st.session_state.ai_strain_lookup_enabled,
+            help="When enabled, uses AI to research strain types for products that don't have explicit strain info in their names."
+        )
+        if ai_strain_enabled != st.session_state.ai_strain_lookup_enabled:
+            st.session_state.ai_strain_lookup_enabled = ai_strain_enabled
+            # Clear the cache when toggling
+            strain_lookup_cache.clear()
+            st.success("Setting updated! Refresh your data to apply changes.")
 
 # =========================
 # 🔐 THEME TOGGLE + ADMIN + TRIAL GATE
