@@ -11,3 +11,12 @@ gspread
 google-auth
 openai
 xlsxwriter
+streamlit
+pandas
+numpy
+reportlab
+openpyxl
+plotly
+PyPDF2
+pdfplumber
+altair==4.2.2
