@@ -1739,13 +1739,15 @@ if section == "📊 Inventory Dashboard":
                 [normalize_col(a) for a in INV_NAME_ALIASES]
             )
             if quarantine_name_col:
-                # Extract and normalize product names, filtering out NaN/null values
+                # Extract and normalize product names, filtering out NaN/null/empty values
                 quarantined_items = set(
+                    item for item in 
                     quarantine_df[quarantine_name_col]
                     .dropna()
                     .astype(str)
                     .str.strip()
                     .tolist()
+                    if item  # Filter out empty strings
                 )
                 st.session_state.quarantined_items = quarantined_items
             else:
