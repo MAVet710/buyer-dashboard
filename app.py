@@ -1433,7 +1433,7 @@ if section == "📊 Inventory Dashboard":
 
         inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
         inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
-        inv_df["package
+        inv_df["package"]
 
         inv_summary = (
             inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["onhandunits"]
