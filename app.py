@@ -170,34 +170,73 @@ def init_openai_client():
 
 
 # =========================
-# AI STRAIN LOOKUP CACHE
+# FREE STRAIN LOOKUP DATABASE
 # =========================
-# Cache to store strain lookups to avoid repeated API calls
+# Comprehensive database of cannabis strains and their types (completely free, no API needed)
+STRAIN_DATABASE = {
+    # Popular Indica Strains
+    "granddaddy purple": "indica", "gdp": "indica", "purple kush": "indica",
+    "northern lights": "indica", "afghani": "indica", "blueberry": "indica",
+    "bubba kush": "indica", "master kush": "indica", "og kush": "indica",
+    "skywalker og": "indica", "kosher kush": "indica", "la confidential": "indica",
+    "purple punch": "indica", "ice cream cake": "indica", "wedding cake": "indica",
+    "do si dos": "indica", "dosidos": "indica", "zkittlez": "indica",
+    "gelato": "indica", "sherbet": "indica", "sunset sherbet": "indica",
+    "purple urkle": "indica", "grape ape": "indica", "blackberry kush": "indica",
+    "death star": "indica", "romulan": "indica", "critical kush": "indica",
+    "chocolate og": "indica", "motorbreath": "indica", "slurricane": "indica",
+    "sundae driver": "indica", "candy rain": "indica", "cherry pie": "indica",
+    
+    # Popular Sativa Strains
+    "sour diesel": "sativa", "jack herer": "sativa", "durban poison": "sativa",
+    "green crack": "sativa", "super lemon haze": "sativa", "tangie": "sativa",
+    "strawberry cough": "sativa", "trainwreck": "sativa", "maui wowie": "sativa",
+    "acapulco gold": "sativa", "panama red": "sativa", "super silver haze": "sativa",
+    "amnesia haze": "sativa", "ghost train haze": "sativa", "candyland": "sativa",
+    "lemon skunk": "sativa", "chemdog": "sativa", "chem dawg": "sativa",
+    "cherry ak": "sativa", "j1": "sativa", "lamb's bread": "sativa",
+    "red congolese": "sativa", "thai": "sativa", "colombian gold": "sativa",
+    "malawi": "sativa", "super sour diesel": "sativa", "clementine": "sativa",
+    
+    # Popular Hybrid Strains
+    "blue dream": "hybrid", "girl scout cookies": "hybrid", "gsc": "hybrid",
+    "gorilla glue": "hybrid", "gg4": "hybrid", "white widow": "hybrid",
+    "pineapple express": "hybrid", "ak-47": "hybrid", "sour og": "hybrid",
+    "golden goat": "hybrid", "headband": "hybrid", "chernobyl": "hybrid",
+    "bruce banner": "hybrid", "fire og": "hybrid", "gmo cookies": "hybrid",
+    "mac": "hybrid", "miracle alien cookies": "hybrid", "wedding crasher": "hybrid",
+    "mimosa": "hybrid", "runtz": "hybrid", "biscotti": "hybrid",
+    "cookies and cream": "hybrid", "animal cookies": "hybrid", "platinum cookies": "hybrid",
+    "thin mint": "hybrid", "thin mint cookies": "hybrid", "scooby snacks": "hybrid",
+    "london pound cake": "hybrid", "Gary payton": "hybrid", "apples and bananas": "hybrid",
+    "cereal milk": "hybrid", "rainbow belts": "hybrid", "jealousy": "hybrid",
+    "grape gasoline": "hybrid", "oreoz": "hybrid", "gary payton": "hybrid",
+    "obama kush": "hybrid", "tahoe og": "hybrid", "sfv og": "hybrid",
+    "larry og": "hybrid", "triple og": "hybrid", "wifi og": "hybrid",
+    
+    # Additional strain variations and abbreviations
+    "og": "hybrid", "kush": "indica", "haze": "sativa", "cookies": "hybrid",
+    "diesel": "sativa", "skunk": "sativa", "cheese": "hybrid", "punch": "indica",
+    "cake": "indica", "pie": "indica", "breath": "hybrid", "sherb": "indica",
+}
+
+# Cache for strain lookups
 strain_lookup_cache = {}
 
 
-def ai_lookup_strain_type(product_name, category):
+def free_strain_lookup(product_name, category):
     """
-    Use OpenAI to research and determine the strain type (indica, sativa, hybrid, cbd)
-    for a given product name when it's not explicitly stated in the name.
+    Free strain type lookup using a comprehensive strain database and pattern matching.
+    No API calls, completely free and works offline.
     
     Args:
-        product_name: The product name to research
+        product_name: The product name to analyze
         category: The product category (e.g., "flower", "pre rolls")
     
     Returns:
-        str: The detected strain type (indica, sativa, hybrid, cbd) or "unspecified"
+        str: The detected strain type (indica, sativa, hybrid) or "unspecified"
     """
-    # Check if AI is available and enabled
-    if not OPENAI_AVAILABLE or ai_client is None:
-        return "unspecified"
-    
-    # Check if the feature is enabled in session state
-    try:
-        if not st.session_state.ai_strain_lookup_enabled:
-            return "unspecified"
-    except Exception:
-        # Fallback if session state is not initialized yet (early in app startup)
+    if not product_name:
         return "unspecified"
     
     # Check cache first
@@ -205,38 +244,46 @@ def ai_lookup_strain_type(product_name, category):
     if cache_key in strain_lookup_cache:
         return strain_lookup_cache[cache_key]
     
-    # Simplified prompt - system message already defines the role and output format
-    prompt = f'Product: "{product_name}"\nCategory: "{category}"\n\nClassify the strain type based on the product name.'
-
-    try:
-        resp = ai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system", 
-                    "content": "You are a cannabis strain classification expert. Analyze product names to determine strain types. Respond with only one word: indica, sativa, hybrid, cbd, or unspecified. Use your knowledge of cannabis strains to classify products that don't have explicit strain indicators in their names."
-                },
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=10,
-            temperature=0,
-        )
-        result = resp.choices[0].message.content.strip().lower()
-        
-        # Validate the result
-        valid_types = ["indica", "sativa", "hybrid", "cbd", "unspecified"]
-        if result in valid_types:
+    # Normalize the product name for matching
+    name_lower = product_name.lower().strip()
+    
+    # Remove common size indicators and product types to focus on strain name
+    # This helps match "Blue Dream 3.5g" or "Gelato Flower" to the strain name
+    clean_name = re.sub(r'\b\d+\.?\d*\s*(g|mg|oz|ml|ct|count|pk|pack)\b', '', name_lower)
+    clean_name = re.sub(r'\b(flower|pre[-\s]?roll|joint|blunt|eighth|quarter|half|ounce)\b', '', clean_name)
+    clean_name = clean_name.strip()
+    
+    # Try exact match first (most accurate)
+    if clean_name in STRAIN_DATABASE:
+        result = STRAIN_DATABASE[clean_name]
+        strain_lookup_cache[cache_key] = result
+        return result
+    
+    # Try partial matching - look for strain names within the product name
+    # Sort by length (longer matches first to prefer specific strains over generic terms)
+    sorted_strains = sorted(STRAIN_DATABASE.keys(), key=len, reverse=True)
+    
+    for strain_name in sorted_strains:
+        # Use word boundary matching to avoid false matches
+        # e.g., "og" should match "OG Kush" but not "dOGfood"
+        pattern = r'\b' + re.escape(strain_name) + r'\b'
+        if re.search(pattern, clean_name):
+            result = STRAIN_DATABASE[strain_name]
             strain_lookup_cache[cache_key] = result
             return result
-        else:
-            strain_lookup_cache[cache_key] = "unspecified"
-            return "unspecified"
-    except Exception as e:
-        # Log API errors for debugging (without exposing sensitive data)
-        logging.warning(f"AI strain lookup error for '{product_name}': {type(e).__name__}")
-        logging.debug(traceback.format_exc())
-        # On error, return unspecified and don't cache
-        return "unspecified"
+    
+    # No match found
+    strain_lookup_cache[cache_key] = "unspecified"
+    return "unspecified"
+
+
+def ai_lookup_strain_type(product_name, category):
+    """
+    DEPRECATED: Use free_strain_lookup() instead for cost-free strain detection.
+    
+    This function is kept for backward compatibility but now redirects to the free lookup.
+    """
+    return free_strain_lookup(product_name, category)
 
 
 # =========================
@@ -316,7 +363,7 @@ if "daily_sales_raw_df" not in st.session_state:
 if "theme" not in st.session_state:
     st.session_state.theme = "Dark"  # Dark by default
 if "ai_strain_lookup_enabled" not in st.session_state:
-    st.session_state.ai_strain_lookup_enabled = True  # Default value; actual availability checked at runtime
+    st.session_state.ai_strain_lookup_enabled = True  # Enable free strain database lookup by default
 
 # Upload tracking (God-only viewer)
 if "upload_log" not in st.session_state:
@@ -1364,21 +1411,26 @@ with st.sidebar.expander("🔍 AI Debug Info", expanded=False):
     st.write(f"Using key: {OPENAI_AVAILABLE}")
     if where:
         st.write(f"Found via: {where}")
+
+# =========================
+# STRAIN LOOKUP TOGGLE
+# =========================
+with st.sidebar.expander("🌿 Strain Lookup Settings", expanded=False):
+    st.markdown("**Free Strain Database Lookup**")
+    st.write("Uses a comprehensive database of cannabis strains to automatically classify products.")
+    strain_enabled = st.checkbox(
+        "Enable strain lookup for flower/pre-rolls",
+        value=st.session_state.ai_strain_lookup_enabled,
+        help="When enabled, uses a free strain database to identify strain types for products that don't have explicit strain info in their names. Completely free, no API costs!"
+    )
+    if strain_enabled != st.session_state.ai_strain_lookup_enabled:
+        st.session_state.ai_strain_lookup_enabled = strain_enabled
+        # Clear the cache when toggling
+        strain_lookup_cache.clear()
+        st.success("Setting updated! Refresh your data to apply changes.")
     
-    # AI Strain Lookup Toggle
-    if OPENAI_AVAILABLE:
-        st.markdown("---")
-        st.markdown("**AI Strain Lookup**")
-        ai_strain_enabled = st.checkbox(
-            "Enable AI strain lookup for flower/pre-rolls",
-            value=st.session_state.ai_strain_lookup_enabled,
-            help="When enabled, uses AI to research strain types for products that don't have explicit strain info in their names."
-        )
-        if ai_strain_enabled != st.session_state.ai_strain_lookup_enabled:
-            st.session_state.ai_strain_lookup_enabled = ai_strain_enabled
-            # Clear the cache when toggling
-            strain_lookup_cache.clear()
-            st.success("Setting updated! Refresh your data to apply changes.")
+    st.info(f"📊 Database contains {len(STRAIN_DATABASE)} strain entries")
+    st.info(f"💾 Cache has {len(strain_lookup_cache)} lookups")
 
 # =========================
 # 🔐 THEME TOGGLE + ADMIN + TRIAL GATE
