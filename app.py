@@ -713,8 +713,14 @@ def read_sales_file(uploaded_file):
         tmp = pd.read_excel(uploaded_file, header=None)
     else:
         # Unsupported format - try Excel as fallback for backward compatibility
-        # This may fail if the file is truly incompatible
-        tmp = pd.read_excel(uploaded_file, header=None)
+        try:
+            tmp = pd.read_excel(uploaded_file, header=None)
+        except Exception:
+            # If Excel parsing fails, provide helpful error message
+            raise ValueError(
+                f"Unsupported file format: {name}. "
+                "Please upload a CSV or Excel file (.csv, .xlsx, .xls)"
+            )
     
     # Detect header row by looking for actual column names
     # Skip metadata rows that typically have format "Key:,Value,..."
@@ -729,8 +735,7 @@ def read_sales_file(uploaded_file):
         first_cell = row_values[0]
         if pd.notna(first_cell):
             first_cell_str = str(first_cell).strip()
-            # Check for non-empty strings ending with colon
-            if first_cell_str and first_cell_str.endswith(':'):
+            if first_cell_str.endswith(':'):
                 continue
         
         # Look for header row containing 'category' and 'product' or 'name'
