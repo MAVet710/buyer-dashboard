@@ -2571,8 +2571,6 @@ elif section == "🐢 Slow Movers":
             filtered_count = original_count - len(inv_df)
             if filtered_count > 0:
                 st.info(f"🚫 Filtered out {filtered_count} quarantined item(s) from slow movers analysis.")
-        else:
-            st.info("ℹ️ No quarantine list uploaded. All items included in analysis.")
         
         # Merge with inventory
         slow_movers = inv_df.merge(
