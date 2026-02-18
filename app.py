@@ -4,6 +4,8 @@ import numpy as np
 import re
 import json
 import os
+import logging
+import traceback
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -203,22 +205,17 @@ def ai_lookup_strain_type(product_name, category):
     if cache_key in strain_lookup_cache:
         return strain_lookup_cache[cache_key]
     
-    prompt = f"""You are a cannabis strain expert. Based on the product name "{product_name}" in the category "{category}", determine the strain type.
-
-Research the strain name and return ONLY ONE of these exact words:
-- indica
-- sativa
-- hybrid
-- cbd
-- unspecified (if you cannot determine with confidence)
-
-Look for strain names in the product name and use your knowledge of cannabis strains to classify them. Return only the strain type word, nothing else."""
+    # Simplified prompt - system message already defines the role and output format
+    prompt = f'Product: "{product_name}"\nCategory: "{category}"\n\nClassify the strain type based on the product name.'
 
     try:
         resp = ai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a cannabis strain classification expert. Respond with only one word: indica, sativa, hybrid, cbd, or unspecified."},
+                {
+                    "role": "system", 
+                    "content": "You are a cannabis strain classification expert. Analyze product names to determine strain types. Respond with only one word: indica, sativa, hybrid, cbd, or unspecified. Use your knowledge of cannabis strains to classify products that don't have explicit strain indicators in their names."
+                },
                 {"role": "user", "content": prompt},
             ],
             max_tokens=10,
@@ -236,9 +233,8 @@ Look for strain names in the product name and use your knowledge of cannabis str
             return "unspecified"
     except Exception as e:
         # Log API errors for debugging (without exposing sensitive data)
-        import traceback
-        print(f"AI strain lookup error for '{product_name}': {type(e).__name__}")
-        traceback.print_exc()
+        logging.warning(f"AI strain lookup error for '{product_name}': {type(e).__name__}")
+        logging.debug(traceback.format_exc())
         # On error, return unspecified and don't cache
         return "unspecified"
 
