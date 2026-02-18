@@ -362,8 +362,8 @@ if "daily_sales_raw_df" not in st.session_state:
     st.session_state.daily_sales_raw_df = None
 if "theme" not in st.session_state:
     st.session_state.theme = "Dark"  # Dark by default
-if "ai_strain_lookup_enabled" not in st.session_state:
-    st.session_state.ai_strain_lookup_enabled = True  # Enable free strain database lookup by default
+if "strain_lookup_enabled" not in st.session_state:
+    st.session_state.strain_lookup_enabled = True  # Enable free strain database lookup by default
 
 # Upload tracking (God-only viewer)
 if "upload_log" not in st.session_state:
@@ -673,9 +673,9 @@ def extract_strain_type(name, subcat):
     if base == "unspecified" and ("flower" in cat or preroll_flag):
         # Check if strain lookup is enabled in settings
         try:
-            if st.session_state.ai_strain_lookup_enabled:
+            if st.session_state.strain_lookup_enabled:
                 # Use free database to determine the strain type from the product name
-                lookup_result = ai_lookup_strain_type(name, subcat)
+                lookup_result = free_strain_lookup(name, subcat)
                 if lookup_result != "unspecified":
                     base = lookup_result
         except Exception:
@@ -1426,11 +1426,11 @@ with st.sidebar.expander("🌿 Strain Lookup Settings", expanded=False):
     st.write("Uses a comprehensive database of cannabis strains to automatically classify products.")
     strain_enabled = st.checkbox(
         "Enable strain lookup for flower/pre-rolls",
-        value=st.session_state.ai_strain_lookup_enabled,
+        value=st.session_state.strain_lookup_enabled,
         help="When enabled, uses a free strain database to identify strain types for products that don't have explicit strain info in their names. Completely free, no API costs!"
     )
-    if strain_enabled != st.session_state.ai_strain_lookup_enabled:
-        st.session_state.ai_strain_lookup_enabled = strain_enabled
+    if strain_enabled != st.session_state.strain_lookup_enabled:
+        st.session_state.strain_lookup_enabled = strain_enabled
         # Clear the cache when toggling
         strain_lookup_cache.clear()
         st.success("Setting updated! Refresh your data to apply changes.")
