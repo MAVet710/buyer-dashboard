@@ -2219,149 +2219,153 @@ elif section == "🐢 Slow Movers":
         inv_df = st.session_state.inv_raw_df.copy()
         sales_df = st.session_state.sales_raw_df.copy()
         
-        # Normalize column names
-        inv_df.columns = inv_df.columns.str.lower()
-        sales_df.columns = sales_df.columns.str.lower()
+        # Normalize column names consistently
+        inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
+        sales_df.columns = sales_df.columns.astype(str).str.strip().str.lower()
         
         # Calculate sales velocity
         st.markdown("### 📊 Slow Movers Identification")
         
-        # Find product name column in sales
-        sales_name_col = None
-        for alias in SALES_NAME_ALIASES:
-            if alias in sales_df.columns:
-                sales_name_col = alias
-                break
+        # Use detect_column helper for consistent column detection
+        sales_name_col = detect_column(sales_df.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
+        sales_qty_col = detect_column(sales_df.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
         
-        # Find quantity sold column in sales
-        sales_qty_col = None
-        for alias in SALES_QTY_ALIASES:
-            if alias in sales_df.columns:
-                sales_qty_col = alias
-                break
-        
-        if sales_name_col and sales_qty_col:
-            sales_velocity = sales_df.groupby(sales_name_col).agg({
-                sales_qty_col: 'sum'
-            }).reset_index()
-            sales_velocity.columns = ['product', 'total_sold']
-            
-            # Calculate daily run rate - find date column
-            date_cols = [col for col in sales_df.columns if 'date' in col]
-            if date_cols:
-                sales_df[date_cols[0]] = pd.to_datetime(sales_df[date_cols[0]], errors='coerce')
-                date_range = (sales_df[date_cols[0]].max() - sales_df[date_cols[0]].min()).days
-                if date_range > 0:
-                    sales_velocity['days_of_data'] = date_range
-                    sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / date_range
-                else:
-                    sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / 30
-            else:
-                sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / 30  # Assume 30 days
-        else:
-            st.error(f"Sales data does not have required columns. Looking for name column (tried: {SALES_NAME_ALIASES[:3]}...) and quantity column (tried: {SALES_QTY_ALIASES[:3]}...)")
+        if not (sales_name_col and sales_qty_col):
+            st.error(
+                f"Sales data does not have required columns.\n\n"
+                f"Looking for: product name (tried: {', '.join(SALES_NAME_ALIASES[:5])}...) "
+                f"and quantity sold (tried: {', '.join(SALES_QTY_ALIASES[:5])}...)\n\n"
+                f"Available columns: {', '.join(sales_df.columns[:10])}..."
+            )
             st.stop()
         
-        # Find inventory columns
-        inv_name_col = None
-        for alias in INV_NAME_ALIASES:
-            if alias in inv_df.columns:
-                inv_name_col = alias
-                break
+        # Aggregate sales by product
+        sales_velocity = sales_df.groupby(sales_name_col).agg({
+            sales_qty_col: 'sum'
+        }).reset_index()
+        sales_velocity.columns = ['product', 'total_sold']
         
-        inv_qty_col = None
-        for alias in INV_QTY_ALIASES:
-            if alias in inv_df.columns:
-                inv_qty_col = alias
-                break
+        # Calculate daily run rate - find date column
+        date_cols = [col for col in sales_df.columns if 'date' in col]
+        if date_cols:
+            sales_df[date_cols[0]] = pd.to_datetime(sales_df[date_cols[0]], errors='coerce')
+            date_range = (sales_df[date_cols[0]].max() - sales_df[date_cols[0]].min()).days
+            if date_range > 0:
+                sales_velocity['days_of_data'] = date_range
+                sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / date_range
+            else:
+                sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / 30
+        else:
+            sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / 30  # Assume 30 days
+        
+        # Find inventory columns using detect_column helper
+        inv_name_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+        inv_qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+        inv_batch_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BATCH_ALIASES])
+        
+        if not (inv_name_col and inv_qty_col):
+            st.error(
+                f"Inventory data does not have required columns.\n\n"
+                f"Looking for: product name (tried: {', '.join(INV_NAME_ALIASES[:5])}...) "
+                f"and quantity (tried: {', '.join(INV_QTY_ALIASES[:5])}...)\n\n"
+                f"Available columns: {', '.join(inv_df.columns[:10])}..."
+            )
+            st.stop()
+        
+        # Rename columns for consistency
+        inv_df = inv_df.rename(columns={inv_name_col: "itemname", inv_qty_col: "onhandunits"})
+        if inv_batch_col:
+            inv_df = inv_df.rename(columns={inv_batch_col: "batch"})
+        
+        # Normalize product names for better matching
+        inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
+        inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
+        
+        # Apply deduplication to inventory before analysis
+        inv_df, num_dupes, dedupe_msg = deduplicate_inventory(inv_df)
+        if num_dupes > 0:
+            st.info(dedupe_msg)
         
         # Merge with inventory
-        if inv_name_col and inv_qty_col:
-            slow_movers = inv_df.merge(
-                sales_velocity,
-                left_on=inv_name_col,
-                right_on='product',
-                how='left'
+        slow_movers = inv_df.merge(
+            sales_velocity,
+            left_on="itemname",
+            right_on='product',
+            how='left'
+        )
+        
+        # Calculate days of supply
+        slow_movers['daily_run_rate'] = slow_movers['daily_run_rate'].fillna(0)
+        slow_movers['days_of_supply'] = np.where(
+            slow_movers['daily_run_rate'] > 0,
+            slow_movers["onhandunits"] / slow_movers['daily_run_rate'],
+            UNKNOWN_DAYS_OF_SUPPLY
+        )
+        
+        # Identify slow movers (more than 60 days of supply)
+        slow_movers_filtered = slow_movers[slow_movers['days_of_supply'] > 60].copy()
+        
+        if not slow_movers_filtered.empty:
+            # Add discount tier suggestions
+            def suggest_discount(days):
+                if days > 180:
+                    return "30-50% (Urgent)"
+                elif days > 120:
+                    return "20-30% (High Priority)"
+                elif days > 90:
+                    return "15-20% (Medium Priority)"
+                elif days > 60:
+                    return "10-15% (Low Priority)"
+                else:
+                    return "No discount needed"
+            
+            slow_movers_filtered['suggested_discount'] = slow_movers_filtered['days_of_supply'].apply(suggest_discount)
+            
+            # Find category column using detect_column
+            cat_col = detect_column(slow_movers_filtered.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+            
+            # Display results
+            display_cols = ["itemname", "onhandunits", 'daily_run_rate', 'days_of_supply', 'suggested_discount']
+            col_names = ['Product', 'On Hand', 'Daily Run Rate', 'Days of Supply', 'Suggested Discount']
+            
+            if cat_col:
+                display_cols.insert(1, cat_col)
+                col_names.insert(1, 'Category')
+            
+            display_df = slow_movers_filtered[display_cols].copy()
+            display_df.columns = col_names
+            display_df['Days of Supply'] = display_df['Days of Supply'].round(1)
+            display_df['Daily Run Rate'] = display_df['Daily Run Rate'].round(2)
+            display_df = display_df.sort_values('Days of Supply', ascending=False)
+            
+            st.markdown(f"**Found {len(display_df)} slow moving products**")
+            st.dataframe(display_df, use_container_width=True)
+            
+            # Summary by discount tier
+            st.markdown("### 📉 Discount Tier Summary")
+            tier_summary = display_df.groupby('Suggested Discount').agg({
+                'Product': 'count',
+                'On Hand': 'sum'
+            }).reset_index()
+            tier_summary.columns = ['Discount Tier', 'Product Count', 'Total Units']
+            st.dataframe(tier_summary, use_container_width=True)
+            
+            # Export to Excel
+            st.markdown("### 📥 Export")
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                display_df.to_excel(writer, sheet_name='Slow Movers', index=False)
+                tier_summary.to_excel(writer, sheet_name='Summary', index=False)
+            output.seek(0)
+            
+            st.download_button(
+                label="📥 Download Slow Movers Report (Excel)",
+                data=output,
+                file_name=f"slow_movers_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-            
-            # Calculate days of supply
-            slow_movers['daily_run_rate'] = slow_movers['daily_run_rate'].fillna(0)
-            slow_movers['days_of_supply'] = np.where(
-                slow_movers['daily_run_rate'] > 0,
-                slow_movers[inv_qty_col] / slow_movers['daily_run_rate'],
-                UNKNOWN_DAYS_OF_SUPPLY
-            )
-            
-            # Identify slow movers (more than 60 days of supply)
-            slow_movers_filtered = slow_movers[slow_movers['days_of_supply'] > 60].copy()
-            
-            if not slow_movers_filtered.empty:
-                # Add discount tier suggestions
-                def suggest_discount(days):
-                    if days > 180:
-                        return "30-50% (Urgent)"
-                    elif days > 120:
-                        return "20-30% (High Priority)"
-                    elif days > 90:
-                        return "15-20% (Medium Priority)"
-                    elif days > 60:
-                        return "10-15% (Low Priority)"
-                    else:
-                        return "No discount needed"
-                
-                slow_movers_filtered['suggested_discount'] = slow_movers_filtered['days_of_supply'].apply(suggest_discount)
-                
-                # Find category column
-                cat_col = None
-                for alias in INV_CAT_ALIASES:
-                    if alias in slow_movers_filtered.columns:
-                        cat_col = alias
-                        break
-                
-                # Display results
-                display_cols = [inv_name_col, inv_qty_col, 'daily_run_rate', 'days_of_supply', 'suggested_discount']
-                col_names = ['Product', 'On Hand', 'Daily Run Rate', 'Days of Supply', 'Suggested Discount']
-                
-                if cat_col:
-                    display_cols.insert(1, cat_col)
-                    col_names.insert(1, 'Category')
-                
-                display_df = slow_movers_filtered[display_cols].copy()
-                display_df.columns = col_names
-                display_df['Days of Supply'] = display_df['Days of Supply'].round(1)
-                display_df['Daily Run Rate'] = display_df['Daily Run Rate'].round(2)
-                display_df = display_df.sort_values('Days of Supply', ascending=False)
-                
-                st.markdown(f"**Found {len(display_df)} slow moving products**")
-                st.dataframe(display_df, use_container_width=True)
-                
-                # Summary by discount tier
-                st.markdown("### 📉 Discount Tier Summary")
-                tier_summary = display_df.groupby('Suggested Discount').agg({
-                    'Product': 'count',
-                    'On Hand': 'sum'
-                }).reset_index()
-                tier_summary.columns = ['Discount Tier', 'Product Count', 'Total Units']
-                st.dataframe(tier_summary, use_container_width=True)
-                
-                # Export to Excel
-                st.markdown("### 📥 Export")
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    display_df.to_excel(writer, sheet_name='Slow Movers', index=False)
-                    tier_summary.to_excel(writer, sheet_name='Summary', index=False)
-                output.seek(0)
-                
-                st.download_button(
-                    label="📥 Download Slow Movers Report (Excel)",
-                    data=output,
-                    file_name=f"slow_movers_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                st.success("✅ No slow movers found! All products are moving well.")
         else:
-            st.error(f"Inventory data does not have required columns. Looking for name column (tried: {INV_NAME_ALIASES[:3]}...) and quantity column (tried: {INV_QTY_ALIASES[:3]}...)")
+            st.success("✅ No slow movers found! All products are moving well.")
     
     except Exception as e:
         st.error(f"Error analyzing slow movers: {str(e)}")
