@@ -94,6 +94,15 @@ SALES_REV_ALIASES = [
     "revenue", "grosssales", "gross sales"
 ]
 
+# Constants for slow movers analysis
+UNKNOWN_DAYS_OF_SUPPLY = 999
+
+# Constants for PDF generation
+MAX_SKU_LENGTH_PDF = 10
+MAX_DESCRIPTION_LENGTH_PDF = 20
+MAX_STRAIN_LENGTH_PDF = 10
+MAX_SIZE_LENGTH_PDF = 8
+
 
 def _find_openai_key():
     """
@@ -2186,7 +2195,7 @@ elif section == "🐢 Slow Movers":
             slow_movers['days_of_supply'] = np.where(
                 slow_movers['daily_run_rate'] > 0,
                 slow_movers[inv_qty_col] / slow_movers['daily_run_rate'],
-                999
+                UNKNOWN_DAYS_OF_SUPPLY
             )
             
             # Identify slow movers (more than 60 days of supply)
@@ -2290,7 +2299,7 @@ elif section == "🧾 PO Builder":
     
     with col3:
         po_number = st.text_input("PO Number", value=f"PO-{datetime.now().strftime('%Y%m%d')}")
-        po_date = st.date_input("PO Date", value=datetime.now())
+        po_date = st.date_input("PO Date", value=datetime.now().date())
     
     # Line Items
     st.markdown("### 📦 Line Items")
@@ -2419,10 +2428,10 @@ elif section == "🧾 PO Builder":
                 y -= 0.25*inch
                 c.setFont("Helvetica", 9)
                 for item in st.session_state.po_items:
-                    c.drawString(1*inch, y, str(item['SKU'])[:10])
-                    c.drawString(2*inch, y, str(item['Description'])[:20])
-                    c.drawString(4*inch, y, str(item['Strain'])[:10])
-                    c.drawString(5*inch, y, str(item['Size'])[:8])
+                    c.drawString(1*inch, y, str(item['SKU'])[:MAX_SKU_LENGTH_PDF])
+                    c.drawString(2*inch, y, str(item['Description'])[:MAX_DESCRIPTION_LENGTH_PDF])
+                    c.drawString(4*inch, y, str(item['Strain'])[:MAX_STRAIN_LENGTH_PDF])
+                    c.drawString(5*inch, y, str(item['Size'])[:MAX_SIZE_LENGTH_PDF])
                     c.drawString(5.5*inch, y, str(item['Quantity']))
                     c.drawString(6*inch, y, f"${item['Price']:.2f}")
                     c.drawString(6.7*inch, y, f"${item['Total']:.2f}")
