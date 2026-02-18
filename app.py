@@ -96,6 +96,7 @@ SALES_REV_ALIASES = [
 
 # Constants for slow movers analysis
 UNKNOWN_DAYS_OF_SUPPLY = 999
+DEFAULT_SALES_PERIOD_DAYS = 30  # Default assumption when date range cannot be determined
 
 # Constants for PDF generation
 MAX_SKU_LENGTH_PDF = 10
@@ -614,10 +615,21 @@ def deduplicate_inventory(inv_df):
     try:
         # Clean and normalize batch column if it exists
         if "batch" in inv_df.columns:
+            # Handle NaN values before converting to string
+            inv_df["batch"] = inv_df["batch"].fillna("")
             # Trim whitespace and normalize batch IDs
             inv_df["batch"] = inv_df["batch"].astype(str).str.strip()
-            # Replace empty strings and invalid values with NaN
-            inv_df["batch"] = inv_df["batch"].replace({"": np.nan, "nan": np.nan, "none": np.nan, "None": np.nan})
+            # Replace empty strings and common invalid string representations with NaN
+            inv_df["batch"] = inv_df["batch"].replace({
+                "": np.nan, 
+                "nan": np.nan, 
+                "NaN": np.nan,
+                "NAN": np.nan,
+                "none": np.nan, 
+                "None": np.nan,
+                "NONE": np.nan,
+                "<NA>": np.nan,
+            })
             
             has_batch = inv_df["batch"].notna()
             
@@ -2254,9 +2266,9 @@ elif section == "🐢 Slow Movers":
                 sales_velocity['days_of_data'] = date_range
                 sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / date_range
             else:
-                sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / 30
+                sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / DEFAULT_SALES_PERIOD_DAYS
         else:
-            sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / 30  # Assume 30 days
+            sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / DEFAULT_SALES_PERIOD_DAYS
         
         # Find inventory columns using detect_column helper
         inv_name_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
