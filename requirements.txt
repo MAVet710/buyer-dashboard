@@ -1,4 +1,4 @@
-plotly
+Wplotly
 pandas
 numpy
 streamlit
