@@ -692,7 +692,11 @@ def read_sales_file(uploaded_file):
     Looks for a row that contains something like 'category' and 'product'
     (Dutchie 'Product Sales Report' style).
     
-    Returns an empty DataFrame if uploaded_file is None.
+    Args:
+        uploaded_file: File-like object with .name attribute and standard read methods
+    
+    Returns:
+        pd.DataFrame: Sales data with detected header row, or empty DataFrame if uploaded_file is None
     """
     if uploaded_file is None:
         return pd.DataFrame()
@@ -708,7 +712,8 @@ def read_sales_file(uploaded_file):
         # For Excel, use existing logic
         tmp = pd.read_excel(uploaded_file, header=None)
     else:
-        # Unsupported format, try Excel as fallback (for backward compatibility)
+        # Unsupported format - try Excel as fallback for backward compatibility
+        # This may fail if the file is truly incompatible
         tmp = pd.read_excel(uploaded_file, header=None)
     
     # Detect header row by looking for actual column names
@@ -721,11 +726,11 @@ def read_sales_file(uploaded_file):
         row_text = " ".join(str(v) for v in row_values).lower()
         
         # Skip metadata rows (rows where first cell ends with colon)
-        # Check for NaN or empty first cell
         first_cell = row_values[0]
         if pd.notna(first_cell):
             first_cell_str = str(first_cell).strip()
-            if first_cell_str.endswith(':'):
+            # Check for non-empty strings ending with colon
+            if first_cell_str and first_cell_str.endswith(':'):
                 continue
         
         # Look for header row containing 'category' and 'product' or 'name'
