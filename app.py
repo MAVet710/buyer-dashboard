@@ -357,8 +357,17 @@ def detect_column(columns, aliases):
 
 
 def normalize_rebelle_category(raw):
-    """Map similar names to canonical categories."""
+    """
+    Map similar names to canonical categories.
+    Case-insensitive with whitespace trimming.
+    """
+    if pd.isna(raw) or raw is None:
+        return "unknown"
+    
     s = str(raw).lower().strip()
+    
+    if not s:
+        return "unknown"
 
     # Flower
     if any(k in s for k in ["flower", "bud", "buds", "cannabis flower"]):
@@ -401,8 +410,15 @@ def extract_size(text, context=None):
     - mg doses: "500mg"
     - grams/oz: normalize 1oz/28g to "28g"
     - vapes: detect 0.5g if appears as ".5" etc
+    Handles null values safely.
     """
-    s = str(text).lower()
+    if pd.isna(text) or text is None:
+        return "unspecified"
+    
+    s = str(text).lower().strip()
+    
+    if not s:
+        return "unspecified"
 
     # mg
     mg = re.search(r"(\d+(\.\d+)?\s?mg)\b", s)
@@ -444,9 +460,15 @@ def extract_strain_type(name, subcat):
     - Concentrates: detect RSO stacked with base
     - Pre-rolls: infused
     - Disposables: disposable (vapes)
+    Handles null values safely.
     """
-    s = str(name).lower()
-    cat = str(subcat).lower()
+    if pd.isna(name):
+        name = ""
+    if pd.isna(subcat):
+        subcat = ""
+    
+    s = str(name).lower().strip()
+    cat = str(subcat).lower().strip()
 
     base = "unspecified"
     if "indica" in s:
@@ -571,6 +593,81 @@ def read_inventory_file(uploaded_file):
         df = pd.read_excel(uploaded_file, header=header_row)
 
     return df
+
+
+def deduplicate_inventory(inv_df):
+    """
+    Consolidate inventory by Product Name + Batch ID.
+    Groups duplicate entries and SUMS quantities (not max).
+    
+    Args:
+        inv_df: DataFrame with columns: itemname, batch (optional), onhandunits, etc.
+        
+    Returns:
+        tuple: (deduplicated_df, num_duplicates_removed, log_message)
+    """
+    if inv_df is None or inv_df.empty:
+        return inv_df, 0, "No inventory data to deduplicate."
+    
+    original_count = len(inv_df)
+    
+    try:
+        # Clean and normalize batch column if it exists
+        if "batch" in inv_df.columns:
+            # Trim whitespace and normalize batch IDs
+            inv_df["batch"] = inv_df["batch"].astype(str).str.strip()
+            # Replace empty strings and invalid values with NaN
+            inv_df["batch"] = inv_df["batch"].replace({"": np.nan, "nan": np.nan, "none": np.nan, "None": np.nan})
+            
+            has_batch = inv_df["batch"].notna()
+            
+            if has_batch.any():
+                # Separate records with and without batch IDs
+                inv_with = inv_df[has_batch].copy()
+                inv_without = inv_df[~has_batch].copy()
+                
+                # Determine deduplication keys
+                # Use itemname + batch for products with batch IDs
+                dedupe_keys = ["itemname", "batch"]
+                
+                # Build aggregation map - SUM quantities, keep first of other columns
+                agg_map = {"onhandunits": "sum"}  # CRITICAL FIX: Changed from "max" to "sum"
+                
+                # Preserve other columns
+                for c in ["subcategory", "sku"]:
+                    if c in inv_with.columns and c not in dedupe_keys:
+                        agg_map[c] = "first"
+                
+                # Group and aggregate
+                inv_with_deduped = (
+                    inv_with.groupby(dedupe_keys, dropna=False, as_index=False)
+                    .agg(agg_map)
+                )
+                
+                # Combine deduplicated records with non-batch records
+                inv_df = pd.concat([inv_with_deduped, inv_without], ignore_index=True)
+                
+                deduplicated_count = len(inv_df)
+                num_removed = original_count - deduplicated_count
+                
+                if num_removed > 0:
+                    log_msg = (
+                        f"✅ Deduplication complete: Consolidated {num_removed} duplicate "
+                        f"inventory entries (Product Name + Batch ID). "
+                        f"Original: {original_count} rows → Deduplicated: {deduplicated_count} rows"
+                    )
+                else:
+                    log_msg = "No duplicate inventory entries found."
+                    
+                return inv_df, num_removed, log_msg
+        
+        # No batch column or no batch data
+        return inv_df, 0, "No batch data available for deduplication."
+        
+    except Exception as e:
+        # If deduplication fails, return original data with error message
+        error_msg = f"⚠️ Deduplication encountered an error: {str(e)}. Using original data."
+        return inv_df, 0, error_msg
 
 
 def read_sales_file(uploaded_file):
@@ -1410,35 +1507,19 @@ if section == "📊 Inventory Dashboard":
         if batch_col:
             inv_df = inv_df.rename(columns={batch_col: "batch"})
 
+        # Normalize itemname for better matching
+        inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
+        
         inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
 
-        # -------- Optional batch de-duplication (prevents accidental double-counting) --------
-        if "batch" in inv_df.columns:
-            inv_df["batch"] = inv_df["batch"].astype(str).str.strip()
-            inv_df["batch"] = inv_df["batch"].replace({"": np.nan, "nan": np.nan, "none": np.nan})
-
-            has_batch = inv_df["batch"].notna()
-            if has_batch.any():
-                dedupe_keys = ["sku", "batch"] if "sku" in inv_df.columns else ["itemname", "batch"]
-
-                inv_with = inv_df[has_batch].copy()
-                inv_without = inv_df[~has_batch].copy()
-
-                agg_map = {"onhandunits": "max"}
-                for c in ["itemname", "subcategory"]:
-                    if c in inv_with.columns and c not in dedupe_keys:
-                        agg_map[c] = "first"
-                if "sku" in inv_with.columns and "sku" not in dedupe_keys:
-                    agg_map["sku"] = "first"
-                if "batch" in inv_with.columns and "batch" not in dedupe_keys:
-                    agg_map["batch"] = "first"
-
-                inv_with = (
-                    inv_with.sort_values("onhandunits", ascending=False)
-                    .groupby(dedupe_keys, dropna=False, as_index=False)
-                    .agg(agg_map)
-                )
-                inv_df = pd.concat([inv_with, inv_without], ignore_index=True)
+        # -------- Inventory Deduplication (Product Name + Batch ID) --------
+        inv_df, num_dupes_removed, dedupe_log = deduplicate_inventory(inv_df)
+        
+        # Display deduplication results to user
+        if num_dupes_removed > 0:
+            st.sidebar.success(dedupe_log)
+        elif "No batch" not in dedupe_log and "No inventory" not in dedupe_log:
+            st.sidebar.info(dedupe_log)
 
         inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
         inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
@@ -1451,7 +1532,8 @@ if section == "📊 Inventory Dashboard":
         )
 
         # -------- SALES (qty-based ONLY) --------
-        sales_raw.columns = sales_raw.columns.astype(str).str.lower()
+        # Normalize column names: trim whitespace and lowercase
+        sales_raw.columns = sales_raw.columns.astype(str).str.strip().str.lower()
 
         name_col_sales = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
         qty_col_sales = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
@@ -1459,10 +1541,18 @@ if section == "📊 Inventory Dashboard":
         sales_sku_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_SKU_ALIASES])
 
         if not (name_col_sales and qty_col_sales and mc_col):
+            missing_cols = []
+            if not name_col_sales:
+                missing_cols.append("product name")
+            if not qty_col_sales:
+                missing_cols.append("units/quantity sold")
+            if not mc_col:
+                missing_cols.append("category")
+            
             st.error(
-                "Product Sales file detected but could not find required columns.\n\n"
-                "Looked for: product name, units/quantity sold, and category.\n\n"
-                "Tip: Use Dutchie 'Product Sales Report' (qty) without editing headers."
+                f"Product Sales file detected but could not find required columns: {', '.join(missing_cols)}.\n\n"
+                "Tip: Use Dutchie 'Product Sales Report' (qty) without editing headers.\n\n"
+                f"Available columns: {', '.join(sales_raw.columns[:10])}..."
             )
             st.stop()
 
@@ -1470,7 +1560,11 @@ if section == "📊 Inventory Dashboard":
         if sales_sku_col:
             sales_raw = sales_raw.rename(columns={sales_sku_col: "sku"})
 
+        # Normalize product names for better matching
+        sales_raw["product_name"] = sales_raw["product_name"].astype(str).str.strip()
+        
         sales_raw["unitssold"] = pd.to_numeric(sales_raw["unitssold"], errors="coerce").fillna(0)
+        sales_raw["mastercategory"] = sales_raw["mastercategory"].astype(str).str.strip()
         sales_raw["mastercategory"] = sales_raw["mastercategory"].apply(normalize_rebelle_category)
 
         sales_df = sales_raw[
