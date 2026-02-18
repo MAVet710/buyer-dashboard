@@ -80,6 +80,7 @@ SALES_QTY_ALIASES = [
     "itemsold", "item sold", "items sold",
     "unitssold", "units sold", "unit sold", "unitsold", "units",
     "totalunits", "total units",
+    "totalinventorysold", "total inventory sold",
     "quantity", "qty",
 ]
 SALES_CAT_ALIASES = [
@@ -684,21 +685,58 @@ def deduplicate_inventory(inv_df):
 
 def read_sales_file(uploaded_file):
     """
-    Read Excel sales report with smart header detection.
+    Read sales report (CSV or Excel) with smart header detection.
+    Supports:
+    - CSV files with metadata rows (Export Date, From Date, To Date, Location)
+    - Excel files with or without metadata rows
     Looks for a row that contains something like 'category' and 'product'
     (Dutchie 'Product Sales Report' style).
     """
+    if uploaded_file is None:
+        return pd.DataFrame()
+    
+    name = uploaded_file.name.lower()
     uploaded_file.seek(0)
-    tmp = pd.read_excel(uploaded_file, header=None)
+    
+    # Determine file type and read accordingly
+    if name.endswith(".csv"):
+        # For CSV, read without header first to detect metadata rows
+        tmp = pd.read_csv(uploaded_file, header=None)
+    elif name.endswith((".xlsx", ".xls")):
+        # For Excel, use existing logic
+        tmp = pd.read_excel(uploaded_file, header=None)
+    else:
+        # Unsupported format, try Excel as fallback
+        tmp = pd.read_excel(uploaded_file, header=None)
+    
+    # Detect header row by looking for actual column names
+    # Skip metadata rows that typically have format "Key:,Value,..."
     header_row = 0
     max_scan = min(20, len(tmp))
+    
     for i in range(max_scan):
-        row_text = " ".join(str(v) for v in tmp.iloc[i].tolist()).lower()
+        row_values = tmp.iloc[i].tolist()
+        row_text = " ".join(str(v) for v in row_values).lower()
+        
+        # Skip metadata rows (rows where first cell ends with colon)
+        first_cell = str(row_values[0]).strip()
+        if first_cell.endswith(':'):
+            continue
+        
+        # Look for header row containing 'category' and 'product' or 'name'
         if "category" in row_text and ("product" in row_text or "name" in row_text):
             header_row = i
             break
+    
+    # Re-read with the correct header row
     uploaded_file.seek(0)
-    df = pd.read_excel(uploaded_file, header=header_row)
+    if name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file, header=header_row)
+    elif name.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(uploaded_file, header=header_row)
+    else:
+        df = pd.read_excel(uploaded_file, header=header_row)
+    
     return df
 
 
