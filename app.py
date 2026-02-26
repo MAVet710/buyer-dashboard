@@ -94,6 +94,15 @@ SALES_REV_ALIASES = [
     "netsales", "net sales", "sales", "totalsales", "total sales",
     "revenue", "grosssales", "gross sales"
 ]
+SALES_BATCH_ALIASES = [
+    "batchid", "batch id", "batch", "batchnumber", "batch number",
+    "lotid", "lot id", "lot", "lotnumber", "lot number",
+]
+SALES_PACKAGE_ALIASES = [
+    "packageid", "package id", "packagenumber", "package number",
+]
+SALES_ORDER_ID_ALIASES = ["orderid", "order id", "ordernumber", "order number", "order"]
+SALES_ORDER_TIME_ALIASES = ["ordertime", "order time", "orderdate", "order date", "datetime"]
 
 # Constants for slow movers analysis
 UNKNOWN_DAYS_OF_SUPPLY = 999
@@ -1843,6 +1852,23 @@ if section == "📊 Inventory Dashboard":
         if sales_sku_col:
             sales_raw = sales_raw.rename(columns={sales_sku_col: "sku"})
 
+        # Detect and rename optional new-format columns
+        sales_batch_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_BATCH_ALIASES])
+        sales_package_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_PACKAGE_ALIASES])
+        sales_net_sales_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_REV_ALIASES])
+        sales_order_id_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_ORDER_ID_ALIASES])
+        sales_order_time_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_ORDER_TIME_ALIASES])
+        if sales_batch_col and sales_batch_col != "batch_id":
+            sales_raw = sales_raw.rename(columns={sales_batch_col: "batch_id"})
+        if sales_package_col and sales_package_col != "package_id":
+            sales_raw = sales_raw.rename(columns={sales_package_col: "package_id"})
+        if sales_net_sales_col and sales_net_sales_col != "net_sales":
+            sales_raw = sales_raw.rename(columns={sales_net_sales_col: "net_sales"})
+        if sales_order_id_col and sales_order_id_col != "order_id":
+            sales_raw = sales_raw.rename(columns={sales_order_id_col: "order_id"})
+        if sales_order_time_col and sales_order_time_col != "order_time":
+            sales_raw = sales_raw.rename(columns={sales_order_time_col: "order_time"})
+
         # Normalize product names for better matching
         sales_raw["product_name"] = sales_raw["product_name"].astype(str).str.strip()
         
@@ -1857,6 +1883,14 @@ if section == "📊 Inventory Dashboard":
 
         sales_df["packagesize"] = sales_df.apply(lambda row: extract_size(row.get("product_name", ""), row.get("mastercategory", "")), axis=1)
         sales_df["strain_type"] = sales_df.apply(lambda row: extract_strain_type(row.get("product_name", ""), row.get("mastercategory", "")), axis=1)
+
+        # -------- SALES DETAIL (per-row, deduplicated, for SKU drilldown) --------
+        sales_detail_df = sales_df.copy()
+        sales_detail_df["product"] = sales_detail_df["product_name"].astype(str).str.strip()
+        if "net_sales" in sales_detail_df.columns:
+            sales_detail_df["net_sales"] = pd.to_numeric(sales_detail_df["net_sales"], errors="coerce").fillna(0)
+        # Deduplicate exact duplicate exported rows to prevent double counting
+        sales_detail_df = sales_detail_df.drop_duplicates()
 
         sales_summary = (
             sales_df.groupby(["mastercategory", "packagesize"], dropna=False)["unitssold"]
@@ -2120,15 +2154,17 @@ if section == "📊 Inventory Dashboard":
         def sku_drilldown_table(cat, size, strain_type):
             """
             Returns two tables:
-            1) SKU-level view (sales-weighted) for this row slice
+            1) SKU-level view aggregated by product+batch (deduplicated) for this row slice
             2) Batch rollup (if inventory batch data exists)
 
             IMPORTANT: Always returns (sku_df, batch_df) so callers can safely unpack.
             """
             empty = (pd.DataFrame(), pd.DataFrame())
 
-            # --- SALES SLICE ---
-            sd = sales_df[(sales_df["mastercategory"] == cat) & (sales_df["packagesize"] == size)].copy()
+            # --- SALES DETAIL SLICE (deduplicated, aggregated) ---
+            sd = sales_detail_df[
+                (sales_detail_df["mastercategory"] == cat) & (sales_detail_df["packagesize"] == size)
+            ].copy()
 
             if str(strain_type).lower() != "unspecified":
                 sd = sd[sd["strain_type"].astype(str).str.lower() == str(strain_type).lower()]
@@ -2136,31 +2172,47 @@ if section == "📊 Inventory Dashboard":
             if sd.empty:
                 return empty
 
-            sd["est_units_per_day"] = (sd["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
+            # Aggregate by product + batch_id (and package_id if present) to prevent duplicate listing
+            has_batch = "batch_id" in sd.columns
+            has_package = "package_id" in sd.columns
+            has_net_sales = "net_sales" in sd.columns
+            has_sku = "sku" in sd.columns
+
+            group_cols = ["product"]
+            if has_batch:
+                group_cols.append("batch_id")
+            if has_package:
+                group_cols.append("package_id")
+
+            agg_dict = {"unitssold": "sum"}
+            if has_net_sales:
+                agg_dict["net_sales"] = "sum"
+            if has_sku:
+                # SKU is expected to uniquely correspond to a product; take first within the group
+                agg_dict["sku"] = "first"
+
+            sku_df = sd.groupby(group_cols, dropna=False).agg(agg_dict).reset_index()
+            sku_df["est_units_per_day"] = (sku_df["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
+
+            # Build ordered output columns
+            out_cols = ["product"]
+            if has_batch:
+                out_cols.append("batch_id")
+            if has_package:
+                out_cols.append("package_id")
+            out_cols.append("unitssold")
+            if has_net_sales:
+                out_cols.append("net_sales")
+            out_cols.append("est_units_per_day")
+            if has_sku:
+                out_cols.append("sku")
+
+            sku_df = sku_df[out_cols].sort_values("est_units_per_day", ascending=False).head(50)
 
             # --- INVENTORY SLICE ---
             idf = inv_df[(inv_df["subcategory"] == cat) & (inv_df["packagesize"] == size)].copy()
             if str(strain_type).lower() != "unspecified":
                 idf = idf[idf["strain_type"].astype(str).str.lower() == str(strain_type).lower()]
-
-            cols = []
-            if "sku" in sd.columns:
-                cols.append("sku")
-            cols += ["product_name", "unitssold", "est_units_per_day"]
-            sku_df = sd[cols].copy()
-
-            if not idf.empty:
-                inv_cols = ["itemname", "onhandunits"]
-                if "batch" in idf.columns:
-                    inv_cols.append("batch")
-                inv_small = idf[inv_cols].copy().rename(columns={"itemname": "product_name"})
-                sku_df = pd.merge(sku_df, inv_small, how="left", on="product_name")
-
-            if "onhandunits" not in sku_df.columns:
-                sku_df["onhandunits"] = 0
-            sku_df["onhandunits"] = pd.to_numeric(sku_df["onhandunits"], errors="coerce").fillna(0)
-
-            sku_df = sku_df.sort_values("est_units_per_day", ascending=False).head(50)
 
             batch_df = pd.DataFrame()
             if not idf.empty and "batch" in idf.columns:
