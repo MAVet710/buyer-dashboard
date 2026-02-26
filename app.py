@@ -517,6 +517,10 @@ if "delivery_raw_df" not in st.session_state:
     st.session_state.delivery_raw_df = None
 if "daily_sales_raw_df" not in st.session_state:
     st.session_state.daily_sales_raw_df = None
+if "detail_cached_df" not in st.session_state:
+    st.session_state.detail_cached_df = None
+if "detail_product_cached_df" not in st.session_state:
+    st.session_state.detail_product_cached_df = None
 if "theme" not in st.session_state:
     st.session_state.theme = "Dark"  # Dark by default
 if "strain_lookup_enabled" not in st.session_state:
@@ -2335,6 +2339,11 @@ if section == "📊 Inventory Dashboard":
         )
         detail_product["daysonhand"] = detail_product["daysonhand"].replace([np.inf, -np.inf], 0).fillna(0).astype(int)
 
+        # Cache for cross-reference in PO Builder
+        st.session_state.detail_cached_df = detail.copy()
+        st.session_state.detail_product_cached_df = detail_product.copy()
+        st.session_state.doh_threshold_cache = int(doh_threshold)
+
         # =======================
         # SUMMARY + CLICK FILTERS
         # =======================
@@ -3115,6 +3124,81 @@ elif section == "🐢 Slow Movers":
 elif section == "🧾 PO Builder":
     st.subheader("Purchase Order Builder")
     st.write("Create professional purchase orders with automatic calculations and PDF export.")
+
+    # =========================================================
+    # REORDER CROSS-REFERENCE (from Inventory Dashboard data)
+    # =========================================================
+    _detail_cached = st.session_state.get("detail_cached_df")
+    _detail_product_cached = st.session_state.get("detail_product_cached_df")
+
+    if _detail_cached is not None and not _detail_cached.empty:
+        reorder_rows = _detail_cached[_detail_cached["reorderpriority"] == "1 – Reorder ASAP"].copy()
+
+        # Enrich with top_products if product-level data is available
+        if _detail_product_cached is not None and not _detail_product_cached.empty:
+            try:
+                _dpxref = _detail_product_cached[["subcategory", "product_name", "strain_type", "packagesize", "unitssold"]].copy()
+                _dpxref["unitssold"] = pd.to_numeric(_dpxref["unitssold"], errors="coerce").fillna(0)
+                _dp_top = (
+                    _dpxref.sort_values("unitssold", ascending=False)
+                    .groupby(["subcategory", "strain_type", "packagesize"], dropna=False, sort=False)["product_name"]
+                    .apply(lambda x: ", ".join(x.astype(str).head(5).tolist()))
+                    .reset_index()
+                    .rename(columns={"product_name": "top_products"})
+                )
+                reorder_rows = reorder_rows.merge(_dp_top, on=["subcategory", "strain_type", "packagesize"], how="left")
+                reorder_rows["top_products"] = reorder_rows["top_products"].fillna("")
+            except Exception:
+                if "top_products" not in reorder_rows.columns:
+                    reorder_rows["top_products"] = ""
+
+        with st.expander("📊 Reorder Cross-Reference (from Inventory Dashboard)", expanded=True):
+            if reorder_rows.empty:
+                st.success("✅ No items flagged 'Reorder ASAP' in the current dashboard view.")
+            else:
+                st.caption(
+                    f"**{len(reorder_rows)} line(s)** flagged as *Reorder ASAP* from your last Inventory Dashboard load. "
+                    "Use the button below to bulk-add them to the PO, or review individual rows first."
+                )
+                _xref_cols = ["subcategory", "strain_type", "packagesize", "onhandunits", "avgunitsperday", "daysonhand", "reorderqty"]
+                if "top_products" in reorder_rows.columns:
+                    _xref_cols.append("top_products")
+                _xref_cols = [c for c in _xref_cols if c in reorder_rows.columns]
+                st.dataframe(reorder_rows[_xref_cols].reset_index(drop=True), use_container_width=True)
+
+                if st.button("➕ Add All Reorder ASAP Lines to PO", key="po_xref_add_all"):
+                    _added = 0
+                    for _, _r in reorder_rows.iterrows():
+                        _cat = str(_r.get("subcategory", ""))
+                        _strain = str(_r.get("strain_type", ""))
+                        _size = str(_r.get("packagesize", ""))
+                        _desc = " ".join(filter(None, [_cat, _strain, _size]))
+                        _top_raw = str(_r.get("top_products", "")).strip()
+                        _top = _top_raw.split(",")[0].strip() if _top_raw else _desc
+                        try:
+                            _qty = int(_r.get("reorderqty", 0))
+                            _qty = _qty if _qty > 0 else 1
+                        except (ValueError, TypeError):
+                            _qty = 1
+                        st.session_state.po_items.append({
+                            "SKU": "",
+                            "Description": _top if _top else _desc,
+                            "Strain": _strain,
+                            "Size": _size,
+                            "Quantity": _qty,
+                            "Price": 0.0,
+                            "Total": 0.0,
+                        })
+                        _added += 1
+                    st.success(f"Added {_added} item(s) to the PO. Fill in prices below.")
+                    _safe_rerun()
+    else:
+        st.info(
+            "💡 Go to **📊 Inventory Dashboard** and upload your files first — "
+            "Reorder ASAP items will then appear here for quick PO creation."
+        )
+
+    st.markdown("---")
     
     # Initialize session state for PO
     if 'po_items' not in st.session_state:
