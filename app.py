@@ -2549,6 +2549,7 @@ if section == "📊 Inventory Dashboard":
         )
 
         display_cols = [
+            "top_products",
             "mastercategory",
             "subcategory",
             "strain_type",
@@ -2560,7 +2561,6 @@ if section == "📊 Inventory Dashboard":
             "reorderqty",
             "reorderpriority",
             "product_count",
-            "top_products",
         ]
         display_cols = [c for c in display_cols if c in detail_view.columns]
 
@@ -2706,7 +2706,7 @@ if section == "📊 Inventory Dashboard":
                 st.caption(f"⚠️ Showing top {_PROD_ROW_LIMIT} rows by units sold. Download below for full data.")
                 dpv = dpv.sort_values("unitssold", ascending=False).head(_PROD_ROW_LIMIT)
             prod_display_cols = [
-                "subcategory", "product_name", "strain_type", "packagesize",
+                "product_name", "subcategory", "strain_type", "packagesize",
                 "onhandunits", "unitssold", "avgunitsperday", "daysonhand",
             ]
             prod_display_cols = [c for c in prod_display_cols if c in dpv.columns]
