@@ -4,6 +4,7 @@ import numpy as np
 import re
 import json
 import os
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -373,20 +374,28 @@ def _load_auth_secrets():
     except Exception:
         auth = {}
 
-    use_plaintext = bool(auth.get("use_plaintext", False)) if isinstance(auth, dict) else False
+    use_plaintext = bool(auth.get("use_plaintext", False)) if isinstance(auth, Mapping) else False
 
     # --- admins ---
-    raw_admins = auth.get("admins", {}) if isinstance(auth, dict) else {}
-    if isinstance(raw_admins, dict):
-        admins = dict(raw_admins)
+    raw_admins = auth.get("admins", {}) if isinstance(auth, Mapping) else {}
+    if isinstance(raw_admins, Mapping):
+        for k, v in raw_admins.items():
+            try:
+                admins[str(k)] = str(v)
+            except Exception:
+                pass
 
     # --- users ---
-    raw_users = auth.get("users", {}) if isinstance(auth, dict) else {}
-    if isinstance(raw_users, dict):
-        users = dict(raw_users)
+    raw_users = auth.get("users", {}) if isinstance(auth, Mapping) else {}
+    if isinstance(raw_users, Mapping):
+        for k, v in raw_users.items():
+            try:
+                users[str(k)] = str(v)
+            except Exception:
+                pass
 
     # --- trial key ---
-    trial_value = str(auth.get("trial_key_hash", "")).strip() if isinstance(auth, dict) else ""
+    trial_value = str(auth.get("trial_key_hash", "")).strip() if isinstance(auth, Mapping) else ""
 
     # Env-var fallback (single admin / single user / trial key)
     env_admin_user = os.environ.get("ADMIN_USERNAME", "").strip()
@@ -436,6 +445,25 @@ def _check_trial_key(plain: str) -> bool:
     if BCRYPT_AVAILABLE and not _AUTH_PLAINTEXT:
         return verify_password(plain, _TRIAL_VALUE)
     return plain == _TRIAL_VALUE
+
+
+def _validate_auth_config() -> list:
+    """
+    Runtime self-check for auth configuration.
+    Returns a list of (severity, message) tuples ('ok', 'warn', 'error').
+    Never reveals secret values or hashes.
+    """
+    issues = []
+    if not BCRYPT_AVAILABLE:
+        issues.append(("error", "bcrypt is not installed. Add `bcrypt>=4.0.0` to requirements.txt and redeploy."))
+    if not ADMIN_USERS:
+        issues.append(("error", "No admin users loaded. Check that [auth.admins] is present in Streamlit secrets."))
+    else:
+        issues.append(("ok", f"{len(ADMIN_USERS)} admin user(s) loaded: {', '.join(sorted(ADMIN_USERS.keys()))}"))
+    for uname, stored_hash in ADMIN_USERS.items():
+        if not stored_hash.startswith(("$2a$", "$2b$", "$2y$")):
+            issues.append(("warn", f"Admin '{uname}': stored value does not look like a bcrypt hash (should start with $2a$, $2b$, or $2y$)."))
+    return issues
 
 # ✅ Canonical category names (values, not column names)
 REB_CATEGORIES = [
@@ -1569,6 +1597,25 @@ if st.session_state.get("is_admin", False):
         st.write(f"Using key: {OPENAI_AVAILABLE}")
         if where:
             st.write(f"Found via: {where}")
+
+    with st.sidebar.expander("🔐 Auth Debug Info", expanded=False):
+        _auth_has_section = False
+        try:
+            _auth_has_section = "auth" in st.secrets and "admins" in st.secrets["auth"]
+        except Exception:
+            pass
+        st.write(f"auth.admins section exists: {_auth_has_section}")
+        st.write(f"Admin usernames loaded: {len(ADMIN_USERS)}")
+        st.write(f"bcrypt available: {BCRYPT_AVAILABLE}")
+        if ADMIN_USERS:
+            st.write(f"Admin keys: {', '.join(sorted(ADMIN_USERS.keys()))}")
+        for severity, msg in _validate_auth_config():
+            if severity == "ok":
+                st.success(msg)
+            elif severity == "warn":
+                st.warning(msg)
+            else:
+                st.error(msg)
 
 # =========================
 # STRAIN LOOKUP TOGGLE
