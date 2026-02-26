@@ -27,6 +27,33 @@ except Exception:
 OPENAI_AVAILABLE = False
 ai_client = None
 
+# ------------------------------------------------------------
+# OPTIONAL / SAFE IMPORT FOR BCRYPT (PASSWORD HASHING)
+# ------------------------------------------------------------
+try:
+    import bcrypt as _bcrypt
+    BCRYPT_AVAILABLE = True
+except ImportError:
+    _bcrypt = None  # type: ignore
+    BCRYPT_AVAILABLE = False
+
+
+def hash_password(plain: str) -> str:
+    """Hash a plaintext password with bcrypt. For admin/dev use only."""
+    if not BCRYPT_AVAILABLE:
+        raise RuntimeError("bcrypt is not installed. Run: pip install bcrypt>=4.0.0")
+    return _bcrypt.hashpw(plain.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    """Verify a plaintext password against a bcrypt hash."""
+    if not BCRYPT_AVAILABLE or not plain or not hashed:
+        return False
+    try:
+        return _bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
+
 
 # ============================================================
 # PURCHASING-DIRECTOR UPGRADES (NO LOGIC CHANGE)
@@ -113,6 +140,9 @@ MAX_SKU_LENGTH_PDF = 10
 MAX_DESCRIPTION_LENGTH_PDF = 20
 MAX_STRAIN_LENGTH_PDF = 10
 MAX_SIZE_LENGTH_PDF = 8
+
+# Maximum allowed upload size per file (50 MB)
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 def _find_openai_key():
@@ -316,21 +346,96 @@ APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data
 LICENSE_FOOTER = "Semper Paratus • Powered by Good Weed and Data"
 
 # 🔐 TRIAL SETTINGS
-TRIAL_KEY = "mavet24"
 TRIAL_DURATION_HOURS = 24
 
-# 👑 ADMIN CREDS (multiple admins)
-ADMIN_USERS = {
-    "God": "Major420",
-    "JVas": "UPG2025",
-}
+# =========================
+# SECRETS-BASED AUTH LOADING
+# =========================
+# Credentials are loaded from st.secrets["auth"] or environment variables.
+# Plaintext credentials are NOT stored in source code.
+# See SECURITY.md for configuration instructions.
 
-# 👤 STANDARD USER CREDS (non-admin)
-USER_USERS = {
-    "KHuston": "ChangeMe!",
-    "ERoots": "Test420",
-    "AFreed": "Test710",
-}
+def _load_auth_secrets():
+    """
+    Load admin users, regular users, and trial key hash from Streamlit secrets
+    or environment variable fallback.
+
+    Returns (admin_users_dict, user_users_dict, trial_key_hash_or_plain).
+    Each dict maps username -> bcrypt_hash (or plaintext if
+    st.secrets["auth"]["use_plaintext"] is explicitly True).
+    """
+    admins: dict = {}
+    users: dict = {}
+    trial_value: str = ""
+
+    try:
+        auth = st.secrets.get("auth", {})
+    except Exception:
+        auth = {}
+
+    use_plaintext = bool(auth.get("use_plaintext", False)) if isinstance(auth, dict) else False
+
+    # --- admins ---
+    raw_admins = auth.get("admins", {}) if isinstance(auth, dict) else {}
+    if isinstance(raw_admins, dict):
+        admins = dict(raw_admins)
+
+    # --- users ---
+    raw_users = auth.get("users", {}) if isinstance(auth, dict) else {}
+    if isinstance(raw_users, dict):
+        users = dict(raw_users)
+
+    # --- trial key ---
+    trial_value = str(auth.get("trial_key_hash", "")).strip() if isinstance(auth, dict) else ""
+
+    # Env-var fallback (single admin / single user / trial key)
+    env_admin_user = os.environ.get("ADMIN_USERNAME", "").strip()
+    env_admin_pass = os.environ.get("ADMIN_PASSWORD_HASH", "").strip()
+    env_user_name = os.environ.get("USER_USERNAME", "").strip()
+    env_user_pass = os.environ.get("USER_PASSWORD_HASH", "").strip()
+    env_trial = os.environ.get("TRIAL_KEY_HASH", "").strip()
+
+    if env_admin_user and env_admin_pass and env_admin_user not in admins:
+        admins[env_admin_user] = env_admin_pass
+    if env_user_name and env_user_pass and env_user_name not in users:
+        users[env_user_name] = env_user_pass
+    if env_trial and not trial_value:
+        trial_value = env_trial
+
+    return admins, users, trial_value, use_plaintext
+
+
+ADMIN_USERS, USER_USERS, _TRIAL_VALUE, _AUTH_PLAINTEXT = _load_auth_secrets()
+
+if not BCRYPT_AVAILABLE and not st.session_state.get("_bcrypt_warning_shown"):
+    st.warning(
+        "⚠️ bcrypt is not installed. Password verification is disabled. "
+        "Please add `bcrypt>=4.0.0` to your requirements.txt and redeploy."
+    )
+    st.session_state["_bcrypt_warning_shown"] = True
+
+
+def _check_password(plain: str, stored: str) -> bool:
+    """
+    Verify a password against a stored value.
+    Uses bcrypt when available; falls back to plaintext only when
+    use_plaintext mode is explicitly enabled or bcrypt is unavailable.
+    """
+    if not plain or not stored:
+        return False
+    if BCRYPT_AVAILABLE and not _AUTH_PLAINTEXT:
+        return verify_password(plain, stored)
+    # Plaintext fallback (legacy / dev only)
+    return plain == stored
+
+
+def _check_trial_key(plain: str) -> bool:
+    """Verify a trial key against the stored hash or plaintext value."""
+    if not plain or not _TRIAL_VALUE:
+        return False
+    if BCRYPT_AVAILABLE and not _AUTH_PLAINTEXT:
+        return verify_password(plain, _TRIAL_VALUE)
+    return plain == _TRIAL_VALUE
 
 # ✅ Canonical category names (values, not column names)
 REB_CATEGORIES = [
@@ -396,6 +501,18 @@ if "uploaded_files_store" not in st.session_state:
 # Upload de-dupe signature store (prevents repeated logging on reruns)
 if "_upload_sig_seen" not in st.session_state:
     st.session_state._upload_sig_seen = set()
+
+# Brute-force login protection counters
+_LOCKOUT_MAX_ATTEMPTS = 5
+_LOCKOUT_MINUTES = 10
+if "_admin_fail_count" not in st.session_state:
+    st.session_state._admin_fail_count = 0
+if "_admin_lockout_until" not in st.session_state:
+    st.session_state._admin_lockout_until = None
+if "_user_fail_count" not in st.session_state:
+    st.session_state._user_fail_count = 0
+if "_user_lockout_until" not in st.session_state:
+    st.session_state._user_lockout_until = None
 
 theme = st.session_state.theme
 
@@ -1094,6 +1211,7 @@ def track_upload(uploaded_file, uploader_username: str, file_role: str):
 
     Purchasing-director fix:
     - Prevent duplicate log spam: only log a given file once per session.
+    - Reject files exceeding MAX_UPLOAD_BYTES.
     """
     if uploaded_file is None:
         return
@@ -1107,6 +1225,13 @@ def track_upload(uploaded_file, uploader_username: str, file_role: str):
         b = uploaded_file.read()
         uploaded_file.seek(0)
     except Exception:
+        return
+
+    if len(b) > MAX_UPLOAD_BYTES:
+        st.error(
+            f"❌ File '{getattr(uploaded_file, 'name', 'upload')}' exceeds the "
+            f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB size limit and was not stored."
+        )
         return
 
     if sig:
@@ -1423,26 +1548,27 @@ Tasks:
 
 
 # =========================
-# INIT OPENAI + SHOW DEBUG (kept)
+# INIT OPENAI + SHOW DEBUG (admin-only)
 # =========================
 init_openai_client()
 
-# Always show debug panel (requested to keep) — does NOT reveal the key.
-with st.sidebar.expander("🔍 AI Debug Info", expanded=False):
-    key1 = False
-    key2 = False
-    where = None
-    try:
-        key, where = _find_openai_key()
-        key1 = bool(key)
-    except Exception:
+# Debug panel is gated behind admin access to avoid exposing internals.
+if st.session_state.get("is_admin", False):
+    with st.sidebar.expander("🔍 AI Debug Info", expanded=False):
         key1 = False
-    key2 = bool(os.environ.get("OPENAI_API_KEY", "").strip())
-    st.write(f"Secrets has OPENAI_API_KEY: {key1}")
-    st.write(f"Env has OPENAI_API_KEY: {key2}")
-    st.write(f"Using key: {OPENAI_AVAILABLE}")
-    if where:
-        st.write(f"Found via: {where}")
+        key2 = False
+        where = None
+        try:
+            key, where = _find_openai_key()
+            key1 = bool(key)
+        except Exception:
+            key1 = False
+        key2 = bool(os.environ.get("OPENAI_API_KEY", "").strip())
+        st.write(f"Secrets has OPENAI_API_KEY: {key1}")
+        st.write(f"Env has OPENAI_API_KEY: {key2}")
+        st.write(f"Using key: {OPENAI_AVAILABLE}")
+        if where:
+            st.write(f"Found via: {where}")
 
 # =========================
 # STRAIN LOOKUP TOGGLE
@@ -1480,15 +1606,38 @@ if theme_choice != st.session_state.theme:
 st.sidebar.markdown("### 👑 Admin Login")
 
 if not st.session_state.is_admin:
-    admin_user = st.sidebar.text_input("Username", key="admin_user_input")
-    admin_pass = st.sidebar.text_input("Password", type="password", key="admin_pass_input")
-    if st.sidebar.button("Login as Admin"):
-        if admin_user in ADMIN_USERS and admin_pass == ADMIN_USERS[admin_user]:
-            st.session_state.is_admin = True
-            st.session_state.admin_user = admin_user
-            st.sidebar.success("✅ Admin mode enabled.")
-        else:
-            st.sidebar.error("❌ Invalid admin credentials.")
+    now = datetime.now()
+    admin_locked = (
+        st.session_state._admin_lockout_until is not None
+        and now < st.session_state._admin_lockout_until
+    )
+    if admin_locked:
+        remaining_s = int((st.session_state._admin_lockout_until - now).total_seconds())
+        st.sidebar.error(
+            f"⛔ Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s."
+        )
+    else:
+        admin_user = st.sidebar.text_input("Username", key="admin_user_input")
+        admin_pass = st.sidebar.text_input("Password", type="password", key="admin_pass_input")
+        if st.sidebar.button("Login as Admin"):
+            if admin_user in ADMIN_USERS and _check_password(admin_pass, ADMIN_USERS[admin_user]):
+                st.session_state.is_admin = True
+                st.session_state.admin_user = admin_user
+                st.session_state._admin_fail_count = 0
+                st.session_state._admin_lockout_until = None
+                st.sidebar.success("✅ Admin mode enabled.")
+            else:
+                st.session_state._admin_fail_count += 1
+                remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._admin_fail_count
+                if st.session_state._admin_fail_count >= _LOCKOUT_MAX_ATTEMPTS:
+                    st.session_state._admin_lockout_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
+                    st.sidebar.error(
+                        f"⛔ Too many failed attempts. Login locked for {_LOCKOUT_MINUTES} minutes."
+                    )
+                else:
+                    st.sidebar.error(
+                        f"❌ Invalid admin credentials. {remaining_attempts} attempt(s) remaining."
+                    )
 else:
     st.sidebar.success(f"👑 Admin mode: {st.session_state.admin_user}")
     if st.sidebar.button("Logout Admin"):
@@ -1502,15 +1651,38 @@ else:
 st.sidebar.markdown("### 👤 User Login")
 
 if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
-    u_user = st.sidebar.text_input("Username", key="user_user_input")
-    u_pass = st.sidebar.text_input("Password", type="password", key="user_pass_input")
-    if st.sidebar.button("Login", key="login_user_btn"):
-        if u_user in USER_USERS and u_pass == USER_USERS[u_user]:
-            st.session_state.user_authenticated = True
-            st.session_state.user_user = u_user
-            st.sidebar.success("✅ User access enabled.")
-        else:
-            st.sidebar.error("❌ Invalid user credentials.")
+    now = datetime.now()
+    user_locked = (
+        st.session_state._user_lockout_until is not None
+        and now < st.session_state._user_lockout_until
+    )
+    if user_locked:
+        remaining_s = int((st.session_state._user_lockout_until - now).total_seconds())
+        st.sidebar.error(
+            f"⛔ Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s."
+        )
+    else:
+        u_user = st.sidebar.text_input("Username", key="user_user_input")
+        u_pass = st.sidebar.text_input("Password", type="password", key="user_pass_input")
+        if st.sidebar.button("Login", key="login_user_btn"):
+            if u_user in USER_USERS and _check_password(u_pass, USER_USERS[u_user]):
+                st.session_state.user_authenticated = True
+                st.session_state.user_user = u_user
+                st.session_state._user_fail_count = 0
+                st.session_state._user_lockout_until = None
+                st.sidebar.success("✅ User access enabled.")
+            else:
+                st.session_state._user_fail_count += 1
+                remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._user_fail_count
+                if st.session_state._user_fail_count >= _LOCKOUT_MAX_ATTEMPTS:
+                    st.session_state._user_lockout_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
+                    st.sidebar.error(
+                        f"⛔ Too many failed attempts. Login locked for {_LOCKOUT_MINUTES} minutes."
+                    )
+                else:
+                    st.sidebar.error(
+                        f"❌ Invalid user credentials. {remaining_attempts} attempt(s) remaining."
+                    )
 elif (not st.session_state.is_admin) and st.session_state.user_authenticated:
     st.sidebar.success(f"👤 User: {st.session_state.user_user}")
     if st.sidebar.button("Logout", key="logout_user_btn"):
@@ -1526,7 +1698,7 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
     if st.session_state.trial_start is None:
         trial_key_input = st.sidebar.text_input("Enter trial key", type="password", key="trial_key_input")
         if st.sidebar.button("Activate Trial", key="activate_trial"):
-            if trial_key_input.strip() == TRIAL_KEY:
+            if _check_trial_key(trial_key_input.strip()):
                 st.session_state.trial_start = trial_now.isoformat()
                 st.sidebar.success("✅ Trial activated. You have 24 hours of access.")
             else:
@@ -1573,8 +1745,35 @@ if not PLOTLY_AVAILABLE:
 # =========================
 # GOD-ONLY: Upload viewer (requested)
 # =========================
+_UPLOAD_TTL_MINUTES = 60
+
 if st.session_state.is_admin and st.session_state.admin_user == "God":
+    # TTL purge: remove entries older than _UPLOAD_TTL_MINUTES on each run
+    now_ts = datetime.now()
+    expired_ids = []
+    for uid, meta in list(st.session_state.uploaded_files_store.items()):
+        try:
+            entry_ts = datetime.strptime(meta["ts"], "%Y-%m-%d %H:%M:%S")
+            if (now_ts - entry_ts).total_seconds() > _UPLOAD_TTL_MINUTES * 60:
+                expired_ids.append(uid)
+        except (KeyError, ValueError):
+            pass
+    for uid in expired_ids:
+        st.session_state.uploaded_files_store.pop(uid, None)
+    st.session_state.upload_log = [
+        r for r in st.session_state.upload_log if r["upload_id"] not in expired_ids
+    ]
+
     with st.sidebar.expander("🗂️ Upload Viewer (God)", expanded=False):
+        st.warning(
+            "⚠️ This panel displays sensitive user-uploaded data. "
+            "Handle with care and do not share outside authorized personnel."
+        )
+        if st.button("🗑️ Clear all stored uploads", key="clear_upload_store"):
+            st.session_state.upload_log = []
+            st.session_state.uploaded_files_store = {}
+            st.session_state._upload_sig_seen = set()
+            st.success("All stored uploads cleared.")
         if len(st.session_state.upload_log) == 0:
             st.write("No uploads logged yet.")
         else:
@@ -1652,9 +1851,15 @@ if section == "📊 Inventory Dashboard":
             file_obj.seek(0)
             b = file_obj.read()
             file_obj.seek(0)
-            st.session_state[cache_key] = {"name": getattr(file_obj, "name", "upload"), "bytes": b}
         except Exception:
             return
+        if len(b) > MAX_UPLOAD_BYTES:
+            st.error(
+                f"❌ File '{getattr(file_obj, 'name', 'upload')}' exceeds the "
+                f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB size limit and was not processed."
+            )
+            return
+        st.session_state[cache_key] = {"name": getattr(file_obj, "name", "upload"), "bytes": b}
 
     def _load_cached(cache_key: str):
         obj = st.session_state.get(cache_key)
@@ -2430,6 +2635,25 @@ elif section == "🚚 Delivery Impact":
     
     if delivery_file and daily_sales_file:
         try:
+            # Enforce upload size limits
+            delivery_file.seek(0)
+            delivery_bytes = delivery_file.read()
+            delivery_file.seek(0)
+            if len(delivery_bytes) > MAX_UPLOAD_BYTES:
+                st.error(
+                    f"❌ Delivery file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit."
+                )
+                st.stop()
+
+            daily_sales_file.seek(0)
+            daily_sales_bytes = daily_sales_file.read()
+            daily_sales_file.seek(0)
+            if len(daily_sales_bytes) > MAX_UPLOAD_BYTES:
+                st.error(
+                    f"❌ Daily sales file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit."
+                )
+                st.stop()
+
             # Parse delivery file
             if delivery_file.name.endswith('.csv'):
                 delivery_df = pd.read_csv(delivery_file)
