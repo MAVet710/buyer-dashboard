@@ -145,6 +145,9 @@ MAX_SIZE_LENGTH_PDF = 8
 # Maximum allowed upload size per file (50 MB)
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
+# Maximum rows to display in product-level detail table (performance guard)
+PRODUCT_TABLE_DISPLAY_LIMIT = 2000
+
 
 def _find_openai_key():
     """
@@ -2068,9 +2071,17 @@ if section == "📊 Inventory Dashboard":
         inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
         inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
         inv_df["packagesize"] = inv_df.apply(lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+        inv_df["product_name"] = inv_df["itemname"]  # alias for product-level groupings; itemname retained for existing merges
 
         inv_summary = (
             inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["onhandunits"]
+            .sum()
+            .reset_index()
+        )
+
+        # -------- PRODUCT-LEVEL INVENTORY GROUPING --------
+        inv_product = (
+            inv_df.groupby(["subcategory", "product_name", "strain_type", "packagesize"], dropna=False)["onhandunits"]
             .sum()
             .reset_index()
         )
@@ -2150,6 +2161,22 @@ if section == "📊 Inventory Dashboard":
             .reset_index()
         )
         sales_summary["avgunitsperday"] = (sales_summary["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
+
+        # -------- PRODUCT-LEVEL SALES GROUPING --------
+        sales_product = (
+            sales_df.groupby(["mastercategory", "product_name", "strain_type", "packagesize"], dropna=False)["unitssold"]
+            .sum()
+            .reset_index()
+        )
+        sales_product["avgunitsperday"] = (sales_product["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
+
+        detail_product = pd.merge(
+            inv_product,
+            sales_product,
+            how="left",
+            left_on=["subcategory", "product_name", "strain_type", "packagesize"],
+            right_on=["mastercategory", "product_name", "strain_type", "packagesize"],
+        ).fillna(0)
 
         detail = pd.merge(
             inv_summary,
@@ -2298,6 +2325,16 @@ if section == "📊 Inventory Dashboard":
 
         detail["reorderpriority"] = detail.apply(tag, axis=1)
 
+        # Product-level DOH
+        detail_product["avgunitsperday"] = pd.to_numeric(detail_product["avgunitsperday"], errors="coerce").fillna(0)
+        detail_product["onhandunits"] = pd.to_numeric(detail_product["onhandunits"], errors="coerce").fillna(0)
+        detail_product["daysonhand"] = np.where(
+            detail_product["avgunitsperday"] > 0,
+            detail_product["onhandunits"] / detail_product["avgunitsperday"],
+            0,
+        )
+        detail_product["daysonhand"] = detail_product["daysonhand"].replace([np.inf, -np.inf], 0).fillna(0).astype(int)
+
         # =======================
         # SUMMARY + CLICK FILTERS
         # =======================
@@ -2317,6 +2354,30 @@ if section == "📊 Inventory Dashboard":
             detail_view = detail[detail["reorderpriority"] == "1 – Reorder ASAP"].copy()
         else:
             detail_view = detail.copy()
+
+        # Enrich summary rows with product context (product_count, top_products)
+        try:
+            _dp = detail_product[["subcategory", "product_name", "strain_type", "packagesize", "unitssold"]].copy()
+            _dp["unitssold"] = pd.to_numeric(_dp["unitssold"], errors="coerce").fillna(0)
+            _dp_sorted = _dp.sort_values("unitssold", ascending=False)
+            _top_products = (
+                _dp_sorted.groupby(["subcategory", "strain_type", "packagesize"], dropna=False, sort=False)["product_name"]
+                .apply(lambda x: ", ".join(x.astype(str).head(5).tolist()))
+                .reset_index()
+                .rename(columns={"product_name": "top_products"})
+            )
+            _product_counts = (
+                _dp.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["product_name"]
+                .nunique()
+                .reset_index()
+                .rename(columns={"product_name": "product_count"})
+            )
+            _prod_ctx_df = _top_products.merge(_product_counts, on=["subcategory", "strain_type", "packagesize"], how="left")
+            detail_view = detail_view.merge(_prod_ctx_df, on=["subcategory", "strain_type", "packagesize"], how="left")
+            detail_view["product_count"] = detail_view["product_count"].fillna(0).astype(int)
+            detail_view["top_products"] = detail_view["top_products"].fillna("")
+        except Exception:
+            pass
 
         st.markdown(f"*Current filter:* **{st.session_state.metric_filter}**")
         st.markdown("### Forecast Table")
@@ -2338,9 +2399,35 @@ if section == "📊 Inventory Dashboard":
                 0,
             )
             cat_quick["category_dos"] = cat_quick["category_dos"].replace([np.inf, -np.inf], 0).fillna(0).astype(int)
+            # Enrich category DOS with product context
+            try:
+                _dp_cat = detail_product[["subcategory", "product_name", "unitssold"]].copy()
+                _dp_cat["unitssold"] = pd.to_numeric(_dp_cat["unitssold"], errors="coerce").fillna(0)
+                _dp_cat_sorted = _dp_cat.sort_values("unitssold", ascending=False)
+                _cat_top = (
+                    _dp_cat_sorted.groupby("subcategory", dropna=False, sort=False)["product_name"]
+                    .apply(lambda x: ", ".join(x.astype(str).head(5).tolist()))
+                    .reset_index()
+                    .rename(columns={"product_name": "top_products"})
+                )
+                _cat_count = (
+                    _dp_cat.groupby("subcategory", dropna=False)["product_name"]
+                    .nunique()
+                    .reset_index()
+                    .rename(columns={"product_name": "product_count"})
+                )
+                _cat_ctx_df = _cat_top.merge(_cat_count, on="subcategory", how="left")
+                cat_quick = cat_quick.merge(_cat_ctx_df, on="subcategory", how="left")
+                cat_quick["product_count"] = cat_quick["product_count"].fillna(0).astype(int)
+                cat_quick["top_products"] = cat_quick["top_products"].fillna("")
+            except Exception:
+                pass
             st.markdown("#### Category DOS (at a glance)")
+            _cat_q_cols = ["subcategory", "category_dos", "reorder_lines"]
+            if "product_count" in cat_quick.columns:
+                _cat_q_cols += ["product_count", "top_products"]
             st.dataframe(
-                cat_quick[["subcategory", "category_dos", "reorder_lines"]].sort_values(
+                cat_quick[_cat_q_cols].sort_values(
                     ["reorder_lines", "category_dos"], ascending=[False, True]
                 ),
                 use_container_width=True,
@@ -2372,6 +2459,13 @@ if section == "📊 Inventory Dashboard":
         )
         detail_view = detail_view[detail_view["subcategory"].isin(selected_cats)]
 
+        show_product_rows = st.sidebar.checkbox(
+            "Show product-level rows",
+            value=False,
+            help="When ON, shows a product-level table with explicit product_name column below the summary.",
+            key="show_product_rows",
+        )
+
         display_cols = [
             "mastercategory",
             "subcategory",
@@ -2383,6 +2477,8 @@ if section == "📊 Inventory Dashboard":
             "daysonhand",
             "reorderqty",
             "reorderpriority",
+            "product_count",
+            "top_products",
         ]
         display_cols = [c for c in display_cols if c in detail_view.columns]
 
@@ -2460,6 +2556,7 @@ if section == "📊 Inventory Dashboard":
                 out_cols.append("sku")
 
             sku_df = sku_df[out_cols].sort_values("est_units_per_day", ascending=False).head(50)
+            sku_df = sku_df.rename(columns={"product": "product_name"})
 
             # --- INVENTORY SLICE ---
             idf = inv_df[(inv_df["subcategory"] == cat) & (inv_df["packagesize"] == size)].copy()
@@ -2514,6 +2611,31 @@ if section == "📊 Inventory Dashboard":
                             if not batch_df_out.empty:
                                 st.markdown("##### 🧬 Batch / Lot Breakdown (On-Hand)")
                                 st.dataframe(batch_df_out, use_container_width=True)
+
+        # ========= Product-Level Detail Table (toggle) =========
+        if show_product_rows and not detail_product.empty:
+            st.markdown("---")
+            st.markdown("### 📦 Product-Level Rows")
+            dpv = detail_product[detail_product["subcategory"].isin(selected_cats)].copy()
+            dpv["unitssold"] = pd.to_numeric(dpv["unitssold"], errors="coerce").fillna(0)
+            dpv["onhandunits"] = pd.to_numeric(dpv["onhandunits"], errors="coerce").fillna(0)
+            _PROD_ROW_LIMIT = PRODUCT_TABLE_DISPLAY_LIMIT
+            if len(dpv) > _PROD_ROW_LIMIT:
+                st.caption(f"⚠️ Showing top {_PROD_ROW_LIMIT} rows by units sold. Download below for full data.")
+                dpv = dpv.sort_values("unitssold", ascending=False).head(_PROD_ROW_LIMIT)
+            prod_display_cols = [
+                "subcategory", "product_name", "strain_type", "packagesize",
+                "onhandunits", "unitssold", "avgunitsperday", "daysonhand",
+            ]
+            prod_display_cols = [c for c in prod_display_cols if c in dpv.columns]
+            st.dataframe(dpv[prod_display_cols], use_container_width=True)
+            st.download_button(
+                "📥 Download Product-Level Table (Excel)",
+                data=build_forecast_export_bytes(dpv[prod_display_cols]),
+                file_name="product_level_forecast.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_product_level",
+            )
 
         # =======================
         # AI INVENTORY CHECK
