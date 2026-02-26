@@ -148,6 +148,9 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 # Maximum rows to display in product-level detail table (performance guard)
 PRODUCT_TABLE_DISPLAY_LIMIT = 2000
 
+# Minimum on-hand units threshold for flagging a PO line for review
+PO_REVIEW_THRESHOLD = 15
+
 
 def _find_openai_key():
     """
@@ -877,6 +880,76 @@ def extract_strain_type(name, subcat):
         return _stack_parts(base, infused)
 
     return base
+
+
+def _normalize_for_match(text: str) -> str:
+    """Lowercase, strip, collapse whitespace, remove punctuation for PO cross-reference matching."""
+    s = re.sub(r"[^\w\s]", "", str(text).lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _normalize_size_for_match(size: str) -> str:
+    """Normalize size string for matching: lowercase and remove all internal spaces (e.g. '3.5 g' -> '3.5g')."""
+    return re.sub(r"\s+", "", str(size).lower().strip())
+
+
+def _build_inv_xref_table():
+    """
+    Build a cross-reference table from st.session_state.inv_raw_df using the same
+    normalization/parsing as the Inventory Dashboard.
+
+    Returns a DataFrame with columns:
+        product_name, packagesize, norm_name, norm_size, onhand_total
+    or None if inventory is unavailable / cannot be parsed.
+    """
+    raw = st.session_state.get("inv_raw_df")
+    if raw is None or (hasattr(raw, "empty") and raw.empty):
+        return None
+    try:
+        inv = raw.copy()
+        inv.columns = inv.columns.astype(str).str.strip().str.lower()
+
+        name_col = detect_column(inv.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+        cat_col = detect_column(inv.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+        qty_col = detect_column(inv.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+        batch_col = detect_column(inv.columns, [normalize_col(a) for a in INV_BATCH_ALIASES])
+
+        if not (name_col and qty_col):
+            return None
+
+        rename_map = {qty_col: "onhandunits", name_col: "itemname"}
+        if cat_col:
+            rename_map[cat_col] = "subcategory"
+        if batch_col:
+            rename_map[batch_col] = "batch"
+        inv = inv.rename(columns=rename_map)
+
+        if "subcategory" not in inv.columns:
+            inv["subcategory"] = ""
+
+        inv["itemname"] = inv["itemname"].astype(str).str.strip()
+        inv["onhandunits"] = pd.to_numeric(inv["onhandunits"], errors="coerce").fillna(0)
+
+        if "batch" in inv.columns:
+            inv, _, _ = deduplicate_inventory(inv)
+
+        inv["product_name"] = inv["itemname"]
+        inv["packagesize"] = inv.apply(
+            lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1
+        )
+
+        # Sum across all batches at (product_name, packagesize)
+        agg = (
+            inv.groupby(["product_name", "packagesize"], dropna=False)["onhandunits"]
+            .sum()
+            .reset_index()
+            .rename(columns={"onhandunits": "onhand_total"})
+        )
+        agg["norm_name"] = agg["product_name"].apply(_normalize_for_match)
+        agg["norm_size"] = agg["packagesize"].apply(_normalize_size_for_match)
+        return agg
+    except Exception:
+        return None
 
 
 def read_inventory_file(uploaded_file):
@@ -3256,6 +3329,43 @@ elif section == "🧾 PO Builder":
     if st.session_state.po_items:
         st.markdown("#### Current Items")
         items_df = pd.DataFrame(st.session_state.po_items)
+
+        # ---- Inventory cross-reference ----
+        _inv_xref = _build_inv_xref_table()
+        if _inv_xref is None:
+            st.caption(
+                "💡 Upload inventory on Inventory Dashboard to enable PO inventory cross-check."
+            )
+
+        on_hand_list = []
+        review_list = []
+        review_reason_list = []
+        for _item in st.session_state.po_items:
+            _on_hand = 0
+            if _inv_xref is not None:
+                _norm_desc = _normalize_for_match(_item.get("Description", ""))
+                _po_size_raw = str(_item.get("Size", "")).strip()
+                _size_present = bool(_po_size_raw)
+                _norm_size = _normalize_size_for_match(_po_size_raw)
+                _matches = _inv_xref[_inv_xref["norm_name"] == _norm_desc]
+                if _size_present:
+                    _matches = _matches[_matches["norm_size"] == _norm_size]
+                _on_hand = int(_matches["onhand_total"].sum())
+            on_hand_list.append(_on_hand)
+            _review = _inv_xref is not None and _on_hand >= PO_REVIEW_THRESHOLD
+            review_list.append(_review)
+            review_reason_list.append(f">={PO_REVIEW_THRESHOLD} on hand" if _review else "")
+
+        items_df["On Hand (Inv)"] = on_hand_list
+        items_df["Review?"] = review_list
+        items_df["Review Reason"] = review_reason_list
+
+        if any(review_list):
+            st.warning(
+                f"⚠️ One or more PO line items already have >={PO_REVIEW_THRESHOLD} units on hand. "
+                "Review flagged items before purchasing."
+            )
+
         st.dataframe(items_df, use_container_width=True)
         
         # Subtotal
