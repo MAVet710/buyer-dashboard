@@ -2861,32 +2861,32 @@ elif section == "📈 Trends":
 elif section == "🚚 Delivery Impact":
     st.subheader("Delivery Impact Analysis")
     st.write(
-        "Use this page to measure whether deliveries correlate with an uptick in sales. "
-        "For best results, upload (1) a delivery/receiving report with a received date and quantities, "
-        "and (2) a daily sales report that includes a date column."
+        "Use this page to measure whether deliveries correlate with an uptick in **revenue**. "
+        "Upload (1) a delivery/receiving report with a received date and (2) a daily sales report "
+        "(CSV export from your POS). Revenue is measured using Net Sales (or Gross Sales as fallback)."
     )
-    
+
     col1, col2 = st.columns(2)
-    
+
     with col1:
         st.markdown("#### 📦 Delivery File")
         delivery_file = st.file_uploader(
             "Upload delivery/receiving report (CSV or XLSX)",
             type=["csv", "xlsx"],
-            key="delivery_upload"
+            key="delivery_upload",
         )
-    
+
     with col2:
         st.markdown("#### 📈 Daily Sales File")
         daily_sales_file = st.file_uploader(
             "Upload daily sales report (CSV or XLSX)",
             type=["csv", "xlsx"],
-            key="daily_sales_upload"
+            key="daily_sales_upload",
         )
-    
+
     if delivery_file and daily_sales_file:
         try:
-            # Enforce upload size limits
+            # ── Enforce upload size limits ──────────────────────────────────
             delivery_file.seek(0)
             delivery_bytes = delivery_file.read()
             delivery_file.seek(0)
@@ -2905,108 +2905,231 @@ elif section == "🚚 Delivery Impact":
                 )
                 st.stop()
 
-            # Parse delivery file
-            if delivery_file.name.endswith('.csv'):
-                delivery_df = pd.read_csv(delivery_file)
-            else:
+            # ── Parse delivery file ─────────────────────────────────────────
+            if delivery_file.name.lower().endswith(".xlsx"):
                 delivery_df = pd.read_excel(delivery_file)
-            
-            # Parse daily sales file
-            if daily_sales_file.name.endswith('.csv'):
-                daily_sales_df = pd.read_csv(daily_sales_file)
             else:
+                delivery_df = pd.read_csv(delivery_file)
+            delivery_df.columns = delivery_df.columns.astype(str).str.lower().str.strip()
+
+            # ── Parse daily sales file (supports metadata header rows) ──────
+            # Required columns that must appear in the true header row.
+            _REQUIRED_SALES_COLS = {"category", "netsales", "grosssales", "product"}
+
+            def _find_sales_header_row(raw_bytes: bytes) -> int:
+                """Return the 0-based index of the CSV header row containing sales columns."""
+                text = raw_bytes.decode("utf-8", errors="replace")
+                for i, line in enumerate(text.splitlines()):
+                    normalized = {c.lower().replace(" ", "").replace("_", "") for c in line.split(",")}
+                    if normalized & _REQUIRED_SALES_COLS:
+                        return i
+                return 0
+
+            if daily_sales_file.name.lower().endswith(".xlsx"):
                 daily_sales_df = pd.read_excel(daily_sales_file)
-            
-            # Normalize column names
-            delivery_df.columns = delivery_df.columns.str.lower().str.strip()
-            daily_sales_df.columns = daily_sales_df.columns.str.lower().str.strip()
-            
-            # Find date columns
-            delivery_date_cols = [col for col in delivery_df.columns if 'date' in col or 'received' in col]
-            sales_date_cols = [col for col in daily_sales_df.columns if 'date' in col]
-            
-            if delivery_date_cols and sales_date_cols:
-                delivery_df['delivery_date'] = pd.to_datetime(delivery_df[delivery_date_cols[0]], errors='coerce')
-                daily_sales_df['sale_date'] = pd.to_datetime(daily_sales_df[sales_date_cols[0]], errors='coerce')
-                
-                # Find category columns
-                delivery_cat_cols = [col for col in delivery_df.columns if 'category' in col or 'product' in col]
-                sales_cat_cols = [col for col in daily_sales_df.columns if 'category' in col or 'product' in col]
-                
-                if delivery_cat_cols:
-                    delivery_df['category'] = delivery_df[delivery_cat_cols[0]]
-                else:
-                    delivery_df['category'] = 'All Products'
-                
-                if sales_cat_cols:
-                    daily_sales_df['category'] = daily_sales_df[sales_cat_cols[0]]
-                else:
-                    daily_sales_df['category'] = 'All Products'
-                
-                # Group by date and category
-                delivery_by_date = delivery_df.groupby(['delivery_date', 'category']).size().reset_index(name='delivery_count')
-                sales_by_date = daily_sales_df.groupby(['sale_date', 'category']).size().reset_index(name='sales_count')
-                
-                st.markdown("### 📊 Analysis Results")
-                
-                # Show delivery dates
-                st.markdown("#### Delivery Dates")
-                st.dataframe(delivery_by_date.sort_values('delivery_date', ascending=False), use_container_width=True)
-                
-                # Analyze impact for each delivery
-                st.markdown("#### Impact Analysis")
-                impact_results = []
-                
-                for _, delivery in delivery_by_date.iterrows():
-                    del_date = delivery['delivery_date']
-                    category = delivery['category']
-                    
-                    # Get sales 7 days before and after delivery
-                    pre_sales = sales_by_date[
-                        (sales_by_date['category'] == category) &
-                        (sales_by_date['sale_date'] >= del_date - timedelta(days=7)) &
-                        (sales_by_date['sale_date'] < del_date)
-                    ]['sales_count'].mean()
-                    
-                    post_sales = sales_by_date[
-                        (sales_by_date['category'] == category) &
-                        (sales_by_date['sale_date'] > del_date) &
-                        (sales_by_date['sale_date'] <= del_date + timedelta(days=7))
-                    ]['sales_count'].mean()
-                    
-                    if pd.notna(pre_sales) and pd.notna(post_sales) and pre_sales > 0:
-                        impact_pct = ((post_sales - pre_sales) / pre_sales) * 100
-                    else:
-                        impact_pct = 0
-                    
-                    impact_results.append({
-                        'Delivery Date': del_date,
-                        'Category': category,
-                        'Avg Daily Sales (7d Before)': round(pre_sales, 2) if pd.notna(pre_sales) else 0,
-                        'Avg Daily Sales (7d After)': round(post_sales, 2) if pd.notna(post_sales) else 0,
-                        'Impact %': round(impact_pct, 2)
-                    })
-                
-                if impact_results:
-                    impact_df = pd.DataFrame(impact_results)
-                    st.dataframe(impact_df.sort_values('Impact %', ascending=False), use_container_width=True)
-                    
-                    # Summary metrics
-                    st.markdown("#### Category-Level Metrics")
-                    category_summary = impact_df.groupby('Category').agg({
-                        'Impact %': 'mean'
-                    }).reset_index()
-                    category_summary.columns = ['Category', 'Avg Impact %']
-                    category_summary['Avg Impact %'] = category_summary['Avg Impact %'].round(2)
-                    st.dataframe(category_summary, use_container_width=True)
-                else:
-                    st.warning("No impact data could be calculated. Ensure your files have overlapping date ranges.")
+                daily_sales_df.columns = daily_sales_df.columns.astype(str).str.lower().str.strip()
+                from_date_meta = None
+                to_date_meta = None
             else:
-                st.error("Could not find date columns in the uploaded files.")
-        
+                # Scan for metadata lines to extract From/To date and true header row
+                raw_sales_bytes = daily_sales_bytes
+                header_row_idx = _find_sales_header_row(raw_sales_bytes)
+
+                # Extract From Date / To Date from metadata rows
+                meta_text = raw_sales_bytes.decode("utf-8", errors="replace")
+                from_date_meta = None
+                to_date_meta = None
+                for line in meta_text.splitlines()[:header_row_idx]:
+                    low = line.lower()
+                    if "from date" in low or "fromdate" in low:
+                        parts = [p.strip() for p in line.split(",") if p.strip()]
+                        if len(parts) >= 2:
+                            from_date_meta = pd.to_datetime(parts[1], errors="coerce")
+                    if "to date" in low or "todate" in low:
+                        parts = [p.strip() for p in line.split(",") if p.strip()]
+                        if len(parts) >= 2:
+                            to_date_meta = pd.to_datetime(parts[1], errors="coerce")
+
+                daily_sales_df = pd.read_csv(
+                    BytesIO(raw_sales_bytes), skiprows=header_row_idx
+                )
+                daily_sales_df.columns = (
+                    daily_sales_df.columns.astype(str).str.lower().str.strip().str.replace(" ", "").str.replace("_", "")
+                )
+
+            # Normalise column names: remove spaces/underscores for matching, then rename canonical
+            _col_map = {}
+            for c in daily_sales_df.columns:
+                key = c.lower().replace(" ", "").replace("_", "")
+                _col_map[key] = c
+            # Map canonical names back to actual column names
+            _cat_col = _col_map.get("category")
+            _prod_col = _col_map.get("product")
+            _net_col = _col_map.get("netsales")
+            _gross_col = _col_map.get("grosssales")
+            _revenue_col = _net_col if _net_col else _gross_col
+            _revenue_label = "Net Sales" if _net_col else "Gross Sales"
+
+            if not _revenue_col:
+                st.error(
+                    "❌ Sales file must contain a **NetSales** or **GrossSales** column. "
+                    f"Columns found: {', '.join(daily_sales_df.columns.tolist())}"
+                )
+                st.stop()
+
+            # Remove subtotal / total rows
+            if _cat_col and _prod_col:
+                mask_total = (
+                    daily_sales_df[_prod_col].astype(str).str.strip().str.lower() == "total"
+                ) | (
+                    daily_sales_df[_cat_col].astype(str).str.strip().str.lower() == "total"
+                )
+                daily_sales_df = daily_sales_df[~mask_total].copy()
+            elif _cat_col:
+                mask_total = daily_sales_df[_cat_col].astype(str).str.strip().str.lower() == "total"
+                daily_sales_df = daily_sales_df[~mask_total].copy()
+
+            # Convert revenue column to numeric
+            daily_sales_df[_revenue_col] = pd.to_numeric(
+                daily_sales_df[_revenue_col].astype(str).str.replace(r"[\$,]", "", regex=True),
+                errors="coerce",
+            ).fillna(0.0)
+
+            # ── Determine per-row sale date ─────────────────────────────────
+            _date_cols = [c for c in daily_sales_df.columns if "date" in c]
+            if _date_cols:
+                daily_sales_df["_sale_date"] = pd.to_datetime(
+                    daily_sales_df[_date_cols[0]], errors="coerce"
+                )
+            elif pd.notna(from_date_meta) and pd.notna(to_date_meta):
+                if from_date_meta == to_date_meta:
+                    # Single-day file: assign that date to all rows
+                    daily_sales_df["_sale_date"] = from_date_meta
+                else:
+                    st.error(
+                        "❌ Your sales file covers multiple days "
+                        f"({from_date_meta.date()} to {to_date_meta.date()}) "
+                        "but does not include a per-row date column. "
+                        "Please export a report that includes a transaction date column, "
+                        "or upload separate single-day files."
+                    )
+                    st.stop()
+            else:
+                st.error(
+                    "❌ Could not determine sale dates from the sales file. "
+                    "Ensure the file has a date column or valid From/To Date metadata rows."
+                )
+                st.stop()
+
+            # Build daily revenue series (sum NetSales/GrossSales per day)
+            daily_revenue = (
+                daily_sales_df.groupby("_sale_date")[_revenue_col]
+                .sum()
+                .rename("revenue")
+            )
+            daily_revenue.index = pd.to_datetime(daily_revenue.index)
+
+            # ── Parse delivery dates ────────────────────────────────────────
+            _del_date_cols = [
+                c for c in delivery_df.columns if "date" in c or "received" in c
+            ]
+            if not _del_date_cols:
+                st.error(
+                    "❌ Delivery file must contain a date or 'received' column. "
+                    f"Columns found: {', '.join(delivery_df.columns.tolist())}"
+                )
+                st.stop()
+
+            delivery_df["_delivery_date"] = pd.to_datetime(
+                delivery_df[_del_date_cols[0]], errors="coerce"
+            )
+            delivery_dates = (
+                delivery_df["_delivery_date"]
+                .dropna()
+                .dt.normalize()
+                .drop_duplicates()
+                .sort_values()
+                .tolist()
+            )
+
+            if not delivery_dates:
+                st.error("❌ No valid delivery dates found in the delivery file.")
+                st.stop()
+
+            # ── UI control: window size ─────────────────────────────────────
+            window_days = st.selectbox(
+                "Analysis window (days before/after delivery):",
+                options=[3, 7, 14],
+                index=1,
+                key="delivery_impact_window",
+            )
+
+            # ── Impact calculation ──────────────────────────────────────────
+            impact_results = []
+            for del_date in delivery_dates:
+                del_date_norm = pd.Timestamp(del_date).normalize()
+
+                pre_window = daily_revenue[
+                    (daily_revenue.index >= del_date_norm - timedelta(days=window_days))
+                    & (daily_revenue.index < del_date_norm)
+                ]
+                post_window = daily_revenue[
+                    (daily_revenue.index > del_date_norm)
+                    & (daily_revenue.index <= del_date_norm + timedelta(days=window_days))
+                ]
+
+                avg_before = pre_window.mean() if len(pre_window) > 0 else float("nan")
+                avg_after = post_window.mean() if len(post_window) > 0 else float("nan")
+
+                if pd.notna(avg_before) and pd.notna(avg_after) and avg_before > 0:
+                    dollar_lift = avg_after - avg_before
+                    pct_lift = (dollar_lift / avg_before) * 100.0
+                else:
+                    dollar_lift = float("nan")
+                    pct_lift = float("nan")
+
+                impact_results.append(
+                    {
+                        "Delivery Date": del_date_norm.date(),
+                        f"Avg Daily {_revenue_label} Before": (
+                            round(avg_before, 2) if pd.notna(avg_before) else None
+                        ),
+                        f"Avg Daily {_revenue_label} After": (
+                            round(avg_after, 2) if pd.notna(avg_after) else None
+                        ),
+                        "$ Lift": round(dollar_lift, 2) if pd.notna(dollar_lift) else None,
+                        "% Lift": round(pct_lift, 2) if pd.notna(pct_lift) else None,
+                    }
+                )
+
+            st.markdown("### 📊 Analysis Results")
+            st.caption(f"Revenue metric: **{_revenue_label}** | Window: **{window_days} days**")
+
+            if impact_results:
+                impact_df = pd.DataFrame(impact_results)
+                st.dataframe(
+                    impact_df.sort_values("Delivery Date", ascending=False),
+                    use_container_width=True,
+                )
+
+                valid_lifts = impact_df["% Lift"].dropna()
+                if len(valid_lifts) > 0:
+                    st.markdown("#### Summary")
+                    s_col1, s_col2, s_col3 = st.columns(3)
+                    s_col1.metric("Deliveries analyzed", len(delivery_dates))
+                    s_col2.metric("Avg % Lift", f"{valid_lifts.mean():.1f}%")
+                    s_col3.metric("Median % Lift", f"{valid_lifts.median():.1f}%")
+                else:
+                    st.warning(
+                        "⚠️ Not enough sales data in the analysis windows to compute lift. "
+                        "Ensure your sales file covers dates around the delivery dates."
+                    )
+            else:
+                st.warning("No impact data could be calculated. Ensure your files have overlapping date ranges.")
+
         except Exception as e:
             st.error(f"Error processing files: {str(e)}")
-            st.write("Please ensure your files have date columns and are properly formatted.")
+            st.write("Please check that your files match the expected format and try again.")
     else:
         st.info("👆 Upload both files to see the analysis")
 
