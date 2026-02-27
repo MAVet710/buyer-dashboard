@@ -1874,7 +1874,7 @@ if not PLOTLY_AVAILABLE:
 # =========================
 _UPLOAD_TTL_MINUTES = 60
 
-if st.session_state.is_admin and st.session_state.admin_user == "God":
+if st.session_state.is_admin:
     # TTL purge: remove entries older than _UPLOAD_TTL_MINUTES on each run
     now_ts = datetime.now()
     expired_ids = []
@@ -1891,7 +1891,7 @@ if st.session_state.is_admin and st.session_state.admin_user == "God":
         r for r in st.session_state.upload_log if r["upload_id"] not in expired_ids
     ]
 
-    with st.sidebar.expander("🗂️ Upload Viewer (God)", expanded=False):
+    with st.sidebar.expander("🗂️ Upload Viewer (Admin)", expanded=False):
         st.warning(
             "⚠️ This panel displays sensitive user-uploaded data. "
             "Handle with care and do not share outside authorized personnel."
