@@ -156,6 +156,29 @@ INV_BRAND_ALIASES = [
 ]
 INV_SKU_COL_ALIASES = INV_SKU_ALIASES  # reuse existing list
 
+# Expiration date aliases for inventory
+INV_EXPIRY_ALIASES = [
+    "expirationdate", "expiration date", "expiry", "expirydate", "expiry date",
+    "bestby", "best by", "bestbydate", "best by date", "usebydate", "use by date",
+    "expires", "exp", "expdate", "exp date",
+]
+
+# Inventory Dashboard – Buyer View constants
+# Sort options for buyer-focused inventory view
+INVENTORY_SORT_OPTIONS = [
+    "$ on hand ↓",
+    "DOH (high→low) ↓",
+    "DOH (low→high) ↑",
+    "Expiring soonest",
+    "Avg weekly sales ↓",
+]
+# DOH ≤ this value → flagged as Reorder (configurable)
+INVENTORY_REORDER_DOH_THRESHOLD = 21
+# DOH ≥ this value → flagged as Overstock (configurable)
+INVENTORY_OVERSTOCK_DOH_THRESHOLD = 90
+# Days until expiry ≤ this → flagged as Expiring (configurable)
+INVENTORY_EXPIRING_SOON_DAYS = 60
+
 # Constants for PDF generation
 MAX_SKU_LENGTH_PDF = 10
 MAX_DESCRIPTION_LENGTH_PDF = 20
@@ -2794,6 +2817,496 @@ if section == "📊 Inventory Dashboard":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_product_level",
             )
+
+        # ============================================================
+        # SKU INVENTORY BUYER VIEW
+        # ============================================================
+        st.markdown("---")
+        st.markdown("### 📋 SKU Inventory Buyer View")
+        st.write(
+            "Filter, sort, and analyze your inventory at the SKU level. "
+            "Use tabs for focused views: Reorder, Overstock, or Expiring."
+        )
+
+        try:
+            # -- Rebuild SKU-level inventory from raw data (self-contained) --
+            _b_inv = st.session_state.inv_raw_df.copy()
+            _b_inv.columns = _b_inv.columns.astype(str).str.strip().str.lower()
+
+            _b_name_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+            _b_qty_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+            _b_cat_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+            _b_sku_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_SKU_ALIASES])
+            _b_cost_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_COST_ALIASES])
+            _b_brand_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_BRAND_ALIASES])
+            _b_expiry_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_EXPIRY_ALIASES])
+
+            if not (_b_name_col and _b_qty_col):
+                st.warning("Could not detect required inventory columns (product name / on-hand) for Buyer View.")
+            else:
+                _b_rename = {_b_name_col: "itemname", _b_qty_col: "onhandunits"}
+                if _b_cat_col:
+                    _b_rename[_b_cat_col] = "category"
+                if _b_sku_col:
+                    _b_rename[_b_sku_col] = "sku"
+                if _b_cost_col:
+                    _b_rename[_b_cost_col] = "unit_cost"
+                if _b_brand_col:
+                    _b_rename[_b_brand_col] = "brand_vendor"
+                if _b_expiry_col:
+                    _b_rename[_b_expiry_col] = "expiration_date"
+
+                _b_inv = _b_inv.rename(columns=_b_rename)
+                _b_inv["itemname"] = _b_inv["itemname"].astype(str).str.strip()
+                _b_inv["onhandunits"] = pd.to_numeric(_b_inv["onhandunits"], errors="coerce").fillna(0)
+                if "unit_cost" in _b_inv.columns:
+                    _b_inv["unit_cost"] = pd.to_numeric(_b_inv["unit_cost"], errors="coerce")
+                if "expiration_date" in _b_inv.columns:
+                    _b_inv["expiration_date"] = pd.to_datetime(_b_inv["expiration_date"], errors="coerce")
+
+                # Aggregate to one row per SKU (sum on-hand, min expiry, first for others)
+                _b_agg = {"onhandunits": "sum"}
+                for _bc in ["unit_cost", "brand_vendor", "category", "sku"]:
+                    if _bc in _b_inv.columns:
+                        _b_agg[_bc] = "first"
+                if "expiration_date" in _b_inv.columns:
+                    _b_agg["expiration_date"] = "min"  # earliest expiry per SKU
+                _b_sku_df = _b_inv.groupby("itemname", dropna=False).agg(_b_agg).reset_index()
+
+                # Friendly notice for missing optional columns
+                _b_missing = []
+                if "unit_cost" not in _b_sku_df.columns:
+                    _b_missing.append("unit cost (for $ on hand)")
+                if "brand_vendor" not in _b_sku_df.columns:
+                    _b_missing.append("vendor/brand")
+                if "expiration_date" not in _b_sku_df.columns:
+                    _b_missing.append("expiration date")
+                if _b_missing:
+                    st.info(
+                        f"ℹ️ Optional columns not found in inventory file: "
+                        f"{', '.join(_b_missing)}. "
+                        "Add these columns to unlock full buyer view features."
+                    )
+
+                # ---- FILTER BAR (reuses sm-filter-bar CSS) ----
+                st.markdown('<div class="sm-filter-bar">', unsafe_allow_html=True)
+                st.markdown("##### 🔍 Buyer Filters & Settings")
+
+                _bfr1, _bfr2, _bfr3, _bfr4 = st.columns([3, 2, 2, 2])
+                with _bfr1:
+                    _b_search = st.text_input(
+                        "Search (SKU / Product / Brand)",
+                        key="inv_b_search",
+                        placeholder="Type to filter…",
+                        help="Filters by product name, SKU, or brand/vendor (case-insensitive).",
+                    )
+                with _bfr2:
+                    _b_vel_win = st.selectbox(
+                        "Velocity window",
+                        options=SLOW_MOVER_VELOCITY_WINDOWS,
+                        index=1,
+                        format_func=lambda d: f"Last {d} days",
+                        key="inv_b_vel_win",
+                        help=(
+                            "Days used for avg weekly sales and DOH calculations. "
+                            "Shorter = more recent; longer = smoother."
+                        ),
+                    )
+                with _bfr3:
+                    _b_top_n_lbl = {25: "Top 25", 50: "Top 50", 100: "Top 100", 0: "All"}
+                    _b_top_n = st.selectbox(
+                        "Show top N",
+                        options=list(_b_top_n_lbl.keys()),
+                        index=3,
+                        format_func=lambda k: _b_top_n_lbl[k],
+                        key="inv_b_top_n",
+                    )
+                with _bfr4:
+                    _b_sort_by = st.selectbox(
+                        "Sort by",
+                        options=INVENTORY_SORT_OPTIONS,
+                        key="inv_b_sort_by",
+                    )
+
+                _bfr5, _bfr6, _bfr7, _bfr8 = st.columns([3, 2, 2, 2])
+                with _bfr5:
+                    _b_cat_opts = ["All"]
+                    if "category" in _b_sku_df.columns:
+                        _b_cat_opts += sorted(
+                            _b_sku_df["category"].dropna().astype(str).unique().tolist()
+                        )
+                    _b_cat = st.selectbox(
+                        "Category / Subcategory", options=_b_cat_opts, key="inv_b_cat"
+                    )
+                with _bfr6:
+                    _b_brand_opts = ["All"]
+                    if "brand_vendor" in _b_sku_df.columns:
+                        _b_brand_opts += sorted(
+                            _b_sku_df["brand_vendor"].dropna().astype(str).unique().tolist()
+                        )
+                    _b_brand = st.selectbox(
+                        "Vendor / Brand", options=_b_brand_opts, key="inv_b_brand"
+                    )
+                with _bfr7:
+                    _b_exp_window = st.selectbox(
+                        "Expiration window",
+                        options=["Any", "<30 days", "<60 days", "<90 days"],
+                        key="inv_b_exp_window",
+                        help="Filter by days until earliest expiration date.",
+                    )
+                with _bfr8:
+                    _b_onhand_only = st.toggle(
+                        "On-hand > 0",
+                        value=True,
+                        key="inv_b_onhand_only",
+                        help="Hide SKUs with zero units on hand.",
+                    )
+
+                _bfr9, _bfr10 = st.columns([2, 2])
+                with _bfr9:
+                    _b_doh_min = st.number_input(
+                        "DOH min (days)",
+                        min_value=0,
+                        max_value=9998,
+                        value=0,
+                        step=1,
+                        key="inv_b_doh_min",
+                        help="Only show SKUs with DOH ≥ this value.",
+                    )
+                with _bfr10:
+                    _b_doh_max = st.number_input(
+                        "DOH max (days)",
+                        min_value=0,
+                        max_value=9999,
+                        value=9999,
+                        step=1,
+                        key="inv_b_doh_max",
+                        help="Only show SKUs with DOH ≤ this value (9999 = no upper limit).",
+                    )
+
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # ---- COMPUTE VELOCITY ----
+                _b_sales_raw = st.session_state.sales_raw_df.copy()
+                _b_sales_raw.columns = _b_sales_raw.columns.astype(str).str.strip().str.lower()
+                _b_sname_col = detect_column(
+                    _b_sales_raw.columns, [normalize_col(a) for a in SALES_NAME_ALIASES]
+                )
+                _b_sqty_col = detect_column(
+                    _b_sales_raw.columns, [normalize_col(a) for a in SALES_QTY_ALIASES]
+                )
+                _b_sdate_cols = [c for c in _b_sales_raw.columns if "date" in c]
+                _b_sdate_col = _b_sdate_cols[0] if _b_sdate_cols else None
+
+                if _b_sname_col and _b_sqty_col:
+                    _b_sales_raw[_b_sqty_col] = pd.to_numeric(
+                        _b_sales_raw[_b_sqty_col], errors="coerce"
+                    ).fillna(0)
+                    if _b_sdate_col:
+                        _b_sales_raw[_b_sdate_col] = pd.to_datetime(
+                            _b_sales_raw[_b_sdate_col], errors="coerce"
+                        )
+                        _b_cutoff = _b_sales_raw[_b_sdate_col].max() - pd.Timedelta(
+                            days=_b_vel_win
+                        )
+                        _b_sw = _b_sales_raw[
+                            _b_sales_raw[_b_sdate_col] >= _b_cutoff
+                        ].copy()
+                    else:
+                        _b_sw = _b_sales_raw.copy()
+
+                    _b_vel = (
+                        _b_sw.groupby(_b_sname_col)[_b_sqty_col]
+                        .sum()
+                        .reset_index()
+                        .rename(
+                            columns={_b_sname_col: "itemname", _b_sqty_col: "total_sold"}
+                        )
+                    )
+                    _b_vel["daily_run_rate"] = _b_vel["total_sold"] / max(_b_vel_win, 1)
+                    _b_vel["avg_weekly_sales"] = _b_vel["daily_run_rate"] * 7
+                else:
+                    _b_vel = pd.DataFrame(
+                        columns=["itemname", "total_sold", "daily_run_rate", "avg_weekly_sales"]
+                    )
+
+                # ---- MERGE INVENTORY + VELOCITY ----
+                _b_merged = _b_sku_df.merge(_b_vel, on="itemname", how="left")
+                _b_merged["daily_run_rate"] = _b_merged["daily_run_rate"].fillna(0)
+                _b_merged["avg_weekly_sales"] = _b_merged["avg_weekly_sales"].fillna(0)
+                _b_merged["total_sold"] = _b_merged["total_sold"].fillna(0)
+                _b_merged["days_of_supply"] = np.where(
+                    _b_merged["daily_run_rate"] > 0,
+                    _b_merged["onhandunits"] / _b_merged["daily_run_rate"],
+                    UNKNOWN_DAYS_OF_SUPPLY,
+                )
+
+                if "unit_cost" in _b_merged.columns:
+                    _b_merged["dollars_on_hand"] = (
+                        _b_merged["onhandunits"] * _b_merged["unit_cost"]
+                    )
+
+                _b_today = pd.Timestamp.today().normalize()
+                if "expiration_date" in _b_merged.columns:
+                    _b_merged["days_to_expire"] = (
+                        _b_merged["expiration_date"] - _b_today
+                    ).dt.days
+
+                # Status badge: Reorder / Healthy / Overstock / Expiring / No Stock
+                def _inv_status_badge(row) -> str:
+                    on_hand = row["onhandunits"]
+                    doh = row["days_of_supply"]
+                    if on_hand <= 0:
+                        return "⬛ No Stock"
+                    if "days_to_expire" in row.index:
+                        days_exp = row["days_to_expire"]
+                        if pd.notna(days_exp) and days_exp < INVENTORY_EXPIRING_SOON_DAYS:
+                            return "⚠️ Expiring"
+                    if 0 < doh <= INVENTORY_REORDER_DOH_THRESHOLD:
+                        return "🔴 Reorder"
+                    if doh >= INVENTORY_OVERSTOCK_DOH_THRESHOLD:
+                        return "🟠 Overstock"
+                    return "✅ Healthy"
+
+                _b_merged["status"] = _b_merged.apply(_inv_status_badge, axis=1)
+
+                # ---- FILTER + SORT helper ----
+                _b_exp_days_map = {"<30 days": 30, "<60 days": 60, "<90 days": 90}
+
+                def _apply_inv_filters(df, tab_filter=None):
+                    _wdf = df.copy()
+                    if _b_onhand_only:
+                        _wdf = _wdf[_wdf["onhandunits"] > 0]
+                    if _b_cat != "All" and "category" in _wdf.columns:
+                        _wdf = _wdf[_wdf["category"].astype(str) == _b_cat]
+                    if _b_brand != "All" and "brand_vendor" in _wdf.columns:
+                        _wdf = _wdf[_wdf["brand_vendor"].astype(str) == _b_brand]
+                    if _b_exp_window != "Any" and "days_to_expire" in _wdf.columns:
+                        _elim = _b_exp_days_map[_b_exp_window]
+                        _wdf = _wdf[
+                            _wdf["days_to_expire"].notna()
+                            & (_wdf["days_to_expire"] < _elim)
+                        ]
+                    if _b_search.strip():
+                        _q = _b_search.strip().lower()
+                        _msk = _wdf["itemname"].str.lower().str.contains(_q, na=False)
+                        if "sku" in _wdf.columns:
+                            _msk |= (
+                                _wdf["sku"].astype(str).str.lower().str.contains(_q, na=False)
+                            )
+                        if "brand_vendor" in _wdf.columns:
+                            _msk |= (
+                                _wdf["brand_vendor"]
+                                .astype(str)
+                                .str.lower()
+                                .str.contains(_q, na=False)
+                            )
+                        _wdf = _wdf[_msk]
+                    # DOH range filter
+                    _wdf = _wdf[
+                        (_wdf["days_of_supply"] >= _b_doh_min)
+                        & (_wdf["days_of_supply"] <= _b_doh_max)
+                    ]
+                    if tab_filter is not None:
+                        _wdf = tab_filter(_wdf)
+                    _inv_sort_map = {
+                        "$ on hand ↓": ("dollars_on_hand", False),
+                        "DOH (high→low) ↓": ("days_of_supply", False),
+                        "DOH (low→high) ↑": ("days_of_supply", True),
+                        "Expiring soonest": ("days_to_expire", True),
+                        "Avg weekly sales ↓": ("avg_weekly_sales", False),
+                    }
+                    _sc, _sasc = _inv_sort_map.get(_b_sort_by, ("days_of_supply", False))
+                    if _sc in _wdf.columns:
+                        _wdf = _wdf.sort_values(_sc, ascending=_sasc, na_position="last")
+                    elif _b_sort_by == "Expiring soonest" and "days_to_expire" not in _wdf.columns:
+                        # Fall back to DOH ascending when expiry column is unavailable
+                        _wdf = _wdf.sort_values("days_of_supply", ascending=True, na_position="last")
+                    elif _b_sort_by == "$ on hand ↓" and "dollars_on_hand" not in _wdf.columns:
+                        # Fall back to DOH descending when cost column is unavailable
+                        _wdf = _wdf.sort_values("days_of_supply", ascending=False, na_position="last")
+                    if _b_top_n and _b_top_n > 0:
+                        _wdf = _wdf.head(_b_top_n)
+                    return _wdf
+
+                # ---- KPI strip + decision-first table helper ----
+                def _render_inv_table(df):
+                    if df.empty:
+                        st.success("✅ No SKUs match the current filters.")
+                        return
+                    # KPI strip
+                    _skus_in_stock = int((df["onhandunits"] > 0).sum())
+                    _total_dol = (
+                        df["dollars_on_hand"].sum()
+                        if "dollars_on_hand" in df.columns
+                        else None
+                    )
+                    _reorder_n = int((df["status"] == "🔴 Reorder").sum())
+                    _overstock_n = int((df["status"] == "🟠 Overstock").sum())
+                    _exp_mask = df["status"] == "⚠️ Expiring"
+                    _exp_n = int(_exp_mask.sum())
+                    _exp_dol = (
+                        df.loc[_exp_mask, "dollars_on_hand"].sum()
+                        if "dollars_on_hand" in df.columns
+                        else None
+                    )
+                    _kc1, _kc2, _kc3, _kc4, _kc5 = st.columns(5)
+                    _kc1.metric(
+                        "📦 SKUs in stock",
+                        _skus_in_stock,
+                        help="SKUs with on-hand > 0 in current view.",
+                    )
+                    _kc2.metric(
+                        "💰 Total $ on hand",
+                        f"${_total_dol:,.0f}" if _total_dol is not None else "N/A",
+                        help="Requires unit cost column in inventory file.",
+                    )
+                    _kc3.metric("🔴 Reorder SKUs", _reorder_n,
+                                help=f"DOH ≤ {INVENTORY_REORDER_DOH_THRESHOLD} days.")
+                    _kc4.metric("🟠 Overstock SKUs", _overstock_n,
+                                help=f"DOH ≥ {INVENTORY_OVERSTOCK_DOH_THRESHOLD} days.")
+                    _exp_label = f"{_exp_n}"
+                    if _exp_dol is not None:
+                        _exp_label += f" (${_exp_dol:,.0f})"
+                    _kc5.metric(
+                        f"⚠️ Expiring <{INVENTORY_EXPIRING_SOON_DAYS}d",
+                        _exp_label,
+                        help=f"SKUs with earliest expiry < {INVENTORY_EXPIRING_SOON_DAYS} days.",
+                    )
+                    st.markdown("---")
+                    # Decision-first table (8–10 default columns)
+                    _avg_wkly_lbl = f"Avg Wkly ({_b_vel_win}d)"
+                    _dcmap = {}
+                    if "sku" in df.columns:
+                        _dcmap["SKU"] = "sku"
+                    _dcmap["Item"] = "itemname"
+                    if "category" in df.columns:
+                        _dcmap["Category"] = "category"
+                    if "brand_vendor" in df.columns:
+                        _dcmap["Brand/Vendor"] = "brand_vendor"
+                    _dcmap["On Hand"] = "onhandunits"
+                    _dcmap[_avg_wkly_lbl] = "avg_weekly_sales"
+                    _dcmap["DOH"] = "days_of_supply"
+                    if "unit_cost" in df.columns:
+                        _dcmap["Unit Cost"] = "unit_cost"
+                    if "dollars_on_hand" in df.columns:
+                        _dcmap["$ On Hand"] = "dollars_on_hand"
+                    if "expiration_date" in df.columns:
+                        _dcmap["Earliest Exp"] = "expiration_date"
+                    if "days_to_expire" in df.columns:
+                        _dcmap["Days to Exp"] = "days_to_expire"
+                    _dcmap["Status"] = "status"
+
+                    _src_c = [v for v in _dcmap.values() if v in df.columns]
+                    _lbl_c = [k for k, v in _dcmap.items() if v in df.columns]
+                    _disp = df[_src_c].copy()
+                    _disp.columns = _lbl_c
+
+                    # Round / format
+                    for _lbl in [_avg_wkly_lbl, "DOH"]:
+                        if _lbl in _disp.columns:
+                            _disp[_lbl] = (
+                                _disp[_lbl].replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan).round(1)
+                            )
+                    if "On Hand" in _disp.columns:
+                        _disp["On Hand"] = _disp["On Hand"].round(0).astype(int)
+                    if "$ On Hand" in _disp.columns:
+                        _disp["$ On Hand"] = pd.to_numeric(
+                            _disp["$ On Hand"], errors="coerce"
+                        ).round(2)
+                    if "Days to Exp" in _disp.columns:
+                        _disp["Days to Exp"] = pd.to_numeric(
+                            _disp["Days to Exp"], errors="coerce"
+                        ).astype("Int64")
+
+                    st.markdown(
+                        f"**{len(_disp)} SKU(s)** "
+                        f"(velocity window: {_b_vel_win} days)"
+                    )
+                    st.markdown('<div class="sm-table-wrap">', unsafe_allow_html=True)
+                    st.dataframe(_disp, use_container_width=True, hide_index=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                    with st.expander("🔎 Show all columns"):
+                        st.dataframe(
+                            df.replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                # ---- TABS ----
+                _b_tab_all, _b_tab_reorder, _b_tab_overstock, _b_tab_expiring = st.tabs(
+                    ["📦 All Inventory", "🔴 Reorder", "🟠 Overstock", "⚠️ Expiring"]
+                )
+
+                with _b_tab_all:
+                    _render_inv_table(_apply_inv_filters(_b_merged))
+
+                with _b_tab_reorder:
+                    st.caption(
+                        f"Default: DOH ≤ {INVENTORY_REORDER_DOH_THRESHOLD} days, "
+                        "sorted DOH ascending (most urgent first)."
+                    )
+                    _reo_df = _apply_inv_filters(
+                        _b_merged,
+                        tab_filter=lambda df: df[
+                            df["days_of_supply"] <= INVENTORY_REORDER_DOH_THRESHOLD
+                        ],
+                    )
+                    if not _reo_df.empty:
+                        _reo_df = _reo_df.sort_values(
+                            "days_of_supply", ascending=True, na_position="last"
+                        )
+                    _render_inv_table(_reo_df)
+
+                with _b_tab_overstock:
+                    st.caption(
+                        f"Default: DOH ≥ {INVENTORY_OVERSTOCK_DOH_THRESHOLD} days, "
+                        "sorted $ on hand descending."
+                    )
+                    _ov_df = _apply_inv_filters(
+                        _b_merged,
+                        tab_filter=lambda df: df[
+                            df["days_of_supply"] >= INVENTORY_OVERSTOCK_DOH_THRESHOLD
+                        ],
+                    )
+                    if not _ov_df.empty:
+                        if "dollars_on_hand" in _ov_df.columns:
+                            _ov_df = _ov_df.sort_values(
+                                "dollars_on_hand", ascending=False, na_position="last"
+                            )
+                        else:
+                            _ov_df = _ov_df.sort_values(
+                                "days_of_supply", ascending=False, na_position="last"
+                            )
+                    _render_inv_table(_ov_df)
+
+                with _b_tab_expiring:
+                    st.caption(
+                        f"Default: Earliest expiry < {INVENTORY_EXPIRING_SOON_DAYS} days, "
+                        "sorted soonest first."
+                    )
+                    if "expiration_date" in _b_merged.columns:
+                        _exp_df = _apply_inv_filters(
+                            _b_merged,
+                            tab_filter=lambda df: df[
+                                df["days_to_expire"].notna()
+                                & (df["days_to_expire"] < INVENTORY_EXPIRING_SOON_DAYS)
+                            ],
+                        )
+                        if not _exp_df.empty:
+                            _exp_df = _exp_df.sort_values(
+                                "days_to_expire", ascending=True, na_position="last"
+                            )
+                        _render_inv_table(_exp_df)
+                    else:
+                        st.info(
+                            "ℹ️ No expiration date column detected in the inventory file. "
+                            "Add an 'expiration date' or 'expiry date' column to use this tab."
+                        )
+
+        except Exception as _b_err:
+            st.error(f"Error building Buyer View: {_b_err}")
 
         # =======================
         # AI INVENTORY CHECK
