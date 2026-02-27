@@ -2261,6 +2261,7 @@ if section == "📊 Inventory Dashboard":
         qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
         sku_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_SKU_ALIASES])
         batch_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BATCH_ALIASES])
+        cost_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_COST_ALIASES])
 
         if not (name_col and cat_col and qty_col):
             st.error(
@@ -2274,6 +2275,9 @@ if section == "📊 Inventory Dashboard":
             inv_df = inv_df.rename(columns={sku_col: "sku"})
         if batch_col:
             inv_df = inv_df.rename(columns={batch_col: "batch"})
+        if cost_col:
+            inv_df = inv_df.rename(columns={cost_col: "unit_cost"})
+            inv_df["unit_cost"] = pd.to_numeric(inv_df["unit_cost"], errors="coerce").fillna(0)
 
         # Normalize itemname for better matching
         inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
@@ -2299,6 +2303,13 @@ if section == "📊 Inventory Dashboard":
             .sum()
             .reset_index()
         )
+        if "unit_cost" in inv_df.columns:
+            _cost_summary = (
+                inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["unit_cost"]
+                .median()
+                .reset_index()
+            )
+            inv_summary = inv_summary.merge(_cost_summary, on=["subcategory", "strain_type", "packagesize"], how="left")
 
         # -------- PRODUCT-LEVEL INVENTORY GROUPING --------
         inv_product = (
@@ -4318,11 +4329,22 @@ elif section == "🧾 PO Builder":
             if reorder_rows.empty:
                 st.success("✅ No items flagged 'Reorder ASAP' in the current dashboard view.")
             else:
+                _has_price = "unit_cost" in reorder_rows.columns and reorder_rows["unit_cost"].gt(0).any()
                 st.caption(
                     f"**{len(reorder_rows)} line(s)** flagged as *Reorder ASAP* from your last Inventory Dashboard load. "
                     "Use the button below to bulk-add them to the PO, or review individual rows first."
+                    + (
+                        " 💲 **Current Price** = inventory 'Current price' ÷ 2 (wholesale adjustment)."
+                        if _has_price else ""
+                    )
                 )
                 _xref_cols = ["subcategory", "strain_type", "packagesize", "onhandunits", "avgunitsperday", "daysonhand", "reorderqty"]
+                if _has_price:
+                    reorder_rows = reorder_rows.copy()
+                    reorder_rows["Current Price"] = (
+                        pd.to_numeric(reorder_rows["unit_cost"], errors="coerce").fillna(0) / 2
+                    ).round(2)
+                    _xref_cols.append("Current Price")
                 if "top_products" in reorder_rows.columns:
                     _xref_cols.append("top_products")
                 _xref_cols = [c for c in _xref_cols if c in reorder_rows.columns]
@@ -4342,13 +4364,18 @@ elif section == "🧾 PO Builder":
                             _qty = _qty if _qty > 0 else 1
                         except (ValueError, TypeError):
                             _qty = 1
+                        try:
+                            _raw_cost = pd.to_numeric(_r.get("unit_cost", 0), errors="coerce")
+                            _price = float(_raw_cost) / 2 if pd.notna(_raw_cost) else 0.0
+                        except (ValueError, TypeError):
+                            _price = 0.0
                         st.session_state.po_items.append({
                             "SKU": "",
                             "Description": _top if _top else _desc,
                             "Strain": _strain,
                             "Size": _size,
                             "Quantity": _qty,
-                            "Price": 0.0,
+                            "Price": round(_price, 2),
                             "Total": 0.0,
                         })
                         _added += 1

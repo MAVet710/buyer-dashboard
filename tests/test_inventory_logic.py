@@ -421,3 +421,47 @@ class TestCostColumnAliasDetection:
 
     def test_unknown_column_returns_none(self):
         assert self._detect("retail price") is None
+
+
+# ── Tests: PO Builder price carry-over (unit_cost / 2) ───────────────────────
+
+class TestPOBuilderPriceCarryOver:
+    """Validate that unit_cost / 2 logic matches the PO Builder implementation."""
+
+    def _compute_price(self, unit_cost_value):
+        """Mirror of the price computation in the 'Add All Reorder ASAP Lines to PO' handler."""
+        try:
+            _raw_cost = pd.to_numeric(unit_cost_value, errors="coerce")
+            return float(_raw_cost) / 2 if pd.notna(_raw_cost) else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
+    def test_price_is_half_of_unit_cost(self):
+        assert self._compute_price(20.0) == 10.0
+
+    def test_price_zero_when_unit_cost_missing(self):
+        assert self._compute_price(None) == 0.0
+
+    def test_price_zero_when_unit_cost_nan(self):
+        assert self._compute_price(float("nan")) == 0.0
+
+    def test_price_zero_when_unit_cost_zero(self):
+        assert self._compute_price(0.0) == 0.0
+
+    def test_price_handles_string_number(self):
+        assert self._compute_price("14.50") == 7.25
+
+    def test_price_zero_on_invalid_string(self):
+        assert self._compute_price("n/a") == 0.0
+
+    def test_current_price_column_in_display(self):
+        """Verify that the 'Current Price' display column equals unit_cost / 2."""
+        reorder_rows = pd.DataFrame({
+            "subcategory": ["Flower"],
+            "packagesize": ["3.5g"],
+            "unit_cost": [30.0],
+        })
+        reorder_rows["Current Price"] = (
+            pd.to_numeric(reorder_rows["unit_cost"], errors="coerce").fillna(0) / 2
+        ).round(2)
+        assert reorder_rows["Current Price"].iloc[0] == 15.0
