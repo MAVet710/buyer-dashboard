@@ -286,3 +286,85 @@ class TestInventoryKPIs:
         prod_a = agg[agg["itemname"] == "Product A"]["expiration_date"].values[0]
         assert pd.Timestamp(prod_a) == pd.Timestamp("2026-03-01")
         assert agg[agg["itemname"] == "Product A"]["onhandunits"].values[0] == 30.0
+
+
+# ── Vault-only Room filtering (mirrored from filter_vault_inventory in app.py) ─
+
+def _filter_vault_inventory(df):
+    """Mirror of app.py filter_vault_inventory for unit testing."""
+    norm_cols = {str(c).strip().lower(): c for c in df.columns}
+    room_col = norm_cols.get("room")
+
+    if room_col is None:
+        raise ValueError(
+            "The inventory file is missing a 'Room' column. "
+            "Please upload the correct inventory report that includes a 'Room' column "
+            "(expected values: Vault, Quarantine, Employee Stock, …). "
+            "Only Vault rows are used by this dashboard."
+        )
+
+    room_norm = df[room_col].apply(lambda v: str(v).strip().lower())
+    mask = room_norm == "vault"
+    n_included = int(mask.sum())
+    n_excluded = int((~mask).sum())
+    return df[mask].copy(), n_included, n_excluded
+
+
+class TestFilterVaultInventory:
+    def _make_df(self, rooms):
+        return pd.DataFrame({
+            "Product": [f"SKU-{i}" for i in range(len(rooms))],
+            "Available": [10] * len(rooms),
+            "Room": rooms,
+        })
+
+    def test_vault_case_insensitive_lower(self):
+        df = self._make_df(["vault", "Quarantine"])
+        result, included, excluded = _filter_vault_inventory(df)
+        assert included == 1
+        assert excluded == 1
+        assert list(result["Product"]) == ["SKU-0"]
+
+    def test_vault_case_insensitive_upper(self):
+        df = self._make_df(["VAULT", "employee stock"])
+        result, included, excluded = _filter_vault_inventory(df)
+        assert included == 1
+        assert excluded == 1
+        assert list(result["Product"]) == ["SKU-0"]
+
+    def test_vault_mixed_case(self):
+        df = self._make_df(["Vault", "Quarantine", "Employee Stock"])
+        result, included, excluded = _filter_vault_inventory(df)
+        assert included == 1
+        assert excluded == 2
+
+    def test_non_vault_all_excluded(self):
+        df = self._make_df(["Quarantine", "Employee Stock"])
+        result, included, excluded = _filter_vault_inventory(df)
+        assert included == 0
+        assert excluded == 2
+        assert len(result) == 0
+
+    def test_all_vault_included(self):
+        df = self._make_df(["Vault", "vault", "VAULT"])
+        result, included, excluded = _filter_vault_inventory(df)
+        assert included == 3
+        assert excluded == 0
+        assert len(result) == 3
+
+    def test_missing_room_column_raises(self):
+        df = pd.DataFrame({"Product": ["SKU-A"], "Available": [5]})
+        with pytest.raises(ValueError, match="missing a 'Room' column"):
+            _filter_vault_inventory(df)
+
+    def test_room_column_with_whitespace(self):
+        df = self._make_df([" Vault ", "Quarantine"])
+        result, included, excluded = _filter_vault_inventory(df)
+        assert included == 1
+        assert list(result["Product"]) == ["SKU-0"]
+
+    def test_counts_correct_for_mixed_rooms(self):
+        df = self._make_df(["Vault", "vault", "Quarantine", "Employee Stock", "VAULT"])
+        result, included, excluded = _filter_vault_inventory(df)
+        assert included == 3
+        assert excluded == 2
