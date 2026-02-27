@@ -465,3 +465,82 @@ class TestPOBuilderPriceCarryOver:
             pd.to_numeric(reorder_rows["unit_cost"], errors="coerce").fillna(0) / 2
         ).round(2)
         assert reorder_rows["Current Price"].iloc[0] == 15.0
+
+
+# ── Tests: unit_cost aggregation (median) into inv_summary / detail ───────────
+
+class TestInventoryUnitCostAggregation:
+    """Validate that unit_cost is aggregated via median from item-level into
+    the category/strain/packagesize summary that feeds detail_cached_df."""
+
+    def _make_inv_df(self):
+        """Multiple batches of the same product at different costs."""
+        return pd.DataFrame({
+            "subcategory": ["Flower", "Flower", "Flower", "Edibles"],
+            "strain_type": ["sativa", "sativa", "indica", "none"],
+            "packagesize": ["3.5g", "3.5g", "3.5g", "10mg"],
+            "onhandunits": [10.0, 20.0, 5.0, 50.0],
+            "unit_cost": [20.0, 30.0, 40.0, 5.0],
+        })
+
+    def _aggregate(self, inv_df):
+        """Mirror of app.py inv_summary + cost merge logic."""
+        inv_summary = (
+            inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["onhandunits"]
+            .sum()
+            .reset_index()
+        )
+        _cost_summary = (
+            inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["unit_cost"]
+            .median()
+            .reset_index()
+        )
+        return inv_summary.merge(_cost_summary, on=["subcategory", "strain_type", "packagesize"], how="left")
+
+    def test_median_cost_for_multi_batch_product(self):
+        """Flower/sativa/3.5g has two batches with costs [20.0, 30.0] → median = 25.0.
+        (Flower/indica/3.5g is a separate strain group and is not included.)"""
+        result = self._aggregate(self._make_inv_df())
+        row = result[
+            (result["subcategory"] == "Flower") &
+            (result["strain_type"] == "sativa") &
+            (result["packagesize"] == "3.5g")
+        ]
+        assert row["unit_cost"].iloc[0] == pytest.approx(25.0)
+
+    def test_single_batch_cost_preserved(self):
+        """Flower/indica/3.5g has a single cost of 40.0 → median = 40.0."""
+        result = self._aggregate(self._make_inv_df())
+        row = result[
+            (result["subcategory"] == "Flower") &
+            (result["strain_type"] == "indica") &
+            (result["packagesize"] == "3.5g")
+        ]
+        assert row["unit_cost"].iloc[0] == pytest.approx(40.0)
+
+    def test_unit_cost_present_in_summary(self):
+        """unit_cost column must exist in the aggregated summary."""
+        result = self._aggregate(self._make_inv_df())
+        assert "unit_cost" in result.columns
+
+    def test_summary_without_cost_column(self):
+        """If inv_df has no unit_cost column, no cost is merged into inv_summary."""
+        inv_df = self._make_inv_df().drop(columns=["unit_cost"])
+        inv_summary = (
+            inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["onhandunits"]
+            .sum()
+            .reset_index()
+        )
+        # No cost merge happens — unit_cost should not appear
+        assert "unit_cost" not in inv_summary.columns
+
+    def test_po_price_from_aggregated_cost(self):
+        """PO price for a row should be median(unit_cost) / 2."""
+        result = self._aggregate(self._make_inv_df())
+        row = result[
+            (result["subcategory"] == "Flower") &
+            (result["strain_type"] == "sativa") &
+            (result["packagesize"] == "3.5g")
+        ]
+        unit_cost = row["unit_cost"].iloc[0]
+        assert round(unit_cost / 2, 2) == 12.5
