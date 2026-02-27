@@ -1081,6 +1081,41 @@ def read_inventory_file(uploaded_file):
     return df
 
 
+def filter_vault_inventory(df):
+    """
+    Filter inventory DataFrame to only include rows where Room == "Vault"
+    (case-insensitive).
+
+    Args:
+        df: Raw inventory DataFrame (column names not yet normalized).
+
+    Returns:
+        tuple: (filtered_df, n_included, n_excluded)
+            filtered_df  – DataFrame containing only Vault rows.
+            n_included   – Number of rows kept (Vault).
+            n_excluded   – Number of rows dropped (non-Vault).
+
+    Raises:
+        ValueError: If the Room column is not present in the file.
+    """
+    norm_cols = {str(c).strip().lower(): c for c in df.columns}
+    room_col = norm_cols.get("room")
+
+    if room_col is None:
+        raise ValueError(
+            "The inventory file is missing a 'Room' column. "
+            "Please upload the correct inventory report that includes a 'Room' column "
+            "(expected values: Vault, Quarantine, Employee Stock, …). "
+            "Only Vault rows are used by this dashboard."
+        )
+
+    room_norm = df[room_col].apply(lambda v: str(v).strip().lower())
+    mask = room_norm == "vault"
+    n_included = int(mask.sum())
+    n_excluded = int((~mask).sum())
+    return df[mask].copy(), n_included, n_excluded
+
+
 def deduplicate_inventory(inv_df):
     """
     Consolidate inventory by Product Name + Batch ID.
@@ -2147,6 +2182,15 @@ if section == "📊 Inventory Dashboard":
     if inv_file is not None:
         try:
             inv_df_raw = read_inventory_file(inv_file)
+            try:
+                inv_df_raw, vault_included, vault_excluded = filter_vault_inventory(inv_df_raw)
+                st.sidebar.info(
+                    f"🏦 Vault filter applied: **{vault_included}** batch rows included, "
+                    f"**{vault_excluded}** excluded (non-Vault rooms)."
+                )
+            except ValueError as ve:
+                st.error(str(ve))
+                st.stop()
             st.session_state.inv_raw_df = inv_df_raw
         except Exception as e:
             st.error(f"Error reading inventory file: {e}")
