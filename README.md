@@ -50,3 +50,61 @@ Each product receives an action badge based on DOH and weekly sales:
 - Streamlit
 - pandas
 - plotly
+
+---
+
+## Inventory Dashboard — Buyer View
+
+The **📋 SKU Inventory Buyer View** section inside the Inventory Dashboard provides a buyer-focused, SKU-level analysis of your on-hand stock.
+
+### How It Works
+The buyer view reads the same uploaded inventory and sales files and computes metrics at the individual SKU level (one row per product name).
+
+### Filter Bar
+- **Search** — filter by product name, SKU, or brand/vendor (case-insensitive).
+- **Velocity window** — same 28 / 56 / 84-day options as Slow Movers (see glossary above). Controls avg weekly sales and DOH calculations.
+- **Show top N** — limit results to 25 / 50 / 100 or All SKUs after sorting.
+- **Sort by** — buyer-focused options: `$ on hand ↓`, `DOH (high→low) ↓`, `DOH (low→high) ↑`, `Expiring soonest`, `Avg weekly sales ↓`.
+- **Category / Subcategory** — dropdown populated from inventory data.
+- **Vendor / Brand** — dropdown populated from inventory data (requires a brand/vendor column).
+- **Expiration window** — `Any` / `<30 days` / `<60 days` / `<90 days` — filters by days until the earliest expiration date per SKU.
+- **On-hand > 0** — toggle to hide SKUs with zero units (default: ON).
+- **DOH min / max** — fine-tune the days-of-hand range shown.
+
+### Tabs
+| Tab | Default Filter | Default Sort |
+|---|---|---|
+| 📦 All Inventory | Active filter bar settings | Selected "Sort by" |
+| 🔴 Reorder | DOH ≤ 21 days | DOH ascending (most urgent first) |
+| 🟠 Overstock | DOH ≥ 90 days | $ on hand descending |
+| ⚠️ Expiring | Earliest expiry < 60 days | Days to expire ascending |
+
+Thresholds (21 / 90 / 60) are defined as constants `INVENTORY_REORDER_DOH_THRESHOLD`, `INVENTORY_OVERSTOCK_DOH_THRESHOLD`, and `INVENTORY_EXPIRING_SOON_DAYS` at the top of `app.py` and can be adjusted there.
+
+### KPI Strip
+Above each tab's table, five tiles reflect the **currently filtered data**:
+- **📦 SKUs in stock** — count of SKUs with on-hand > 0.
+- **💰 Total $ on hand** — sum of `on-hand units × unit cost` (requires cost column).
+- **🔴 Reorder SKUs** — count of SKUs with Reorder status.
+- **🟠 Overstock SKUs** — count of SKUs with Overstock status.
+- **⚠️ Expiring <60d** — count of expiring SKUs and dollars tied up.
+
+### Status Badge Criteria
+| Badge | Criteria |
+|---|---|
+| ⬛ No Stock | On-hand = 0 |
+| ⚠️ Expiring | Earliest expiry < 60 days (checked first for in-stock SKUs) |
+| 🔴 Reorder | DOH > 0 and DOH ≤ 21 days |
+| 🟠 Overstock | DOH ≥ 90 days (includes SKUs with no sales data) |
+| ✅ Healthy | All other in-stock SKUs |
+
+### Optional Inventory Columns
+The buyer view works without these columns but unlocks additional features when present:
+
+| Column | Purpose |
+|---|---|
+| `unit cost` / `cost` / `wholesale` | Enables $ on hand, $ tied up expiring KPIs |
+| `brand` / `vendor` | Enables Vendor/Brand filter dropdown |
+| `expiration date` / `expiry` / `best by` | Enables Expiring tab and Days-to-Expire column |
+
+Missing columns are reported as an info message above the filter bar.
