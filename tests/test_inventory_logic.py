@@ -7,6 +7,7 @@ Run with:  python -m pytest tests/test_inventory_logic.py -v
 import numpy as np
 import pandas as pd
 import pytest
+import re
 from datetime import datetime, timedelta
 
 # ── Constants (mirrored from app.py) ─────────────────────────────────────────
@@ -368,3 +369,55 @@ class TestFilterVaultInventory:
         result, included, excluded = _filter_vault_inventory(df)
         assert included == 3
         assert excluded == 2
+
+
+# ── Helpers mirrored from app.py for alias detection ─────────────────────────
+
+INV_COST_ALIASES = [
+    "cost", "unitcost", "unit cost", "cogs", "costprice", "cost price",
+    "wholesale", "wholesaleprice", "wholesale price",
+    "currentprice", "current price",
+]
+
+
+def _normalize_col(col: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(col).lower())
+
+
+def _detect_column(columns, aliases):
+    norm_map = {_normalize_col(c): c for c in columns}
+    for alias in aliases:
+        if alias in norm_map:
+            return norm_map[alias]
+    return None
+
+
+# ── Tests: Cost Column Alias Detection ───────────────────────────────────────
+
+class TestCostColumnAliasDetection:
+    def _detect(self, header):
+        return _detect_column([header], [_normalize_col(a) for a in INV_COST_ALIASES])
+
+    def test_current_price_exact(self):
+        assert self._detect("Current price") == "Current price"
+
+    def test_current_price_all_caps(self):
+        assert self._detect("CURRENT PRICE") == "CURRENT PRICE"
+
+    def test_current_price_no_space(self):
+        assert self._detect("currentprice") == "currentprice"
+
+    def test_unit_cost_still_detected(self):
+        assert self._detect("unit cost") == "unit cost"
+
+    def test_unit_cost_camel(self):
+        assert self._detect("UnitCost") == "UnitCost"
+
+    def test_cost_detected(self):
+        assert self._detect("Cost") == "Cost"
+
+    def test_wholesale_detected(self):
+        assert self._detect("Wholesale") == "Wholesale"
+
+    def test_unknown_column_returns_none(self):
+        assert self._detect("retail price") is None

@@ -84,7 +84,7 @@ Thresholds (21 / 90 / 60) are defined as constants `INVENTORY_REORDER_DOH_THRESH
 ### KPI Strip
 Above each tab's table, five tiles reflect the **currently filtered data**:
 - **📦 SKUs in stock** — count of SKUs with on-hand > 0.
-- **💰 Total $ on hand** — sum of `on-hand units × unit cost` (requires cost column).
+- **💰 Total $ on hand** — sum of `on-hand units × current price` (requires cost column).
 - **🔴 Reorder SKUs** — count of SKUs with Reorder status.
 - **🟠 Overstock SKUs** — count of SKUs with Overstock status.
 - **⚠️ Expiring <60d** — count of expiring SKUs and dollars tied up.
@@ -103,7 +103,7 @@ The buyer view works without these columns but unlocks additional features when 
 
 | Column | Purpose |
 |---|---|
-| `unit cost` / `cost` / `wholesale` | Enables $ on hand, $ tied up expiring KPIs |
+| `current price` / `unit cost` / `cost` / `wholesale` | Enables $ on hand, $ tied up expiring KPIs |
 | `brand` / `vendor` | Enables Vendor/Brand filter dropdown |
 | `expiration date` / `expiry` / `best by` | Enables Expiring tab and Days-to-Expire column |
 
