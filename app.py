@@ -149,6 +149,7 @@ SLOW_MOVER_SORT_OPTIONS = [
 INV_COST_ALIASES = [
     "cost", "unitcost", "unit cost", "cogs", "costprice", "cost price",
     "wholesale", "wholesaleprice", "wholesale price",
+    "currentprice", "current price",
 ]
 INV_BRAND_ALIASES = [
     "brand", "brandname", "brand name", "vendor", "vendorname", "vendor name",
@@ -2920,7 +2921,7 @@ if section == "📊 Inventory Dashboard":
                 # Friendly notice for missing optional columns
                 _b_missing = []
                 if "unit_cost" not in _b_sku_df.columns:
-                    _b_missing.append("unit cost (for $ on hand)")
+                    _b_missing.append("current price (for $ on hand)")
                 if "brand_vendor" not in _b_sku_df.columns:
                     _b_missing.append("vendor/brand")
                 if "expiration_date" not in _b_sku_df.columns:
@@ -3203,7 +3204,7 @@ if section == "📊 Inventory Dashboard":
                     _kc2.metric(
                         "💰 Total $ on hand",
                         f"${_total_dol:,.0f}" if _total_dol is not None else "N/A",
-                        help="Requires unit cost column in inventory file.",
+                        help="Requires current price column in inventory file.",
                     )
                     _kc3.metric("🔴 Reorder SKUs", _reorder_n,
                                 help=f"DOH ≤ {INVENTORY_REORDER_DOH_THRESHOLD} days.")
@@ -3232,7 +3233,7 @@ if section == "📊 Inventory Dashboard":
                     _dcmap[_avg_wkly_lbl] = "avg_weekly_sales"
                     _dcmap["DOH"] = "days_of_supply"
                     if "unit_cost" in df.columns:
-                        _dcmap["Unit Cost"] = "unit_cost"
+                        _dcmap["Current Price"] = "unit_cost"
                     if "dollars_on_hand" in df.columns:
                         _dcmap["$ On Hand"] = "dollars_on_hand"
                     if "expiration_date" in df.columns:
