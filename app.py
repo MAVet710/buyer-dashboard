@@ -135,6 +135,26 @@ SALES_ORDER_TIME_ALIASES = ["ordertime", "order time", "orderdate", "order date"
 # Constants for slow movers analysis
 UNKNOWN_DAYS_OF_SUPPLY = 999
 DEFAULT_SALES_PERIOD_DAYS = 30  # Default assumption when date range cannot be determined
+SLOW_MOVER_VELOCITY_WINDOWS = [28, 56, 84]  # Available velocity window choices (days)
+SLOW_MOVER_DEFAULT_DOH_THRESHOLD = 60  # Default Days-on-Hand threshold to flag a slow mover
+SLOW_MOVER_TOP_N_OPTIONS = [25, 50, 100, 0]  # 0 = All
+SLOW_MOVER_SORT_OPTIONS = [
+    "Days of Supply ↓",
+    "Weeks of Supply ↓",
+    "$ On-Hand ↓",
+    "Days Since Last Sale ↓",
+]
+
+# Aliases for optional inventory columns used in Slow Movers
+INV_COST_ALIASES = [
+    "cost", "unitcost", "unit cost", "cogs", "costprice", "cost price",
+    "wholesale", "wholesaleprice", "wholesale price",
+]
+INV_BRAND_ALIASES = [
+    "brand", "brandname", "brand name", "vendor", "vendorname", "vendor name",
+    "manufacturer", "producer", "supplier",
+]
+INV_SKU_COL_ALIASES = INV_SKU_ALIASES  # reuse existing list
 
 # Constants for PDF generation
 MAX_SKU_LENGTH_PDF = 10
@@ -629,6 +649,62 @@ st.markdown(
         font-weight: 600;
         font-size: 0.9rem;
         margin-bottom: 0.1rem;
+    }}
+
+    /* ---- Slow Movers filter bar + KPI tiles (contrast/readability) ---- */
+    .sm-filter-bar {{
+        background-color: {"rgba(30,30,40,0.92)" if theme == "Dark" else "rgba(240,242,246,0.98)"};
+        border: 1px solid {"rgba(255,255,255,0.18)" if theme == "Dark" else "rgba(0,0,0,0.12)"};
+        border-radius: 10px;
+        padding: 0.75rem 1rem 0.5rem 1rem;
+        margin-bottom: 1rem;
+    }}
+
+    /* Input widgets inside the filter bar */
+    .sm-filter-bar input,
+    .sm-filter-bar select,
+    .sm-filter-bar textarea {{
+        background-color: {"rgba(255,255,255,0.12)" if theme == "Dark" else "#ffffff"} !important;
+        color: {main_text} !important;
+        border: 1px solid {"rgba(255,255,255,0.35)" if theme == "Dark" else "rgba(0,0,0,0.25)"} !important;
+        border-radius: 5px;
+    }}
+    .sm-filter-bar input:focus,
+    .sm-filter-bar select:focus {{
+        outline: 2px solid #4da6ff !important;
+    }}
+
+    /* KPI tile cards */
+    .sm-kpi-tile {{
+        background-color: {"rgba(255,255,255,0.10)" if theme == "Dark" else "rgba(255,255,255,0.95)"};
+        border: 1px solid {"rgba(255,255,255,0.22)" if theme == "Dark" else "rgba(0,0,0,0.12)"};
+        border-radius: 8px;
+        padding: 0.65rem 1rem;
+        text-align: center;
+    }}
+    .sm-kpi-tile .kpi-value {{
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: {main_text} !important;
+    }}
+    .sm-kpi-tile .kpi-label {{
+        font-size: 0.78rem;
+        opacity: 0.78;
+        color: {main_text} !important;
+    }}
+
+    /* Table header and zebra rows */
+    .sm-table-wrap .dataframe thead th {{
+        background-color: {"rgba(60,80,120,0.85)" if theme == "Dark" else "rgba(220,230,245,0.95)"} !important;
+        color: {main_text} !important;
+        font-weight: 700;
+        border-bottom: 2px solid {"rgba(255,255,255,0.3)" if theme == "Dark" else "rgba(0,0,0,0.2)"};
+    }}
+    .sm-table-wrap .dataframe tbody tr:nth-child(even) td {{
+        background-color: {"rgba(255,255,255,0.05)" if theme == "Dark" else "rgba(245,247,252,0.85)"} !important;
+    }}
+    .sm-table-wrap .dataframe tbody tr:hover td {{
+        background-color: {"rgba(255,255,255,0.12)" if theme == "Dark" else "rgba(210,220,240,0.7)"} !important;
     }}
     </style>
     """,
@@ -3134,35 +3210,63 @@ elif section == "🚚 Delivery Impact":
         st.info("👆 Upload both files to see the analysis")
 
 # ============================================================
-# PAGE – SLOW MOVERS
+# PAGE – SLOW MOVERS & TRENDS
 # ============================================================
 elif section == "🐢 Slow Movers":
-    st.subheader("Slow Movers Analysis")
+    st.subheader("🐢 Slow Movers & Trends")
     st.write(
-        "Identify products that are sitting on the shelf with long gaps between sales. "
-        "Get discount recommendations to move slow inventory faster."
+        "Identify products sitting on the shelf, understand velocity, and take action. "
+        "Use the filters below to focus on what matters most."
     )
-    
+
     if st.session_state.inv_raw_df is None or st.session_state.sales_raw_df is None:
         st.warning("⚠️ Please upload inventory and sales files in the Inventory Dashboard section first.")
         st.stop()
-    
+
+    # ----------------------------------------------------------
+    # Helper: compute the suggested action badge for a product
+    # ----------------------------------------------------------
+    def _sm_action_badge(days_of_supply: float, weekly_sales: float, on_hand: float) -> str:
+        """Return a short action label based on DOH, velocity and stock."""
+        if on_hand <= 0:
+            return "⬛ No Stock"
+        if weekly_sales <= 0 or days_of_supply >= UNKNOWN_DAYS_OF_SUPPLY:
+            return "🔴 Investigate"
+        if days_of_supply > 180:
+            return "🔴 Promo / Stop Reorder"
+        if days_of_supply > 120:
+            return "🟠 Markdown"
+        if days_of_supply > 90:
+            return "🟡 Watch"
+        if days_of_supply > 60:
+            return "🟢 Monitor"
+        return "✅ Healthy"
+
+    # ----------------------------------------------------------
+    # Helper: compute slow-mover score (0–100, higher = worse)
+    # ----------------------------------------------------------
+    def _sm_score(days_of_supply: float, weekly_sales: float) -> float:
+        """Composite slow-mover score: higher means slower / more problematic."""
+        if weekly_sales <= 0:
+            return 100.0
+        # Normalise DOH against a 180-day ceiling
+        doh_component = min(days_of_supply / 180.0, 1.0) * 100.0
+        return round(doh_component, 1)
+
     try:
-        # Get data from session state
+        # -------------------------------------------------------
+        # RAW DATA PREP (column detection, dedup, quarantine)
+        # -------------------------------------------------------
         inv_df = st.session_state.inv_raw_df.copy()
         sales_df = st.session_state.sales_raw_df.copy()
-        
-        # Normalize column names consistently
+
         inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
         sales_df.columns = sales_df.columns.astype(str).str.strip().str.lower()
-        
-        # Calculate sales velocity
-        st.markdown("### 📊 Slow Movers Identification")
-        
-        # Use detect_column helper for consistent column detection
+
+        # Detect required sales columns
         sales_name_col = detect_column(sales_df.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
         sales_qty_col = detect_column(sales_df.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
-        
+
         if not (sales_name_col and sales_qty_col):
             st.error(
                 f"Sales data does not have required columns.\n\n"
@@ -3171,31 +3275,12 @@ elif section == "🐢 Slow Movers":
                 f"Available columns: {', '.join(sales_df.columns[:10])}..."
             )
             st.stop()
-        
-        # Aggregate sales by product
-        sales_velocity = sales_df.groupby(sales_name_col).agg({
-            sales_qty_col: 'sum'
-        }).reset_index()
-        sales_velocity.columns = ['product', 'total_sold']
-        
-        # Calculate daily run rate - find date column
-        date_cols = [col for col in sales_df.columns if 'date' in col]
-        if date_cols:
-            sales_df[date_cols[0]] = pd.to_datetime(sales_df[date_cols[0]], errors='coerce')
-            date_range = (sales_df[date_cols[0]].max() - sales_df[date_cols[0]].min()).days
-            if date_range > 0:
-                sales_velocity['days_of_data'] = date_range
-                sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / date_range
-            else:
-                sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / DEFAULT_SALES_PERIOD_DAYS
-        else:
-            sales_velocity['daily_run_rate'] = sales_velocity['total_sold'] / DEFAULT_SALES_PERIOD_DAYS
-        
-        # Find inventory columns using detect_column helper
+
+        # Detect required inventory columns
         inv_name_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
         inv_qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
         inv_batch_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BATCH_ALIASES])
-        
+
         if not (inv_name_col and inv_qty_col):
             st.error(
                 f"Inventory data does not have required columns.\n\n"
@@ -3204,22 +3289,29 @@ elif section == "🐢 Slow Movers":
                 f"Available columns: {', '.join(inv_df.columns[:10])}..."
             )
             st.stop()
-        
-        # Rename columns for consistency
+
+        # Detect optional inventory columns
+        inv_cost_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_COST_ALIASES])
+        inv_brand_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BRAND_ALIASES])
+        inv_sku_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_SKU_COL_ALIASES])
+        inv_cat_col_raw = detect_column(inv_df.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+
+        # Rename required columns
         inv_df = inv_df.rename(columns={inv_name_col: "itemname", inv_qty_col: "onhandunits"})
         if inv_batch_col:
             inv_df = inv_df.rename(columns={inv_batch_col: "batch"})
-        
-        # Normalize product names for better matching
+
         inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
         inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
-        
-        # Apply deduplication to inventory before analysis
+
+        if inv_cost_col:
+            inv_df[inv_cost_col] = pd.to_numeric(inv_df[inv_cost_col], errors="coerce")
+
+        # Dedup and quarantine
         inv_df, num_dupes, dedupe_msg = deduplicate_inventory(inv_df)
         if num_dupes > 0:
             st.info(dedupe_msg)
-        
-        # Filter out quarantined items
+
         quarantined_items = st.session_state.get('quarantined_items', set())
         if quarantined_items:
             original_count = len(inv_df)
@@ -3227,88 +3319,404 @@ elif section == "🐢 Slow Movers":
             filtered_count = original_count - len(inv_df)
             if filtered_count > 0:
                 st.info(f"🚫 Filtered out {filtered_count} quarantined item(s) from slow movers analysis.")
-        
-        # Merge with inventory
+
+        # -------------------------------------------------------
+        # DATE COLUMN DETECTION (for velocity window & last-sale)
+        # -------------------------------------------------------
+        date_cols_sales = [col for col in sales_df.columns if 'date' in col]
+        _last_sale_by_product: dict = {}
+        _sales_date_col = date_cols_sales[0] if date_cols_sales else None
+        _data_date_range = DEFAULT_SALES_PERIOD_DAYS  # fallback
+
+        if _sales_date_col:
+            sales_df[_sales_date_col] = pd.to_datetime(sales_df[_sales_date_col], errors='coerce')
+            _dr = (sales_df[_sales_date_col].max() - sales_df[_sales_date_col].min()).days
+            if _dr > 0:
+                _data_date_range = _dr
+            # Last-sale date per product
+            _last_sale_by_product = (
+                sales_df.groupby(sales_name_col)[_sales_date_col].max()
+                .dropna().to_dict()
+            )
+
+        # -------------------------------------------------------
+        # ---- FILTER BAR ----------------------------------------
+        # -------------------------------------------------------
+        st.markdown('<div class="sm-filter-bar">', unsafe_allow_html=True)
+        st.markdown("##### 🔍 Filters & Settings")
+
+        _fb_r1c1, _fb_r1c2, _fb_r1c3, _fb_r1c4 = st.columns([3, 2, 2, 2])
+        with _fb_r1c1:
+            sm_search = st.text_input(
+                "Search (SKU / Product / Brand)",
+                value="",
+                placeholder="Type to filter…",
+                key="sm_search",
+                help="Filters by product name, SKU, or brand/vendor (case-insensitive).",
+            )
+        with _fb_r1c2:
+            sm_velocity_window = st.selectbox(
+                "Velocity window",
+                options=SLOW_MOVER_VELOCITY_WINDOWS,
+                index=1,
+                format_func=lambda d: f"Last {d} days",
+                key="sm_velocity_window",
+                help=(
+                    "The number of days used to compute average weekly sales. "
+                    "Shorter windows reflect recent demand; longer windows smooth out spikes."
+                ),
+            )
+        with _fb_r1c3:
+            sm_doh_threshold = st.number_input(
+                "Slow mover DOH >",
+                min_value=1,
+                max_value=999,
+                value=SLOW_MOVER_DEFAULT_DOH_THRESHOLD,
+                step=5,
+                key="sm_doh_threshold",
+                help=(
+                    "Days-on-Hand (DOH) threshold: products with more than this many days "
+                    "of supply are flagged as slow movers. Default is 60 days."
+                ),
+            )
+        with _fb_r1c4:
+            _top_n_labels = {25: "Top 25", 50: "Top 50", 100: "Top 100", 0: "All"}
+            sm_top_n = st.selectbox(
+                "Show top N",
+                options=list(_top_n_labels.keys()),
+                index=3,
+                format_func=lambda k: _top_n_labels[k],
+                key="sm_top_n",
+                help="Limit results to the N worst slow movers.",
+            )
+
+        _fb_r2c1, _fb_r2c2, _fb_r2c3, _fb_r2c4 = st.columns([3, 2, 2, 2])
+        with _fb_r2c1:
+            # Category dropdown (populated from data)
+            _cat_options_raw = []
+            if inv_cat_col_raw and inv_cat_col_raw in inv_df.columns:
+                _cat_options_raw = sorted(inv_df[inv_cat_col_raw].dropna().astype(str).unique().tolist())
+            sm_category = st.selectbox(
+                "Category / Subcategory",
+                options=["All"] + _cat_options_raw,
+                index=0,
+                key="sm_category",
+            )
+        with _fb_r2c2:
+            # Brand/Vendor dropdown
+            _brand_options_raw = []
+            if inv_brand_col and inv_brand_col in inv_df.columns:
+                _brand_options_raw = sorted(inv_df[inv_brand_col].dropna().astype(str).unique().tolist())
+            sm_brand = st.selectbox(
+                "Vendor / Brand",
+                options=["All"] + _brand_options_raw,
+                index=0,
+                key="sm_brand",
+            )
+        with _fb_r2c3:
+            sm_sort_by = st.selectbox(
+                "Sort by",
+                options=SLOW_MOVER_SORT_OPTIONS,
+                index=0,
+                key="sm_sort_by",
+            )
+        with _fb_r2c4:
+            sm_only_slow = st.toggle(
+                "Only slow movers",
+                value=True,
+                key="sm_only_slow",
+                help="When ON shows only products exceeding the DOH threshold; OFF shows all products.",
+            )
+            sm_exclude_zero = st.toggle(
+                "Exclude on-hand = 0",
+                value=False,
+                key="sm_exclude_zero",
+                help="Hide products with zero units on hand.",
+            )
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # -------------------------------------------------------
+        # COMPUTE VELOCITY USING SELECTED WINDOW
+        # -------------------------------------------------------
+        # Re-aggregate sales capped to selected velocity window
+        if _sales_date_col:
+            _cutoff = sales_df[_sales_date_col].max() - pd.Timedelta(days=sm_velocity_window)
+            sales_window = sales_df[sales_df[_sales_date_col] >= _cutoff].copy()
+            _effective_days = min(sm_velocity_window, _data_date_range) or sm_velocity_window
+        else:
+            sales_window = sales_df.copy()
+            _effective_days = sm_velocity_window
+
+        sales_velocity = (
+            sales_window.groupby(sales_name_col)[sales_qty_col]
+            .sum()
+            .reset_index()
+            .rename(columns={sales_name_col: "product", sales_qty_col: "total_sold"})
+        )
+        sales_velocity["daily_run_rate"] = sales_velocity["total_sold"] / max(_effective_days, 1)
+        sales_velocity["avg_weekly_sales"] = sales_velocity["daily_run_rate"] * 7
+
+        # -------------------------------------------------------
+        # MERGE INVENTORY + SALES
+        # -------------------------------------------------------
         slow_movers = inv_df.merge(
             sales_velocity,
             left_on="itemname",
-            right_on='product',
-            how='left'
+            right_on="product",
+            how="left",
         )
-        
-        # Calculate days of supply
-        slow_movers['daily_run_rate'] = slow_movers['daily_run_rate'].fillna(0)
-        slow_movers['days_of_supply'] = np.where(
-            slow_movers['daily_run_rate'] > 0,
-            slow_movers["onhandunits"] / slow_movers['daily_run_rate'],
-            UNKNOWN_DAYS_OF_SUPPLY
+
+        slow_movers["daily_run_rate"] = slow_movers["daily_run_rate"].fillna(0)
+        slow_movers["avg_weekly_sales"] = slow_movers["avg_weekly_sales"].fillna(0)
+        slow_movers["total_sold"] = slow_movers["total_sold"].fillna(0)
+
+        slow_movers["days_of_supply"] = np.where(
+            slow_movers["daily_run_rate"] > 0,
+            slow_movers["onhandunits"] / slow_movers["daily_run_rate"],
+            UNKNOWN_DAYS_OF_SUPPLY,
         )
-        
-        # Identify slow movers (more than 60 days of supply)
-        slow_movers_filtered = slow_movers[slow_movers['days_of_supply'] > 60].copy()
-        
-        if not slow_movers_filtered.empty:
-            # Add discount tier suggestions
-            def suggest_discount(days):
-                if days > 180:
-                    return "30-50% (Urgent)"
-                elif days > 120:
-                    return "20-30% (High Priority)"
-                elif days > 90:
-                    return "15-20% (Medium Priority)"
-                elif days > 60:
-                    return "10-15% (Low Priority)"
+        slow_movers["weeks_of_supply"] = (slow_movers["days_of_supply"] / 7).round(1)
+
+        # Days since last sale
+        _today = pd.Timestamp.today().normalize()
+        if _last_sale_by_product:
+            def _days_since_last_sale(name):
+                if name in _last_sale_by_product:
+                    return int((_today - _last_sale_by_product[name]).days)
+                return None
+            slow_movers["days_since_last_sale"] = slow_movers["itemname"].map(_days_since_last_sale)
+        else:
+            slow_movers["days_since_last_sale"] = None
+
+        # $ on-hand (if cost column available)
+        if inv_cost_col and inv_cost_col in slow_movers.columns:
+            slow_movers["dollars_on_hand"] = (
+                slow_movers["onhandunits"] * slow_movers[inv_cost_col]
+            )
+        else:
+            slow_movers["dollars_on_hand"] = None
+
+        # Slow-mover score and action badge
+        slow_movers["sm_score"] = slow_movers.apply(
+            lambda r: _sm_score(r["days_of_supply"], r["avg_weekly_sales"]), axis=1
+        )
+        slow_movers["action"] = slow_movers.apply(
+            lambda r: _sm_action_badge(r["days_of_supply"], r["avg_weekly_sales"], r["onhandunits"]),
+            axis=1,
+        )
+
+        # Legacy discount suggestion (preserved for export)
+        def _suggest_discount(days):
+            if days > 180:
+                return "30-50% (Urgent)"
+            elif days > 120:
+                return "20-30% (High Priority)"
+            elif days > 90:
+                return "15-20% (Medium Priority)"
+            elif days > 60:
+                return "10-15% (Low Priority)"
+            else:
+                return "No discount needed"
+
+        slow_movers["suggested_discount"] = slow_movers["days_of_supply"].apply(_suggest_discount)
+
+        # -------------------------------------------------------
+        # SERVER-SIDE FILTERING
+        # -------------------------------------------------------
+        working_df = slow_movers.copy()
+
+        # Toggle: only slow movers
+        if sm_only_slow:
+            working_df = working_df[working_df["days_of_supply"] > sm_doh_threshold]
+
+        # Toggle: exclude on-hand = 0
+        if sm_exclude_zero:
+            working_df = working_df[working_df["onhandunits"] > 0]
+
+        # Category filter
+        if sm_category != "All" and inv_cat_col_raw and inv_cat_col_raw in working_df.columns:
+            working_df = working_df[working_df[inv_cat_col_raw].astype(str) == sm_category]
+
+        # Brand filter
+        if sm_brand != "All" and inv_brand_col and inv_brand_col in working_df.columns:
+            working_df = working_df[working_df[inv_brand_col].astype(str) == sm_brand]
+
+        # Search filter (SKU / product name / brand)
+        if sm_search.strip():
+            _q = sm_search.strip().lower()
+            _mask = working_df["itemname"].str.lower().str.contains(_q, na=False)
+            if inv_sku_col and inv_sku_col in working_df.columns:
+                _mask |= working_df[inv_sku_col].astype(str).str.lower().str.contains(_q, na=False)
+            if inv_brand_col and inv_brand_col in working_df.columns:
+                _mask |= working_df[inv_brand_col].astype(str).str.lower().str.contains(_q, na=False)
+            working_df = working_df[_mask]
+
+        # Sort
+        _sort_map = {
+            "Days of Supply ↓": ("days_of_supply", False),
+            "Weeks of Supply ↓": ("weeks_of_supply", False),
+            "$ On-Hand ↓": ("dollars_on_hand", False),
+            "Days Since Last Sale ↓": ("days_since_last_sale", False),
+        }
+        _sort_col, _sort_asc = _sort_map.get(sm_sort_by, ("days_of_supply", False))
+        if _sort_col in working_df.columns:
+            working_df = working_df.sort_values(_sort_col, ascending=_sort_asc, na_position="last")
+
+        # Top-N
+        if sm_top_n and sm_top_n > 0:
+            working_df = working_df.head(sm_top_n)
+
+        # -------------------------------------------------------
+        # KPI SUMMARY STRIP
+        # -------------------------------------------------------
+        _slow_count = len(working_df[working_df["days_of_supply"] > sm_doh_threshold])
+        _units_tied = int(working_df["onhandunits"].sum())
+        _median_doh = working_df["days_of_supply"].replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan).median()
+        _median_doh_str = f"{_median_doh:.0f} days" if not pd.isna(_median_doh) else "N/A"
+
+        # Worst category by $ tied up or by units
+        _worst_cat_str = "N/A"
+        if inv_cat_col_raw and inv_cat_col_raw in working_df.columns and not working_df.empty:
+            try:
+                if "dollars_on_hand" in working_df.columns and working_df["dollars_on_hand"].notna().any():
+                    _worst_cat_str = (
+                        working_df.groupby(inv_cat_col_raw)["dollars_on_hand"].sum()
+                        .idxmax()
+                    )
                 else:
-                    return "No discount needed"
-            
-            slow_movers_filtered['suggested_discount'] = slow_movers_filtered['days_of_supply'].apply(suggest_discount)
-            
-            # Find category column using detect_column
-            cat_col = detect_column(slow_movers_filtered.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
-            
-            # Display results
-            display_cols = ["itemname", "onhandunits", 'daily_run_rate', 'days_of_supply', 'suggested_discount']
-            col_names = ['Product', 'On Hand', 'Daily Run Rate', 'Days of Supply', 'Suggested Discount']
-            
-            if cat_col:
-                display_cols.insert(1, cat_col)
-                col_names.insert(1, 'Category')
-            
-            display_df = slow_movers_filtered[display_cols].copy()
-            display_df.columns = col_names
-            display_df['Days of Supply'] = display_df['Days of Supply'].round(1)
-            display_df['Daily Run Rate'] = display_df['Daily Run Rate'].round(2)
-            display_df = display_df.sort_values('Days of Supply', ascending=False)
-            
-            st.markdown(f"**Found {len(display_df)} slow moving products**")
-            st.dataframe(display_df, use_container_width=True)
-            
-            # Summary by discount tier
+                    _worst_cat_str = (
+                        working_df.groupby(inv_cat_col_raw)["onhandunits"].sum()
+                        .idxmax()
+                    )
+            except ValueError:
+                _worst_cat_str = "N/A"
+
+        _dollars_tied_str = "N/A"
+        if "dollars_on_hand" in working_df.columns and working_df["dollars_on_hand"].notna().any():
+            _dollars_tied = working_df["dollars_on_hand"].sum()
+            _dollars_tied_str = f"${_dollars_tied:,.0f}"
+
+        st.markdown("#### 📌 Snapshot — Filtered Data")
+        _kc1, _kc2, _kc3, _kc4, _kc5 = st.columns(5)
+        _kc1.metric("🐢 Slow-moving SKUs", _slow_count,
+                    help=f"Products with DOH > {sm_doh_threshold} days in current view.")
+        _kc2.metric("📦 Units tied up", f"{_units_tied:,}",
+                    help="Total units on hand across filtered products.")
+        _kc3.metric("📊 Median DOH", _median_doh_str,
+                    help="Days-on-Hand: units on hand ÷ daily run rate.")
+        _kc4.metric("💰 $ Tied Up", _dollars_tied_str,
+                    help="Estimated inventory value tied up (requires cost column).")
+        _kc5.metric("🏷️ Worst Category", str(_worst_cat_str),
+                    help="Category with most units (or $ if cost available) tied up in slow movers.")
+
+        st.markdown("---")
+
+        # -------------------------------------------------------
+        # DECISION-FIRST TABLE (default columns: 7–9)
+        # -------------------------------------------------------
+        if working_df.empty:
+            st.success("✅ No products match current filters. Try adjusting thresholds or filters.")
+        else:
+            # Build display columns
+            _display_cols_map: dict = {}  # label -> source col
+            _avg_weekly_label = f"Avg Wkly Sales ({sm_velocity_window}d)"
+
+            if inv_sku_col and inv_sku_col in working_df.columns:
+                _display_cols_map["SKU"] = inv_sku_col
+            _display_cols_map["Product"] = "itemname"
+            if inv_brand_col and inv_brand_col in working_df.columns:
+                _display_cols_map["Brand/Vendor"] = inv_brand_col
+            if inv_cat_col_raw and inv_cat_col_raw in working_df.columns:
+                _display_cols_map["Category"] = inv_cat_col_raw
+            _display_cols_map["On Hand"] = "onhandunits"
+            _display_cols_map[_avg_weekly_label] = "avg_weekly_sales"
+            _display_cols_map["DOH"] = "days_of_supply"
+            _display_cols_map["Wks Supply"] = "weeks_of_supply"
+            if "dollars_on_hand" in working_df.columns and working_df["dollars_on_hand"].notna().any():
+                _display_cols_map["$ On-Hand"] = "dollars_on_hand"
+            if "days_since_last_sale" in working_df.columns and working_df["days_since_last_sale"].notna().any():
+                _display_cols_map["Days Since Sale"] = "days_since_last_sale"
+            _display_cols_map["Action"] = "action"
+
+            _src_cols = list(_display_cols_map.values())
+            _lbl_cols = list(_display_cols_map.keys())
+
+            display_df = working_df[[c for c in _src_cols if c in working_df.columns]].copy()
+            display_df.columns = [_lbl_cols[i] for i, c in enumerate(_src_cols) if c in working_df.columns]
+
+            # Round numeric columns
+            for _lbl in [_avg_weekly_label, "DOH", "Wks Supply"]:
+                if _lbl in display_df.columns:
+                    display_df[_lbl] = display_df[_lbl].replace(
+                        UNKNOWN_DAYS_OF_SUPPLY, np.nan
+                    ).round(1)
+            if "On Hand" in display_df.columns:
+                display_df["On Hand"] = display_df["On Hand"].round(0).astype(int)
+            if "$ On-Hand" in display_df.columns:
+                display_df["$ On-Hand"] = pd.to_numeric(
+                    display_df["$ On-Hand"], errors="coerce"
+                ).round(2)
+            if "Days Since Sale" in display_df.columns:
+                display_df["Days Since Sale"] = pd.to_numeric(
+                    display_df["Days Since Sale"], errors="coerce"
+                ).astype("Int64")
+
+            st.markdown(
+                f"**Showing {len(display_df)} product(s)** "
+                f"(velocity window: {sm_velocity_window} days | DOH threshold: {sm_doh_threshold})"
+            )
+
+            st.markdown('<div class="sm-table-wrap">', unsafe_allow_html=True)
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # -------------------------------------------------------
+            # EXPANDABLE: Show more columns (all original data)
+            # -------------------------------------------------------
+            with st.expander("🔎 Show full detail / all columns"):
+                st.dataframe(
+                    working_df.replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            # -------------------------------------------------------
+            # DISCOUNT TIER SUMMARY (preserved from original)
+            # -------------------------------------------------------
             st.markdown("### 📉 Discount Tier Summary")
-            tier_summary = display_df.groupby('Suggested Discount').agg({
-                'Product': 'count',
-                'On Hand': 'sum'
-            }).reset_index()
-            tier_summary.columns = ['Discount Tier', 'Product Count', 'Total Units']
-            st.dataframe(tier_summary, use_container_width=True)
-            
-            # Export to Excel
+            tier_summary = (
+                working_df.groupby("suggested_discount")
+                .agg(product_count=("itemname", "count"), total_units=("onhandunits", "sum"))
+                .reset_index()
+                .rename(columns={
+                    "suggested_discount": "Discount Tier",
+                    "product_count": "Product Count",
+                    "total_units": "Total Units",
+                })
+            )
+            st.dataframe(tier_summary, use_container_width=True, hide_index=True)
+
+            # -------------------------------------------------------
+            # EXPORT (preserves existing functionality + adds detail sheet)
+            # -------------------------------------------------------
             st.markdown("### 📥 Export")
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 display_df.to_excel(writer, sheet_name='Slow Movers', index=False)
                 tier_summary.to_excel(writer, sheet_name='Summary', index=False)
+                working_df.replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan).to_excel(
+                    writer, sheet_name='Full Detail', index=False
+                )
             output.seek(0)
-            
+
             st.download_button(
                 label="📥 Download Slow Movers Report (Excel)",
                 data=output,
                 file_name=f"slow_movers_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-        else:
-            st.success("✅ No slow movers found! All products are moving well.")
-    
+
     except Exception as e:
         st.error(f"Error analyzing slow movers: {str(e)}")
         import traceback
