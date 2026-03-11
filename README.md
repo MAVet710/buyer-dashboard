@@ -1,11 +1,143 @@
 # Cannabis Buyer Dashboard 🌿
 
-Streamlit dashboard for cannabis purchasing decisions based on Dutchie inventory and sales data.
+Streamlit dashboard for cannabis purchasing decisions based on Dutchie/BLAZE inventory and sales data.
+
+---
 
 ## How to Use
-1. Upload your latest **Inventory CSV** from Dutchie.
-2. Upload your **Sales XLSX** from the last 30 days.
-3. Explore reorder alerts, sales trends, and download the Buyer View.
+
+### Getting Started
+
+1. **Open the app** and log in using your Admin or User credentials in the left sidebar.
+2. **Navigate between pages** using the "App Section" radio buttons in the sidebar.
+3. **Upload your reports** in the sidebar of the relevant page (see sections below).
+4. Your uploaded files are **automatically saved for the rest of the day** — if your session times out and you log back in, your files will be restored without re-uploading.
+5. To remove all stored files, click **"🧹 Clear uploads (today & session)"** in the sidebar.
+
+---
+
+### Page 1 — 📊 Inventory Dashboard
+
+**What it does:** Calculates Days-on-Hand (DOH), reorder status, overstock flags, and expiring SKUs across your entire inventory.
+
+**Step-by-step:**
+1. In the sidebar, upload your **Inventory File** (CSV or Excel) and your **Product Sales Report** (XLSX).
+2. Optionally upload an **Extra Sales Detail** file (revenue-level XLSX) and a **Quarantine List** (CSV or Excel).
+3. Adjust **Forecast Settings** (Target DOH, Velocity Adjustment, Days in Sales Period) in the sidebar.
+4. Browse the **SKU Inventory Buyer View** tabs — All Inventory, Reorder, Overstock, and Expiring.
+5. Use the **Export** button to download the buyer view as an Excel file.
+
+#### Required columns — Inventory File (CSV or Excel)
+
+The dashboard auto-detects column names. Export from Dutchie or BLAZE without editing headers.
+
+| Purpose | Accepted column names (any of these) |
+|---|---|
+| **Product name** *(required)* | `Product`, `Product Name`, `Item`, `Item Name`, `Name`, `SKU Name` |
+| **Category** *(required)* | `Category`, `Subcategory`, `Product Category`, `Master Category`, `Department` |
+| **Units on hand** *(required)* | `Available`, `On Hand`, `On Hand Units`, `Quantity`, `Qty`, `Quantity On Hand`, `Inventory Available` |
+| **Batch / Lot** *(recommended)* | `Batch`, `Batch Number`, `Lot`, `Lot Number`, `Batch ID`, `Package ID` |
+| **Room / Location** *(recommended)* | `Room` — rows where Room = `Vault` are used; all other rooms are excluded |
+| **SKU / Product ID** *(optional)* | `SKU`, `SKU ID`, `Product ID`, `Item ID` |
+| **Unit cost / price** *(optional)* | `Cost`, `Unit Cost`, `COGS`, `Current Price`, `Wholesale` |
+| **Brand / Vendor** *(optional)* | `Brand`, `Brand Name`, `Vendor`, `Vendor Name`, `Manufacturer` |
+| **Expiration date** *(optional)* | `Expiration Date`, `Expiry`, `Expiry Date`, `Best By`, `Use By Date`, `Exp Date` |
+
+> **Dutchie tip:** Export from **Inventory → Current Inventory** and include all columns. Make sure to export **all rooms** so the Vault filter can work correctly.
+
+#### Required columns — Product Sales Report (XLSX)
+
+| Purpose | Accepted column names (any of these) |
+|---|---|
+| **Product name** *(required)* | `Product`, `Product Name`, `Item`, `Name`, `SKU` |
+| **Category** *(required)* | `Master Category`, `Category`, `Product Category`, `Department` |
+| **Units sold** *(required)* | `Quantity Sold`, `Qty Sold`, `Units Sold`, `Items Sold`, `Total Inventory Sold` |
+| **Net / Gross sales** *(optional)* | `Net Sales`, `Gross Sales`, `Revenue`, `Total Sales` |
+| **Batch / Lot** *(optional)* | `Batch`, `Batch ID`, `Lot`, `Lot Number` |
+| **Order date/time** *(optional)* | `Order Date`, `Order Time`, `DateTime` |
+
+> **Dutchie tip:** Export from **Reports → Product Sales Report** (qty-based). Set the date range to match your "Days in Sales Period" setting (default: 60 days). Do **not** edit column headers before uploading.
+
+#### Optional — Extra Sales Detail (XLSX)
+
+Same format as the Product Sales Report. Use this to attach a revenue-detail report when your primary sales file does not include net sales amounts.
+
+#### Optional — Quarantine List (CSV or Excel)
+
+A list of product names to exclude from analysis. Only the product name column is required (same aliases as the Inventory File above).
+
+---
+
+### Page 2 — 📈 Trends
+
+**What it does:** Provides a category mix breakdown, package size mix, top movers by velocity, and fast-mover / low-stock risk scoring.
+
+No additional file uploads are needed — this page uses the same inventory and sales files uploaded on the Inventory Dashboard page.
+
+---
+
+### Page 3 — 🚚 Delivery Impact
+
+**What it does:** Measures whether a product delivery correlates with an uptick in daily revenue.
+
+**Step-by-step:**
+1. Upload your **Delivery/Receiving Report** (CSV or XLSX).
+2. Upload your **Daily Sales Report** (CSV or XLSX).
+3. Select the analysis window (3, 7, or 14 days before/after delivery).
+4. View the revenue lift table and summary metrics.
+
+#### Required columns — Delivery/Receiving Report (CSV or XLSX)
+
+| Purpose | Accepted column names (any of these) |
+|---|---|
+| **Received / delivery date** *(required)* | Any column whose name contains `date` or `received` |
+
+Additional columns (product, quantity, category, batch) are accepted but not required for the lift calculation.
+
+> **Dutchie tip:** Export from **Reports → Receiving Report** or **Transfers → Inbound**. Ensure the export includes a date column.
+
+#### Required columns — Daily Sales Report (CSV or XLSX)
+
+| Purpose | Accepted column names (any of these) |
+|---|---|
+| **Sale date** *(required)* | Any column whose name contains `date`; or a single-day file with `From Date` / `To Date` metadata rows |
+| **Revenue** *(required — one of)* | `Net Sales`, `NetSales` — preferred; or `Gross Sales`, `GrossSales` as fallback |
+| **Category** *(optional but recommended)* | `Category` |
+| **Product** *(optional)* | `Product` |
+
+> **Dutchie tip:** Export from **Reports → Sales Summary** or **Daily Sales**. If your export has metadata rows at the top (Export Date, From Date, To Date), leave them in — the dashboard skips them automatically.
+
+---
+
+### Page 4 — 🐢 Slow Movers
+
+**What it does:** Identifies products with excess Days-on-Hand and assigns action badges and discount tiers.
+
+No additional file uploads are needed — this page uses the same inventory and sales files uploaded on the Inventory Dashboard page.
+
+Use the filter bar to narrow results by category, brand, DOH threshold, and velocity window. Export the full slow-mover analysis to Excel (3 sheets: Slow Movers, Summary, Full Detail).
+
+---
+
+### Page 5 — 🧾 PO Builder
+
+**What it does:** Generates a purchase order PDF pre-populated with flagged reorder items from the Inventory Dashboard.
+
+**Step-by-step:**
+1. Visit the **Inventory Dashboard** first so reorder data is loaded.
+2. Navigate to **PO Builder** and click **"Add all flagged reorder items"** to pre-populate the PO.
+3. Edit line items, enter store and vendor details, and click **"Generate PO PDF"** to download.
+
+---
+
+## Session & Data Persistence
+
+- Uploaded files are stored **in memory for the current calendar day** (per user login).
+- If your session times out (typically after ~30 minutes of browser inactivity on Streamlit Cloud), simply **log back in** — your files from today will be restored automatically.
+- Files are **not** stored on disk or in any external database. They live in server memory and are cleared at midnight or when the server restarts.
+- Click **"🧹 Clear uploads (today & session)"** in the sidebar to manually remove all stored files.
+
+---
 
 ## Slow Movers & Trends — Glossary
 

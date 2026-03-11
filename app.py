@@ -540,6 +540,80 @@ st.set_page_config(
 background_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
 
 # =========================
+# DAILY DATA PERSISTENCE
+# Persists uploaded file bytes across session timeouts for the current calendar day.
+# Uses @st.cache_resource so the store lives in server memory for the process lifetime.
+# Keyed by {YYYY-MM-DD}::{username} so data is isolated per user and auto-expires at midnight.
+# =========================
+_DAILY_CACHE_KEYS = ["_cache_inv", "_cache_sales", "_cache_extra_sales", "_cache_quarantine"]
+
+
+@st.cache_resource
+def _get_daily_store() -> dict:
+    """Return the server-wide mutable dict used for daily file-cache persistence."""
+    return {}
+
+
+def _daily_store_key(username: str) -> str:
+    # Use | as delimiter since it cannot appear in typical usernames
+    return f"{datetime.now().strftime('%Y-%m-%d')}|{username}"
+
+
+def _save_to_daily_store(username: str) -> None:
+    """Persist the current session's file caches to the cross-session daily store."""
+    if not username:
+        return
+    store = _get_daily_store()
+    key = _daily_store_key(username)
+    if key not in store:
+        store[key] = {}
+    for ck in _DAILY_CACHE_KEYS:
+        val = st.session_state.get(ck)
+        if isinstance(val, dict) and val.get("bytes"):
+            store[key][ck] = {"name": val.get("name", ""), "bytes": val["bytes"]}
+    store[key]["_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Purge entries from previous days to avoid unbounded memory growth
+    today = datetime.now().strftime("%Y-%m-%d")
+    for k in list(store.keys()):
+        if not k.startswith(today):
+            del store[k]
+
+
+def _load_from_daily_store(username: str) -> bool:
+    """
+    Restore today's file caches from the daily store into session state.
+    Only restores keys that are not already set in session state.
+    Returns True if at least one file cache was restored.
+    """
+    if not username:
+        return False
+    store = _get_daily_store()
+    data = store.get(_daily_store_key(username), {})
+    restored = False
+    for ck in _DAILY_CACHE_KEYS:
+        if ck in data and not st.session_state.get(ck):
+            st.session_state[ck] = data[ck]
+            restored = True
+    return restored
+
+
+def _clear_daily_store(username: str) -> None:
+    """Remove today's stored file caches for this user from both the store and session state."""
+    if not username:
+        return
+    store = _get_daily_store()
+    key = _daily_store_key(username)
+    if key in store:
+        del store[key]
+    for ck in _DAILY_CACHE_KEYS:
+        st.session_state.pop(ck, None)
+    # Also reset processed DataFrames so the UI prompts for new uploads
+    for sk in ["inv_raw_df", "sales_raw_df", "extra_sales_df",
+               "detail_cached_df", "detail_product_cached_df"]:
+        st.session_state[sk] = None
+
+
+# =========================
 # SESSION STATE DEFAULTS
 # =========================
 if "is_admin" not in st.session_state:
@@ -583,6 +657,12 @@ if "uploaded_files_store" not in st.session_state:
 # Upload de-dupe signature store (prevents repeated logging on reruns)
 if "_upload_sig_seen" not in st.session_state:
     st.session_state._upload_sig_seen = set()
+
+# Daily persistence restore flags (prevent re-restoring on every rerun)
+if "_daily_restored" not in st.session_state:
+    st.session_state._daily_restored = False
+if "_daily_restore_msg" not in st.session_state:
+    st.session_state._daily_restore_msg = False
 
 # Brute-force login protection counters
 _LOCKOUT_MAX_ATTEMPTS = 5
@@ -1987,11 +2067,33 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
 
 # =========================
+# RESTORE TODAY'S UPLOADS (cross-session persistence)
+# Runs once per session, after authentication is confirmed.
+# =========================
+if not st.session_state._daily_restored:
+    _restore_username = None
+    if st.session_state.is_admin and st.session_state.admin_user:
+        _restore_username = st.session_state.admin_user
+    elif st.session_state.user_authenticated and st.session_state.user_user:
+        _restore_username = st.session_state.user_user
+    if _restore_username:
+        _restored_any = _load_from_daily_store(_restore_username)
+        st.session_state._daily_restored = True
+        if _restored_any:
+            st.session_state._daily_restore_msg = True
+
+# =========================
 # HEADER
 # =========================
 st.title(f"🌿 {APP_TITLE}")
 st.markdown(f"**Brand:** {CLIENT_NAME}")
 st.markdown(APP_TAGLINE)
+if st.session_state.get("_daily_restore_msg"):
+    st.info(
+        "📂 Your uploads from earlier today have been restored automatically. "
+        "You can re-upload files at any time to refresh them."
+    )
+    st.session_state._daily_restore_msg = False
 if OPENAI_AVAILABLE:
     st.markdown("✅ AI buyer-assist is **ON** for this session.")
 else:
@@ -2134,6 +2236,14 @@ if section == "📊 Inventory Dashboard":
     _cache_upload(extra_sales_file, "_cache_extra_sales")
     _cache_upload(quarantine_file, "_cache_quarantine")
 
+    # Persist file caches to the daily store so they survive session timeouts
+    _ds_user = (
+        st.session_state.admin_user if st.session_state.is_admin
+        else st.session_state.get("user_user")
+    )
+    if _ds_user:
+        _save_to_daily_store(_ds_user)
+
     if inv_file is None:
         inv_file = _load_cached("_cache_inv")
         if inv_file is not None:
@@ -2151,10 +2261,13 @@ if section == "📊 Inventory Dashboard":
         if quarantine_file is not None:
             st.sidebar.caption(f"Using cached Quarantine file: {quarantine_file.name}")
 
-    if st.sidebar.button("🧹 Clear cached uploads"):
-        for k in ["_cache_inv", "_cache_sales", "_cache_extra_sales", "_cache_quarantine"]:
-            if k in st.session_state:
-                del st.session_state[k]
+    if st.sidebar.button("🧹 Clear uploads (today & session)"):
+        _ds_user_clear = (
+            st.session_state.admin_user if st.session_state.is_admin
+            else st.session_state.get("user_user")
+        )
+        _clear_daily_store(_ds_user_clear)
+        st.session_state._daily_restored = False
         _safe_rerun()
 
     # Track uploads for God viewer (de-duped)
