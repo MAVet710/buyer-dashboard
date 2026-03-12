@@ -38,6 +38,15 @@ except ImportError:
     _bcrypt = None  # type: ignore
     BCRYPT_AVAILABLE = False
 
+# ------------------------------------------------------------
+# OPTIONAL / SAFE IMPORT FOR DUTCHIE LIVE CLIENT
+# ------------------------------------------------------------
+try:
+    from dutchie_client import DutchieConfig, fetch_dutchie_data
+    _DUTCHIE_CLIENT_AVAILABLE = True
+except (ImportError, AttributeError):
+    _DUTCHIE_CLIENT_AVAILABLE = False
+
 
 def hash_password(plain: str) -> str:
     """Hash a plaintext password with bcrypt. For admin/dev use only."""
@@ -646,6 +655,8 @@ if "theme" not in st.session_state:
     st.session_state.theme = "Dark"  # Dark by default
 if "strain_lookup_enabled" not in st.session_state:
     st.session_state.strain_lookup_enabled = True  # Enable free strain database lookup by default
+if "data_mode" not in st.session_state:
+    st.session_state.data_mode = "📁 Uploads"  # Default to manual upload mode
 
 # Upload tracking (God-only viewer)
 if "upload_log" not in st.session_state:
@@ -2159,6 +2170,22 @@ if st.session_state.is_admin:
                 )
 
 # =========================
+# GLOBAL DATA MODE SELECTOR
+# =========================
+st.sidebar.markdown("---")
+data_mode = st.sidebar.radio(
+    "🔌 Data Input Mode",
+    ["📁 Uploads", "🔴 Dutchie Live"],
+    key="data_mode",
+    help=(
+        "Uploads: use manual CSV/XLSX exports from your POS system (current behaviour). "
+        "Dutchie Live: pull data directly from the Dutchie API — requires API credentials. "
+        "See docs/dutchie.md for setup instructions."
+    ),
+)
+st.sidebar.markdown("---")
+
+# =========================
 # PAGE SWITCH
 # =========================
 section = st.sidebar.radio(
@@ -2180,110 +2207,142 @@ if section == "📊 Inventory Dashboard":
         help="Changes how column names are interpreted. Files are still CSV/XLSX exports.",
     )
 
-    st.sidebar.header("📂 Upload Core Reports")
-    inv_file = st.sidebar.file_uploader(
-        "Inventory File (CSV or Excel)", type=["csv", "xlsx", "xls"], key="inv_upload"
-    )
-    product_sales_file = st.sidebar.file_uploader(
-        "Product Sales Report (qty-based Excel)", type=["xlsx", "xls"], key="sales_upload"
-    )
-    extra_sales_file = st.sidebar.file_uploader(
-        "Optional Extra Sales Detail (revenue)",
-        type=["xlsx", "xls"],
-        help="Optional: revenue detail. Can be used for pricing trends.",
-        key="extra_sales_upload",
-    )
-    quarantine_file = st.sidebar.file_uploader(
-        "Quarantine List (CSV or Excel)",
-        type=["csv", "xlsx", "xls"],
-        help="Optional: list of items in quarantine to exclude from slow movers analysis.",
-        key="quarantine_upload",
-    )
-
     # ------------------------------------------------------------
-    # UPLOAD CACHE (prevents uploads from wiping when switching tabs)
+    # DATA SOURCE: UPLOADS vs DUTCHIE LIVE
     # ------------------------------------------------------------
-    class _UploadedFileLike(BytesIO):
-        def __init__(self, b: bytes, name: str):
-            super().__init__(b)
-            self.name = name
+    if data_mode == "📁 Uploads":
+        st.sidebar.header("📂 Upload Core Reports")
+        inv_file = st.sidebar.file_uploader(
+            "Inventory File (CSV or Excel)", type=["csv", "xlsx", "xls"], key="inv_upload"
+        )
+        product_sales_file = st.sidebar.file_uploader(
+            "Product Sales Report (qty-based Excel)", type=["xlsx", "xls"], key="sales_upload"
+        )
+        extra_sales_file = st.sidebar.file_uploader(
+            "Optional Extra Sales Detail (revenue)",
+            type=["xlsx", "xls"],
+            help="Optional: revenue detail. Can be used for pricing trends.",
+            key="extra_sales_upload",
+        )
+        quarantine_file = st.sidebar.file_uploader(
+            "Quarantine List (CSV or Excel)",
+            type=["csv", "xlsx", "xls"],
+            help="Optional: list of items in quarantine to exclude from slow movers analysis.",
+            key="quarantine_upload",
+        )
 
-    def _cache_upload(file_obj, cache_key: str):
-        if file_obj is None:
-            return
-        try:
-            file_obj.seek(0)
-            b = file_obj.read()
-            file_obj.seek(0)
-        except Exception:
-            return
-        if len(b) > MAX_UPLOAD_BYTES:
-            st.error(
-                f"❌ File '{getattr(file_obj, 'name', 'upload')}' exceeds the "
-                f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB size limit and was not processed."
-            )
-            return
-        st.session_state[cache_key] = {"name": getattr(file_obj, "name", "upload"), "bytes": b}
+        # ------------------------------------------------------------
+        # UPLOAD CACHE (prevents uploads from wiping when switching tabs)
+        # ------------------------------------------------------------
+        class _UploadedFileLike(BytesIO):
+            def __init__(self, b: bytes, name: str):
+                super().__init__(b)
+                self.name = name
 
-    def _load_cached(cache_key: str):
-        obj = st.session_state.get(cache_key)
-        if isinstance(obj, dict) and obj.get("bytes"):
-            return _UploadedFileLike(obj["bytes"], obj.get("name", "cached_upload"))
-        return None
+        def _cache_upload(file_obj, cache_key: str):
+            if file_obj is None:
+                return
+            try:
+                file_obj.seek(0)
+                b = file_obj.read()
+                file_obj.seek(0)
+            except Exception:
+                return
+            if len(b) > MAX_UPLOAD_BYTES:
+                st.error(
+                    f"❌ File '{getattr(file_obj, 'name', 'upload')}' exceeds the "
+                    f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB size limit and was not processed."
+                )
+                return
+            st.session_state[cache_key] = {"name": getattr(file_obj, "name", "upload"), "bytes": b}
 
-    _cache_upload(inv_file, "_cache_inv")
-    _cache_upload(product_sales_file, "_cache_sales")
-    _cache_upload(extra_sales_file, "_cache_extra_sales")
-    _cache_upload(quarantine_file, "_cache_quarantine")
+        def _load_cached(cache_key: str):
+            obj = st.session_state.get(cache_key)
+            if isinstance(obj, dict) and obj.get("bytes"):
+                return _UploadedFileLike(obj["bytes"], obj.get("name", "cached_upload"))
+            return None
 
-    # Persist file caches to the daily store so they survive session timeouts
-    _ds_user = (
-        st.session_state.admin_user if st.session_state.is_admin
-        else st.session_state.get("user_user")
-    )
-    if _ds_user:
-        _save_to_daily_store(_ds_user)
+        _cache_upload(inv_file, "_cache_inv")
+        _cache_upload(product_sales_file, "_cache_sales")
+        _cache_upload(extra_sales_file, "_cache_extra_sales")
+        _cache_upload(quarantine_file, "_cache_quarantine")
 
-    if inv_file is None:
-        inv_file = _load_cached("_cache_inv")
-        if inv_file is not None:
-            st.sidebar.caption(f"Using cached Inventory file: {inv_file.name}")
-    if product_sales_file is None:
-        product_sales_file = _load_cached("_cache_sales")
-        if product_sales_file is not None:
-            st.sidebar.caption(f"Using cached Product Sales file: {product_sales_file.name}")
-    if extra_sales_file is None:
-        extra_sales_file = _load_cached("_cache_extra_sales")
-        if extra_sales_file is not None:
-            st.sidebar.caption(f"Using cached Extra Sales file: {extra_sales_file.name}")
-    if quarantine_file is None:
-        quarantine_file = _load_cached("_cache_quarantine")
-        if quarantine_file is not None:
-            st.sidebar.caption(f"Using cached Quarantine file: {quarantine_file.name}")
-
-    if st.sidebar.button("🧹 Clear uploads (today & session)"):
-        _ds_user_clear = (
+        # Persist file caches to the daily store so they survive session timeouts
+        _ds_user = (
             st.session_state.admin_user if st.session_state.is_admin
             else st.session_state.get("user_user")
         )
-        _clear_daily_store(_ds_user_clear)
-        st.session_state._daily_restored = False
-        _safe_rerun()
+        if _ds_user:
+            _save_to_daily_store(_ds_user)
 
-    # Track uploads for God viewer (de-duped)
-    current_user = (
-        st.session_state.admin_user
-        if st.session_state.is_admin
-        else (st.session_state.user_user if st.session_state.user_authenticated else "trial_user")
-    )
-    if inv_file is not None:
-        track_upload(inv_file, current_user, "inventory")
-    if product_sales_file is not None:
-        track_upload(product_sales_file, current_user, "product_sales")
-    if extra_sales_file is not None:
-        track_upload(extra_sales_file, current_user, "extra_sales")
-    if quarantine_file is not None:
-        track_upload(quarantine_file, current_user, "quarantine")
+        if inv_file is None:
+            inv_file = _load_cached("_cache_inv")
+            if inv_file is not None:
+                st.sidebar.caption(f"Using cached Inventory file: {inv_file.name}")
+        if product_sales_file is None:
+            product_sales_file = _load_cached("_cache_sales")
+            if product_sales_file is not None:
+                st.sidebar.caption(f"Using cached Product Sales file: {product_sales_file.name}")
+        if extra_sales_file is None:
+            extra_sales_file = _load_cached("_cache_extra_sales")
+            if extra_sales_file is not None:
+                st.sidebar.caption(f"Using cached Extra Sales file: {extra_sales_file.name}")
+        if quarantine_file is None:
+            quarantine_file = _load_cached("_cache_quarantine")
+            if quarantine_file is not None:
+                st.sidebar.caption(f"Using cached Quarantine file: {quarantine_file.name}")
+
+        if st.sidebar.button("🧹 Clear uploads (today & session)"):
+            _ds_user_clear = (
+                st.session_state.admin_user if st.session_state.is_admin
+                else st.session_state.get("user_user")
+            )
+            _clear_daily_store(_ds_user_clear)
+            st.session_state._daily_restored = False
+            _safe_rerun()
+
+        # Track uploads for God viewer (de-duped)
+        current_user = (
+            st.session_state.admin_user
+            if st.session_state.is_admin
+            else (st.session_state.user_user if st.session_state.user_authenticated else "trial_user")
+        )
+        if inv_file is not None:
+            track_upload(inv_file, current_user, "inventory")
+        if product_sales_file is not None:
+            track_upload(product_sales_file, current_user, "product_sales")
+        if extra_sales_file is not None:
+            track_upload(extra_sales_file, current_user, "extra_sales")
+        if quarantine_file is not None:
+            track_upload(quarantine_file, current_user, "quarantine")
+
+    else:
+        # ── Dutchie Live mode ────────────────────────────────────────────────
+        # File upload widgets are not shown; data comes from the Dutchie API.
+        inv_file = None
+        product_sales_file = None
+        extra_sales_file = None
+        quarantine_file = None
+
+        if _DUTCHIE_CLIENT_AVAILABLE:
+            _dc = DutchieConfig.from_env_and_secrets()
+            _bundle, _dutchie_err = fetch_dutchie_data(_dc)
+            if _dutchie_err:
+                st.sidebar.warning(f"⚠️ Dutchie Live: {_dutchie_err}")
+            else:
+                _inv_live, _sales_live, _extra_live, _del_live, _dsales_live = _bundle
+                if _inv_live is not None:
+                    st.session_state.inv_raw_df = _inv_live
+                if _sales_live is not None:
+                    st.session_state.sales_raw_df = _sales_live
+                if _extra_live is not None:
+                    st.session_state.extra_sales_df = _extra_live
+                if _del_live is not None:
+                    st.session_state.delivery_raw_df = _del_live
+                if _dsales_live is not None:
+                    st.session_state.daily_sales_raw_df = _dsales_live
+        else:
+            st.sidebar.error("❌ dutchie_client module is not available.")
 
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Forecast Settings")
@@ -2359,7 +2418,26 @@ if section == "📊 Inventory Dashboard":
         st.session_state.quarantined_items = set()
 
     if st.session_state.inv_raw_df is None or st.session_state.sales_raw_df is None:
-        st.info("Upload inventory + product sales files to continue.")
+        if data_mode == "📁 Uploads":
+            st.info("📂 Upload inventory + product sales files to continue.")
+        else:
+            if _DUTCHIE_CLIENT_AVAILABLE:
+                _dc_check = DutchieConfig.from_env_and_secrets()
+                if not _dc_check.is_configured():
+                    st.warning(
+                        "🔴 **Dutchie Live** mode is active but API credentials are not configured.  "
+                        f"Missing: `{'`, `'.join(_dc_check.missing_keys())}`.  "
+                        "See *docs/dutchie.md* for setup instructions, or switch to "
+                        "**📁 Uploads** mode in the sidebar."
+                    )
+                else:
+                    st.warning(
+                        "🔴 **Dutchie Live** mode is active but no data was returned.  "
+                        "Credentials are configured — add the real API calls in "
+                        "`dutchie_client.py → fetch_dutchie_data` to enable live data."
+                    )
+            else:
+                st.error("❌ dutchie_client module is not available.")
         st.stop()
 
     try:
@@ -3618,29 +3696,59 @@ elif section == "📈 Trends":
 # ============================================================
 elif section == "🚚 Delivery Impact":
     st.subheader("Delivery Impact Analysis")
-    st.write(
-        "Use this page to measure whether deliveries correlate with an uptick in **revenue**. "
-        "Upload (1) a delivery/receiving report with a received date and (2) a daily sales report "
-        "(CSV export from your POS). Revenue is measured using Net Sales (or Gross Sales as fallback)."
-    )
 
-    col1, col2 = st.columns(2)
+    # Initialize file variables so they are always defined for the processing block below.
+    delivery_file = None
+    daily_sales_file = None
 
-    with col1:
-        st.markdown("#### 📦 Delivery File")
-        delivery_file = st.file_uploader(
-            "Upload delivery/receiving report (CSV or XLSX)",
-            type=["csv", "xlsx"],
-            key="delivery_upload",
+    if data_mode == "🔴 Dutchie Live":
+        # ── Dutchie Live mode ────────────────────────────────────────────────
+        st.info(
+            "🔴 **Dutchie Live** mode is active.  "
+            "Delivery and daily sales data will be fetched from the Dutchie API once "
+            "credentials are configured."
+        )
+        if _DUTCHIE_CLIENT_AVAILABLE:
+            _dc_del = DutchieConfig.from_env_and_secrets()
+            if not _dc_del.is_configured():
+                st.warning(
+                    "⚠️ Dutchie API credentials are not yet configured.  "
+                    f"Missing: `{'`, `'.join(_dc_del.missing_keys())}`.  "
+                    "See *docs/dutchie.md* for setup instructions, or switch to "
+                    "**📁 Uploads** mode in the sidebar."
+                )
+            else:
+                _bundle_del, _err_del = fetch_dutchie_data(_dc_del)
+                if _err_del:
+                    st.warning(f"⚠️ Dutchie Live: {_err_del}")
+                else:
+                    st.success("✅ Dutchie Live: delivery data fetched successfully.")
+        else:
+            st.error("❌ dutchie_client module is not available.")
+    else:
+        st.write(
+            "Use this page to measure whether deliveries correlate with an uptick in **revenue**. "
+            "Upload (1) a delivery/receiving report with a received date and (2) a daily sales report "
+            "(CSV export from your POS). Revenue is measured using Net Sales (or Gross Sales as fallback)."
         )
 
-    with col2:
-        st.markdown("#### 📈 Daily Sales File")
-        daily_sales_file = st.file_uploader(
-            "Upload daily sales report (CSV or XLSX)",
-            type=["csv", "xlsx"],
-            key="daily_sales_upload",
-        )
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("#### 📦 Delivery File")
+            delivery_file = st.file_uploader(
+                "Upload delivery/receiving report (CSV or XLSX)",
+                type=["csv", "xlsx"],
+                key="delivery_upload",
+            )
+
+        with col2:
+            st.markdown("#### 📈 Daily Sales File")
+            daily_sales_file = st.file_uploader(
+                "Upload daily sales report (CSV or XLSX)",
+                type=["csv", "xlsx"],
+                key="daily_sales_upload",
+            )
 
     if delivery_file and daily_sales_file:
         try:
