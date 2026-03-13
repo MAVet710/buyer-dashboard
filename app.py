@@ -166,6 +166,10 @@ INV_COST_ALIASES = [
 INV_RETAIL_PRICE_ALIASES = [
     "medprice", "med price", "retail", "retailprice", "retail price", "msrp",
 ]
+INV_STRAIN_TYPE_ALIASES = [
+    "straintype", "strain type", "strain", "ecommstraintype", "ecomm strain type",
+    "producttype", "product type",
+]
 INV_BRAND_ALIASES = [
     "brand", "brandname", "brand name", "vendor", "vendorname", "vendor name",
     "manufacturer", "producer", "supplier",
@@ -178,6 +182,15 @@ INV_EXPIRY_ALIASES = [
     "bestby", "best by", "bestbydate", "best by date", "usebydate", "use by date",
     "expires", "exp", "expdate", "exp date",
 ]
+
+# Fraction of retail price used to derive unit_cost when no explicit cost column is present
+INV_COST_RETAIL_RATIO = 0.5
+
+# Recognized strain type values from explicit column (prefer these over inferred extraction)
+VALID_STRAIN_TYPES = frozenset([
+    "indica", "sativa", "hybrid", "cbd",
+    "indica dominant hybrid", "sativa dominant hybrid",
+])
 
 # Inventory Dashboard – Buyer View constants
 # Sort options for buyer-focused inventory view
@@ -2477,6 +2490,7 @@ if section == "📊 Inventory Dashboard":
         batch_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BATCH_ALIASES])
         cost_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_COST_ALIASES])
         retail_price_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
+        strain_type_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_STRAIN_TYPE_ALIASES])
 
         if not (name_col and cat_col and qty_col):
             st.error(
@@ -2490,12 +2504,17 @@ if section == "📊 Inventory Dashboard":
             inv_df = inv_df.rename(columns={sku_col: "sku"})
         if batch_col:
             inv_df = inv_df.rename(columns={batch_col: "batch"})
-        if cost_col:
-            inv_df = inv_df.rename(columns={cost_col: "unit_cost"})
-            inv_df["unit_cost"] = parse_currency_to_float(inv_df["unit_cost"]).fillna(0)
+        if strain_type_col:
+            inv_df = inv_df.rename(columns={strain_type_col: "_explicit_strain_type"})
         if retail_price_col:
             inv_df = inv_df.rename(columns={retail_price_col: "retail_price"})
             inv_df["retail_price"] = parse_currency_to_float(inv_df["retail_price"])
+        # Always derive unit_cost as INV_COST_RETAIL_RATIO of retail_price (overrides any explicit cost column)
+        if "retail_price" in inv_df.columns:
+            inv_df["unit_cost"] = inv_df["retail_price"].fillna(0) * INV_COST_RETAIL_RATIO
+        elif cost_col:
+            inv_df = inv_df.rename(columns={cost_col: "unit_cost"})
+            inv_df["unit_cost"] = parse_currency_to_float(inv_df["unit_cost"]).fillna(0)
 
         # Normalize itemname for better matching
         inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
@@ -2512,7 +2531,13 @@ if section == "📊 Inventory Dashboard":
             st.sidebar.info(dedupe_log)
 
         inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
+        # Derive strain_type from name/category, then prefer explicit column if present
         inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+        if "_explicit_strain_type" in inv_df.columns:
+            explicit = inv_df["_explicit_strain_type"].astype(str).str.strip().str.lower()
+            valid = explicit.isin(VALID_STRAIN_TYPES)
+            inv_df.loc[valid, "strain_type"] = explicit[valid]
+            inv_df = inv_df.drop(columns=["_explicit_strain_type"])
         inv_df["packagesize"] = inv_df.apply(lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
         inv_df["product_name"] = inv_df["itemname"]  # alias for product-level groupings; itemname retained for existing merges
 

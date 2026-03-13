@@ -397,6 +397,17 @@ INV_COST_ALIASES = [
 INV_RETAIL_PRICE_ALIASES = [
     "medprice", "med price", "retail", "retailprice", "retail price", "msrp",
 ]
+INV_STRAIN_TYPE_ALIASES = [
+    "straintype", "strain type", "strain", "ecommstraintype", "ecomm strain type",
+    "producttype", "product type",
+]
+
+# Mirrored from app.py
+INV_COST_RETAIL_RATIO = 0.5
+VALID_STRAIN_TYPES = frozenset([
+    "indica", "sativa", "hybrid", "cbd",
+    "indica dominant hybrid", "sativa dominant hybrid",
+])
 
 
 def _normalize_col(col: str) -> str:
@@ -835,3 +846,161 @@ class TestInventoryUnitCostAggregation:
         ]
         unit_cost = row["unit_cost"].iloc[0]
         assert round(unit_cost / 2, 2) == 12.5
+
+
+# ── Tests: Strain Type Alias Detection ───────────────────────────────────────
+
+class TestStrainTypeAliasDetection:
+    """Verify that strain type column headers are correctly detected."""
+
+    def _detect(self, header):
+        return _detect_column([header], [_normalize_col(a) for a in INV_STRAIN_TYPE_ALIASES])
+
+    def test_ecomm_strain_type_spaced_detected(self):
+        assert self._detect("EComm Strain Type") == "EComm Strain Type"
+
+    def test_ecomm_strain_type_lowercase_detected(self):
+        assert self._detect("ecomm strain type") == "ecomm strain type"
+
+    def test_ecomm_strain_type_no_space_detected(self):
+        assert self._detect("ecommstraintype") == "ecommstraintype"
+
+    def test_strain_type_spaced_detected(self):
+        assert self._detect("strain type") == "strain type"
+
+    def test_strain_detected(self):
+        assert self._detect("Strain") == "Strain"
+
+    def test_product_type_detected(self):
+        assert self._detect("Product Type") == "Product Type"
+
+    def test_unit_cost_not_detected_as_strain(self):
+        assert self._detect("unit cost") is None
+
+
+# ── Tests: unit_cost = retail_price * 0.5 override ───────────────────────────
+
+class TestUnitCostDerivedFromRetailPrice:
+    """Verify that unit_cost is always computed as 50% of retail_price (Option 2)."""
+
+    def _normalize_inv(self, rows):
+        """
+        Simulate the Inventory Dashboard normalization: detect columns, rename,
+        parse retail_price, derive unit_cost = retail_price * 0.5.
+        """
+        inv_df = pd.DataFrame(rows)
+        inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
+
+        retail_col = _detect_column(inv_df.columns, [_normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
+        cost_col = _detect_column(inv_df.columns, [_normalize_col(a) for a in INV_COST_ALIASES])
+
+        if retail_col:
+            inv_df = inv_df.rename(columns={retail_col: "retail_price"})
+            inv_df["retail_price"] = _parse_currency_to_float(inv_df["retail_price"])
+        # Always derive unit_cost as INV_COST_RETAIL_RATIO of retail_price (overrides any explicit cost column)
+        if "retail_price" in inv_df.columns:
+            inv_df["unit_cost"] = inv_df["retail_price"].fillna(0) * INV_COST_RETAIL_RATIO
+        elif cost_col:
+            inv_df = inv_df.rename(columns={cost_col: "unit_cost"})
+            inv_df["unit_cost"] = _parse_currency_to_float(inv_df["unit_cost"]).fillna(0)
+
+        return inv_df
+
+    def test_unit_cost_is_half_of_retail_price(self):
+        df = self._normalize_inv([
+            {"Name": "OG Kush 3.5g", "Med Price": "$40.00"},
+        ])
+        assert df["retail_price"].iloc[0] == pytest.approx(40.0)
+        assert df["unit_cost"].iloc[0] == pytest.approx(20.0)
+
+    def test_unit_cost_overrides_explicit_cost_column(self):
+        """Even when an explicit cost column is present, unit_cost = retail_price * 0.5."""
+        df = self._normalize_inv([
+            {"Name": "Blue Dream 1g", "Med Price": "$10.00", "Cost": "$3.00"},
+        ])
+        assert df["retail_price"].iloc[0] == pytest.approx(10.0)
+        # unit_cost must be 50% of retail_price, not the explicit cost value
+        assert df["unit_cost"].iloc[0] == pytest.approx(5.0)
+
+    def test_unit_cost_zero_when_retail_price_nan(self):
+        df = self._normalize_inv([
+            {"Name": "No Price SKU", "Med Price": ""},
+        ])
+        assert pd.isna(df["retail_price"].iloc[0])
+        assert df["unit_cost"].iloc[0] == pytest.approx(0.0)
+
+    def test_unit_cost_uses_cost_col_when_no_retail_price(self):
+        """Fallback: when no retail price column, use the explicit cost column."""
+        df = self._normalize_inv([
+            {"Name": "SKU A", "Cost": "$15.00"},
+        ])
+        assert "retail_price" not in df.columns
+        assert df["unit_cost"].iloc[0] == pytest.approx(15.0)
+
+    def test_full_dutchie_row_retail_and_cost(self):
+        """End-to-end: Dutchie export with Name, EComm Category, Med Total, Med Price."""
+        raw_headers = ["Name", "EComm Category", "Med Total", "Med Price"]
+        columns = [h.strip().lower() for h in raw_headers]
+
+        name_col = _detect_column(columns, [_normalize_col(a) for a in INV_NAME_ALIASES])
+        cat_col = _detect_column(columns, [_normalize_col(a) for a in INV_CAT_ALIASES])
+        qty_col = _detect_column(columns, [_normalize_col(a) for a in INV_QTY_ALIASES])
+        retail_col = _detect_column(columns, [_normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
+
+        assert name_col == "name"
+        assert cat_col == "ecomm category"
+        assert qty_col == "med total"
+        assert retail_col == "med price"
+
+
+# ── Tests: EComm Strain Type Precedence ──────────────────────────────────────
+
+class TestECommStrainTypePrecedence:
+    """Verify that an explicit EComm Strain Type column is preferred over inferred."""
+
+    def _apply_strain_type(self, rows, explicit_col=None):
+        """
+        Simulate the Inventory Dashboard strain_type logic:
+        1) infer from name/category
+        2) override with explicit column when present and valid
+        """
+        inv_df = pd.DataFrame(rows)
+        inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
+
+        strain_col = _detect_column(inv_df.columns, [_normalize_col(a) for a in INV_STRAIN_TYPE_ALIASES])
+
+        # placeholder inferred value — in the real app this calls extract_strain_type
+        inv_df["strain_type"] = inv_df.get("_inferred_strain", pd.Series(["unspecified"] * len(inv_df)))
+
+        if strain_col:
+            inv_df = inv_df.rename(columns={strain_col: "_explicit_strain_type"})
+            explicit = inv_df["_explicit_strain_type"].astype(str).str.strip().str.lower()
+            valid = explicit.isin(VALID_STRAIN_TYPES)
+            inv_df.loc[valid, "strain_type"] = explicit[valid]
+            inv_df = inv_df.drop(columns=["_explicit_strain_type"])
+
+        return inv_df
+
+    def test_ecomm_strain_type_overrides_inferred(self):
+        df = self._apply_strain_type([
+            {"Name": "Some Product", "EComm Strain Type": "Indica", "_inferred_strain": "hybrid"},
+        ])
+        assert df["strain_type"].iloc[0] == "indica"
+
+    def test_invalid_explicit_strain_falls_back_to_inferred(self):
+        """When explicit column has unrecognized value, keep inferred value."""
+        df = self._apply_strain_type([
+            {"Name": "Some Product", "EComm Strain Type": "N/A", "_inferred_strain": "sativa"},
+        ])
+        assert df["strain_type"].iloc[0] == "sativa"
+
+    def test_ecomm_strain_type_detected_and_renamed(self):
+        columns = ["name", "ecomm strain type"]
+        strain_col = _detect_column(columns, [_normalize_col(a) for a in INV_STRAIN_TYPE_ALIASES])
+        assert strain_col == "ecomm strain type"
+
+    def test_no_explicit_strain_column_keeps_inferred(self):
+        df = self._apply_strain_type([
+            {"Name": "OG Kush 3.5g", "_inferred_strain": "sativa"},
+        ])
+        assert df["strain_type"].iloc[0] == "sativa"
