@@ -40,10 +40,12 @@ The dashboard auto-detects column names. Export from Dutchie or BLAZE without ed
 | **Room / Location** *(recommended)* | `Room` — rows where Room = `Vault` are used; all other rooms are excluded |
 | **SKU / Product ID** *(optional)* | `SKU`, `SKU ID`, `Product ID`, `Item ID` |
 | **Unit cost / price** *(optional)* | `Cost`, `Unit Cost`, `COGS`, `Current Price`, `Wholesale` |
+| **Retail price** *(optional)* | `Med Price`, `Retail`, `Retail Price`, `MSRP` |
+| **Strain type** *(optional)* | `EComm Strain Type`, `Strain Type`, `Strain`, `Product Type` |
 | **Brand / Vendor** *(optional)* | `Brand`, `Brand Name`, `Vendor`, `Vendor Name`, `Manufacturer` |
 | **Expiration date** *(optional)* | `Expiration Date`, `Expiry`, `Expiry Date`, `Best By`, `Use By Date`, `Exp Date` |
 
-> **Dutchie tip:** Export from **Inventory → Current Inventory** and include all columns. Make sure to export **all rooms** so the Vault filter can work correctly.
+> **Dutchie tip:** Export from **Inventory → Current Inventory** and include all columns. Make sure to export **all rooms** so the Vault filter can work correctly. When `Med Price` (or any retail price column) is present, `unit_cost` is automatically computed as 50% of the retail price.
 
 #### Required columns — Product Sales Report (XLSX)
 
