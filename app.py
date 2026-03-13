@@ -160,6 +160,9 @@ INV_COST_ALIASES = [
     "wholesale", "wholesaleprice", "wholesale price",
     "currentprice", "current price",
 ]
+INV_RETAIL_PRICE_ALIASES = [
+    "medprice", "med price", "retail", "retailprice", "retail price", "msrp",
+]
 INV_BRAND_ALIASES = [
     "brand", "brandname", "brand name", "vendor", "vendorname", "vendor name",
     "manufacturer", "producer", "supplier",
@@ -844,6 +847,23 @@ def detect_column(columns, aliases):
         if alias in norm_map:
             return norm_map[alias]
     return None
+
+
+def parse_currency_to_float(series: "pd.Series") -> "pd.Series":
+    """
+    Parse a pandas Series that may contain currency strings like ``"$45.00"``
+    or ``"$1,234.56"`` into float values.
+
+    - Strips leading ``$`` and embedded commas before calling ``pd.to_numeric``.
+    - Non-parseable values (blanks, ``None``, other strings) become ``NaN``.
+    """
+    return (
+        series.astype(str)
+        .str.strip()
+        .str.replace(r"^\$", "", regex=True)
+        .str.replace(",", "", regex=False)
+        .pipe(lambda s: pd.to_numeric(s, errors="coerce"))
+    )
 
 
 def normalize_rebelle_category(raw):
@@ -2453,6 +2473,7 @@ if section == "📊 Inventory Dashboard":
         sku_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_SKU_ALIASES])
         batch_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BATCH_ALIASES])
         cost_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_COST_ALIASES])
+        retail_price_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
 
         if not (name_col and cat_col and qty_col):
             st.error(
@@ -2468,7 +2489,10 @@ if section == "📊 Inventory Dashboard":
             inv_df = inv_df.rename(columns={batch_col: "batch"})
         if cost_col:
             inv_df = inv_df.rename(columns={cost_col: "unit_cost"})
-            inv_df["unit_cost"] = pd.to_numeric(inv_df["unit_cost"], errors="coerce").fillna(0)
+            inv_df["unit_cost"] = parse_currency_to_float(inv_df["unit_cost"]).fillna(0)
+        if retail_price_col:
+            inv_df = inv_df.rename(columns={retail_price_col: "retail_price"})
+            inv_df["retail_price"] = parse_currency_to_float(inv_df["retail_price"])
 
         # Normalize itemname for better matching
         inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
@@ -2501,6 +2525,13 @@ if section == "📊 Inventory Dashboard":
                 .reset_index()
             )
             inv_summary = inv_summary.merge(_cost_summary, on=["subcategory", "strain_type", "packagesize"], how="left")
+        if "retail_price" in inv_df.columns:
+            _retail_summary = (
+                inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["retail_price"]
+                .median()
+                .reset_index()
+            )
+            inv_summary = inv_summary.merge(_retail_summary, on=["subcategory", "strain_type", "packagesize"], how="left")
 
         # -------- PRODUCT-LEVEL INVENTORY GROUPING --------
         inv_product = (
@@ -3085,6 +3116,7 @@ if section == "📊 Inventory Dashboard":
             _b_cat_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
             _b_sku_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_SKU_ALIASES])
             _b_cost_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_COST_ALIASES])
+            _b_retail_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
             _b_brand_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_BRAND_ALIASES])
             _b_expiry_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_EXPIRY_ALIASES])
 
@@ -3098,6 +3130,8 @@ if section == "📊 Inventory Dashboard":
                     _b_rename[_b_sku_col] = "sku"
                 if _b_cost_col:
                     _b_rename[_b_cost_col] = "unit_cost"
+                if _b_retail_col:
+                    _b_rename[_b_retail_col] = "retail_price"
                 if _b_brand_col:
                     _b_rename[_b_brand_col] = "brand_vendor"
                 if _b_expiry_col:
@@ -3107,13 +3141,15 @@ if section == "📊 Inventory Dashboard":
                 _b_inv["itemname"] = _b_inv["itemname"].astype(str).str.strip()
                 _b_inv["onhandunits"] = pd.to_numeric(_b_inv["onhandunits"], errors="coerce").fillna(0)
                 if "unit_cost" in _b_inv.columns:
-                    _b_inv["unit_cost"] = pd.to_numeric(_b_inv["unit_cost"], errors="coerce")
+                    _b_inv["unit_cost"] = parse_currency_to_float(_b_inv["unit_cost"])
+                if "retail_price" in _b_inv.columns:
+                    _b_inv["retail_price"] = parse_currency_to_float(_b_inv["retail_price"])
                 if "expiration_date" in _b_inv.columns:
                     _b_inv["expiration_date"] = pd.to_datetime(_b_inv["expiration_date"], errors="coerce")
 
                 # Aggregate to one row per SKU (sum on-hand, min expiry, first for others)
                 _b_agg = {"onhandunits": "sum"}
-                for _bc in ["unit_cost", "brand_vendor", "category", "sku"]:
+                for _bc in ["unit_cost", "retail_price", "brand_vendor", "category", "sku"]:
                     if _bc in _b_inv.columns:
                         _b_agg[_bc] = "first"
                 if "expiration_date" in _b_inv.columns:
@@ -3123,7 +3159,9 @@ if section == "📊 Inventory Dashboard":
                 # Friendly notice for missing optional columns
                 _b_missing = []
                 if "unit_cost" not in _b_sku_df.columns:
-                    _b_missing.append("current price (for $ on hand)")
+                    _b_missing.append("wholesale unit cost (for $ on hand – cost)")
+                if "retail_price" not in _b_sku_df.columns:
+                    _b_missing.append("retail price / med price (for $ on hand – retail)")
                 if "brand_vendor" not in _b_sku_df.columns:
                     _b_missing.append("vendor/brand")
                 if "expiration_date" not in _b_sku_df.columns:
@@ -3292,6 +3330,10 @@ if section == "📊 Inventory Dashboard":
                     _b_merged["dollars_on_hand"] = (
                         _b_merged["onhandunits"] * _b_merged["unit_cost"]
                     )
+                if "retail_price" in _b_merged.columns:
+                    _b_merged["retail_dollars_on_hand"] = (
+                        _b_merged["onhandunits"] * _b_merged["retail_price"]
+                    )
 
                 _b_today = pd.Timestamp.today().normalize()
                 if "expiration_date" in _b_merged.columns:
@@ -3388,6 +3430,11 @@ if section == "📊 Inventory Dashboard":
                         if "dollars_on_hand" in df.columns
                         else None
                     )
+                    _total_retail_dol = (
+                        df["retail_dollars_on_hand"].sum()
+                        if "retail_dollars_on_hand" in df.columns
+                        else None
+                    )
                     _reorder_n = int((df["status"] == "🔴 Reorder").sum())
                     _overstock_n = int((df["status"] == "🟠 Overstock").sum())
                     _exp_mask = df["status"] == "⚠️ Expiring"
@@ -3397,25 +3444,52 @@ if section == "📊 Inventory Dashboard":
                         if "dollars_on_hand" in df.columns
                         else None
                     )
-                    _kc1, _kc2, _kc3, _kc4, _kc5 = st.columns(5)
+                    # Determine how many KPI columns to show
+                    _has_both_valuations = _total_dol is not None and _total_retail_dol is not None
+                    if _has_both_valuations:
+                        _kc1, _kc2, _kc3, _kc4, _kc5, _kc_exp = st.columns(6)
+                    else:
+                        _kc1, _kc2, _kc3, _kc4, _kc_exp = st.columns(5)
                     _kc1.metric(
                         "📦 SKUs in stock",
                         _skus_in_stock,
                         help="SKUs with on-hand > 0 in current view.",
                     )
-                    _kc2.metric(
-                        "💰 Total $ on hand",
-                        f"${_total_dol:,.0f}" if _total_dol is not None else "N/A",
-                        help="Requires current price column in inventory file.",
-                    )
-                    _kc3.metric("🔴 Reorder SKUs", _reorder_n,
-                                help=f"DOH ≤ {INVENTORY_REORDER_DOH_THRESHOLD} days.")
-                    _kc4.metric("🟠 Overstock SKUs", _overstock_n,
-                                help=f"DOH ≥ {INVENTORY_OVERSTOCK_DOH_THRESHOLD} days.")
+                    if _has_both_valuations:
+                        _kc2.metric(
+                            "💰 Total $ on hand (Cost)",
+                            f"${_total_dol:,.0f}",
+                            help="Wholesale cost basis: on-hand units × unit cost.",
+                        )
+                        _kc3.metric(
+                            "🏷️ Total $ on hand (Retail)",
+                            f"${_total_retail_dol:,.0f}",
+                            help="Retail price basis: on-hand units × retail price.",
+                        )
+                        _kc4.metric("🔴 Reorder SKUs", _reorder_n,
+                                    help=f"DOH ≤ {INVENTORY_REORDER_DOH_THRESHOLD} days.")
+                        _kc5.metric("🟠 Overstock SKUs", _overstock_n,
+                                    help=f"DOH ≥ {INVENTORY_OVERSTOCK_DOH_THRESHOLD} days.")
+                    else:
+                        if _total_dol is not None:
+                            _single_val_label = f"${_total_dol:,.0f}"
+                        elif _total_retail_dol is not None:
+                            _single_val_label = f"${_total_retail_dol:,.0f}"
+                        else:
+                            _single_val_label = "N/A"
+                        _kc2.metric(
+                            "💰 Total $ on hand",
+                            _single_val_label,
+                            help="Requires cost or retail price column in inventory file.",
+                        )
+                        _kc3.metric("🔴 Reorder SKUs", _reorder_n,
+                                    help=f"DOH ≤ {INVENTORY_REORDER_DOH_THRESHOLD} days.")
+                        _kc4.metric("🟠 Overstock SKUs", _overstock_n,
+                                    help=f"DOH ≥ {INVENTORY_OVERSTOCK_DOH_THRESHOLD} days.")
                     _exp_label = f"{_exp_n}"
                     if _exp_dol is not None:
                         _exp_label += f" (${_exp_dol:,.0f})"
-                    _kc5.metric(
+                    _kc_exp.metric(
                         f"⚠️ Expiring <{INVENTORY_EXPIRING_SOON_DAYS}d",
                         _exp_label,
                         help=f"SKUs with earliest expiry < {INVENTORY_EXPIRING_SOON_DAYS} days.",
@@ -3435,9 +3509,13 @@ if section == "📊 Inventory Dashboard":
                     _dcmap[_avg_wkly_lbl] = "avg_weekly_sales"
                     _dcmap["DOH"] = "days_of_supply"
                     if "unit_cost" in df.columns:
-                        _dcmap["Current Price"] = "unit_cost"
+                        _dcmap["Unit Cost"] = "unit_cost"
+                    if "retail_price" in df.columns:
+                        _dcmap["Retail Price"] = "retail_price"
                     if "dollars_on_hand" in df.columns:
-                        _dcmap["$ On Hand"] = "dollars_on_hand"
+                        _dcmap["$ On Hand (Cost)"] = "dollars_on_hand"
+                    if "retail_dollars_on_hand" in df.columns:
+                        _dcmap["$ On Hand (Retail)"] = "retail_dollars_on_hand"
                     if "expiration_date" in df.columns:
                         _dcmap["Earliest Exp"] = "expiration_date"
                     if "days_to_expire" in df.columns:
@@ -3457,10 +3535,16 @@ if section == "📊 Inventory Dashboard":
                             )
                     if "On Hand" in _disp.columns:
                         _disp["On Hand"] = _disp["On Hand"].round(0).astype(int)
-                    if "$ On Hand" in _disp.columns:
-                        _disp["$ On Hand"] = pd.to_numeric(
-                            _disp["$ On Hand"], errors="coerce"
-                        ).round(2)
+                    # Format all $ on-hand columns (derived from _dcmap to avoid duplication)
+                    _dollar_col_labels = [
+                        lbl for lbl, src in _dcmap.items()
+                        if src in ("dollars_on_hand", "retail_dollars_on_hand")
+                    ]
+                    for _dollar_lbl in _dollar_col_labels:
+                        if _dollar_lbl in _disp.columns:
+                            _disp[_dollar_lbl] = pd.to_numeric(
+                                _disp[_dollar_lbl], errors="coerce"
+                            ).round(2)
                     if "Days to Exp" in _disp.columns:
                         _disp["Days to Exp"] = pd.to_numeric(
                             _disp["Days to Exp"], errors="coerce"
@@ -4082,6 +4166,7 @@ elif section == "🐢 Slow Movers":
 
         # Detect optional inventory columns
         inv_cost_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_COST_ALIASES])
+        inv_retail_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
         inv_brand_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BRAND_ALIASES])
         inv_sku_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_SKU_COL_ALIASES])
         inv_cat_col_raw = detect_column(inv_df.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
@@ -4095,7 +4180,10 @@ elif section == "🐢 Slow Movers":
         inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
 
         if inv_cost_col:
-            inv_df[inv_cost_col] = pd.to_numeric(inv_df[inv_cost_col], errors="coerce")
+            inv_df[inv_cost_col] = parse_currency_to_float(inv_df[inv_cost_col])
+        if inv_retail_col:
+            inv_df = inv_df.rename(columns={inv_retail_col: "retail_price"})
+            inv_df["retail_price"] = parse_currency_to_float(inv_df["retail_price"])
 
         # Dedup and quarantine
         inv_df, num_dupes, dedupe_msg = deduplicate_inventory(inv_df)
@@ -4279,13 +4367,17 @@ elif section == "🐢 Slow Movers":
         else:
             slow_movers["days_since_last_sale"] = None
 
-        # $ on-hand (if cost column available)
+        # $ on-hand (if cost or retail price column available)
         if inv_cost_col and inv_cost_col in slow_movers.columns:
             slow_movers["dollars_on_hand"] = (
                 slow_movers["onhandunits"] * slow_movers[inv_cost_col]
             )
         else:
             slow_movers["dollars_on_hand"] = None
+        if "retail_price" in slow_movers.columns:
+            slow_movers["retail_dollars_on_hand"] = (
+                slow_movers["onhandunits"] * slow_movers["retail_price"]
+            )
 
         # Slow-mover score and action badge
         slow_movers["sm_score"] = slow_movers.apply(

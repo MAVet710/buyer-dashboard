@@ -378,6 +378,9 @@ INV_COST_ALIASES = [
     "wholesale", "wholesaleprice", "wholesale price",
     "currentprice", "current price",
 ]
+INV_RETAIL_PRICE_ALIASES = [
+    "medprice", "med price", "retail", "retailprice", "retail price", "msrp",
+]
 
 
 def _normalize_col(col: str) -> str:
@@ -390,6 +393,17 @@ def _detect_column(columns, aliases):
         if alias in norm_map:
             return norm_map[alias]
     return None
+
+
+def _parse_currency_to_float(series):
+    """Mirror of app.py parse_currency_to_float."""
+    return (
+        series.astype(str)
+        .str.strip()
+        .str.replace(r"^\$", "", regex=True)
+        .str.replace(",", "", regex=False)
+        .pipe(lambda s: pd.to_numeric(s, errors="coerce"))
+    )
 
 
 # ── Tests: Cost Column Alias Detection ───────────────────────────────────────
@@ -419,8 +433,219 @@ class TestCostColumnAliasDetection:
     def test_wholesale_detected(self):
         assert self._detect("Wholesale") == "Wholesale"
 
-    def test_unknown_column_returns_none(self):
+    def test_retail_price_not_in_cost_aliases(self):
         assert self._detect("retail price") is None
+
+
+# ── Tests: Retail Price Alias Detection ──────────────────────────────────────
+
+class TestRetailPriceAliasDetection:
+    """Verify that retail price column headers are correctly detected."""
+
+    def _detect(self, header):
+        return _detect_column([header], [_normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
+
+    def test_med_price_exact(self):
+        assert self._detect("Med Price") == "Med Price"
+
+    def test_med_price_all_caps(self):
+        assert self._detect("MED PRICE") == "MED PRICE"
+
+    def test_med_price_no_space(self):
+        assert self._detect("medprice") == "medprice"
+
+    def test_retail_exact(self):
+        assert self._detect("retail") == "retail"
+
+    def test_retail_price_detected(self):
+        assert self._detect("Retail Price") == "Retail Price"
+
+    def test_msrp_detected(self):
+        assert self._detect("MSRP") == "MSRP"
+
+    def test_wholesale_cost_not_detected_as_retail(self):
+        assert self._detect("Wholesale") is None
+
+    def test_unit_cost_not_detected_as_retail(self):
+        assert self._detect("unit cost") is None
+
+
+# ── Tests: Currency Parsing ───────────────────────────────────────────────────
+
+class TestParseCurrencyToFloat:
+    """Verify parse_currency_to_float handles all common formats."""
+
+    def _parse(self, values):
+        return _parse_currency_to_float(pd.Series(values))
+
+    def test_plain_float_string(self):
+        result = self._parse(["45.00"])
+        assert result.iloc[0] == pytest.approx(45.0)
+
+    def test_dollar_sign_stripped(self):
+        result = self._parse(["$45.00"])
+        assert result.iloc[0] == pytest.approx(45.0)
+
+    def test_dollar_with_comma(self):
+        result = self._parse(["$1,234.56"])
+        assert result.iloc[0] == pytest.approx(1234.56)
+
+    def test_blank_becomes_nan(self):
+        result = self._parse([""])
+        assert pd.isna(result.iloc[0])
+
+    def test_none_becomes_nan(self):
+        result = self._parse([None])
+        assert pd.isna(result.iloc[0])
+
+    def test_invalid_string_becomes_nan(self):
+        result = self._parse(["n/a"])
+        assert pd.isna(result.iloc[0])
+
+    def test_mixed_series(self):
+        result = self._parse(["$10.00", "", "$1,000.00", "n/a", "25.5"])
+        assert result.iloc[0] == pytest.approx(10.0)
+        assert pd.isna(result.iloc[1])
+        assert result.iloc[2] == pytest.approx(1000.0)
+        assert pd.isna(result.iloc[3])
+        assert result.iloc[4] == pytest.approx(25.5)
+
+
+# ── Tests: retail_dollars_on_hand Computation ────────────────────────────────
+
+class TestRetailDollarsOnHand:
+    """Verify retail_dollars_on_hand = onhandunits * retail_price."""
+
+    def _build_merged(self, rows):
+        """Build a minimal _b_merged-style dataframe and compute retail_dollars_on_hand."""
+        df = pd.DataFrame(rows)
+        df["retail_price"] = _parse_currency_to_float(df["retail_price"])
+        df["retail_dollars_on_hand"] = df["onhandunits"] * df["retail_price"]
+        return df
+
+    def test_basic_computation(self):
+        df = self._build_merged([
+            {"itemname": "OG Kush 3.5g", "onhandunits": 10, "retail_price": "$45.00"},
+        ])
+        assert df["retail_dollars_on_hand"].iloc[0] == pytest.approx(450.0)
+
+    def test_currency_string_parsed_correctly(self):
+        df = self._build_merged([
+            {"itemname": "Blue Dream 1g", "onhandunits": 5, "retail_price": "$12.50"},
+        ])
+        assert df["retail_dollars_on_hand"].iloc[0] == pytest.approx(62.5)
+
+    def test_zero_units_gives_zero_value(self):
+        df = self._build_merged([
+            {"itemname": "Out of Stock SKU", "onhandunits": 0, "retail_price": "$30.00"},
+        ])
+        assert df["retail_dollars_on_hand"].iloc[0] == pytest.approx(0.0)
+
+    def test_nan_retail_price_gives_nan_value(self):
+        df = self._build_merged([
+            {"itemname": "No Price SKU", "onhandunits": 5, "retail_price": ""},
+        ])
+        assert pd.isna(df["retail_dollars_on_hand"].iloc[0])
+
+    def test_unit_cost_and_retail_price_are_independent(self):
+        """Ensure cost-basis and retail-basis values differ when prices differ."""
+        df = pd.DataFrame([{
+            "itemname": "Test SKU",
+            "onhandunits": 10,
+            "unit_cost": 20.0,
+            "retail_price": "$35.00",
+        }])
+        df["retail_price"] = _parse_currency_to_float(df["retail_price"])
+        df["dollars_on_hand"] = df["onhandunits"] * df["unit_cost"]
+        df["retail_dollars_on_hand"] = df["onhandunits"] * df["retail_price"]
+        assert df["dollars_on_hand"].iloc[0] == pytest.approx(200.0)
+        assert df["retail_dollars_on_hand"].iloc[0] == pytest.approx(350.0)
+
+
+# ── Tests: Buyer View KPIs / columns with both unit_cost and retail_price ─────
+
+class TestBuyerViewBothPrices:
+    """Validate Buyer View KPI and column logic when both prices are present."""
+
+    def _make_merged_df(self):
+        """Minimal _b_merged-style dataframe with both unit_cost and retail_price."""
+        df = pd.DataFrame({
+            "itemname": ["SKU A", "SKU B", "SKU C"],
+            "onhandunits": [10.0, 5.0, 0.0],
+            "unit_cost": [20.0, 30.0, 15.0],
+            "retail_price": [35.0, 50.0, 25.0],
+            "days_of_supply": [30.0, 90.0, 999.0],
+            "avg_weekly_sales": [2.0, 0.5, 0.0],
+            "total_sold": [10.0, 5.0, 0.0],
+            "daily_run_rate": [2 / 7, 0.5 / 7, 0.0],
+            "status": ["✅ Healthy", "🟠 Overstock", "⬛ No Stock"],
+        })
+        df["dollars_on_hand"] = df["onhandunits"] * df["unit_cost"]
+        df["retail_dollars_on_hand"] = df["onhandunits"] * df["retail_price"]
+        return df
+
+    def test_dollars_on_hand_cost_basis(self):
+        df = self._make_merged_df()
+        assert df["dollars_on_hand"].iloc[0] == pytest.approx(200.0)  # 10 * 20
+        assert df["dollars_on_hand"].iloc[1] == pytest.approx(150.0)  # 5 * 30
+        assert df["dollars_on_hand"].iloc[2] == pytest.approx(0.0)    # 0 * 15
+
+    def test_retail_dollars_on_hand(self):
+        df = self._make_merged_df()
+        assert df["retail_dollars_on_hand"].iloc[0] == pytest.approx(350.0)  # 10 * 35
+        assert df["retail_dollars_on_hand"].iloc[1] == pytest.approx(250.0)  # 5 * 50
+        assert df["retail_dollars_on_hand"].iloc[2] == pytest.approx(0.0)    # 0 * 25
+
+    def test_total_cost_kpi(self):
+        df = self._make_merged_df()
+        total_cost = df["dollars_on_hand"].sum()
+        assert total_cost == pytest.approx(350.0)  # 200 + 150 + 0
+
+    def test_total_retail_kpi(self):
+        df = self._make_merged_df()
+        total_retail = df["retail_dollars_on_hand"].sum()
+        assert total_retail == pytest.approx(600.0)  # 350 + 250 + 0
+
+    def test_both_columns_present_in_display_map(self):
+        """Verify display column mapping includes both Unit Cost and Retail Price."""
+        df = self._make_merged_df()
+        dcmap = {}
+        if "unit_cost" in df.columns:
+            dcmap["Unit Cost"] = "unit_cost"
+        if "retail_price" in df.columns:
+            dcmap["Retail Price"] = "retail_price"
+        if "dollars_on_hand" in df.columns:
+            dcmap["$ On Hand (Cost)"] = "dollars_on_hand"
+        if "retail_dollars_on_hand" in df.columns:
+            dcmap["$ On Hand (Retail)"] = "retail_dollars_on_hand"
+        assert "Unit Cost" in dcmap
+        assert "Retail Price" in dcmap
+        assert "$ On Hand (Cost)" in dcmap
+        assert "$ On Hand (Retail)" in dcmap
+
+    def test_cost_and_retail_kpis_shown_when_both_present(self):
+        """Both dollars_on_hand and retail_dollars_on_hand exist → both KPIs shown."""
+        df = self._make_merged_df()
+        has_cost_kpi = "dollars_on_hand" in df.columns
+        has_retail_kpi = "retail_dollars_on_hand" in df.columns
+        assert has_cost_kpi
+        assert has_retail_kpi
+
+    def test_inventory_normalization_detects_med_price_as_retail(self):
+        """Upload normalization: 'Med Price' column → retail_price after normalization."""
+        raw = pd.DataFrame({
+            "Name": ["OG Kush 3.5g", "Blue Dream 1g"],
+            "EComm Sub Category": ["Flower", "Flower"],
+            "Med Sellable": [10, 5],
+            "Med Price": ["$45.00", "$12.50"],
+        })
+        raw.columns = raw.columns.astype(str).str.strip().str.lower()
+        retail_col = _detect_column(raw.columns, [_normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
+        assert retail_col == "med price"
+        raw = raw.rename(columns={retail_col: "retail_price"})
+        raw["retail_price"] = _parse_currency_to_float(raw["retail_price"])
+        assert raw["retail_price"].iloc[0] == pytest.approx(45.0)
+        assert raw["retail_price"].iloc[1] == pytest.approx(12.5)
 
 
 # ── Tests: PO Builder price carry-over (unit_cost / 2) ───────────────────────
