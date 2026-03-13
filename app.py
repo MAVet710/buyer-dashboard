@@ -92,12 +92,15 @@ INV_NAME_ALIASES = [
 ]
 INV_CAT_ALIASES = [
     "category", "subcategory", "productcategory", "department",
-    "mastercategory", "product category", "cannabis", "product_category"
+    "mastercategory", "product category", "cannabis", "product_category",
+    "ecomm category", "ecommcategory",
 ]
 INV_QTY_ALIASES = [
     "available", "onhand", "onhandunits", "quantity", "qty",
     "quantityonhand", "instock", "currentquantity", "current quantity",
-    "inventoryavailable", "inventory available", "available quantity"
+    "inventoryavailable", "inventory available", "available quantity",
+    "med total", "medtotal",
+    "med sellable", "medsellable",
 ]
 INV_SKU_ALIASES = ["sku", "skuid", "productid", "product_id", "itemid", "item_id"]
 INV_BATCH_ALIASES = [
