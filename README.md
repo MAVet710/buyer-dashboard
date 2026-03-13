@@ -34,8 +34,8 @@ The dashboard auto-detects column names. Export from Dutchie or BLAZE without ed
 | Purpose | Accepted column names (any of these) |
 |---|---|
 | **Product name** *(required)* | `Product`, `Product Name`, `Item`, `Item Name`, `Name`, `SKU Name` |
-| **Category** *(required)* | `Category`, `Subcategory`, `Product Category`, `Master Category`, `Department` |
-| **Units on hand** *(required)* | `Available`, `On Hand`, `On Hand Units`, `Quantity`, `Qty`, `Quantity On Hand`, `Inventory Available` |
+| **Category** *(required)* | `Category`, `Subcategory`, `Product Category`, `Master Category`, `Department`, `EComm Category` |
+| **Units on hand** *(required)* | `Available`, `On Hand`, `On Hand Units`, `Quantity`, `Qty`, `Quantity On Hand`, `Inventory Available`, `Med Total`, `Med Sellable` |
 | **Batch / Lot** *(recommended)* | `Batch`, `Batch Number`, `Lot`, `Lot Number`, `Batch ID`, `Package ID` |
 | **Room / Location** *(recommended)* | `Room` — rows where Room = `Vault` are used; all other rooms are excluded |
 | **SKU / Product ID** *(optional)* | `SKU`, `SKU ID`, `Product ID`, `Item ID` |

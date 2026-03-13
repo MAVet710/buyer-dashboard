@@ -373,6 +373,22 @@ class TestFilterVaultInventory:
 
 # ── Helpers mirrored from app.py for alias detection ─────────────────────────
 
+INV_NAME_ALIASES = [
+    "product", "productname", "item", "itemname", "name", "skuname",
+    "skuid", "product name", "product_name", "product title", "title",
+]
+INV_CAT_ALIASES = [
+    "category", "subcategory", "productcategory", "department",
+    "mastercategory", "product category", "cannabis", "product_category",
+    "ecomm category", "ecommcategory",
+]
+INV_QTY_ALIASES = [
+    "available", "onhand", "onhandunits", "quantity", "qty",
+    "quantityonhand", "instock", "currentquantity", "current quantity",
+    "inventoryavailable", "inventory available", "available quantity",
+    "med total", "medtotal",
+    "med sellable", "medsellable",
+]
 INV_COST_ALIASES = [
     "cost", "unitcost", "unit cost", "cogs", "costprice", "cost price",
     "wholesale", "wholesaleprice", "wholesale price",
@@ -468,6 +484,56 @@ class TestRetailPriceAliasDetection:
 
     def test_unit_cost_not_detected_as_retail(self):
         assert self._detect("unit cost") is None
+
+
+# ── Tests: Dutchie Export Auto-Detection ─────────────────────────────────────
+
+class TestDutchieExportAutoDetection:
+    """Verify that Dutchie inventory export headers auto-detect correctly."""
+
+    def _detect_name(self, header):
+        return _detect_column([header], [_normalize_col(a) for a in INV_NAME_ALIASES])
+
+    def _detect_cat(self, header):
+        return _detect_column([header], [_normalize_col(a) for a in INV_CAT_ALIASES])
+
+    def _detect_qty(self, header):
+        return _detect_column([header], [_normalize_col(a) for a in INV_QTY_ALIASES])
+
+    def test_name_column_detected(self):
+        assert self._detect_name("Name") == "Name"
+
+    def test_ecomm_category_spaced_detected(self):
+        assert self._detect_cat("EComm Category") == "EComm Category"
+
+    def test_ecomm_category_lowercase_detected(self):
+        assert self._detect_cat("ecomm category") == "ecomm category"
+
+    def test_med_total_detected(self):
+        assert self._detect_qty("Med Total") == "Med Total"
+
+    def test_med_total_lowercase_detected(self):
+        assert self._detect_qty("med total") == "med total"
+
+    def test_med_sellable_detected(self):
+        assert self._detect_qty("Med Sellable") == "Med Sellable"
+
+    def test_med_sellable_lowercase_detected(self):
+        assert self._detect_qty("med sellable") == "med sellable"
+
+    def test_full_dutchie_row_resolves(self):
+        """End-to-end: headers from a real Dutchie export should all resolve."""
+        raw_headers = ["Name", "EComm Category", "Med Total"]
+        # Simulate app.py normalisation: lower + strip
+        columns = [h.strip().lower() for h in raw_headers]
+
+        name_col = _detect_column(columns, [_normalize_col(a) for a in INV_NAME_ALIASES])
+        cat_col = _detect_column(columns, [_normalize_col(a) for a in INV_CAT_ALIASES])
+        qty_col = _detect_column(columns, [_normalize_col(a) for a in INV_QTY_ALIASES])
+
+        assert name_col == "name"
+        assert cat_col == "ecomm category"
+        assert qty_col == "med total"
 
 
 # ── Tests: Currency Parsing ───────────────────────────────────────────────────
