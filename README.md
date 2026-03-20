@@ -83,7 +83,7 @@ No additional file uploads are needed — this page uses the same inventory and 
 **What it does:** Measures how one or more product deliveries correlate with spikes in **Net Sales** and **order count (traffic proxy)** using a 14-day before vs 14-day after comparison window. Shows an interactive line chart with optional overlay lines.
 
 **Step-by-step:**
-1. Upload one or more **delivery manifest PDFs** — the app extracts the received date/time and delivered items from each.
+1. Upload one or more **delivery manifests** (CSV or XLSX recommended; PDF also supported) — the app extracts the received date/time and delivered items from each.
 2. Upload your **Sales Report** (CSV or XLSX) — an order-level file with one row per order line item.
 3. Choose settings in the sidebar:
    - **Comparison window** (7, 14, 21, or 28 days before/after).
@@ -97,9 +97,24 @@ No additional file uploads are needed — this page uses the same inventory and 
    - **Line chart** — time-series with vertical delivery-date marker(s).
    - **Top delivered items by lift** — table sorted by Net Sales lift.
    - **Unmatched items** — manifest items that couldn't be matched to any sales product.
-   - **PDF debug text** — expandable raw text dump per manifest (downloadable).
+   - **Debug text** — expandable raw text dump per manifest (downloadable).
 
-#### Manifest PDF format
+#### Manifest format — CSV / XLSX (recommended)
+
+Download the receiving/transfer report from Dutchie (or your POS) as CSV or XLSX and upload it directly.  The parser handles:
+
+| Feature | Detail |
+|---|---|
+| **Preamble rows** | Metadata rows at the top (Manifest #, Received Date, Vendor, …) are skipped automatically |
+| **Repeated headers** | Multiple occurrences of `Product, Quantity, …` rows mid-file are ignored |
+| **Multi-line product names** | Name fragments spread across continuation rows are stitched together (e.g. `Cresco` + `Rest` + `Flower` + `3.5g- The` + `4th Kind` → `Cresco Rest Flower 3.5g- The 4th Kind`) |
+| **Quoted cells with newlines** | Standard CSV quoting (e.g. `"Garden Society Sativa\n- Lemon"`) is handled automatically |
+| **Received date/time** | Extracted from the preamble (e.g. `Received Date,03/19/2026 10:30`) |
+| **Item name** | Product/Item/Name column (auto-detected) |
+| **Delivered qty** | Quantity/Received Qty column — "Received Qty" is preferred over plain "Qty" |
+| **Optional columns** | `Package ID`, `Batch`, `License Number`, `Location` are retained when present |
+
+#### Manifest format — PDF (fallback)
 
 The app uses `pdfplumber` (with `PyPDF2` as fallback) to extract:
 
@@ -109,7 +124,7 @@ The app uses `pdfplumber` (with `PyPDF2` as fallback) to extract:
 | **Item name** | Text column in manifest table (non-numeric cells) |
 | **Delivered qty** | Numeric column in manifest table |
 
-> If the PDF cannot be parsed automatically, download the debug text dump and check whether the received date and items are present in the extracted text.
+> If the PDF cannot be parsed automatically, switch to CSV/XLSX export from your POS.  If you must use PDF, download the debug text dump and check whether the received date and items are present in the extracted text.
 
 #### Required columns — Sales Report (CSV or XLSX)
 
