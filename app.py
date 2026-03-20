@@ -4,6 +4,7 @@ import numpy as np
 import re
 import json
 import os
+import sys
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from io import BytesIO
@@ -64,8 +65,13 @@ try:
         DELIVERY_WINDOW_DAYS,
     )
     _DELIVERY_IMPACT_AVAILABLE = True
-except ImportError:
+except (ImportError, AttributeError, SyntaxError) as _di_import_err:
     _DELIVERY_IMPACT_AVAILABLE = False
+    print(
+        f"[buyer-dashboard] WARNING: delivery_impact could not be imported: "
+        f"{type(_di_import_err).__name__}: {_di_import_err}",
+        file=sys.stderr,
+    )
 
 
 def hash_password(plain: str) -> str:
