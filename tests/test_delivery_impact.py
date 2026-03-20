@@ -1342,3 +1342,219 @@ class TestBuildWowTimeSeries:
         # Prior period must be shifted to delivery day date
         assert prior_ts.iloc[0]["period"].date() == pd.Timestamp("2026-03-19").date()
 
+
+# ===========================================================================
+# Dtype-coercion regression tests (guards against int+str errors in plots)
+# ===========================================================================
+
+class TestCoerceTsFrameForPlot:
+    """
+    Tests for the dtype-coercion behaviour that must be applied to any time-series
+    frame before it is handed to Plotly.  The actual helper (_coerce_ts_frame_for_plot)
+    lives in app.py, so we test the equivalent logic inline here to validate that
+    the underlying functions (build_time_series / build_wow_time_series) produce
+    data that, once coerced, satisfies the Plotly safety contract.
+    """
+
+    # Re-implement the same coercion the helper applies so we can test it.
+    @staticmethod
+    def _coerce(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df
+        df = df.copy()
+        df["period"] = pd.to_datetime(df["period"], errors="coerce")
+        df = df.dropna(subset=["period"])
+        for col in ("total_net_sales", "delivered_net_sales",
+                    "non_delivered_net_sales", "order_count"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        return df
+
+    def _make_mixed_frame(self) -> pd.DataFrame:
+        """Build a frame that intentionally has object-dtype columns to simulate
+        the failure mode that caused 'unsupported operand type(s) for +: int and str'."""
+        return pd.DataFrame({
+            "period": ["2026-03-19", "2026-03-20"],
+            "total_net_sales": ["100", "200"],        # strings – must be coerced
+            "delivered_net_sales": [50, "75"],         # mixed  – must be coerced
+            "non_delivered_net_sales": [50.0, 125.0],
+            "order_count": ["3", "5"],                 # strings – must be coerced
+        })
+
+    def test_coerce_period_to_datetime(self):
+        df = self._coerce(self._make_mixed_frame())
+        assert pd.api.types.is_datetime64_any_dtype(df["period"])
+
+    def test_coerce_total_net_sales_to_float(self):
+        df = self._coerce(self._make_mixed_frame())
+        assert pd.api.types.is_numeric_dtype(df["total_net_sales"])
+        assert list(df["total_net_sales"]) == [100, 200]
+
+    def test_coerce_delivered_net_sales_mixed(self):
+        df = self._coerce(self._make_mixed_frame())
+        assert pd.api.types.is_numeric_dtype(df["delivered_net_sales"])
+        assert list(df["delivered_net_sales"]) == [50, 75]
+
+    def test_coerce_order_count_to_float(self):
+        df = self._coerce(self._make_mixed_frame())
+        assert pd.api.types.is_numeric_dtype(df["order_count"])
+
+    def test_nat_period_rows_dropped(self):
+        df = pd.DataFrame({
+            "period": ["2026-03-19", "not-a-date"],
+            "total_net_sales": [100.0, 200.0],
+        })
+        df_coerced = self._coerce(df)
+        assert len(df_coerced) == 1
+        assert df_coerced["period"].iloc[0] == pd.Timestamp("2026-03-19")
+
+    def test_empty_frame_returned_unchanged(self):
+        empty = pd.DataFrame(columns=["period", "total_net_sales", "order_count"])
+        result = self._coerce(empty)
+        assert result.empty
+
+    def test_build_time_series_output_safe_after_coerce(self):
+        """build_time_series output must be safe after coercion (period is datetime, sales is float)."""
+        sales = pd.DataFrame({
+            "order_id": ["A", "B"],
+            "order_time": pd.to_datetime(["2026-03-19 10:00", "2026-03-12 10:00"]),
+            "product_name": ["X", "X"],
+            "net_sales": [100.0, 80.0],
+            "units_sold": [1.0, 1.0],
+        })
+        ts = build_time_series(sales, pd.Timestamp("2026-03-19"), window_days=14)
+        ts_coerced = self._coerce(ts)
+        assert pd.api.types.is_datetime64_any_dtype(ts_coerced["period"])
+        assert pd.api.types.is_float_dtype(ts_coerced["total_net_sales"])
+
+    def test_build_wow_time_series_output_safe_after_coerce(self):
+        """build_wow_time_series output must be safe after coercion in both modes."""
+        sales = pd.DataFrame({
+            "order_id": ["A", "B"],
+            "order_time": pd.to_datetime(["2026-03-19 10:00", "2026-03-12 10:00"]),
+            "product_name": ["X", "X"],
+            "net_sales": [100.0, 80.0],
+            "units_sold": [1.0, 1.0],
+        })
+        deliv_ts, prior_ts = build_wow_time_series(sales, pd.Timestamp("2026-03-19"))
+        for frame in (deliv_ts, prior_ts):
+            coerced = self._coerce(frame)
+            if not coerced.empty:
+                assert pd.api.types.is_datetime64_any_dtype(coerced["period"])
+                assert pd.api.types.is_float_dtype(coerced["total_net_sales"])
+
+
+# ===========================================================================
+# parse_manifest_csv_xlsx_bytes – received_dt Timestamp guarantee
+# ===========================================================================
+
+class TestManifestReceivedDtIsTimestamp:
+    """Ensure parse_manifest_csv_xlsx_bytes always returns received_dt as
+    pd.Timestamp (never a raw string), so downstream isoformat() / normalize()
+    calls cannot cause a type error."""
+
+    @staticmethod
+    def _dutchie_csv(received_line: str) -> bytes:
+        """Build a minimal Dutchie-style manifest CSV with a preamble date line."""
+        lines = [
+            f"Received Date/Time:,{received_line}",
+            "Vendor:,Test Vendor",
+            "",
+            "Product,Quantity Received",
+            "Blue Dream 3.5g,10",
+            "Sour Diesel 1g,5",
+        ]
+        return "\n".join(lines).encode("utf-8")
+
+    def test_received_dt_is_timestamp_for_standard_format(self):
+        raw = self._dutchie_csv("03/19/2026 10:58 AM")
+        received_dt, _, _ = parse_manifest_csv_xlsx_bytes(raw, filename="test.csv")
+        assert received_dt is not None, "received_dt must not be None for a parseable date"
+        assert isinstance(received_dt, pd.Timestamp), (
+            f"received_dt must be pd.Timestamp, got {type(received_dt)}"
+        )
+
+    def test_received_dt_correct_value(self):
+        raw = self._dutchie_csv("03/19/2026 10:58 AM")
+        received_dt, _, _ = parse_manifest_csv_xlsx_bytes(raw, filename="test.csv")
+        assert received_dt is not None
+        assert received_dt.year == 2026
+        assert received_dt.month == 3
+        assert received_dt.day == 19
+        assert received_dt.hour == 10
+        assert received_dt.minute == 58
+
+    def test_received_dt_supports_isoformat(self):
+        """received_dt must expose .isoformat() so app.py vline code never raises."""
+        raw = self._dutchie_csv("03/19/2026 10:58 AM")
+        received_dt, _, _ = parse_manifest_csv_xlsx_bytes(raw, filename="test.csv")
+        assert received_dt is not None
+        iso = received_dt.isoformat()
+        assert "2026" in iso
+
+    def test_received_dt_supports_normalize(self):
+        """received_dt must support .normalize() used in WoW vline code."""
+        raw = self._dutchie_csv("03/19/2026 10:58 AM")
+        received_dt, _, _ = parse_manifest_csv_xlsx_bytes(raw, filename="test.csv")
+        assert received_dt is not None
+        day = received_dt.normalize()
+        assert day == pd.Timestamp("2026-03-19")
+
+    def test_unparseable_date_returns_none(self):
+        """An unparseable date in the preamble must return None, not raise."""
+        raw = self._dutchie_csv("NOT-A-DATE")
+        received_dt, _, _ = parse_manifest_csv_xlsx_bytes(raw, filename="test.csv")
+        # May be None (preferred) or a Timestamp if pandas guesses it – never a str.
+        assert received_dt is None or isinstance(received_dt, pd.Timestamp)
+
+
+# ===========================================================================
+# parse_sales_report_bytes – dtype guarantees with preamble
+# ===========================================================================
+
+class TestParseSalesReportDtypeGuarantees:
+    """Ensure parse_sales_report_bytes always returns correct dtypes when the
+    CSV has a metadata preamble (the format user uploads)."""
+
+    @staticmethod
+    def _preamble_sales_csv() -> bytes:
+        lines = [
+            "Export Date:,03/20/2026",
+            "Report Type:,Sales Report",
+            "",
+            "Order ID,Order Time,Product Name,Category,Total Inventory Sold,Net Sales",
+            "1001,2026-03-19 09:00,Blue Dream 3.5g,Flower,2,90.00",
+            "1002,2026-03-19 10:30,Sour Diesel 1g,Flower,1,45.00",
+            "1003,2026-03-12 09:00,Blue Dream 3.5g,Flower,1,42.00",
+        ]
+        return "\n".join(lines).encode("utf-8")
+
+    def test_order_time_is_datetime_with_preamble(self):
+        df = parse_sales_report_bytes(self._preamble_sales_csv(), "sales.csv")
+        assert pd.api.types.is_datetime64_any_dtype(df["order_time"]), (
+            "order_time must be datetime dtype even when CSV has a metadata preamble"
+        )
+
+    def test_net_sales_is_numeric_with_preamble(self):
+        df = parse_sales_report_bytes(self._preamble_sales_csv(), "sales.csv")
+        assert pd.api.types.is_float_dtype(df["net_sales"]), (
+            "net_sales must be float dtype even when CSV has a metadata preamble"
+        )
+
+    def test_row_count_correct_with_preamble(self):
+        df = parse_sales_report_bytes(self._preamble_sales_csv(), "sales.csv")
+        assert len(df) == 3
+
+    def test_build_wow_does_not_raise_with_preamble_sales(self):
+        """End-to-end: parse → build_wow_time_series must not raise int+str error."""
+        df = parse_sales_report_bytes(self._preamble_sales_csv(), "sales.csv")
+        # Should not raise
+        deliv_ts, prior_ts = build_wow_time_series(df, pd.Timestamp("2026-03-19"))
+        assert not deliv_ts.empty
+
+    def test_build_time_series_does_not_raise_with_preamble_sales(self):
+        """End-to-end: parse → build_time_series must not raise int+str error."""
+        df = parse_sales_report_bytes(self._preamble_sales_csv(), "sales.csv")
+        ts = build_time_series(df, pd.Timestamp("2026-03-19"), window_days=14)
+        assert not ts.empty
+

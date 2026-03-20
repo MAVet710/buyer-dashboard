@@ -3969,9 +3969,20 @@ elif section == "🚚 Delivery Impact":
                                 f"⚠️ Could not extract data from **{_mf.name}**. "
                                 "Check the debug dump below."
                             )
+                        # Guarantee received_dt is a pd.Timestamp (or None/NaT→None).
+                        _recv_dt_coerced = pd.to_datetime(_recv_dt, errors="coerce")
+                        _recv_dt_final = (
+                            None if pd.isna(_recv_dt_coerced)
+                            else _recv_dt_coerced
+                        )
+                        if _recv_dt is not None and _recv_dt_final is None:
+                            st.warning(
+                                f"⚠️ Manifest **{_mf.name}** has an unparseable received date "
+                                f"({_recv_dt!r}) and will be excluded from analysis."
+                            )
                         _manifests.append({
                             "filename": _mf.name,
-                            "received_dt": _recv_dt,
+                            "received_dt": _recv_dt_final,
                             "items_df": _items_df,
                             "debug_text": _debug_text,
                         })
@@ -4260,6 +4271,23 @@ elif section == "🚚 Delivery Impact":
                     or (not _wow_mode and _ts_frames)
                 )
 
+                def _coerce_ts_frame_for_plot(df: pd.DataFrame) -> pd.DataFrame:
+                    """Guarantee safe dtypes in a time-series frame before passing to Plotly.
+
+                    * ``period``               → datetime (drop NaT rows)
+                    * numeric sales/count cols → float  (coerce; fill NaN with 0)
+                    """
+                    if df.empty:
+                        return df
+                    df = df.copy()
+                    df["period"] = pd.to_datetime(df["period"], errors="coerce")
+                    df = df.dropna(subset=["period"])
+                    for _col in ("total_net_sales", "delivered_net_sales",
+                                 "non_delivered_net_sales", "order_count"):
+                        if _col in df.columns:
+                            df[_col] = pd.to_numeric(df[_col], errors="coerce").fillna(0)
+                    return df
+
                 if _chart_data_available:
                     if PLOTLY_AVAILABLE:
                         _fig = go.Figure()
@@ -4280,8 +4308,12 @@ elif section == "🚚 Delivery Impact":
                                     .reset_index()
                                 )
 
-                            _ts_deliv_combined = _merge_wow_frames(_wow_delivery_frames)
-                            _ts_prior_combined = _merge_wow_frames(_wow_prior_frames)
+                            _ts_deliv_combined = _coerce_ts_frame_for_plot(
+                                _merge_wow_frames(_wow_delivery_frames)
+                            )
+                            _ts_prior_combined = _coerce_ts_frame_for_plot(
+                                _merge_wow_frames(_wow_prior_frames)
+                            )
 
                             if _show_total and not _ts_deliv_combined.empty:
                                 _fig.add_trace(go.Scatter(
@@ -4351,7 +4383,7 @@ elif section == "🚚 Delivery Impact":
                             # ── Before/After window chart ────────────────────
                             # Merge time series (sum across manifests for combined view)
                             if len(_ts_frames) > 1:
-                                _ts_combined = (
+                                _ts_merged = (
                                     pd.concat(_ts_frames)
                                     .groupby("period")
                                     [["total_net_sales", "delivered_net_sales",
@@ -4359,8 +4391,9 @@ elif section == "🚚 Delivery Impact":
                                     .sum()
                                     .reset_index()
                                 )
+                                _ts_combined = _coerce_ts_frame_for_plot(_ts_merged)
                             else:
-                                _ts_combined = _ts_frames[0].copy()
+                                _ts_combined = _coerce_ts_frame_for_plot(_ts_frames[0].copy())
 
                             if _show_total:
                                 _fig.add_trace(go.Scatter(
@@ -4518,8 +4551,26 @@ elif section == "🚚 Delivery Impact":
                             )
 
             except Exception as _di_exc:
+                import traceback as _tb
                 st.error(f"❌ Error processing files: {_di_exc}")
                 st.write("Please check that your files match the expected format and try again.")
+                with st.expander("🐛 Full traceback (for debugging)", expanded=False):
+                    st.code(_tb.format_exc(), language="python")
+                    # Dtype diagnostic summary to help identify type-coercion issues
+                    try:
+                        if "_sales_df" in dir() and isinstance(_sales_df, pd.DataFrame):
+                            st.markdown("**Sales DF dtypes:**")
+                            st.text(str(_sales_df.dtypes))
+                        for _name, _frame in [
+                            ("_ts_deliv_combined", locals().get("_ts_deliv_combined")),
+                            ("_ts_prior_combined", locals().get("_ts_prior_combined")),
+                            ("_ts_combined", locals().get("_ts_combined")),
+                        ]:
+                            if isinstance(_frame, pd.DataFrame) and not _frame.empty:
+                                st.markdown(f"**{_name} dtypes:**")
+                                st.text(str(_frame.dtypes))
+                    except Exception:
+                        pass
         else:
             _missing = []
             if not _manifest_files:
