@@ -4370,15 +4370,21 @@ elif section == "🚚 Delivery Impact":
 
                             # Delivery day marker
                             for _m in _active_manifests:
-                                _deliv_day = pd.Timestamp(_m["received_dt"]).normalize()
-                                _fig.add_vline(
-                                    x=_deliv_day.isoformat(),
-                                    line_dash="dash",
-                                    line_color="red",
-                                    annotation_text=f"Delivery Day: {_m['filename']}",
-                                    annotation_position="top left",
-                                    annotation_font_size=10,
-                                )
+                                _deliv_day = pd.to_datetime(_m.get("received_dt"), errors="coerce")
+                                if pd.notna(_deliv_day):
+                                    _fig.add_vline(
+                                        x=_deliv_day.normalize(),
+                                        line_dash="dash",
+                                        line_color="red",
+                                        annotation_text=f"Delivery Day: {_m.get('filename', '')}",
+                                        annotation_position="top left",
+                                        annotation_font_size=10,
+                                    )
+                                else:
+                                    st.warning(
+                                        f"⚠️ Delivery marker skipped – could not parse received_dt"
+                                        f"{' for ' + _m['filename'] if _m.get('filename') else ''}."
+                                    )
                         else:
                             # ── Before/After window chart ────────────────────
                             # Merge time series (sum across manifests for combined view)
@@ -4433,14 +4439,21 @@ elif section == "🚚 Delivery Impact":
 
                             # Add vertical lines for each delivery date
                             for _m in _active_manifests:
-                                _fig.add_vline(
-                                    x=_m["received_dt"].isoformat(),
-                                    line_dash="dash",
-                                    line_color="red",
-                                    annotation_text=f"Delivery: {_m['filename']}",
-                                    annotation_position="top left",
-                                    annotation_font_size=10,
-                                )
+                                _x = pd.to_datetime(_m.get("received_dt"), errors="coerce")
+                                if pd.notna(_x):
+                                    _fig.add_vline(
+                                        x=_x,
+                                        line_dash="dash",
+                                        line_color="red",
+                                        annotation_text=f"Delivery: {_m.get('filename', '')}",
+                                        annotation_position="top left",
+                                        annotation_font_size=10,
+                                    )
+                                else:
+                                    st.warning(
+                                        f"⚠️ Delivery marker skipped – could not parse received_dt"
+                                        f"{' for ' + _m['filename'] if _m.get('filename') else ''}."
+                                    )
 
                         _fig.update_layout(
                             xaxis_title="Date" if _granularity == "daily" else "Date/Hour",
