@@ -26,6 +26,8 @@ from delivery_impact import (
     _rows_to_items_df,
     _parse_items_from_text,
     parse_manifest_pdf_bytes,
+    _parse_datetime_string,
+    _extract_received_dt_from_rows,
 )
 
 
@@ -918,3 +920,188 @@ class TestParseManifestCsvXlsxBytes:
         assert received_dt.month == 3
         assert received_dt.day == 19
         assert received_dt.year == 2026
+
+
+# ===========================================================================
+# _parse_datetime_string  – explicit-format datetime parser
+# ===========================================================================
+
+class TestParseDatetimeString:
+    """Tests for the explicit-format datetime parser."""
+
+    def test_mdy_hm_format(self):
+        ts = _parse_datetime_string("03/19/2026 10:30")
+        assert ts is not None
+        assert ts.year == 2026
+        assert ts.month == 3
+        assert ts.day == 19
+        assert ts.hour == 10
+        assert ts.minute == 30
+
+    def test_mdy_hm_am_pm_format(self):
+        ts = _parse_datetime_string("03/19/2026 10:58 AM")
+        assert ts is not None
+        assert ts.year == 2026
+        assert ts.month == 3
+        assert ts.day == 19
+        assert ts.hour == 10
+        assert ts.minute == 58
+
+    def test_mdy_hm_pm_format(self):
+        ts = _parse_datetime_string("03/19/2026 02:30 PM")
+        assert ts is not None
+        assert ts.hour == 14
+
+    def test_mdy_two_digit_year(self):
+        ts = _parse_datetime_string("03/19/26 10:58 AM")
+        assert ts is not None
+        assert ts.month == 3
+        assert ts.day == 19
+
+    def test_iso_datetime(self):
+        ts = _parse_datetime_string("2026-03-19T10:30:00")
+        assert ts is not None
+        assert ts.year == 2026
+
+    def test_iso_date_only(self):
+        ts = _parse_datetime_string("2026-03-19")
+        assert ts is not None
+        assert ts.year == 2026
+        assert ts.month == 3
+        assert ts.day == 19
+
+    def test_empty_string_returns_none(self):
+        assert _parse_datetime_string("") is None
+
+    def test_non_date_string_returns_none(self):
+        assert _parse_datetime_string("not a date") is None
+
+    def test_returns_timezone_naive(self):
+        ts = _parse_datetime_string("03/19/2026 10:30")
+        assert ts is not None
+        assert ts.tzinfo is None
+
+
+# ===========================================================================
+# _extract_received_dt_from_rows  – priority-ranked date extraction
+# ===========================================================================
+
+class TestExtractReceivedDtFromRows:
+    """Tests for priority-ranked received date extraction."""
+
+    def test_labeled_row_takes_priority(self):
+        # "Received Date" label should win over any earlier date in raw text.
+        rows = [
+            ["Manifest #", "cresco031926"],
+            ["Received Date", "03/19/2026 10:58 AM"],
+            ["Vendor", "Cresco Illinois"],
+        ]
+        dt = _extract_received_dt_from_rows(rows, "")
+        assert dt is not None
+        assert dt.month == 3
+        assert dt.day == 19
+        assert dt.year == 2026
+        assert dt.hour == 10
+
+    def test_date_received_label_variant(self):
+        rows = [
+            ["Date Received", "03/19/2026 10:30"],
+        ]
+        dt = _extract_received_dt_from_rows(rows, "")
+        assert dt is not None
+        assert dt.day == 19
+
+    def test_received_label_variant(self):
+        rows = [
+            ["Received", "03/19/2026 10:30"],
+        ]
+        dt = _extract_received_dt_from_rows(rows, "")
+        assert dt is not None
+        assert dt.day == 19
+
+    def test_falls_back_to_preamble_scan(self):
+        # No labeled row, but a date appears in the preamble text.
+        rows = [
+            ["Vendor", "Cresco Illinois"],
+            ["Export", "03/19/2026 10:30"],
+        ]
+        dt = _extract_received_dt_from_rows(rows, "")
+        assert dt is not None
+        assert dt.day == 19
+
+    def test_falls_back_to_raw_text(self):
+        # No useful rows; date in raw_text fallback.
+        rows: list = []
+        dt = _extract_received_dt_from_rows(rows, "Delivery on 03/19/2026 10:30")
+        assert dt is not None
+        assert dt.day == 19
+
+    def test_no_date_returns_none(self):
+        rows = [["Vendor", "Cresco Illinois"]]
+        dt = _extract_received_dt_from_rows(rows, "no date here")
+        assert dt is None
+
+    def test_labeled_row_preferred_over_raw_text_date(self):
+        # raw_text has an earlier date (01/01/2020) but labeled row has the real one.
+        rows = [
+            ["Received Date", "03/19/2026 10:30"],
+        ]
+        dt = _extract_received_dt_from_rows(rows, "Some date 01/01/2020 09:00")
+        assert dt is not None
+        assert dt.year == 2026
+        assert dt.month == 3
+
+
+# ===========================================================================
+# Type coercion guarantees in parse_manifest_csv_xlsx_bytes
+# ===========================================================================
+
+class TestManifestTypeCoercions:
+    """Verify item_name is always str and qty is always numeric."""
+
+    def _simple_csv(self, rows: list[list[str]]) -> bytes:
+        lines = [",".join(r) for r in rows]
+        return "\n".join(lines).encode("utf-8")
+
+    def test_item_name_is_always_str(self):
+        csv = self._simple_csv([
+            ["Product", "Quantity"],
+            ["Blue Dream 3.5g", "10"],
+            ["Sour Diesel", "5"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        for val in df["item_name"]:
+            assert isinstance(val, str), f"Expected str, got {type(val)}"
+
+    def test_qty_is_always_numeric(self):
+        csv = self._simple_csv([
+            ["Product", "Quantity"],
+            ["Blue Dream 3.5g", "10"],
+            ["Sour Diesel", "5"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert pd.api.types.is_numeric_dtype(df["qty"])
+
+    def test_qty_sum_does_not_raise(self):
+        """qty.sum() must not raise – the original int+str bug trigger."""
+        csv = self._simple_csv([
+            ["Product", "Quantity"],
+            ["Blue Dream 3.5g", "10"],
+            ["Sour Diesel", "5"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        total = df["qty"].sum()  # must not raise
+        assert total == pytest.approx(15.0)
+
+    def test_cresco_fixture_item_name_dtype_str(self):
+        raw = _CRESCO_CSV.read_bytes()
+        _, df, _ = parse_manifest_csv_xlsx_bytes(raw, filename="cresco031926.csv")
+        for val in df["item_name"]:
+            assert isinstance(val, str)
+
+    def test_cresco_fixture_qty_dtype_numeric(self):
+        raw = _CRESCO_CSV.read_bytes()
+        _, df, _ = parse_manifest_csv_xlsx_bytes(raw, filename="cresco031926.csv")
+        assert pd.api.types.is_numeric_dtype(df["qty"])
+        # Quantities should be > 0 for all items in the fixture.
+        assert (df["qty"] > 0).all()
