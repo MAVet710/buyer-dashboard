@@ -18,6 +18,7 @@ from reportlab.lib.units import inch
 # ------------------------------------------------------------
 try:
     import plotly.express as px  # noqa: F401
+    import plotly.graph_objects as go  # noqa: F401
     PLOTLY_AVAILABLE = True
 except Exception:
     PLOTLY_AVAILABLE = False
@@ -46,6 +47,22 @@ try:
     _DUTCHIE_CLIENT_AVAILABLE = True
 except (ImportError, AttributeError):
     _DUTCHIE_CLIENT_AVAILABLE = False
+
+# ------------------------------------------------------------
+# DELIVERY IMPACT MODULE
+# ------------------------------------------------------------
+try:
+    from delivery_impact import (
+        parse_manifest_pdf_bytes,
+        parse_sales_report_bytes as _parse_sales_report_bytes,
+        match_manifest_to_sales,
+        compute_delivery_kpis,
+        build_time_series,
+        DELIVERY_WINDOW_DAYS,
+    )
+    _DELIVERY_IMPACT_AVAILABLE = True
+except ImportError:
+    _DELIVERY_IMPACT_AVAILABLE = False
 
 
 def hash_password(plain: str) -> str:
@@ -3807,11 +3824,14 @@ elif section == "📈 Trends":
 # PAGE – DELIVERY IMPACT
 # ============================================================
 elif section == "🚚 Delivery Impact":
-    st.subheader("Delivery Impact Analysis")
+    st.subheader("🚚 Delivery Impact Analysis")
 
-    # Initialize file variables so they are always defined for the processing block below.
-    delivery_file = None
-    daily_sales_file = None
+    if not _DELIVERY_IMPACT_AVAILABLE:
+        st.error(
+            "❌ The `delivery_impact` module could not be imported. "
+            "Make sure `delivery_impact.py` is present in the project root."
+        )
+        st.stop()
 
     if data_mode == "🔴 Dutchie Live":
         # ── Dutchie Live mode ────────────────────────────────────────────────
@@ -3838,278 +3858,486 @@ elif section == "🚚 Delivery Impact":
         else:
             st.error("❌ dutchie_client module is not available.")
     else:
-        st.write(
-            "Use this page to measure whether deliveries correlate with an uptick in **revenue**. "
-            "Upload (1) a delivery/receiving report with a received date and (2) a daily sales report "
-            "(CSV export from your POS). Revenue is measured using Net Sales (or Gross Sales as fallback)."
+        # ── Uploads mode ─────────────────────────────────────────────────────
+        st.markdown(
+            """
+            Upload one or more **delivery manifest PDFs** and a **sales report** (CSV or XLSX).
+            The app will parse each manifest for its received date/time and delivered items, then
+            compute a **14-day before vs 14-day after** comparison to show how each delivery
+            correlates with spikes in **Net Sales** and **order count (traffic proxy)**.
+            """
         )
 
-        col1, col2 = st.columns(2)
+        # ── File uploaders ───────────────────────────────────────────────────
+        _di_col1, _di_col2 = st.columns(2)
 
-        with col1:
-            st.markdown("#### 📦 Delivery File")
-            delivery_file = st.file_uploader(
-                "Upload delivery/receiving report (CSV or XLSX)",
-                type=["csv", "xlsx"],
-                key="delivery_upload",
+        with _di_col1:
+            st.markdown("#### 📦 Manifest PDFs")
+            _manifest_files = st.file_uploader(
+                "Upload delivery manifest PDF(s)",
+                type=["pdf"],
+                accept_multiple_files=True,
+                key="di_manifest_upload",
+                help="Each PDF should contain the received date/time and a table of item names + quantities.",
             )
 
-        with col2:
-            st.markdown("#### 📈 Daily Sales File")
-            daily_sales_file = st.file_uploader(
-                "Upload daily sales report (CSV or XLSX)",
+        with _di_col2:
+            st.markdown("#### 📊 Sales Report")
+            _sales_file = st.file_uploader(
+                "Upload sales report (CSV or XLSX)",
                 type=["csv", "xlsx"],
-                key="daily_sales_upload",
+                key="di_sales_upload",
+                help=(
+                    "Expected columns: Order ID, Order Time, Product Name, "
+                    "Total Inventory Sold, Net Sales. "
+                    "Metadata preamble rows (e.g. Export Date:) are skipped automatically."
+                ),
             )
 
-    if delivery_file and daily_sales_file:
-        try:
-            # ── Enforce upload size limits ──────────────────────────────────
-            delivery_file.seek(0)
-            delivery_bytes = delivery_file.read()
-            delivery_file.seek(0)
-            if len(delivery_bytes) > MAX_UPLOAD_BYTES:
-                st.error(
-                    f"❌ Delivery file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit."
-                )
-                st.stop()
-
-            daily_sales_file.seek(0)
-            daily_sales_bytes = daily_sales_file.read()
-            daily_sales_file.seek(0)
-            if len(daily_sales_bytes) > MAX_UPLOAD_BYTES:
-                st.error(
-                    f"❌ Daily sales file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit."
-                )
-                st.stop()
-
-            # ── Parse delivery file ─────────────────────────────────────────
-            if delivery_file.name.lower().endswith(".xlsx"):
-                delivery_df = pd.read_excel(delivery_file)
-            else:
-                delivery_df = pd.read_csv(delivery_file)
-            delivery_df.columns = delivery_df.columns.astype(str).str.lower().str.strip()
-
-            # ── Parse daily sales file (supports metadata header rows) ──────
-            # Required columns that must appear in the true header row.
-            _REQUIRED_SALES_COLS = {"category", "netsales", "grosssales", "product"}
-
-            def _find_sales_header_row(raw_bytes: bytes) -> int:
-                """Return the 0-based index of the CSV header row containing sales columns."""
-                text = raw_bytes.decode("utf-8", errors="replace")
-                for i, line in enumerate(text.splitlines()):
-                    normalized = {c.lower().replace(" ", "").replace("_", "") for c in line.split(",")}
-                    if normalized & _REQUIRED_SALES_COLS:
-                        return i
-                return 0
-
-            if daily_sales_file.name.lower().endswith(".xlsx"):
-                daily_sales_df = pd.read_excel(daily_sales_file)
-                daily_sales_df.columns = daily_sales_df.columns.astype(str).str.lower().str.strip()
-                from_date_meta = None
-                to_date_meta = None
-            else:
-                # Scan for metadata lines to extract From/To date and true header row
-                raw_sales_bytes = daily_sales_bytes
-                header_row_idx = _find_sales_header_row(raw_sales_bytes)
-
-                # Extract From Date / To Date from metadata rows
-                meta_text = raw_sales_bytes.decode("utf-8", errors="replace")
-                from_date_meta = None
-                to_date_meta = None
-                for line in meta_text.splitlines()[:header_row_idx]:
-                    low = line.lower()
-                    if "from date" in low or "fromdate" in low:
-                        parts = [p.strip() for p in line.split(",") if p.strip()]
-                        if len(parts) >= 2:
-                            from_date_meta = pd.to_datetime(parts[1], errors="coerce")
-                    if "to date" in low or "todate" in low:
-                        parts = [p.strip() for p in line.split(",") if p.strip()]
-                        if len(parts) >= 2:
-                            to_date_meta = pd.to_datetime(parts[1], errors="coerce")
-
-                daily_sales_df = pd.read_csv(
-                    BytesIO(raw_sales_bytes), skiprows=header_row_idx
-                )
-                daily_sales_df.columns = (
-                    daily_sales_df.columns.astype(str).str.lower().str.strip().str.replace(" ", "").str.replace("_", "")
-                )
-
-            # Normalise column names: remove spaces/underscores for matching, then rename canonical
-            _col_map = {}
-            for c in daily_sales_df.columns:
-                key = c.lower().replace(" ", "").replace("_", "")
-                _col_map[key] = c
-            # Map canonical names back to actual column names
-            _cat_col = _col_map.get("category")
-            _prod_col = _col_map.get("product")
-            _net_col = _col_map.get("netsales")
-            _gross_col = _col_map.get("grosssales")
-            _revenue_col = _net_col if _net_col else _gross_col
-            _revenue_label = "Net Sales" if _net_col else "Gross Sales"
-
-            if not _revenue_col:
-                st.error(
-                    "❌ Sales file must contain a **NetSales** or **GrossSales** column. "
-                    f"Columns found: {', '.join(daily_sales_df.columns.tolist())}"
-                )
-                st.stop()
-
-            # Remove subtotal / total rows
-            if _cat_col and _prod_col:
-                mask_total = (
-                    daily_sales_df[_prod_col].astype(str).str.strip().str.lower() == "total"
-                ) | (
-                    daily_sales_df[_cat_col].astype(str).str.strip().str.lower() == "total"
-                )
-                daily_sales_df = daily_sales_df[~mask_total].copy()
-            elif _cat_col:
-                mask_total = daily_sales_df[_cat_col].astype(str).str.strip().str.lower() == "total"
-                daily_sales_df = daily_sales_df[~mask_total].copy()
-
-            # Convert revenue column to numeric
-            daily_sales_df[_revenue_col] = pd.to_numeric(
-                daily_sales_df[_revenue_col].astype(str).str.replace(r"[\$,]", "", regex=True),
-                errors="coerce",
-            ).fillna(0.0)
-
-            # ── Determine per-row sale date ─────────────────────────────────
-            _date_cols = [c for c in daily_sales_df.columns if "date" in c]
-            if _date_cols:
-                daily_sales_df["_sale_date"] = pd.to_datetime(
-                    daily_sales_df[_date_cols[0]], errors="coerce"
-                )
-            elif pd.notna(from_date_meta) and pd.notna(to_date_meta):
-                if from_date_meta == to_date_meta:
-                    # Single-day file: assign that date to all rows
-                    daily_sales_df["_sale_date"] = from_date_meta
-                else:
+        if _manifest_files and _sales_file:
+            try:
+                # ── Enforce upload limits ────────────────────────────────────
+                _sales_file.seek(0)
+                _sales_bytes = _sales_file.read()
+                _sales_file.seek(0)
+                if len(_sales_bytes) > MAX_UPLOAD_BYTES:
                     st.error(
-                        "❌ Your sales file covers multiple days "
-                        f"({from_date_meta.date()} to {to_date_meta.date()}) "
-                        "but does not include a per-row date column. "
-                        "Please export a report that includes a transaction date column, "
-                        "or upload separate single-day files."
+                        f"❌ Sales file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit."
                     )
                     st.stop()
-            else:
-                st.error(
-                    "❌ Could not determine sale dates from the sales file. "
-                    "Ensure the file has a date column or valid From/To Date metadata rows."
-                )
-                st.stop()
 
-            # Build daily revenue series (sum NetSales/GrossSales per day)
-            daily_revenue = (
-                daily_sales_df.groupby("_sale_date")[_revenue_col]
-                .sum()
-                .rename("revenue")
-            )
-            daily_revenue.index = pd.to_datetime(daily_revenue.index)
+                # ── Parse sales report ───────────────────────────────────────
+                with st.spinner("Parsing sales report…"):
+                    _sales_df = _parse_sales_report_bytes(_sales_bytes, _sales_file.name)
 
-            # ── Parse delivery dates ────────────────────────────────────────
-            _del_date_cols = [
-                c for c in delivery_df.columns if "date" in c or "received" in c
-            ]
-            if not _del_date_cols:
-                st.error(
-                    "❌ Delivery file must contain a date or 'received' column. "
-                    f"Columns found: {', '.join(delivery_df.columns.tolist())}"
-                )
-                st.stop()
-
-            delivery_df["_delivery_date"] = pd.to_datetime(
-                delivery_df[_del_date_cols[0]], errors="coerce"
-            )
-            delivery_dates = (
-                delivery_df["_delivery_date"]
-                .dropna()
-                .dt.normalize()
-                .drop_duplicates()
-                .sort_values()
-                .tolist()
-            )
-
-            if not delivery_dates:
-                st.error("❌ No valid delivery dates found in the delivery file.")
-                st.stop()
-
-            # ── UI control: window size ─────────────────────────────────────
-            window_days = st.selectbox(
-                "Analysis window (days before/after delivery):",
-                options=[3, 7, 14],
-                index=1,
-                key="delivery_impact_window",
-            )
-
-            # ── Impact calculation ──────────────────────────────────────────
-            impact_results = []
-            for del_date in delivery_dates:
-                del_date_norm = pd.Timestamp(del_date).normalize()
-
-                pre_window = daily_revenue[
-                    (daily_revenue.index >= del_date_norm - timedelta(days=window_days))
-                    & (daily_revenue.index < del_date_norm)
-                ]
-                post_window = daily_revenue[
-                    (daily_revenue.index > del_date_norm)
-                    & (daily_revenue.index <= del_date_norm + timedelta(days=window_days))
-                ]
-
-                avg_before = pre_window.mean() if len(pre_window) > 0 else float("nan")
-                avg_after = post_window.mean() if len(post_window) > 0 else float("nan")
-
-                if pd.notna(avg_before) and pd.notna(avg_after) and avg_before > 0:
-                    dollar_lift = avg_after - avg_before
-                    pct_lift = (dollar_lift / avg_before) * 100.0
-                else:
-                    dollar_lift = float("nan")
-                    pct_lift = float("nan")
-
-                impact_results.append(
-                    {
-                        "Delivery Date": del_date_norm.date(),
-                        f"Avg Daily {_revenue_label} Before": (
-                            round(avg_before, 2) if pd.notna(avg_before) else None
-                        ),
-                        f"Avg Daily {_revenue_label} After": (
-                            round(avg_after, 2) if pd.notna(avg_after) else None
-                        ),
-                        "$ Lift": round(dollar_lift, 2) if pd.notna(dollar_lift) else None,
-                        "% Lift": round(pct_lift, 2) if pd.notna(pct_lift) else None,
-                    }
-                )
-
-            st.markdown("### 📊 Analysis Results")
-            st.caption(f"Revenue metric: **{_revenue_label}** | Window: **{window_days} days**")
-
-            if impact_results:
-                impact_df = pd.DataFrame(impact_results)
-                st.dataframe(
-                    impact_df.sort_values("Delivery Date", ascending=False),
-                    use_container_width=True,
-                )
-
-                valid_lifts = impact_df["% Lift"].dropna()
-                if len(valid_lifts) > 0:
-                    st.markdown("#### Summary")
-                    s_col1, s_col2, s_col3 = st.columns(3)
-                    s_col1.metric("Deliveries analyzed", len(delivery_dates))
-                    s_col2.metric("Avg % Lift", f"{valid_lifts.mean():.1f}%")
-                    s_col3.metric("Median % Lift", f"{valid_lifts.median():.1f}%")
-                else:
-                    st.warning(
-                        "⚠️ Not enough sales data in the analysis windows to compute lift. "
-                        "Ensure your sales file covers dates around the delivery dates."
+                if _sales_df.empty:
+                    st.error(
+                        "❌ No usable sales rows found. "
+                        "Ensure the file has Order Time and Net Sales columns."
                     )
-            else:
-                st.warning("No impact data could be calculated. Ensure your files have overlapping date ranges.")
+                    st.stop()
 
-        except Exception as e:
-            st.error(f"Error processing files: {str(e)}")
-            st.write("Please check that your files match the expected format and try again.")
-    else:
-        st.info("👆 Upload both files to see the analysis")
+                _sales_products = sorted(_sales_df["product_name"].dropna().unique().tolist())
+                st.success(
+                    f"✅ Sales report parsed: **{len(_sales_df):,}** line items · "
+                    f"**{_sales_df['order_time'].dt.date.nunique()}** unique days · "
+                    f"**{len(_sales_products):,}** unique products"
+                )
+
+                # ── Parse manifests ──────────────────────────────────────────
+                _manifests: list = []
+                _all_debug_texts: dict = {}
+
+                with st.spinner("Parsing manifest PDFs…"):
+                    for _mf in _manifest_files:
+                        if len(_mf.getvalue()) > MAX_UPLOAD_BYTES:
+                            st.warning(
+                                f"⚠️ Manifest **{_mf.name}** exceeds the size limit – skipped."
+                            )
+                            continue
+                        _mf.seek(0)
+                        _pdf_bytes = _mf.read()
+                        _recv_dt, _items_df, _debug_text = parse_manifest_pdf_bytes(
+                            _pdf_bytes, filename=_mf.name
+                        )
+                        _all_debug_texts[_mf.name] = _debug_text
+                        if _recv_dt is None and _items_df.empty:
+                            st.warning(
+                                f"⚠️ Could not extract data from **{_mf.name}**. "
+                                "Check the debug dump below."
+                            )
+                        _manifests.append({
+                            "filename": _mf.name,
+                            "received_dt": _recv_dt,
+                            "items_df": _items_df,
+                            "debug_text": _debug_text,
+                        })
+
+                if not _manifests:
+                    st.error("❌ No manifests could be parsed.")
+                    st.stop()
+
+                # ── Sidebar controls ─────────────────────────────────────────
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("### 🚚 Delivery Impact Settings")
+
+                _window_days = st.sidebar.selectbox(
+                    "Comparison window (days before/after)",
+                    options=[7, 14, 21, 28],
+                    index=1,
+                    key="di_window",
+                )
+
+                _granularity = st.sidebar.radio(
+                    "Chart granularity",
+                    ["daily", "hourly"],
+                    index=0,
+                    key="di_granularity",
+                )
+
+                _fuzzy_threshold = st.sidebar.slider(
+                    "Fuzzy match threshold",
+                    min_value=0.60,
+                    max_value=1.00,
+                    value=0.82,
+                    step=0.01,
+                    key="di_fuzzy",
+                    help=(
+                        "Minimum similarity (0–1) to accept a fuzzy product-name match. "
+                        "Higher = stricter."
+                    ),
+                )
+
+                _show_total = st.sidebar.checkbox("Total Net Sales", value=True, key="di_ov_total")
+                _show_del = st.sidebar.checkbox("Delivered-items Net Sales", value=True, key="di_ov_del")
+                _show_nondel = st.sidebar.checkbox("Non-delivered Net Sales", value=False, key="di_ov_nondel")
+                _show_orders = st.sidebar.checkbox("Order Count (traffic)", value=True, key="di_ov_orders")
+
+                # ── Per-manifest matching & manifest selector ────────────────
+                _valid_manifests = [m for m in _manifests if m["received_dt"] is not None]
+                _invalid_manifests = [m for m in _manifests if m["received_dt"] is None]
+
+                if _invalid_manifests:
+                    st.warning(
+                        "⚠️ The following manifests had no detectable received date and will be "
+                        "excluded from analysis: "
+                        + ", ".join(f"**{m['filename']}**" for m in _invalid_manifests)
+                    )
+
+                if not _valid_manifests:
+                    st.error(
+                        "❌ None of the uploaded manifests contained a detectable received date/time."
+                    )
+                    st.stop()
+
+                # Build manifest options for selector
+                _manifest_options = ["📦 Combined (all manifests)"] + [
+                    f"📄 {m['filename']} ({m['received_dt'].strftime('%Y-%m-%d %H:%M')})"
+                    for m in _valid_manifests
+                ]
+                _selected_manifest_label = st.selectbox(
+                    "View manifest",
+                    _manifest_options,
+                    key="di_manifest_sel",
+                )
+
+                # Resolve which manifests to show
+                if _selected_manifest_label == "📦 Combined (all manifests)":
+                    _active_manifests = _valid_manifests
+                else:
+                    _active_manifests = [
+                        m for m in _valid_manifests
+                        if f"📄 {m['filename']} ({m['received_dt'].strftime('%Y-%m-%d %H:%M')})"
+                        == _selected_manifest_label
+                    ]
+
+                # ── Match delivered items for active manifests ───────────────
+                _all_matched: dict = {}
+                _all_unmatched: list = []
+                _all_delivered_sales_names: list = []
+
+                for _m in _active_manifests:
+                    if _m["items_df"].empty:
+                        continue
+                    _manifest_item_names = _m["items_df"]["item_name"].dropna().tolist()
+                    _matched, _unmatched = match_manifest_to_sales(
+                        _manifest_item_names,
+                        _sales_products,
+                        fuzzy_threshold=_fuzzy_threshold,
+                    )
+                    _all_matched.update(_matched)
+                    for _u in _unmatched:
+                        if _u not in _all_unmatched:
+                            _all_unmatched.append(_u)
+                    for _sn in _matched.values():
+                        if _sn not in _all_delivered_sales_names:
+                            _all_delivered_sales_names.append(_sn)
+
+                # ── KPI computation ──────────────────────────────────────────
+                st.markdown("---")
+                st.markdown("### 📊 KPI Summary")
+
+                _kpi_rows: list = []
+                _combined_kpi_keys = [
+                    "net_sales_before", "net_sales_after", "net_sales_lift_abs", "net_sales_lift_pct",
+                    "orders_before", "orders_after",
+                    "delivered_sales_before", "delivered_sales_after",
+                    "delivered_sales_lift_abs", "delivered_sales_lift_pct",
+                    "delivered_units_before", "delivered_units_after",
+                ]
+
+                for _m in _active_manifests:
+                    _kpis = compute_delivery_kpis(
+                        _sales_df,
+                        _m["received_dt"],
+                        window_days=_window_days,
+                        delivered_names=_all_delivered_sales_names or None,
+                    )
+                    _kpi_rows.append({
+                        "Manifest": _m["filename"],
+                        "Received": _m["received_dt"].strftime("%Y-%m-%d %H:%M"),
+                        "Net Sales Before ($)": f"{_kpis['net_sales_before']:,.2f}",
+                        "Net Sales After ($)": f"{_kpis['net_sales_after']:,.2f}",
+                        "$ Lift": f"{_kpis['net_sales_lift_abs']:,.2f}",
+                        "% Lift": (
+                            f"{_kpis['net_sales_lift_pct']:.1f}%"
+                            if not pd.isna(_kpis["net_sales_lift_pct"])
+                            else "N/A"
+                        ),
+                        "Orders Before": _kpis["orders_before"],
+                        "Orders After": _kpis["orders_after"],
+                    })
+
+                if _kpi_rows:
+                    _kpi_df = pd.DataFrame(_kpi_rows)
+                    st.dataframe(_kpi_df, use_container_width=True)
+
+                # ── Summary metrics ──────────────────────────────────────────
+                # Compute combined KPIs from all active manifests
+                _combined_kpis: dict = {}
+                for _m in _active_manifests:
+                    _kpis = compute_delivery_kpis(
+                        _sales_df,
+                        _m["received_dt"],
+                        window_days=_window_days,
+                        delivered_names=_all_delivered_sales_names or None,
+                    )
+                    for _k in _combined_kpi_keys:
+                        v = _kpis.get(_k)
+                        if v is not None and not (isinstance(v, float) and pd.isna(v)):
+                            _combined_kpis[_k] = _combined_kpis.get(_k, 0.0) + float(v)
+
+                if _combined_kpis:
+                    _mk1, _mk2, _mk3, _mk4 = st.columns(4)
+                    _ns_b = _combined_kpis.get("net_sales_before", 0.0)
+                    _ns_a = _combined_kpis.get("net_sales_after", 0.0)
+                    _ns_lift = _ns_a - _ns_b
+                    _ns_pct = (_ns_lift / _ns_b * 100) if _ns_b else 0.0
+                    _mk1.metric(
+                        "Net Sales (before)",
+                        f"${_ns_b:,.0f}",
+                        delta=None,
+                    )
+                    _mk2.metric(
+                        "Net Sales (after)",
+                        f"${_ns_a:,.0f}",
+                        delta=f"{_ns_lift:+,.0f} ({_ns_pct:+.1f}%)",
+                    )
+                    _del_b = _combined_kpis.get("delivered_sales_before")
+                    _del_a = _combined_kpis.get("delivered_sales_after")
+                    if _del_b is not None and _del_a is not None:
+                        _del_lift = _del_a - _del_b
+                        _del_pct = (_del_lift / _del_b * 100) if _del_b else 0.0
+                        _mk3.metric(
+                            "Delivered-items Sales (after)",
+                            f"${_del_a:,.0f}",
+                            delta=f"{_del_lift:+,.0f} ({_del_pct:+.1f}%)",
+                        )
+                    else:
+                        _mk3.metric("Delivered-items Sales", "N/A")
+                    _o_b = _combined_kpis.get("orders_before", 0.0)
+                    _o_a = _combined_kpis.get("orders_after", 0.0)
+                    _o_lift = _o_a - _o_b
+                    _mk4.metric(
+                        "Orders (after)",
+                        f"{int(_o_a):,}",
+                        delta=f"{int(_o_lift):+,}",
+                    )
+
+                # ── Line chart ───────────────────────────────────────────────
+                st.markdown("---")
+                st.markdown("### 📈 Time-Series Chart")
+
+                # Build time series for each active manifest and combine
+                _ts_frames: list = []
+                for _m in _active_manifests:
+                    _ts = build_time_series(
+                        _sales_df,
+                        _m["received_dt"],
+                        window_days=_window_days,
+                        granularity=_granularity,
+                        delivered_names=_all_delivered_sales_names or None,
+                    )
+                    if not _ts.empty:
+                        _ts["_manifest"] = _m["filename"]
+                        _ts["_recv_dt"] = _m["received_dt"]
+                        _ts_frames.append(_ts)
+
+                if _ts_frames:
+                    if PLOTLY_AVAILABLE:
+                        # Merge time series (sum across manifests for combined view)
+                        if len(_ts_frames) > 1:
+                            _ts_combined = (
+                                pd.concat(_ts_frames)
+                                .groupby("period")
+                                [["total_net_sales", "delivered_net_sales", "non_delivered_net_sales", "order_count"]]
+                                .sum()
+                                .reset_index()
+                            )
+                        else:
+                            _ts_combined = _ts_frames[0].copy()
+
+                        _fig = go.Figure()
+
+                        if _show_total:
+                            _fig.add_trace(go.Scatter(
+                                x=_ts_combined["period"],
+                                y=_ts_combined["total_net_sales"],
+                                name="Total Net Sales ($)",
+                                mode="lines",
+                                line={"width": 2},
+                            ))
+
+                        if _show_del and "delivered_net_sales" in _ts_combined.columns:
+                            _fig.add_trace(go.Scatter(
+                                x=_ts_combined["period"],
+                                y=_ts_combined["delivered_net_sales"],
+                                name="Delivered-items Net Sales ($)",
+                                mode="lines",
+                                line={"dash": "dot", "width": 2},
+                            ))
+
+                        if _show_nondel and "non_delivered_net_sales" in _ts_combined.columns:
+                            _fig.add_trace(go.Scatter(
+                                x=_ts_combined["period"],
+                                y=_ts_combined["non_delivered_net_sales"],
+                                name="Non-delivered Net Sales ($)",
+                                mode="lines",
+                                line={"dash": "dash", "width": 2},
+                            ))
+
+                        if _show_orders and "order_count" in _ts_combined.columns:
+                            _fig.add_trace(go.Bar(
+                                x=_ts_combined["period"],
+                                y=_ts_combined["order_count"],
+                                name="Order Count",
+                                yaxis="y2",
+                                opacity=0.35,
+                            ))
+
+                        # Add vertical lines for each delivery date
+                        for _m in _active_manifests:
+                            _fig.add_vline(
+                                x=_m["received_dt"].isoformat(),
+                                line_dash="dash",
+                                line_color="red",
+                                annotation_text=f"Delivery: {_m['filename']}",
+                                annotation_position="top left",
+                                annotation_font_size=10,
+                            )
+
+                        _fig.update_layout(
+                            xaxis_title="Date" if _granularity == "daily" else "Date/Hour",
+                            yaxis_title="Net Sales ($)",
+                            yaxis2={
+                                "title": "Order Count",
+                                "overlaying": "y",
+                                "side": "right",
+                                "showgrid": False,
+                            },
+                            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
+                            hovermode="x unified",
+                            height=480,
+                            margin={"t": 40, "b": 40},
+                        )
+
+                        st.plotly_chart(_fig, use_container_width=True)
+                    else:
+                        st.warning("⚠️ Plotly is not installed – chart unavailable. Install `plotly` to enable charts.")
+                        if _ts_frames:
+                            st.dataframe(_ts_frames[0], use_container_width=True)
+                else:
+                    st.info(
+                        "ℹ️ No sales data found in the analysis windows. "
+                        "Check that your sales report covers dates around the delivery dates."
+                    )
+
+                # ── Top items by lift ────────────────────────────────────────
+                if _all_delivered_sales_names:
+                    st.markdown("---")
+                    st.markdown("### 🏆 Top Delivered Items by Lift")
+
+                    _top_rows_all: list = []
+                    for _m in _active_manifests:
+                        _kpis = compute_delivery_kpis(
+                            _sales_df,
+                            _m["received_dt"],
+                            window_days=_window_days,
+                            delivered_names=_all_delivered_sales_names,
+                        )
+                        _top = _kpis.get("top_items")
+                        if _top is not None and not _top.empty:
+                            _top["manifest"] = _m["filename"]
+                            _top_rows_all.append(_top)
+
+                    if _top_rows_all:
+                        _top_combined = pd.concat(_top_rows_all).reset_index(drop=True)
+                        _top_combined = (
+                            _top_combined
+                            .groupby("item_name")
+                            .agg(
+                                sales_lift=("sales_lift", "sum"),
+                                units_lift=("units_lift", "sum"),
+                                net_sales_before=("net_sales_before", "sum"),
+                                net_sales_after=("net_sales_after", "sum"),
+                            )
+                            .reset_index()
+                            .sort_values("sales_lift", ascending=False)
+                        )
+                        st.dataframe(
+                            _top_combined.rename(columns={
+                                "item_name": "Product",
+                                "sales_lift": "Sales Lift ($)",
+                                "units_lift": "Units Lift",
+                                "net_sales_before": "Net Sales Before ($)",
+                                "net_sales_after": "Net Sales After ($)",
+                            }),
+                            use_container_width=True,
+                        )
+
+                # ── Unmatched items ──────────────────────────────────────────
+                if _all_unmatched:
+                    st.markdown("---")
+                    st.markdown("### ⚠️ Unmatched Manifest Items")
+                    st.caption(
+                        "These items from the manifests could not be matched to any product "
+                        "in the sales report. Their sales are not included in the delivered-items metrics."
+                    )
+                    _unmatched_df = pd.DataFrame({"Manifest Item (unmatched)": _all_unmatched})
+                    st.dataframe(_unmatched_df, use_container_width=True)
+
+                if _all_matched:
+                    with st.expander("🔍 View item matching results", expanded=False):
+                        _match_rows = [
+                            {"Manifest Item": k, "Matched Sales Product": v}
+                            for k, v in _all_matched.items()
+                        ]
+                        st.dataframe(pd.DataFrame(_match_rows), use_container_width=True)
+
+                # ── Debug PDF text dumps ─────────────────────────────────────
+                for _fname, _dtext in _all_debug_texts.items():
+                    if _dtext:
+                        with st.expander(f"🐛 PDF debug text: {_fname}", expanded=False):
+                            st.text(_dtext[:4000] + ("…" if len(_dtext) > 4000 else ""))
+                            st.download_button(
+                                f"⬇️ Download full text for {_fname}",
+                                data=_dtext.encode("utf-8"),
+                                file_name=f"{_fname}_debug.txt",
+                                mime="text/plain",
+                                key=f"di_debug_{_fname}",
+                            )
+
+            except Exception as _di_exc:
+                st.error(f"❌ Error processing files: {_di_exc}")
+                st.write("Please check that your files match the expected format and try again.")
+        else:
+            _missing = []
+            if not _manifest_files:
+                _missing.append("one or more manifest PDFs")
+            if not _sales_file:
+                _missing.append("a sales report (CSV or XLSX)")
+            st.info(f"👆 Upload {' and '.join(_missing)} to see the analysis.")
+
 
 # ============================================================
 # PAGE – SLOW MOVERS & TRENDS
