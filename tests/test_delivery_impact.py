@@ -22,6 +22,9 @@ from delivery_impact import (
     match_manifest_to_sales,
     normalize_product_name,
     parse_sales_report_bytes,
+    _rows_to_items_df,
+    _parse_items_from_text,
+    parse_manifest_pdf_bytes,
 )
 
 
@@ -434,3 +437,254 @@ class TestBuildTimeSeries:
             assert row["total_net_sales"] == pytest.approx(
                 row["delivered_net_sales"] + row["non_delivered_net_sales"]
             )
+
+
+# ===========================================================================
+# _rows_to_items_df  – PDF table parsing
+# ===========================================================================
+
+class TestRowsToItemsDf:
+    """Tests for the pdfplumber table-row parser."""
+
+    # ── helpers ─────────────────────────────────────────────────────────────
+    def _header(self):
+        return ["Line", "Item Name", "Ordered Qty", "Received Qty", "Unit Price"]
+
+    # ── column-aware path (header row present) ───────────────────────────────
+    def test_header_detects_name_and_received_qty(self):
+        rows = [
+            self._header(),
+            ["1", "Eleven Flower .75+", "25", "25", "$12.00"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        assert len(df) == 1
+        assert df.iloc[0]["item_name"] == "Eleven Flower .75+"
+        assert df.iloc[0]["qty"] == pytest.approx(25.0)
+
+    def test_received_qty_preferred_over_ordered(self):
+        # Ordered qty != received qty; parser must pick Received Qty column.
+        rows = [
+            self._header(),
+            ["1", "Eleven Flower .75+", "30", "25", "$12.00"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        assert df.iloc[0]["qty"] == pytest.approx(25.0)
+
+    def test_line_number_not_taken_as_qty(self):
+        # Without the fix, line number "1" would become qty.
+        rows = [
+            self._header(),
+            ["1", "Eleven Flower .75+", "25", "25", "$12.00"],
+            ["2", "Natural Selection Live Resin Diamonds and Sauce", "50", "50", "$18.00"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        assert list(df["qty"]) == [25.0, 50.0]
+
+    def test_currency_cells_not_in_product_name(self):
+        rows = [
+            self._header(),
+            ["1", "Eleven Flower .75+", "25", "25", "$12.00"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        assert "$" not in df.iloc[0]["item_name"]
+
+    def test_multiple_items(self):
+        rows = [
+            self._header(),
+            ["1", "Eleven Flower .75+", "25", "25", "$12.00"],
+            ["2", "Natural Selection Live Resin Diamonds and Sauce", "50", "50", "$18.00"],
+            ["3", "Blue Dream 3.5g", "10", "10", "$9.00"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        assert len(df) == 3
+        assert list(df["item_name"]) == [
+            "Eleven Flower .75+",
+            "Natural Selection Live Resin Diamonds and Sauce",
+            "Blue Dream 3.5g",
+        ]
+        assert list(df["qty"]) == [25.0, 50.0, 10.0]
+
+    # ── multi-line cell support ──────────────────────────────────────────────
+    def test_multiline_cell_joined_with_space(self):
+        rows = [
+            ["Line", "Item Name", "Received Qty"],
+            ["1", "Natural Selection Live Resin\nDiamonds and Sauce", "50"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        assert len(df) == 1
+        assert df.iloc[0]["item_name"] == "Natural Selection Live Resin Diamonds and Sauce"
+        assert df.iloc[0]["qty"] == pytest.approx(50.0)
+
+    # ── continuation rows (name wraps to the next table row) ────────────────
+    def test_continuation_row_appended_to_previous_item(self):
+        rows = [
+            ["Line", "Item Name", "Received Qty"],
+            ["1", "Natural Selection Live Resin Diamonds", "50"],
+            ["", "and Sauce", ""],
+            ["2", "Blue Dream 3.5g", "30"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        assert "Natural Selection Live Resin Diamonds and Sauce" in list(df["item_name"])
+        assert "Blue Dream 3.5g" in list(df["item_name"])
+        # Continuation text must NOT bleed into the next item's name
+        blue_dream_row = df[df["item_name"] == "Blue Dream 3.5g"]
+        assert len(blue_dream_row) == 1
+
+    def test_continuation_does_not_corrupt_next_item_qty(self):
+        rows = [
+            ["Line", "Item Name", "Received Qty"],
+            ["1", "Item A First Line", "25"],
+            ["", "Item A Second Line", ""],
+            ["2", "Item B", "40"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        item_a = df[df["item_name"].str.startswith("Item A")]
+        item_b = df[df["item_name"] == "Item B"]
+        assert len(item_a) == 1
+        assert len(item_b) == 1
+        assert item_a.iloc[0]["qty"] == pytest.approx(25.0)
+        assert item_b.iloc[0]["qty"] == pytest.approx(40.0)
+
+    # ── heuristic path (no header detected) ─────────────────────────────────
+    def test_heuristic_skips_currency_cells(self):
+        # No header – heuristic path; $ cells should not appear in name.
+        rows = [
+            ["1", "Blue Dream 3.5g", "30", "$9.00"],
+            ["2", "Sour Diesel", "20", "$8.00"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        for name in df["item_name"]:
+            assert "$" not in name
+
+    def test_heuristic_last_numeric_is_qty(self):
+        # Line number "1" is first; last numeric "25" should be qty.
+        rows = [
+            ["1", "Eleven Flower .75+", "25"],
+            ["2", "Sour Diesel", "50"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        assert list(df["qty"]) == [25.0, 50.0]
+
+    # ── edge cases ───────────────────────────────────────────────────────────
+    def test_empty_rows_returns_text_fallback_or_empty(self):
+        df = _rows_to_items_df([], "")
+        assert isinstance(df, pd.DataFrame)
+        assert "item_name" in df.columns
+        assert "qty" in df.columns
+
+    def test_single_column_falls_back(self):
+        rows = [["only one cell"]]
+        df = _rows_to_items_df(rows, "")
+        assert isinstance(df, pd.DataFrame)
+
+    def test_header_skipped_in_data(self):
+        # Repeated header rows mid-table should not create spurious items.
+        rows = [
+            ["Line", "Item Name", "Received Qty"],
+            ["1", "Eleven Flower .75+", "25"],
+            ["Line", "Item Name", "Received Qty"],  # repeated header
+            ["2", "Blue Dream", "30"],
+        ]
+        df = _rows_to_items_df(rows, "")
+        assert len(df) == 2
+
+
+# ===========================================================================
+# _parse_items_from_text  – text-based fallback parser
+# ===========================================================================
+
+class TestParseItemsFromText:
+    """Tests for the raw-text fallback item parser."""
+
+    def test_single_item(self):
+        df = _parse_items_from_text("Eleven Flower .75+ 25")
+        assert len(df) == 1
+        assert df.iloc[0]["item_name"] == "Eleven Flower .75+"
+        assert df.iloc[0]["qty"] == pytest.approx(25.0)
+
+    def test_multiple_single_line_items(self):
+        text = "Eleven Flower .75+ 25\nBlue Dream 3.5g 30\nSour Diesel 10"
+        df = _parse_items_from_text(text)
+        assert len(df) == 3
+        assert list(df["qty"]) == [25.0, 30.0, 10.0]
+
+    def test_multiline_product_name_joined(self):
+        text = (
+            "Natural Selection Live Resin Diamonds\n"
+            "and Sauce 50"
+        )
+        df = _parse_items_from_text(text)
+        assert len(df) == 1
+        assert df.iloc[0]["item_name"] == "Natural Selection Live Resin Diamonds and Sauce"
+        assert df.iloc[0]["qty"] == pytest.approx(50.0)
+
+    def test_multiline_name_then_single_line_item(self):
+        text = (
+            "Eleven Flower .75+ 25\n"
+            "Natural Selection Live Resin Diamonds\n"
+            "and Sauce 50\n"
+            "Blue Dream 3.5g 30"
+        )
+        df = _parse_items_from_text(text)
+        assert len(df) == 3
+        assert df.iloc[0]["item_name"] == "Eleven Flower .75+"
+        assert df.iloc[1]["item_name"] == "Natural Selection Live Resin Diamonds and Sauce"
+        assert df.iloc[2]["item_name"] == "Blue Dream 3.5g"
+
+    def test_blank_line_resets_accumulator(self):
+        # Blank line between two fragments should not join them.
+        text = (
+            "Random orphan text\n"
+            "\n"
+            "Eleven Flower .75+ 25"
+        )
+        df = _parse_items_from_text(text)
+        assert len(df) == 1
+        assert df.iloc[0]["item_name"] == "Eleven Flower .75+"
+
+    def test_header_keywords_not_included_in_name(self):
+        text = "Item\nEleven Flower .75+ 25"
+        df = _parse_items_from_text(text)
+        assert "item" not in df.iloc[0]["item_name"].lower()
+
+    def test_skip_date_like_lines(self):
+        # "03/15/2025" followed by a number should not be captured as an item.
+        text = "03/15/2025 14:32\nEleven Flower .75+ 25"
+        df = _parse_items_from_text(text)
+        assert len(df) == 1
+        assert df.iloc[0]["item_name"] == "Eleven Flower .75+"
+
+    def test_empty_text_returns_empty_df(self):
+        df = _parse_items_from_text("")
+        assert df.empty
+        assert "item_name" in df.columns
+        assert "qty" in df.columns
+
+    def test_fractional_quantities(self):
+        df = _parse_items_from_text("CBD Tincture 500mg 2.5")
+        assert df.iloc[0]["qty"] == pytest.approx(2.5)
+
+
+# ===========================================================================
+# parse_manifest_pdf_bytes  – integration smoke test (no real PDF required)
+# ===========================================================================
+
+class TestParseManifestPdfBytesSmoke:
+    """
+    Lightweight integration tests that verify parse_manifest_pdf_bytes returns
+    the expected (received_dt, items_df, raw_text) tuple contract without
+    needing an actual PDF file on disk.
+    """
+
+    def test_invalid_bytes_returns_empty(self):
+        received_dt, items_df, raw_text = parse_manifest_pdf_bytes(b"not a pdf")
+        # Should not raise; returns graceful empty result.
+        assert items_df is not None
+        assert "item_name" in items_df.columns
+        assert "qty" in items_df.columns
+
+    def test_return_type_contract(self):
+        received_dt, items_df, raw_text = parse_manifest_pdf_bytes(b"")
+        assert received_dt is None or isinstance(received_dt, pd.Timestamp)
+        assert isinstance(items_df, pd.DataFrame)
+        assert isinstance(raw_text, str)

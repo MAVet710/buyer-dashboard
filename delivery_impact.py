@@ -36,6 +36,42 @@ _SIZE_TOKENS: re.Pattern = re.compile(
 _SALES_HEADER_REQUIRED = {"orderid", "ordertime"}
 _SALES_HEADER_ANY = {"orderid", "ordertime", "productname", "netsales", "netrevenue"}
 
+# ---------------------------------------------------------------------------
+# Constants for manifest PDF table column detection
+# ---------------------------------------------------------------------------
+
+# Normalised header cell values that indicate a column holds the product/item name.
+_NAME_COL_KEYWORDS: frozenset = frozenset({
+    "item", "itemname", "product", "productname", "description",
+    "name", "productdescription", "itemdescription",
+})
+
+# Normalised header cell values that strongly indicate a *received* quantity column.
+# These are checked first so "Received Qty" wins over a plain "Qty" column.
+_QTY_COL_KEYWORDS_PREFERRED: frozenset = frozenset({
+    "receivedqty", "qtyreceived", "receivedquantity", "quantityreceived",
+    "received", "recqty", "recvqty",
+})
+
+# Fallback qty keywords used when no preferred column is found.
+_QTY_COL_KEYWORDS_FALLBACK: frozenset = frozenset({
+    "qty", "quantity", "units", "count", "unitcount", "totalreceived",
+})
+
+# Complete set of normalised strings recognised as header cell values.
+# Used to detect which rows are header rows (rather than data rows).
+_HEADER_CELL_NORMS: frozenset = frozenset(
+    _NAME_COL_KEYWORDS
+    | _QTY_COL_KEYWORDS_PREFERRED
+    | _QTY_COL_KEYWORDS_FALLBACK
+    | {
+        "orderedqty", "ordered", "unitprice", "price", "sku", "id", "line",
+        "no", "number", "uom", "unit", "packageid", "package", "type",
+        "category", "brand", "licensenumber", "total", "linenumber", "ln",
+        "strain", "vendor", "manifest", "transfer", "weight",
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # Product-name normalisation and matching
@@ -335,7 +371,7 @@ def parse_manifest_pdf_bytes(
                 for table in tables:
                     if not table or len(table) < 2:
                         continue
-                    for row in table[1:]:  # skip header row of each table
+                    for row in table:  # include header so _rows_to_items_df can detect columns
                         rows.append(
                             [str(c).strip() if c is not None else "" for c in row]
                         )
@@ -409,52 +445,180 @@ def _extract_datetime_from_text(text: str) -> Optional[pd.Timestamp]:
     return None
 
 
+def _try_parse_float(s: str) -> Optional[float]:
+    """
+    Parse *s* as a float, stripping currency symbols and commas.
+
+    Returns ``None`` when the string cannot be interpreted as a plain number
+    (e.g. a product name, or a percentage string ending in ``%``).
+    Percentage strings are intentionally rejected so that "100%" is not
+    mistaken for a received quantity of 100.
+    """
+    stripped = s.strip()
+    # Explicitly reject percentage values.
+    if stripped.endswith("%"):
+        return None
+    cleaned = re.sub(r"[\$,\s]", "", stripped)
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _normalize_row(row: List[str]) -> List[str]:
+    """
+    Normalise a table row returned by pdfplumber.
+
+    Multi-line cell values (containing ``\\n``) are collapsed to a single space
+    so that each cell represents one logical value.  Leading / trailing
+    whitespace is stripped from every cell.
+    """
+    return [re.sub(r"\s+", " ", str(c).replace("\n", " ")).strip() for c in row]
+
+
 def _rows_to_items_df(rows: List[List[str]], raw_text: str) -> pd.DataFrame:
     """
-    Convert table rows extracted by pdfplumber into an items DataFrame.
+    Convert table rows (including the optional header row) extracted by
+    pdfplumber into an items DataFrame.
 
-    Tries to identify which column is the product name and which is the qty.
-    Falls back to text-based parsing if table rows are ambiguous.
+    Improvements over the previous implementation:
+
+    * Detects the header row to identify which column is the **item name** and
+      which is the **received quantity** (preferred) or a generic qty column.
+      This prevents line-number columns (1, 2, 3 …) from being mistaken for
+      the received quantity.
+    * Normalises cells that contain embedded newlines so they are treated as a
+      single value rather than split into multiple rows.
+    * Handles *continuation rows* where a product name wraps onto a second
+      table row with an empty qty cell.  Continuation text is appended to the
+      most recently committed item when all non-name columns are empty,
+      otherwise it starts a new pending name.
+    * Filters currency / price cells so they are not appended to product names.
+    * Falls back to :func:`_parse_items_from_text` when no items can be parsed
+      from the table structure.
     """
     if not rows:
         return _parse_items_from_text(raw_text)
 
-    # Find the best item-name column and qty column heuristically
-    # (look for the column that has the most non-numeric, long strings)
-    if not rows:
-        return pd.DataFrame(columns=["item_name", "qty"])
-
-    # Try to detect header in first row
     n_cols = max(len(r) for r in rows) if rows else 0
     if n_cols < 2:
         return _parse_items_from_text(raw_text)
 
+    # ── Step 1: detect header row, find name & qty column indices ─────────────
+    name_col_idx: Optional[int] = None
+    qty_col_idx: Optional[int] = None
+    data_start = 0
+
+    for row_i, row in enumerate(rows[:5]):
+        norm_cells = [re.sub(r"[^a-z0-9]", "", str(c).lower()) for c in row]
+        # Treat the row as a header when at least 2 cells match known keywords.
+        if sum(1 for nc in norm_cells if nc in _HEADER_CELL_NORMS) < 2:
+            continue
+
+        # Locate the item-name column.
+        for col_i, nc in enumerate(norm_cells):
+            if nc in _NAME_COL_KEYWORDS and name_col_idx is None:
+                name_col_idx = col_i
+
+        # Locate the qty column – prefer explicit "received" variants.
+        for col_i, nc in enumerate(norm_cells):
+            if nc in _QTY_COL_KEYWORDS_PREFERRED and qty_col_idx is None:
+                qty_col_idx = col_i
+                break
+        if qty_col_idx is None:
+            for col_i, nc in enumerate(norm_cells):
+                if nc in _QTY_COL_KEYWORDS_FALLBACK and qty_col_idx is None:
+                    qty_col_idx = col_i
+
+        data_start = row_i + 1
+        break
+
+    # ── Step 2: process data rows ─────────────────────────────────────────────
     items: List[Dict] = []
-    for row in rows:
+    pending_name: str = ""  # carries partial name from a continuation row
+
+    for raw_row in rows[data_start:]:
+        row = _normalize_row(raw_row)
         if len(row) < 2:
             continue
-        # Heuristic: look for a numeric token in any column after the first
-        name_candidates: List[str] = []
-        qty_val: Optional[float] = None
-        for idx, cell in enumerate(row):
-            cell = cell.strip()
-            if not cell:
+
+        if name_col_idx is not None and qty_col_idx is not None:
+            # ── Column-aware path ────────────────────────────────────────────
+            name = row[name_col_idx] if name_col_idx < len(row) else ""
+            qty_str = row[qty_col_idx] if qty_col_idx < len(row) else ""
+
+            # Skip rows that are themselves header repetitions.
+            name_norm = re.sub(r"[^a-z0-9]", "", name.lower())
+            if name_norm in _HEADER_CELL_NORMS:
+                pending_name = ""
                 continue
-            try:
-                val = float(cell.replace(",", ""))
-                if qty_val is None:  # take first numeric as qty
-                    qty_val = val
-            except ValueError:
-                # Skip header-like rows
-                norm = re.sub(r"[^a-z0-9]", "", cell.lower())
-                if norm in {"item", "product", "description", "qty", "quantity", "received"}:
+
+            qty = _try_parse_float(qty_str)
+
+            if qty is None and name:
+                # Continuation row: name text but qty column is empty.
+                # If all non-name columns are also empty this row is a
+                # continuation of the *previous* item; otherwise it is the
+                # start of the next item whose qty will arrive in a later row.
+                non_name_empty = all(
+                    not row[i]
+                    for i in range(len(row))
+                    if i != name_col_idx
+                )
+                if non_name_empty and items:
+                    # Append continuation text to the last committed item.
+                    items[-1]["item_name"] = re.sub(
+                        r"\s+", " ",
+                        items[-1]["item_name"] + " " + name,
+                    ).strip()
+                else:
+                    pending_name = " ".join(filter(None, [pending_name, name]))
+            elif qty is not None:
+                full_name = " ".join(filter(None, [pending_name, name]))
+                full_name = re.sub(r"\s+", " ", full_name).strip()
+                if full_name:
+                    items.append({"item_name": full_name, "qty": qty})
+                pending_name = ""
+            else:
+                # Empty row – reset accumulator.
+                pending_name = ""
+        else:
+            # ── Heuristic path (no header detected) ──────────────────────────
+            # Filter currency cells; take the *last* numeric in the row as qty
+            # so that leading line-number columns are skipped naturally.
+            name_candidates: List[str] = []
+            numeric_vals: List[float] = []
+            for cell in row:
+                if not cell:
                     continue
-                name_candidates.append(cell)
-        if name_candidates and qty_val is not None:
-            items.append({
-                "item_name": " ".join(name_candidates),
-                "qty": qty_val,
-            })
+                # Skip cells that look like currency (leading $).
+                if re.match(r"^\$", cell):
+                    continue
+                val = _try_parse_float(cell)
+                if val is not None:
+                    numeric_vals.append(val)
+                else:
+                    norm = re.sub(r"[^a-z0-9]", "", cell.lower())
+                    if norm in _HEADER_CELL_NORMS:
+                        continue
+                    name_candidates.append(cell)
+
+            if name_candidates:
+                full_name = " ".join(
+                    filter(None, [pending_name] + name_candidates)
+                )
+                full_name = re.sub(r"\s+", " ", full_name).strip()
+                # Use the last numeric value (skip leading line numbers).
+                qty_val: Optional[float] = numeric_vals[-1] if numeric_vals else None
+                if qty_val is not None:
+                    items.append({"item_name": full_name, "qty": qty_val})
+                    pending_name = ""
+                else:
+                    pending_name = full_name
+            else:
+                pending_name = ""
 
     if items:
         return pd.DataFrame(items)
@@ -472,27 +636,65 @@ def _parse_items_from_text(text: str) -> pd.DataFrame:
     Best-effort item extraction from raw PDF text.
 
     Looks for lines matching "<product name>  <number>" pattern.
+
+    Multi-line product names are handled by accumulating lines that do not
+    end with a number as a *pending prefix*.  When the next matching line is
+    found the prefix is prepended to form the complete product name.
+    A blank line or a recognised header keyword resets the accumulator.
     """
+    # Normalised keywords that should never appear as a product name and that
+    # also reset the multi-line accumulator.
+    _TEXT_SKIP = frozenset({
+        "total", "subtotal", "page", "qty", "quantity", "item", "product",
+        "received", "ordered", "price", "sku", "id", "line", "number",
+        "description", "name", "unitprice", "unit",
+    })
+
     items: List[Dict] = []
+    pending: str = ""  # partial product name carried across lines
+
     for line in text.splitlines():
         line = line.strip()
         if not line:
+            pending = ""
             continue
+
         m = _ITEM_LINE_PAT.match(line)
         if m:
             name = m.group(1).strip()
             qty_str = m.group(2)
-            # Skip lines that look like dates or page numbers
+
+            # Skip lines that look like dates or page numbers.
             if re.search(r"\d{4}", name) and len(name) < 12:
+                pending = ""
                 continue
+
             norm = re.sub(r"[^a-z0-9]", "", name.lower())
-            if norm in {"total", "subtotal", "page", "qty", "quantity", "item", "product"}:
+            if norm in _TEXT_SKIP:
+                pending = ""
                 continue
+
+            full_name = " ".join(filter(None, [pending, name]))
+            full_name = re.sub(r"\s+", " ", full_name).strip()
+
             try:
                 qty = float(qty_str)
-                items.append({"item_name": name, "qty": qty})
+                items.append({"item_name": full_name, "qty": qty})
             except ValueError:
-                continue
+                pass
+            pending = ""
+        else:
+            # Line has no trailing number – might be the first part of a
+            # multi-line product name.  Skip lines that look like dates,
+            # times, or header keywords so they don't pollute product names.
+            norm = re.sub(r"[^a-z0-9]", "", line.lower())
+            if norm in _TEXT_SKIP:
+                pending = ""
+            elif re.search(r"\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}", line):
+                # Looks like a date string (e.g. "03/15/2025 14:32") – skip.
+                pending = ""
+            else:
+                pending = " ".join(filter(None, [pending, line]))
 
     if not items:
         return pd.DataFrame(columns=["item_name", "qty"])
