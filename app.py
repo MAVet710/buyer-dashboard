@@ -58,7 +58,9 @@ try:
         parse_sales_report_bytes as _parse_sales_report_bytes,
         match_manifest_to_sales,
         compute_delivery_kpis,
+        compute_weekday_wow_kpis,
         build_time_series,
+        build_wow_time_series,
         DELIVERY_WINDOW_DAYS,
     )
     _DELIVERY_IMPACT_AVAILABLE = True
@@ -3981,6 +3983,19 @@ elif section == "🚚 Delivery Impact":
                     key="di_window",
                 )
 
+                _comparison_mode = st.sidebar.radio(
+                    "Comparison mode",
+                    ["📅 Before/After delivery window", "📆 Same weekday last week (WoW)"],
+                    index=0,
+                    key="di_comparison_mode",
+                    help=(
+                        "**Before/After window**: compare N days before vs N days after delivery.\n\n"
+                        "**Same weekday last week**: compare the delivery calendar day "
+                        "to the same weekday 7 days prior (e.g. Thu 03-19 vs Thu 03-12)."
+                    ),
+                )
+                _wow_mode = _comparison_mode == "📆 Same weekday last week (WoW)"
+
                 _granularity = st.sidebar.radio(
                     "Chart granularity",
                     ["daily", "hourly"],
@@ -4068,7 +4083,10 @@ elif section == "🚚 Delivery Impact":
 
                 # ── KPI computation ──────────────────────────────────────────
                 st.markdown("---")
-                st.markdown("### 📊 KPI Summary")
+                if _wow_mode:
+                    st.markdown("### 📊 KPI Summary – Same Weekday Last Week (WoW)")
+                else:
+                    st.markdown("### 📊 KPI Summary")
 
                 _kpi_rows: list = []
                 _combined_kpi_keys = [
@@ -4079,18 +4097,40 @@ elif section == "🚚 Delivery Impact":
                     "delivered_units_before", "delivered_units_after",
                 ]
 
+                def _safe_numeric(v):
+                    """Return float(v) if v is numeric or numeric-looking string, else None."""
+                    if v is None:
+                        return None
+                    v_num = pd.to_numeric(v, errors="coerce")
+                    if pd.isna(v_num):
+                        return None
+                    return float(v_num)
+
                 for _m in _active_manifests:
-                    _kpis = compute_delivery_kpis(
-                        _sales_df,
-                        _m["received_dt"],
-                        window_days=_window_days,
-                        delivered_names=_all_delivered_sales_names or None,
-                    )
+                    if _wow_mode:
+                        _kpis = compute_weekday_wow_kpis(
+                            _sales_df,
+                            _m["received_dt"],
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                        _prior_label = _kpis["prior_day_start"].strftime("%Y-%m-%d (%a)")
+                        _deliv_label = _kpis["delivery_day_start"].strftime("%Y-%m-%d (%a)")
+                        _before_col = f"Net Sales {_prior_label} ($)"
+                        _after_col = f"Net Sales {_deliv_label} ($)"
+                    else:
+                        _kpis = compute_delivery_kpis(
+                            _sales_df,
+                            _m["received_dt"],
+                            window_days=_window_days,
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                        _before_col = "Net Sales Before ($)"
+                        _after_col = "Net Sales After ($)"
                     _kpi_rows.append({
                         "Manifest": _m["filename"],
                         "Received": _m["received_dt"].strftime("%Y-%m-%d %H:%M"),
-                        "Net Sales Before ($)": f"{_kpis['net_sales_before']:,.2f}",
-                        "Net Sales After ($)": f"{_kpis['net_sales_after']:,.2f}",
+                        _before_col: f"{_kpis['net_sales_before']:,.2f}",
+                        _after_col: f"{_kpis['net_sales_after']:,.2f}",
                         "$ Lift": f"{_kpis['net_sales_lift_abs']:,.2f}",
                         "% Lift": (
                             f"{_kpis['net_sales_lift_pct']:.1f}%"
@@ -4106,19 +4146,26 @@ elif section == "🚚 Delivery Impact":
                     st.dataframe(_kpi_df, use_container_width=True)
 
                 # ── Summary metrics ──────────────────────────────────────────
-                # Compute combined KPIs from all active manifests
+                # Compute combined KPIs from all active manifests (hardened numeric aggregation)
                 _combined_kpis: dict = {}
                 for _m in _active_manifests:
-                    _kpis = compute_delivery_kpis(
-                        _sales_df,
-                        _m["received_dt"],
-                        window_days=_window_days,
-                        delivered_names=_all_delivered_sales_names or None,
-                    )
+                    if _wow_mode:
+                        _kpis = compute_weekday_wow_kpis(
+                            _sales_df,
+                            _m["received_dt"],
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                    else:
+                        _kpis = compute_delivery_kpis(
+                            _sales_df,
+                            _m["received_dt"],
+                            window_days=_window_days,
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
                     for _k in _combined_kpi_keys:
-                        v = _kpis.get(_k)
-                        if v is not None and not (isinstance(v, float) and pd.isna(v)):
-                            _combined_kpis[_k] = _combined_kpis.get(_k, 0.0) + float(v)
+                        v_num = _safe_numeric(_kpis.get(_k))
+                        if v_num is not None:
+                            _combined_kpis[_k] = _combined_kpis.get(_k, 0.0) + v_num
 
                 if _combined_kpis:
                     _mk1, _mk2, _mk3, _mk4 = st.columns(4)
@@ -4126,23 +4173,28 @@ elif section == "🚚 Delivery Impact":
                     _ns_a = _combined_kpis.get("net_sales_after", 0.0)
                     _ns_lift = _ns_a - _ns_b
                     _ns_pct = (_ns_lift / _ns_b * 100) if _ns_b else 0.0
-                    _mk1.metric(
-                        "Net Sales (before)",
-                        f"${_ns_b:,.0f}",
-                        delta=None,
-                    )
-                    _mk2.metric(
-                        "Net Sales (after)",
-                        f"${_ns_a:,.0f}",
-                        delta=f"{_ns_lift:+,.0f} ({_ns_pct:+.1f}%)",
-                    )
+                    if _wow_mode:
+                        _mk1.metric("Net Sales (prior week same day)", f"${_ns_b:,.0f}", delta=None)
+                        _mk2.metric(
+                            "Net Sales (delivery day)",
+                            f"${_ns_a:,.0f}",
+                            delta=f"{_ns_lift:+,.0f} ({_ns_pct:+.1f}%)",
+                        )
+                    else:
+                        _mk1.metric("Net Sales (before)", f"${_ns_b:,.0f}", delta=None)
+                        _mk2.metric(
+                            "Net Sales (after)",
+                            f"${_ns_a:,.0f}",
+                            delta=f"{_ns_lift:+,.0f} ({_ns_pct:+.1f}%)",
+                        )
                     _del_b = _combined_kpis.get("delivered_sales_before")
                     _del_a = _combined_kpis.get("delivered_sales_after")
                     if _del_b is not None and _del_a is not None:
                         _del_lift = _del_a - _del_b
                         _del_pct = (_del_lift / _del_b * 100) if _del_b else 0.0
+                        _del_label = "Delivered-items Sales (delivery day)" if _wow_mode else "Delivered-items Sales (after)"
                         _mk3.metric(
-                            "Delivered-items Sales (after)",
+                            _del_label,
                             f"${_del_a:,.0f}",
                             delta=f"{_del_lift:+,.0f} ({_del_pct:+.1f}%)",
                         )
@@ -4151,93 +4203,199 @@ elif section == "🚚 Delivery Impact":
                     _o_b = _combined_kpis.get("orders_before", 0.0)
                     _o_a = _combined_kpis.get("orders_after", 0.0)
                     _o_lift = _o_a - _o_b
-                    _mk4.metric(
-                        "Orders (after)",
-                        f"{int(_o_a):,}",
-                        delta=f"{int(_o_lift):+,}",
-                    )
+                    _o_label = "Orders (delivery day)" if _wow_mode else "Orders (after)"
+                    _mk4.metric(_o_label, f"{int(_o_a):,}", delta=f"{int(_o_lift):+,}")
 
                 # ── Line chart ───────────────────────────────────────────────
                 st.markdown("---")
-                st.markdown("### 📈 Time-Series Chart")
+                if _wow_mode:
+                    st.markdown("### 📈 Time-Series Chart – Delivery Day vs Prior Week Same Day")
+                else:
+                    st.markdown("### 📈 Time-Series Chart")
 
                 # Build time series for each active manifest and combine
                 _ts_frames: list = []
+                _wow_delivery_frames: list = []
+                _wow_prior_frames: list = []
+
                 for _m in _active_manifests:
-                    _ts = build_time_series(
-                        _sales_df,
-                        _m["received_dt"],
-                        window_days=_window_days,
-                        granularity=_granularity,
-                        delivered_names=_all_delivered_sales_names or None,
-                    )
-                    if not _ts.empty:
-                        _ts["_manifest"] = _m["filename"]
-                        _ts["_recv_dt"] = _m["received_dt"]
-                        _ts_frames.append(_ts)
+                    if _wow_mode:
+                        _ts_deliv, _ts_prior = build_wow_time_series(
+                            _sales_df,
+                            _m["received_dt"],
+                            granularity=_granularity,
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                        if not _ts_deliv.empty:
+                            _wow_delivery_frames.append(_ts_deliv)
+                        if not _ts_prior.empty:
+                            _wow_prior_frames.append(_ts_prior)
+                    else:
+                        _ts = build_time_series(
+                            _sales_df,
+                            _m["received_dt"],
+                            window_days=_window_days,
+                            granularity=_granularity,
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                        if not _ts.empty:
+                            _ts["_manifest"] = _m["filename"]
+                            _ts["_recv_dt"] = _m["received_dt"]
+                            _ts_frames.append(_ts)
 
-                if _ts_frames:
+                _chart_data_available = (
+                    (_wow_mode and (_wow_delivery_frames or _wow_prior_frames))
+                    or (not _wow_mode and _ts_frames)
+                )
+
+                if _chart_data_available:
                     if PLOTLY_AVAILABLE:
-                        # Merge time series (sum across manifests for combined view)
-                        if len(_ts_frames) > 1:
-                            _ts_combined = (
-                                pd.concat(_ts_frames)
-                                .groupby("period")
-                                [["total_net_sales", "delivered_net_sales", "non_delivered_net_sales", "order_count"]]
-                                .sum()
-                                .reset_index()
-                            )
-                        else:
-                            _ts_combined = _ts_frames[0].copy()
-
                         _fig = go.Figure()
 
-                        if _show_total:
-                            _fig.add_trace(go.Scatter(
-                                x=_ts_combined["period"],
-                                y=_ts_combined["total_net_sales"],
-                                name="Total Net Sales ($)",
-                                mode="lines",
-                                line={"width": 2},
-                            ))
+                        if _wow_mode:
+                            # ── WoW overlay chart ────────────────────────────
+                            def _merge_wow_frames(frames):
+                                if not frames:
+                                    return pd.DataFrame()
+                                if len(frames) == 1:
+                                    return frames[0].copy()
+                                return (
+                                    pd.concat(frames)
+                                    .groupby("period")
+                                    [["total_net_sales", "delivered_net_sales",
+                                      "non_delivered_net_sales", "order_count"]]
+                                    .sum()
+                                    .reset_index()
+                                )
 
-                        if _show_del and "delivered_net_sales" in _ts_combined.columns:
-                            _fig.add_trace(go.Scatter(
-                                x=_ts_combined["period"],
-                                y=_ts_combined["delivered_net_sales"],
-                                name="Delivered-items Net Sales ($)",
-                                mode="lines",
-                                line={"dash": "dot", "width": 2},
-                            ))
+                            _ts_deliv_combined = _merge_wow_frames(_wow_delivery_frames)
+                            _ts_prior_combined = _merge_wow_frames(_wow_prior_frames)
 
-                        if _show_nondel and "non_delivered_net_sales" in _ts_combined.columns:
-                            _fig.add_trace(go.Scatter(
-                                x=_ts_combined["period"],
-                                y=_ts_combined["non_delivered_net_sales"],
-                                name="Non-delivered Net Sales ($)",
-                                mode="lines",
-                                line={"dash": "dash", "width": 2},
-                            ))
+                            if _show_total and not _ts_deliv_combined.empty:
+                                _fig.add_trace(go.Scatter(
+                                    x=_ts_deliv_combined["period"],
+                                    y=_ts_deliv_combined["total_net_sales"],
+                                    name="Total Net Sales – Delivery Day",
+                                    mode="lines+markers",
+                                    line={"width": 2},
+                                ))
+                            if _show_total and not _ts_prior_combined.empty:
+                                _fig.add_trace(go.Scatter(
+                                    x=_ts_prior_combined["period"],
+                                    y=_ts_prior_combined["total_net_sales"],
+                                    name="Total Net Sales – Prior Week Same Day",
+                                    mode="lines+markers",
+                                    line={"width": 2, "dash": "dash"},
+                                ))
 
-                        if _show_orders and "order_count" in _ts_combined.columns:
-                            _fig.add_trace(go.Bar(
-                                x=_ts_combined["period"],
-                                y=_ts_combined["order_count"],
-                                name="Order Count",
-                                yaxis="y2",
-                                opacity=0.35,
-                            ))
+                            if _show_del:
+                                if not _ts_deliv_combined.empty and "delivered_net_sales" in _ts_deliv_combined.columns:
+                                    _fig.add_trace(go.Scatter(
+                                        x=_ts_deliv_combined["period"],
+                                        y=_ts_deliv_combined["delivered_net_sales"],
+                                        name="Delivered-items Sales – Delivery Day",
+                                        mode="lines+markers",
+                                        line={"dash": "dot", "width": 2},
+                                    ))
+                                if not _ts_prior_combined.empty and "delivered_net_sales" in _ts_prior_combined.columns:
+                                    _fig.add_trace(go.Scatter(
+                                        x=_ts_prior_combined["period"],
+                                        y=_ts_prior_combined["delivered_net_sales"],
+                                        name="Delivered-items Sales – Prior Week",
+                                        mode="lines+markers",
+                                        line={"dash": "dot", "width": 2},
+                                    ))
 
-                        # Add vertical lines for each delivery date
-                        for _m in _active_manifests:
-                            _fig.add_vline(
-                                x=_m["received_dt"].isoformat(),
-                                line_dash="dash",
-                                line_color="red",
-                                annotation_text=f"Delivery: {_m['filename']}",
-                                annotation_position="top left",
-                                annotation_font_size=10,
-                            )
+                            if _show_orders:
+                                if not _ts_deliv_combined.empty and "order_count" in _ts_deliv_combined.columns:
+                                    _fig.add_trace(go.Bar(
+                                        x=_ts_deliv_combined["period"],
+                                        y=_ts_deliv_combined["order_count"],
+                                        name="Order Count – Delivery Day",
+                                        yaxis="y2",
+                                        opacity=0.50,
+                                    ))
+                                if not _ts_prior_combined.empty and "order_count" in _ts_prior_combined.columns:
+                                    _fig.add_trace(go.Bar(
+                                        x=_ts_prior_combined["period"],
+                                        y=_ts_prior_combined["order_count"],
+                                        name="Order Count – Prior Week",
+                                        yaxis="y2",
+                                        opacity=0.25,
+                                    ))
+
+                            # Delivery day marker
+                            for _m in _active_manifests:
+                                _deliv_day = pd.Timestamp(_m["received_dt"]).normalize()
+                                _fig.add_vline(
+                                    x=_deliv_day.isoformat(),
+                                    line_dash="dash",
+                                    line_color="red",
+                                    annotation_text=f"Delivery Day: {_m['filename']}",
+                                    annotation_position="top left",
+                                    annotation_font_size=10,
+                                )
+                        else:
+                            # ── Before/After window chart ────────────────────
+                            # Merge time series (sum across manifests for combined view)
+                            if len(_ts_frames) > 1:
+                                _ts_combined = (
+                                    pd.concat(_ts_frames)
+                                    .groupby("period")
+                                    [["total_net_sales", "delivered_net_sales",
+                                      "non_delivered_net_sales", "order_count"]]
+                                    .sum()
+                                    .reset_index()
+                                )
+                            else:
+                                _ts_combined = _ts_frames[0].copy()
+
+                            if _show_total:
+                                _fig.add_trace(go.Scatter(
+                                    x=_ts_combined["period"],
+                                    y=_ts_combined["total_net_sales"],
+                                    name="Total Net Sales ($)",
+                                    mode="lines",
+                                    line={"width": 2},
+                                ))
+
+                            if _show_del and "delivered_net_sales" in _ts_combined.columns:
+                                _fig.add_trace(go.Scatter(
+                                    x=_ts_combined["period"],
+                                    y=_ts_combined["delivered_net_sales"],
+                                    name="Delivered-items Net Sales ($)",
+                                    mode="lines",
+                                    line={"dash": "dot", "width": 2},
+                                ))
+
+                            if _show_nondel and "non_delivered_net_sales" in _ts_combined.columns:
+                                _fig.add_trace(go.Scatter(
+                                    x=_ts_combined["period"],
+                                    y=_ts_combined["non_delivered_net_sales"],
+                                    name="Non-delivered Net Sales ($)",
+                                    mode="lines",
+                                    line={"dash": "dash", "width": 2},
+                                ))
+
+                            if _show_orders and "order_count" in _ts_combined.columns:
+                                _fig.add_trace(go.Bar(
+                                    x=_ts_combined["period"],
+                                    y=_ts_combined["order_count"],
+                                    name="Order Count",
+                                    yaxis="y2",
+                                    opacity=0.35,
+                                ))
+
+                            # Add vertical lines for each delivery date
+                            for _m in _active_manifests:
+                                _fig.add_vline(
+                                    x=_m["received_dt"].isoformat(),
+                                    line_dash="dash",
+                                    line_color="red",
+                                    annotation_text=f"Delivery: {_m['filename']}",
+                                    annotation_position="top left",
+                                    annotation_font_size=10,
+                                )
 
                         _fig.update_layout(
                             xaxis_title="Date" if _granularity == "daily" else "Date/Hour",
@@ -4257,7 +4415,7 @@ elif section == "🚚 Delivery Impact":
                         st.plotly_chart(_fig, use_container_width=True)
                     else:
                         st.warning("⚠️ Plotly is not installed – chart unavailable. Install `plotly` to enable charts.")
-                        if _ts_frames:
+                        if not _wow_mode and _ts_frames:
                             st.dataframe(_ts_frames[0], use_container_width=True)
                 else:
                     st.info(
@@ -4272,12 +4430,19 @@ elif section == "🚚 Delivery Impact":
 
                     _top_rows_all: list = []
                     for _m in _active_manifests:
-                        _kpis = compute_delivery_kpis(
-                            _sales_df,
-                            _m["received_dt"],
-                            window_days=_window_days,
-                            delivered_names=_all_delivered_sales_names,
-                        )
+                        if _wow_mode:
+                            _kpis = compute_weekday_wow_kpis(
+                                _sales_df,
+                                _m["received_dt"],
+                                delivered_names=_all_delivered_sales_names,
+                            )
+                        else:
+                            _kpis = compute_delivery_kpis(
+                                _sales_df,
+                                _m["received_dt"],
+                                window_days=_window_days,
+                                delivered_names=_all_delivered_sales_names,
+                            )
                         _top = _kpis.get("top_items")
                         if _top is not None and not _top.empty:
                             _top["manifest"] = _m["filename"]

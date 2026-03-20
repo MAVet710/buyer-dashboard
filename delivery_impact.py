@@ -1196,6 +1196,257 @@ def compute_delivery_kpis(
 
 
 # ---------------------------------------------------------------------------
+# Week-over-week (same weekday) KPI function
+# ---------------------------------------------------------------------------
+
+def compute_weekday_wow_kpis(
+    sales_df: pd.DataFrame,
+    delivery_dt: pd.Timestamp,
+    delivered_names: Optional[List[str]] = None,
+) -> Dict:
+    """
+    Compare the 24-hour delivery day to the same weekday exactly 7 days prior.
+
+    For example: delivery on Thu 2026-03-19 compares Thu 2026-03-19 00:00–23:59
+    to Thu 2026-03-12 00:00–23:59.
+
+    Parameters
+    ----------
+    sales_df:
+        Order-level DataFrame with at minimum columns
+        ``order_time`` (datetime), ``net_sales`` (float), ``product_name`` (str).
+    delivery_dt:
+        The delivery received timestamp.  Only the calendar date is used;
+        both the delivery day and the prior-week day run midnight-to-midnight.
+    delivered_names:
+        Sales-side product names matched to this delivery's manifest items.
+        Pass ``None`` or ``[]`` to skip delivered-items sub-KPIs.
+
+    Returns
+    -------
+    dict with the same keys as :func:`compute_delivery_kpis` plus:
+      ``delivery_day_start`` : pd.Timestamp – midnight of the delivery day
+      ``prior_day_start``    : pd.Timestamp – midnight of the prior-week same weekday
+    In this function "before" = prior-week same weekday, "after" = delivery day.
+    """
+    dt = pd.Timestamp(delivery_dt)
+    day_start = dt.normalize()  # midnight on the delivery calendar day
+    day_end = day_start + timedelta(days=1)
+    prior_start = day_start - timedelta(days=7)
+    prior_end = prior_start + timedelta(days=1)
+
+    delivery_mask = (sales_df["order_time"] >= day_start) & (sales_df["order_time"] < day_end)
+    prior_mask = (sales_df["order_time"] >= prior_start) & (sales_df["order_time"] < prior_end)
+
+    delivery_day = sales_df[delivery_mask]
+    prior_day = sales_df[prior_mask]
+
+    def _lift(b: float, a: float) -> Tuple[float, float]:
+        abs_lift = a - b
+        pct_lift = (abs_lift / b * 100.0) if b != 0 else float("nan")
+        return round(abs_lift, 2), round(pct_lift, 2) if not pd.isna(pct_lift) else float("nan")
+
+    net_prior = float(prior_day["net_sales"].sum())
+    net_delivery = float(delivery_day["net_sales"].sum())
+    net_lift_abs, net_lift_pct = _lift(net_prior, net_delivery)
+
+    if "order_id" in sales_df.columns:
+        orders_prior = int(prior_day["order_id"].nunique())
+        orders_delivery = int(delivery_day["order_id"].nunique())
+    else:
+        orders_prior = len(prior_day)
+        orders_delivery = len(delivery_day)
+
+    orders_lift_abs, orders_lift_pct = _lift(float(orders_prior), float(orders_delivery))
+
+    result: Dict = {
+        "net_sales_before": net_prior,
+        "net_sales_after": net_delivery,
+        "net_sales_lift_abs": net_lift_abs,
+        "net_sales_lift_pct": net_lift_pct,
+        "orders_before": orders_prior,
+        "orders_after": orders_delivery,
+        "orders_lift_abs": int(orders_lift_abs) if not pd.isna(orders_lift_abs) else None,
+        "orders_lift_pct": orders_lift_pct,
+        "delivered_sales_before": None,
+        "delivered_sales_after": None,
+        "delivered_sales_lift_abs": None,
+        "delivered_sales_lift_pct": None,
+        "delivered_units_before": None,
+        "delivered_units_after": None,
+        "delivered_units_lift_abs": None,
+        "delivered_units_lift_pct": None,
+        "top_items": pd.DataFrame(),
+        "delivery_day_start": day_start,
+        "prior_day_start": prior_start,
+    }
+
+    if delivered_names:
+        delivered_set = {n.lower() for n in delivered_names}
+
+        del_delivery = delivery_day[delivery_day["product_name"].str.lower().isin(delivered_set)]
+        del_prior = prior_day[prior_day["product_name"].str.lower().isin(delivered_set)]
+
+        del_net_prior = float(del_prior["net_sales"].sum())
+        del_net_delivery = float(del_delivery["net_sales"].sum())
+        del_net_lift_abs, del_net_lift_pct = _lift(del_net_prior, del_net_delivery)
+
+        del_units_prior: float = 0.0
+        del_units_delivery: float = 0.0
+        if "units_sold" in sales_df.columns:
+            del_units_prior = float(del_prior["units_sold"].sum())
+            del_units_delivery = float(del_delivery["units_sold"].sum())
+        del_units_lift_abs, del_units_lift_pct = _lift(del_units_prior, del_units_delivery)
+
+        result.update({
+            "delivered_sales_before": del_net_prior,
+            "delivered_sales_after": del_net_delivery,
+            "delivered_sales_lift_abs": del_net_lift_abs,
+            "delivered_sales_lift_pct": del_net_lift_pct,
+            "delivered_units_before": del_units_prior,
+            "delivered_units_after": del_units_delivery,
+            "delivered_units_lift_abs": del_units_lift_abs,
+            "delivered_units_lift_pct": del_units_lift_pct,
+        })
+
+        top_rows: List[Dict] = []
+        for name in delivered_names:
+            name_lower = name.lower()
+            a_rows = delivery_day[delivery_day["product_name"].str.lower() == name_lower]
+            b_rows = prior_day[prior_day["product_name"].str.lower() == name_lower]
+            item_net_prior = float(b_rows["net_sales"].sum())
+            item_net_delivery = float(a_rows["net_sales"].sum())
+            item_units_prior = (
+                float(b_rows["units_sold"].sum()) if "units_sold" in sales_df.columns else 0.0
+            )
+            item_units_delivery = (
+                float(a_rows["units_sold"].sum()) if "units_sold" in sales_df.columns else 0.0
+            )
+            s_lift, _ = _lift(item_net_prior, item_net_delivery)
+            u_lift, _ = _lift(item_units_prior, item_units_delivery)
+            top_rows.append({
+                "item_name": name,
+                "net_sales_before": item_net_prior,
+                "net_sales_after": item_net_delivery,
+                "sales_lift": s_lift,
+                "units_before": item_units_prior,
+                "units_after": item_units_delivery,
+                "units_lift": u_lift,
+            })
+
+        if top_rows:
+            result["top_items"] = (
+                pd.DataFrame(top_rows)
+                .sort_values("sales_lift", ascending=False)
+                .reset_index(drop=True)
+            )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Week-over-week time-series builder (two comparable daily/hourly series)
+# ---------------------------------------------------------------------------
+
+def build_wow_time_series(
+    sales_df: pd.DataFrame,
+    delivery_dt: pd.Timestamp,
+    granularity: str = "daily",
+    delivered_names: Optional[List[str]] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Build two time-series DataFrames for a week-over-week chart overlay:
+
+    1. ``delivery_ts`` – the delivery day (midnight → next midnight).
+    2. ``prior_ts``    – the same weekday 7 days earlier.
+
+    Both DataFrames have the same column schema as :func:`build_time_series`
+    (period, total_net_sales, delivered_net_sales, non_delivered_net_sales,
+    order_count).  ``period`` values in ``prior_ts`` are shifted forward by
+    7 days so both series share the same x-axis when overlaid.
+
+    Parameters
+    ----------
+    sales_df, delivery_dt, granularity, delivered_names:
+        Same semantics as :func:`build_time_series`.
+
+    Returns
+    -------
+    (delivery_ts, prior_ts_shifted)
+    """
+    dt = pd.Timestamp(delivery_dt)
+    day_start = dt.normalize()
+    day_end = day_start + timedelta(days=1)
+    prior_start = day_start - timedelta(days=7)
+    prior_end = prior_start + timedelta(days=1)
+
+    def _build_day_ts(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+        window = sales_df[
+            (sales_df["order_time"] >= start) & (sales_df["order_time"] < end)
+        ].copy()
+
+        if window.empty:
+            return pd.DataFrame(columns=[
+                "period", "total_net_sales",
+                "delivered_net_sales", "non_delivered_net_sales",
+                "order_count",
+            ])
+
+        freq = "h" if granularity == "hourly" else "D"
+        window["period"] = window["order_time"].dt.floor(freq)
+
+        delivered_set = {n.lower() for n in delivered_names} if delivered_names else set()
+        window["_is_delivered"] = window["product_name"].str.lower().isin(delivered_set)
+
+        agg_total = (
+            window.groupby("period")
+            .agg(
+                total_net_sales=("net_sales", "sum"),
+                order_count=(
+                    ("order_id", "nunique") if "order_id" in window.columns
+                    else ("net_sales", "count")
+                ),
+            )
+            .reset_index()
+        )
+
+        if delivered_set:
+            agg_del = (
+                window[window["_is_delivered"]]
+                .groupby("period")["net_sales"]
+                .sum()
+                .rename("delivered_net_sales")
+                .reset_index()
+            )
+            agg_non_del = (
+                window[~window["_is_delivered"]]
+                .groupby("period")["net_sales"]
+                .sum()
+                .rename("non_delivered_net_sales")
+                .reset_index()
+            )
+            ts = agg_total.merge(agg_del, on="period", how="left")
+            ts = ts.merge(agg_non_del, on="period", how="left")
+        else:
+            ts = agg_total.copy()
+            ts["delivered_net_sales"] = 0.0
+            ts["non_delivered_net_sales"] = ts["total_net_sales"]
+
+        ts = ts.fillna(0.0).sort_values("period").reset_index(drop=True)
+        return ts
+
+    delivery_ts = _build_day_ts(day_start, day_end)
+    prior_ts = _build_day_ts(prior_start, prior_end)
+
+    # Shift prior_ts period forward by 7 days so both series share the same x-axis
+    if not prior_ts.empty:
+        prior_ts = prior_ts.copy()
+        prior_ts["period"] = prior_ts["period"] + timedelta(days=7)
+
+    return delivery_ts, prior_ts
+
+
+# ---------------------------------------------------------------------------
 # Time-series builder
 # ---------------------------------------------------------------------------
 

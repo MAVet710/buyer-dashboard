@@ -17,7 +17,9 @@ import pytest
 from delivery_impact import (
     DELIVERY_WINDOW_DAYS,
     build_time_series,
+    build_wow_time_series,
     compute_delivery_kpis,
+    compute_weekday_wow_kpis,
     find_sales_header_row,
     match_manifest_to_sales,
     normalize_product_name,
@@ -1105,3 +1107,218 @@ class TestManifestTypeCoercions:
         assert pd.api.types.is_numeric_dtype(df["qty"])
         # Quantities should be > 0 for all items in the fixture.
         assert (df["qty"] > 0).all()
+
+# ===========================================================================
+# compute_weekday_wow_kpis  – week-over-week same-weekday comparison
+# ===========================================================================
+
+class TestComputeWeekdayWowKpis:
+    """Tests for the same-weekday week-over-week KPI function."""
+
+    _DELIVERY_DT = pd.Timestamp("2026-03-19")  # Thursday
+
+    def _make_sales_df(self, rows):
+        """Build a minimal sales DataFrame from a list of (order_time, net_sales, product_name) tuples."""
+        data = []
+        for i, (dt, ns, pn) in enumerate(rows):
+            data.append({
+                "order_id": f"ORD{i:04d}",
+                "order_time": pd.Timestamp(dt),
+                "product_name": pn,
+                "net_sales": float(ns),
+                "units_sold": 1.0,
+            })
+        return pd.DataFrame(data)
+
+    def test_thursday_compares_to_thursday_minus_7(self):
+        """Delivery on Thu 2026-03-19 must compare to Thu 2026-03-12."""
+        sales = self._make_sales_df([
+            # delivery day (Thu 03-19)
+            ("2026-03-19 10:00", 100.0, "Blue Dream"),
+            ("2026-03-19 14:00", 200.0, "Blue Dream"),
+            # prior week same weekday (Thu 03-12)
+            ("2026-03-12 11:00", 80.0, "Blue Dream"),
+        ])
+        result = compute_weekday_wow_kpis(sales, self._DELIVERY_DT)
+        assert result["net_sales_before"] == pytest.approx(80.0)
+        assert result["net_sales_after"] == pytest.approx(300.0)
+        assert result["net_sales_lift_abs"] == pytest.approx(220.0)
+
+    def test_prior_day_start_is_7_days_before_delivery(self):
+        """prior_day_start must be exactly delivery_day_start - 7 days."""
+        sales = self._make_sales_df([("2026-03-19 10:00", 50.0, "A")])
+        result = compute_weekday_wow_kpis(sales, self._DELIVERY_DT)
+        expected_delivery = pd.Timestamp("2026-03-19")
+        expected_prior = pd.Timestamp("2026-03-12")
+        assert result["delivery_day_start"] == expected_delivery
+        assert result["prior_day_start"] == expected_prior
+
+    def test_no_data_prior_week_pct_lift_is_nan(self):
+        """When prior week has no sales, percent lift must be NaN (not raise)."""
+        sales = self._make_sales_df([
+            ("2026-03-19 10:00", 150.0, "Blue Dream"),
+        ])
+        result = compute_weekday_wow_kpis(sales, self._DELIVERY_DT)
+        assert result["net_sales_before"] == pytest.approx(0.0)
+        assert result["net_sales_after"] == pytest.approx(150.0)
+        # Percent lift is undefined (0 baseline) – must be NaN, not raise
+        assert pd.isna(result["net_sales_lift_pct"])
+
+    def test_no_data_delivery_day(self):
+        """When delivery day has no sales, lift should be negative."""
+        sales = self._make_sales_df([
+            ("2026-03-12 10:00", 120.0, "Blue Dream"),
+        ])
+        result = compute_weekday_wow_kpis(sales, self._DELIVERY_DT)
+        assert result["net_sales_before"] == pytest.approx(120.0)
+        assert result["net_sales_after"] == pytest.approx(0.0)
+        assert result["net_sales_lift_abs"] == pytest.approx(-120.0)
+
+    def test_delivered_items_subset_metrics(self):
+        """Delivered-items sub-metrics must match the subset filtered by name."""
+        sales = self._make_sales_df([
+            # delivery day
+            ("2026-03-19 10:00", 100.0, "Blue Dream"),
+            ("2026-03-19 11:00", 50.0, "Sour Diesel"),  # non-delivered
+            # prior week
+            ("2026-03-12 10:00", 60.0, "Blue Dream"),
+            ("2026-03-12 11:00", 40.0, "Sour Diesel"),
+        ])
+        result = compute_weekday_wow_kpis(
+            sales, self._DELIVERY_DT, delivered_names=["Blue Dream"]
+        )
+        # delivered subset: prior=60, delivery=100
+        assert result["delivered_sales_before"] == pytest.approx(60.0)
+        assert result["delivered_sales_after"] == pytest.approx(100.0)
+        assert result["delivered_sales_lift_abs"] == pytest.approx(40.0)
+        # total must include all products
+        assert result["net_sales_before"] == pytest.approx(100.0)
+        assert result["net_sales_after"] == pytest.approx(150.0)
+
+    def test_orders_count_uses_unique_order_ids(self):
+        """Order count must be distinct order IDs per day."""
+        data = [
+            # delivery day – 2 distinct orders, 3 rows
+            {"order_id": "A", "order_time": pd.Timestamp("2026-03-19 09:00"),
+             "product_name": "X", "net_sales": 10.0, "units_sold": 1.0},
+            {"order_id": "A", "order_time": pd.Timestamp("2026-03-19 09:00"),
+             "product_name": "Y", "net_sales": 5.0, "units_sold": 1.0},
+            {"order_id": "B", "order_time": pd.Timestamp("2026-03-19 10:00"),
+             "product_name": "X", "net_sales": 8.0, "units_sold": 1.0},
+            # prior week – 1 order
+            {"order_id": "C", "order_time": pd.Timestamp("2026-03-12 09:00"),
+             "product_name": "X", "net_sales": 7.0, "units_sold": 1.0},
+        ]
+        sales = pd.DataFrame(data)
+        result = compute_weekday_wow_kpis(sales, self._DELIVERY_DT)
+        assert result["orders_after"] == 2
+        assert result["orders_before"] == 1
+
+    def test_top_items_returned_when_delivered_names_provided(self):
+        """top_items DataFrame must be non-empty when delivered_names provided."""
+        sales = self._make_sales_df([
+            ("2026-03-19 10:00", 100.0, "Blue Dream"),
+            ("2026-03-12 10:00", 60.0, "Blue Dream"),
+        ])
+        result = compute_weekday_wow_kpis(
+            sales, self._DELIVERY_DT, delivered_names=["Blue Dream"]
+        )
+        assert not result["top_items"].empty
+        row = result["top_items"].iloc[0]
+        assert row["item_name"] == "Blue Dream"
+        assert row["sales_lift"] == pytest.approx(40.0)
+
+    def test_empty_sales_df_returns_zero_kpis(self):
+        """Empty sales DataFrame must not raise and must return zero/NaN KPIs."""
+        sales = pd.DataFrame(columns=["order_id", "order_time", "product_name",
+                                       "net_sales", "units_sold"])
+        result = compute_weekday_wow_kpis(sales, self._DELIVERY_DT)
+        assert result["net_sales_before"] == pytest.approx(0.0)
+        assert result["net_sales_after"] == pytest.approx(0.0)
+        assert pd.isna(result["net_sales_lift_pct"])
+
+    def test_sales_outside_window_excluded(self):
+        """Sales from days other than the delivery day or prior-week same day must be excluded."""
+        sales = self._make_sales_df([
+            # delivery day – in window
+            ("2026-03-19 10:00", 100.0, "Blue Dream"),
+            # day after delivery – must be excluded
+            ("2026-03-20 10:00", 999.0, "Blue Dream"),
+            # prior week same day – in window
+            ("2026-03-12 10:00", 50.0, "Blue Dream"),
+            # two weeks prior – must be excluded
+            ("2026-03-05 10:00", 999.0, "Blue Dream"),
+        ])
+        result = compute_weekday_wow_kpis(sales, self._DELIVERY_DT)
+        assert result["net_sales_before"] == pytest.approx(50.0)
+        assert result["net_sales_after"] == pytest.approx(100.0)
+
+
+# ===========================================================================
+# build_wow_time_series  – two-series chart data for WoW overlay
+# ===========================================================================
+
+class TestBuildWowTimeSeries:
+    """Tests for the week-over-week time-series builder."""
+
+    _DELIVERY_DT = pd.Timestamp("2026-03-19")
+
+    def _make_sales_df(self, rows):
+        data = []
+        for i, (dt, ns, pn) in enumerate(rows):
+            data.append({
+                "order_id": f"ORD{i:04d}",
+                "order_time": pd.Timestamp(dt),
+                "product_name": pn,
+                "net_sales": float(ns),
+                "units_sold": 1.0,
+            })
+        return pd.DataFrame(data)
+
+    def test_returns_two_dataframes(self):
+        sales = self._make_sales_df([
+            ("2026-03-19 10:00", 100.0, "A"),
+            ("2026-03-12 10:00", 80.0, "A"),
+        ])
+        delivery_ts, prior_ts = build_wow_time_series(sales, self._DELIVERY_DT)
+        assert isinstance(delivery_ts, pd.DataFrame)
+        assert isinstance(prior_ts, pd.DataFrame)
+
+    def test_delivery_ts_contains_delivery_day_data(self):
+        sales = self._make_sales_df([
+            ("2026-03-19 10:00", 100.0, "A"),
+            ("2026-03-12 10:00", 80.0, "A"),
+        ])
+        delivery_ts, _ = build_wow_time_series(sales, self._DELIVERY_DT)
+        assert not delivery_ts.empty
+        assert delivery_ts["total_net_sales"].sum() == pytest.approx(100.0)
+
+    def test_prior_ts_period_shifted_forward_7_days(self):
+        """prior_ts period values must be shifted +7 days so x-axes align."""
+        sales = self._make_sales_df([
+            ("2026-03-19 10:00", 100.0, "A"),
+            ("2026-03-12 10:00", 80.0, "A"),
+        ])
+        delivery_ts, prior_ts = build_wow_time_series(sales, self._DELIVERY_DT)
+        # Prior-week data (03-12) should be shifted to 03-19
+        assert not prior_ts.empty
+        # After shifting, the period date should be 2026-03-19
+        assert prior_ts.iloc[0]["period"].date() == pd.Timestamp("2026-03-19").date()
+
+    def test_empty_prior_week_returns_empty_prior_ts(self):
+        sales = self._make_sales_df([
+            ("2026-03-19 10:00", 100.0, "A"),
+        ])
+        _, prior_ts = build_wow_time_series(sales, self._DELIVERY_DT)
+        assert prior_ts.empty
+
+    def test_columns_match_build_time_series_schema(self):
+        sales = self._make_sales_df([
+            ("2026-03-19 10:00", 100.0, "A"),
+            ("2026-03-12 10:00", 80.0, "A"),
+        ])
+        delivery_ts, prior_ts = build_wow_time_series(sales, self._DELIVERY_DT)
+        expected_cols = {"period", "total_net_sales", "delivered_net_sales",
+                         "non_delivered_net_sales", "order_count"}
+        assert expected_cols.issubset(set(delivery_ts.columns))
+        assert expected_cols.issubset(set(prior_ts.columns))
