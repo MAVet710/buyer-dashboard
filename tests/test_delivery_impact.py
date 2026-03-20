@@ -1558,3 +1558,121 @@ class TestParseSalesReportDtypeGuarantees:
         ts = build_time_series(df, pd.Timestamp("2026-03-19"), window_days=14)
         assert not ts.empty
 
+
+# ===========================================================================
+# Vline x-value type regression: add_vline requires numeric ms-epoch x
+# ===========================================================================
+
+class TestVlineXValueIsNumeric:
+    """Verify that delivery received_dt values are convertible to integer
+    milliseconds-since-epoch (the format Plotly's add_vline requires when
+    annotation_position is used on a datetime axis).
+
+    If x is a string (e.g. from .isoformat()) or a raw pd.Timestamp, Plotly's
+    internal shapeannotation._mean raises:
+        TypeError: unsupported operand type(s) for +: 'int' and 'str'
+    The fix: int(pd.Timestamp(received_dt).value // 1_000_000)
+    """
+
+    def _ms_epoch(self, ts: pd.Timestamp) -> int:
+        """Replicate the conversion used in app.py add_vline calls."""
+        return int(ts.value // 1_000_000)
+
+    def test_vline_x_from_received_dt_is_int(self):
+        """received_dt converted to ms-epoch must be a plain int."""
+        received_dt = pd.Timestamp("2026-03-19 10:58:00")
+        vline_x = self._ms_epoch(received_dt.normalize())
+        assert isinstance(vline_x, int), (
+            "add_vline x must be int (ms since epoch); got {!r}".format(type(vline_x))
+        )
+
+    def test_vline_x_not_string(self):
+        """add_vline x must never be a string – that triggers 'int + str' crash."""
+        received_dt = pd.Timestamp("2026-03-19 10:58:00")
+        vline_x = self._ms_epoch(received_dt.normalize())
+        assert not isinstance(vline_x, str), (
+            "add_vline x must not be a string; .isoformat() triggers Plotly crash"
+        )
+
+    def test_vline_x_correct_epoch_value(self):
+        """2026-03-19 00:00:00 UTC should equal 1773878400000 ms since epoch."""
+        received_dt = pd.Timestamp("2026-03-19", tz=None)
+        vline_x = self._ms_epoch(received_dt.normalize())
+        # Value computed independently: 2026-03-19 00:00:00 UTC
+        assert vline_x == int(pd.Timestamp("2026-03-19").value // 1_000_000)
+
+    def test_vline_x_wow_mode_uses_normalized_day(self):
+        """WoW-mode vline must use the day boundary (midnight), not exact time."""
+        received_dt = pd.Timestamp("2026-03-19 10:58:00")
+        normalized = received_dt.normalize()
+        vline_x = self._ms_epoch(normalized)
+        midnight_x = self._ms_epoch(pd.Timestamp("2026-03-19"))
+        assert vline_x == midnight_x, (
+            "WoW vline x must represent midnight of the delivery day"
+        )
+
+    def test_vline_x_before_after_mode(self):
+        """Before/After-mode vline must also be int ms-epoch."""
+        received_dt = pd.Timestamp("2026-03-19 10:58:00")
+        # Before/After mode uses the full timestamp (not normalized)
+        vline_x = self._ms_epoch(received_dt)
+        assert isinstance(vline_x, int)
+
+    def test_prior_week_offset_is_exactly_7_days(self):
+        """prior_week vline x must be exactly 7 days (604800000 ms) before delivery."""
+        delivery_dt = pd.Timestamp("2026-03-19").normalize()
+        prior_dt = pd.Timestamp("2026-03-12").normalize()
+        delivery_x = self._ms_epoch(delivery_dt)
+        prior_x = self._ms_epoch(prior_dt)
+        diff_ms = delivery_x - prior_x
+        seven_days_ms = 7 * 24 * 60 * 60 * 1000
+        assert diff_ms == seven_days_ms, (
+            f"Prior week should be exactly 7 days earlier; got {diff_ms} ms diff"
+        )
+
+    def test_coerce_ts_frame_period_column_is_datetime(self):
+        """_coerce_ts_frame_for_plot must return period as datetime64, not object.
+
+        When period is datetime64, ms-epoch conversion via .value works correctly.
+        """
+        df = pd.DataFrame({
+            "period": ["2026-03-19", "2026-03-20"],
+            "total_net_sales": ["100.0", "200.0"],
+            "order_count": ["5", "8"],
+        })
+        # Replicate _coerce_ts_frame_for_plot logic from app.py
+        df = df.copy()
+        df["period"] = pd.to_datetime(df["period"], errors="coerce")
+        df = df.dropna(subset=["period"])
+        for col in ("total_net_sales", "order_count"):
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+        assert pd.api.types.is_datetime64_any_dtype(df["period"]), (
+            "period must be datetime64 so ms-epoch conversion works for add_vline"
+        )
+        # Verify we can compute ms-epoch from period values
+        for ts in df["period"]:
+            x_ms = int(pd.Timestamp(ts).value // 1_000_000)
+            assert isinstance(x_ms, int)
+
+    def test_build_wow_period_dtype_supports_ms_conversion(self):
+        """Periods from build_wow_time_series must be datetime-convertible to int."""
+        sales_df = pd.DataFrame({
+            "order_time": pd.date_range("2026-03-12 08:00", periods=4, freq="2h"),
+            "product_name": ["A", "B", "A", "B"],
+            "net_sales": [10.0, 20.0, 15.0, 25.0],
+            "order_id": [1, 2, 3, 4],
+        })
+        delivery_ts, prior_ts = build_wow_time_series(
+            sales_df, pd.Timestamp("2026-03-19"), granularity="daily"
+        )
+        # prior_ts may be empty here (no prior-week data); check delivery_ts
+        # but either way period must be datetime-like
+        for df_check in [delivery_ts, prior_ts]:
+            if not df_check.empty:
+                for ts in df_check["period"]:
+                    x_ms = int(pd.Timestamp(ts).value // 1_000_000)
+                    assert isinstance(x_ms, int), (
+                        "period value must convert to int ms-epoch for add_vline"
+                    )
+

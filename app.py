@@ -4372,8 +4372,16 @@ elif section == "🚚 Delivery Impact":
                             for _m in _active_manifests:
                                 _deliv_day = pd.to_datetime(_m.get("received_dt"), errors="coerce")
                                 if pd.notna(_deliv_day):
+                                    # Plotly requires a numeric x (ms since epoch) for
+                                    # add_vline when annotation_position is used on a
+                                    # datetime axis.  Passing pd.Timestamp or a string
+                                    # causes "unsupported operand type(s) for +: 'int'
+                                    # and 'str'" in plotly.shapeannotation._mean.
+                                    _vline_x = int(
+                                        _deliv_day.normalize().value // 1_000_000
+                                    )
                                     _fig.add_vline(
-                                        x=_deliv_day.normalize(),
+                                        x=_vline_x,
                                         line_dash="dash",
                                         line_color="red",
                                         annotation_text=f"Delivery Day: {_m.get('filename', '')}",
@@ -4441,8 +4449,12 @@ elif section == "🚚 Delivery Impact":
                             for _m in _active_manifests:
                                 _x = pd.to_datetime(_m.get("received_dt"), errors="coerce")
                                 if pd.notna(_x):
+                                    # Convert to integer ms-since-epoch so Plotly's
+                                    # annotation positioning arithmetic doesn't fail with
+                                    # "unsupported operand type(s) for +: 'int' and 'str'"
+                                    _vline_x = int(_x.value // 1_000_000)
                                     _fig.add_vline(
-                                        x=_x,
+                                        x=_vline_x,
                                         line_dash="dash",
                                         line_color="red",
                                         annotation_text=f"Delivery: {_m.get('filename', '')}",
@@ -4457,6 +4469,7 @@ elif section == "🚚 Delivery Impact":
 
                         _fig.update_layout(
                             xaxis_title="Date" if _granularity == "daily" else "Date/Hour",
+                            xaxis_type="date",
                             yaxis_title="Net Sales ($)",
                             yaxis2={
                                 "title": "Order Count",
