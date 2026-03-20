@@ -1322,3 +1322,23 @@ class TestBuildWowTimeSeries:
                          "non_delivered_net_sales", "order_count"}
         assert expected_cols.issubset(set(delivery_ts.columns))
         assert expected_cols.issubset(set(prior_ts.columns))
+
+    def test_string_order_time_does_not_raise(self):
+        """build_wow_time_series must not raise when order_time is object/string dtype."""
+        data = [
+            {"order_id": "ORD0001", "order_time": "2026-03-19 10:00",
+             "product_name": "A", "net_sales": 100.0, "units_sold": 1.0},
+            {"order_id": "ORD0002", "order_time": "2026-03-12 10:00",
+             "product_name": "A", "net_sales": 80.0, "units_sold": 1.0},
+        ]
+        sales = pd.DataFrame(data)
+        # Force order_time to object dtype to simulate unparsed string input
+        sales["order_time"] = sales["order_time"].astype(object)
+        assert sales["order_time"].dtype == object
+        # Should not raise "unsupported operand type(s) for +: 'int' and 'str'"
+        delivery_ts, prior_ts = build_wow_time_series(sales, self._DELIVERY_DT)
+        assert not delivery_ts.empty
+        assert not prior_ts.empty
+        # Prior period must be shifted to delivery day date
+        assert prior_ts.iloc[0]["period"].date() == pd.Timestamp("2026-03-19").date()
+

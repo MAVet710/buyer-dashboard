@@ -702,6 +702,8 @@ if "strain_lookup_enabled" not in st.session_state:
     st.session_state.strain_lookup_enabled = True  # Enable free strain database lookup by default
 if "data_mode" not in st.session_state:
     st.session_state.data_mode = "📁 Uploads"  # Default to manual upload mode
+if "di_comparison_mode" not in st.session_state:
+    st.session_state.di_comparison_mode = "📅 Before/After (±N days)"  # Default analysis mode
 
 # Upload tracking (God-only viewer)
 if "upload_log" not in st.session_state:
@@ -3982,25 +3984,29 @@ elif section == "🚚 Delivery Impact":
                 st.sidebar.markdown("---")
                 st.sidebar.markdown("### 🚚 Delivery Impact Settings")
 
-                _window_days = st.sidebar.selectbox(
-                    "Comparison window (days before/after)",
-                    options=[7, 14, 21, 28],
-                    index=1,
-                    key="di_window",
-                )
-
-                _comparison_mode = st.sidebar.radio(
-                    "Comparison mode",
-                    ["📅 Before/After delivery window", "📆 Same weekday last week (WoW)"],
+                _comparison_mode = st.sidebar.selectbox(
+                    "Analysis Mode",
+                    ["📅 Before/After (±N days)", "📆 Same weekday last week (WoW)"],
                     index=0,
                     key="di_comparison_mode",
                     help=(
-                        "**Before/After window**: compare N days before vs N days after delivery.\n\n"
-                        "**Same weekday last week**: compare the delivery calendar day "
+                        "**Before/After (±N days)**: compare N days before vs N days after delivery.\n\n"
+                        "**Same weekday last week (WoW)**: compare the delivery calendar day "
                         "to the same weekday 7 days prior (e.g. Thu 03-19 vs Thu 03-12)."
                     ),
                 )
                 _wow_mode = _comparison_mode == "📆 Same weekday last week (WoW)"
+
+                # Window-days selector is only relevant in Before/After mode
+                if not _wow_mode:
+                    _window_days = st.sidebar.selectbox(
+                        "Comparison window (days before/after)",
+                        options=[7, 14, 21, 28],
+                        index=1,
+                        key="di_window",
+                    )
+                else:
+                    _window_days = st.session_state.get("di_window", 14)
 
                 _granularity = st.sidebar.radio(
                     "Chart granularity",

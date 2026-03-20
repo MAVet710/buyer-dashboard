@@ -1380,6 +1380,12 @@ def build_wow_time_series(
     prior_start = day_start - timedelta(days=7)
     prior_end = prior_start + timedelta(days=1)
 
+    # Defensively coerce order_time to datetime so .dt accessors and
+    # timedelta arithmetic work even when the caller passes object-dtype data.
+    sales_df = sales_df.copy()
+    sales_df["order_time"] = pd.to_datetime(sales_df["order_time"], errors="coerce")
+    sales_df = sales_df.dropna(subset=["order_time"])
+
     def _build_day_ts(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
         window = sales_df[
             (sales_df["order_time"] >= start) & (sales_df["order_time"] < end)
@@ -1438,9 +1444,11 @@ def build_wow_time_series(
     delivery_ts = _build_day_ts(day_start, day_end)
     prior_ts = _build_day_ts(prior_start, prior_end)
 
-    # Shift prior_ts period forward by 7 days so both series share the same x-axis
+    # Shift prior_ts period forward by 7 days so both series share the same x-axis.
+    # Coerce to datetime first in case groupby produced an object-dtype column.
     if not prior_ts.empty:
         prior_ts = prior_ts.copy()
+        prior_ts["period"] = pd.to_datetime(prior_ts["period"])
         prior_ts["period"] = prior_ts["period"] + timedelta(days=7)
 
     return delivery_ts, prior_ts
@@ -1481,6 +1489,12 @@ def build_time_series(
     dt = pd.Timestamp(delivery_dt)
     start = dt - timedelta(days=window_days)
     end = dt + timedelta(days=window_days)
+
+    # Defensively coerce order_time to datetime so .dt accessors work even
+    # when the caller passes object-dtype data (e.g. string timestamps).
+    sales_df = sales_df.copy()
+    sales_df["order_time"] = pd.to_datetime(sales_df["order_time"], errors="coerce")
+    sales_df = sales_df.dropna(subset=["order_time"])
 
     window = sales_df[
         (sales_df["order_time"] >= start) & (sales_df["order_time"] < end)
