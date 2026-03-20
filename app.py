@@ -54,6 +54,7 @@ except (ImportError, AttributeError):
 try:
     from delivery_impact import (
         parse_manifest_pdf_bytes,
+        parse_manifest_csv_xlsx_bytes,
         parse_sales_report_bytes as _parse_sales_report_bytes,
         match_manifest_to_sales,
         compute_delivery_kpis,
@@ -1436,21 +1437,20 @@ def read_delivery_file(uploaded_file):
 
     name = uploaded_file.name.lower()
     uploaded_file.seek(0)
+    raw_bytes = uploaded_file.read()
+    uploaded_file.seek(0)
 
-    if name.endswith((".csv",)):
-        return pd.read_csv(uploaded_file)
-
-    if name.endswith((".xlsx", ".xls")):
-        tmp = pd.read_excel(uploaded_file, header=None)
-        header_row = 0
-        max_scan = min(25, len(tmp))
-        for i in range(max_scan):
-            row_text = " ".join(str(v) for v in tmp.iloc[i].tolist()).lower()
-            if any(tok in row_text for tok in ["date", "received", "delivery"]) and any(tok in row_text for tok in ["product", "item", "sku", "name"]):
-                header_row = i
-                break
-        uploaded_file.seek(0)
-        return pd.read_excel(uploaded_file, header=header_row)
+    if name.endswith((".csv", ".xlsx", ".xls")):
+        if _DELIVERY_IMPACT_AVAILABLE:
+            _recv_dt, items_df, _debug = parse_manifest_csv_xlsx_bytes(
+                raw_bytes, filename=uploaded_file.name
+            )
+            if not items_df.empty:
+                return items_df
+        # Fallback: naive read for files that don't match the manifest format.
+        if name.endswith(".csv"):
+            return pd.read_csv(BytesIO(raw_bytes))
+        return pd.read_excel(BytesIO(raw_bytes))
 
     if name.endswith(".pdf"):
         return _extract_delivery_from_pdf(uploaded_file)
@@ -3861,7 +3861,8 @@ elif section == "🚚 Delivery Impact":
         # ── Uploads mode ─────────────────────────────────────────────────────
         st.markdown(
             """
-            Upload one or more **delivery manifest PDFs** and a **sales report** (CSV or XLSX).
+            Upload one or more **delivery manifests** (CSV or XLSX preferred, PDF also supported)
+            and a **sales report** (CSV or XLSX).
             The app will parse each manifest for its received date/time and delivered items, then
             compute a **14-day before vs 14-day after** comparison to show how each delivery
             correlates with spikes in **Net Sales** and **order count (traffic proxy)**.
@@ -3872,13 +3873,17 @@ elif section == "🚚 Delivery Impact":
         _di_col1, _di_col2 = st.columns(2)
 
         with _di_col1:
-            st.markdown("#### 📦 Manifest PDFs")
+            st.markdown("#### 📦 Manifest Files")
             _manifest_files = st.file_uploader(
-                "Upload delivery manifest PDF(s)",
-                type=["pdf"],
+                "Upload delivery manifest (CSV, XLSX, or PDF)",
+                type=["csv", "xlsx", "xls", "pdf"],
                 accept_multiple_files=True,
                 key="di_manifest_upload",
-                help="Each PDF should contain the received date/time and a table of item names + quantities.",
+                help=(
+                    "CSV or XLSX receiving exports are recommended. "
+                    "Each file should contain product names and received quantities. "
+                    "PDF is also supported as a fallback."
+                ),
             )
 
         with _di_col2:
@@ -3928,7 +3933,7 @@ elif section == "🚚 Delivery Impact":
                 _manifests: list = []
                 _all_debug_texts: dict = {}
 
-                with st.spinner("Parsing manifest PDFs…"):
+                with st.spinner("Parsing manifest files…"):
                     for _mf in _manifest_files:
                         if len(_mf.getvalue()) > MAX_UPLOAD_BYTES:
                             st.warning(
@@ -3936,10 +3941,18 @@ elif section == "🚚 Delivery Impact":
                             )
                             continue
                         _mf.seek(0)
-                        _pdf_bytes = _mf.read()
-                        _recv_dt, _items_df, _debug_text = parse_manifest_pdf_bytes(
-                            _pdf_bytes, filename=_mf.name
-                        )
+                        _mf_bytes = _mf.read()
+                        _mf_name_lower = _mf.name.lower()
+
+                        if _mf_name_lower.endswith((".csv", ".xlsx", ".xls")):
+                            _recv_dt, _items_df, _debug_text = parse_manifest_csv_xlsx_bytes(
+                                _mf_bytes, filename=_mf.name
+                            )
+                        else:
+                            _recv_dt, _items_df, _debug_text = parse_manifest_pdf_bytes(
+                                _mf_bytes, filename=_mf.name
+                            )
+
                         _all_debug_texts[_mf.name] = _debug_text
                         if _recv_dt is None and _items_df.empty:
                             st.warning(

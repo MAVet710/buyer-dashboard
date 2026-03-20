@@ -22,6 +22,7 @@ from delivery_impact import (
     match_manifest_to_sales,
     normalize_product_name,
     parse_sales_report_bytes,
+    parse_manifest_csv_xlsx_bytes,
     _rows_to_items_df,
     _parse_items_from_text,
     parse_manifest_pdf_bytes,
@@ -688,3 +689,232 @@ class TestParseManifestPdfBytesSmoke:
         assert received_dt is None or isinstance(received_dt, pd.Timestamp)
         assert isinstance(items_df, pd.DataFrame)
         assert isinstance(raw_text, str)
+
+
+# ===========================================================================
+# parse_manifest_csv_xlsx_bytes  – CSV/XLSX manifest parser
+# ===========================================================================
+
+import os as _os
+import pathlib as _pathlib
+
+_FIXTURE_DIR = _pathlib.Path(_os.path.dirname(__file__)) / "fixtures"
+_CRESCO_CSV = _FIXTURE_DIR / "cresco031926.csv"
+
+
+class TestParseManifestCsvXlsxBytes:
+    """Tests for the Dutchie-style CSV/XLSX manifest parser."""
+
+    # ── helper builders ──────────────────────────────────────────────────────
+
+    def _simple_csv(self, rows: list[list[str]]) -> bytes:
+        """Build minimal CSV bytes from a list of rows (list of cells)."""
+        lines = [",".join(r) for r in rows]
+        return "\n".join(lines).encode("utf-8")
+
+    # ── return-type contract ─────────────────────────────────────────────────
+
+    def test_return_type_contract(self):
+        received_dt, items_df, raw_text = parse_manifest_csv_xlsx_bytes(b"", filename="m.csv")
+        assert received_dt is None or isinstance(received_dt, pd.Timestamp)
+        assert isinstance(items_df, pd.DataFrame)
+        assert isinstance(raw_text, str)
+
+    def test_invalid_bytes_returns_empty_gracefully(self):
+        received_dt, items_df, raw_text = parse_manifest_csv_xlsx_bytes(
+            b"\x00\xff\xfe", filename="m.csv"
+        )
+        assert "item_name" in items_df.columns
+        assert "qty" in items_df.columns
+
+    # ── basic single-row items ───────────────────────────────────────────────
+
+    def test_simple_single_item(self):
+        csv = self._simple_csv([
+            ["Product", "Quantity"],
+            ["Blue Dream 3.5g", "10"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert len(df) == 1
+        assert df.iloc[0]["item_name"] == "Blue Dream 3.5g"
+        assert df.iloc[0]["qty"] == pytest.approx(10.0)
+
+    def test_simple_multiple_items(self):
+        csv = self._simple_csv([
+            ["Product", "Quantity"],
+            ["Blue Dream 3.5g", "10"],
+            ["Sour Diesel", "5"],
+            ["OG Kush 7g", "3"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert len(df) == 3
+        assert list(df["item_name"]) == ["Blue Dream 3.5g", "Sour Diesel", "OG Kush 7g"]
+        assert list(df["qty"]) == [10.0, 5.0, 3.0]
+
+    # ── preamble metadata rows skipped ──────────────────────────────────────
+
+    def test_preamble_rows_skipped(self):
+        csv = self._simple_csv([
+            ["Manifest #", "cresco031926"],
+            ["Received Date", "03/19/2026"],
+            ["Vendor", "Cresco Illinois"],
+            [""],
+            ["Product", "Quantity"],
+            ["Blue Dream 3.5g", "10"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert len(df) == 1
+        assert df.iloc[0]["item_name"] == "Blue Dream 3.5g"
+
+    # ── received date extraction ─────────────────────────────────────────────
+
+    def test_received_date_extracted_from_preamble(self):
+        csv = self._simple_csv([
+            ["Received Date", "03/19/2026 10:30"],
+            ["Vendor", "Cresco Illinois"],
+            ["Product", "Quantity"],
+            ["Blue Dream 3.5g", "10"],
+        ])
+        received_dt, _, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert received_dt is not None
+        assert isinstance(received_dt, pd.Timestamp)
+        assert received_dt.month == 3
+        assert received_dt.day == 19
+
+    # ── repeated header rows mid-file ────────────────────────────────────────
+
+    def test_repeated_header_rows_skipped(self):
+        csv = self._simple_csv([
+            ["Product", "Quantity"],
+            ["Blue Dream 3.5g", "10"],
+            ["Product", "Quantity"],  # repeated header – must not become an item
+            ["Sour Diesel", "5"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert len(df) == 2
+        names = list(df["item_name"])
+        assert "Blue Dream 3.5g" in names
+        assert "Sour Diesel" in names
+        # "Product" must not appear as an item name
+        for n in names:
+            assert n.lower() != "product"
+
+    # ── continuation rows (multi-line product name) ──────────────────────────
+
+    def test_continuation_rows_joined(self):
+        csv = self._simple_csv([
+            ["Product", "Quantity"],
+            ["Cresco", ""],
+            ["Rest", ""],
+            ["Flower", ""],
+            ["3.5g- The", ""],
+            ["4th Kind", "3"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert len(df) == 1
+        assert df.iloc[0]["item_name"] == "Cresco Rest Flower 3.5g- The 4th Kind"
+        assert df.iloc[0]["qty"] == pytest.approx(3.0)
+
+    def test_two_multi_fragment_products(self):
+        csv = self._simple_csv([
+            ["Product", "Quantity"],
+            ["High", ""],
+            ["Supply Hybrid Flower 7g-", ""],
+            ["Banana Cream Cake", "5"],
+            ["Blue Dream 3.5g", "10"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert len(df) == 2
+        assert df.iloc[0]["item_name"] == "High Supply Hybrid Flower 7g- Banana Cream Cake"
+        assert df.iloc[0]["qty"] == pytest.approx(5.0)
+        assert df.iloc[1]["item_name"] == "Blue Dream 3.5g"
+        assert df.iloc[1]["qty"] == pytest.approx(10.0)
+
+    def test_continuation_does_not_bleed_into_next_item(self):
+        csv = self._simple_csv([
+            ["Product", "Quantity"],
+            ["Fragment A", ""],
+            ["Fragment B", "2"],
+            ["Standalone Item", "7"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert len(df) == 2
+        assert df.iloc[1]["item_name"] == "Standalone Item"
+        assert df.iloc[1]["qty"] == pytest.approx(7.0)
+        # Fragment text must not appear in standalone item's name
+        assert "Fragment" not in df.iloc[1]["item_name"]
+
+    # ── quoted cells with embedded newlines ──────────────────────────────────
+
+    def test_quoted_cell_with_embedded_newline(self):
+        # CSV standard: newlines inside quoted fields are preserved by pandas.
+        csv_text = (
+            "Product,Quantity\n"
+            '"Garden Society Sativa Flower 14g\n- Lemon Meringue",2\n'
+        )
+        raw = csv_text.encode("utf-8")
+        _, df, _ = parse_manifest_csv_xlsx_bytes(raw, filename="m.csv")
+        assert len(df) == 1
+        name = df.iloc[0]["item_name"]
+        # Should have been collapsed to a single line.
+        assert "\n" not in name
+        assert "Garden Society" in name
+        assert "Lemon Meringue" in name
+
+    # ── preferred received-qty column selection ───────────────────────────────
+
+    def test_received_qty_preferred_over_plain_qty(self):
+        csv = self._simple_csv([
+            ["Product", "Ordered Qty", "Received Qty"],
+            ["Blue Dream 3.5g", "15", "10"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert df.iloc[0]["qty"] == pytest.approx(10.0)
+
+    # ── optional columns retained ────────────────────────────────────────────
+
+    def test_optional_columns_retained(self):
+        csv = self._simple_csv([
+            ["Product", "Quantity", "Package ID", "Batch", "License Number", "Location"],
+            ["Blue Dream 3.5g", "10", "PKG-001", "BATCH-001", "LIC-001", "LOC-A"],
+        ])
+        _, df, _ = parse_manifest_csv_xlsx_bytes(csv, filename="m.csv")
+        assert "package_id" in df.columns
+        assert df.iloc[0]["package_id"] == "PKG-001"
+        assert "batch" in df.columns
+        assert df.iloc[0]["batch"] == "BATCH-001"
+
+    # ── cresco031926.csv fixture ─────────────────────────────────────────────
+
+    def test_cresco_fixture_item_count(self):
+        """The fixture has 5 distinct items."""
+        raw = _CRESCO_CSV.read_bytes()
+        _, df, _ = parse_manifest_csv_xlsx_bytes(raw, filename="cresco031926.csv")
+        assert len(df) == 5
+
+    def test_cresco_fixture_reconstructed_names(self):
+        raw = _CRESCO_CSV.read_bytes()
+        _, df, _ = parse_manifest_csv_xlsx_bytes(raw, filename="cresco031926.csv")
+        names = list(df["item_name"])
+        assert "Cresco Rest Flower 3.5g- The 4th Kind" in names
+        assert "High Supply Hybrid Flower 7g- Banana Cream Cake" in names
+
+    def test_cresco_fixture_quantities_numeric(self):
+        raw = _CRESCO_CSV.read_bytes()
+        _, df, _ = parse_manifest_csv_xlsx_bytes(raw, filename="cresco031926.csv")
+        assert pd.api.types.is_float_dtype(df["qty"]) or pd.api.types.is_integer_dtype(df["qty"])
+        assert (df["qty"] > 0).all()
+
+    def test_cresco_fixture_no_header_in_items(self):
+        raw = _CRESCO_CSV.read_bytes()
+        _, df, _ = parse_manifest_csv_xlsx_bytes(raw, filename="cresco031926.csv")
+        for name in df["item_name"]:
+            assert name.lower() not in {"product", "quantity", "item"}
+
+    def test_cresco_fixture_received_date_extracted(self):
+        raw = _CRESCO_CSV.read_bytes()
+        received_dt, _, _ = parse_manifest_csv_xlsx_bytes(raw, filename="cresco031926.csv")
+        assert received_dt is not None
+        assert received_dt.month == 3
+        assert received_dt.day == 19
+        assert received_dt.year == 2026

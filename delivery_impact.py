@@ -702,6 +702,250 @@ def _parse_items_from_text(text: str) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Manifest CSV / XLSX parsing  (Dutchie-style receiving exports)
+# ---------------------------------------------------------------------------
+
+# Header keywords that indicate the manifest header row (normed: lower, alnum only).
+_MANIFEST_HEADER_NAME_KEYWORDS: frozenset = frozenset({
+    "product", "item", "itemname", "productname", "description",
+    "name", "productdescription", "itemdescription",
+})
+
+_MANIFEST_HEADER_QTY_KEYWORDS_PREFERRED: frozenset = frozenset({
+    "receivedqty", "qtyreceived", "receivedquantity", "quantityreceived",
+    "received", "recqty", "recvqty",
+})
+
+_MANIFEST_HEADER_QTY_KEYWORDS_FALLBACK: frozenset = frozenset({
+    "qty", "quantity", "units", "count", "unitcount",
+})
+
+# All normalised strings we treat as header cells (used to detect repeated headers).
+_MANIFEST_ALL_HEADER_NORMS: frozenset = frozenset(
+    _MANIFEST_HEADER_NAME_KEYWORDS
+    | _MANIFEST_HEADER_QTY_KEYWORDS_PREFERRED
+    | _MANIFEST_HEADER_QTY_KEYWORDS_FALLBACK
+    | {
+        "packageid", "package", "licensenumber", "license", "batch",
+        "location", "unitprice", "price", "sku", "id", "type",
+        "category", "brand", "uom", "unit", "vendor", "manifest",
+        "orderedqty", "ordered", "linenumber", "ln", "no", "number",
+        "strain", "transfer", "weight",
+    }
+)
+
+
+def _norm_cell(v: object) -> str:
+    """Return a normalised (lower, alnum-only) version of a cell value."""
+    return re.sub(r"[^a-z0-9]", "", str(v).lower())
+
+
+def parse_manifest_csv_xlsx_bytes(
+    raw_bytes: bytes,
+    filename: str = "",
+) -> Tuple[Optional[pd.Timestamp], pd.DataFrame, str]:
+    """
+    Extract received datetime and item table from a Dutchie-style CSV or XLSX
+    delivery / receiving export.
+
+    Handles:
+    * Arbitrary preamble / metadata rows above the real header row.
+    * Repeated header rows that appear again mid-file (skipped automatically).
+    * Multi-line product names split across continuation rows (rows that have
+      name text but a blank quantity cell).  Fragments are accumulated and
+      joined with a single space when the row with a numeric quantity arrives.
+    * Quoted CSV cells containing embedded newlines – whitespace is collapsed
+      before processing.
+    * Optional extra columns (Package ID, Batch, License Number, Location) are
+      retained when present.
+
+    Parameters
+    ----------
+    raw_bytes:
+        Raw file bytes of the CSV or XLSX manifest.
+    filename:
+        Original file name (used to detect XLSX vs CSV).
+
+    Returns
+    -------
+    received_dt : pd.Timestamp or None
+        First date/time detected in the preamble rows.
+    items_df : DataFrame
+        Columns: ``item_name`` (str), ``qty`` (float), plus any optional
+        columns detected in the header (``package_id``, ``batch``,
+        ``license_number``, ``location``).
+    raw_text : str
+        Plain-text representation of the file (for debug / download).
+    """
+    is_xlsx = filename.lower().endswith((".xlsx", ".xls"))
+    raw_text = ""
+
+    try:
+        if is_xlsx:
+            raw_df = pd.read_excel(BytesIO(raw_bytes), header=None, dtype=str)
+        else:
+            raw_df = pd.read_csv(
+                BytesIO(raw_bytes),
+                header=None,
+                dtype=str,
+                on_bad_lines="skip",
+            )
+
+        # Build raw_text for debugging / date extraction from preamble.
+        raw_text = raw_df.fillna("").astype(str).apply(
+            lambda r: ",".join(r.tolist()), axis=1
+        ).str.cat(sep="\n")
+
+        rows: List[List[str]] = []
+        for _, r in raw_df.iterrows():
+            rows.append([
+                re.sub(r"\s+", " ", str(v).replace("\n", " ")).strip()
+                if pd.notna(v) and str(v) not in ("nan", "None", "")
+                else ""
+                for v in r
+            ])
+
+    except Exception:
+        return None, pd.DataFrame(columns=["item_name", "qty"]), raw_text
+
+    # ── Step 1: find the header row ──────────────────────────────────────────
+    # Scan up to the first 40 rows for a row that contains at least one
+    # name-column keyword AND at least one quantity-column keyword.
+
+    header_row_idx: Optional[int] = None
+    name_col_idx: Optional[int] = None
+    qty_col_idx: Optional[int] = None
+    optional_col_map: Dict[str, int] = {}  # canonical_name → column index
+
+    max_scan = min(40, len(rows))
+    for row_i, row in enumerate(rows[:max_scan]):
+        norm_cells = [_norm_cell(c) for c in row]
+        has_name = any(nc in _MANIFEST_HEADER_NAME_KEYWORDS for nc in norm_cells)
+        has_qty = any(
+            nc in _MANIFEST_HEADER_QTY_KEYWORDS_PREFERRED
+            or nc in _MANIFEST_HEADER_QTY_KEYWORDS_FALLBACK
+            for nc in norm_cells
+        )
+        if not (has_name and has_qty):
+            continue
+
+        # Found the header row.
+        header_row_idx = row_i
+
+        # Identify name column (first match).
+        for col_i, nc in enumerate(norm_cells):
+            if nc in _MANIFEST_HEADER_NAME_KEYWORDS and name_col_idx is None:
+                name_col_idx = col_i
+
+        # Identify qty column – prefer explicit "received" variants.
+        for col_i, nc in enumerate(norm_cells):
+            if nc in _MANIFEST_HEADER_QTY_KEYWORDS_PREFERRED and qty_col_idx is None:
+                qty_col_idx = col_i
+                break
+        if qty_col_idx is None:
+            for col_i, nc in enumerate(norm_cells):
+                if nc in _MANIFEST_HEADER_QTY_KEYWORDS_FALLBACK and qty_col_idx is None:
+                    qty_col_idx = col_i
+
+        # Detect optional columns.
+        _OPT_MAP = {
+            "packageid": "package_id",
+            "package": "package_id",
+            "batch": "batch",
+            "licensenumber": "license_number",
+            "license": "license_number",
+            "location": "location",
+        }
+        for col_i, nc in enumerate(norm_cells):
+            if col_i in (name_col_idx, qty_col_idx):
+                continue
+            if nc in _OPT_MAP and _OPT_MAP[nc] not in optional_col_map:
+                optional_col_map[_OPT_MAP[nc]] = col_i
+
+        break
+
+    # ── Step 2: extract received date from preamble rows ─────────────────────
+    preamble_text = "\n".join(
+        " ".join(row)
+        for row in rows[: (header_row_idx if header_row_idx is not None else max_scan)]
+    )
+    received_dt = _extract_datetime_from_text(preamble_text)
+    # Also scan the full raw text if preamble had nothing.
+    if received_dt is None:
+        received_dt = _extract_datetime_from_text(raw_text)
+
+    if header_row_idx is None or name_col_idx is None or qty_col_idx is None:
+        return received_dt, pd.DataFrame(columns=["item_name", "qty"]), raw_text
+
+    # ── Step 3: process data rows ─────────────────────────────────────────────
+    items: List[Dict] = []
+    pending_name: str = ""  # accumulated name fragments from continuation rows
+    pending_opt: Dict[str, str] = {}  # optional-column values from first fragment row
+
+    for row in rows[header_row_idx + 1:]:
+        # Pad row to at least cover all known column indices.
+        max_col = max(name_col_idx, qty_col_idx, *optional_col_map.values(), 0)
+        while len(row) <= max_col:
+            row.append("")
+
+        name_val = row[name_col_idx]
+        qty_str = row[qty_col_idx]
+
+        # Collapse embedded newlines and extra whitespace in the name cell.
+        name_val = re.sub(r"\s+", " ", name_val).strip()
+
+        # Skip completely blank rows.
+        if not any(row):
+            pending_name = ""
+            pending_opt = {}
+            continue
+
+        # Skip rows that are repeated header instances.
+        name_norm = _norm_cell(name_val)
+        if name_norm in _MANIFEST_HEADER_NAME_KEYWORDS:
+            pending_name = ""
+            pending_opt = {}
+            continue
+
+        qty = _try_parse_float(qty_str)
+
+        if qty is None and name_val:
+            # Continuation row: name text but no quantity yet.
+            if not pending_name:
+                # First fragment – also grab optional columns from this row.
+                for opt_key, opt_col in optional_col_map.items():
+                    v = row[opt_col] if opt_col < len(row) else ""
+                    if v:
+                        pending_opt[opt_key] = v
+            pending_name = " ".join(filter(None, [pending_name, name_val]))
+
+        elif qty is not None:
+            # Row with quantity – commit item.
+            full_name = " ".join(filter(None, [pending_name, name_val]))
+            full_name = re.sub(r"\s+", " ", full_name).strip()
+            if full_name:
+                entry: Dict = {"item_name": full_name, "qty": qty}
+                # Optional columns: prefer values from the qty row, fall back to
+                # what was collected from earlier continuation rows.
+                for opt_key, opt_col in optional_col_map.items():
+                    v = row[opt_col] if opt_col < len(row) else ""
+                    entry[opt_key] = v or pending_opt.get(opt_key, "")
+                items.append(entry)
+            pending_name = ""
+            pending_opt = {}
+
+        else:
+            # Empty name and no qty – reset accumulator.
+            pending_name = ""
+            pending_opt = {}
+
+    if not items:
+        return received_dt, pd.DataFrame(columns=["item_name", "qty"]), raw_text
+
+    return received_dt, pd.DataFrame(items), raw_text
+
+
+# ---------------------------------------------------------------------------
 # KPI computation
 # ---------------------------------------------------------------------------
 
