@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 import difflib
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Dict, List, Optional, Tuple
 
@@ -428,21 +428,123 @@ _DT_PATTERNS: List[re.Pattern] = [
     ),
     # ISO: "2025-03-15T14:32:00"
     re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)"),
+    # Date only: "03/15/2025" or "03/15/25"
+    re.compile(r"(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})"),
+    # ISO date only: "2025-03-15"
+    re.compile(r"(\d{4}-\d{2}-\d{2})"),
+]
+
+# Explicit datetime formats tried in priority order.
+# ``infer_datetime_format`` was removed in pandas 2.2, so we list formats
+# explicitly to stay compatible across pandas versions.
+_DT_FORMATS: List[str] = [
+    "%m/%d/%Y %I:%M %p",   # 03/19/2026 10:58 AM
+    "%m/%d/%Y %I:%M%p",    # 03/19/2026 10:58AM
+    "%m/%d/%Y %H:%M:%S",   # 03/19/2026 10:30:00
+    "%m/%d/%Y %H:%M",      # 03/19/2026 10:30
+    "%m/%d/%y %I:%M %p",   # 03/19/26 10:58 AM
+    "%m/%d/%y %I:%M%p",    # 03/19/26 10:58AM
+    "%m/%d/%y %H:%M:%S",   # 03/19/26 10:30:00
+    "%m/%d/%y %H:%M",      # 03/19/26 10:30
+    "%Y-%m-%dT%H:%M:%S",   # 2026-03-19T10:30:00
+    "%Y-%m-%d %H:%M:%S",   # 2026-03-19 10:30:00
+    "%Y-%m-%d %H:%M",      # 2026-03-19 10:30
+    "%m/%d/%Y",            # 03/19/2026
+    "%m/%d/%y",            # 03/19/26
+    "%Y-%m-%d",            # 2026-03-19
 ]
 
 
+def _parse_datetime_string(s: str) -> Optional[pd.Timestamp]:
+    """
+    Try to parse *s* as a timezone-naive ``pd.Timestamp``.
+
+    Tries each format in :data:`_DT_FORMATS` before falling back to
+    ``pd.to_datetime`` without the deprecated *infer_datetime_format* flag.
+    Returns ``None`` when no format succeeds.
+    """
+    s = s.strip()
+    if not s:
+        return None
+    for fmt in _DT_FORMATS:
+        try:
+            ts = pd.Timestamp(datetime.strptime(s, fmt))
+            if pd.notna(ts):
+                return ts
+        except (ValueError, OverflowError):
+            continue
+    # Last-resort: let pandas infer (works on older pandas; may be slow).
+    try:
+        ts = pd.to_datetime(s)
+        if pd.notna(ts):
+            if ts.tzinfo is not None:
+                ts = ts.tz_convert(None)
+            return ts
+    except Exception:
+        pass
+    return None
+
+
 def _extract_datetime_from_text(text: str) -> Optional[pd.Timestamp]:
-    """Return the first parseable datetime found in *text*, or None."""
+    """Return the first parseable datetime found in *text*, or ``None``."""
     for pat in _DT_PATTERNS:
         for m in pat.finditer(text):
             raw = " ".join(g for g in m.groups() if g)
-            try:
-                ts = pd.to_datetime(raw, infer_datetime_format=True)
-                if pd.notna(ts):
-                    return ts
-            except Exception:
-                continue
+            ts = _parse_datetime_string(raw)
+            if ts is not None:
+                return ts
     return None
+
+
+# Normalised label strings (lower, alnum-only) that indicate a row's first
+# cell is a "Date Received" type label.  Used by the priority-ranked extractor.
+_RECEIVED_DATE_LABEL_NORMS: frozenset = frozenset({
+    "datereceived",
+    "receiveddate",
+    "received",
+    "receiveddatetime",
+    "datereceivedtime",
+    "deliverydate",
+    "receivedon",
+    "datedelivered",
+    "receivedtime",
+})
+
+
+def _extract_received_dt_from_rows(
+    preamble_rows: List[List[str]],
+    raw_text: str,
+) -> Optional[pd.Timestamp]:
+    """
+    Extract the received date/time from manifest preamble rows using a
+    priority-ranked search:
+
+    1. Rows whose first cell matches a "Date Received" label (e.g.
+       ``Received Date``, ``Date Received:``, ``Received``).
+    2. Any datetime-like value found anywhere in the preamble rows.
+    3. Any datetime-like value found in *raw_text* (full file text).
+
+    Returns a timezone-naive ``pd.Timestamp``, or ``None``.
+    """
+    # Priority 1: labeled rows
+    for row in preamble_rows:
+        if len(row) < 2:
+            continue
+        label_norm = _norm_cell(row[0])
+        if label_norm in _RECEIVED_DATE_LABEL_NORMS:
+            for cell in row[1:]:
+                dt = _parse_datetime_string(cell)
+                if dt is not None:
+                    return dt
+
+    # Priority 2: general scan of preamble text
+    preamble_text = "\n".join(" ".join(r) for r in preamble_rows)
+    dt = _extract_datetime_from_text(preamble_text)
+    if dt is not None:
+        return dt
+
+    # Priority 3: full raw-text fallback
+    return _extract_datetime_from_text(raw_text)
 
 
 def _try_parse_float(s: str) -> Optional[float]:
@@ -864,15 +966,9 @@ def parse_manifest_csv_xlsx_bytes(
 
         break
 
-    # ── Step 2: extract received date from preamble rows ─────────────────────
-    preamble_text = "\n".join(
-        " ".join(row)
-        for row in rows[: (header_row_idx if header_row_idx is not None else max_scan)]
-    )
-    received_dt = _extract_datetime_from_text(preamble_text)
-    # Also scan the full raw text if preamble had nothing.
-    if received_dt is None:
-        received_dt = _extract_datetime_from_text(raw_text)
+    # ── Step 2: extract received date from preamble rows (priority-ranked) ────
+    preamble_rows = rows[: (header_row_idx if header_row_idx is not None else max_scan)]
+    received_dt = _extract_received_dt_from_rows(preamble_rows, raw_text)
 
     if header_row_idx is None or name_col_idx is None or qty_col_idx is None:
         return received_dt, pd.DataFrame(columns=["item_name", "qty"]), raw_text
@@ -942,7 +1038,11 @@ def parse_manifest_csv_xlsx_bytes(
     if not items:
         return received_dt, pd.DataFrame(columns=["item_name", "qty"]), raw_text
 
-    return received_dt, pd.DataFrame(items), raw_text
+    items_df = pd.DataFrame(items)
+    # Enforce strict typing to prevent int + str errors downstream.
+    items_df["item_name"] = items_df["item_name"].astype(str).str.strip()
+    items_df["qty"] = pd.to_numeric(items_df["qty"], errors="coerce").fillna(0.0)
+    return received_dt, items_df, raw_text
 
 
 # ---------------------------------------------------------------------------
