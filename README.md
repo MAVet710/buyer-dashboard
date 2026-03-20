@@ -80,34 +80,58 @@ No additional file uploads are needed — this page uses the same inventory and 
 
 ### Page 3 — 🚚 Delivery Impact
 
-**What it does:** Measures whether a product delivery correlates with an uptick in daily revenue.
+**What it does:** Measures how one or more product deliveries correlate with spikes in **Net Sales** and **order count (traffic proxy)** using a 14-day before vs 14-day after comparison window. Shows an interactive line chart with optional overlay lines.
 
 **Step-by-step:**
-1. Upload your **Delivery/Receiving Report** (CSV or XLSX).
-2. Upload your **Daily Sales Report** (CSV or XLSX).
-3. Select the analysis window (3, 7, or 14 days before/after delivery).
-4. View the revenue lift table and summary metrics.
+1. Upload one or more **delivery manifest PDFs** — the app extracts the received date/time and delivered items from each.
+2. Upload your **Sales Report** (CSV or XLSX) — an order-level file with one row per order line item.
+3. Choose settings in the sidebar:
+   - **Comparison window** (7, 14, 21, or 28 days before/after).
+   - **Chart granularity** (daily or hourly).
+   - **Fuzzy match threshold** — controls how aggressively manifest item names are matched to sales products (default 0.82).
+   - **Overlay toggles** — Total Net Sales, Delivered-items Net Sales, Non-delivered Net Sales, Order Count.
+4. Select a specific manifest or **Combined (all manifests)** view.
+5. View:
+   - **KPI table** — Net Sales before/after, $ and % lift, orders before/after per manifest.
+   - **Summary metrics** — aggregated across selected manifests.
+   - **Line chart** — time-series with vertical delivery-date marker(s).
+   - **Top delivered items by lift** — table sorted by Net Sales lift.
+   - **Unmatched items** — manifest items that couldn't be matched to any sales product.
+   - **PDF debug text** — expandable raw text dump per manifest (downloadable).
 
-#### Required columns — Delivery/Receiving Report (CSV or XLSX)
+#### Manifest PDF format
+
+The app uses `pdfplumber` (with `PyPDF2` as fallback) to extract:
+
+| What | How it's detected |
+|---|---|
+| **Received date/time** | First date+time pattern found (e.g. `Received: 03/15/2025 14:32` or ISO format) |
+| **Item name** | Text column in manifest table (non-numeric cells) |
+| **Delivered qty** | Numeric column in manifest table |
+
+> If the PDF cannot be parsed automatically, download the debug text dump and check whether the received date and items are present in the extracted text.
+
+#### Required columns — Sales Report (CSV or XLSX)
 
 | Purpose | Accepted column names (any of these) |
 |---|---|
-| **Received / delivery date** *(required)* | Any column whose name contains `date` or `received` |
+| **Order ID** *(recommended)* | `Order ID`, `Order Number`, `OrderId` |
+| **Order timestamp** *(required)* | `Order Time`, `Order Date`, `OrderTime`, `Datetime` |
+| **Product name** *(required for item matching)* | `Product Name`, `Product`, `Item`, `Name` |
+| **Category** *(optional)* | `Category`, `Master Category`, `Department` |
+| **Units sold** *(optional)* | `Total Inventory Sold`, `Units Sold`, `Qty Sold`, `Quantity Sold` |
+| **Revenue** *(required — one of)* | `Net Sales`, `NetSales` — preferred; `Gross Sales`, `GrossSales` as fallback |
 
-Additional columns (product, quantity, category, batch) are accepted but not required for the lift calculation.
+> **Preamble rows:** If the CSV has metadata rows at the top (e.g. `Export Date:,03/20/2026`), they are automatically skipped. The parser looks for the first row containing both `Order ID` and `Order Time`.
 
-> **Dutchie tip:** Export from **Reports → Receiving Report** or **Transfers → Inbound**. Ensure the export includes a date column.
+#### Item matching strategy
 
-#### Required columns — Daily Sales Report (CSV or XLSX)
+Manifest item names are matched to sales `Product Name` using:
+1. **Exact match** (case-insensitive).
+2. **Normalised match** — strips size tokens (`3.5g`, `500mg`, `1oz`, etc.), removes punctuation, collapses whitespace.
+3. **Fuzzy match** via `difflib.SequenceMatcher` with the configured threshold.
 
-| Purpose | Accepted column names (any of these) |
-|---|---|
-| **Sale date** *(required)* | Any column whose name contains `date`; or a single-day file with `From Date` / `To Date` metadata rows |
-| **Revenue** *(required — one of)* | `Net Sales`, `NetSales` — preferred; or `Gross Sales`, `GrossSales` as fallback |
-| **Category** *(optional but recommended)* | `Category` |
-| **Product** *(optional)* | `Product` |
-
-> **Dutchie tip:** Export from **Reports → Sales Summary** or **Daily Sales**. If your export has metadata rows at the top (Export Date, From Date, To Date), leave them in — the dashboard skips them automatically.
+Unmatched items are listed separately and excluded from delivered-items metrics.
 
 ---
 

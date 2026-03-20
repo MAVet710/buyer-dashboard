@@ -1,0 +1,740 @@
+"""
+Delivery Impact – core analytics module.
+
+Provides pure-Python helpers for:
+  • Parsing order-level sales reports (CSV / XLSX) with preamble skipping
+  • Parsing delivery manifest PDFs (pdfplumber → PyPDF2 fallback)
+  • Normalising and matching product names
+  • Computing 14-day before/after KPIs
+  • Building daily / hourly time-series DataFrames for charting
+
+All functions are side-effect-free and importable in tests without Streamlit.
+"""
+
+from __future__ import annotations
+
+import re
+import difflib
+from datetime import timedelta
+from io import BytesIO
+from typing import Dict, List, Optional, Tuple
+
+import pandas as pd
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Size tokens that are stripped during normalisation so that
+# "Blue Dream 3.5g" and "Blue Dream" match the same product.
+_SIZE_TOKENS: re.Pattern = re.compile(
+    r"\b(\d+(\.\d+)?\s*(g|oz|mg|ml|lb|pack|pk|ct|count|piece|pc))\b",
+    re.IGNORECASE,
+)
+
+# Header columns we look for when scanning sales CSV/XLSX preamble rows.
+_SALES_HEADER_REQUIRED = {"orderid", "ordertime"}
+_SALES_HEADER_ANY = {"orderid", "ordertime", "productname", "netsales", "netrevenue"}
+
+
+# ---------------------------------------------------------------------------
+# Product-name normalisation and matching
+# ---------------------------------------------------------------------------
+
+def normalize_product_name(name: str) -> str:
+    """
+    Return a normalised, lower-case product name suitable for fuzzy matching.
+
+    Steps:
+      1. Lower-case.
+      2. Strip size tokens (e.g. ``3.5g``, ``500mg``, ``1oz``).
+      3. Remove punctuation (keep alphanumeric and spaces).
+      4. Collapse repeated whitespace.
+    """
+    s = str(name).lower().strip()
+    s = _SIZE_TOKENS.sub(" ", s)
+    s = re.sub(r"[^a-z0-9\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def match_manifest_to_sales(
+    manifest_items: List[str],
+    sales_names: List[str],
+    fuzzy_threshold: float = 0.82,
+) -> Tuple[Dict[str, str], List[str]]:
+    """
+    Match each manifest item name to a sales product name.
+
+    Strategy (priority order):
+      1. Exact match (case-insensitive).
+      2. Normalised match (sizes / punctuation stripped).
+      3. Fuzzy match via ``difflib.SequenceMatcher`` with *fuzzy_threshold*.
+
+    Parameters
+    ----------
+    manifest_items:
+        Product names extracted from delivery manifests.
+    sales_names:
+        Unique ``Product Name`` values from the sales report.
+    fuzzy_threshold:
+        Minimum similarity ratio (0–1) to accept a fuzzy match.
+        Default ``0.82`` is conservative.
+
+    Returns
+    -------
+    matched : dict
+        Mapping of ``manifest_name → sales_name`` for each successful match.
+    unmatched : list
+        Manifest items that could not be matched.
+    """
+    # Pre-compute normalised lookup for sales names
+    norm_to_sales: Dict[str, str] = {}
+    for sn in sales_names:
+        norm_to_sales[normalize_product_name(sn)] = sn
+
+    # Exact (lower) lookup
+    lower_to_sales: Dict[str, str] = {sn.lower(): sn for sn in sales_names}
+
+    matched: Dict[str, str] = {}
+    unmatched: List[str] = []
+
+    for item in manifest_items:
+        item_lower = item.lower().strip()
+        item_norm = normalize_product_name(item)
+
+        # 1) Exact match
+        if item_lower in lower_to_sales:
+            matched[item] = lower_to_sales[item_lower]
+            continue
+
+        # 2) Normalised match
+        if item_norm in norm_to_sales:
+            matched[item] = norm_to_sales[item_norm]
+            continue
+
+        # 3) Fuzzy match
+        best_ratio = 0.0
+        best_sales = None
+        for norm_sn, sn in norm_to_sales.items():
+            ratio = difflib.SequenceMatcher(None, item_norm, norm_sn).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_sales = sn
+        if best_ratio >= fuzzy_threshold and best_sales is not None:
+            matched[item] = best_sales
+            continue
+
+        unmatched.append(item)
+
+    return matched, unmatched
+
+
+# ---------------------------------------------------------------------------
+# Sales report parsing
+# ---------------------------------------------------------------------------
+
+def find_sales_header_row(raw_bytes: bytes, is_xlsx: bool = False) -> int:
+    """
+    Scan lines of a CSV (or first sheet text of XLSX) for the true header row.
+
+    The header row is the first row that contains **both** ``Order ID`` and
+    ``Order Time`` columns (case-insensitive, punctuation-stripped).
+
+    Returns the 0-based row index of the header, or ``0`` if not found.
+    """
+    if is_xlsx:
+        # For XLSX we read without header and scan cell values
+        try:
+            import openpyxl  # type: ignore
+            wb = openpyxl.load_workbook(BytesIO(raw_bytes), read_only=True, data_only=True)
+            ws = wb.active
+            for i, row in enumerate(ws.iter_rows(max_row=40, values_only=True)):
+                norm_cells = {
+                    re.sub(r"[^a-z0-9]", "", str(v).lower())
+                    for v in row
+                    if v is not None
+                }
+                if norm_cells & _SALES_HEADER_REQUIRED == _SALES_HEADER_REQUIRED:
+                    wb.close()
+                    return i
+                if len(norm_cells & _SALES_HEADER_ANY) >= 2:
+                    wb.close()
+                    return i
+            wb.close()
+        except Exception:
+            pass
+        return 0
+
+    # CSV path: decode and scan lines
+    try:
+        text = raw_bytes.decode("utf-8", errors="replace")
+    except Exception:
+        return 0
+
+    for i, line in enumerate(text.splitlines()):
+        # Normalise each comma-separated cell
+        norm_cells = {
+            re.sub(r"[^a-z0-9]", "", cell.lower())
+            for cell in line.split(",")
+        }
+        if norm_cells & _SALES_HEADER_REQUIRED == _SALES_HEADER_REQUIRED:
+            return i
+        if len(norm_cells & _SALES_HEADER_ANY) >= 2:
+            return i
+        # Stop scanning if we've gone past 40 lines – probably no header
+        if i > 40:
+            break
+    return 0
+
+
+def parse_sales_report_bytes(
+    raw_bytes: bytes,
+    filename: str = "",
+) -> pd.DataFrame:
+    """
+    Parse an order-level sales report (CSV or XLSX) into a clean DataFrame.
+
+    Expected columns (auto-detected):
+      - ``Order ID``
+      - ``Order Time``      → parsed as datetime (timezone-naive)
+      - ``Product Name``
+      - ``Category``        (optional)
+      - ``Total Inventory Sold`` / ``Units Sold``
+      - ``Net Sales``       (or ``Gross Sales`` as fallback)
+
+    Preamble metadata rows (e.g. ``Export Date:,03/20/2026``) are skipped
+    automatically.
+
+    Returns a DataFrame with canonical column names::
+
+        order_id, order_time, product_name, category, units_sold, net_sales
+    """
+    is_xlsx = filename.lower().endswith((".xlsx", ".xls"))
+
+    header_row = find_sales_header_row(raw_bytes, is_xlsx=is_xlsx)
+
+    if is_xlsx:
+        df = pd.read_excel(BytesIO(raw_bytes), header=header_row)
+    else:
+        df = pd.read_csv(BytesIO(raw_bytes), skiprows=header_row)
+
+    # Normalise column names: lower, strip, remove spaces/underscores
+    df.columns = (
+        df.columns.astype(str)
+        .str.lower()
+        .str.strip()
+        .str.replace(r"[\s_]+", "", regex=True)
+    )
+
+    # Canonical column resolution helper
+    def _find_col(candidates: List[str]) -> Optional[str]:
+        for c in candidates:
+            if c in df.columns:
+                return c
+        return None
+
+    order_id_col = _find_col(["orderid", "ordernumber", "order"])
+    time_col = _find_col(["ordertime", "orderdate", "datetime", "date"])
+    name_col = _find_col(["productname", "product", "name", "item", "itemname"])
+    cat_col = _find_col(["category", "mastercategory", "productcategory", "department"])
+    units_col = _find_col([
+        "totalinventorysold", "unitssold", "quantitysold", "qtysold",
+        "units", "quantity", "qty",
+    ])
+    net_sales_col = _find_col(["netsales", "netsale", "netsalesamount"])
+    gross_sales_col = _find_col(["grosssales", "gross", "totalsales"])
+    revenue_col = net_sales_col or gross_sales_col
+
+    # Build output DataFrame
+    out: Dict[str, pd.Series] = {}
+
+    if order_id_col:
+        out["order_id"] = df[order_id_col].astype(str)
+    else:
+        out["order_id"] = pd.Series(range(len(df)), dtype=str)
+
+    if time_col:
+        out["order_time"] = pd.to_datetime(df[time_col], errors="coerce")
+        # Drop timezone info to keep everything timezone-naive
+        if hasattr(out["order_time"].dt, "tz_localize"):
+            try:
+                out["order_time"] = out["order_time"].dt.tz_localize(None)
+            except TypeError:
+                out["order_time"] = out["order_time"].dt.tz_convert(None)
+    else:
+        out["order_time"] = pd.NaT
+
+    if name_col:
+        out["product_name"] = df[name_col].astype(str)
+    else:
+        out["product_name"] = pd.Series([""] * len(df))
+
+    if cat_col:
+        out["category"] = df[cat_col].astype(str)
+    else:
+        out["category"] = pd.Series([""] * len(df))
+
+    if units_col:
+        out["units_sold"] = pd.to_numeric(df[units_col], errors="coerce").fillna(0.0)
+    else:
+        out["units_sold"] = 0.0
+
+    if revenue_col:
+        raw_rev = df[revenue_col].astype(str).str.replace(r"[\$,]", "", regex=True)
+        out["net_sales"] = pd.to_numeric(raw_rev, errors="coerce").fillna(0.0)
+    else:
+        out["net_sales"] = 0.0
+
+    result = pd.DataFrame(out)
+
+    # Drop rows where order_time is NaT (un-parseable) and rows that look
+    # like subtotal / total rows (product name == "total")
+    result = result[result["order_time"].notna()].copy()
+    result = result[
+        result["product_name"].str.strip().str.lower() != "total"
+    ].copy()
+
+    return result.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Manifest PDF parsing
+# ---------------------------------------------------------------------------
+
+def parse_manifest_pdf_bytes(
+    pdf_bytes: bytes,
+    filename: str = "",
+) -> Tuple[Optional[pd.Timestamp], pd.DataFrame, str]:
+    """
+    Extract received datetime and item table from a delivery manifest PDF.
+
+    Returns
+    -------
+    received_dt : pd.Timestamp or None
+        The first datetime found in the PDF text.
+    items_df : DataFrame
+        Columns: ``item_name`` (str), ``qty`` (float).
+    raw_text : str
+        Full extracted text (for debug downloads).
+    """
+    raw_text = ""
+
+    # ── Strategy 1: pdfplumber ───────────────────────────────────────────────
+    try:
+        import pdfplumber  # type: ignore
+
+        rows: List[List[str]] = []
+        page_texts: List[str] = []
+
+        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text() or ""
+                page_texts.append(page_text)
+                tables = page.extract_tables() or []
+                for table in tables:
+                    if not table or len(table) < 2:
+                        continue
+                    for row in table[1:]:  # skip header row of each table
+                        rows.append(
+                            [str(c).strip() if c is not None else "" for c in row]
+                        )
+
+        raw_text = "\n".join(page_texts)
+
+        received_dt = _extract_datetime_from_text(raw_text)
+        items_df = _rows_to_items_df(rows, raw_text)
+
+        if not items_df.empty or received_dt is not None:
+            return received_dt, items_df, raw_text
+
+    except Exception:
+        pass
+
+    # ── Strategy 2: PyPDF2 text extraction ──────────────────────────────────
+    try:
+        from PyPDF2 import PdfReader  # type: ignore
+
+        reader = PdfReader(BytesIO(pdf_bytes))
+        text_parts: List[str] = []
+        for page in reader.pages:
+            try:
+                text_parts.append(page.extract_text() or "")
+            except Exception:
+                continue
+        raw_text = "\n".join(text_parts)
+
+        received_dt = _extract_datetime_from_text(raw_text)
+        items_df = _parse_items_from_text(raw_text)
+        return received_dt, items_df, raw_text
+
+    except Exception:
+        pass
+
+    return None, pd.DataFrame(columns=["item_name", "qty"]), raw_text
+
+
+# ── Internal helpers for PDF parsing ─────────────────────────────────────────
+
+# Datetime patterns commonly found on manifests
+_DT_PATTERNS: List[re.Pattern] = [
+    # "Received: 03/15/2025 14:32"  or  "Date Received: 3/15/25 2:32 PM"
+    re.compile(
+        r"(?:received|date)[:\s]*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})\s+"
+        r"(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)",
+        re.IGNORECASE,
+    ),
+    # Generic "03/15/2025 14:32" anywhere
+    re.compile(
+        r"(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})\s+"
+        r"(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)",
+        re.IGNORECASE,
+    ),
+    # ISO: "2025-03-15T14:32:00"
+    re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)"),
+]
+
+
+def _extract_datetime_from_text(text: str) -> Optional[pd.Timestamp]:
+    """Return the first parseable datetime found in *text*, or None."""
+    for pat in _DT_PATTERNS:
+        for m in pat.finditer(text):
+            raw = " ".join(g for g in m.groups() if g)
+            try:
+                ts = pd.to_datetime(raw, infer_datetime_format=True)
+                if pd.notna(ts):
+                    return ts
+            except Exception:
+                continue
+    return None
+
+
+def _rows_to_items_df(rows: List[List[str]], raw_text: str) -> pd.DataFrame:
+    """
+    Convert table rows extracted by pdfplumber into an items DataFrame.
+
+    Tries to identify which column is the product name and which is the qty.
+    Falls back to text-based parsing if table rows are ambiguous.
+    """
+    if not rows:
+        return _parse_items_from_text(raw_text)
+
+    # Find the best item-name column and qty column heuristically
+    # (look for the column that has the most non-numeric, long strings)
+    if not rows:
+        return pd.DataFrame(columns=["item_name", "qty"])
+
+    # Try to detect header in first row
+    n_cols = max(len(r) for r in rows) if rows else 0
+    if n_cols < 2:
+        return _parse_items_from_text(raw_text)
+
+    items: List[Dict] = []
+    for row in rows:
+        if len(row) < 2:
+            continue
+        # Heuristic: look for a numeric token in any column after the first
+        name_candidates: List[str] = []
+        qty_val: Optional[float] = None
+        for idx, cell in enumerate(row):
+            cell = cell.strip()
+            if not cell:
+                continue
+            try:
+                val = float(cell.replace(",", ""))
+                if qty_val is None:  # take first numeric as qty
+                    qty_val = val
+            except ValueError:
+                # Skip header-like rows
+                norm = re.sub(r"[^a-z0-9]", "", cell.lower())
+                if norm in {"item", "product", "description", "qty", "quantity", "received"}:
+                    continue
+                name_candidates.append(cell)
+        if name_candidates and qty_val is not None:
+            items.append({
+                "item_name": " ".join(name_candidates),
+                "qty": qty_val,
+            })
+
+    if items:
+        return pd.DataFrame(items)
+    return _parse_items_from_text(raw_text)
+
+
+# Pattern: a line with at least one word followed by a number (qty)
+_ITEM_LINE_PAT = re.compile(
+    r"^(.+?)\s+(\d+(?:\.\d+)?)\s*$",
+)
+
+
+def _parse_items_from_text(text: str) -> pd.DataFrame:
+    """
+    Best-effort item extraction from raw PDF text.
+
+    Looks for lines matching "<product name>  <number>" pattern.
+    """
+    items: List[Dict] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = _ITEM_LINE_PAT.match(line)
+        if m:
+            name = m.group(1).strip()
+            qty_str = m.group(2)
+            # Skip lines that look like dates or page numbers
+            if re.search(r"\d{4}", name) and len(name) < 12:
+                continue
+            norm = re.sub(r"[^a-z0-9]", "", name.lower())
+            if norm in {"total", "subtotal", "page", "qty", "quantity", "item", "product"}:
+                continue
+            try:
+                qty = float(qty_str)
+                items.append({"item_name": name, "qty": qty})
+            except ValueError:
+                continue
+
+    if not items:
+        return pd.DataFrame(columns=["item_name", "qty"])
+    return pd.DataFrame(items)
+
+
+# ---------------------------------------------------------------------------
+# KPI computation
+# ---------------------------------------------------------------------------
+
+DELIVERY_WINDOW_DAYS = 14  # default comparison window
+
+
+def compute_delivery_kpis(
+    sales_df: pd.DataFrame,
+    delivery_dt: pd.Timestamp,
+    window_days: int = DELIVERY_WINDOW_DAYS,
+    delivered_names: Optional[List[str]] = None,
+) -> Dict:
+    """
+    Compute before/after KPIs for a single delivery.
+
+    Parameters
+    ----------
+    sales_df:
+        Order-level DataFrame with at minimum columns
+        ``order_time`` (datetime), ``net_sales`` (float), ``product_name`` (str).
+        One row = one order line item.
+    delivery_dt:
+        The delivery received timestamp.
+    window_days:
+        Number of days before / after to include in comparison.
+    delivered_names:
+        Sales-side product names that match this delivery's manifest items.
+        Pass ``None`` or ``[]`` to skip delivered-items sub-KPIs.
+
+    Returns
+    -------
+    dict with keys:
+      net_sales_before, net_sales_after, net_sales_lift_abs, net_sales_lift_pct
+      orders_before, orders_after, orders_lift_abs, orders_lift_pct
+      delivered_sales_before, delivered_sales_after, delivered_sales_lift_abs,
+      delivered_sales_lift_pct, delivered_units_before, delivered_units_after,
+      delivered_units_lift_abs, delivered_units_lift_pct
+      top_items : DataFrame with columns item_name, sales_lift, units_lift (sorted)
+    """
+    dt = pd.Timestamp(delivery_dt)
+    before_start = dt - timedelta(days=window_days)
+    after_end = dt + timedelta(days=window_days)
+
+    before_mask = (sales_df["order_time"] >= before_start) & (sales_df["order_time"] < dt)
+    after_mask = (sales_df["order_time"] >= dt) & (sales_df["order_time"] < after_end)
+
+    before = sales_df[before_mask]
+    after = sales_df[after_mask]
+
+    def _lift(b: float, a: float) -> Tuple[float, float]:
+        abs_lift = a - b
+        pct_lift = (abs_lift / b * 100.0) if b != 0 else float("nan")
+        return round(abs_lift, 2), round(pct_lift, 2) if not pd.isna(pct_lift) else float("nan")
+
+    net_b = float(before["net_sales"].sum())
+    net_a = float(after["net_sales"].sum())
+    net_lift_abs, net_lift_pct = _lift(net_b, net_a)
+
+    # Traffic proxy: unique order IDs (or row count if no order_id)
+    if "order_id" in sales_df.columns:
+        orders_b = int(before["order_id"].nunique())
+        orders_a = int(after["order_id"].nunique())
+    else:
+        orders_b = len(before)
+        orders_a = len(after)
+
+    orders_lift_abs, orders_lift_pct = _lift(float(orders_b), float(orders_a))
+
+    result: Dict = {
+        "net_sales_before": net_b,
+        "net_sales_after": net_a,
+        "net_sales_lift_abs": net_lift_abs,
+        "net_sales_lift_pct": net_lift_pct,
+        "orders_before": orders_b,
+        "orders_after": orders_a,
+        "orders_lift_abs": int(orders_lift_abs) if not pd.isna(orders_lift_abs) else None,
+        "orders_lift_pct": orders_lift_pct,
+        "delivered_sales_before": None,
+        "delivered_sales_after": None,
+        "delivered_sales_lift_abs": None,
+        "delivered_sales_lift_pct": None,
+        "delivered_units_before": None,
+        "delivered_units_after": None,
+        "delivered_units_lift_abs": None,
+        "delivered_units_lift_pct": None,
+        "top_items": pd.DataFrame(),
+    }
+
+    if delivered_names:
+        delivered_set = {n.lower() for n in delivered_names}
+        del_mask = sales_df["product_name"].str.lower().isin(delivered_set)
+
+        before_del = before[before["product_name"].str.lower().isin(delivered_set)]
+        after_del = after[after["product_name"].str.lower().isin(delivered_set)]
+
+        del_net_b = float(before_del["net_sales"].sum())
+        del_net_a = float(after_del["net_sales"].sum())
+        del_net_lift_abs, del_net_lift_pct = _lift(del_net_b, del_net_a)
+
+        del_units_b: float = 0.0
+        del_units_a: float = 0.0
+        if "units_sold" in sales_df.columns:
+            del_units_b = float(before_del["units_sold"].sum())
+            del_units_a = float(after_del["units_sold"].sum())
+        del_units_lift_abs, del_units_lift_pct = _lift(del_units_b, del_units_a)
+
+        result.update({
+            "delivered_sales_before": del_net_b,
+            "delivered_sales_after": del_net_a,
+            "delivered_sales_lift_abs": del_net_lift_abs,
+            "delivered_sales_lift_pct": del_net_lift_pct,
+            "delivered_units_before": del_units_b,
+            "delivered_units_after": del_units_a,
+            "delivered_units_lift_abs": del_units_lift_abs,
+            "delivered_units_lift_pct": del_units_lift_pct,
+        })
+
+        # Top items by lift
+        top_rows: List[Dict] = []
+        for name in delivered_names:
+            name_lower = name.lower()
+            b_rows = before[before["product_name"].str.lower() == name_lower]
+            a_rows = after[after["product_name"].str.lower() == name_lower]
+            item_net_b = float(b_rows["net_sales"].sum())
+            item_net_a = float(a_rows["net_sales"].sum())
+            item_units_b = float(b_rows["units_sold"].sum()) if "units_sold" in sales_df.columns else 0.0
+            item_units_a = float(a_rows["units_sold"].sum()) if "units_sold" in sales_df.columns else 0.0
+            s_lift, _ = _lift(item_net_b, item_net_a)
+            u_lift, _ = _lift(item_units_b, item_units_a)
+            top_rows.append({
+                "item_name": name,
+                "net_sales_before": item_net_b,
+                "net_sales_after": item_net_a,
+                "sales_lift": s_lift,
+                "units_before": item_units_b,
+                "units_after": item_units_a,
+                "units_lift": u_lift,
+            })
+
+        if top_rows:
+            result["top_items"] = (
+                pd.DataFrame(top_rows)
+                .sort_values("sales_lift", ascending=False)
+                .reset_index(drop=True)
+            )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Time-series builder
+# ---------------------------------------------------------------------------
+
+def build_time_series(
+    sales_df: pd.DataFrame,
+    delivery_dt: pd.Timestamp,
+    window_days: int = DELIVERY_WINDOW_DAYS,
+    granularity: str = "daily",
+    delivered_names: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """
+    Build a time-series DataFrame for the line chart.
+
+    Parameters
+    ----------
+    sales_df:
+        Parsed sales DataFrame (see :func:`parse_sales_report_bytes`).
+    delivery_dt:
+        Delivery received timestamp.
+    window_days:
+        Days before/after to include.
+    granularity:
+        ``"daily"`` or ``"hourly"``.
+    delivered_names:
+        Sales product names matched to this manifest's items.
+
+    Returns
+    -------
+    DataFrame with columns:
+        period, total_net_sales, delivered_net_sales, non_delivered_net_sales, order_count
+    """
+    dt = pd.Timestamp(delivery_dt)
+    start = dt - timedelta(days=window_days)
+    end = dt + timedelta(days=window_days)
+
+    window = sales_df[
+        (sales_df["order_time"] >= start) & (sales_df["order_time"] < end)
+    ].copy()
+
+    if window.empty:
+        return pd.DataFrame(columns=[
+            "period", "total_net_sales",
+            "delivered_net_sales", "non_delivered_net_sales",
+            "order_count",
+        ])
+
+    freq = "h" if granularity == "hourly" else "D"
+    window["period"] = window["order_time"].dt.floor(freq)
+
+    delivered_set: set = set()
+    if delivered_names:
+        delivered_set = {n.lower() for n in delivered_names}
+
+    window["_is_delivered"] = window["product_name"].str.lower().isin(delivered_set)
+
+    agg_total = (
+        window.groupby("period")
+        .agg(
+            total_net_sales=("net_sales", "sum"),
+            order_count=("order_id", "nunique") if "order_id" in window.columns else ("net_sales", "count"),
+        )
+        .reset_index()
+    )
+
+    if delivered_set:
+        agg_del = (
+            window[window["_is_delivered"]]
+            .groupby("period")["net_sales"]
+            .sum()
+            .rename("delivered_net_sales")
+            .reset_index()
+        )
+        agg_non_del = (
+            window[~window["_is_delivered"]]
+            .groupby("period")["net_sales"]
+            .sum()
+            .rename("non_delivered_net_sales")
+            .reset_index()
+        )
+        ts = agg_total.merge(agg_del, on="period", how="left")
+        ts = ts.merge(agg_non_del, on="period", how="left")
+    else:
+        ts = agg_total.copy()
+        ts["delivered_net_sales"] = 0.0
+        ts["non_delivered_net_sales"] = ts["total_net_sales"]
+
+    ts = ts.fillna(0.0).sort_values("period").reset_index(drop=True)
+    return ts
