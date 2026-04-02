@@ -2301,7 +2301,6 @@ def render_extraction_command_center():
                     "material_received_date": "2026-03-25",
                     "promised_completion_date": "2026-03-30",
                     "method": "BHO",
-                    "strain": "Lemon",
                     "input_weight_g": 2500.0,
                     "expected_output_g": 450.0,
                     "actual_output_g": 430.0,
@@ -2346,13 +2345,6 @@ def render_extraction_command_center():
 
     run_df = st.session_state.ecc_run_log.copy()
     job_df = st.session_state.ecc_client_jobs.copy()
-
-    if "strain" not in run_df.columns:
-        run_df["strain"] = ""
-    if "strain" not in job_df.columns:
-        job_df["strain"] = ""
-    st.session_state.ecc_run_log = run_df
-    st.session_state.ecc_client_jobs = job_df
 
     if selected_state != "All":
         run_df = run_df[run_df["state"] == selected_state]
@@ -2441,7 +2433,6 @@ def render_extraction_command_center():
                 client_name = st.text_input("Client Name", value="In House", key="ecc_client_name")
                 batch_id_internal = st.text_input("Internal Batch ID", key="ecc_batch_id")
                 method = st.selectbox("Method", ["BHO", "CO2", "Rosin"], key="ecc_method")
-                strain = st.text_input("Strain", key="ecc_strain")
                 product_type = st.selectbox(
                     "Product Type",
                     ["Sugar", "Badder", "Shatter", "Sauce", "Distillate", "Rosin Jam", "Fresh Press", "Other"],
@@ -2503,7 +2494,6 @@ def render_extraction_command_center():
                             "metrc_package_id_output": metrc_package_id_output,
                             "metrc_manifest_or_transfer_id": metrc_manifest_or_transfer_id,
                             "method": method,
-                            "strain": strain,
                             "product_type": product_type,
                             "input_material_type": input_material_type,
                             "input_weight_g": input_weight_g,
@@ -2529,8 +2519,7 @@ def render_extraction_command_center():
                     [st.session_state.ecc_run_log, new_row],
                     ignore_index=True,
                 )
-                st.success("Run added.")
-                st.rerun()
+                st.success("Run added. Rerun to view updated KPIs.")
 
     with toll_tab:
         st.subheader("Toll Processing Command View")
@@ -2542,7 +2531,6 @@ def render_extraction_command_center():
                 state = st.selectbox("State", ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"], key="ecc_job_state")
                 license_or_registration = st.text_input("Client License / Registration", key="ecc_job_license")
                 method = st.selectbox("Method", ["BHO", "CO2", "Rosin"], key="ecc_job_method")
-                strain = st.text_input("Strain", key="ecc_job_strain")
             with t2:
                 metrc_transfer_id = st.text_input("METRC Transfer ID", key="ecc_job_metrc")
                 material_received_date = st.date_input("Material Received Date", key="ecc_job_received")
@@ -2578,7 +2566,6 @@ def render_extraction_command_center():
                             "material_received_date": str(material_received_date),
                             "promised_completion_date": str(promised_completion_date),
                             "method": method,
-                            "strain": strain,
                             "input_weight_g": input_weight_g,
                             "expected_output_g": expected_output_g,
                             "actual_output_g": actual_output_g,
@@ -2595,49 +2582,12 @@ def render_extraction_command_center():
                     ignore_index=True,
                 )
                 st.success("Toll job added.")
-                st.rerun()
-
-        st.markdown("#### Update Toll Job Statuses")
-        if st.session_state.ecc_client_jobs.empty:
-            st.info("No toll jobs to update yet.")
-        else:
-            _job_edit_df = st.session_state.ecc_client_jobs.copy()
-            _job_edit_df.insert(0, "record_id", _job_edit_df.index)
-            edited_jobs = st.data_editor(
-                _job_edit_df[
-                    [
-                        "record_id",
-                        "client_name",
-                        "strain",
-                        "job_status",
-                        "coa_status",
-                        "invoice_status",
-                        "payment_status",
-                        "sla_status",
-                    ]
-                ],
-                use_container_width=True,
-                hide_index=True,
-                key="ecc_toll_job_status_editor",
-                disabled=["record_id", "client_name", "strain"],
-            )
-            if st.button("Save Toll Status Updates", key="ecc_save_toll_updates"):
-                for _, row in edited_jobs.iterrows():
-                    rid = int(row["record_id"])
-                    st.session_state.ecc_client_jobs.at[rid, "job_status"] = row["job_status"]
-                    st.session_state.ecc_client_jobs.at[rid, "coa_status"] = row["coa_status"]
-                    st.session_state.ecc_client_jobs.at[rid, "invoice_status"] = row["invoice_status"]
-                    st.session_state.ecc_client_jobs.at[rid, "payment_status"] = row["payment_status"]
-                    st.session_state.ecc_client_jobs.at[rid, "sla_status"] = row["sla_status"]
-                st.success("Toll job statuses updated.")
-                st.rerun()
 
     with compliance_tab:
         st.subheader("Compliance / METRC Traceability")
         required_fields = pd.DataFrame(
             [
                 ["State", "Jurisdiction for reporting and workflow rules"],
-                ["Strain", "Tracks cultivar through extraction and toll jobs"],
                 ["Facility / License Name", "Required internal mapping for multi-site operations"],
                 ["Internal Batch ID", "Your own batch identifier"],
                 ["METRC Package ID - Input", "Starting package used in the run"],
@@ -2651,38 +2601,6 @@ def render_extraction_command_center():
             columns=["Field", "Purpose"],
         )
         st.dataframe(required_fields, use_container_width=True, hide_index=True)
-
-    st.markdown("#### Update Run Statuses")
-    if st.session_state.ecc_run_log.empty:
-        st.info("No extraction runs to update yet.")
-    else:
-        _run_edit_df = st.session_state.ecc_run_log.copy()
-        _run_edit_df.insert(0, "record_id", _run_edit_df.index)
-        edited_runs = st.data_editor(
-            _run_edit_df[
-                [
-                    "record_id",
-                    "run_date",
-                    "batch_id_internal",
-                    "strain",
-                    "status",
-                    "coa_status",
-                    "qa_hold",
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True,
-            key="ecc_run_status_editor",
-            disabled=["record_id", "run_date", "batch_id_internal", "strain"],
-        )
-        if st.button("Save Run Status Updates", key="ecc_save_run_updates"):
-            for _, row in edited_runs.iterrows():
-                rid = int(row["record_id"])
-                st.session_state.ecc_run_log.at[rid, "status"] = row["status"]
-                st.session_state.ecc_run_log.at[rid, "coa_status"] = row["coa_status"]
-                st.session_state.ecc_run_log.at[rid, "qa_hold"] = bool(row["qa_hold"])
-            st.success("Run statuses updated.")
-            st.rerun()
 
     with inputs_tab:
         st.subheader("Raw Data Upload Staging")
