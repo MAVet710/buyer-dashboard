@@ -3103,7 +3103,7 @@ if section == "📊 Inventory Dashboard":
 
                 g = group[display_cols].copy()
                 st.dataframe(
-                    g.style.applymap(red_low, subset=["daysonhand"]),
+                    g.style.map(red_low, subset=["daysonhand"]),
                     use_container_width=True,
                 )
 
