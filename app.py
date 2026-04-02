@@ -2267,6 +2267,7 @@ def render_extraction_command_center():
                     "metrc_package_id_output": "1A4060300000000000002222",
                     "metrc_manifest_or_transfer_id": "TR-001",
                     "method": "BHO",
+                    "strain": "The 4th Kind",
                     "product_type": "Sugar",
                     "input_material_type": "Fresh Frozen",
                     "input_weight_g": 2500.0,
