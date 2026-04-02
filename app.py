@@ -2232,8 +2232,486 @@ if st.session_state.is_admin:
                     mime="application/octet-stream",
                 )
 
+# ============================================================
+# EXTRA MODULE – EXTRACTION COMMAND CENTER
+# ============================================================
+def render_extraction_command_center():
+    def kpi_card(label: str, value, help_text: str = ""):
+        with st.container(border=True):
+            st.markdown(
+                f"""
+                <div style="padding: 0.25rem 0 0.1rem 0;">
+                    <div style="font-size: 0.85rem; opacity: 0.75; letter-spacing: 0.06em; text-transform: uppercase;">
+                        {label}
+                    </div>
+                    <div style="font-size: 2rem; font-weight: 700; line-height: 1.1; margin-top: 0.25rem;">
+                        {value}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if help_text:
+                st.caption(help_text)
+
+    if "ecc_run_log" not in st.session_state:
+        st.session_state.ecc_run_log = pd.DataFrame(
+            [
+                {
+                    "run_date": "2026-03-27",
+                    "state": "MA",
+                    "license_name": "Example Lab",
+                    "client_name": "In House",
+                    "batch_id_internal": "BHO-0001",
+                    "metrc_package_id_input": "1A4060300000000000001111",
+                    "metrc_package_id_output": "1A4060300000000000002222",
+                    "metrc_manifest_or_transfer_id": "TR-001",
+                    "method": "BHO",
+                    "strain": "The 4th Kind",
+                    "product_type": "Sugar",
+                    "input_material_type": "Fresh Frozen",
+                    "input_weight_g": 2500.0,
+                    "intermediate_output_g": 480.0,
+                    "finished_output_g": 430.0,
+                    "residual_loss_g": 50.0,
+                    "yield_pct": 17.2,
+                    "post_process_efficiency_pct": 89.6,
+                    "operator": "Operator A",
+                    "machine_line": "BHO-1",
+                    "status": "Complete",
+                    "toll_processing": False,
+                    "processing_fee_usd": 0.0,
+                    "est_revenue_usd": 3440.0,
+                    "cogs_usd": 1200.0,
+                    "coa_status": "Passed",
+                    "qa_hold": False,
+                    "notes": "Sample seed record",
+                }
+            ]
+        )
+
+    if "ecc_client_jobs" not in st.session_state:
+        st.session_state.ecc_client_jobs = pd.DataFrame(
+            [
+                {
+                    "client_name": "North Shore Processing",
+                    "state": "MA",
+                    "license_or_registration": "LIC-001",
+                    "metrc_transfer_id": "TR-001",
+                    "material_received_date": "2026-03-25",
+                    "promised_completion_date": "2026-03-30",
+                    "method": "BHO",
+                    "strain": "Lemon",
+                    "input_weight_g": 2500.0,
+                    "expected_output_g": 450.0,
+                    "actual_output_g": 430.0,
+                    "sla_status": "On Track",
+                    "invoice_status": "Draft",
+                    "payment_status": "Pending",
+                    "coa_status": "Passed",
+                    "job_status": "Processing",
+                }
+            ]
+        )
+
+    st.subheader("🧪 Extraction Command Center")
+    st.caption("Built for BHO, CO2, and Rosin operations with toll processing and METRC-aware workflows.")
+
+    with st.sidebar:
+        st.markdown("### 🧪 Extraction Controls")
+        states = ["All", "MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"]
+        methods = ["All", "BHO", "CO2", "Rosin"]
+
+        selected_state = st.selectbox("State", states, index=0, key="ecc_selected_state")
+        selected_method = st.selectbox("Extraction Method", methods, index=0, key="ecc_selected_method")
+        toll_only = st.toggle("Show Toll Processing Only", value=False, key="ecc_toll_only")
+        st.divider()
+
+        st.markdown("#### METRC / Compliance")
+        st.text_input(
+            "Facility License Number",
+            placeholder="Example: LIC123-OPERATIONS",
+            key="ecc_facility_license_number",
+        )
+        st.text_input(
+            "Primary METRC License Label",
+            placeholder="Example: MA Processing License",
+            key="ecc_metrc_license_label",
+        )
+        st.selectbox(
+            "Seed-to-Sale Tracking",
+            ["METRC", "BioTrack", "Other / Mixed"],
+            key="ecc_seed_to_sale_tracking",
+        )
+
+    run_df = st.session_state.ecc_run_log.copy()
+    job_df = st.session_state.ecc_client_jobs.copy()
+
+    if "strain" not in run_df.columns:
+        run_df["strain"] = ""
+    if "strain" not in job_df.columns:
+        job_df["strain"] = ""
+    st.session_state.ecc_run_log = run_df
+    st.session_state.ecc_client_jobs = job_df
+
+    if selected_state != "All":
+        run_df = run_df[run_df["state"] == selected_state]
+        job_df = job_df[job_df["state"] == selected_state]
+    if selected_method != "All":
+        run_df = run_df[run_df["method"] == selected_method]
+        job_df = job_df[job_df["method"] == selected_method]
+    if toll_only:
+        run_df = run_df[run_df["toll_processing"]]
+
+    total_runs = len(run_df)
+    total_finished_output = float(run_df["finished_output_g"].sum()) if not run_df.empty else 0.0
+    avg_yield = float(run_df["yield_pct"].mean()) if not run_df.empty else 0.0
+    avg_post_eff = float(run_df["post_process_efficiency_pct"].mean()) if not run_df.empty else 0.0
+    active_days = run_df["run_date"].nunique() if not run_df.empty else 0
+    at_risk_batches = int(
+        ((run_df["qa_hold"]) | (run_df["coa_status"].isin(["Failed", "Pending"]))).sum()
+    ) if not run_df.empty else 0
+    est_revenue = float(run_df["est_revenue_usd"].sum()) if not run_df.empty else 0.0
+    cogs = float(run_df["cogs_usd"].sum()) if not run_df.empty else 0.0
+    gross_margin_pct = ((est_revenue - cogs) / est_revenue * 100) if est_revenue else 0.0
+
+    top = st.columns(8)
+    with top[0]:
+        kpi_card("Extraction Runs", total_runs)
+    with top[1]:
+        kpi_card("Finished Output (g)", f"{total_finished_output:,.1f}")
+    with top[2]:
+        kpi_card("Avg Yield %", f"{avg_yield:.1f}%")
+    with top[3]:
+        kpi_card("Post-Process Eff.", f"{avg_post_eff:.1f}%")
+    with top[4]:
+        kpi_card("Active Production Days", active_days)
+    with top[5]:
+        kpi_card("At-Risk Batches", at_risk_batches)
+    with top[6]:
+        kpi_card("Revenue", f"${est_revenue:,.0f}")
+    with top[7]:
+        kpi_card("Gross Margin", f"{gross_margin_pct:.1f}%")
+
+    overview_tab, runs_tab, toll_tab, compliance_tab, inputs_tab = st.tabs(
+        ["Executive Overview", "Run Analytics", "Toll Processing", "Compliance / METRC", "Data Input"]
+    )
+
+    with overview_tab:
+        c1, c2 = st.columns([1.2, 1])
+        with c1:
+            st.subheader("Output by Method")
+            if run_df.empty:
+                st.info("No data yet.")
+            else:
+                method_summary = (
+                    run_df.groupby("method", as_index=False)[["finished_output_g", "input_weight_g"]]
+                    .sum()
+                    .sort_values("finished_output_g", ascending=False)
+                )
+                st.bar_chart(method_summary.set_index("method")["finished_output_g"])
+        with c2:
+            st.subheader("Smart Flags")
+            flags = []
+            if avg_yield < 10 and total_runs > 0:
+                flags.append("Average yield is running below 10%.")
+            if at_risk_batches > 0:
+                flags.append("One or more batches are on QA hold or still pending a COA outcome.")
+            if gross_margin_pct < 35 and est_revenue > 0:
+                flags.append("Gross margin is compressed. Review COGS, fee structure, and process losses.")
+            if not flags:
+                st.success("No major automated flags from the current filtered view.")
+            else:
+                for flag in flags:
+                    st.warning(flag)
+
+    with runs_tab:
+        st.subheader("Run Explorer")
+        st.dataframe(run_df, use_container_width=True, hide_index=True)
+        with st.expander("Add Run Record", expanded=False):
+            r1, r2, r3 = st.columns(3)
+            with r1:
+                run_date = st.date_input("Run Date", value=datetime.today(), key="ecc_run_date")
+                state = st.selectbox(
+                    "State / Jurisdiction",
+                    ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"],
+                    key="ecc_run_state",
+                )
+                license_name = st.text_input("Facility / License Name", key="ecc_license_name")
+                client_name = st.text_input("Client Name", value="In House", key="ecc_client_name")
+                batch_id_internal = st.text_input("Internal Batch ID", key="ecc_batch_id")
+                method = st.selectbox("Method", ["BHO", "CO2", "Rosin"], key="ecc_method")
+                strain = st.text_input("Strain", key="ecc_strain")
+                product_type = st.selectbox(
+                    "Product Type",
+                    ["Sugar", "Badder", "Shatter", "Sauce", "Distillate", "Rosin Jam", "Fresh Press", "Other"],
+                    key="ecc_product_type",
+                )
+            with r2:
+                input_material_type = st.selectbox(
+                    "Input Material Type",
+                    ["Fresh Frozen", "Cured Biomass", "Hash", "Flower", "Trim", "Other"],
+                    key="ecc_input_material_type",
+                )
+                input_weight_g = st.number_input("Input Weight (g)", min_value=0.0, step=1.0, key="ecc_input_weight")
+                intermediate_output_g = st.number_input(
+                    "Intermediate Output (g)", min_value=0.0, step=0.1, key="ecc_intermediate_output"
+                )
+                finished_output_g = st.number_input(
+                    "Finished Output (g)", min_value=0.0, step=0.1, key="ecc_finished_output"
+                )
+                residual_loss_g = st.number_input(
+                    "Residual Loss (g)", min_value=0.0, step=0.1, key="ecc_residual_loss"
+                )
+                operator = st.text_input("Operator", key="ecc_operator")
+                machine_line = st.text_input("Machine / Line", key="ecc_machine_line")
+            with r3:
+                metrc_package_id_input = st.text_input("METRC Package ID - Input", key="ecc_pkg_input")
+                metrc_package_id_output = st.text_input("METRC Package ID - Output", key="ecc_pkg_output")
+                metrc_manifest_or_transfer_id = st.text_input(
+                    "METRC Manifest / Transfer ID",
+                    key="ecc_manifest_id",
+                )
+                coa_status = st.selectbox(
+                    "COA Status",
+                    ["Pending", "Passed", "Failed", "Not Submitted"],
+                    key="ecc_coa_status",
+                )
+                qa_hold = st.checkbox("QA Hold", key="ecc_qa_hold")
+                toll_processing_flag = st.checkbox("Toll Processing Job", key="ecc_toll_flag")
+                processing_fee_usd = st.number_input(
+                    "Processing Fee (USD)", min_value=0.0, step=10.0, key="ecc_processing_fee"
+                )
+                est_revenue_usd = st.number_input(
+                    "Estimated Revenue (USD)", min_value=0.0, step=10.0, key="ecc_est_revenue"
+                )
+                cogs_usd = st.number_input("COGS (USD)", min_value=0.0, step=10.0, key="ecc_cogs")
+                notes = st.text_area("Run Notes", key="ecc_notes")
+
+            if st.button("Add Run", type="primary", key="ecc_add_run"):
+                yield_pct = (finished_output_g / input_weight_g * 100) if input_weight_g else 0.0
+                post_eff = (finished_output_g / intermediate_output_g * 100) if intermediate_output_g else 0.0
+                new_row = pd.DataFrame(
+                    [
+                        {
+                            "run_date": str(run_date),
+                            "state": state,
+                            "license_name": license_name,
+                            "client_name": client_name,
+                            "batch_id_internal": batch_id_internal,
+                            "metrc_package_id_input": metrc_package_id_input,
+                            "metrc_package_id_output": metrc_package_id_output,
+                            "metrc_manifest_or_transfer_id": metrc_manifest_or_transfer_id,
+                            "method": method,
+                            "strain": strain,
+                            "product_type": product_type,
+                            "input_material_type": input_material_type,
+                            "input_weight_g": input_weight_g,
+                            "intermediate_output_g": intermediate_output_g,
+                            "finished_output_g": finished_output_g,
+                            "residual_loss_g": residual_loss_g,
+                            "yield_pct": yield_pct,
+                            "post_process_efficiency_pct": post_eff,
+                            "operator": operator,
+                            "machine_line": machine_line,
+                            "status": "Complete",
+                            "toll_processing": toll_processing_flag,
+                            "processing_fee_usd": processing_fee_usd,
+                            "est_revenue_usd": est_revenue_usd,
+                            "cogs_usd": cogs_usd,
+                            "coa_status": coa_status,
+                            "qa_hold": qa_hold,
+                            "notes": notes,
+                        }
+                    ]
+                )
+                st.session_state.ecc_run_log = pd.concat(
+                    [st.session_state.ecc_run_log, new_row],
+                    ignore_index=True,
+                )
+                st.success("Run added.")
+                st.rerun()
+
+    with toll_tab:
+        st.subheader("Toll Processing Command View")
+        st.dataframe(job_df, use_container_width=True, hide_index=True)
+        with st.expander("Add Toll Processing Job", expanded=False):
+            t1, t2, t3 = st.columns(3)
+            with t1:
+                client_name = st.text_input("Client Name", key="ecc_job_client_name")
+                state = st.selectbox("State", ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"], key="ecc_job_state")
+                license_or_registration = st.text_input("Client License / Registration", key="ecc_job_license")
+                method = st.selectbox("Method", ["BHO", "CO2", "Rosin"], key="ecc_job_method")
+                strain = st.text_input("Strain", key="ecc_job_strain")
+            with t2:
+                metrc_transfer_id = st.text_input("METRC Transfer ID", key="ecc_job_metrc")
+                material_received_date = st.date_input("Material Received Date", key="ecc_job_received")
+                promised_completion_date = st.date_input("Promised Completion Date", key="ecc_job_promised")
+                input_weight_g = st.number_input("Input Weight (g)", min_value=0.0, step=1.0, key="ecc_job_input")
+            with t3:
+                expected_output_g = st.number_input(
+                    "Expected Output (g)", min_value=0.0, step=0.1, key="ecc_job_expected"
+                )
+                actual_output_g = st.number_input("Actual Output (g)", min_value=0.0, step=0.1, key="ecc_job_actual")
+                invoice_status = st.selectbox(
+                    "Invoice Status", ["Draft", "Sent", "Paid", "Overdue"], key="ecc_job_invoice"
+                )
+                payment_status = st.selectbox("Payment Status", ["Pending", "Partial", "Paid"], key="ecc_job_payment")
+                coa_status = st.selectbox("COA Status", ["Pending", "Passed", "Failed"], key="ecc_job_coa")
+                job_status = st.selectbox(
+                    "Job Status",
+                    ["Queued", "Processing", "Packaging", "Complete", "Hold"],
+                    key="ecc_job_status",
+                )
+
+            if st.button("Add Toll Job", key="ecc_add_job"):
+                today = pd.Timestamp.today().normalize()
+                promised = pd.Timestamp(promised_completion_date)
+                sla_status = "At Risk" if promised < today else "On Track"
+                new_job = pd.DataFrame(
+                    [
+                        {
+                            "client_name": client_name,
+                            "state": state,
+                            "license_or_registration": license_or_registration,
+                            "metrc_transfer_id": metrc_transfer_id,
+                            "material_received_date": str(material_received_date),
+                            "promised_completion_date": str(promised_completion_date),
+                            "method": method,
+                            "strain": strain,
+                            "input_weight_g": input_weight_g,
+                            "expected_output_g": expected_output_g,
+                            "actual_output_g": actual_output_g,
+                            "sla_status": sla_status,
+                            "invoice_status": invoice_status,
+                            "payment_status": payment_status,
+                            "coa_status": coa_status,
+                            "job_status": job_status,
+                        }
+                    ]
+                )
+                st.session_state.ecc_client_jobs = pd.concat(
+                    [st.session_state.ecc_client_jobs, new_job],
+                    ignore_index=True,
+                )
+                st.success("Toll job added.")
+                st.rerun()
+
+        st.markdown("#### Update Toll Job Statuses")
+        if st.session_state.ecc_client_jobs.empty:
+            st.info("No toll jobs to update yet.")
+        else:
+            _job_edit_df = st.session_state.ecc_client_jobs.copy()
+            _job_edit_df.insert(0, "record_id", _job_edit_df.index)
+            edited_jobs = st.data_editor(
+                _job_edit_df[
+                    [
+                        "record_id",
+                        "client_name",
+                        "strain",
+                        "job_status",
+                        "coa_status",
+                        "invoice_status",
+                        "payment_status",
+                        "sla_status",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+                key="ecc_toll_job_status_editor",
+                disabled=["record_id", "client_name", "strain"],
+            )
+            if st.button("Save Toll Status Updates", key="ecc_save_toll_updates"):
+                for _, row in edited_jobs.iterrows():
+                    rid = int(row["record_id"])
+                    st.session_state.ecc_client_jobs.at[rid, "job_status"] = row["job_status"]
+                    st.session_state.ecc_client_jobs.at[rid, "coa_status"] = row["coa_status"]
+                    st.session_state.ecc_client_jobs.at[rid, "invoice_status"] = row["invoice_status"]
+                    st.session_state.ecc_client_jobs.at[rid, "payment_status"] = row["payment_status"]
+                    st.session_state.ecc_client_jobs.at[rid, "sla_status"] = row["sla_status"]
+                st.success("Toll job statuses updated.")
+                st.rerun()
+
+    with compliance_tab:
+        st.subheader("Compliance / METRC Traceability")
+        required_fields = pd.DataFrame(
+            [
+                ["State", "Jurisdiction for reporting and workflow rules"],
+                ["Strain", "Tracks cultivar through extraction and toll jobs"],
+                ["Facility / License Name", "Required internal mapping for multi-site operations"],
+                ["Internal Batch ID", "Your own batch identifier"],
+                ["METRC Package ID - Input", "Starting package used in the run"],
+                ["METRC Package ID - Output", "Finished package created from the run"],
+                ["METRC Manifest / Transfer ID", "Movement and custody tracking"],
+                ["Client License / Registration", "Critical for toll processing"],
+                ["COA Status", "Pending, passed, failed, or not submitted"],
+                ["QA Hold", "Operational hold flag"],
+                ["Run Notes", "Exception log, deviations, and event context"],
+            ],
+            columns=["Field", "Purpose"],
+        )
+        st.dataframe(required_fields, use_container_width=True, hide_index=True)
+
+    st.markdown("#### Update Run Statuses")
+    if st.session_state.ecc_run_log.empty:
+        st.info("No extraction runs to update yet.")
+    else:
+        _run_edit_df = st.session_state.ecc_run_log.copy()
+        _run_edit_df.insert(0, "record_id", _run_edit_df.index)
+        edited_runs = st.data_editor(
+            _run_edit_df[
+                [
+                    "record_id",
+                    "run_date",
+                    "batch_id_internal",
+                    "strain",
+                    "status",
+                    "coa_status",
+                    "qa_hold",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+            key="ecc_run_status_editor",
+            disabled=["record_id", "run_date", "batch_id_internal", "strain"],
+        )
+        if st.button("Save Run Status Updates", key="ecc_save_run_updates"):
+            for _, row in edited_runs.iterrows():
+                rid = int(row["record_id"])
+                st.session_state.ecc_run_log.at[rid, "status"] = row["status"]
+                st.session_state.ecc_run_log.at[rid, "coa_status"] = row["coa_status"]
+                st.session_state.ecc_run_log.at[rid, "qa_hold"] = bool(row["qa_hold"])
+            st.success("Run statuses updated.")
+            st.rerun()
+
+    with inputs_tab:
+        st.subheader("Raw Data Upload Staging")
+        uploaded = st.file_uploader("Upload CSV run log", type=["csv"], key="ecc_upload")
+        if uploaded is not None:
+            try:
+                uploaded_df = pd.read_csv(uploaded)
+                st.success("CSV loaded into preview.")
+                st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
+            except Exception as exc:
+                st.error(f"Could not read CSV: {exc}")
+
 # =========================
-# GLOBAL DATA MODE SELECTOR
+# TOP-LEVEL APP MODE SWITCH
+# =========================
+app_mode = st.radio(
+    "Workspace",
+    ["🛒 Buyer Operations", "🧪 Extraction Command Center"],
+    index=0,
+    horizontal=True,
+    help="Switch between the purchasing dashboard and the extraction workspace.",
+)
+
+if app_mode == "🧪 Extraction Command Center":
+    render_extraction_command_center()
+    st.stop()
+
+# =========================
+# GLOBAL DATA MODE SELECTOR (BUYER OPERATIONS ONLY)
 # =========================
 st.sidebar.markdown("---")
 data_mode = st.sidebar.radio(
@@ -2249,11 +2727,17 @@ data_mode = st.sidebar.radio(
 st.sidebar.markdown("---")
 
 # =========================
-# PAGE SWITCH
+# PAGE SWITCH (BUYER OPERATIONS)
 # =========================
 section = st.sidebar.radio(
     "App Section",
-    ["📊 Inventory Dashboard", "📈 Trends", "🚚 Delivery Impact", "🐢 Slow Movers", "🧾 PO Builder"],
+    [
+        "📊 Inventory Dashboard",
+        "📈 Trends",
+        "🚚 Delivery Impact",
+        "🐢 Slow Movers",
+        "🧾 PO Builder",
+    ],
     index=0,
 )
 
