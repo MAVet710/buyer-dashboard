@@ -2090,14 +2090,6 @@ def _build_copilot_context(app_mode, section):
     return "\n".join(context_lines)
 
 
-def _get_local_copilot_provider():
-    """Main copilot is always backed by local Ollama."""
-    try:
-        return build_provider("ollama", None)
-    except Exception:
-        return None
-
-
 def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
     """Compute buyer-focused demand and risk signals from uploaded data."""
     sales = sales_df_raw.copy()
@@ -2215,11 +2207,10 @@ Output sections:
 
 
 def _run_main_ai_copilot(question, app_mode, section):
-    local_provider = _get_local_copilot_provider()
-    if local_provider is None:
+    if not OPENAI_AVAILABLE or ai_client is None:
         return (
-            "Local AI copilot is unavailable. Start Ollama and ensure your model is pulled "
-            "(e.g., `ollama pull llama3.1`)."
+            "AI copilot is unavailable. Configure AI_API_KEY (or OPENAI_API_KEY) or local Ollama, "
+            "then select a provider in AI Copilot settings."
         )
 
     context = _build_copilot_context(app_mode, section)
@@ -2241,9 +2232,9 @@ User question:
 """
 
     try:
-        resp = local_provider.generate(
+        resp = _generate_ai_with_quota_fallback(
             system_prompt=(
-                "You are the main local cannabis operations copilot for this app. "
+                "You are the main cannabis operations copilot for this app. "
                 "Ground recommendations in supplied context."
             ),
             user_prompt=prompt,
@@ -2251,21 +2242,32 @@ User question:
         )
         return resp.text
     except Exception as exc:
-        return (
-            "Local AI copilot request failed. Verify Ollama is running at "
-            "http://localhost:11434 and the configured model exists. "
-            f"Details: {exc}"
-        )
+        return f"AI copilot failed: {exc}"
 
 
 def render_main_ai_copilot(app_mode, section):
     with st.sidebar.expander("🧠 Main AI Copilot", expanded=False):
-        st.caption("Main copilot is powered by your local Ollama model.")
-        st.write("Provider: ollama (local)")
-        st.write(f"Endpoint: {os.environ.get('OLLAMA_ENDPOINT', 'http://localhost:11434/api/generate')}")
+        st.caption("Use this assistant across buyer, compliance, and extraction workflows.")
 
-        local_ok = _get_local_copilot_provider() is not None
-        st.write(f"Connected: {'Yes' if local_ok else 'No'}")
+        provider_choice = st.selectbox(
+            "Provider",
+            ["auto", "openai", "ollama"],
+            index=["auto", "openai", "ollama"].index(st.session_state.get("preferred_ai_provider", "auto") if st.session_state.get("preferred_ai_provider", "auto") in ["auto", "openai", "ollama"] else "auto"),
+            key="preferred_ai_provider_selector",
+            help="auto tries OpenAI first (if key exists) then Ollama.",
+        )
+
+        if provider_choice == "auto":
+            st.session_state["preferred_ai_provider"] = None
+        else:
+            st.session_state["preferred_ai_provider"] = provider_choice
+
+        if st.button("Reconnect AI Provider", key="reconnect_ai_provider"):
+            init_openai_client()
+
+        st.write(f"Connected: {'Yes' if OPENAI_AVAILABLE else 'No'}")
+        if ai_provider is not None:
+            st.write(f"Provider: {getattr(ai_provider, 'provider_name', 'unknown')}")
 
         question = st.text_area(
             "Ask the AI copilot",
