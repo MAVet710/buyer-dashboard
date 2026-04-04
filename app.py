@@ -9,6 +9,8 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from io import BytesIO
 
+from ai_providers import build_provider
+
 # For PDF generation
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -25,10 +27,11 @@ except Exception:
     PLOTLY_AVAILABLE = False
 
 # ------------------------------------------------------------
-# OPTIONAL / SAFE IMPORT FOR OPENAI (AI INVENTORY CHECK)
+# AI PROVIDER ABSTRACTION (AI INVENTORY CHECK)
 # ------------------------------------------------------------
 OPENAI_AVAILABLE = False
 ai_client = None
+ai_provider = None
 
 # ------------------------------------------------------------
 # OPTIONAL / SAFE IMPORT FOR BCRYPT (PASSWORD HASHING)
@@ -290,25 +293,14 @@ def _find_openai_key():
 
 
 def init_openai_client():
-    global OPENAI_AVAILABLE, ai_client
-    try:
-        from openai import OpenAI  # type: ignore
-    except Exception:
-        OPENAI_AVAILABLE = False
-        ai_client = None
-        return
+    global OPENAI_AVAILABLE, ai_client, ai_provider
 
     key, _where = _find_openai_key()
-    if key:
-        try:
-            ai_client = OpenAI(api_key=key)
-            OPENAI_AVAILABLE = True
-        except Exception:
-            OPENAI_AVAILABLE = False
-            ai_client = None
-    else:
-        OPENAI_AVAILABLE = False
-        ai_client = None
+    preferred_provider = os.environ.get("AI_PROVIDER", "").strip().lower() or None
+
+    ai_provider = build_provider(preferred_provider, key)
+    OPENAI_AVAILABLE = ai_provider is not None
+    ai_client = ai_provider
 
 
 # =========================
@@ -1931,15 +1923,12 @@ Tasks:
 """
 
     try:
-        resp = ai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a sharp, no-BS cannabis retail buyer coach."},
-                {"role": "user", "content": prompt},
-            ],
+        response = ai_client.generate(
+            system_prompt="You are a sharp, no-BS cannabis retail buyer coach.",
+            user_prompt=prompt,
             max_tokens=600,
         )
-        return resp.choices[0].message.content
+        return response.text
     except Exception as e:
         return f"AI check failed: {e}"
 
