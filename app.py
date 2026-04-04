@@ -8,6 +8,12 @@ import sys
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from io import BytesIO
+from dotenv import load_dotenv
+
+from ai_providers import build_provider
+from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
+
+load_dotenv()
 
 from ai_providers import build_provider
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
