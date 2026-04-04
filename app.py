@@ -1910,6 +1910,42 @@ def _load_compliance_sources_from_df(df):
     return repo
 
 
+def _audit_compliance_source_df(df):
+    """Return admin validation results for a compliance source dataframe."""
+    required = [
+        "state",
+        "scope",
+        "topic",
+        "answer",
+        "source_citation",
+        "source_url",
+        "last_updated",
+        "review_status",
+    ]
+    cols = [str(c).strip().lower() for c in df.columns]
+    missing = [c for c in required if c not in cols]
+
+    report = {
+        "missing_columns": missing,
+        "row_count": int(len(df)),
+        "duplicate_rows": 0,
+        "blank_critical_rows": 0,
+    }
+
+    if not missing and not df.empty:
+        local_df = df.copy()
+        local_df.columns = cols
+
+        dup_subset = ["state", "scope", "topic", "source_citation"]
+        report["duplicate_rows"] = int(local_df.duplicated(subset=dup_subset, keep=False).sum())
+
+        critical = local_df[["state", "scope", "topic", "answer", "source_citation", "source_url"]].copy()
+        blank_mask = critical.applymap(lambda x: str(x).strip() == "" or str(x).strip().lower() == "nan").any(axis=1)
+        report["blank_critical_rows"] = int(blank_mask.sum())
+
+    return report
+
+
 def _generate_grounded_compliance_response(repo, state, scope, topic, question):
     """Return a structured compliance answer grounded in source records."""
     matches = repo.query(state=state, scope=scope, topic=topic)
@@ -3100,6 +3136,7 @@ section = st.sidebar.radio(
         "🧾 PO Builder",
         "🧭 Compliance Q&A",
         "🧠 Buyer Intelligence",
+        "🛠️ Admin Tools",
     ],
     index=0,
 )
@@ -4699,6 +4736,86 @@ elif section == "🧠 Buyer Intelligence":
 
     except Exception as exc:
         st.error(f"Could not build buyer intelligence view: {exc}")
+
+# ============================================================
+# PAGE 2C – ADMIN TOOLS
+# ============================================================
+elif section == "🛠️ Admin Tools":
+    st.subheader("🛠️ Admin Tools")
+
+    if not st.session_state.get("is_admin", False):
+        st.warning("Admin access is required for this section.")
+        st.stop()
+
+    st.caption("Provider diagnostics, compliance source QA, and operational admin utilities.")
+
+    a1, a2 = st.columns(2)
+    with a1:
+        st.markdown("### AI Provider Diagnostics")
+        key, where = _find_openai_key()
+        st.write(f"Configured key found: {'Yes' if bool(key) else 'No'}")
+        if where:
+            st.write(f"Key source: {where}")
+        st.write(f"Provider connected: {'Yes' if OPENAI_AVAILABLE else 'No'}")
+        if ai_provider is not None:
+            st.write(f"Provider name: {getattr(ai_provider, 'provider_name', 'unknown')}")
+
+        if st.button("Run AI Health Check", key="admin_ai_health_check"):
+            try:
+                result = _generate_ai_with_quota_fallback(
+                    system_prompt="You are a diagnostic assistant.",
+                    user_prompt="Respond with: AI health check OK.",
+                    max_tokens=30,
+                )
+                st.success(f"AI check response: {result.text}")
+            except Exception as exc:
+                st.error(f"AI health check failed: {exc}")
+
+    with a2:
+        st.markdown("### Session Data Overview")
+        inv_rows = len(st.session_state.inv_raw_df) if isinstance(st.session_state.get("inv_raw_df"), pd.DataFrame) else 0
+        sales_rows = len(st.session_state.sales_raw_df) if isinstance(st.session_state.get("sales_raw_df"), pd.DataFrame) else 0
+        st.write(f"Inventory rows in session: {inv_rows}")
+        st.write(f"Sales rows in session: {sales_rows}")
+        st.write(f"Upload cache entries: {len(st.session_state.get('uploaded_files_by_user_day', {}))}")
+
+        if st.button("Clear session dataframes", key="admin_clear_session_frames"):
+            st.session_state.inv_raw_df = None
+            st.session_state.sales_raw_df = None
+            st.success("Session dataframes cleared.")
+
+    st.markdown("---")
+    st.markdown("### Compliance Source QA")
+    st.caption("Upload a compliance source CSV to validate schema completeness and row quality.")
+
+    qa_upload = st.file_uploader(
+        "Upload compliance source CSV for QA",
+        type=["csv"],
+        key="admin_compliance_qa_upload",
+    )
+
+    if qa_upload is not None:
+        try:
+            qa_df = pd.read_csv(qa_upload)
+            report = _audit_compliance_source_df(qa_df)
+            st.dataframe(qa_df.head(100), use_container_width=True)
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                kpi_card("Rows", report["row_count"])
+            with c2:
+                kpi_card("Missing Columns", len(report["missing_columns"]))
+            with c3:
+                kpi_card("Duplicate Rows", report["duplicate_rows"])
+            with c4:
+                kpi_card("Blank Critical Rows", report["blank_critical_rows"])
+
+            if report["missing_columns"]:
+                st.error(f"Missing required columns: {', '.join(report['missing_columns'])}")
+            else:
+                st.success("Required columns are present.")
+        except Exception as exc:
+            st.error(f"Could not audit file: {exc}")
 
 # ============================================================
 # PAGE 2 – TRENDS
