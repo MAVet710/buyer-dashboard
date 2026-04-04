@@ -256,18 +256,23 @@ PO_REVIEW_THRESHOLD = 15
 
 def _find_openai_key():
     """
-    Robust key lookup:
-    1) st.secrets["OPENAI_API_KEY"] at top-level
-    2) Any nested table that contains OPENAI_API_KEY
-    3) os.environ["OPENAI_API_KEY"]
+    Robust key lookup for AI provider credentials.
+
+    Search order supports both legacy and project-specific key names:
+    1) st.secrets["AI_API_KEY"] / st.secrets["OPENAI_API_KEY"] at top-level
+    2) Any nested table containing either key name
+    3) os.environ["AI_API_KEY"] / os.environ["OPENAI_API_KEY"]
     Returns (key or None, where_found_str)
     """
+    key_names = ["AI_API_KEY", "OPENAI_API_KEY"]
+
     # 1) top-level
     try:
-        if "OPENAI_API_KEY" in st.secrets:
-            k = str(st.secrets["OPENAI_API_KEY"]).strip()
-            if k:
-                return k, "secrets:top"
+        for key_name in key_names:
+            if key_name in st.secrets:
+                k = str(st.secrets[key_name]).strip()
+                if k:
+                    return k, f"secrets:top:{key_name}"
     except Exception:
         pass
 
@@ -276,19 +281,22 @@ def _find_openai_key():
         for k0 in list(st.secrets.keys()):
             try:
                 v = st.secrets.get(k0)
-                if isinstance(v, dict) and "OPENAI_API_KEY" in v:
-                    k = str(v["OPENAI_API_KEY"]).strip()
-                    if k:
-                        return k, f"secrets:{k0}"
+                if isinstance(v, dict):
+                    for key_name in key_names:
+                        if key_name in v:
+                            k = str(v[key_name]).strip()
+                            if k:
+                                return k, f"secrets:{k0}:{key_name}"
             except Exception:
                 continue
     except Exception:
         pass
 
     # 3) env
-    envk = os.environ.get("OPENAI_API_KEY", "").strip()
-    if envk:
-        return envk, "env"
+    for key_name in key_names:
+        envk = os.environ.get(key_name, "").strip()
+        if envk:
+            return envk, f"env:{key_name}"
 
     return None, None
 
@@ -1947,7 +1955,7 @@ Output format:
 - Include last updated date and review status
 """
         try:
-            resp = ai_client.generate(
+            resp = _generate_ai_with_quota_fallback(
                 system_prompt=(
                     "You are a cannabis compliance analyst. "
                     "Only answer from provided structured sources."
@@ -1966,6 +1974,43 @@ Output format:
 # =========================
 # SIMPLE AI INVENTORY CHECK
 # =========================
+
+
+def _generate_ai_with_quota_fallback(system_prompt, user_prompt, max_tokens=700):
+    """Generate AI output and fallback to Ollama if OpenAI quota is exceeded."""
+    global ai_client, ai_provider, OPENAI_AVAILABLE
+
+    if not OPENAI_AVAILABLE or ai_client is None:
+        raise RuntimeError("AI provider unavailable")
+
+    try:
+        return ai_client.generate(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "insufficient_quota" in msg or "error code: 429" in msg:
+            try:
+                fallback = build_provider("ollama", None)
+                if fallback is not None:
+                    ai_provider = fallback
+                    ai_client = fallback
+                    OPENAI_AVAILABLE = True
+                    return ai_client.generate(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        max_tokens=max_tokens,
+                    )
+            except Exception:
+                pass
+            raise RuntimeError(
+                "OpenAI quota exceeded (429 insufficient_quota). "
+                "Switched to local fallback if available; otherwise configure Ollama "
+                "or set AI_API_KEY with available quota."
+            )
+        raise
 
 
 def _build_copilot_context(app_mode, section):
@@ -2094,7 +2139,7 @@ Output sections:
 4) Suggested buyer actions for next 7 days
 """
     try:
-        resp = ai_client.generate(
+        resp = _generate_ai_with_quota_fallback(
             system_prompt="You are a senior cannabis retail inventory strategist.",
             user_prompt=prompt,
             max_tokens=700,
@@ -2107,7 +2152,7 @@ Output sections:
 def _run_main_ai_copilot(question, app_mode, section):
     if not OPENAI_AVAILABLE or ai_client is None:
         return (
-            "AI copilot is unavailable. Configure OPENAI_API_KEY or local Ollama, "
+            "AI copilot is unavailable. Configure AI_API_KEY (or OPENAI_API_KEY) or local Ollama, "
             "then select a provider in AI Copilot settings."
         )
 
@@ -2130,7 +2175,7 @@ User question:
 """
 
     try:
-        resp = ai_client.generate(
+        resp = _generate_ai_with_quota_fallback(
             system_prompt=(
                 "You are the main cannabis operations copilot for this app. "
                 "Ground recommendations in supplied context."
@@ -2185,7 +2230,7 @@ def ai_inventory_check(detail_view, doh_threshold, data_source):
     """
     if not OPENAI_AVAILABLE or ai_client is None:
         return (
-            "AI is not enabled. Add OPENAI_API_KEY to Streamlit secrets "
+            "AI is not enabled. Add AI_API_KEY (or OPENAI_API_KEY) to Streamlit secrets "
             "to turn on the buyer-assist checks."
         )
 
@@ -2241,7 +2286,7 @@ Tasks:
 """
 
     try:
-        response = ai_client.generate(
+        response = _generate_ai_with_quota_fallback(
             system_prompt="You are a sharp, no-BS cannabis retail buyer coach.",
             user_prompt=prompt,
             max_tokens=600,
@@ -2267,9 +2312,9 @@ if st.session_state.get("is_admin", False):
             key1 = bool(key)
         except Exception:
             key1 = False
-        key2 = bool(os.environ.get("OPENAI_API_KEY", "").strip())
-        st.write(f"Secrets has OPENAI_API_KEY: {key1}")
-        st.write(f"Env has OPENAI_API_KEY: {key2}")
+        key2 = bool(os.environ.get("AI_API_KEY", "").strip() or os.environ.get("OPENAI_API_KEY", "").strip())
+        st.write(f"Secrets has AI_API_KEY/OPENAI_API_KEY: {key1}")
+        st.write(f"Env has AI_API_KEY/OPENAI_API_KEY: {key2}")
         st.write(f"Using key: {OPENAI_AVAILABLE}")
         if where:
             st.write(f"Found via: {where}")
@@ -2542,6 +2587,70 @@ if st.session_state.is_admin:
 # ============================================================
 # EXTRA MODULE – EXTRACTION COMMAND CENTER
 # ============================================================
+def _compute_extraction_alerts(run_df, job_df):
+    """Compute operational extraction alerts for leadership and shift teams."""
+    alerts = []
+    if run_df is None or run_df.empty:
+        return alerts
+
+    if "yield_pct" in run_df.columns:
+        low_yield = run_df[run_df["yield_pct"] < 12]
+        if not low_yield.empty:
+            alerts.append(f"Low yield runs: {len(low_yield)} below 12% yield.")
+
+    if "qa_hold" in run_df.columns:
+        qa_holds = int(run_df["qa_hold"].fillna(False).sum())
+        if qa_holds > 0:
+            alerts.append(f"QA holds active: {qa_holds} run(s).")
+
+    if "coa_status" in run_df.columns:
+        pending_or_failed = int(run_df["coa_status"].isin(["Pending", "Failed"]).sum())
+        if pending_or_failed > 0:
+            alerts.append(f"COA risk: {pending_or_failed} run(s) pending/failed.")
+
+    if job_df is not None and not job_df.empty and "sla_status" in job_df.columns:
+        at_risk_jobs = int((job_df["sla_status"] == "At Risk").sum())
+        if at_risk_jobs > 0:
+            alerts.append(f"Toll jobs at SLA risk: {at_risk_jobs}.")
+
+    return alerts
+
+
+def _generate_extraction_ai_brief(run_df, job_df, alerts):
+    if not OPENAI_AVAILABLE or ai_client is None:
+        return "AI extraction brief unavailable. Configure provider in the Main AI Copilot panel."
+
+    run_preview = run_df.head(50).to_dict(orient="records") if run_df is not None else []
+    job_preview = job_df.head(50).to_dict(orient="records") if job_df is not None else []
+
+    prompt = f"""
+Create an extraction operations briefing for cannabis processing leadership.
+
+Alerts: {json.dumps(alerts, indent=2)}
+Runs sample: {json.dumps(run_preview, indent=2, default=str)}
+Jobs sample: {json.dumps(job_preview, indent=2, default=str)}
+
+Output sections:
+1) Operational health summary
+2) Highest-priority batch/job interventions
+3) QA/COA actions
+4) Throughput + margin recommendations for next 72 hours
+"""
+
+    try:
+        resp = _generate_ai_with_quota_fallback(
+            system_prompt=(
+                "You are a cannabis extraction operations strategist. "
+                "Provide practical, compliance-aware actions."
+            ),
+            user_prompt=prompt,
+            max_tokens=750,
+        )
+        return resp.text
+    except Exception as exc:
+        return f"AI extraction brief failed: {exc}"
+
+
 def render_extraction_command_center():
     def kpi_card(label: str, value, help_text: str = ""):
         with st.container(border=True):
@@ -2692,8 +2801,15 @@ def render_extraction_command_center():
     with top[7]:
         kpi_card("Gross Margin", f"{gross_margin_pct:.1f}%")
 
-    overview_tab, runs_tab, toll_tab, compliance_tab, inputs_tab = st.tabs(
-        ["Executive Overview", "Run Analytics", "Toll Processing", "Compliance / METRC", "Data Input"]
+    overview_tab, runs_tab, toll_tab, compliance_tab, inputs_tab, ai_ops_tab = st.tabs(
+        [
+            "Executive Overview",
+            "Run Analytics",
+            "Toll Processing",
+            "Compliance / METRC",
+            "Data Input",
+            "AI Ops Brief",
+        ]
     )
 
     with overview_tab:
@@ -2919,6 +3035,25 @@ def render_extraction_command_center():
                 st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
             except Exception as exc:
                 st.error(f"Could not read CSV: {exc}")
+
+    with ai_ops_tab:
+        st.subheader("AI Operations Brief")
+        alerts = _compute_extraction_alerts(run_df, job_df)
+
+        if alerts:
+            st.markdown("#### Current Alerts")
+            for alert in alerts:
+                st.warning(alert)
+        else:
+            st.success("No high-priority extraction alerts detected from current dataset.")
+
+        st.markdown("#### Recommended Actions")
+        st.caption("Generate a shift-ready brief grounded in current run and toll job data.")
+
+        if st.button("Generate AI Extraction Brief", key="ecc_ai_ops_brief"):
+            with st.spinner("Analyzing extraction operations..."):
+                brief = _generate_extraction_ai_brief(run_df, job_df, alerts)
+            st.markdown(brief)
 
 # =========================
 # TOP-LEVEL APP MODE SWITCH
@@ -4421,7 +4556,7 @@ if section == "📊 Inventory Dashboard":
                 st.markdown(ai_summary)
         else:
             st.info(
-                "AI buyer-assist is disabled because no `OPENAI_API_KEY` was found in "
+                "AI buyer-assist is disabled because no `AI_API_KEY` (or `OPENAI_API_KEY`) was found in "
                 "Streamlit secrets or environment."
             )
 

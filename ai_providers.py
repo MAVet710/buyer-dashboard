@@ -84,7 +84,7 @@ def build_provider(preferred: Optional[str], openai_api_key: Optional[str]) -> O
 
     Preferred values: "openai", "ollama", or None for auto.
     """
-    candidates = [preferred] if preferred else ["openai", "ollama"]
+    candidates = [preferred] if preferred else ["ollama", "openai"]
 
     for candidate in candidates:
         try:
