@@ -253,6 +253,9 @@ PRODUCT_TABLE_DISPLAY_LIMIT = 2000
 # Minimum on-hand units threshold for flagging a PO line for review
 PO_REVIEW_THRESHOLD = 15
 
+# Local app URL for self-hosted deployment links
+LOCAL_APP_URL = os.environ.get("LOCAL_APP_URL", "http://localhost:8501")
+
 
 def _find_openai_key():
     """
@@ -2540,6 +2543,10 @@ else:
     st.markdown("⚠️ AI buyer-assist is **OFF** (no API key detected).")
 st.markdown("---")
 
+with st.sidebar.expander("🔗 Local App Link", expanded=False):
+    st.write(f"Local URL: {LOCAL_APP_URL}")
+    st.markdown(f"[Open local app]({LOCAL_APP_URL})")
+
 if not PLOTLY_AVAILABLE:
     st.warning(
         "⚠️ Plotly is not installed in this environment. Charts will be disabled.\n\n"
@@ -4718,6 +4725,7 @@ elif section == "🛠️ Admin Tools":
         st.stop()
 
     st.caption("Provider diagnostics, compliance source QA, and operational admin utilities.")
+    st.info(f"Local app URL: {LOCAL_APP_URL}")
 
     st.markdown("### Milestone Tracker")
     milestone_df = pd.DataFrame(
