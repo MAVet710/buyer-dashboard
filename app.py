@@ -9,6 +9,9 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from io import BytesIO
 
+from ai_providers import build_provider
+from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
+
 # For PDF generation
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -25,10 +28,11 @@ except Exception:
     PLOTLY_AVAILABLE = False
 
 # ------------------------------------------------------------
-# OPTIONAL / SAFE IMPORT FOR OPENAI (AI INVENTORY CHECK)
+# AI PROVIDER ABSTRACTION (AI INVENTORY CHECK)
 # ------------------------------------------------------------
 OPENAI_AVAILABLE = False
 ai_client = None
+ai_provider = None
 
 # ------------------------------------------------------------
 # OPTIONAL / SAFE IMPORT FOR BCRYPT (PASSWORD HASHING)
@@ -290,25 +294,16 @@ def _find_openai_key():
 
 
 def init_openai_client():
-    global OPENAI_AVAILABLE, ai_client
-    try:
-        from openai import OpenAI  # type: ignore
-    except Exception:
-        OPENAI_AVAILABLE = False
-        ai_client = None
-        return
+    global OPENAI_AVAILABLE, ai_client, ai_provider
 
     key, _where = _find_openai_key()
-    if key:
-        try:
-            ai_client = OpenAI(api_key=key)
-            OPENAI_AVAILABLE = True
-        except Exception:
-            OPENAI_AVAILABLE = False
-            ai_client = None
-    else:
-        OPENAI_AVAILABLE = False
-        ai_client = None
+    preferred_provider = st.session_state.get("preferred_ai_provider")
+    if not preferred_provider:
+        preferred_provider = os.environ.get("AI_PROVIDER", "").strip().lower() or None
+
+    ai_provider = build_provider(preferred_provider, key)
+    OPENAI_AVAILABLE = ai_provider is not None
+    ai_client = ai_provider
 
 
 # =========================
@@ -1865,9 +1860,324 @@ def generate_po_pdf(
     return pdf
 
 
+def _load_compliance_sources_from_df(df):
+    """Convert a structured compliance dataframe into repository records."""
+    from datetime import date
+
+    required = [
+        "state",
+        "scope",
+        "topic",
+        "answer",
+        "source_citation",
+        "source_url",
+        "last_updated",
+        "review_status",
+    ]
+
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    missing = [c for c in required if c not in cols]
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(missing)}")
+
+    repo = ComplianceRepository()
+    for _, row in df.iterrows():
+        raw_date = row[cols["last_updated"]]
+        parsed_date = pd.to_datetime(raw_date, errors="coerce")
+        if pd.isna(parsed_date):
+            parsed_date = pd.Timestamp(date.today())
+        repo.add(
+            ComplianceSource(
+                state=str(row[cols["state"]]).strip(),
+                scope=str(row[cols["scope"]]).strip().lower(),
+                topic=str(row[cols["topic"]]).strip(),
+                answer=str(row[cols["answer"]]).strip(),
+                source_citation=str(row[cols["source_citation"]]).strip(),
+                source_url=str(row[cols["source_url"]]).strip(),
+                last_updated=parsed_date.date(),
+                review_status=str(row[cols["review_status"]]).strip(),
+            )
+        )
+
+    return repo
+
+
+def _generate_grounded_compliance_response(repo, state, scope, topic, question):
+    """Return a structured compliance answer grounded in source records."""
+    matches = repo.query(state=state, scope=scope, topic=topic)
+    base_answer = format_compliance_answer(matches)
+
+    if not matches:
+        return base_answer
+
+    # Optional synthesis, still constrained by retrieved source rows.
+    if OPENAI_AVAILABLE and ai_client is not None:
+        context = "\n\n".join(
+            [
+                (
+                    f"State: {m.state}\n"
+                    f"Scope: {m.scope}\n"
+                    f"Topic: {m.topic}\n"
+                    f"Answer: {m.answer}\n"
+                    f"Citation: {m.source_citation}\n"
+                    f"URL: {m.source_url}\n"
+                    f"Last Updated: {m.last_updated.isoformat()}\n"
+                    f"Review: {m.review_status}"
+                )
+                for m in matches
+            ]
+        )
+        prompt = f"""
+Use only the provided source rows to answer the compliance question.
+Do not invent regulations.
+
+Question: {question}
+State: {state}
+Scope: {scope}
+Topic: {topic}
+
+Sources:
+{context}
+
+Output format:
+- Short answer
+- Bullet list of source-backed requirements
+- Include citation tags exactly as written in source rows
+- Include source URLs
+- Include last updated date and review status
+"""
+        try:
+            resp = ai_client.generate(
+                system_prompt=(
+                    "You are a cannabis compliance analyst. "
+                    "Only answer from provided structured sources."
+                ),
+                user_prompt=prompt,
+                max_tokens=700,
+            )
+            return f"{resp.text}\n\n---\n\nSource Records\n\n{base_answer}"
+        except Exception:
+            return base_answer
+
+    return base_answer
+
+
+
 # =========================
 # SIMPLE AI INVENTORY CHECK
 # =========================
+
+
+def _build_copilot_context(app_mode, section):
+    context_lines = [
+        f"App mode: {app_mode}",
+        f"Section: {section}",
+        f"Date: {datetime.utcnow().date().isoformat()}",
+    ]
+
+    inv_df = st.session_state.get("inv_raw_df")
+    sales_df = st.session_state.get("sales_raw_df")
+
+    if isinstance(inv_df, pd.DataFrame):
+        context_lines.append(f"Inventory rows loaded: {len(inv_df)}")
+        context_lines.append(f"Inventory columns: {', '.join(list(inv_df.columns[:20]))}")
+    if isinstance(sales_df, pd.DataFrame):
+        context_lines.append(f"Sales rows loaded: {len(sales_df)}")
+        context_lines.append(f"Sales columns: {', '.join(list(sales_df.columns[:20]))}")
+
+    return "\n".join(context_lines)
+
+
+def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
+    """Compute buyer-focused demand and risk signals from uploaded data."""
+    sales = sales_df_raw.copy()
+    sales.columns = sales.columns.astype(str).str.lower()
+
+    inv = None
+    if isinstance(inv_df_raw, pd.DataFrame):
+        inv = inv_df_raw.copy()
+        inv.columns = inv.columns.astype(str).str.lower()
+
+    sales_name_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
+    sales_qty_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
+    sales_cat_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_CAT_ALIASES])
+    sales_rev_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_REV_ALIASES])
+
+    if not (sales_name_col and sales_qty_col and sales_cat_col):
+        raise ValueError("Could not detect required sales columns (name, quantity, category).")
+
+    rename_map = {
+        sales_name_col: "product_name",
+        sales_qty_col: "units_sold",
+        sales_cat_col: "category",
+    }
+    if sales_rev_col:
+        rename_map[sales_rev_col] = "revenue"
+
+    sales = sales.rename(columns=rename_map)
+    sales["units_sold"] = pd.to_numeric(sales["units_sold"], errors="coerce").fillna(0)
+    if "revenue" in sales.columns:
+        sales["revenue"] = pd.to_numeric(sales["revenue"], errors="coerce").fillna(0)
+    else:
+        sales["revenue"] = 0.0
+
+    by_product = (
+        sales.groupby(["product_name", "category"], as_index=False)[["units_sold", "revenue"]]
+        .sum()
+        .sort_values("units_sold", ascending=False)
+    )
+
+    by_product["avg_daily_units"] = by_product["units_sold"] / max(int(lookback_days), 1)
+
+    if inv is not None:
+        inv_name_col = detect_column(inv.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+        inv_qty_col = detect_column(inv.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+        if inv_name_col and inv_qty_col:
+            inv = inv.rename(columns={inv_name_col: "product_name", inv_qty_col: "on_hand_units"})
+            inv["on_hand_units"] = pd.to_numeric(inv["on_hand_units"], errors="coerce").fillna(0)
+            inv_rollup = inv.groupby("product_name", as_index=False)["on_hand_units"].sum()
+            by_product = by_product.merge(inv_rollup, on="product_name", how="left")
+            by_product["on_hand_units"] = by_product["on_hand_units"].fillna(0)
+            by_product["days_of_cover"] = np.where(
+                by_product["avg_daily_units"] > 0,
+                by_product["on_hand_units"] / by_product["avg_daily_units"],
+                np.nan,
+            )
+        else:
+            by_product["on_hand_units"] = np.nan
+            by_product["days_of_cover"] = np.nan
+    else:
+        by_product["on_hand_units"] = np.nan
+        by_product["days_of_cover"] = np.nan
+
+    by_product["risk_flag"] = np.where(
+        by_product["days_of_cover"].notna() & (by_product["days_of_cover"] <= 14),
+        "Reorder Risk",
+        "Monitor",
+    )
+
+    by_category = (
+        by_product.groupby("category", as_index=False)[["units_sold", "revenue"]]
+        .sum()
+        .sort_values("units_sold", ascending=False)
+    )
+
+    summary = {
+        "total_units_sold": float(by_product["units_sold"].sum()),
+        "total_revenue": float(by_product["revenue"].sum()),
+        "at_risk_skus": int((by_product["risk_flag"] == "Reorder Risk").sum()),
+        "tracked_skus": int(len(by_product)),
+    }
+
+    return summary, by_category, by_product
+
+
+def _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days):
+    if not OPENAI_AVAILABLE or ai_client is None:
+        return "AI buyer brief unavailable. Configure an AI provider in the Main AI Copilot panel."
+
+    top_categories = by_category.head(8).to_dict(orient="records")
+    top_risks = by_product[by_product["risk_flag"] == "Reorder Risk"].head(20).to_dict(orient="records")
+
+    prompt = f"""
+Create a concise weekly buyer brief for a cannabis retail team.
+
+Lookback window: {lookback_days} days
+Summary: {json.dumps(summary, indent=2)}
+Top categories: {json.dumps(top_categories, indent=2)}
+At-risk SKUs: {json.dumps(top_risks, indent=2)}
+
+Output sections:
+1) Executive summary (3 bullets)
+2) Reorder now (top 5)
+3) Overstock/monitor watchouts
+4) Suggested buyer actions for next 7 days
+"""
+    try:
+        resp = ai_client.generate(
+            system_prompt="You are a senior cannabis retail inventory strategist.",
+            user_prompt=prompt,
+            max_tokens=700,
+        )
+        return resp.text
+    except Exception as exc:
+        return f"AI buyer brief failed: {exc}"
+
+
+def _run_main_ai_copilot(question, app_mode, section):
+    if not OPENAI_AVAILABLE or ai_client is None:
+        return (
+            "AI copilot is unavailable. Configure OPENAI_API_KEY or local Ollama, "
+            "then select a provider in AI Copilot settings."
+        )
+
+    context = _build_copilot_context(app_mode, section)
+    prompt = f"""
+You are the primary AI copilot for this private cannabis operations platform.
+Help with buying intelligence, extraction support, and compliance workflow guidance.
+
+Rules:
+- Keep answers actionable and concise.
+- Never invent regulations from memory.
+- If compliance is asked, require structured source evidence and cite missing fields.
+- Preserve current app workflows when suggesting operational changes.
+
+Workspace context:
+{context}
+
+User question:
+{question}
+"""
+
+    try:
+        resp = ai_client.generate(
+            system_prompt=(
+                "You are the main cannabis operations copilot for this app. "
+                "Ground recommendations in supplied context."
+            ),
+            user_prompt=prompt,
+            max_tokens=700,
+        )
+        return resp.text
+    except Exception as exc:
+        return f"AI copilot failed: {exc}"
+
+
+def render_main_ai_copilot(app_mode, section):
+    with st.sidebar.expander("🧠 Main AI Copilot", expanded=False):
+        st.caption("Use this assistant across buyer, compliance, and extraction workflows.")
+
+        provider_choice = st.selectbox(
+            "Provider",
+            ["auto", "openai", "ollama"],
+            index=["auto", "openai", "ollama"].index(st.session_state.get("preferred_ai_provider", "auto") if st.session_state.get("preferred_ai_provider", "auto") in ["auto", "openai", "ollama"] else "auto"),
+            key="preferred_ai_provider_selector",
+            help="auto tries OpenAI first (if key exists) then Ollama.",
+        )
+
+        if provider_choice == "auto":
+            st.session_state["preferred_ai_provider"] = None
+        else:
+            st.session_state["preferred_ai_provider"] = provider_choice
+
+        if st.button("Reconnect AI Provider", key="reconnect_ai_provider"):
+            init_openai_client()
+
+        st.write(f"Connected: {'Yes' if OPENAI_AVAILABLE else 'No'}")
+        if ai_provider is not None:
+            st.write(f"Provider: {getattr(ai_provider, 'provider_name', 'unknown')}")
+
+        question = st.text_area(
+            "Ask the AI copilot",
+            value="What should I focus on next in this section?",
+            key="main_ai_copilot_question",
+            height=100,
+        )
+        if st.button("Run Copilot", key="run_main_ai_copilot"):
+            answer = _run_main_ai_copilot(question, app_mode, section)
+            st.markdown(answer)
+
+
 def ai_inventory_check(detail_view, doh_threshold, data_source):
     """
     Send a small slice of the current table to the AI so it can
@@ -1931,15 +2241,12 @@ Tasks:
 """
 
     try:
-        resp = ai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a sharp, no-BS cannabis retail buyer coach."},
-                {"role": "user", "content": prompt},
-            ],
+        response = ai_client.generate(
+            system_prompt="You are a sharp, no-BS cannabis retail buyer coach.",
+            user_prompt=prompt,
             max_tokens=600,
         )
-        return resp.choices[0].message.content
+        return response.text
     except Exception as e:
         return f"AI check failed: {e}"
 
@@ -2625,6 +2932,7 @@ app_mode = st.radio(
 )
 
 if app_mode == "🧪 Extraction Command Center":
+    render_main_ai_copilot(app_mode, "🧪 Extraction Command Center")
     render_extraction_command_center()
     st.stop()
 
@@ -2655,9 +2963,13 @@ section = st.sidebar.radio(
         "🚚 Delivery Impact",
         "🐢 Slow Movers",
         "🧾 PO Builder",
+        "🧭 Compliance Q&A",
+        "🧠 Buyer Intelligence",
     ],
     index=0,
 )
+
+render_main_ai_copilot(app_mode, section)
 
 # ============================================================
 # PAGE 1 – INVENTORY DASHBOARD
@@ -4116,6 +4428,142 @@ if section == "📊 Inventory Dashboard":
     except Exception as e:
         st.error(f"Error: {e}")
 
+
+# ============================================================
+# PAGE 2A – COMPLIANCE Q&A
+# ============================================================
+elif section == "🧭 Compliance Q&A":
+    st.subheader("🧭 Compliance Q&A")
+    st.caption(
+        "Grounded compliance answers from structured sources only. "
+        "Upload reviewed source rows and query by state/scope/topic."
+    )
+
+    template_df = pd.DataFrame(
+        [
+            {
+                "state": "CA",
+                "scope": "adult-use",
+                "topic": "packaging",
+                "answer": "Child-resistant packaging is required before retail sale.",
+                "source_citation": "16 CCR § 17407",
+                "source_url": "https://cannabis.ca.gov/",
+                "last_updated": "2026-01-15",
+                "review_status": "reviewed",
+            }
+        ]
+    )
+
+    st.markdown("**Required source columns**: state, scope, topic, answer, source_citation, source_url, last_updated, review_status")
+
+    buf = BytesIO()
+    template_df.to_csv(buf, index=False)
+    st.download_button(
+        "Download compliance source template (CSV)",
+        data=buf.getvalue(),
+        file_name="compliance_sources_template.csv",
+        mime="text/csv",
+    )
+
+    source_file = st.file_uploader(
+        "Upload structured compliance sources (CSV)",
+        type=["csv"],
+        key="compliance_source_upload",
+    )
+
+    repo = None
+    if source_file is not None:
+        try:
+            source_df = pd.read_csv(source_file)
+            repo = _load_compliance_sources_from_df(source_df)
+            st.success(f"Loaded {len(source_df)} compliance source row(s).")
+            st.dataframe(source_df.head(100), use_container_width=True)
+        except Exception as exc:
+            st.error(f"Could not load compliance sources: {exc}")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        state = st.text_input("State", value="CA", key="compliance_state")
+    with c2:
+        scope = st.selectbox("Scope", ["adult-use", "medical"], key="compliance_scope")
+    with c3:
+        topic = st.text_input("Topic", value="packaging", key="compliance_topic")
+
+    question = st.text_area(
+        "Compliance question",
+        value="What are the packaging requirements for adult-use products?",
+        key="compliance_question",
+    )
+
+    if st.button("Answer from structured sources", key="compliance_ask"):
+        if repo is None:
+            st.warning("Upload structured compliance source rows first.")
+        else:
+            result = _generate_grounded_compliance_response(repo, state, scope, topic, question)
+            st.markdown(result)
+
+# ============================================================
+# PAGE 2B – BUYER INTELLIGENCE
+# ============================================================
+elif section == "🧠 Buyer Intelligence":
+    st.subheader("🧠 Buyer Intelligence")
+    st.caption("Demand, risk, and AI buyer brief generated from your uploaded sales/inventory data.")
+
+    sales_raw_df = st.session_state.sales_raw_df
+    inv_raw_df = st.session_state.inv_raw_df
+
+    if sales_raw_df is None:
+        st.info("Upload Product Sales data on Inventory Dashboard to use Buyer Intelligence.")
+        st.stop()
+
+    lookback_days = int(
+        st.sidebar.slider(
+            "Buyer intelligence lookback (days)",
+            min_value=14,
+            max_value=120,
+            value=60,
+            key="buyer_intel_lookback",
+        )
+    )
+
+    try:
+        summary, by_category, by_product = _compute_buyer_intelligence(
+            inv_df_raw=inv_raw_df,
+            sales_df_raw=sales_raw_df,
+            lookback_days=lookback_days,
+        )
+
+        k1, k2, k3, k4 = st.columns(4)
+        with k1:
+            kpi_card("Tracked SKUs", f"{summary['tracked_skus']:,}")
+        with k2:
+            kpi_card("Units Sold", f"{summary['total_units_sold']:,.0f}")
+        with k3:
+            kpi_card("Revenue", f"${summary['total_revenue']:,.0f}")
+        with k4:
+            kpi_card("Reorder Risk SKUs", f"{summary['at_risk_skus']:,}")
+
+        c1, c2 = st.columns([1, 1.4])
+        with c1:
+            st.markdown("#### Top Categories")
+            st.dataframe(by_category.head(20), use_container_width=True, hide_index=True)
+        with c2:
+            st.markdown("#### SKU Risk Table")
+            st.dataframe(
+                by_product.head(200),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        st.markdown("---")
+        st.markdown("### 🤖 AI Buyer Brief")
+        if st.button("Generate AI Buyer Brief", key="buyer_intel_ai_brief"):
+            with st.spinner("Generating buyer brief..."):
+                brief = _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days)
+            st.markdown(brief)
+
+    except Exception as exc:
+        st.error(f"Could not build buyer intelligence view: {exc}")
 
 # ============================================================
 # PAGE 2 – TRENDS
