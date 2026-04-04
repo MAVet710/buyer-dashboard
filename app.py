@@ -307,8 +307,12 @@ def _find_openai_key():
 def init_openai_client():
     global OPENAI_AVAILABLE, ai_client, ai_provider
 
-    # Local-only AI mode: always use Ollama for in-app AI features.
-    ai_provider = build_provider("ollama", None)
+    key, _where = _find_openai_key()
+    preferred_provider = st.session_state.get("preferred_ai_provider")
+    if not preferred_provider:
+        preferred_provider = os.environ.get("AI_PROVIDER", "").strip().lower() or None
+
+    ai_provider = build_provider(preferred_provider, key)
     OPENAI_AVAILABLE = ai_provider is not None
     ai_client = ai_provider
 
@@ -2012,12 +2016,11 @@ Output format:
 
 
 def _generate_ai_with_quota_fallback(system_prompt, user_prompt, max_tokens=700):
-    """Generate AI output in local-only mode (Ollama)."""
+    """Generate AI output and fallback to Ollama if OpenAI quota is exceeded."""
+    global ai_client, ai_provider, OPENAI_AVAILABLE
+
     if not OPENAI_AVAILABLE or ai_client is None:
-        raise RuntimeError(
-            "Local AI is unavailable. Start Ollama and ensure a model is pulled "
-            "(example: `ollama pull llama3.1`)."
-        )
+        raise RuntimeError("AI provider unavailable")
 
     try:
         return ai_client.generate(
@@ -2026,11 +2029,48 @@ def _generate_ai_with_quota_fallback(system_prompt, user_prompt, max_tokens=700)
             max_tokens=max_tokens,
         )
     except Exception as exc:
-        raise RuntimeError(
-            "Local AI request failed. Verify Ollama is running at localhost:11434 "
-            "and model is available. "
-            f"Details: {exc}"
-        )
+        msg = str(exc).lower()
+        if "insufficient_quota" in msg or "error code: 429" in msg:
+            try:
+                fallback = build_provider("ollama", None)
+                if fallback is not None:
+                    ai_provider = fallback
+                    ai_client = fallback
+                    OPENAI_AVAILABLE = True
+                    return ai_client.generate(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        max_tokens=max_tokens,
+                    )
+            except Exception:
+                pass
+            raise RuntimeError(
+                "OpenAI quota exceeded (429 insufficient_quota). "
+                "Switched to local fallback if available; otherwise configure Ollama "
+                "or set AI_API_KEY with available quota."
+            )
+
+        # If local Ollama is selected but not running, try OpenAI as fallback.
+        if "connection refused" in msg or "max retries exceeded" in msg:
+            try:
+                key, _ = _find_openai_key()
+                fallback = build_provider("openai", key)
+                if fallback is not None:
+                    ai_provider = fallback
+                    ai_client = fallback
+                    OPENAI_AVAILABLE = True
+                    return ai_client.generate(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        max_tokens=max_tokens,
+                    )
+            except Exception:
+                pass
+            raise RuntimeError(
+                "Local Ollama is not reachable at localhost:11434. "
+                "Start Ollama or switch provider to OpenAI in Main AI Copilot settings."
+            )
+        raise
 
 
 def _build_copilot_context(app_mode, section):
@@ -2051,14 +2091,6 @@ def _build_copilot_context(app_mode, section):
         context_lines.append(f"Sales columns: {', '.join(list(sales_df.columns[:20]))}")
 
     return "\n".join(context_lines)
-
-
-def _get_local_copilot_provider():
-    """Main copilot is always backed by local Ollama."""
-    try:
-        return build_provider("ollama", None)
-    except Exception:
-        return None
 
 
 def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
@@ -2178,11 +2210,10 @@ Output sections:
 
 
 def _run_main_ai_copilot(question, app_mode, section):
-    local_provider = _get_local_copilot_provider()
-    if local_provider is None:
+    if not OPENAI_AVAILABLE or ai_client is None:
         return (
-            "Local AI copilot is unavailable. Start Ollama and ensure your model is pulled "
-            "(e.g., `ollama pull llama3.1`)."
+            "AI copilot is unavailable. Configure AI_API_KEY (or OPENAI_API_KEY) or local Ollama, "
+            "then select a provider in AI Copilot settings."
         )
 
     context = _build_copilot_context(app_mode, section)
@@ -2204,9 +2235,9 @@ User question:
 """
 
     try:
-        resp = local_provider.generate(
+        resp = _generate_ai_with_quota_fallback(
             system_prompt=(
-                "You are the main local cannabis operations copilot for this app. "
+                "You are the main cannabis operations copilot for this app. "
                 "Ground recommendations in supplied context."
             ),
             user_prompt=prompt,
@@ -2214,21 +2245,32 @@ User question:
         )
         return resp.text
     except Exception as exc:
-        return (
-            "Local AI copilot request failed. Verify Ollama is running at "
-            "http://localhost:11434 and the configured model exists. "
-            f"Details: {exc}"
-        )
+        return f"AI copilot failed: {exc}"
 
 
 def render_main_ai_copilot(app_mode, section):
     with st.sidebar.expander("🧠 Main AI Copilot", expanded=False):
-        st.caption("Main copilot is powered by your local Ollama model.")
-        st.write("Provider: ollama (local)")
-        st.write(f"Endpoint: {os.environ.get('OLLAMA_ENDPOINT', 'http://localhost:11434/api/generate')}")
+        st.caption("Use this assistant across buyer, compliance, and extraction workflows.")
 
-        local_ok = _get_local_copilot_provider() is not None
-        st.write(f"Connected: {'Yes' if local_ok else 'No'}")
+        provider_choice = st.selectbox(
+            "Provider",
+            ["auto", "openai", "ollama"],
+            index=["auto", "openai", "ollama"].index(st.session_state.get("preferred_ai_provider", "auto") if st.session_state.get("preferred_ai_provider", "auto") in ["auto", "openai", "ollama"] else "auto"),
+            key="preferred_ai_provider_selector",
+            help="auto tries OpenAI first (if key exists) then Ollama.",
+        )
+
+        if provider_choice == "auto":
+            st.session_state["preferred_ai_provider"] = None
+        else:
+            st.session_state["preferred_ai_provider"] = provider_choice
+
+        if st.button("Reconnect AI Provider", key="reconnect_ai_provider"):
+            init_openai_client()
+
+        st.write(f"Connected: {'Yes' if OPENAI_AVAILABLE else 'No'}")
+        if ai_provider is not None:
+            st.write(f"Provider: {getattr(ai_provider, 'provider_name', 'unknown')}")
 
         question = st.text_area(
             "Ask the AI copilot",
@@ -2248,7 +2290,8 @@ def ai_inventory_check(detail_view, doh_threshold, data_source):
     """
     if not OPENAI_AVAILABLE or ai_client is None:
         return (
-            "AI is not enabled. Local mode requires Ollama running at localhost:11434."
+            "AI is not enabled. Add AI_API_KEY (or OPENAI_API_KEY) to Streamlit secrets "
+            "to turn on the buyer-assist checks."
         )
 
     sample = detail_view.copy()
@@ -2332,7 +2375,7 @@ if st.session_state.get("is_admin", False):
         key2 = bool(os.environ.get("AI_API_KEY", "").strip() or os.environ.get("OPENAI_API_KEY", "").strip())
         st.write(f"Secrets has AI_API_KEY/OPENAI_API_KEY: {key1}")
         st.write(f"Env has AI_API_KEY/OPENAI_API_KEY: {key2}")
-        st.write(f"Local provider connected: {OPENAI_AVAILABLE}")
+        st.write(f"Using key: {OPENAI_AVAILABLE}")
         if where:
             st.write(f"Found via: {where}")
 
@@ -4571,7 +4614,8 @@ if section == "📊 Inventory Dashboard":
                 st.markdown(ai_summary)
         else:
             st.info(
-                "AI buyer-assist is disabled because local Ollama is not reachable at localhost:11434."
+                "AI buyer-assist is disabled because no `AI_API_KEY` (or `OPENAI_API_KEY`) was found in "
+                "Streamlit secrets or environment."
             )
 
     except Exception as e:
@@ -4725,22 +4769,6 @@ elif section == "🛠️ Admin Tools":
         st.stop()
 
     st.caption("Provider diagnostics, compliance source QA, and operational admin utilities.")
-    st.info(f"Local app URL: {LOCAL_APP_URL}")
-
-    st.markdown("### Milestone Tracker")
-    milestone_df = pd.DataFrame(
-        [
-            ["Repository audit", "✅ Complete"],
-            ["Compliance data layer", "✅ Complete"],
-            ["Compliance Q&A page", "✅ Complete"],
-            ["AI provider abstraction", "✅ Complete"],
-            ["Buyer intelligence", "✅ Complete"],
-            ["Extraction module", "✅ Complete"],
-            ["Admin tools", "✅ Complete"],
-        ],
-        columns=["Milestone", "Status"],
-    )
-    st.dataframe(milestone_df, use_container_width=True, hide_index=True)
 
     a1, a2 = st.columns(2)
     with a1:
