@@ -2046,6 +2046,27 @@ def _generate_ai_with_quota_fallback(system_prompt, user_prompt, max_tokens=700)
                 "Switched to local fallback if available; otherwise configure Ollama "
                 "or set AI_API_KEY with available quota."
             )
+
+        # If local Ollama is selected but not running, try OpenAI as fallback.
+        if "connection refused" in msg or "max retries exceeded" in msg:
+            try:
+                key, _ = _find_openai_key()
+                fallback = build_provider("openai", key)
+                if fallback is not None:
+                    ai_provider = fallback
+                    ai_client = fallback
+                    OPENAI_AVAILABLE = True
+                    return ai_client.generate(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        max_tokens=max_tokens,
+                    )
+            except Exception:
+                pass
+            raise RuntimeError(
+                "Local Ollama is not reachable at localhost:11434. "
+                "Start Ollama or switch provider to OpenAI in Main AI Copilot settings."
+            )
         raise
 
 
@@ -2620,6 +2641,16 @@ if st.session_state.is_admin:
                     mime="application/octet-stream",
                 )
 
+
+
+def kpi_card(label: str, value, help_text: str = ""):
+    """Reusable compact KPI tile."""
+    with st.container(border=True):
+        st.caption(label)
+        st.markdown(f"### {value}")
+        if help_text:
+            st.caption(help_text)
+
 # ============================================================
 # EXTRA MODULE – EXTRACTION COMMAND CENTER
 # ============================================================
@@ -2688,23 +2719,6 @@ Output sections:
 
 
 def render_extraction_command_center():
-    def kpi_card(label: str, value, help_text: str = ""):
-        with st.container(border=True):
-            st.markdown(
-                f"""
-                <div style="padding: 0.25rem 0 0.1rem 0;">
-                    <div style="font-size: 0.85rem; opacity: 0.75; letter-spacing: 0.06em; text-transform: uppercase;">
-                        {label}
-                    </div>
-                    <div style="font-size: 2rem; font-weight: 700; line-height: 1.1; margin-top: 0.25rem;">
-                        {value}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if help_text:
-                st.caption(help_text)
 
     if "ecc_run_log" not in st.session_state:
         st.session_state.ecc_run_log = pd.DataFrame(

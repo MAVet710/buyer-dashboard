@@ -63,7 +63,14 @@ class OllamaProvider(AIProvider):
         self._model = model
 
     def is_available(self) -> bool:
-        return bool(self._endpoint and self._model)
+        if not (self._endpoint and self._model):
+            return False
+        try:
+            base = self._endpoint.split("/api/")[0]
+            r = self._requests.get(f"{base}/api/tags", timeout=2)
+            return r.status_code == 200
+        except Exception:
+            return False
 
     def generate(self, system_prompt: str, user_prompt: str, max_tokens: int = 600) -> AIResponse:
         payload = {
