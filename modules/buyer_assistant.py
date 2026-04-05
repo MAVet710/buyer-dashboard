@@ -1,6 +1,5 @@
 from ai.llm_client import get_chat_model, get_llm_client
 
-
 SYSTEM_PROMPT = """
 You are a cannabis buyer intelligence assistant.
 
