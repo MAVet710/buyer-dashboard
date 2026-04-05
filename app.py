@@ -5,6 +5,7 @@ import re
 import json
 import os
 import sys
+import requests
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from io import BytesIO
@@ -2592,7 +2593,7 @@ if st.session_state.get("_daily_restore_msg"):
 if OPENAI_AVAILABLE:
     st.markdown("✅ AI buyer-assist is **ON** for this session.")
 else:
-    st.markdown("⚠️ AI buyer-assist is **OFF** (no API key detected).")
+    st.markdown("⚠️ AI buyer-assist is **OFF** (local Ollama not reachable).")
 st.markdown("---")
 
 with st.sidebar.expander("🔗 Local App Link", expanded=False):
