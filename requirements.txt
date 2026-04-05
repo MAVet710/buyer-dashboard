@@ -14,4 +14,3 @@ altair>=5.0.0
 bcrypt>=4.0.0
 requests>=2.31.0
 chromadb>=0.5.5
-python-dotenv>=1.0.1
