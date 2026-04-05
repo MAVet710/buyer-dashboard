@@ -5,7 +5,6 @@ import chromadb
 from ai.embedder import get_embedding
 
 
-
 def get_chroma_collection():
     db_path = os.getenv("VECTOR_DB_PATH", "./data/vectorstore/chroma_db")
     client = chromadb.PersistentClient(path=db_path)
