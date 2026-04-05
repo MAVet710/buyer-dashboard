@@ -313,6 +313,7 @@ def _find_openai_key():
 
 
 def init_openai_client():
+    def init_openai_client():
     global OPENAI_AVAILABLE, ai_client, ai_provider
 
     key, _where = _find_openai_key()
