@@ -4,7 +4,6 @@ from typing import List
 import requests
 
 
-
 def get_embedding(text: str) -> List[float]:
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
     model = os.getenv("OLLAMA_EMBED_MODEL", "embeddinggemma")
