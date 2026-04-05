@@ -5,9 +5,17 @@ import re
 import json
 import os
 import sys
+import requests
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from io import BytesIO
+from dotenv import load_dotenv
+
+from ai_providers import build_provider
+from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
+
+load_dotenv()
+os.environ["AI_PROVIDER"] = "ollama"
 
 # For PDF generation
 from reportlab.lib.pagesizes import letter
@@ -25,10 +33,11 @@ except Exception:
     PLOTLY_AVAILABLE = False
 
 # ------------------------------------------------------------
-# OPTIONAL / SAFE IMPORT FOR OPENAI (AI INVENTORY CHECK)
+# AI PROVIDER ABSTRACTION (AI INVENTORY CHECK)
 # ------------------------------------------------------------
 OPENAI_AVAILABLE = False
 ai_client = None
+ai_provider = None
 
 # ------------------------------------------------------------
 # OPTIONAL / SAFE IMPORT FOR BCRYPT (PASSWORD HASHING)
@@ -249,21 +258,29 @@ PRODUCT_TABLE_DISPLAY_LIMIT = 2000
 # Minimum on-hand units threshold for flagging a PO line for review
 PO_REVIEW_THRESHOLD = 15
 
+# Local app URL for self-hosted deployment links
+LOCAL_APP_URL = os.environ.get("LOCAL_APP_URL", "http://localhost:8501")
+
 
 def _find_openai_key():
     """
-    Robust key lookup:
-    1) st.secrets["OPENAI_API_KEY"] at top-level
-    2) Any nested table that contains OPENAI_API_KEY
-    3) os.environ["OPENAI_API_KEY"]
+    Robust key lookup for AI provider credentials.
+
+    Search order supports both legacy and project-specific key names:
+    1) st.secrets["AI_API_KEY"] / st.secrets["OPENAI_API_KEY"] at top-level
+    2) Any nested table containing either key name
+    3) os.environ["AI_API_KEY"] / os.environ["OPENAI_API_KEY"]
     Returns (key or None, where_found_str)
     """
+    key_names = ["AI_API_KEY", "OPENAI_API_KEY"]
+
     # 1) top-level
     try:
-        if "OPENAI_API_KEY" in st.secrets:
-            k = str(st.secrets["OPENAI_API_KEY"]).strip()
-            if k:
-                return k, "secrets:top"
+        for key_name in key_names:
+            if key_name in st.secrets:
+                k = str(st.secrets[key_name]).strip()
+                if k:
+                    return k, f"secrets:top:{key_name}"
     except Exception:
         pass
 
@@ -272,43 +289,42 @@ def _find_openai_key():
         for k0 in list(st.secrets.keys()):
             try:
                 v = st.secrets.get(k0)
-                if isinstance(v, dict) and "OPENAI_API_KEY" in v:
-                    k = str(v["OPENAI_API_KEY"]).strip()
-                    if k:
-                        return k, f"secrets:{k0}"
+                if isinstance(v, dict):
+                    for key_name in key_names:
+                        if key_name in v:
+                            k = str(v[key_name]).strip()
+                            if k:
+                                return k, f"secrets:{k0}:{key_name}"
             except Exception:
                 continue
     except Exception:
         pass
 
     # 3) env
-    envk = os.environ.get("OPENAI_API_KEY", "").strip()
-    if envk:
-        return envk, "env"
+    for key_name in key_names:
+        envk = os.environ.get(key_name, "").strip()
+        if envk:
+            return envk, f"env:{key_name}"
 
     return None, None
 
 
-def init_openai_client():
-    global OPENAI_AVAILABLE, ai_client
+def check_ollama_connection() -> bool:
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
     try:
-        from openai import OpenAI  # type: ignore
+        r = requests.get(f"{base_url}/api/tags", timeout=3)
+        return r.status_code == 200
     except Exception:
-        OPENAI_AVAILABLE = False
-        ai_client = None
-        return
+        return False
 
-    key, _where = _find_openai_key()
-    if key:
-        try:
-            ai_client = OpenAI(api_key=key)
-            OPENAI_AVAILABLE = True
-        except Exception:
-            OPENAI_AVAILABLE = False
-            ai_client = None
-    else:
-        OPENAI_AVAILABLE = False
-        ai_client = None
+
+def init_openai_client():
+    global OPENAI_AVAILABLE, ai_client, ai_provider
+
+    # Local-only AI mode: always use Ollama for in-app AI features.
+    ai_provider = build_provider("ollama", None)
+    ai_client = ai_provider
+    OPENAI_AVAILABLE = bool(ai_provider is not None and check_ollama_connection())
 
 
 # =========================
@@ -1865,9 +1881,383 @@ def generate_po_pdf(
     return pdf
 
 
+def _load_compliance_sources_from_df(df):
+    """Convert a structured compliance dataframe into repository records."""
+    from datetime import date
+
+    required = [
+        "state",
+        "scope",
+        "topic",
+        "answer",
+        "source_citation",
+        "source_url",
+        "last_updated",
+        "review_status",
+    ]
+
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    missing = [c for c in required if c not in cols]
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(missing)}")
+
+    repo = ComplianceRepository()
+    for _, row in df.iterrows():
+        raw_date = row[cols["last_updated"]]
+        parsed_date = pd.to_datetime(raw_date, errors="coerce")
+        if pd.isna(parsed_date):
+            parsed_date = pd.Timestamp(date.today())
+        repo.add(
+            ComplianceSource(
+                state=str(row[cols["state"]]).strip(),
+                scope=str(row[cols["scope"]]).strip().lower(),
+                topic=str(row[cols["topic"]]).strip(),
+                answer=str(row[cols["answer"]]).strip(),
+                source_citation=str(row[cols["source_citation"]]).strip(),
+                source_url=str(row[cols["source_url"]]).strip(),
+                last_updated=parsed_date.date(),
+                review_status=str(row[cols["review_status"]]).strip(),
+            )
+        )
+
+    return repo
+
+
+def _audit_compliance_source_df(df):
+    """Return admin validation results for a compliance source dataframe."""
+    required = [
+        "state",
+        "scope",
+        "topic",
+        "answer",
+        "source_citation",
+        "source_url",
+        "last_updated",
+        "review_status",
+    ]
+    cols = [str(c).strip().lower() for c in df.columns]
+    missing = [c for c in required if c not in cols]
+
+    report = {
+        "missing_columns": missing,
+        "row_count": int(len(df)),
+        "duplicate_rows": 0,
+        "blank_critical_rows": 0,
+    }
+
+    if not missing and not df.empty:
+        local_df = df.copy()
+        local_df.columns = cols
+
+        dup_subset = ["state", "scope", "topic", "source_citation"]
+        report["duplicate_rows"] = int(local_df.duplicated(subset=dup_subset, keep=False).sum())
+
+        critical = local_df[["state", "scope", "topic", "answer", "source_citation", "source_url"]].copy()
+        blank_mask = critical.applymap(lambda x: str(x).strip() == "" or str(x).strip().lower() == "nan").any(axis=1)
+        report["blank_critical_rows"] = int(blank_mask.sum())
+
+    return report
+
+
+def _generate_grounded_compliance_response(repo, state, scope, topic, question):
+    """Return a structured compliance answer grounded in source records."""
+    matches = repo.query(state=state, scope=scope, topic=topic)
+    base_answer = format_compliance_answer(matches)
+
+    if not matches:
+        return base_answer
+
+    # Optional synthesis, still constrained by retrieved source rows.
+    if OPENAI_AVAILABLE and ai_client is not None:
+        context = "\n\n".join(
+            [
+                (
+                    f"State: {m.state}\n"
+                    f"Scope: {m.scope}\n"
+                    f"Topic: {m.topic}\n"
+                    f"Answer: {m.answer}\n"
+                    f"Citation: {m.source_citation}\n"
+                    f"URL: {m.source_url}\n"
+                    f"Last Updated: {m.last_updated.isoformat()}\n"
+                    f"Review: {m.review_status}"
+                )
+                for m in matches
+            ]
+        )
+        prompt = f"""
+Use only the provided source rows to answer the compliance question.
+Do not invent regulations.
+
+Question: {question}
+State: {state}
+Scope: {scope}
+Topic: {topic}
+
+Sources:
+{context}
+
+Output format:
+- Short answer
+- Bullet list of source-backed requirements
+- Include citation tags exactly as written in source rows
+- Include source URLs
+- Include last updated date and review status
+"""
+        try:
+            resp = _generate_ai_with_quota_fallback(
+                system_prompt=(
+                    "You are a cannabis compliance analyst. "
+                    "Only answer from provided structured sources."
+                ),
+                user_prompt=prompt,
+                max_tokens=700,
+            )
+            return f"{resp.text}\n\n---\n\nSource Records\n\n{base_answer}"
+        except Exception:
+            return base_answer
+
+    return base_answer
+
+
+
 # =========================
 # SIMPLE AI INVENTORY CHECK
 # =========================
+
+
+def _generate_ai_with_quota_fallback(system_prompt, user_prompt, max_tokens=700):
+    """Generate AI output in local-only mode (Ollama)."""
+    if ai_client is None:
+        init_openai_client()
+
+    if ai_client is None or not check_ollama_connection():
+        raise RuntimeError(
+            "Local AI is unavailable. Start Ollama and ensure a model is pulled "
+            "(example: `ollama pull llama3.1`)."
+        )
+
+    try:
+        return ai_client.generate(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Local AI request failed. Verify Ollama is running at localhost:11434 "
+            "and model is available. "
+            f"Details: {exc}"
+        )
+
+
+def _build_copilot_context(app_mode, section):
+    context_lines = [
+        f"App mode: {app_mode}",
+        f"Section: {section}",
+        f"Date: {datetime.utcnow().date().isoformat()}",
+    ]
+
+    inv_df = st.session_state.get("inv_raw_df")
+    sales_df = st.session_state.get("sales_raw_df")
+
+    if isinstance(inv_df, pd.DataFrame):
+        context_lines.append(f"Inventory rows loaded: {len(inv_df)}")
+        context_lines.append(f"Inventory columns: {', '.join(list(inv_df.columns[:20]))}")
+    if isinstance(sales_df, pd.DataFrame):
+        context_lines.append(f"Sales rows loaded: {len(sales_df)}")
+        context_lines.append(f"Sales columns: {', '.join(list(sales_df.columns[:20]))}")
+
+    return "\n".join(context_lines)
+
+
+def _get_local_copilot_provider():
+    """Main copilot is always backed by local Ollama."""
+    try:
+        return build_provider("ollama", None)
+    except Exception:
+        return None
+
+
+def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
+    """Compute buyer-focused demand and risk signals from uploaded data."""
+    sales = sales_df_raw.copy()
+    sales.columns = sales.columns.astype(str).str.lower()
+
+    inv = None
+    if isinstance(inv_df_raw, pd.DataFrame):
+        inv = inv_df_raw.copy()
+        inv.columns = inv.columns.astype(str).str.lower()
+
+    sales_name_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
+    sales_qty_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
+    sales_cat_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_CAT_ALIASES])
+    sales_rev_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_REV_ALIASES])
+
+    if not (sales_name_col and sales_qty_col and sales_cat_col):
+        raise ValueError("Could not detect required sales columns (name, quantity, category).")
+
+    rename_map = {
+        sales_name_col: "product_name",
+        sales_qty_col: "units_sold",
+        sales_cat_col: "category",
+    }
+    if sales_rev_col:
+        rename_map[sales_rev_col] = "revenue"
+
+    sales = sales.rename(columns=rename_map)
+    sales["units_sold"] = pd.to_numeric(sales["units_sold"], errors="coerce").fillna(0)
+    if "revenue" in sales.columns:
+        sales["revenue"] = pd.to_numeric(sales["revenue"], errors="coerce").fillna(0)
+    else:
+        sales["revenue"] = 0.0
+
+    by_product = (
+        sales.groupby(["product_name", "category"], as_index=False)[["units_sold", "revenue"]]
+        .sum()
+        .sort_values("units_sold", ascending=False)
+    )
+
+    by_product["avg_daily_units"] = by_product["units_sold"] / max(int(lookback_days), 1)
+
+    if inv is not None:
+        inv_name_col = detect_column(inv.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+        inv_qty_col = detect_column(inv.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+        if inv_name_col and inv_qty_col:
+            inv = inv.rename(columns={inv_name_col: "product_name", inv_qty_col: "on_hand_units"})
+            inv["on_hand_units"] = pd.to_numeric(inv["on_hand_units"], errors="coerce").fillna(0)
+            inv_rollup = inv.groupby("product_name", as_index=False)["on_hand_units"].sum()
+            by_product = by_product.merge(inv_rollup, on="product_name", how="left")
+            by_product["on_hand_units"] = by_product["on_hand_units"].fillna(0)
+            by_product["days_of_cover"] = np.where(
+                by_product["avg_daily_units"] > 0,
+                by_product["on_hand_units"] / by_product["avg_daily_units"],
+                np.nan,
+            )
+        else:
+            by_product["on_hand_units"] = np.nan
+            by_product["days_of_cover"] = np.nan
+    else:
+        by_product["on_hand_units"] = np.nan
+        by_product["days_of_cover"] = np.nan
+
+    by_product["risk_flag"] = np.where(
+        by_product["days_of_cover"].notna() & (by_product["days_of_cover"] <= 14),
+        "Reorder Risk",
+        "Monitor",
+    )
+
+    by_category = (
+        by_product.groupby("category", as_index=False)[["units_sold", "revenue"]]
+        .sum()
+        .sort_values("units_sold", ascending=False)
+    )
+
+    summary = {
+        "total_units_sold": float(by_product["units_sold"].sum()),
+        "total_revenue": float(by_product["revenue"].sum()),
+        "at_risk_skus": int((by_product["risk_flag"] == "Reorder Risk").sum()),
+        "tracked_skus": int(len(by_product)),
+    }
+
+    return summary, by_category, by_product
+
+
+def _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days):
+    if not OPENAI_AVAILABLE or ai_client is None:
+        return "AI buyer brief unavailable. Configure an AI provider in the Main AI Copilot panel."
+
+    top_categories = by_category.head(8).to_dict(orient="records")
+    top_risks = by_product[by_product["risk_flag"] == "Reorder Risk"].head(20).to_dict(orient="records")
+
+    prompt = f"""
+Create a concise weekly buyer brief for a cannabis retail team.
+
+Lookback window: {lookback_days} days
+Summary: {json.dumps(summary, indent=2)}
+Top categories: {json.dumps(top_categories, indent=2)}
+At-risk SKUs: {json.dumps(top_risks, indent=2)}
+
+Output sections:
+1) Executive summary (3 bullets)
+2) Reorder now (top 5)
+3) Overstock/monitor watchouts
+4) Suggested buyer actions for next 7 days
+"""
+    try:
+        resp = _generate_ai_with_quota_fallback(
+            system_prompt="You are a senior cannabis retail inventory strategist.",
+            user_prompt=prompt,
+            max_tokens=700,
+        )
+        return resp.text
+    except Exception as exc:
+        return f"AI buyer brief failed: {exc}"
+
+
+def _run_main_ai_copilot(question, app_mode, section):
+    local_provider = _get_local_copilot_provider()
+    if local_provider is None:
+        return (
+            "Local AI copilot is unavailable. Start Ollama and ensure your model is pulled "
+            "(e.g., `ollama pull llama3.1`)."
+        )
+
+    context = _build_copilot_context(app_mode, section)
+    prompt = f"""
+You are the primary AI copilot for this private cannabis operations platform.
+Help with buying intelligence, extraction support, and compliance workflow guidance.
+
+Rules:
+- Keep answers actionable and concise.
+- Never invent regulations from memory.
+- If compliance is asked, require structured source evidence and cite missing fields.
+- Preserve current app workflows when suggesting operational changes.
+
+Workspace context:
+{context}
+
+User question:
+{question}
+"""
+
+    try:
+        resp = local_provider.generate(
+            system_prompt=(
+                "You are the main local cannabis operations copilot for this app. "
+                "Ground recommendations in supplied context."
+            ),
+            user_prompt=prompt,
+            max_tokens=700,
+        )
+        return resp.text
+    except Exception as exc:
+        return (
+            "Local AI copilot request failed. Verify Ollama is running at "
+            "http://localhost:11434 and the configured model exists. "
+            f"Details: {exc}"
+        )
+
+
+def render_main_ai_copilot(app_mode, section):
+    with st.sidebar.expander("🧠 Main AI Copilot", expanded=False):
+        st.caption("Main copilot is powered by your local Ollama model.")
+        st.write("Provider: ollama (local)")
+        st.write(f"Endpoint: {os.environ.get('OLLAMA_ENDPOINT', 'http://localhost:11434/api/generate')}")
+
+        local_ok = check_ollama_connection()
+        st.write(f"Connected: {'Yes' if local_ok else 'No'}")
+
+        question = st.text_area(
+            "Ask the AI copilot",
+            value="What should I focus on next in this section?",
+            key="main_ai_copilot_question",
+            height=100,
+        )
+        if st.button("Run Copilot", key="run_main_ai_copilot"):
+            answer = _run_main_ai_copilot(question, app_mode, section)
+            st.markdown(answer)
+
+
 def ai_inventory_check(detail_view, doh_threshold, data_source):
     """
     Send a small slice of the current table to the AI so it can
@@ -1875,8 +2265,7 @@ def ai_inventory_check(detail_view, doh_threshold, data_source):
     """
     if not OPENAI_AVAILABLE or ai_client is None:
         return (
-            "AI is not enabled. Add OPENAI_API_KEY to Streamlit secrets "
-            "to turn on the buyer-assist checks."
+            "AI is not enabled. Local mode requires Ollama running at localhost:11434."
         )
 
     sample = detail_view.copy()
@@ -1931,15 +2320,12 @@ Tasks:
 """
 
     try:
-        resp = ai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a sharp, no-BS cannabis retail buyer coach."},
-                {"role": "user", "content": prompt},
-            ],
+        response = _generate_ai_with_quota_fallback(
+            system_prompt="You are a sharp, no-BS cannabis retail buyer coach.",
+            user_prompt=prompt,
             max_tokens=600,
         )
-        return resp.choices[0].message.content
+        return response.text
     except Exception as e:
         return f"AI check failed: {e}"
 
@@ -1960,10 +2346,10 @@ if st.session_state.get("is_admin", False):
             key1 = bool(key)
         except Exception:
             key1 = False
-        key2 = bool(os.environ.get("OPENAI_API_KEY", "").strip())
-        st.write(f"Secrets has OPENAI_API_KEY: {key1}")
-        st.write(f"Env has OPENAI_API_KEY: {key2}")
-        st.write(f"Using key: {OPENAI_AVAILABLE}")
+        key2 = bool(os.environ.get("AI_API_KEY", "").strip() or os.environ.get("OPENAI_API_KEY", "").strip())
+        st.write(f"Secrets has AI_API_KEY/OPENAI_API_KEY: {key1}")
+        st.write(f"Env has AI_API_KEY/OPENAI_API_KEY: {key2}")
+        st.write(f"Local provider connected: {OPENAI_AVAILABLE}")
         if where:
             st.write(f"Found via: {where}")
 
@@ -2171,8 +2557,12 @@ if st.session_state.get("_daily_restore_msg"):
 if OPENAI_AVAILABLE:
     st.markdown("✅ AI buyer-assist is **ON** for this session.")
 else:
-    st.markdown("⚠️ AI buyer-assist is **OFF** (no API key detected).")
+    st.markdown("⚠️ AI buyer-assist is **OFF** (local Ollama not reachable).")
 st.markdown("---")
+
+with st.sidebar.expander("🔗 Local App Link", expanded=False):
+    st.write(f"Local URL: {LOCAL_APP_URL}")
+    st.markdown(f"[Open local app]({LOCAL_APP_URL})")
 
 if not PLOTLY_AVAILABLE:
     st.warning(
@@ -2232,27 +2622,84 @@ if st.session_state.is_admin:
                     mime="application/octet-stream",
                 )
 
+
+
+def kpi_card(label: str, value, help_text: str = ""):
+    """Reusable compact KPI tile."""
+    with st.container(border=True):
+        st.caption(label)
+        st.markdown(f"### {value}")
+        if help_text:
+            st.caption(help_text)
+
 # ============================================================
 # EXTRA MODULE – EXTRACTION COMMAND CENTER
 # ============================================================
+def _compute_extraction_alerts(run_df, job_df):
+    """Compute operational extraction alerts for leadership and shift teams."""
+    alerts = []
+    if run_df is None or run_df.empty:
+        return alerts
+
+    if "yield_pct" in run_df.columns:
+        low_yield = run_df[run_df["yield_pct"] < 12]
+        if not low_yield.empty:
+            alerts.append(f"Low yield runs: {len(low_yield)} below 12% yield.")
+
+    if "qa_hold" in run_df.columns:
+        qa_holds = int(run_df["qa_hold"].fillna(False).sum())
+        if qa_holds > 0:
+            alerts.append(f"QA holds active: {qa_holds} run(s).")
+
+    if "coa_status" in run_df.columns:
+        pending_or_failed = int(run_df["coa_status"].isin(["Pending", "Failed"]).sum())
+        if pending_or_failed > 0:
+            alerts.append(f"COA risk: {pending_or_failed} run(s) pending/failed.")
+
+    if job_df is not None and not job_df.empty and "sla_status" in job_df.columns:
+        at_risk_jobs = int((job_df["sla_status"] == "At Risk").sum())
+        if at_risk_jobs > 0:
+            alerts.append(f"Toll jobs at SLA risk: {at_risk_jobs}.")
+
+    return alerts
+
+
+def _generate_extraction_ai_brief(run_df, job_df, alerts):
+    if not OPENAI_AVAILABLE or ai_client is None:
+        return "AI extraction brief unavailable. Configure provider in the Main AI Copilot panel."
+
+    run_preview = run_df.head(50).to_dict(orient="records") if run_df is not None else []
+    job_preview = job_df.head(50).to_dict(orient="records") if job_df is not None else []
+
+    prompt = f"""
+Create an extraction operations briefing for cannabis processing leadership.
+
+Alerts: {json.dumps(alerts, indent=2)}
+Runs sample: {json.dumps(run_preview, indent=2, default=str)}
+Jobs sample: {json.dumps(job_preview, indent=2, default=str)}
+
+Output sections:
+1) Operational health summary
+2) Highest-priority batch/job interventions
+3) QA/COA actions
+4) Throughput + margin recommendations for next 72 hours
+"""
+
+    try:
+        resp = _generate_ai_with_quota_fallback(
+            system_prompt=(
+                "You are a cannabis extraction operations strategist. "
+                "Provide practical, compliance-aware actions."
+            ),
+            user_prompt=prompt,
+            max_tokens=750,
+        )
+        return resp.text
+    except Exception as exc:
+        return f"AI extraction brief failed: {exc}"
+
+
 def render_extraction_command_center():
-    def kpi_card(label: str, value, help_text: str = ""):
-        with st.container(border=True):
-            st.markdown(
-                f"""
-                <div style="padding: 0.25rem 0 0.1rem 0;">
-                    <div style="font-size: 0.85rem; opacity: 0.75; letter-spacing: 0.06em; text-transform: uppercase;">
-                        {label}
-                    </div>
-                    <div style="font-size: 2rem; font-weight: 700; line-height: 1.1; margin-top: 0.25rem;">
-                        {value}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if help_text:
-                st.caption(help_text)
 
     if "ecc_run_log" not in st.session_state:
         st.session_state.ecc_run_log = pd.DataFrame(
@@ -2385,8 +2832,15 @@ def render_extraction_command_center():
     with top[7]:
         kpi_card("Gross Margin", f"{gross_margin_pct:.1f}%")
 
-    overview_tab, runs_tab, toll_tab, compliance_tab, inputs_tab = st.tabs(
-        ["Executive Overview", "Run Analytics", "Toll Processing", "Compliance / METRC", "Data Input"]
+    overview_tab, runs_tab, toll_tab, compliance_tab, inputs_tab, ai_ops_tab = st.tabs(
+        [
+            "Executive Overview",
+            "Run Analytics",
+            "Toll Processing",
+            "Compliance / METRC",
+            "Data Input",
+            "AI Ops Brief",
+        ]
     )
 
     with overview_tab:
@@ -2613,6 +3067,25 @@ def render_extraction_command_center():
             except Exception as exc:
                 st.error(f"Could not read CSV: {exc}")
 
+    with ai_ops_tab:
+        st.subheader("AI Operations Brief")
+        alerts = _compute_extraction_alerts(run_df, job_df)
+
+        if alerts:
+            st.markdown("#### Current Alerts")
+            for alert in alerts:
+                st.warning(alert)
+        else:
+            st.success("No high-priority extraction alerts detected from current dataset.")
+
+        st.markdown("#### Recommended Actions")
+        st.caption("Generate a shift-ready brief grounded in current run and toll job data.")
+
+        if st.button("Generate AI Extraction Brief", key="ecc_ai_ops_brief"):
+            with st.spinner("Analyzing extraction operations..."):
+                brief = _generate_extraction_ai_brief(run_df, job_df, alerts)
+            st.markdown(brief)
+
 # =========================
 # TOP-LEVEL APP MODE SWITCH
 # =========================
@@ -2625,6 +3098,7 @@ app_mode = st.radio(
 )
 
 if app_mode == "🧪 Extraction Command Center":
+    render_main_ai_copilot(app_mode, "🧪 Extraction Command Center")
     render_extraction_command_center()
     st.stop()
 
@@ -2655,9 +3129,14 @@ section = st.sidebar.radio(
         "🚚 Delivery Impact",
         "🐢 Slow Movers",
         "🧾 PO Builder",
+        "🧭 Compliance Q&A",
+        "🧠 Buyer Intelligence",
+        "🛠️ Admin Tools",
     ],
     index=0,
 )
+
+render_main_ai_copilot(app_mode, section)
 
 # ============================================================
 # PAGE 1 – INVENTORY DASHBOARD
@@ -4109,13 +4588,266 @@ if section == "📊 Inventory Dashboard":
                 st.markdown(ai_summary)
         else:
             st.info(
-                "AI buyer-assist is disabled because no `OPENAI_API_KEY` was found in "
-                "Streamlit secrets or environment."
+                "AI buyer-assist is disabled because local Ollama is not reachable at localhost:11434."
             )
 
     except Exception as e:
         st.error(f"Error: {e}")
 
+
+# ============================================================
+# PAGE 2A – COMPLIANCE Q&A
+# ============================================================
+elif section == "🧭 Compliance Q&A":
+    st.subheader("🧭 Compliance Q&A")
+    st.caption(
+        "Grounded compliance answers from structured sources only. "
+        "Upload reviewed source rows and query by state/scope/topic."
+    )
+
+    template_df = pd.DataFrame(
+        [
+            {
+                "state": "CA",
+                "scope": "adult-use",
+                "topic": "packaging",
+                "answer": "Child-resistant packaging is required before retail sale.",
+                "source_citation": "16 CCR § 17407",
+                "source_url": "https://cannabis.ca.gov/",
+                "last_updated": "2026-01-15",
+                "review_status": "reviewed",
+            }
+        ]
+    )
+
+    st.markdown("**Required source columns**: state, scope, topic, answer, source_citation, source_url, last_updated, review_status")
+
+    buf = BytesIO()
+    template_df.to_csv(buf, index=False)
+    st.download_button(
+        "Download compliance source template (CSV)",
+        data=buf.getvalue(),
+        file_name="compliance_sources_template.csv",
+        mime="text/csv",
+    )
+
+    source_file = st.file_uploader(
+        "Upload structured compliance sources (CSV)",
+        type=["csv"],
+        key="compliance_source_upload",
+    )
+
+    repo = None
+    if source_file is not None:
+        try:
+            source_df = pd.read_csv(source_file)
+            repo = _load_compliance_sources_from_df(source_df)
+            st.success(f"Loaded {len(source_df)} compliance source row(s).")
+            st.dataframe(source_df.head(100), use_container_width=True)
+        except Exception as exc:
+            st.error(f"Could not load compliance sources: {exc}")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        state = st.text_input("State", value="CA", key="compliance_state")
+    with c2:
+        scope = st.selectbox("Scope", ["adult-use", "medical"], key="compliance_scope")
+    with c3:
+        topic = st.text_input("Topic", value="packaging", key="compliance_topic")
+
+    question = st.text_area(
+        "Compliance question",
+        value="What are the packaging requirements for adult-use products?",
+        key="compliance_question",
+    )
+
+    if st.button("Answer from structured sources", key="compliance_ask"):
+        if repo is None:
+            st.warning("Upload structured compliance source rows first.")
+        else:
+            result = _generate_grounded_compliance_response(repo, state, scope, topic, question)
+            st.markdown(result)
+
+# ============================================================
+# PAGE 2B – BUYER INTELLIGENCE
+# ============================================================
+elif section == "🧠 Buyer Intelligence":
+    st.subheader("🧠 Buyer Intelligence")
+    st.caption("Demand, risk, and AI buyer brief generated from your uploaded sales/inventory data.")
+
+    sales_raw_df = st.session_state.sales_raw_df
+    inv_raw_df = st.session_state.inv_raw_df
+
+    if sales_raw_df is None:
+        st.info("Upload Product Sales data on Inventory Dashboard to use Buyer Intelligence.")
+        st.stop()
+
+    lookback_days = int(
+        st.sidebar.slider(
+            "Buyer intelligence lookback (days)",
+            min_value=14,
+            max_value=120,
+            value=60,
+            key="buyer_intel_lookback",
+        )
+    )
+
+    try:
+        summary, by_category, by_product = _compute_buyer_intelligence(
+            inv_df_raw=inv_raw_df,
+            sales_df_raw=sales_raw_df,
+            lookback_days=lookback_days,
+        )
+
+        k1, k2, k3, k4 = st.columns(4)
+        with k1:
+            kpi_card("Tracked SKUs", f"{summary['tracked_skus']:,}")
+        with k2:
+            kpi_card("Units Sold", f"{summary['total_units_sold']:,.0f}")
+        with k3:
+            kpi_card("Revenue", f"${summary['total_revenue']:,.0f}")
+        with k4:
+            kpi_card("Reorder Risk SKUs", f"{summary['at_risk_skus']:,}")
+
+        c1, c2 = st.columns([1, 1.4])
+        with c1:
+            st.markdown("#### Top Categories")
+            st.dataframe(by_category.head(20), use_container_width=True, hide_index=True)
+        with c2:
+            st.markdown("#### SKU Risk Table")
+            st.dataframe(
+                by_product.head(200),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        st.markdown("---")
+        st.markdown("### 🧠 Buyer RAG Assistant (Local)")
+        rag_col1, rag_col2 = st.columns(2)
+        with rag_col1:
+            rag_state = st.selectbox("RAG State", ["MA", "ME", "NJ", "NY", "CA", "NV"], key="buyer_rag_state")
+        with rag_col2:
+            rag_program = st.selectbox("RAG Program", ["medical", "adult_use"], key="buyer_rag_program")
+
+        rag_question = st.text_area(
+            "Ask the buyer assistant (RAG)",
+            value="What are the top assortment gaps we should fix this week?",
+            key="buyer_rag_question",
+        )
+
+        if st.button("Ask Buyer AI", key="buyer_rag_ask"):
+            from modules.buyer_assistant import answer_buyer_question
+            with st.spinner("Retrieving context and answering..."):
+                rag_answer = answer_buyer_question(
+                    rag_question,
+                    state=rag_state,
+                    program=rag_program,
+                )
+            st.markdown(rag_answer)
+
+        st.markdown("---")
+        st.markdown("### 🤖 AI Buyer Brief")
+        if st.button("Generate AI Buyer Brief", key="buyer_intel_ai_brief"):
+            with st.spinner("Generating buyer brief..."):
+                brief = _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days)
+            st.markdown(brief)
+
+    except Exception as exc:
+        st.error(f"Could not build buyer intelligence view: {exc}")
+
+# ============================================================
+# PAGE 2C – ADMIN TOOLS
+# ============================================================
+elif section == "🛠️ Admin Tools":
+    st.subheader("🛠️ Admin Tools")
+
+    if not st.session_state.get("is_admin", False):
+        st.warning("Admin access is required for this section.")
+        st.stop()
+
+    st.caption("Provider diagnostics, compliance source QA, and operational admin utilities.")
+    st.info(f"Local app URL: {LOCAL_APP_URL}")
+
+    st.markdown("### Milestone Tracker")
+    milestone_df = pd.DataFrame(
+        [
+            ["Repository audit", "✅ Complete"],
+            ["Compliance data layer", "✅ Complete"],
+            ["Compliance Q&A page", "✅ Complete"],
+            ["AI provider abstraction", "✅ Complete"],
+            ["Buyer intelligence", "✅ Complete"],
+            ["Extraction module", "✅ Complete"],
+            ["Admin tools", "✅ Complete"],
+        ],
+        columns=["Milestone", "Status"],
+    )
+    st.dataframe(milestone_df, use_container_width=True, hide_index=True)
+
+    a1, a2 = st.columns(2)
+    with a1:
+        st.markdown("### AI Provider Diagnostics")
+        st.write("Provider: ollama")
+        st.write(f"Endpoint: {os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')}")
+        st.write(f"Provider connected: {'Yes' if check_ollama_connection() else 'No'}")
+        if ai_provider is not None:
+            st.write(f"Provider name: {getattr(ai_provider, 'provider_name', 'unknown')}")
+
+        if st.button("Run AI Health Check", key="admin_ai_health_check"):
+            try:
+                result = _generate_ai_with_quota_fallback(
+                    system_prompt="You are a diagnostic assistant.",
+                    user_prompt="Respond with: AI health check OK.",
+                    max_tokens=30,
+                )
+                st.success(f"AI check response: {result.text}")
+            except Exception as exc:
+                st.error(f"AI health check failed: {exc}")
+
+    with a2:
+        st.markdown("### Session Data Overview")
+        inv_rows = len(st.session_state.inv_raw_df) if isinstance(st.session_state.get("inv_raw_df"), pd.DataFrame) else 0
+        sales_rows = len(st.session_state.sales_raw_df) if isinstance(st.session_state.get("sales_raw_df"), pd.DataFrame) else 0
+        st.write(f"Inventory rows in session: {inv_rows}")
+        st.write(f"Sales rows in session: {sales_rows}")
+        st.write(f"Upload cache entries: {len(st.session_state.get('uploaded_files_by_user_day', {}))}")
+
+        if st.button("Clear session dataframes", key="admin_clear_session_frames"):
+            st.session_state.inv_raw_df = None
+            st.session_state.sales_raw_df = None
+            st.success("Session dataframes cleared.")
+
+    st.markdown("---")
+    st.markdown("### Compliance Source QA")
+    st.caption("Upload a compliance source CSV to validate schema completeness and row quality.")
+
+    qa_upload = st.file_uploader(
+        "Upload compliance source CSV for QA",
+        type=["csv"],
+        key="admin_compliance_qa_upload",
+    )
+
+    if qa_upload is not None:
+        try:
+            qa_df = pd.read_csv(qa_upload)
+            report = _audit_compliance_source_df(qa_df)
+            st.dataframe(qa_df.head(100), use_container_width=True)
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                kpi_card("Rows", report["row_count"])
+            with c2:
+                kpi_card("Missing Columns", len(report["missing_columns"]))
+            with c3:
+                kpi_card("Duplicate Rows", report["duplicate_rows"])
+            with c4:
+                kpi_card("Blank Critical Rows", report["blank_critical_rows"])
+
+            if report["missing_columns"]:
+                st.error(f"Missing required columns: {', '.join(report['missing_columns'])}")
+            else:
+                st.success("Required columns are present.")
+        except Exception as exc:
+            st.error(f"Could not audit file: {exc}")
 
 # ============================================================
 # PAGE 2 – TRENDS
