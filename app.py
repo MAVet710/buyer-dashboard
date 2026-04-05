@@ -14,6 +14,8 @@ from ai_providers import build_provider
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 
 load_dotenv()
+import os
+os.environ["AI_PROVIDER"] = "ollama"
 
 from ai_providers import build_provider
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
