@@ -1,0 +1,46 @@
+[
+  {
+    "id": "buyer-ma-001",
+    "document": "For flower and pre-roll categories, maintain target days on hand between 21 and 35 days, and flag SKUs above 60 days for markdown planning.",
+    "metadata": {
+      "module": "buyer",
+      "state": "MA",
+      "program": "medical",
+      "topic": "days-on-hand",
+      "source": "internal-buying-playbook-v3"
+    }
+  },
+  {
+    "id": "buyer-ma-002",
+    "document": "When vape category sell-through drops below 0.45 units per store day for two consecutive weeks, pause reorders and shift budget to top velocity edible SKUs.",
+    "metadata": {
+      "module": "buyer",
+      "state": "MA",
+      "program": "medical",
+      "topic": "reorder-rules",
+      "source": "internal-buying-playbook-v3"
+    }
+  },
+  {
+    "id": "extraction-ma-001",
+    "document": "Rosin yield can improve by keeping fresh-frozen biomass below -20C before wash and using staged micron bags to reduce contaminant carryover.",
+    "metadata": {
+      "module": "extraction",
+      "state": "MA",
+      "program": "medical",
+      "topic": "yield-optimization",
+      "source": "extraction-ops-sop-2025"
+    }
+  },
+  {
+    "id": "compliance-ma-001",
+    "document": "Compliance responses must include state, scope, source citation, source URL, last updated date, and review status before publication.",
+    "metadata": {
+      "module": "compliance",
+      "state": "MA",
+      "program": "medical",
+      "topic": "response-format",
+      "source": "compliance-governance-policy"
+    }
+  }
+]

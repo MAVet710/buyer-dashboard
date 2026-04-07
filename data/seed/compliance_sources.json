@@ -1,0 +1,42 @@
+[
+  {
+    "state": "MA",
+    "scope": "medical",
+    "topic": "packaging label requirements",
+    "answer": "Medical-use cannabis packages must include product identity, cannabinoid content, required health warnings, and batch tracking identifiers before retail transfer.",
+    "source_citation": "935 CMR 501.105",
+    "source_url": "https://masscannabiscontrol.com/public-documents/regulations/",
+    "last_updated_date": "2025-11-01",
+    "review_status": "reviewed"
+  },
+  {
+    "state": "MA",
+    "scope": "adult-use",
+    "topic": "packaging label requirements",
+    "answer": "Adult-use labels must clearly display THC potency, universal symbol, net weight, licensee information, and required poison control warning language.",
+    "source_citation": "935 CMR 500.105",
+    "source_url": "https://masscannabiscontrol.com/public-documents/regulations/",
+    "last_updated_date": "2025-11-01",
+    "review_status": "reviewed"
+  },
+  {
+    "state": "CA",
+    "scope": "both",
+    "topic": "track-and-trace",
+    "answer": "Licensees must maintain inventory records and transfer events in the state track-and-trace system for each package movement and adjustment.",
+    "source_citation": "16 CCR \u00a7 15049.2",
+    "source_url": "https://disa.com/marijuana-legality-by-state/",
+    "last_updated_date": "2025-10-20",
+    "review_status": "reviewed"
+  },
+  {
+    "state": "CO",
+    "scope": "adult-use",
+    "topic": "possession limits",
+    "answer": "Adults 21+ may possess up to the state-allowed retail amount; local rules can add restrictions, so operators should verify municipal requirements before advising customers.",
+    "source_citation": "NORML Colorado Laws",
+    "source_url": "https://norml.org/laws/",
+    "last_updated_date": "2025-10-20",
+    "review_status": "reviewed"
+  }
+]
