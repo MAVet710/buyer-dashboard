@@ -15,11 +15,6 @@ from ai_providers import build_provider
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 
 load_dotenv()
-import os
-os.environ["AI_PROVIDER"] = "ollama"
-
-from ai_providers import build_provider
-from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 
 # For PDF generation
 from reportlab.lib.pagesizes import letter
@@ -314,7 +309,6 @@ def _find_openai_key():
 
 
 def init_openai_client():
-    def init_openai_client():
     global OPENAI_AVAILABLE, ai_client, ai_provider
 
     key, _where = _find_openai_key()
