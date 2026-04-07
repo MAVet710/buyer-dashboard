@@ -257,6 +257,17 @@ PRODUCT_TABLE_DISPLAY_LIMIT = 2000
 # Minimum on-hand units threshold for flagging a PO line for review
 PO_REVIEW_THRESHOLD = 15
 
+# Optional external market references for buyer workflows.
+# These links are informational only; buyer recommendations should still be grounded
+# in uploaded operational data and/or retrieved internal context.
+BUYER_MARKET_REFERENCES = [
+    {
+        "name": "Headset Brand Marketplace",
+        "url": "https://www.headset.io/brands",
+        "notes": "Live, frequently updated brand-level market visibility across U.S. cannabis markets.",
+    },
+]
+
 # Local app URL for self-hosted deployment links
 LOCAL_APP_URL = os.environ.get("LOCAL_APP_URL", "http://localhost:8501")
 
@@ -4705,6 +4716,13 @@ elif section == "🧭 Compliance Q&A":
 elif section == "🧠 Buyer Intelligence":
     st.subheader("🧠 Buyer Intelligence")
     st.caption("Demand, risk, and AI buyer brief generated from your uploaded sales/inventory data.")
+    with st.expander("🌐 Optional live market references", expanded=False):
+        st.caption(
+            "Use these external sources as directional market context. "
+            "Prioritize your store-level sales, margin, and inventory data for buy decisions."
+        )
+        for source in BUYER_MARKET_REFERENCES:
+            st.markdown(f"- [{source['name']}]({source['url']}) — {source['notes']}")
 
     sales_raw_df = st.session_state.sales_raw_df
     inv_raw_df = st.session_state.inv_raw_df
