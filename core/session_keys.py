@@ -1,0 +1,5 @@
+INV_RAW = "inv_raw_df"
+SALES_RAW = "sales_raw_df"
+BUYER_READY = "detail_product_cached_df"
+EXTRACTION_RUNS = "ecc_run_log"
+EXTRACTION_JOBS = "ecc_job_log"
