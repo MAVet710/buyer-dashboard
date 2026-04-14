@@ -18,14 +18,14 @@ use_plaintext = false
 
 # Admin credentials: username -> bcrypt hash
 [auth.admins]
-God    = "$2b$12$EXAMPLE_HASH_FOR_GOD_REPLACE_ME"
-JVas   = "$2b$12$EXAMPLE_HASH_FOR_JVAS_REPLACE_ME"
+God  = "$2b$12$I9nkXct74SUatWQTBRqPcOZ8SQppWtwpZqAVoUukKPDw0/GnhaW6C"
+Jwin = "$2b$12$OyO.TB8qakOYdadkzzdzRekFnYlxl7Lx4M3bAo0Rw8.c49S/YQA7G"
 
 # Standard user credentials: username -> bcrypt hash
 [auth.users]
-KHuston = "$2b$12$EXAMPLE_HASH_FOR_KHUSTON_REPLACE_ME"
-ERoots  = "$2b$12$EXAMPLE_HASH_FOR_EROOTS_REPLACE_ME"
-AFreed  = "$2b$12$EXAMPLE_HASH_FOR_AFREED_REPLACE_ME"
+Jwin = "$2b$12$OyO.TB8qakOYdadkzzdzRekFnYlxl7Lx4M3bAo0Rw8.c49S/YQA7G"
+
+[auth]
 
 # Bcrypt hash of the trial key
 trial_key_hash = "$2b$12$EXAMPLE_HASH_FOR_TRIAL_KEY_REPLACE_ME"
