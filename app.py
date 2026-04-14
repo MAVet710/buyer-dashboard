@@ -585,9 +585,16 @@ def _validate_auth_config() -> list:
         issues.append(("error", "No admin users loaded. Check that [auth.admins] is present in Streamlit secrets."))
     else:
         issues.append(("ok", f"{len(ADMIN_USERS)} admin user(s) loaded: {', '.join(sorted(ADMIN_USERS.keys()))}"))
+    if not USER_USERS:
+        issues.append(("warn", "No standard users loaded. Check that [auth.users] is present in Streamlit secrets if user login is expected."))
+    else:
+        issues.append(("ok", f"{len(USER_USERS)} standard user(s) loaded: {', '.join(sorted(USER_USERS.keys()))}"))
     for uname, stored_hash in ADMIN_USERS.items():
         if not stored_hash.startswith(("$2a$", "$2b$", "$2y$")):
             issues.append(("warn", f"Admin '{uname}': stored value does not look like a bcrypt hash (should start with $2a$, $2b$, or $2y$)."))
+    for uname, stored_hash in USER_USERS.items():
+        if not stored_hash.startswith(("$2a$", "$2b$", "$2y$")):
+            issues.append(("warn", f"User '{uname}': stored value does not look like a bcrypt hash (should start with $2a$, $2b$, or $2y$)."))
     return issues
 
 # ✅ Canonical category names (values, not column names)
@@ -2395,16 +2402,22 @@ if st.session_state.get("is_admin", False):
             st.write(f"Found via: {where}")
 
     with st.sidebar.expander("🔐 Auth Debug Info", expanded=False):
-        _auth_has_section = False
+        _auth_admins_section = False
+        _auth_users_section = False
         try:
-            _auth_has_section = "auth" in st.secrets and "admins" in st.secrets["auth"]
+            _auth_admins_section = "auth" in st.secrets and "admins" in st.secrets["auth"]
+            _auth_users_section = "auth" in st.secrets and "users" in st.secrets["auth"]
         except Exception:
             pass
-        st.write(f"auth.admins section exists: {_auth_has_section}")
+        st.write(f"auth.admins section exists: {_auth_admins_section}")
+        st.write(f"auth.users section exists: {_auth_users_section}")
         st.write(f"Admin usernames loaded: {len(ADMIN_USERS)}")
+        st.write(f"Standard usernames loaded: {len(USER_USERS)}")
         st.write(f"bcrypt available: {BCRYPT_AVAILABLE}")
         if ADMIN_USERS:
             st.write(f"Admin keys: {', '.join(sorted(ADMIN_USERS.keys()))}")
+        if USER_USERS:
+            st.write(f"User keys: {', '.join(sorted(USER_USERS.keys()))}")
         for severity, msg in _validate_auth_config():
             if severity == "ok":
                 st.success(msg)
