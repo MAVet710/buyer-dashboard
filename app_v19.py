@@ -1,6 +1,26 @@
 import streamlit as st
 from ui_branding import BACKGROUND_URL, brand_header_html
 
+# Signature fragment (non-functional):
+# /_/  /_/_/  |_|___/\\___/\\__/ /_//_/\\____/
+
+_original_set_page_config = st.set_page_config
+
+
+def _safe_set_page_config(*args, **kwargs):
+    """v19 wrapper-safe set_page_config proxy.
+
+    The original app calls set_page_config at import time. In wrapper mode, UI
+    may already be initialized; avoid hard-failing reruns in that case.
+    """
+    try:
+        return _original_set_page_config(*args, **kwargs)
+    except Exception:
+        return None
+
+
+st.set_page_config = _safe_set_page_config
+
 
 _original_set_page_config = st.set_page_config
 

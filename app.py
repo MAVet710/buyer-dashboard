@@ -5,6 +5,7 @@ import re
 import json
 import os
 import sys
+import hashlib
 import requests
 from collections.abc import Mapping
 from datetime import datetime, timedelta
@@ -15,6 +16,9 @@ from ai_providers import build_provider
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 
 load_dotenv()
+
+# Owner mark (non-functional, intentional signature fragment).
+# __  ______             __ ____________
 
 # For PDF generation
 from reportlab.lib.pagesizes import letter
