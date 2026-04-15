@@ -88,59 +88,9 @@ if not _EXTRACTION_PARTNER_INTEL_AVAILABLE:
     def load_partner_file(uploaded_file) -> pd.DataFrame:
         raw = uploaded_file.getvalue()
         file_name = str(getattr(uploaded_file, "name", "")).lower()
-        header_tokens = {
-            "run_date",
-            "run date",
-            "date",
-            "batch_id_internal",
-            "batch id",
-            "batch",
-            "method",
-            "input_weight_g",
-            "input weight",
-            "finished_output_g",
-            "finished output",
-            "operator",
-            "state",
-        }
-
-        def _detect_header_row(preview_df: pd.DataFrame) -> int:
-            best_idx = 0
-            best_score = float("-inf")
-            for idx in range(min(len(preview_df), 60)):
-                row_values = [str(v).strip() for v in preview_df.iloc[idx].tolist()]
-                cleaned = [v for v in row_values if v and v.lower() != "nan"]
-                normalized = {_partner_norm_col(v) for v in cleaned}
-                header_hits = len(normalized.intersection(header_tokens))
-                non_empty = len(cleaned)
-                numeric_like = 0
-                for v in cleaned:
-                    try:
-                        float(str(v).replace(",", ""))
-                        numeric_like += 1
-                    except Exception:
-                        continue
-                numeric_ratio = (numeric_like / non_empty) if non_empty else 1.0
-
-                next_row_has_data = False
-                if idx + 1 < min(len(preview_df), 60):
-                    next_values = [str(v).strip() for v in preview_df.iloc[idx + 1].tolist()]
-                    next_non_empty = [v for v in next_values if v and v.lower() != "nan"]
-                    next_row_has_data = len(next_non_empty) >= 2
-
-                score = (header_hits * 4.0) + min(non_empty, 20) * 0.05 + (1.0 if next_row_has_data else 0.0)
-                if numeric_ratio > 0.6:
-                    score -= 2.0
-                if score > best_score:
-                    best_score = score
-                    best_idx = idx
-            return best_idx if best_score >= 2.5 else 0
-
         if file_name.endswith((".xlsx", ".xls")):
-            preview = pd.read_excel(BytesIO(raw), header=None, dtype=str)
-            return pd.read_excel(BytesIO(raw), header=_detect_header_row(preview))
-        preview = pd.read_csv(BytesIO(raw), header=None, dtype=str, on_bad_lines="skip")
-        return pd.read_csv(BytesIO(raw), header=_detect_header_row(preview))
+            return pd.read_excel(BytesIO(raw))
+        return pd.read_csv(BytesIO(raw))
 
 
     def looks_like_partner_extraction_file(uploaded_file) -> bool:
@@ -156,11 +106,6 @@ if not _EXTRACTION_PARTNER_INTEL_AVAILABLE:
             "input weight g",
             "finished_output_g",
             "finished output g",
-            "date in",
-            "batch id",
-            "yield %",
-            "yield",
-            "new metrc 1",
         }
         return len(cols.intersection(required)) >= 3
 
@@ -174,98 +119,28 @@ if not _EXTRACTION_PARTNER_INTEL_AVAILABLE:
         return default
 
 
-    def _partner_pick_series(df: pd.DataFrame, aliases: list[str], default="") -> pd.Series:
-        picked = _partner_pick(df, aliases, default=None)
-        if picked is None:
-            return pd.Series([default] * len(df))
-        if isinstance(picked, pd.Series):
-            return picked
-        return pd.Series([picked] * len(df))
-
-
-    def _partner_sum_numeric_columns(df: pd.DataFrame, aliases: list[str], startswith: tuple[str, ...] = ()) -> pd.Series:
-        col_map = {_partner_norm_col(c): c for c in df.columns}
-        matched_cols: list[str] = []
-        for alias in aliases:
-            norm_alias = _partner_norm_col(alias)
-            if norm_alias in col_map:
-                matched_cols.append(col_map[norm_alias])
-        if startswith:
-            for norm_name, original in col_map.items():
-                if any(norm_name.startswith(prefix) for prefix in startswith):
-                    matched_cols.append(original)
-        seen = set()
-        unique_cols = [c for c in matched_cols if not (c in seen or seen.add(c))]
-        if not unique_cols:
-            return pd.Series([0.0] * len(df))
-        return df[unique_cols].apply(pd.to_numeric, errors="coerce").fillna(0).sum(axis=1)
-
-
-    def _partner_infer_downstream_product(df: pd.DataFrame) -> pd.Series:
-        base = _partner_pick_series(df, ["downstream_product", "downstream"], default="")
-        if base.astype(str).str.strip().ne("").any():
-            return base.replace("", "N/A").fillna("N/A")
-        col_map = {_partner_norm_col(c): c for c in df.columns}
-        item_cols = [original for norm_name, original in col_map.items() if norm_name.startswith("new item name")]
-        if not item_cols:
-            return pd.Series(["N/A"] * len(df))
-        joined = df[item_cols].fillna("").astype(str).agg(" ".join, axis=1).str.lower()
-        downstream = pd.Series(["Bulk Distillate"] * len(df))
-        carts_mask = joined.str.contains(r"\bcart|cartridge|vape", regex=True)
-        disposable_mask = joined.str.contains(r"\bdisposable|dispo", regex=True)
-        downstream[carts_mask] = "Disty Carts"
-        downstream[disposable_mask] = "Disty Disposables"
-        downstream[(~carts_mask) & (~disposable_mask) & joined.str.strip().eq("")] = "N/A"
-        return downstream
-
-
     def map_partner_runs_to_ecc_shape(df: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
-        out["run_date"] = pd.to_datetime(
-            _partner_pick(df, ["run_date", "run date", "date", "date in"]),
-            errors="coerce",
-        ).dt.date.astype(str)
+        out["run_date"] = pd.to_datetime(_partner_pick(df, ["run_date", "run date", "date"]), errors="coerce").dt.date.astype(str)
         out["state"] = _partner_pick(df, ["state"], default="Other")
         out["license_name"] = _partner_pick(df, ["license_name", "facility", "facility_name"], default="")
         out["client_name"] = _partner_pick(df, ["client_name", "client", "partner"], default="In House")
-        out["batch_id_internal"] = _partner_pick(
-            df,
-            ["batch_id_internal", "batch_id", "batch", "run_id", "new batch id 1", "new batch id"],
-            default="",
-        )
-        out["metrc_package_id_input"] = _partner_pick(df, ["metrc_package_id_input", "input_package_id", "metrc"], default="")
-        out["metrc_package_id_output"] = _partner_pick(
-            df,
-            ["metrc_package_id_output", "output_package_id", "new metrc 1", "metrc 1", "metrc.1"],
-            default="",
-        )
+        out["batch_id_internal"] = _partner_pick(df, ["batch_id_internal", "batch_id", "batch", "run_id"], default="")
+        out["metrc_package_id_input"] = _partner_pick(df, ["metrc_package_id_input", "input_package_id"], default="")
+        out["metrc_package_id_output"] = _partner_pick(df, ["metrc_package_id_output", "output_package_id"], default="")
         out["metrc_manifest_or_transfer_id"] = _partner_pick(df, ["metrc_manifest_or_transfer_id", "transfer_id"], default="")
-        out["method"] = _partner_pick(df, ["method", "extraction_method"], default="Ethanol")
-        out["product_type"] = _partner_pick(df, ["product_type", "output_type", "item", "new item name 1"], default="Other")
-        out["downstream_product"] = _partner_infer_downstream_product(df)
+        out["method"] = _partner_pick(df, ["method", "extraction_method"], default="BHO")
+        out["product_type"] = _partner_pick(df, ["product_type", "output_type"], default="Other")
+        out["downstream_product"] = _partner_pick(df, ["downstream_product", "downstream"], default="N/A")
         out["process_stage"] = _partner_pick(df, ["process_stage", "stage"], default="Intake")
-        out["input_material_type"] = _partner_pick(df, ["input_material_type", "input_type", "material", "item"], default="Other")
-        out["input_weight_g"] = pd.to_numeric(
-            _partner_pick(df, ["input_weight_g", "input_weight", "input_g", "g"], default=0),
-            errors="coerce",
-        ).fillna(0)
+        out["input_material_type"] = _partner_pick(df, ["input_material_type", "input_type"], default="Other")
+        out["input_weight_g"] = pd.to_numeric(_partner_pick(df, ["input_weight_g", "input_weight", "input_g"], default=0), errors="coerce").fillna(0)
         out["intermediate_output_g"] = pd.to_numeric(_partner_pick(df, ["intermediate_output_g", "intermediate_g"], default=0), errors="coerce").fillna(0)
-        explicit_finished = pd.to_numeric(
-            _partner_pick(df, ["finished_output_g", "finished_output", "output_g"], default=0),
-            errors="coerce",
-        ).fillna(0)
-        new_output_sum = _partner_sum_numeric_columns(df, aliases=["new g 1", "new g"], startswith=("new g",))
-        out["finished_output_g"] = explicit_finished.where(explicit_finished > 0, new_output_sum)
-        out["residual_loss_g"] = pd.to_numeric(
-            _partner_pick(df, ["residual_loss_g", "residual_g", "waste_g", "waste"], default=0),
-            errors="coerce",
-        ).fillna(0)
-        out["yield_pct"] = pd.to_numeric(_partner_pick(df, ["yield_pct", "yield", "yield %", "yield (%)"], default=0), errors="coerce").fillna(0)
-        out["post_process_efficiency_pct"] = pd.to_numeric(
-            _partner_pick(df, ["post_process_efficiency_pct", "post_efficiency_pct", "efficiency"], default=0),
-            errors="coerce",
-        ).fillna(0)
-        out["operator"] = _partner_pick(df, ["operator", "user"], default="")
+        out["finished_output_g"] = pd.to_numeric(_partner_pick(df, ["finished_output_g", "finished_output", "output_g"], default=0), errors="coerce").fillna(0)
+        out["residual_loss_g"] = pd.to_numeric(_partner_pick(df, ["residual_loss_g", "residual_g", "waste_g"], default=0), errors="coerce").fillna(0)
+        out["yield_pct"] = pd.to_numeric(_partner_pick(df, ["yield_pct", "yield"], default=0), errors="coerce").fillna(0)
+        out["post_process_efficiency_pct"] = pd.to_numeric(_partner_pick(df, ["post_process_efficiency_pct", "post_efficiency_pct"], default=0), errors="coerce").fillna(0)
+        out["operator"] = _partner_pick(df, ["operator"], default="")
         out["machine_line"] = _partner_pick(df, ["machine_line", "line"], default="")
         out["status"] = _partner_pick(df, ["status"], default="Processing")
         out["toll_processing"] = pd.Series(_partner_pick(df, ["toll_processing", "is_toll"], default=False)).astype(bool)
@@ -3613,7 +3488,7 @@ def render_extraction_command_center():
         uploaded = st.file_uploader("Upload extraction runs file", type=["csv", "xlsx", "xls"], key="ecc_upload")
         if uploaded is not None:
             try:
-                if looks_like_partner_extraction_file(uploaded):
+                if _EXTRACTION_PARTNER_INTEL_AVAILABLE and looks_like_partner_extraction_file(uploaded):
                     uploaded_df = load_partner_file(uploaded)
                     mapped_df = map_partner_runs_to_ecc_shape(uploaded_df)
                     st.session_state.ecc_run_log = pd.concat(
@@ -3623,15 +3498,14 @@ def render_extraction_command_center():
                     st.success("Partner extraction workbook detected and mapped into run log format.")
                     st.dataframe(mapped_df, use_container_width=True, hide_index=True)
                 else:
-                    uploaded_df = load_partner_file(uploaded)
-                    mapped_df = map_partner_runs_to_ecc_shape(uploaded_df)
-                    st.session_state.ecc_run_log = pd.concat(
-                        [st.session_state.ecc_run_log, mapped_df],
-                        ignore_index=True,
-                    )
-                    st.success("Run log uploaded and appended into Run Analytics.")
-                    st.dataframe(mapped_df, use_container_width=True, hide_index=True)
-                    st.caption("Mapped upload rows are now included in Extraction Run Analytics and KPI calculations.")
+                    file_name = getattr(uploaded, "name", "").lower()
+                    if file_name.endswith((".xlsx", ".xls")):
+                        uploaded_df = pd.read_excel(uploaded)
+                    else:
+                        uploaded_df = pd.read_csv(uploaded)
+                    st.success("Run log loaded into preview.")
+                    st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
+                    st.caption("Tip: partner-normalized files are auto-mapped when partner intel helpers are available.")
             except Exception as exc:
                 st.error(f"Could not read uploaded run log: {exc}")
 
