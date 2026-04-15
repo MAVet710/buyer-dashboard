@@ -32,12 +32,19 @@ def _hybrid_theme() -> str:
         margin-bottom: 1rem;
     }}
 
+    :root {{
+        --v19-red: #ff2b2b;
+        --v19-red-soft: rgba(255, 43, 43, 0.18);
+        --v19-green: #6be88e;
+        --v19-amber: #ff9a3c;
+    }}
+
     .v19-hero {{
         flex: 1;
         border-radius: 22px;
         padding: 1.1rem 1.25rem;
-        background: linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04));
-        border: 1px solid rgba(255,255,255,0.10);
+        background: linear-gradient(135deg, rgba(255,70,70,0.16), rgba(255,255,255,0.04));
+        border: 1px solid rgba(255,70,70,0.32);
         backdrop-filter: blur(18px);
         box-shadow: 0 18px 50px rgba(0,0,0,0.30);
     }}
@@ -102,11 +109,42 @@ def _hybrid_theme() -> str:
 
     div[data-testid="stMetric"] {{
         background: rgba(14,14,14,0.72);
-        border: 1px solid rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,43,43,0.34);
         border-radius: 18px;
         padding: 0.8rem 0.95rem;
         backdrop-filter: blur(14px);
         box-shadow: 0 12px 40px rgba(0,0,0,0.24);
+    }}
+
+    div[data-testid="stMetricLabel"] {{
+        color: rgba(255,255,255,0.82) !important;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+    }}
+
+    div[data-testid="stMetricValue"] {{
+        color: #ffffff !important;
+    }}
+
+    .stAlert {{
+        border-radius: 12px !important;
+        border: 1px solid rgba(255,255,255,0.16) !important;
+        backdrop-filter: blur(8px) !important;
+    }}
+
+    .stWarning {{
+        border-color: rgba(255,154,60,0.55) !important;
+        box-shadow: 0 0 0 1px rgba(255,154,60,0.25) inset !important;
+    }}
+
+    .stError {{
+        border-color: rgba(255,43,43,0.60) !important;
+        box-shadow: 0 0 0 1px rgba(255,43,43,0.24) inset !important;
+    }}
+
+    .stSuccess {{
+        border-color: rgba(107,232,142,0.55) !important;
+        box-shadow: 0 0 0 1px rgba(107,232,142,0.22) inset !important;
     }}
 
     .stTabs [data-baseweb="tab"] {{
@@ -119,6 +157,47 @@ def _hybrid_theme() -> str:
         background: rgba(255,154,60,0.18) !important;
         color: white !important;
     }}
+
+    .v19-flags {{
+        border-radius: 16px;
+        border: 1px solid rgba(255,43,43,0.35);
+        background: linear-gradient(135deg, rgba(255,43,43,0.14), rgba(255,255,255,0.04));
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+    }}
+
+    .v19-flag-title {{
+        color: #ffffff;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        margin-bottom: 0.35rem;
+    }}
+
+    .v19-flag-row {{
+        display: flex;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+    }}
+
+    .v19-chip {{
+        display: inline-block;
+        padding: 0.22rem 0.55rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        border: 1px solid rgba(255,255,255,0.20);
+        color: #fff;
+    }}
+
+    .v19-chip.red {{ background: rgba(255,43,43,0.24); border-color: rgba(255,43,43,0.6); }}
+    .v19-chip.amber {{ background: rgba(255,154,60,0.24); border-color: rgba(255,154,60,0.55); }}
+    .v19-chip.green {{ background: rgba(107,232,142,0.2); border-color: rgba(107,232,142,0.5); }}
+
+    div[data-testid="stDataFrame"] thead tr th {{
+        background: rgba(255,43,43,0.22) !important;
+        color: #ffffff !important;
+        border-bottom: 1px solid rgba(255,43,43,0.6) !important;
+    }}
     </style>
     """
 
@@ -128,24 +207,39 @@ st.markdown(brand_header_html(), unsafe_allow_html=True)
 
 _top = st.container()
 with _top:
-    st.markdown('<div class="v19-shell">', unsafe_allow_html=True)
+    c_hero, c_nav = st.columns([1.9, 1], gap="medium")
+    with c_hero:
+        st.markdown(
+            '''
+            <div class="v19-hero">
+              <div class="v19-kicker">DoobieLogic Hybrid v19</div>
+              <div class="v19-title">Original Engine, Smarter Shell</div>
+              <div class="v19-sub">Preserves the original buyer logic, upload intelligence, and operational workflows while adding a cleaner executive-facing control surface.</div>
+            </div>
+            ''',
+            unsafe_allow_html=True,
+        )
+    with c_nav:
+        st.markdown('<div class="v19-label">Workspace</div>', unsafe_allow_html=True)
+        _workspace_placeholder = st.empty()
+        st.markdown('<div class="v19-label" style="margin-top:0.75rem;">Module</div>', unsafe_allow_html=True)
+        _section_placeholder = st.empty()
+        st.markdown('<div class="v19-label" style="margin-top:0.75rem;">Data Mode</div>', unsafe_allow_html=True)
+        _data_mode_placeholder = st.empty()
+
     st.markdown(
-        '''
-        <div class="v19-hero">
-          <div class="v19-kicker">DoobieLogic Hybrid v19</div>
-          <div class="v19-title">Original Engine, Smarter Shell</div>
-          <div class="v19-sub">Preserves the original buyer logic, upload intelligence, and operational workflows while adding a cleaner executive-facing control surface.</div>
+        """
+        <div class="v19-flags">
+          <div class="v19-flag-title">Executive Signal Layer</div>
+          <div class="v19-flag-row">
+            <span class="v19-chip red">Critical Flags</span>
+            <span class="v19-chip amber">Watchlist</span>
+            <span class="v19-chip green">On Track</span>
+          </div>
         </div>
-        ''',
+        """,
         unsafe_allow_html=True,
     )
-    st.markdown('<div class="v19-nav">', unsafe_allow_html=True)
-    st.markdown('<div class="v19-label">Workspace</div>', unsafe_allow_html=True)
-    _workspace_placeholder = st.empty()
-    st.markdown('<div class="v19-label" style="margin-top:0.75rem;">Module</div>', unsafe_allow_html=True)
-    _section_placeholder = st.empty()
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 _original_radio = st.radio
@@ -185,6 +279,8 @@ def _expand_types(types):
 
 
 def _radio_router(label, options, index=0, horizontal=False, **kwargs):
+    if not options:
+        return _original_radio(label, options, index=index, horizontal=horizontal, **kwargs)
     if label == "Workspace":
         default_idx = int(st.session_state.get("v19_workspace_idx", index))
         default_idx = min(max(default_idx, 0), len(options) - 1)
@@ -213,6 +309,20 @@ def _radio_router(label, options, index=0, horizontal=False, **kwargs):
 
 
 def _sidebar_radio_router(label, options, index=0, **kwargs):
+    if not options:
+        return _original_sidebar_radio(label, options, index=index, **kwargs)
+    if "Data Input Mode" in label:
+        default_idx = int(st.session_state.get("v19_data_mode_idx", index))
+        default_idx = min(max(default_idx, 0), len(options) - 1)
+        value = _data_mode_placeholder.selectbox(
+            "",
+            options,
+            index=default_idx,
+            key="v19_data_mode_select_sidebar",
+            label_visibility="collapsed",
+        )
+        st.session_state["v19_data_mode_idx"] = list(options).index(value)
+        return value
     if label == "App Section":
         default_idx = int(st.session_state.get("v19_section_idx", index))
         default_idx = min(max(default_idx, 0), len(options) - 1)
