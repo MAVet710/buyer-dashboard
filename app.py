@@ -58,6 +58,132 @@ except (ImportError, AttributeError):
     _DUTCHIE_CLIENT_AVAILABLE = False
 
 # ------------------------------------------------------------
+# EXTRACTION PARTNER INTEL MODULES
+# ------------------------------------------------------------
+try:
+    from extraction_partner_import import (
+        load_partner_file,
+        map_partner_runs_to_ecc_shape,
+        looks_like_partner_extraction_file,
+    )
+    from extraction_partner_intel import build_extraction_weekly_summary
+    _EXTRACTION_PARTNER_INTEL_AVAILABLE = True
+except (ImportError, AttributeError):
+    _EXTRACTION_PARTNER_INTEL_AVAILABLE = False
+
+if not _EXTRACTION_PARTNER_INTEL_AVAILABLE:
+    def _partner_norm_col(name: str) -> str:
+        return (
+            str(name)
+            .strip()
+            .lower()
+            .replace("/", " ")
+            .replace("-", " ")
+            .replace(".", " ")
+            .replace("(", " ")
+            .replace(")", " ")
+        )
+
+
+    def load_partner_file(uploaded_file) -> pd.DataFrame:
+        raw = uploaded_file.getvalue()
+        file_name = str(getattr(uploaded_file, "name", "")).lower()
+        if file_name.endswith((".xlsx", ".xls")):
+            return pd.read_excel(BytesIO(raw))
+        return pd.read_csv(BytesIO(raw))
+
+
+    def looks_like_partner_extraction_file(uploaded_file) -> bool:
+        try:
+            df = load_partner_file(uploaded_file)
+        except Exception:
+            return False
+        cols = {_partner_norm_col(c) for c in df.columns}
+        required = {
+            "run_date",
+            "run date",
+            "input_weight_g",
+            "input weight g",
+            "finished_output_g",
+            "finished output g",
+        }
+        return len(cols.intersection(required)) >= 3
+
+
+    def _partner_pick(df: pd.DataFrame, aliases: list[str], default=None):
+        col_map = {_partner_norm_col(c): c for c in df.columns}
+        for alias in aliases:
+            norm_alias = _partner_norm_col(alias)
+            if norm_alias in col_map:
+                return df[col_map[norm_alias]]
+        return default
+
+
+    def map_partner_runs_to_ecc_shape(df: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+        out["run_date"] = pd.to_datetime(_partner_pick(df, ["run_date", "run date", "date"]), errors="coerce").dt.date.astype(str)
+        out["state"] = _partner_pick(df, ["state"], default="Other")
+        out["license_name"] = _partner_pick(df, ["license_name", "facility", "facility_name"], default="")
+        out["client_name"] = _partner_pick(df, ["client_name", "client", "partner"], default="In House")
+        out["batch_id_internal"] = _partner_pick(df, ["batch_id_internal", "batch_id", "batch", "run_id"], default="")
+        out["metrc_package_id_input"] = _partner_pick(df, ["metrc_package_id_input", "input_package_id"], default="")
+        out["metrc_package_id_output"] = _partner_pick(df, ["metrc_package_id_output", "output_package_id"], default="")
+        out["metrc_manifest_or_transfer_id"] = _partner_pick(df, ["metrc_manifest_or_transfer_id", "transfer_id"], default="")
+        out["method"] = _partner_pick(df, ["method", "extraction_method"], default="BHO")
+        out["product_type"] = _partner_pick(df, ["product_type", "output_type"], default="Other")
+        out["downstream_product"] = _partner_pick(df, ["downstream_product", "downstream"], default="N/A")
+        out["process_stage"] = _partner_pick(df, ["process_stage", "stage"], default="Intake")
+        out["input_material_type"] = _partner_pick(df, ["input_material_type", "input_type"], default="Other")
+        out["input_weight_g"] = pd.to_numeric(_partner_pick(df, ["input_weight_g", "input_weight", "input_g"], default=0), errors="coerce").fillna(0)
+        out["intermediate_output_g"] = pd.to_numeric(_partner_pick(df, ["intermediate_output_g", "intermediate_g"], default=0), errors="coerce").fillna(0)
+        out["finished_output_g"] = pd.to_numeric(_partner_pick(df, ["finished_output_g", "finished_output", "output_g"], default=0), errors="coerce").fillna(0)
+        out["residual_loss_g"] = pd.to_numeric(_partner_pick(df, ["residual_loss_g", "residual_g", "waste_g"], default=0), errors="coerce").fillna(0)
+        out["yield_pct"] = pd.to_numeric(_partner_pick(df, ["yield_pct", "yield"], default=0), errors="coerce").fillna(0)
+        out["post_process_efficiency_pct"] = pd.to_numeric(_partner_pick(df, ["post_process_efficiency_pct", "post_efficiency_pct"], default=0), errors="coerce").fillna(0)
+        out["operator"] = _partner_pick(df, ["operator"], default="")
+        out["machine_line"] = _partner_pick(df, ["machine_line", "line"], default="")
+        out["status"] = _partner_pick(df, ["status"], default="Processing")
+        out["toll_processing"] = pd.Series(_partner_pick(df, ["toll_processing", "is_toll"], default=False)).astype(bool)
+        out["processing_fee_usd"] = pd.to_numeric(_partner_pick(df, ["processing_fee_usd", "processing_fee"], default=0), errors="coerce").fillna(0)
+        out["est_revenue_usd"] = pd.to_numeric(_partner_pick(df, ["est_revenue_usd", "revenue_usd"], default=0), errors="coerce").fillna(0)
+        out["cogs_usd"] = pd.to_numeric(_partner_pick(df, ["cogs_usd", "cogs"], default=0), errors="coerce").fillna(0)
+        out["coa_status"] = _partner_pick(df, ["coa_status"], default="Pending")
+        out["qa_hold"] = pd.Series(_partner_pick(df, ["qa_hold"], default=False)).astype(bool)
+        out["notes"] = _partner_pick(df, ["notes"], default="")
+        return out
+
+
+    def build_extraction_weekly_summary(run_df: pd.DataFrame) -> pd.DataFrame:
+        if run_df is None or run_df.empty:
+            return pd.DataFrame()
+        df = run_df.copy()
+        dt = pd.to_datetime(df.get("run_date"), errors="coerce")
+        df["week_start"] = (dt.dt.normalize() - pd.to_timedelta(dt.dt.weekday, unit="D")).dt.date.astype(str)
+        df["finished_output_g"] = pd.to_numeric(df.get("finished_output_g", 0), errors="coerce").fillna(0)
+        df["yield_pct"] = pd.to_numeric(df.get("yield_pct", 0), errors="coerce").fillna(0)
+        df["est_revenue_usd"] = pd.to_numeric(df.get("est_revenue_usd", 0), errors="coerce").fillna(0)
+        df["cogs_usd"] = pd.to_numeric(df.get("cogs_usd", 0), errors="coerce").fillna(0)
+        df["qa_hold"] = pd.Series(df.get("qa_hold", False)).astype(bool)
+        weekly = (
+            df.groupby("week_start", dropna=True)
+            .agg(
+                extraction_runs=("batch_id_internal", "count"),
+                finished_output_g=("finished_output_g", "sum"),
+                avg_yield_pct=("yield_pct", "mean"),
+                est_revenue_usd=("est_revenue_usd", "sum"),
+                cogs_usd=("cogs_usd", "sum"),
+                qa_hold_runs=("qa_hold", "sum"),
+            )
+            .reset_index()
+            .sort_values("week_start", ascending=False)
+        )
+        weekly["gross_margin_pct"] = weekly.apply(
+            lambda r: ((r["est_revenue_usd"] - r["cogs_usd"]) / r["est_revenue_usd"] * 100) if r["est_revenue_usd"] else 0.0,
+            axis=1,
+        )
+        return weekly
+
+# ------------------------------------------------------------
 # DELIVERY IMPACT MODULE
 # ------------------------------------------------------------
 try:
@@ -2920,6 +3046,26 @@ def render_extraction_command_center():
                     .sort_values("finished_output_g", ascending=False)
                 )
                 st.bar_chart(method_summary.set_index("method")["finished_output_g"])
+                if _EXTRACTION_PARTNER_INTEL_AVAILABLE:
+                    weekly_summary = build_extraction_weekly_summary(run_df)
+                    if not weekly_summary.empty:
+                        st.markdown("#### Weekly Executive Totals")
+                        weekly_chart = weekly_summary.sort_values("week_start").set_index("week_start")
+                        st.line_chart(weekly_chart[["finished_output_g", "est_revenue_usd"]])
+                        show_cols = [
+                            "week_start",
+                            "extraction_runs",
+                            "finished_output_g",
+                            "avg_yield_pct",
+                            "est_revenue_usd",
+                            "gross_margin_pct",
+                            "qa_hold_runs",
+                        ]
+                        st.dataframe(
+                            weekly_summary[show_cols],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
         with c2:
             st.subheader("Smart Flags")
             flags = []
@@ -3339,14 +3485,29 @@ def render_extraction_command_center():
 
     with inputs_tab:
         st.subheader("Raw Data Upload Staging")
-        uploaded = st.file_uploader("Upload CSV run log", type=["csv"], key="ecc_upload")
+        uploaded = st.file_uploader("Upload extraction runs file", type=["csv", "xlsx", "xls"], key="ecc_upload")
         if uploaded is not None:
             try:
-                uploaded_df = pd.read_csv(uploaded)
-                st.success("CSV loaded into preview.")
-                st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
+                if _EXTRACTION_PARTNER_INTEL_AVAILABLE and looks_like_partner_extraction_file(uploaded):
+                    uploaded_df = load_partner_file(uploaded)
+                    mapped_df = map_partner_runs_to_ecc_shape(uploaded_df)
+                    st.session_state.ecc_run_log = pd.concat(
+                        [st.session_state.ecc_run_log, mapped_df],
+                        ignore_index=True,
+                    )
+                    st.success("Partner extraction workbook detected and mapped into run log format.")
+                    st.dataframe(mapped_df, use_container_width=True, hide_index=True)
+                else:
+                    file_name = getattr(uploaded, "name", "").lower()
+                    if file_name.endswith((".xlsx", ".xls")):
+                        uploaded_df = pd.read_excel(uploaded)
+                    else:
+                        uploaded_df = pd.read_csv(uploaded)
+                    st.success("Run log loaded into preview.")
+                    st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
+                    st.caption("Tip: partner-normalized files are auto-mapped when partner intel helpers are available.")
             except Exception as exc:
-                st.error(f"Could not read CSV: {exc}")
+                st.error(f"Could not read uploaded run log: {exc}")
 
     with ai_ops_tab:
         st.subheader("AI Operations Brief")

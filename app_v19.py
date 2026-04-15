@@ -207,15 +207,37 @@ st.markdown(brand_header_html(), unsafe_allow_html=True)
 
 _top = st.container()
 with _top:
-    st.markdown('<div class="v19-shell">', unsafe_allow_html=True)
+    c_hero, c_nav = st.columns([1.9, 1], gap="medium")
+    with c_hero:
+        st.markdown(
+            '''
+            <div class="v19-hero">
+              <div class="v19-kicker">DoobieLogic Hybrid v19</div>
+              <div class="v19-title">Original Engine, Smarter Shell</div>
+              <div class="v19-sub">Preserves the original buyer logic, upload intelligence, and operational workflows while adding a cleaner executive-facing control surface.</div>
+            </div>
+            ''',
+            unsafe_allow_html=True,
+        )
+    with c_nav:
+        st.markdown('<div class="v19-label">Workspace</div>', unsafe_allow_html=True)
+        _workspace_placeholder = st.empty()
+        st.markdown('<div class="v19-label" style="margin-top:0.75rem;">Module</div>', unsafe_allow_html=True)
+        _section_placeholder = st.empty()
+        st.markdown('<div class="v19-label" style="margin-top:0.75rem;">Data Mode</div>', unsafe_allow_html=True)
+        _data_mode_placeholder = st.empty()
+
     st.markdown(
-        '''
-        <div class="v19-hero">
-          <div class="v19-kicker">DoobieLogic Hybrid v19</div>
-          <div class="v19-title">Original Engine, Smarter Shell</div>
-          <div class="v19-sub">Preserves the original buyer logic, upload intelligence, and operational workflows while adding a cleaner executive-facing control surface.</div>
+        """
+        <div class="v19-flags">
+          <div class="v19-flag-title">Executive Signal Layer</div>
+          <div class="v19-flag-row">
+            <span class="v19-chip red">Critical Flags</span>
+            <span class="v19-chip amber">Watchlist</span>
+            <span class="v19-chip green">On Track</span>
+          </div>
         </div>
-        ''',
+        """,
         unsafe_allow_html=True,
     )
     st.markdown('<div class="v19-nav">', unsafe_allow_html=True)
@@ -279,6 +301,8 @@ def _expand_types(types):
 
 
 def _radio_router(label, options, index=0, horizontal=False, **kwargs):
+    if not options:
+        return _original_radio(label, options, index=index, horizontal=horizontal, **kwargs)
     if label == "Workspace":
         default_idx = int(st.session_state.get("v19_workspace_idx", index))
         default_idx = min(max(default_idx, 0), len(options) - 1)
