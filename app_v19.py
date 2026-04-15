@@ -22,6 +22,24 @@ def _safe_set_page_config(*args, **kwargs):
 st.set_page_config = _safe_set_page_config
 
 
+_original_set_page_config = st.set_page_config
+
+
+def _safe_set_page_config(*args, **kwargs):
+    """v19 wrapper-safe set_page_config proxy.
+
+    The original app calls set_page_config at import time. In wrapper mode, UI
+    may already be initialized; avoid hard-failing reruns in that case.
+    """
+    try:
+        return _original_set_page_config(*args, **kwargs)
+    except Exception:
+        return None
+
+
+st.set_page_config = _safe_set_page_config
+
+
 def _hybrid_theme() -> str:
     return f"""
     <style>
@@ -260,6 +278,28 @@ with _top:
         """,
         unsafe_allow_html=True,
     )
+    st.markdown('<div class="v19-nav">', unsafe_allow_html=True)
+    st.markdown('<div class="v19-label">Workspace</div>', unsafe_allow_html=True)
+    _workspace_placeholder = st.empty()
+    st.markdown('<div class="v19-label" style="margin-top:0.75rem;">Module</div>', unsafe_allow_html=True)
+    _section_placeholder = st.empty()
+    st.markdown('<div class="v19-label" style="margin-top:0.75rem;">Data Mode</div>', unsafe_allow_html=True)
+    _data_mode_placeholder = st.empty()
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="v19-flags">
+          <div class="v19-flag-title">Executive Signal Layer</div>
+          <div class="v19-flag-row">
+            <span class="v19-chip red">Critical Flags</span>
+            <span class="v19-chip amber">Watchlist</span>
+            <span class="v19-chip green">On Track</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 _original_radio = st.radio
@@ -332,15 +372,6 @@ def _radio_router(label, options, index=0, horizontal=False, **kwargs):
 
 
 def _sidebar_radio_router(label, options, index=0, **kwargs):
-    if not options:
-        return _original_sidebar_radio(label, options, index=index, **kwargs)
-    is_logged_in = bool(
-        st.session_state.get("is_admin")
-        or st.session_state.get("user_authenticated")
-        or st.session_state.get("trial_start")
-    )
-    if not is_logged_in:
-        return _original_sidebar_radio(label, options, index=index, **kwargs)
     if "Data Input Mode" in label:
         default_idx = int(st.session_state.get("v19_data_mode_idx", index))
         default_idx = min(max(default_idx, 0), len(options) - 1)
