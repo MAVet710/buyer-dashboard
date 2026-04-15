@@ -2770,6 +2770,7 @@ def render_extraction_command_center():
                     "method": "BHO",
                     "strain": "The 4th Kind",
                     "product_type": "Sugar",
+                    "downstream_product": "N/A",
                     "input_material_type": "Fresh Frozen",
                     "input_weight_g": 2500.0,
                     "intermediate_output_g": 480.0,
@@ -2815,12 +2816,12 @@ def render_extraction_command_center():
         )
 
     st.subheader("🧪 Extraction Command Center")
-    st.caption("Built for BHO, CO2, and Rosin operations with toll processing and METRC-aware workflows.")
+    st.caption("Built for BHO, CO2, Rosin, and Ethanol operations with toll processing and METRC-aware workflows.")
 
     with st.sidebar:
         st.markdown("### 🧪 Extraction Controls")
         states = ["All", "MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"]
-        methods = ["All", "BHO", "CO2", "Rosin"]
+        methods = ["All", "BHO", "CO2", "Rosin", "Ethanol"]
 
         selected_state = st.selectbox("State", states, index=0, key="ecc_selected_state")
         selected_method = st.selectbox("Extraction Method", methods, index=0, key="ecc_selected_method")
@@ -2940,11 +2941,28 @@ def render_extraction_command_center():
                 license_name = st.text_input("Facility / License Name", key="ecc_license_name")
                 client_name = st.text_input("Client Name", value="In House", key="ecc_client_name")
                 batch_id_internal = st.text_input("Internal Batch ID", key="ecc_batch_id")
-                method = st.selectbox("Method", ["BHO", "CO2", "Rosin"], key="ecc_method")
+                method = st.selectbox("Method", ["BHO", "CO2", "Rosin", "Ethanol"], key="ecc_method")
                 product_type = st.selectbox(
                     "Product Type",
-                    ["Sugar", "Badder", "Shatter", "Sauce", "Distillate", "Rosin Jam", "Fresh Press", "Other"],
+                    [
+                        "Sugar",
+                        "Badder",
+                        "Shatter",
+                        "Sauce",
+                        "Distillate",
+                        "Distillate Cart",
+                        "Distillate Disposable",
+                        "Rosin Jam",
+                        "Fresh Press",
+                        "Other",
+                    ],
                     key="ecc_product_type",
+                )
+                downstream_product = st.selectbox(
+                    "Downstream Product Path",
+                    ["N/A", "Bulk Distillate", "Disty Carts", "Disty Disposables"],
+                    key="ecc_downstream_product",
+                    help="Track whether extracted oil is converted into finished vape products.",
                 )
             with r2:
                 input_material_type = st.selectbox(
@@ -3003,6 +3021,7 @@ def render_extraction_command_center():
                             "metrc_manifest_or_transfer_id": metrc_manifest_or_transfer_id,
                             "method": method,
                             "product_type": product_type,
+                            "downstream_product": downstream_product,
                             "input_material_type": input_material_type,
                             "input_weight_g": input_weight_g,
                             "intermediate_output_g": intermediate_output_g,
@@ -3038,7 +3057,7 @@ def render_extraction_command_center():
                 client_name = st.text_input("Client Name", key="ecc_job_client_name")
                 state = st.selectbox("State", ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"], key="ecc_job_state")
                 license_or_registration = st.text_input("Client License / Registration", key="ecc_job_license")
-                method = st.selectbox("Method", ["BHO", "CO2", "Rosin"], key="ecc_job_method")
+                method = st.selectbox("Method", ["BHO", "CO2", "Rosin", "Ethanol"], key="ecc_job_method")
             with t2:
                 metrc_transfer_id = st.text_input("METRC Transfer ID", key="ecc_job_metrc")
                 material_received_date = st.date_input("Material Received Date", key="ecc_job_received")
