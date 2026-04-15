@@ -144,6 +144,8 @@ with _top:
     _workspace_placeholder = st.empty()
     st.markdown('<div class="v19-label" style="margin-top:0.75rem;">Module</div>', unsafe_allow_html=True)
     _section_placeholder = st.empty()
+    st.markdown('<div class="v19-label" style="margin-top:0.75rem;">Data Mode</div>', unsafe_allow_html=True)
+    _data_mode_placeholder = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -213,6 +215,18 @@ def _radio_router(label, options, index=0, horizontal=False, **kwargs):
 
 
 def _sidebar_radio_router(label, options, index=0, **kwargs):
+    if "Data Input Mode" in label:
+        default_idx = int(st.session_state.get("v19_data_mode_idx", index))
+        default_idx = min(max(default_idx, 0), len(options) - 1)
+        value = _data_mode_placeholder.selectbox(
+            "",
+            options,
+            index=default_idx,
+            key="v19_data_mode_select_sidebar",
+            label_visibility="collapsed",
+        )
+        st.session_state["v19_data_mode_idx"] = list(options).index(value)
+        return value
     if label == "App Section":
         default_idx = int(st.session_state.get("v19_section_idx", index))
         default_idx = min(max(default_idx, 0), len(options) - 1)
