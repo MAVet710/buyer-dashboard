@@ -3488,7 +3488,7 @@ def render_extraction_command_center():
         uploaded = st.file_uploader("Upload extraction runs file", type=["csv", "xlsx", "xls"], key="ecc_upload")
         if uploaded is not None:
             try:
-                if looks_like_partner_extraction_file(uploaded):
+                if _EXTRACTION_PARTNER_INTEL_AVAILABLE and looks_like_partner_extraction_file(uploaded):
                     uploaded_df = load_partner_file(uploaded)
                     mapped_df = map_partner_runs_to_ecc_shape(uploaded_df)
                     st.session_state.ecc_run_log = pd.concat(
@@ -3503,14 +3503,9 @@ def render_extraction_command_center():
                         uploaded_df = pd.read_excel(uploaded)
                     else:
                         uploaded_df = pd.read_csv(uploaded)
-                    mapped_df = map_partner_runs_to_ecc_shape(uploaded_df)
-                    st.session_state.ecc_run_log = pd.concat(
-                        [st.session_state.ecc_run_log, mapped_df],
-                        ignore_index=True,
-                    )
-                    st.success("Run log uploaded and appended into Run Analytics.")
-                    st.dataframe(mapped_df, use_container_width=True, hide_index=True)
-                    st.caption("Mapped upload rows are now included in Extraction Run Analytics and KPI calculations.")
+                    st.success("Run log loaded into preview.")
+                    st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
+                    st.caption("Tip: partner-normalized files are auto-mapped when partner intel helpers are available.")
             except Exception as exc:
                 st.error(f"Could not read uploaded run log: {exc}")
 
