@@ -2,6 +2,24 @@ import streamlit as st
 from ui_branding import BACKGROUND_URL, brand_header_html
 
 
+_original_set_page_config = st.set_page_config
+
+
+def _safe_set_page_config(*args, **kwargs):
+    """v19 wrapper-safe set_page_config proxy.
+
+    The original app calls set_page_config at import time. In wrapper mode, UI
+    may already be initialized; avoid hard-failing reruns in that case.
+    """
+    try:
+        return _original_set_page_config(*args, **kwargs)
+    except Exception:
+        return None
+
+
+st.set_page_config = _safe_set_page_config
+
+
 def _hybrid_theme() -> str:
     return f"""
     <style>
@@ -281,8 +299,11 @@ def _should_expand_types(label: str, provided_types):
         "sales report",
         "upload sales report",
         "upload extraction runs file",
+        "upload extraction run",
     ]
     if any(k in label_l for k in known):
+        return True
+    if "extraction" in label_l and "upload" in label_l:
         return True
     if provided_types is None:
         return False
