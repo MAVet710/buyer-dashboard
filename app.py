@@ -5,6 +5,7 @@ import re
 import json
 import os
 import sys
+import hashlib
 import requests
 from collections.abc import Mapping
 from datetime import datetime, timedelta
@@ -15,6 +16,9 @@ from ai_providers import build_provider
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 
 load_dotenv()
+
+# Owner mark (non-functional, intentional signature fragment).
+# __  ______             __ ____________
 
 # For PDF generation
 from reportlab.lib.pagesizes import letter
@@ -56,6 +60,275 @@ try:
     _DUTCHIE_CLIENT_AVAILABLE = True
 except (ImportError, AttributeError):
     _DUTCHIE_CLIENT_AVAILABLE = False
+
+# ------------------------------------------------------------
+# EXTRACTION PARTNER INTEL MODULES
+# ------------------------------------------------------------
+try:
+    from extraction_partner_import import (
+        load_partner_file,
+        map_partner_runs_to_ecc_shape,
+        looks_like_partner_extraction_file,
+    )
+    from extraction_partner_intel import build_extraction_weekly_summary
+    _EXTRACTION_PARTNER_INTEL_AVAILABLE = True
+except (ImportError, AttributeError):
+    _EXTRACTION_PARTNER_INTEL_AVAILABLE = False
+
+if not _EXTRACTION_PARTNER_INTEL_AVAILABLE:
+    def _partner_norm_col(name: str) -> str:
+        return (
+            str(name)
+            .strip()
+            .lower()
+            .replace("/", " ")
+            .replace("-", " ")
+            .replace(".", " ")
+            .replace("(", " ")
+            .replace(")", " ")
+        )
+    # /  |/  /   |_   _____  / //__  <  / __ \
+
+
+    def load_partner_file(uploaded_file) -> pd.DataFrame:
+        raw = uploaded_file.getvalue()
+        file_name = str(getattr(uploaded_file, "name", "")).lower()
+        header_tokens = {
+            "run_date",
+            "run date",
+            "date",
+            "batch_id_internal",
+            "batch id",
+            "batch",
+            "method",
+            "input_weight_g",
+            "input weight",
+            "finished_output_g",
+            "finished output",
+            "operator",
+            "state",
+        }
+
+        def _detect_header_row(preview_df: pd.DataFrame) -> int:
+            best_idx = 0
+            best_score = float("-inf")
+            for idx in range(min(len(preview_df), 60)):
+                row_values = [str(v).strip() for v in preview_df.iloc[idx].tolist()]
+                cleaned = [v for v in row_values if v and v.lower() != "nan"]
+                normalized = {_partner_norm_col(v) for v in cleaned}
+                header_hits = len(normalized.intersection(header_tokens))
+                non_empty = len(cleaned)
+                numeric_like = 0
+                for v in cleaned:
+                    try:
+                        float(str(v).replace(",", ""))
+                        numeric_like += 1
+                    except Exception:
+                        continue
+                numeric_ratio = (numeric_like / non_empty) if non_empty else 1.0
+
+                next_row_has_data = False
+                if idx + 1 < min(len(preview_df), 60):
+                    next_values = [str(v).strip() for v in preview_df.iloc[idx + 1].tolist()]
+                    next_non_empty = [v for v in next_values if v and v.lower() != "nan"]
+                    next_row_has_data = len(next_non_empty) >= 2
+
+                score = (header_hits * 4.0) + min(non_empty, 20) * 0.05 + (1.0 if next_row_has_data else 0.0)
+                if numeric_ratio > 0.6:
+                    score -= 2.0
+                if score > best_score:
+                    best_score = score
+                    best_idx = idx
+            return best_idx if best_score >= 2.5 else 0
+
+        if file_name.endswith((".xlsx", ".xls")):
+            preview = pd.read_excel(BytesIO(raw), header=None, dtype=str)
+            return pd.read_excel(BytesIO(raw), header=_detect_header_row(preview))
+        preview = pd.read_csv(BytesIO(raw), header=None, dtype=str, on_bad_lines="skip")
+        return pd.read_csv(BytesIO(raw), header=_detect_header_row(preview))
+
+
+    def looks_like_partner_extraction_file(uploaded_file) -> bool:
+        try:
+            df = load_partner_file(uploaded_file)
+        except Exception:
+            return False
+        cols = {_partner_norm_col(c) for c in df.columns}
+        required = {
+            "run_date",
+            "run date",
+            "input_weight_g",
+            "input weight g",
+            "finished_output_g",
+            "finished output g",
+            "date in",
+            "batch id",
+            "yield %",
+            "yield",
+            "new metrc 1",
+        }
+        return len(cols.intersection(required)) >= 3
+
+
+    def _partner_pick(df: pd.DataFrame, aliases: list[str], default=None):
+        col_map = {_partner_norm_col(c): c for c in df.columns}
+        for alias in aliases:
+            norm_alias = _partner_norm_col(alias)
+            if norm_alias in col_map:
+                return df[col_map[norm_alias]]
+        return default
+
+
+    def _partner_pick_series(df: pd.DataFrame, aliases: list[str], default="") -> pd.Series:
+        picked = _partner_pick(df, aliases, default=None)
+        if picked is None:
+            return pd.Series([default] * len(df))
+        if isinstance(picked, pd.Series):
+            return picked
+        return pd.Series([picked] * len(df))
+
+
+    def _partner_sum_numeric_columns(df: pd.DataFrame, aliases: list[str], startswith: tuple[str, ...] = ()) -> pd.Series:
+        col_map = {_partner_norm_col(c): c for c in df.columns}
+        matched_cols: list[str] = []
+        for alias in aliases:
+            norm_alias = _partner_norm_col(alias)
+            if norm_alias in col_map:
+                matched_cols.append(col_map[norm_alias])
+        if startswith:
+            for norm_name, original in col_map.items():
+                if any(norm_name.startswith(prefix) for prefix in startswith):
+                    matched_cols.append(original)
+        seen = set()
+        unique_cols = [c for c in matched_cols if not (c in seen or seen.add(c))]
+        if not unique_cols:
+            return pd.Series([0.0] * len(df))
+        return df[unique_cols].apply(pd.to_numeric, errors="coerce").fillna(0).sum(axis=1)
+
+
+    def _partner_infer_downstream_product(df: pd.DataFrame) -> pd.Series:
+        base = _partner_pick_series(df, ["downstream_product", "downstream"], default="")
+        if base.astype(str).str.strip().ne("").any():
+            return base.replace("", "N/A").fillna("N/A")
+        # / /|_/ / /| | | / / _ \/ __/ / // / / / /
+        col_map = {_partner_norm_col(c): c for c in df.columns}
+        item_cols = [original for norm_name, original in col_map.items() if norm_name.startswith("new item name")]
+        if not item_cols:
+            return pd.Series(["N/A"] * len(df))
+        joined = df[item_cols].fillna("").astype(str).agg(" ".join, axis=1).str.lower()
+        downstream = pd.Series(["Bulk Distillate"] * len(df))
+        carts_mask = joined.str.contains(r"\bcart|cartridge|vape", regex=True)
+        disposable_mask = joined.str.contains(r"\bdisposable|dispo", regex=True)
+        downstream[carts_mask] = "Disty Carts"
+        downstream[disposable_mask] = "Disty Disposables"
+        downstream[(~carts_mask) & (~disposable_mask) & joined.str.strip().eq("")] = "N/A"
+        # / /  / / ___ | |/ /  __/ /_  / // / /_/ /
+        return downstream
+
+
+    def map_partner_runs_to_ecc_shape(df: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+        out["run_date"] = pd.to_datetime(
+            _partner_pick(df, ["run_date", "run date", "date", "date in"]),
+            errors="coerce",
+        ).dt.date.astype(str)
+        out["state"] = _partner_pick(df, ["state"], default="Other")
+        out["license_name"] = _partner_pick(df, ["license_name", "facility", "facility_name"], default="")
+        out["client_name"] = _partner_pick(df, ["client_name", "client", "partner"], default="In House")
+        out["batch_id_internal"] = _partner_pick(
+            df,
+            ["batch_id_internal", "batch_id", "batch", "run_id", "new batch id 1", "new batch id"],
+            default="",
+        )
+        out["metrc_package_id_input"] = _partner_pick(df, ["metrc_package_id_input", "input_package_id", "metrc"], default="")
+        out["metrc_package_id_output"] = _partner_pick(
+            df,
+            ["metrc_package_id_output", "output_package_id", "new metrc 1", "metrc 1", "metrc.1"],
+            default="",
+        )
+        out["metrc_manifest_or_transfer_id"] = _partner_pick(df, ["metrc_manifest_or_transfer_id", "transfer_id"], default="")
+        out["method"] = _partner_pick(df, ["method", "extraction_method"], default="Ethanol")
+        out["product_type"] = _partner_pick(df, ["product_type", "output_type", "item", "new item name 1"], default="Other")
+        out["downstream_product"] = _partner_infer_downstream_product(df)
+        out["process_stage"] = _partner_pick(df, ["process_stage", "stage"], default="Intake")
+        out["input_material_type"] = _partner_pick(df, ["input_material_type", "input_type", "material", "item"], default="Other")
+        out["input_weight_g"] = pd.to_numeric(
+            _partner_pick(df, ["input_weight_g", "input_weight", "input_g", "g"], default=0),
+            errors="coerce",
+        ).fillna(0)
+        out["intermediate_output_g"] = pd.to_numeric(_partner_pick(df, ["intermediate_output_g", "intermediate_g"], default=0), errors="coerce").fillna(0)
+        explicit_finished = pd.to_numeric(
+            _partner_pick(df, ["finished_output_g", "finished_output", "output_g"], default=0),
+            errors="coerce",
+        ).fillna(0)
+        new_output_sum = _partner_sum_numeric_columns(df, aliases=["new g 1", "new g"], startswith=("new g",))
+        out["finished_output_g"] = explicit_finished.where(explicit_finished > 0, new_output_sum)
+        out["residual_loss_g"] = pd.to_numeric(
+            _partner_pick(df, ["residual_loss_g", "residual_g", "waste_g", "waste"], default=0),
+            errors="coerce",
+        ).fillna(0)
+        out["yield_pct"] = pd.to_numeric(_partner_pick(df, ["yield_pct", "yield", "yield %", "yield (%)"], default=0), errors="coerce").fillna(0)
+        out["post_process_efficiency_pct"] = pd.to_numeric(
+            _partner_pick(df, ["post_process_efficiency_pct", "post_efficiency_pct", "efficiency"], default=0),
+            errors="coerce",
+        ).fillna(0)
+        out["operator"] = _partner_pick(df, ["operator", "user"], default="")
+        out["machine_line"] = _partner_pick(df, ["machine_line", "line"], default="")
+        out["status"] = _partner_pick(df, ["status"], default="Processing")
+        out["toll_processing"] = pd.Series(_partner_pick(df, ["toll_processing", "is_toll"], default=False)).astype(bool)
+        out["processing_fee_usd"] = pd.to_numeric(_partner_pick(df, ["processing_fee_usd", "processing_fee"], default=0), errors="coerce").fillna(0)
+        out["est_revenue_usd"] = pd.to_numeric(_partner_pick(df, ["est_revenue_usd", "revenue_usd"], default=0), errors="coerce").fillna(0)
+        out["cogs_usd"] = pd.to_numeric(_partner_pick(df, ["cogs_usd", "cogs"], default=0), errors="coerce").fillna(0)
+        out["coa_status"] = _partner_pick(df, ["coa_status"], default="Pending")
+        out["qa_hold"] = pd.Series(_partner_pick(df, ["qa_hold"], default=False)).astype(bool)
+        out["notes"] = _partner_pick(df, ["notes"], default="")
+        stage_order = ["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"]
+
+        def _stage_done(stage_name: str, current: str) -> bool:
+            try:
+                return stage_order.index(str(current)) >= stage_order.index(stage_name)
+            except ValueError:
+                return False
+
+        out["intake_complete"] = out["process_stage"].apply(lambda s: _stage_done("Intake", s))
+        out["extraction_complete"] = out["process_stage"].apply(lambda s: _stage_done("Extraction", s))
+        out["post_process_complete"] = out["process_stage"].apply(lambda s: _stage_done("Post-Process", s))
+        out["formulation_complete"] = out["process_stage"].apply(lambda s: _stage_done("Formulation", s))
+        out["filling_complete"] = out["process_stage"].apply(lambda s: _stage_done("Filling", s))
+        out["packaging_complete"] = out["process_stage"].apply(lambda s: _stage_done("Packaged", s))
+        out["ready_for_transfer"] = out["process_stage"].apply(lambda s: str(s) == "Transferred")
+        return out
+
+
+    def build_extraction_weekly_summary(run_df: pd.DataFrame) -> pd.DataFrame:
+        if run_df is None or run_df.empty:
+            return pd.DataFrame()
+        df = run_df.copy()
+        dt = pd.to_datetime(df.get("run_date"), errors="coerce")
+        df["week_start"] = (dt.dt.normalize() - pd.to_timedelta(dt.dt.weekday, unit="D")).dt.date.astype(str)
+        df["finished_output_g"] = pd.to_numeric(df.get("finished_output_g", 0), errors="coerce").fillna(0)
+        df["yield_pct"] = pd.to_numeric(df.get("yield_pct", 0), errors="coerce").fillna(0)
+        df["est_revenue_usd"] = pd.to_numeric(df.get("est_revenue_usd", 0), errors="coerce").fillna(0)
+        df["cogs_usd"] = pd.to_numeric(df.get("cogs_usd", 0), errors="coerce").fillna(0)
+        df["qa_hold"] = pd.Series(df.get("qa_hold", False)).astype(bool)
+        weekly = (
+            df.groupby("week_start", dropna=True)
+            .agg(
+                extraction_runs=("batch_id_internal", "count"),
+                finished_output_g=("finished_output_g", "sum"),
+                avg_yield_pct=("yield_pct", "mean"),
+                est_revenue_usd=("est_revenue_usd", "sum"),
+                cogs_usd=("cogs_usd", "sum"),
+                qa_hold_runs=("qa_hold", "sum"),
+            )
+            .reset_index()
+            .sort_values("week_start", ascending=False)
+        )
+        weekly["gross_margin_pct"] = weekly.apply(
+            lambda r: ((r["est_revenue_usd"] - r["cogs_usd"]) / r["est_revenue_usd"] * 100) if r["est_revenue_usd"] else 0.0,
+            axis=1,
+        )
+        return weekly
 
 # ------------------------------------------------------------
 # DELIVERY IMPACT MODULE
@@ -2770,6 +3043,15 @@ def render_extraction_command_center():
                     "method": "BHO",
                     "strain": "The 4th Kind",
                     "product_type": "Sugar",
+                    "downstream_product": "N/A",
+                    "process_stage": "Packaged",
+                    "intake_complete": True,
+                    "extraction_complete": True,
+                    "post_process_complete": True,
+                    "formulation_complete": True,
+                    "filling_complete": True,
+                    "packaging_complete": True,
+                    "ready_for_transfer": True,
                     "input_material_type": "Fresh Frozen",
                     "input_weight_g": 2500.0,
                     "intermediate_output_g": 480.0,
@@ -2815,12 +3097,12 @@ def render_extraction_command_center():
         )
 
     st.subheader("🧪 Extraction Command Center")
-    st.caption("Built for BHO, CO2, and Rosin operations with toll processing and METRC-aware workflows.")
+    st.caption("Built for BHO, CO2, Rosin, and Ethanol operations with toll processing and METRC-aware workflows.")
 
     with st.sidebar:
         st.markdown("### 🧪 Extraction Controls")
         states = ["All", "MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"]
-        methods = ["All", "BHO", "CO2", "Rosin"]
+        methods = ["All", "BHO", "CO2", "Rosin", "Ethanol"]
 
         selected_state = st.selectbox("State", states, index=0, key="ecc_selected_state")
         selected_method = st.selectbox("Extraction Method", methods, index=0, key="ecc_selected_method")
@@ -2886,10 +3168,11 @@ def render_extraction_command_center():
     with top[7]:
         kpi_card("Gross Margin", f"{gross_margin_pct:.1f}%")
 
-    overview_tab, runs_tab, toll_tab, compliance_tab, inputs_tab, ai_ops_tab = st.tabs(
+    overview_tab, runs_tab, process_tab, toll_tab, compliance_tab, inputs_tab, ai_ops_tab = st.tabs(
         [
             "Executive Overview",
             "Run Analytics",
+            "Process Tracker",
             "Toll Processing",
             "Compliance / METRC",
             "Data Input",
@@ -2910,6 +3193,26 @@ def render_extraction_command_center():
                     .sort_values("finished_output_g", ascending=False)
                 )
                 st.bar_chart(method_summary.set_index("method")["finished_output_g"])
+                if _EXTRACTION_PARTNER_INTEL_AVAILABLE:
+                    weekly_summary = build_extraction_weekly_summary(run_df)
+                    if not weekly_summary.empty:
+                        st.markdown("#### Weekly Executive Totals")
+                        weekly_chart = weekly_summary.sort_values("week_start").set_index("week_start")
+                        st.line_chart(weekly_chart[["finished_output_g", "est_revenue_usd"]])
+                        show_cols = [
+                            "week_start",
+                            "extraction_runs",
+                            "finished_output_g",
+                            "avg_yield_pct",
+                            "est_revenue_usd",
+                            "gross_margin_pct",
+                            "qa_hold_runs",
+                        ]
+                        st.dataframe(
+                            weekly_summary[show_cols],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
         with c2:
             st.subheader("Smart Flags")
             flags = []
@@ -2940,11 +3243,34 @@ def render_extraction_command_center():
                 license_name = st.text_input("Facility / License Name", key="ecc_license_name")
                 client_name = st.text_input("Client Name", value="In House", key="ecc_client_name")
                 batch_id_internal = st.text_input("Internal Batch ID", key="ecc_batch_id")
-                method = st.selectbox("Method", ["BHO", "CO2", "Rosin"], key="ecc_method")
+                method = st.selectbox("Method", ["BHO", "CO2", "Rosin", "Ethanol"], key="ecc_method")
                 product_type = st.selectbox(
                     "Product Type",
-                    ["Sugar", "Badder", "Shatter", "Sauce", "Distillate", "Rosin Jam", "Fresh Press", "Other"],
+                    [
+                        "Sugar",
+                        "Badder",
+                        "Shatter",
+                        "Sauce",
+                        "Distillate",
+                        "Distillate Cart",
+                        "Distillate Disposable",
+                        "Rosin Jam",
+                        "Fresh Press",
+                        "Other",
+                    ],
                     key="ecc_product_type",
+                )
+                downstream_product = st.selectbox(
+                    "Downstream Product Path",
+                    ["N/A", "Bulk Distillate", "Disty Carts", "Disty Disposables"],
+                    key="ecc_downstream_product",
+                    help="Track whether extracted oil is converted into finished vape products.",
+                )
+                process_stage = st.selectbox(
+                    "Current Process Stage",
+                    ["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"],
+                    index=0,
+                    key="ecc_process_stage",
                 )
             with r2:
                 input_material_type = st.selectbox(
@@ -3003,6 +3329,15 @@ def render_extraction_command_center():
                             "metrc_manifest_or_transfer_id": metrc_manifest_or_transfer_id,
                             "method": method,
                             "product_type": product_type,
+                            "downstream_product": downstream_product,
+                            "process_stage": process_stage,
+                            "intake_complete": process_stage in ["Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"],
+                            "extraction_complete": process_stage in ["Post-Process", "Formulation", "Filling", "Packaged", "Transferred"],
+                            "post_process_complete": process_stage in ["Formulation", "Filling", "Packaged", "Transferred"],
+                            "formulation_complete": process_stage in ["Filling", "Packaged", "Transferred"],
+                            "filling_complete": process_stage in ["Packaged", "Transferred"],
+                            "packaging_complete": process_stage in ["Packaged", "Transferred"],
+                            "ready_for_transfer": process_stage == "Transferred",
                             "input_material_type": input_material_type,
                             "input_weight_g": input_weight_g,
                             "intermediate_output_g": intermediate_output_g,
@@ -3029,6 +3364,191 @@ def render_extraction_command_center():
                 )
                 st.success("Run added. Rerun to view updated KPIs.")
 
+    with process_tab:
+        st.subheader("Start-to-Finish Process Tracker")
+        st.caption("Update extraction runs as they move from intake through final transfer-ready output.")
+
+        if st.session_state.ecc_run_log.empty:
+            st.info("No runs available yet. Add a run to begin tracking the extraction process.")
+        else:
+            process_df = st.session_state.ecc_run_log.copy().reset_index(drop=True)
+            if "process_stage" not in process_df.columns:
+                process_df["process_stage"] = "Intake"
+            for col in [
+                "intake_complete",
+                "extraction_complete",
+                "post_process_complete",
+                "formulation_complete",
+                "filling_complete",
+                "packaging_complete",
+                "ready_for_transfer",
+            ]:
+                if col not in process_df.columns:
+                    process_df[col] = False
+
+            process_df["run_label"] = (
+                process_df["run_date"].astype(str)
+                + " • "
+                + process_df["batch_id_internal"].astype(str).replace("", "No Batch ID")
+                + " • "
+                + process_df["method"].astype(str)
+            )
+            selected_run = st.selectbox(
+                "Select Run to Update",
+                process_df["run_label"].tolist(),
+                key="ecc_process_selected_run",
+            )
+            selected_idx = process_df.index[process_df["run_label"] == selected_run][0]
+            selected_row = process_df.loc[selected_idx]
+
+            p1, p2, p3 = st.columns(3)
+            with p1:
+                updated_stage = st.selectbox(
+                    "Process Stage",
+                    ["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"],
+                    index=["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"].index(
+                        selected_row.get("process_stage", "Intake")
+                    ) if selected_row.get("process_stage", "Intake") in ["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"] else 0,
+                    key="ecc_process_stage_update",
+                )
+                updated_status = st.selectbox(
+                    "Operational Status",
+                    ["Queued", "Processing", "Packaging", "Complete", "Hold"],
+                    index=(
+                        ["Queued", "Processing", "Packaging", "Complete", "Hold"].index(selected_row.get("status", "Processing"))
+                        if selected_row.get("status", "Processing") in ["Queued", "Processing", "Packaging", "Complete", "Hold"]
+                        else 1
+                    ),
+                    key="ecc_process_status_update",
+                )
+                updated_product_type = st.selectbox(
+                    "Finished Product Type",
+                    [
+                        "Sugar",
+                        "Badder",
+                        "Shatter",
+                        "Sauce",
+                        "Distillate",
+                        "Distillate Cart",
+                        "Distillate Disposable",
+                        "Rosin Jam",
+                        "Fresh Press",
+                        "Other",
+                    ],
+                    index=(
+                        [
+                            "Sugar",
+                            "Badder",
+                            "Shatter",
+                            "Sauce",
+                            "Distillate",
+                            "Distillate Cart",
+                            "Distillate Disposable",
+                            "Rosin Jam",
+                            "Fresh Press",
+                            "Other",
+                        ].index(selected_row.get("product_type", "Other"))
+                        if selected_row.get("product_type", "Other") in [
+                            "Sugar",
+                            "Badder",
+                            "Shatter",
+                            "Sauce",
+                            "Distillate",
+                            "Distillate Cart",
+                            "Distillate Disposable",
+                            "Rosin Jam",
+                            "Fresh Press",
+                            "Other",
+                        ]
+                        else 9
+                    ),
+                    key="ecc_process_product_type_update",
+                )
+            with p2:
+                updated_downstream = st.selectbox(
+                    "Downstream Output",
+                    ["N/A", "Bulk Distillate", "Disty Carts", "Disty Disposables"],
+                    index=(
+                        ["N/A", "Bulk Distillate", "Disty Carts", "Disty Disposables"].index(
+                            selected_row.get("downstream_product", "N/A")
+                        )
+                        if selected_row.get("downstream_product", "N/A") in ["N/A", "Bulk Distillate", "Disty Carts", "Disty Disposables"]
+                        else 0
+                    ),
+                    key="ecc_process_downstream_update",
+                )
+                updated_coa = st.selectbox(
+                    "COA Status",
+                    ["Pending", "Passed", "Failed", "Not Submitted"],
+                    index=(
+                        ["Pending", "Passed", "Failed", "Not Submitted"].index(selected_row.get("coa_status", "Pending"))
+                        if selected_row.get("coa_status", "Pending") in ["Pending", "Passed", "Failed", "Not Submitted"]
+                        else 0
+                    ),
+                    key="ecc_process_coa_update",
+                )
+                updated_qa_hold = st.checkbox(
+                    "QA Hold",
+                    value=bool(selected_row.get("qa_hold", False)),
+                    key="ecc_process_qa_hold_update",
+                )
+            with p3:
+                intake_complete = st.checkbox("Intake Complete", value=bool(selected_row.get("intake_complete", False)), key="ecc_intake_complete_update")
+                extraction_complete = st.checkbox("Extraction Complete", value=bool(selected_row.get("extraction_complete", False)), key="ecc_extraction_complete_update")
+                post_process_complete = st.checkbox("Post-Process Complete", value=bool(selected_row.get("post_process_complete", False)), key="ecc_post_process_complete_update")
+                formulation_complete = st.checkbox("Formulation Complete", value=bool(selected_row.get("formulation_complete", False)), key="ecc_formulation_complete_update")
+                filling_complete = st.checkbox("Filling Complete", value=bool(selected_row.get("filling_complete", False)), key="ecc_filling_complete_update")
+                packaging_complete = st.checkbox("Packaging Complete", value=bool(selected_row.get("packaging_complete", False)), key="ecc_packaging_complete_update")
+                ready_for_transfer = st.checkbox("Ready for Transfer", value=bool(selected_row.get("ready_for_transfer", False)), key="ecc_ready_for_transfer_update")
+
+            updated_notes = st.text_area(
+                "Process Notes / Handoff Notes",
+                value=str(selected_row.get("notes", "")),
+                key="ecc_process_notes_update",
+            )
+
+            if st.button("Update Extraction Process", type="primary", key="ecc_update_process"):
+                st.session_state.ecc_run_log.loc[selected_idx, "process_stage"] = updated_stage
+                st.session_state.ecc_run_log.loc[selected_idx, "status"] = updated_status
+                st.session_state.ecc_run_log.loc[selected_idx, "product_type"] = updated_product_type
+                st.session_state.ecc_run_log.loc[selected_idx, "downstream_product"] = updated_downstream
+                st.session_state.ecc_run_log.loc[selected_idx, "coa_status"] = updated_coa
+                st.session_state.ecc_run_log.loc[selected_idx, "qa_hold"] = updated_qa_hold
+                st.session_state.ecc_run_log.loc[selected_idx, "intake_complete"] = intake_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "extraction_complete"] = extraction_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "post_process_complete"] = post_process_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "formulation_complete"] = formulation_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "filling_complete"] = filling_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "packaging_complete"] = packaging_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "ready_for_transfer"] = ready_for_transfer
+                st.session_state.ecc_run_log.loc[selected_idx, "notes"] = updated_notes
+                st.success("Extraction process updated successfully.")
+
+            process_view_cols = [
+                "run_date",
+                "batch_id_internal",
+                "method",
+                "process_stage",
+                "status",
+                "product_type",
+                "downstream_product",
+                "coa_status",
+                "qa_hold",
+                "intake_complete",
+                "extraction_complete",
+                "post_process_complete",
+                "formulation_complete",
+                "filling_complete",
+                "packaging_complete",
+                "ready_for_transfer",
+            ]
+            st.markdown("#### Process Snapshot")
+            st.dataframe(
+                st.session_state.ecc_run_log[[c for c in process_view_cols if c in st.session_state.ecc_run_log.columns]],
+                use_container_width=True,
+                hide_index=True,
+            )
+
     with toll_tab:
         st.subheader("Toll Processing Command View")
         st.dataframe(job_df, use_container_width=True, hide_index=True)
@@ -3038,7 +3558,7 @@ def render_extraction_command_center():
                 client_name = st.text_input("Client Name", key="ecc_job_client_name")
                 state = st.selectbox("State", ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"], key="ecc_job_state")
                 license_or_registration = st.text_input("Client License / Registration", key="ecc_job_license")
-                method = st.selectbox("Method", ["BHO", "CO2", "Rosin"], key="ecc_job_method")
+                method = st.selectbox("Method", ["BHO", "CO2", "Rosin", "Ethanol"], key="ecc_job_method")
             with t2:
                 metrc_transfer_id = st.text_input("METRC Transfer ID", key="ecc_job_metrc")
                 material_received_date = st.date_input("Material Received Date", key="ecc_job_received")
@@ -3112,14 +3632,48 @@ def render_extraction_command_center():
 
     with inputs_tab:
         st.subheader("Raw Data Upload Staging")
-        uploaded = st.file_uploader("Upload CSV run log", type=["csv"], key="ecc_upload")
+        uploaded = st.file_uploader("Upload extraction runs file", type=["csv", "xlsx", "xls"], key="ecc_upload")
+        if "ecc_ingested_upload_hashes" not in st.session_state:
+            st.session_state.ecc_ingested_upload_hashes = set()
         if uploaded is not None:
             try:
-                uploaded_df = pd.read_csv(uploaded)
-                st.success("CSV loaded into preview.")
-                st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
+                upload_bytes = uploaded.getvalue()
+                upload_hash = hashlib.md5(upload_bytes).hexdigest()
+                uploaded_df = load_partner_file(uploaded)
+                mapped_df = map_partner_runs_to_ecc_shape(uploaded_df)
+                if mapped_df is None or mapped_df.empty:
+                    st.warning("Upload parsed, but no mappable extraction rows were found.")
+                else:
+                    already_pushed = upload_hash in st.session_state.ecc_ingested_upload_hashes
+                    is_partner = looks_like_partner_extraction_file(uploaded)
+                    if not already_pushed:
+                        st.session_state.ecc_run_log = pd.concat(
+                            [st.session_state.ecc_run_log, mapped_df],
+                            ignore_index=True,
+                        )
+                        st.session_state.ecc_ingested_upload_hashes.add(upload_hash)
+                        if is_partner:
+                            st.success("Partner extraction workbook detected and mapped into run log format.")
+                        else:
+                            st.success("Run log uploaded and appended into Run Analytics.")
+                        st.caption("Mapped upload rows are now included in Extraction Run Analytics and KPI calculations.")
+                    else:
+                        st.info("This file was already pushed once. Use Force Push to append it again if needed.")
+
+                    st.dataframe(mapped_df, use_container_width=True, hide_index=True)
+                    if st.button("Force Push Upload to Run Analytics", key=f"ecc_force_push_{upload_hash}"):
+                        st.session_state.ecc_run_log = pd.concat(
+                            [st.session_state.ecc_run_log, mapped_df],
+                            ignore_index=True,
+                        )
+                        st.session_state.ecc_ingested_upload_hashes.add(upload_hash)
+                        st.success(f"Force-pushed {len(mapped_df)} rows into Extraction Run Analytics.")
+                        st.rerun()
+
+                    if st.button("Refresh Run Analytics Now", key=f"ecc_refresh_push_{upload_hash}"):
+                        st.rerun()
             except Exception as exc:
-                st.error(f"Could not read CSV: {exc}")
+                st.error(f"Could not read uploaded run log: {exc}")
 
     with ai_ops_tab:
         st.subheader("AI Operations Brief")
