@@ -17,11 +17,11 @@ PRODUCT_TYPE_OPTIONS = [
     "Badder / Batter",
     "Shatter",
     "Sauce",
-    "Diamonds (THCa Diamonds)",
+    "Diamonds (THCa)",
     "Live Resin",
     "Live Rosin",
     "Cured Resin",
-    "Fresh Press (Rosin)",
+    "Fresh Press",
     "Rosin Jam",
     "Hash Rosin",
     "Bubble Hash / Ice Water Hash",
@@ -34,14 +34,14 @@ PRODUCT_TYPE_OPTIONS = [
     "Crumble",
     "Pull-and-Snap",
     "Terp Sauce",
-    "HTFSE (High Terpene Full Spectrum Extract)",
-    "HCFSE (High Cannabinoid Full Spectrum Extract)",
+    "HTFSE",
+    "HCFSE",
     "THCa Isolate",
     "CBD Isolate",
     "Full Spectrum Oil",
     "Broad Spectrum Oil",
     "Caviar / Moon Rocks",
-    "Infused Pre-Roll (concentrate output)",
+    "Infused Pre-Roll",
     "Vape Cart Oil",
     "Dab-ready Concentrate",
     "Other",
@@ -203,11 +203,8 @@ def _filtered_frames(
             rf = rf[rf["method"] == selected_method]
         if "method" in jf.columns:
             jf = jf[jf["method"] == selected_method]
-    if selected_strain != "All":
-        if "strain" in rf.columns:
-            rf = rf[rf["strain"] == selected_strain]
-        if "strain" in jf.columns:
-            jf = jf[jf["strain"] == selected_strain]
+    if selected_strain != "All" and "strain" in rf.columns:
+        rf = rf[rf["strain"] == selected_strain]
     if toll_only and "toll_processing" in rf.columns:
         rf = rf[rf["toll_processing"] == True]
     return rf, jf
@@ -298,14 +295,6 @@ def render_extraction_perfect_view_v2():
 
     run_df_all = st.session_state[EXTRACTION_RUNS].copy()
     job_df_all = st.session_state[EXTRACTION_JOBS].copy()
-    strain_values = (
-        run_df_all.get("strain", pd.Series(dtype=str))
-        .fillna("")
-        .astype(str)
-        .str.strip()
-    )
-    strain_options = ["All"] + sorted([v for v in strain_values.unique().tolist() if v])
-
     s1, s2, s3, s4 = st.columns(4)
     with s1:
         selected_state = st.selectbox("State", ["All", "MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"], key="ecc_selected_state_v2")
@@ -314,6 +303,10 @@ def render_extraction_perfect_view_v2():
     with s3:
         toll_only = st.toggle("Show Toll Processing Only", value=st.session_state["ecc_toll_only_v2"], key="ecc_toll_only_v2")
     with s4:
+        strain_options = ["All"]
+        if "strain" in st.session_state.get(EXTRACTION_RUNS, pd.DataFrame()).columns:
+            unique_strains = sorted(st.session_state[EXTRACTION_RUNS]["strain"].dropna().unique().tolist())
+            strain_options += unique_strains
         selected_strain = st.selectbox("Strain", strain_options, key="ecc_selected_strain_v2")
 
     run_df, job_df = _filtered_frames(
