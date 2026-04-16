@@ -1,6 +1,7 @@
 import html
 
 import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -11,6 +12,40 @@ from ui_polish import chart_card_end, chart_card_start, render_metric_tiles, ren
 METHOD_OPTIONS = ["All", "BHO", "CO2", "Rosin", "Ethanol"]
 ENTRY_METHOD_OPTIONS = ["BHO", "CO2", "Rosin", "Ethanol"]
 CHART_COLORS = ["#ff9a3c", "#5aa8ff", "#f3c74c", "#4cd388", "#ff6161"]
+PRODUCT_TYPE_OPTIONS = [
+    "Sugar",
+    "Badder / Batter",
+    "Shatter",
+    "Sauce",
+    "Diamonds (THCa Diamonds)",
+    "Live Resin",
+    "Live Rosin",
+    "Cured Resin",
+    "Fresh Press (Rosin)",
+    "Rosin Jam",
+    "Hash Rosin",
+    "Bubble Hash / Ice Water Hash",
+    "Dry Sift / Kief",
+    "Distillate",
+    "Crude Oil",
+    "RSO (Rick Simpson Oil)",
+    "Tincture",
+    "Wax",
+    "Crumble",
+    "Pull-and-Snap",
+    "Terp Sauce",
+    "HTFSE (High Terpene Full Spectrum Extract)",
+    "HCFSE (High Cannabinoid Full Spectrum Extract)",
+    "THCa Isolate",
+    "CBD Isolate",
+    "Full Spectrum Oil",
+    "Broad Spectrum Oil",
+    "Caviar / Moon Rocks",
+    "Infused Pre-Roll (concentrate output)",
+    "Vape Cart Oil",
+    "Dab-ready Concentrate",
+    "Other",
+]
 
 
 def _ensure_defaults():
@@ -94,6 +129,7 @@ def _ensure_defaults():
                     "material_received_date": "2026-03-25",
                     "promised_completion_date": "2026-03-30",
                     "method": "BHO",
+                    "strain": "The 4th Kind",
                     "input_weight_g": 2500.0,
                     "expected_output_g": 450.0,
                     "actual_output_g": 430.0,
@@ -147,7 +183,14 @@ def _compute_alerts(run_df: pd.DataFrame, job_df: pd.DataFrame):
     return alerts
 
 
-def _filtered_frames(run_df: pd.DataFrame, job_df: pd.DataFrame, selected_state: str, selected_method: str, toll_only: bool):
+def _filtered_frames(
+    run_df: pd.DataFrame,
+    job_df: pd.DataFrame,
+    selected_state: str,
+    selected_method: str,
+    toll_only: bool,
+    selected_strain: str = "All",
+):
     rf = run_df.copy()
     jf = job_df.copy()
     if selected_state != "All":
@@ -160,6 +203,11 @@ def _filtered_frames(run_df: pd.DataFrame, job_df: pd.DataFrame, selected_state:
             rf = rf[rf["method"] == selected_method]
         if "method" in jf.columns:
             jf = jf[jf["method"] == selected_method]
+    if selected_strain != "All":
+        if "strain" in rf.columns:
+            rf = rf[rf["strain"] == selected_strain]
+        if "strain" in jf.columns:
+            jf = jf[jf["strain"] == selected_strain]
     if toll_only and "toll_processing" in rf.columns:
         rf = rf[rf["toll_processing"] == True]
     return rf, jf
@@ -245,18 +293,37 @@ def render_extraction_perfect_view_v2():
         st.session_state["ecc_selected_method_v2"] = "All"
     if "ecc_toll_only_v2" not in st.session_state:
         st.session_state["ecc_toll_only_v2"] = False
+    if "ecc_selected_strain_v2" not in st.session_state:
+        st.session_state["ecc_selected_strain_v2"] = "All"
 
-    s1, s2, s3 = st.columns(3)
+    run_df_all = st.session_state[EXTRACTION_RUNS].copy()
+    job_df_all = st.session_state[EXTRACTION_JOBS].copy()
+    strain_values = (
+        run_df_all.get("strain", pd.Series(dtype=str))
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+    strain_options = ["All"] + sorted([v for v in strain_values.unique().tolist() if v])
+
+    s1, s2, s3, s4 = st.columns(4)
     with s1:
         selected_state = st.selectbox("State", ["All", "MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"], key="ecc_selected_state_v2")
     with s2:
         selected_method = st.selectbox("Extraction Method", METHOD_OPTIONS, key="ecc_selected_method_v2")
     with s3:
         toll_only = st.toggle("Show Toll Processing Only", value=st.session_state["ecc_toll_only_v2"], key="ecc_toll_only_v2")
+    with s4:
+        selected_strain = st.selectbox("Strain", strain_options, key="ecc_selected_strain_v2")
 
-    run_df = st.session_state[EXTRACTION_RUNS].copy()
-    job_df = st.session_state[EXTRACTION_JOBS].copy()
-    run_df, job_df = _filtered_frames(run_df, job_df, selected_state, selected_method, toll_only)
+    run_df, job_df = _filtered_frames(
+        run_df_all,
+        job_df_all,
+        selected_state,
+        selected_method,
+        toll_only,
+        selected_strain,
+    )
 
     total_runs = len(run_df)
     total_finished_output = float(pd.to_numeric(run_df.get("finished_output_g", 0), errors="coerce").fillna(0).sum()) if not run_df.empty else 0.0
@@ -428,6 +495,56 @@ def render_extraction_perfect_view_v2():
                     )
             chart_card_end()
 
+        strain_1, strain_2 = st.columns(2)
+        with strain_1:
+            chart_card_start("Yield by Strain", "Average yield percentage by strain")
+            if run_df.empty or "strain" not in run_df.columns or "yield_pct" not in run_df.columns:
+                st.info("No strain yield data yet.")
+            else:
+                yield_by_strain = (
+                    run_df.assign(strain=run_df["strain"].fillna("").astype(str).str.strip())
+                    .query("strain != ''")
+                    .groupby("strain", as_index=False)["yield_pct"]
+                    .mean()
+                    .sort_values("yield_pct", ascending=False)
+                )
+                if yield_by_strain.empty:
+                    st.info("No strain yield data yet.")
+                else:
+                    fig_yield = px.bar(
+                        yield_by_strain,
+                        x="strain",
+                        y="yield_pct",
+                        color_discrete_sequence=["#ff9a3c"],
+                    )
+                    fig_yield.update_layout(**_chart_layout(showlegend=False))
+                    st.plotly_chart(fig_yield, use_container_width=True)
+            chart_card_end()
+        with strain_2:
+            chart_card_start("Output by Strain", "Total finished output grams by strain")
+            if run_df.empty or "strain" not in run_df.columns or "finished_output_g" not in run_df.columns:
+                st.info("No strain output data yet.")
+            else:
+                output_by_strain = (
+                    run_df.assign(strain=run_df["strain"].fillna("").astype(str).str.strip())
+                    .query("strain != ''")
+                    .groupby("strain", as_index=False)["finished_output_g"]
+                    .sum()
+                    .sort_values("finished_output_g", ascending=False)
+                )
+                if output_by_strain.empty:
+                    st.info("No strain output data yet.")
+                else:
+                    fig_output = px.bar(
+                        output_by_strain,
+                        x="strain",
+                        y="finished_output_g",
+                        color_discrete_sequence=["#ff9a3c"],
+                    )
+                    fig_output.update_layout(**_chart_layout(showlegend=False))
+                    st.plotly_chart(fig_output, use_container_width=True)
+            chart_card_end()
+
     with method_tab:
         st.markdown("### Method Efficiency Tracker")
         eff = _method_efficiency_summary(run_df)
@@ -444,10 +561,40 @@ def render_extraction_perfect_view_v2():
             st.info("No variance summary available yet.")
         else:
             st.dataframe(variance, use_container_width=True, hide_index=True)
+        st.markdown("### Strain Performance")
+        if run_df.empty or "strain" not in run_df.columns:
+            st.info("No strain performance data available yet.")
+        else:
+            strain_perf = (
+                run_df.assign(strain=run_df["strain"].fillna("").astype(str).str.strip())
+                .query("strain != ''")
+                .groupby("strain", as_index=False)
+                .agg(
+                    avg_yield_pct=("yield_pct", "mean"),
+                    avg_efficiency_pct=("post_process_efficiency_pct", "mean"),
+                    total_output_g=("finished_output_g", "sum"),
+                )
+                .sort_values("avg_yield_pct", ascending=False)
+            )
+            if strain_perf.empty:
+                st.info("No strain performance data available yet.")
+            else:
+                st.dataframe(strain_perf, use_container_width=True, hide_index=True)
+                fig_strain_perf = px.bar(
+                    strain_perf,
+                    x="strain",
+                    y="avg_yield_pct",
+                    color_discrete_sequence=["#ff9a3c"],
+                )
+                fig_strain_perf.update_layout(**_chart_layout(showlegend=False))
+                st.plotly_chart(fig_strain_perf, use_container_width=True)
 
     with runs_tab:
         st.markdown("### Run Explorer")
-        st.dataframe(run_df, use_container_width=True, hide_index=True)
+        run_df_display = run_df.copy()
+        if "strain" not in run_df_display.columns:
+            run_df_display["strain"] = ""
+        st.dataframe(run_df_display, use_container_width=True, hide_index=True)
         with st.expander("Add Run Record", expanded=False):
             r1, r2, r3 = st.columns(3)
             with r1:
@@ -457,7 +604,8 @@ def render_extraction_perfect_view_v2():
                 client_name = st.text_input("Client Name", value="In House", key="ecc_client_name_v2")
                 batch_id_internal = st.text_input("Internal Batch ID", key="ecc_batch_id_v2")
                 method = st.selectbox("Method", ENTRY_METHOD_OPTIONS, key="ecc_method_v2")
-                product_type = st.selectbox("Product Type", ["Sugar", "Badder", "Shatter", "Sauce", "Distillate", "Rosin Jam", "Fresh Press", "Crude", "Other"], key="ecc_product_type_v2")
+                strain = st.text_input("Strain", key="ecc_strain_v2")
+                product_type = st.selectbox("Product Type", PRODUCT_TYPE_OPTIONS, key="ecc_product_type_v2")
             with r2:
                 input_material_type = st.selectbox("Input Material Type", ["Fresh Frozen", "Cured Biomass", "Hash", "Flower", "Trim", "Other"], key="ecc_input_material_type_v2")
                 input_weight_g = st.number_input("Input Weight (g)", min_value=0.0, step=1.0, key="ecc_input_weight_v2")
@@ -492,6 +640,7 @@ def render_extraction_perfect_view_v2():
                     "metrc_package_id_output": metrc_package_id_output,
                     "metrc_manifest_or_transfer_id": metrc_manifest_or_transfer_id,
                     "method": method,
+                    "strain": strain,
                     "product_type": product_type,
                     "input_material_type": input_material_type,
                     "input_weight_g": input_weight_g,
@@ -526,6 +675,7 @@ def render_extraction_perfect_view_v2():
                 state = st.selectbox("State", ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"], key="ecc_job_state_v2")
                 license_or_registration = st.text_input("Client License / Registration", key="ecc_job_license_v2")
                 method = st.selectbox("Method", ENTRY_METHOD_OPTIONS, key="ecc_job_method_v2")
+                strain = st.text_input("Strain", key="ecc_job_strain_v2")
             with t2:
                 metrc_transfer_id = st.text_input("METRC Transfer ID", key="ecc_job_metrc_v2")
                 material_received_date = st.date_input("Material Received Date", key="ecc_job_received_v2")
@@ -550,6 +700,7 @@ def render_extraction_perfect_view_v2():
                     "material_received_date": str(material_received_date),
                     "promised_completion_date": str(promised_completion_date),
                     "method": method,
+                    "strain": strain,
                     "input_weight_g": input_weight_g,
                     "expected_output_g": expected_output_g,
                     "actual_output_g": actual_output_g,
