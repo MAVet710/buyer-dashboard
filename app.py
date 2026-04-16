@@ -3059,6 +3059,129 @@ def _ecc_apply_default_if_empty(df: pd.DataFrame, column_name: str, default_valu
     return df
 
 
+# ─── Mass-balance helpers ─────────────────────────────────────────────────────
+_MB_EDITABLE_FIELDS: list[str] = [
+    "extraction_output_g",
+    "post_process_output_g",
+    "distillation_output_g",
+    "final_output_g",
+]
+_MB_COMPUTED_FIELDS: list[str] = [
+    "extraction_loss_g",
+    "post_process_loss_g",
+    "distillation_loss_g",
+    "final_loss_g",
+    "extraction_yield_pct",
+    "post_process_yield_pct",
+    "distillation_yield_pct",
+    "final_yield_pct",
+    "post_process_stage_efficiency_pct",
+    "distillation_efficiency_pct",
+    "final_stage_efficiency_pct",
+    "mass_balance_flag",
+]
+# Unusually high yield warning thresholds per method
+_MB_HIGH_YIELD_THRESHOLDS: dict[str, float] = {
+    "BHO": 40.0,
+    "CO2": 35.0,
+    "Rosin": 25.0,
+    "Ethanol": 35.0,
+}
+
+
+def _ensure_mass_balance_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """Add mass-balance columns with safe defaults when absent; back-fill from legacy fields."""
+    df = df.copy()
+    for col in _MB_EDITABLE_FIELDS:
+        if col not in df.columns:
+            df[col] = 0.0
+    for col in _MB_COMPUTED_FIELDS:
+        if col not in df.columns:
+            df[col] = "OK" if col == "mass_balance_flag" else 0.0
+    # Back-fill extraction_output_g from intermediate_output_g (only for rows still at zero)
+    if "intermediate_output_g" in df.columns:
+        mask = pd.to_numeric(df["extraction_output_g"], errors="coerce").fillna(0.0) == 0.0
+        df.loc[mask, "extraction_output_g"] = pd.to_numeric(
+            df.loc[mask, "intermediate_output_g"], errors="coerce"
+        ).fillna(0.0)
+    # Back-fill final_output_g from finished_output_g (only for rows still at zero)
+    if "finished_output_g" in df.columns:
+        mask = pd.to_numeric(df["final_output_g"], errors="coerce").fillna(0.0) == 0.0
+        df.loc[mask, "final_output_g"] = pd.to_numeric(
+            df.loc[mask, "finished_output_g"], errors="coerce"
+        ).fillna(0.0)
+    return df
+
+
+def _compute_mass_balance(df: pd.DataFrame) -> pd.DataFrame:
+    """Recompute all derived mass-balance columns from editable stage weights."""
+    df = _ensure_mass_balance_cols(df)
+    for col in ["input_weight_g"] + _MB_EDITABLE_FIELDS:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    inp = df["input_weight_g"].replace(0.0, float("nan"))
+    ext = df["extraction_output_g"]
+    pp = df["post_process_output_g"]
+    dist = df["distillation_output_g"]
+    final = df["final_output_g"]
+    ext_nz = ext.replace(0.0, float("nan"))
+    pp_nz = pp.replace(0.0, float("nan"))
+    dist_nz = dist.replace(0.0, float("nan"))
+
+    # Stage losses (zero when downstream stage is not used)
+    df["extraction_loss_g"] = (inp - ext).clip(lower=0).fillna(0.0).round(3)
+    df["post_process_loss_g"] = (ext - pp).where(pp > 0, other=0.0).clip(lower=0).fillna(0.0).round(3)
+    df["distillation_loss_g"] = (pp - dist).where(dist > 0, other=0.0).clip(lower=0).fillna(0.0).round(3)
+    # Final-stage loss: diff from last used upstream stage
+    last_upstream = dist.where(dist > 0, pp.where(pp > 0, ext))
+    df["final_loss_g"] = (last_upstream - final).clip(lower=0).fillna(0.0).round(3)
+
+    # Yields vs raw input
+    df["extraction_yield_pct"] = (ext / inp * 100).fillna(0.0).round(2)
+    df["post_process_yield_pct"] = (pp / inp * 100).fillna(0.0).round(2)
+    df["distillation_yield_pct"] = (dist / inp * 100).fillna(0.0).round(2)
+    df["final_yield_pct"] = (final / inp * 100).fillna(0.0).round(2)
+
+    # Stage-to-stage efficiencies
+    df["post_process_stage_efficiency_pct"] = (pp / ext_nz * 100).fillna(0.0).round(2)
+    df["distillation_efficiency_pct"] = (dist / pp_nz * 100).fillna(0.0).round(2)
+    df["final_stage_efficiency_pct"] = (final / dist_nz * 100).fillna(0.0).round(2)
+
+    # Backward-compat: overall extraction-to-finish efficiency (used by top-level KPIs)
+    df["post_process_efficiency_pct"] = (final / ext_nz * 100).fillna(0.0).round(2)
+
+    # Backward-compat: sync legacy fields so Executive Overview / Run Analytics still work
+    existing_yield = df.get("yield_pct", pd.Series(0.0, index=df.index)).fillna(0.0)
+    df["yield_pct"] = df["final_yield_pct"].where(df["final_yield_pct"] > 0, other=existing_yield)
+    existing_finished = df.get("finished_output_g", pd.Series(0.0, index=df.index)).fillna(0.0)
+    df["finished_output_g"] = final.where(final > 0, other=existing_finished)
+
+    # Validation flags
+    method_thresh = (
+        df["method"].map(_MB_HIGH_YIELD_THRESHOLDS).fillna(40.0)
+        if "method" in df.columns
+        else pd.Series(40.0, index=df.index)
+    )
+    critical_mask = (
+        ((ext > df["input_weight_g"]) & (df["input_weight_g"] > 0) & (ext > 0))
+        | ((pp > ext) & (ext > 0) & (pp > 0))
+        | ((dist > pp) & (pp > 0) & (dist > 0))
+        | ((final > last_upstream) & (last_upstream > 0) & (final > 0))
+    )
+    warning_mask = (
+        (df["final_yield_pct"] > method_thresh) & (df["input_weight_g"] > 0)
+    ) & ~critical_mask
+
+    df["mass_balance_flag"] = "OK"
+    df.loc[warning_mask, "mass_balance_flag"] = "Warning"
+    df.loc[critical_mask, "mass_balance_flag"] = "Critical"
+
+    return df
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+
+
 def render_extraction_command_center():
 
     if "ecc_run_log" not in st.session_state:
@@ -3092,6 +3215,23 @@ def render_extraction_command_center():
                     "residual_loss_g": 50.0,
                     "yield_pct": 17.2,
                     "post_process_efficiency_pct": 89.6,
+                    # Mass-balance stage fields (inline editable in Process Tracker)
+                    "extraction_output_g": 480.0,
+                    "extraction_loss_g": 2020.0,
+                    "post_process_output_g": 430.0,
+                    "post_process_loss_g": 50.0,
+                    "distillation_output_g": 0.0,
+                    "distillation_loss_g": 0.0,
+                    "final_output_g": 430.0,
+                    "final_loss_g": 0.0,
+                    "extraction_yield_pct": 19.2,
+                    "post_process_yield_pct": 17.2,
+                    "distillation_yield_pct": 0.0,
+                    "final_yield_pct": 17.2,
+                    "post_process_stage_efficiency_pct": 89.58,
+                    "distillation_efficiency_pct": 0.0,
+                    "final_stage_efficiency_pct": 0.0,
+                    "mass_balance_flag": "OK",
                     "operator": "Operator A",
                     "machine_line": "BHO-1",
                     "status": "Complete",
@@ -3131,6 +3271,9 @@ def render_extraction_command_center():
     if "ecc_inventory_log" not in st.session_state:
         st.session_state.ecc_inventory_log = pd.DataFrame(columns=_ECC_INVENTORY_COLUMNS)
 
+    # Ensure mass-balance columns exist for older sessions that pre-date this feature
+    st.session_state.ecc_run_log = _ensure_mass_balance_cols(st.session_state.ecc_run_log)
+
     st.subheader("🧪 Extraction Command Center")
     st.caption("Built for BHO, CO2, Rosin, and Ethanol operations with toll processing and METRC-aware workflows.")
 
@@ -3161,7 +3304,7 @@ def render_extraction_command_center():
             key="ecc_seed_to_sale_tracking",
         )
 
-    run_df = st.session_state.ecc_run_log.copy()
+    run_df = _compute_mass_balance(st.session_state.ecc_run_log.copy())
     job_df = st.session_state.ecc_client_jobs.copy()
     inventory_master_df = _ecc_add_inventory_aging(_ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy()))
     inventory_method_projection_df = _ecc_add_estimated_output(inventory_master_df, global_yield_pct=12.0, use_method_defaults=True)
@@ -3419,15 +3562,54 @@ def render_extraction_command_center():
 
     with process_tab:
         st.subheader("Start-to-Finish Process Tracker")
-        st.caption("Update extraction runs as they move from intake through final transfer-ready output.")
+        st.caption(
+            "Track stage-by-stage mass balance. Edit stage weights inline — losses and yields update automatically."
+        )
 
         if st.session_state.ecc_run_log.empty:
             st.info("No runs available yet. Add a run to begin tracking the extraction process.")
         else:
-            process_df = st.session_state.ecc_run_log.copy().reset_index(drop=True)
+            # ── KPI tiles ────────────────────────────────────────────────────
+            _mb_all = _compute_mass_balance(st.session_state.ecc_run_log.copy())
+            _total_input_pt = float(_mb_all["input_weight_g"].fillna(0).sum())
+            _final_col = _mb_all["final_output_g"].where(
+                _mb_all["final_output_g"] > 0,
+                _mb_all.get("finished_output_g", pd.Series(0.0, index=_mb_all.index)).fillna(0),
+            )
+            _total_final_pt = float(_final_col.sum())
+            _avg_final_yield_pt = float(
+                _mb_all["final_yield_pct"].replace(0, float("nan")).mean(skipna=True) or 0.0
+            )
+            _total_loss_pt = float(
+                (
+                    _mb_all["extraction_loss_g"]
+                    + _mb_all["post_process_loss_g"]
+                    + _mb_all["distillation_loss_g"]
+                    + _mb_all["final_loss_g"]
+                ).fillna(0).sum()
+            )
+            _runs_with_warnings_pt = int(
+                _mb_all["mass_balance_flag"].isin(["Warning", "Critical"]).sum()
+            )
+            k1, k2, k3, k4, k5 = st.columns(5)
+            with k1:
+                kpi_card("Total Input Weight", f"{_total_input_pt:,.1f} g")
+            with k2:
+                kpi_card("Total Final Output", f"{_total_final_pt:,.1f} g")
+            with k3:
+                kpi_card("Avg Final Yield %", f"{_avg_final_yield_pt:.1f}%")
+            with k4:
+                kpi_card("Total Process Loss", f"{_total_loss_pt:,.1f} g")
+            with k5:
+                kpi_card("Runs w/ Warnings", _runs_with_warnings_pt)
+
+            st.divider()
+
+            # ── Run selector ─────────────────────────────────────────────────
+            process_df = _mb_all.reset_index(drop=True)
             if "process_stage" not in process_df.columns:
                 process_df["process_stage"] = "Intake"
-            for col in [
+            for _col in [
                 "intake_complete",
                 "extraction_complete",
                 "post_process_complete",
@@ -3436,8 +3618,8 @@ def render_extraction_command_center():
                 "packaging_complete",
                 "ready_for_transfer",
             ]:
-                if col not in process_df.columns:
-                    process_df[col] = False
+                if _col not in process_df.columns:
+                    process_df[_col] = False
 
             process_df["run_label"] = (
                 process_df["run_date"].astype(str)
@@ -3454,6 +3636,13 @@ def render_extraction_command_center():
             selected_idx = process_df.index[process_df["run_label"] == selected_run][0]
             selected_row = process_df.loc[selected_idx]
 
+            # Mass-balance status badge
+            _flag_val = str(selected_row.get("mass_balance_flag", "OK"))
+            _flag_icon = {"OK": "🟢", "Warning": "🟡", "Critical": "🔴"}.get(_flag_val, "⚪")
+            st.markdown(f"**Mass Balance Status:** {_flag_icon} {_flag_val}")
+
+            # ── Process status controls (preserved from original) ─────────
+            st.markdown("#### Process Status")
             p1, p2, p3 = st.columns(3)
             with p1:
                 updated_stage = st.selectbox(
@@ -3560,7 +3749,112 @@ def render_extraction_command_center():
                 key="ecc_process_notes_update",
             )
 
+            # ── Mass Balance — Stage Weights (inline editor) ──────────────
+            st.markdown("#### Mass Balance — Stage Weights")
+            st.caption(
+                "Enter the measured output at each stage. "
+                "Leave a stage at 0 if it is not used in this run. "
+                "Losses and yields recalculate automatically."
+            )
+            mb1, mb2, mb3, mb4, mb5 = st.columns(5)
+            with mb1:
+                upd_input_weight = st.number_input(
+                    "Input Weight (g)",
+                    min_value=0.0,
+                    step=1.0,
+                    value=float(selected_row.get("input_weight_g", 0.0)),
+                    key="ecc_mb_input_weight",
+                )
+            with mb2:
+                upd_extraction_output = st.number_input(
+                    "Extraction Output (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("extraction_output_g", 0.0)),
+                    key="ecc_mb_extraction_output",
+                )
+            with mb3:
+                upd_post_process_output = st.number_input(
+                    "Post-Process Output (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("post_process_output_g", 0.0)),
+                    key="ecc_mb_post_process_output",
+                    help="Leave 0 if post-process stage is not used for this run.",
+                )
+            with mb4:
+                upd_distillation_output = st.number_input(
+                    "Distillation Output (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("distillation_output_g", 0.0)),
+                    key="ecc_mb_distillation_output",
+                    help="Leave 0 if distillation stage is not used for this run.",
+                )
+            with mb5:
+                upd_final_output = st.number_input(
+                    "Final Output (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(
+                        selected_row.get(
+                            "final_output_g",
+                            float(selected_row.get("finished_output_g", 0.0)),
+                        )
+                    ),
+                    key="ecc_mb_final_output",
+                )
+
+            # Live loss/yield preview (computed client-side without modifying session state)
+            _inp_v = float(upd_input_weight)
+            _ext_v = float(upd_extraction_output)
+            _pp_v = float(upd_post_process_output)
+            _dist_v = float(upd_distillation_output)
+            _final_v = float(upd_final_output)
+            _inp_safe = _inp_v if _inp_v > 0 else float("nan")
+            _last_up_v = _dist_v if _dist_v > 0 else (_pp_v if _pp_v > 0 else _ext_v)
+            _ext_loss_v = max(0.0, _inp_v - _ext_v) if _inp_v > 0 else 0.0
+            _pp_loss_v = max(0.0, _ext_v - _pp_v) if _pp_v > 0 and _ext_v > 0 else 0.0
+            _dist_loss_v = max(0.0, _pp_v - _dist_v) if _dist_v > 0 and _pp_v > 0 else 0.0
+            _final_loss_v = max(0.0, _last_up_v - _final_v) if _last_up_v > 0 else 0.0
+            _ext_yield_v = _ext_v / _inp_safe * 100 if not np.isnan(_inp_safe) else 0.0
+            _final_yield_v = _final_v / _inp_safe * 100 if not np.isnan(_inp_safe) else 0.0
+
+            st.markdown("**Computed Losses & Yields — live preview:**")
+            pr1, pr2, pr3, pr4, pr5, pr6 = st.columns(6)
+            with pr1:
+                st.metric("Extraction Loss (g)", f"{_ext_loss_v:.1f}")
+            with pr2:
+                st.metric("Post-Process Loss (g)", f"{_pp_loss_v:.1f}")
+            with pr3:
+                st.metric("Distillation Loss (g)", f"{_dist_loss_v:.1f}")
+            with pr4:
+                st.metric("Final Stage Loss (g)", f"{_final_loss_v:.1f}")
+            with pr5:
+                st.metric("Extraction Yield %", f"{_ext_yield_v:.1f}%")
+            with pr6:
+                st.metric("Final Yield %", f"{_final_yield_v:.1f}%")
+
+            # Inline validation messages
+            _method_thresh = _MB_HIGH_YIELD_THRESHOLDS.get(str(selected_row.get("method", "BHO")), 40.0)
+            if _inp_v > 0 and _ext_v > _inp_v:
+                st.error("🔴 Critical: Extraction output exceeds input weight — verify your values.")
+            elif _pp_v > 0 and _ext_v > 0 and _pp_v > _ext_v:
+                st.error("🔴 Critical: Post-process output exceeds extraction output.")
+            elif _dist_v > 0 and _pp_v > 0 and _dist_v > _pp_v:
+                st.error("🔴 Critical: Distillation output exceeds post-process output.")
+            elif _final_v > 0 and _last_up_v > 0 and _final_v > _last_up_v:
+                st.error("🔴 Critical: Final output exceeds last upstream stage output.")
+            elif _final_yield_v > _method_thresh and _inp_v > 0:
+                st.warning(
+                    f"🟡 Warning: Final yield {_final_yield_v:.1f}% is unusually high for "
+                    f"{selected_row.get('method', 'this method')} (threshold: {_method_thresh}%). "
+                    "Verify your values."
+                )
+
+            # ── Save button ───────────────────────────────────────────────
             if st.button("Update Extraction Process", type="primary", key="ecc_update_process"):
+                # Write back status/workflow fields
                 st.session_state.ecc_run_log.loc[selected_idx, "process_stage"] = updated_stage
                 st.session_state.ecc_run_log.loc[selected_idx, "status"] = updated_status
                 st.session_state.ecc_run_log.loc[selected_idx, "product_type"] = updated_product_type
@@ -3575,32 +3869,91 @@ def render_extraction_command_center():
                 st.session_state.ecc_run_log.loc[selected_idx, "packaging_complete"] = packaging_complete
                 st.session_state.ecc_run_log.loc[selected_idx, "ready_for_transfer"] = ready_for_transfer
                 st.session_state.ecc_run_log.loc[selected_idx, "notes"] = updated_notes
-                st.success("Extraction process updated successfully.")
+                # Write back editable mass-balance stage weights
+                st.session_state.ecc_run_log.loc[selected_idx, "input_weight_g"] = upd_input_weight
+                st.session_state.ecc_run_log.loc[selected_idx, "extraction_output_g"] = upd_extraction_output
+                st.session_state.ecc_run_log.loc[selected_idx, "post_process_output_g"] = upd_post_process_output
+                st.session_state.ecc_run_log.loc[selected_idx, "distillation_output_g"] = upd_distillation_output
+                st.session_state.ecc_run_log.loc[selected_idx, "final_output_g"] = upd_final_output
+                # Keep legacy fields in sync so upstream views (Executive Overview, Run Analytics) reflect edits
+                st.session_state.ecc_run_log.loc[selected_idx, "intermediate_output_g"] = upd_extraction_output
+                # Use the last non-zero downstream stage as the legacy finished_output_g fallback
+                _legacy_finished = next(
+                    (v for v in [upd_final_output, upd_distillation_output, upd_post_process_output, upd_extraction_output] if v > 0),
+                    0.0,
+                )
+                st.session_state.ecc_run_log.loc[selected_idx, "finished_output_g"] = _legacy_finished
+                # Recompute all derived mass-balance columns and write back for all rows
+                _mb_updated = _compute_mass_balance(st.session_state.ecc_run_log.copy())
+                _derived_write_back = (
+                    _MB_COMPUTED_FIELDS
+                    + ["yield_pct", "finished_output_g", "post_process_efficiency_pct"]
+                )
+                for _dc in _derived_write_back:
+                    if _dc in _mb_updated.columns:
+                        st.session_state.ecc_run_log[_dc] = _mb_updated[_dc]
+                st.success("Extraction process and mass balance updated successfully.")
 
-            process_view_cols = [
+            # ── Process Snapshot ─────────────────────────────────────────
+            _process_view_cols = [
                 "run_date",
                 "batch_id_internal",
                 "method",
                 "process_stage",
                 "status",
-                "product_type",
-                "downstream_product",
+                "input_weight_g",
+                "extraction_output_g",
+                "extraction_loss_g",
+                "extraction_yield_pct",
+                "post_process_output_g",
+                "post_process_loss_g",
+                "distillation_output_g",
+                "distillation_loss_g",
+                "final_output_g",
+                "final_loss_g",
+                "final_yield_pct",
+                "mass_balance_flag",
                 "coa_status",
                 "qa_hold",
-                "intake_complete",
-                "extraction_complete",
-                "post_process_complete",
-                "formulation_complete",
-                "filling_complete",
-                "packaging_complete",
                 "ready_for_transfer",
             ]
             st.markdown("#### Process Snapshot")
+            _snapshot_df = _compute_mass_balance(st.session_state.ecc_run_log.copy())
             st.dataframe(
-                st.session_state.ecc_run_log[[c for c in process_view_cols if c in st.session_state.ecc_run_log.columns]],
+                _snapshot_df[[c for c in _process_view_cols if c in _snapshot_df.columns]],
                 use_container_width=True,
                 hide_index=True,
             )
+
+            # ── Stage loss + yield charts ─────────────────────────────────
+            st.markdown("#### Stage Loss & Yield Analysis")
+            _chart_df = _snapshot_df
+            if not _chart_df.empty:
+                ch_left, ch_right = st.columns(2)
+                with ch_left:
+                    st.markdown("**Total Loss by Stage (g)**")
+                    _stage_loss_df = pd.DataFrame(
+                        {
+                            "Stage": ["Extraction", "Post-Process", "Distillation", "Final Stage"],
+                            "Total Loss (g)": [
+                                float(_chart_df["extraction_loss_g"].fillna(0).sum()),
+                                float(_chart_df["post_process_loss_g"].fillna(0).sum()),
+                                float(_chart_df["distillation_loss_g"].fillna(0).sum()),
+                                float(_chart_df["final_loss_g"].fillna(0).sum()),
+                            ],
+                        }
+                    )
+                    st.bar_chart(_stage_loss_df.set_index("Stage")["Total Loss (g)"])
+                with ch_right:
+                    st.markdown("**Final Yield % by Run**")
+                    _yield_chart = _chart_df[["batch_id_internal", "final_yield_pct"]].copy()
+                    _yield_chart = _yield_chart[_yield_chart["final_yield_pct"] > 0].set_index(
+                        "batch_id_internal"
+                    )
+                    if not _yield_chart.empty:
+                        st.bar_chart(_yield_chart["final_yield_pct"])
+                    else:
+                        st.caption("No final yield data to display yet.")
 
     with inv_tab:
         st.subheader("Extraction Input Inventory")
