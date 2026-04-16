@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Buyer Dashboard Mockup</title>
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --accent: #ff9a3c;
+      --bg-image: url('https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG');
+      --card-bg: rgba(14,14,14,0.72);
+      --card-border: rgba(255,255,255,0.08);
+      --text-main: rgba(255,255,255,0.96);
+      --text-secondary: rgba(255,255,255,0.72);
+      --green: #4cd388;
+      --blue: #5aa8ff;
+      --yellow: #f3c74c;
+      --red: #ff6161;
+      --orange: #ff9a3c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Inter', sans-serif;
+      color: var(--text-main);
+      background:
+        linear-gradient(rgba(18,16,14,0.80), rgba(10,10,10,0.90)),
+        var(--bg-image) center/cover fixed;
+    }
+    .app {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      min-height: 100vh;
+      gap: 22px;
+      padding: 22px;
+    }
+    .glass {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 18px 50px rgba(0,0,0,0.28);
+    }
+    .sidebar {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      background: rgba(10,10,10,0.78);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 22px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      letter-spacing: .03em;
+      color: #fff;
+      padding: 8px;
+      font-size: 1.08rem;
+    }
+    .logo img {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.18);
+    }
+    .nav-section { display: grid; gap: 7px; }
+    .section-label {
+      color: var(--text-secondary);
+      font-size: .72rem;
+      letter-spacing: .14em;
+      font-weight: 700;
+      margin: 8px 8px 3px;
+    }
+    .nav-item {
+      padding: 10px 12px;
+      border-radius: 14px;
+      color: rgba(255,255,255,.86);
+      font-weight: 500;
+      font-size: .92rem;
+      border: 1px solid transparent;
+      transition: .2s ease;
+    }
+    .nav-item:hover {
+      border-color: rgba(255,154,60,.5);
+      box-shadow: inset 0 0 0 1px rgba(255,154,60,.35), 0 0 22px rgba(255,154,60,.12);
+    }
+    .nav-item.active {
+      color: #1d1208;
+      background: linear-gradient(135deg, rgba(255,154,60,.95), rgba(255,187,119,.92));
+      font-weight: 700;
+    }
+    .ai-card { padding: 12px; border-radius: 16px; }
+    .ai-title { color: var(--accent); font-weight: 700; font-size: .88rem; }
+    .ai-desc { margin-top: 6px; color: var(--text-secondary); font-size: .84rem; line-height: 1.35; }
+    .sidebar-foot {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-secondary);
+      font-size: .85rem;
+    }
+    .avatar {
+      width: 34px; height: 34px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: rgba(255,154,60,.22);
+      color: #fff; font-weight: 700; border: 1px solid rgba(255,154,60,.65);
+    }
+    .main { display: grid; gap: 16px; }
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr 2fr auto auto auto;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+    }
+    .search {
+      height: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      color: rgba(255,255,255,.68);
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.1);
+      background: rgba(0,0,0,.24);
+      font-size: .9rem;
+    }
+    .pill {
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 12px;
+      padding: 9px 12px;
+      color: rgba(255,255,255,.86);
+      font-size: .84rem;
+      background: rgba(0,0,0,.24);
+    }
+    .btn-accent {
+      border: 0;
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), #ffb770);
+      color: #211103;
+    }
+    .profile {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 8px;
+    }
+    .profile small { color: var(--text-secondary); display: block; }
+    .hero {
+      padding: 18px 20px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .hero h1 { margin: 0 0 7px; font-size: 1.55rem; }
+    .hero p { margin: 0; color: var(--text-secondary); }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .kpi {
+      padding: 12px;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      background: var(--accent);
+    }
+    .kpi.green::before { background: var(--green); }
+    .kpi.orange::before { background: var(--orange); }
+    .kpi.blue::before { background: var(--blue); }
+    .kpi.yellow::before { background: var(--yellow); }
+    .kpi.red::before { background: var(--red); }
+    .kpi .label { color: var(--text-secondary); font-size: .78rem; }
+    .kpi .value { font-weight: 800; margin-top: 4px; font-size: 1.32rem; }
+    .kpi .meta { margin-top: 3px; font-size: .8rem; color: var(--text-secondary); }
+    .section-grid {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 12px;
+    }
+    .card { padding: 14px; }
+    .card h3 { margin: 0; font-size: 1rem; }
+    .sub { color: var(--text-secondary); font-size: .82rem; margin-top: 2px; }
+    .legend { margin-top: 12px; display: grid; gap: 7px; }
+    .legend-item { display: flex; justify-content: space-between; color: var(--text-secondary); font-size: .84rem; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+    .row {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 12px;
+    }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,.08); font-size: .82rem; text-align: left; }
+    th { color: var(--text-secondary); font-weight: 600; }
+    .badge {
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.18);
+      font-size: .72rem;
+    }
+    .btn-mini {
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,154,60,.45);
+      color: var(--accent);
+      background: rgba(255,154,60,.08);
+      font-size: .75rem;
+      font-weight: 600;
+    }
+    .ai-brief {
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+    .brief-top { display: flex; justify-content: space-between; align-items: center; }
+    .brief-tag {
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,154,60,.45);
+      color: var(--accent);
+      font-size: .72rem;
+      font-weight: 700;
+    }
+    .insights { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .insight { padding: 10px; border-radius: 14px; border: 1px solid rgba(255,255,255,.1); background: rgba(0,0,0,.22); font-size: .82rem; color: var(--text-secondary); }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .action { border: 1px solid rgba(255,255,255,.2); border-radius: 11px; padding: 8px 10px; font-size: .79rem; color: #fff; background: rgba(255,255,255,.05); }
+    .chat {
+      margin-top: 2px;
+      height: 44px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.11);
+      background: rgba(0,0,0,.25);
+      color: rgba(255,255,255,.6);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      font-size: .84rem;
+    }
+    .extraction {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+    .ex-kpis { display: grid; grid-template-columns: repeat(5,1fr); gap: 10px; }
+    .ek { padding: 11px; border-radius: 16px; border: 1px solid rgba(255,255,255,.1); background: rgba(0,0,0,.2); }
+    .ek .k { font-size: .76rem; color: var(--text-secondary); }
+    .ek .v { margin-top: 3px; font-weight: 800; }
+    .ex-grid, .inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .inventory-kpi { display:grid; grid-template-columns: repeat(5,1fr); gap:10px; }
+    .priority { font-weight: 700; }
+    .fresh { color: #70df9f; }
+    .aging { color: #ffd06f; }
+    .pr { color: #ff9a3c; }
+    .stale { color: #ff6161; }
+    @media (max-width: 1450px) {
+      .app { grid-template-columns: 260px 1fr; }
+      .kpi-grid, .ex-kpis, .inventory-kpi { grid-template-columns: repeat(2,1fr); }
+      .section-grid, .row, .ex-grid, .inv-grid { grid-template-columns: 1fr; }
+      .insights { grid-template-columns: 1fr; }
+      .topbar { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar glass">
+      <div class="logo"><img src="https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG" alt="Buyer Dashboard logo"/> 🍁 BUYER DASHBOARD</div>
+      <div class="nav-section">
+        <div class="nav-item active">🏠 Home</div>
+      </div>
+      <div class="nav-section">
+        <div class="section-label">BUYER OPERATIONS</div>
+        <div class="nav-item">📦 Inventory Intelligence</div>
+        <div class="nav-item">📝 Purchase Orders</div>
+        <div class="nav-item">🤝 Vendor Performance</div>
+        <div class="nav-item">📊 Category Analytics</div>
+        <div class="nav-item">🔁 Reorder Planner</div>
+      </div>
+      <div class="nav-section">
+        <div class="section-label">EXTRACTION COMMAND CENTER</div>
+        <div class="nav-item">📈 Executive Overview</div>
+        <div class="nav-item">🧪 Run Analytics</div>
+        <div class="nav-item">🧭 Process Tracker</div>
+        <div class="nav-item">🧱 Extraction Inventory</div>
+        <div class="nav-item">�� Toll Processing</div>
+        <div class="nav-item">✅ Compliance / METRC</div>
+        <div class="nav-item">🗂 Data Input &amp; Mapping</div>
+      </div>
+      <div class="nav-section">
+        <div class="section-label">AI SUPPORT</div>
+        <div class="ai-card glass">
+          <div class="ai-title">💬 Ask Doobie</div>
+          <div class="ai-desc">Get guided buying and extraction support with contextual recommendations.</div>
+        </div>
+      </div>
+      <div class="sidebar-foot"><div class="avatar">JD</div><div>Buyer Dashboard v2.4.0</div></div>
+    </aside>
+
+    <main class="main">
+      <section class="topbar glass">
+        <div></div>
+        <div class="search">Search SKUs, Vendors, Reports... <span>⌘K</span></div>
+        <div class="pill">🔔</div>
+        <div class="pill">Apr 16, 2026</div>
+        <button class="btn-accent">Export Report</button>
+      </section>
+
+      <section class="hero glass">
+        <div>
+          <h1>Good Morning, Jordan</h1>
+          <p>Here's what's happening with your portfolio today.</p>
+        </div>
+        <div class="profile">
+          <div class="avatar">JD</div>
+          <div><strong>Jordan Davis</strong><small>Buyer • West Region</small></div>
+        </div>
+      </section>
+
+      <section class="kpi-grid">
+        <article class="kpi glass green"><div class="label">Total Revenue</div><div class="value">$148,320</div><div class="meta">↑ 6.2%</div><svg viewBox="0 0 120 34" width="100%" height="30"><polyline fill="none" stroke="#4cd388" stroke-width="2.2" points="0,25 20,22 40,18 60,16 80,11 100,8 120,6"/></svg></article>
+        <article class="kpi glass orange"><div class="label">Avg DOH</div><div class="value">18.4 Days</div><div class="meta">↓ 1.3 Days</div><svg viewBox="0 0 120 34" width="100%" height="30"><polyline fill="none" stroke="#ff9a3c" stroke-width="2.2" points="0,8 20,10 40,12 60,14 80,18 100,20 120,22"/></svg></article>
+        <article class="kpi glass blue"><div class="label">Active SKUs</div><div class="value">312</div><div class="meta">8 New This Week</div><svg viewBox="0 0 120 34" width="100%" height="30"><polyline fill="none" stroke="#5aa8ff" stroke-width="2.2" points="0,27 20,24 40,22 60,18 80,17 100,15 120,11"/></svg></article>
+        <article class="kpi glass yellow"><div class="label">Low Stock</div><div class="value">27 SKUs</div><div class="meta">$32,760 at Risk</div><svg viewBox="0 0 120 34" width="100%" height="30"><polyline fill="none" stroke="#f3c74c" stroke-width="2.2" points="0,24 20,23 40,22 60,20 80,19 100,16 120,14"/></svg></article>
+        <article class="kpi glass red"><div class="label">Out of Stock</div><div class="value">11 SKUs</div><div class="meta">$14,890 Lost Sales</div><svg viewBox="0 0 120 34" width="100%" height="30"><polyline fill="none" stroke="#ff6161" stroke-width="2.2" points="0,12 20,14 40,16 60,17 80,20 100,23 120,25"/></svg></article>
+      </section>
+
+      <section class="section-grid">
+        <article class="card glass">
+          <h3>Sales Trend</h3>
+          <div class="sub">Daily Revenue · Last 30 Days</div>
+          <svg viewBox="0 0 620 230" width="100%" height="240" aria-label="Sales trend line chart">
+            <defs>
+              <filter id="glow"><feGaussianBlur stdDeviation="4" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            </defs>
+            <polyline points="0,180 40,170 80,160 120,166 160,150 200,142 240,148 280,132 320,120 360,126 400,110 440,102 480,98 520,88 560,74 620,66" fill="none" stroke="#ff9a3c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="560" cy="74" r="7" fill="#ff9a3c" filter="url(#glow)"/>
+            <text x="575" y="66" fill="#fff" font-size="12" font-weight="700">APR 15</text>
+            <text x="575" y="82" fill="#ff9a3c" font-size="12" font-weight="700">$12,450</text>
+          </svg>
+        </article>
+        <article class="card glass">
+          <h3>Revenue by Category</h3>
+          <div class="sub">Last 30 Days</div>
+          <svg viewBox="0 0 300 230" width="100%" height="230" aria-label="Revenue by category donut chart">
+            <g transform="translate(150,108)">
+              <circle r="72" fill="none" stroke="#3f2b1a" stroke-width="22"/>
+              <circle r="72" fill="none" stroke="#ff9a3c" stroke-width="22" stroke-dasharray="174 278" transform="rotate(-90)"/>
+              <circle r="72" fill="none" stroke="#5aa8ff" stroke-width="22" stroke-dasharray="104 348" stroke-dashoffset="-174" transform="rotate(-90)"/>
+              <circle r="72" fill="none" stroke="#f3c74c" stroke-width="22" stroke-dasharray="85 367" stroke-dashoffset="-278" transform="rotate(-90)"/>
+              <circle r="72" fill="none" stroke="#4cd388" stroke-width="22" stroke-dasharray="59 393" stroke-dashoffset="-363" transform="rotate(-90)"/>
+              <circle r="72" fill="none" stroke="#ff6161" stroke-width="22" stroke-dasharray="33 419" stroke-dashoffset="-422" transform="rotate(-90)"/>
+              <text text-anchor="middle" y="-4" fill="#fff" font-size="13" font-weight="700">$148,320</text>
+              <text text-anchor="middle" y="16" fill="rgba(255,255,255,.7)" font-size="11">TOTAL</text>
+            </g>
+          </svg>
+          <div class="legend">
+            <div class="legend-item"><span><i class="dot" style="background:#ff9a3c"></i>Flower 38.4%</span><span>$56,870</span></div>
+            <div class="legend-item"><span><i class="dot" style="background:#5aa8ff"></i>Vape 22.8%</span><span>$33,780</span></div>
+            <div class="legend-item"><span><i class="dot" style="background:#f3c74c"></i>Concentrates 18.7%</span><span>$27,650</span></div>
+            <div class="legend-item"><span><i class="dot" style="background:#4cd388"></i>Edibles 12.9%</span><span>$19,120</span></div>
+            <div class="legend-item"><span><i class="dot" style="background:#ff6161"></i>Pre-Rolls 7.2%</span><span>$10,900</span></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="row">
+        <article class="card glass">
+          <h3>Top Slow Movers</h3>
+          <table>
+            <thead><tr><th>SKU</th><th>Category</th><th>DOH</th><th>Last Sale</th><th>Value</th><th></th></tr></thead>
+            <tbody>
+              <tr><td>OG KUSH 3.5g</td><td><span class="badge">Flower</span></td><td style="color:#ff9a3c">41</td><td>Mar 29</td><td>$6,240</td><td><button class="btn-mini">Review</button></td></tr>
+              <tr><td>Blue Dream Cart</td><td><span class="badge">Vape</span></td><td style="color:#ff9a3c">37</td><td>Apr 01</td><td>$4,990</td><td><button class="btn-mini">Review</button></td></tr>
+              <tr><td>Rosin Gummies 10pk</td><td><span class="badge">Edible</span></td><td style="color:#ff9a3c">34</td><td>Apr 03</td><td>$3,870</td><td><button class="btn-mini">Review</button></td></tr>
+              <tr><td>Pre-Roll Citrus 1g</td><td><span class="badge">Pre-Roll</span></td><td style="color:#ff9a3c">33</td><td>Apr 05</td><td>$2,760</td><td><button class="btn-mini">Review</button></td></tr>
+              <tr><td>Live Resin 1g</td><td><span class="badge">Concentrate</span></td><td style="color:#ff9a3c">31</td><td>Apr 06</td><td>$5,340</td><td><button class="btn-mini">Review</button></td></tr>
+            </tbody>
+          </table>
+        </article>
+        <article class="card glass">
+          <h3>Inventory Health</h3>
+          <svg viewBox="0 0 260 200" width="100%" height="185" aria-label="Inventory health gauge">
+            <g transform="translate(130,120)">
+              <path d="M-90,0 A90,90 0 0,1 90,0" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="14"/>
+              <path d="M-90,0 A90,90 0 0,1 57,-69" fill="none" stroke="#ff9a3c" stroke-width="14"/>
+              <text text-anchor="middle" y="-8" font-size="34" font-weight="800" fill="#fff">78</text>
+              <text text-anchor="middle" y="16" font-size="12" fill="rgba(255,255,255,.72)">↑ 4 Points</text>
+            </g>
+          </svg>
+          <div class="legend">
+            <div class="legend-item"><span><i class="dot" style="background:#4cd388"></i>Healthy</span><span>247</span></div>
+            <div class="legend-item"><span><i class="dot" style="background:#5aa8ff"></i>Monitor</span><span>38</span></div>
+            <div class="legend-item"><span><i class="dot" style="background:#f3c74c"></i>At Risk</span><span>16</span></div>
+            <div class="legend-item"><span><i class="dot" style="background:#ff6161"></i>Critical</span><span>11</span></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="ai-brief glass">
+        <div class="brief-top">
+          <h3>AI BUYER BRIEF</h3>
+          <span class="brief-tag">Powered by Doobie</span>
+        </div>
+        <div class="insights">
+          <div class="insight">📉 Slow mover exposure rose 7.4% week-over-week, concentrated in flower and vape categories.</div>
+          <div class="insight">🧾 Vendor lead times are widening for 3 key suppliers; reorder windows should shift +2 days.</div>
+          <div class="insight">🌿 High-turn SKUs show upside in West Region if safety stock increases by ~6%.</div>
+        </div>
+        <div style="font-weight:700;font-size:.8rem;letter-spacing:.11em;color:var(--accent);">RECOMMENDED ACTIONS</div>
+        <div class="actions">
+          <button class="action">Generate Reorder Plan</button>
+          <button class="action">Review Slow Movers</button>
+          <button class="action">Analyze Vendors</button>
+        </div>
+        <div class="chat">Ask Doobie about this report... <span>➤</span></div>
+      </section>
+
+      <section class="extraction glass">
+        <h3 style="margin:0">Extraction Command Center</h3>
+        <div class="ex-kpis">
+          <div class="ek"><div class="k">Runs</div><div class="v">42</div></div>
+          <div class="ek"><div class="k">Output</div><div class="v">118.6 kg</div></div>
+          <div class="ek"><div class="k">Avg Yield</div><div class="v">14.8%</div></div>
+          <div class="ek"><div class="k">Efficiency</div><div class="v">88.2%</div></div>
+          <div class="ek"><div class="k">Risk</div><div class="v">Low</div></div>
+        </div>
+        <div class="ex-grid">
+          <div class="card glass"><h3>Yield Trend</h3><svg viewBox="0 0 300 120" width="100%" height="120"><polyline fill="none" stroke="#ff9a3c" stroke-width="3" points="0,90 45,86 90,78 135,72 180,69 225,62 270,58 300,54"/></svg></div>
+          <div class="card glass"><h3>Output by Method</h3><svg viewBox="0 0 300 120" width="100%" height="120"><rect x="20" y="38" width="50" height="60" fill="#ff9a3c"/><rect x="90" y="52" width="50" height="46" fill="#5aa8ff"/><rect x="160" y="64" width="50" height="34" fill="#f3c74c"/><rect x="230" y="58" width="50" height="40" fill="#4cd388"/></svg></div>
+        </div>
+
+        <div class="card glass">
+          <h3>Extraction Inventory</h3>
+          <div class="inventory-kpi" style="margin-top:10px;">
+            <div class="ek"><div class="k">Total Input Weight</div><div class="v">186,420 g</div></div>
+            <div class="ek"><div class="k">Available Weight</div><div class="v">149,930 g</div></div>
+            <div class="ek"><div class="k">Reserved Weight</div><div class="v">36,490 g</div></div>
+            <div class="ek"><div class="k">Aging Lots</div><div class="v">21</div></div>
+            <div class="ek"><div class="k">Estimated Output</div><div class="v">22,490 g</div></div>
+          </div>
+
+          <div class="inv-grid" style="margin-top:12px;">
+            <div class="card glass">
+              <h3>Inventory by Material Type</h3>
+              <svg viewBox="0 0 300 130" width="100%" height="120"><rect x="14" y="64" width="38" height="48" fill="#ff9a3c"/><rect x="64" y="54" width="38" height="58" fill="#5aa8ff"/><rect x="114" y="74" width="38" height="38" fill="#f3c74c"/><rect x="164" y="68" width="38" height="44" fill="#4cd388"/><rect x="214" y="80" width="38" height="32" fill="#ff6161"/></svg>
+            </div>
+            <div class="card glass">
+              <h3>Aging Distribution</h3>
+              <svg viewBox="0 0 300 130" width="100%" height="120"><polyline fill="none" stroke="#5aa8ff" stroke-width="3" points="0,95 60,82 120,68 180,72 240,49 300,30"/></svg>
+            </div>
+          </div>
+
+          <div class="inv-grid" style="margin-top:10px; align-items:start;">
+            <div class="card glass">
+              <table>
+                <thead><tr><th>Material Name</th><th>Type</th><th>Batch</th><th>Available</th><th>Age</th><th>Priority</th><th>Method</th></tr></thead>
+                <tbody>
+                  <tr><td>FF OG Kush</td><td>Fresh Frozen</td><td>LOT-1182</td><td>28,000 g</td><td>11d</td><td class="priority fresh">Fresh</td><td>BHO</td></tr>
+                  <tr><td>Cured Biomass A</td><td>Cured Biomass</td><td>LOT-1197</td><td>33,800 g</td><td>24d</td><td class="priority aging">Aging</td><td>CO2</td></tr>
+                  <tr><td>Trim Blend C</td><td>Trim</td><td>LOT-1134</td><td>18,420 g</td><td>37d</td><td class="priority pr">Priority Run</td><td>Ethanol</td></tr>
+                  <tr><td>Hash Batch 9</td><td>Hash</td><td>LOT-1088</td><td>7,340 g</td><td>66d</td><td class="priority stale">Stale</td><td>Rosin</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="card glass">
+              <h3>Projected Output Calculator</h3>
+              <div class="sub">Yield % selector</div>
+              <div class="pill" style="margin-top:10px; display:inline-block;">Projected Yield: 15%</div>
+              <div style="margin-top:16px;font-size:.85rem;color:var(--text-secondary)">Calculated output</div>
+              <div style="font-size:1.35rem;font-weight:800;margin-top:4px">22,490 g</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card glass">
+          <h3>Data Input + Mapping</h3>
+          <div class="sub">Uploaded table preview with mapping selectors</div>
+          <table>
+            <thead><tr><th>Source Column</th><th>Sample Value</th><th>Map To</th></tr></thead>
+            <tbody>
+              <tr><td>item_name</td><td>FF OG Kush</td><td><span class="badge">material_name</span></td></tr>
+              <tr><td>qty_grams</td><td>28000</td><td><span class="badge">current_weight_g</span></td></tr>
+              <tr><td>date_in</td><td>2026-03-20</td><td><span class="badge">received_date</span></td></tr>
+              <tr><td>vendor</td><td>High Desert Farms</td><td><span class="badge">source_vendor</span></td></tr>
+            </tbody>
+          </table>
+          <button class="btn-accent" style="margin-top:10px">Convert to Run Log</button>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
