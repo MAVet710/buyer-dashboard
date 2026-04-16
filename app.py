@@ -16,6 +16,20 @@ from dotenv import load_dotenv
 from ai_providers import build_provider
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
+from ui_polish import (
+    load_polished_theme,
+    render_section_header,
+    render_metric_tiles,
+    chart_card_start,
+    chart_card_end,
+    render_topbar,
+    render_hero,
+    render_ai_brief,
+    render_sidebar_nav_css,
+    render_action_button,
+    render_extraction_kpi,
+    render_inventory_table_css,
+)
 
 load_dotenv()
 
@@ -249,6 +263,47 @@ def _safe_rerun():
         except Exception:
             # last resort: do nothing
             pass
+
+
+def _render_sidebar_nav_mockup(app_mode: str, section: str | None = None) -> None:
+    active_home = "active" if app_mode == "🛒 Buyer Operations" and section == "📊 Inventory Dashboard" else ""
+    buyer_active = {
+        "📊 Inventory Dashboard": "📦 Inventory Intelligence",
+        "🧾 PO Builder": "📝 Purchase Orders",
+        "📈 Trends": "📊 Category Analytics",
+        "🐢 Slow Movers": "🔁 Reorder Planner",
+    }.get(section, "")
+    st.sidebar.markdown(
+        f"""
+        <div class="sidebar-brand">
+          <img src="https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG" alt="logo" />
+          🍁 BUYER DASHBOARD
+        </div>
+        <div class="sidebar-nav-label">HOME</div>
+        <div class="sidebar-nav-item {active_home}">🏠 Home</div>
+        <div class="sidebar-nav-label">BUYER OPERATIONS</div>
+        <div class="sidebar-nav-item {'active' if buyer_active == '📦 Inventory Intelligence' else ''}">📦 Inventory Intelligence</div>
+        <div class="sidebar-nav-item {'active' if buyer_active == '📝 Purchase Orders' else ''}">📝 Purchase Orders</div>
+        <div class="sidebar-nav-item">🤝 Vendor Performance</div>
+        <div class="sidebar-nav-item {'active' if buyer_active == '📊 Category Analytics' else ''}">📊 Category Analytics</div>
+        <div class="sidebar-nav-item {'active' if buyer_active == '🔁 Reorder Planner' else ''}">🔁 Reorder Planner</div>
+        <div class="sidebar-nav-label">EXTRACTION COMMAND CENTER</div>
+        <div class="sidebar-nav-item {'active' if app_mode == '🧪 Extraction Command Center' else ''}">📈 Executive Overview</div>
+        <div class="sidebar-nav-item">🧪 Run Analytics</div>
+        <div class="sidebar-nav-item">🧭 Process Tracker</div>
+        <div class="sidebar-nav-item">🧱 Extraction Inventory</div>
+        <div class="sidebar-nav-item">🤝 Toll Processing</div>
+        <div class="sidebar-nav-item">✅ Compliance / METRC</div>
+        <div class="sidebar-nav-item">🗂 Data Input & Mapping</div>
+        <div class="sidebar-nav-label">AI SUPPORT</div>
+        <div class="sidebar-nav-item {'active' if section == '🧠 Buyer Intelligence' else ''}">💬 Ask Doobie</div>
+        <div class="sidebar-nav-item" style="margin-top:8px;border:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.25);">
+          <strong>Ask Doobie</strong><br/>
+          <span style="opacity:.72">Assistant for buyer and extraction questions.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # Common alias sets (used repeatedly)
@@ -599,7 +654,7 @@ def ai_lookup_strain_type(product_name, category):
 # CONFIG & BRANDING (MAVet)
 # =========================
 CLIENT_NAME = "MAVet710"
-APP_TITLE = f"{CLIENT_NAME} Purchasing Dashboard"
+APP_TITLE = "BUYER DASHBOARD"
 APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data."
 LICENSE_FOOTER = "Semper Paratus • Powered by Good Weed and Data"
 
@@ -1032,6 +1087,10 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+st.markdown(load_polished_theme(background_url), unsafe_allow_html=True)
+render_sidebar_nav_css()
+render_inventory_table_css()
 
 # =========================
 # HELPER FUNCTIONS
@@ -2731,9 +2790,15 @@ if not st.session_state._daily_restored:
 # =========================
 # HEADER
 # =========================
-st.title(f"🌿 {APP_TITLE}")
-st.markdown(f"**Brand:** {CLIENT_NAME}")
-st.markdown(APP_TAGLINE)
+_display_user = (
+    st.session_state.admin_user if st.session_state.get("is_admin")
+    else st.session_state.get("user_user") or "Buyer"
+)
+render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
+render_section_header(
+    "BUYER DASHBOARD",
+    subtitle="Compliance and operations intelligence for buyer and extraction teams.",
+)
 if st.session_state.get("_daily_restore_msg"):
     st.info(
         "📂 Your uploads from earlier today have been restored automatically. "
@@ -3274,8 +3339,10 @@ def render_extraction_command_center():
     # Ensure mass-balance columns exist for older sessions that pre-date this feature
     st.session_state.ecc_run_log = _ensure_mass_balance_cols(st.session_state.ecc_run_log)
 
-    st.subheader("🧪 Extraction Command Center")
-    st.caption("Built for BHO, CO2, Rosin, and Ethanol operations with toll processing and METRC-aware workflows.")
+    render_section_header(
+        "Extraction Command Center",
+        subtitle="Built for BHO, CO2, Rosin, and Ethanol operations with toll processing and METRC-aware workflows.",
+    )
 
     with st.sidebar:
         st.markdown("### 🧪 Extraction Controls")
@@ -3330,6 +3397,16 @@ def render_extraction_command_center():
     cogs = float(run_df["cogs_usd"].sum()) if not run_df.empty else 0.0
     gross_margin_pct = ((est_revenue - cogs) / est_revenue * 100) if est_revenue else 0.0
 
+    render_extraction_kpi(
+        [
+            {"label": "Runs", "value": total_runs},
+            {"label": "Output", "value": f"{total_finished_output:,.1f} g"},
+            {"label": "Avg Yield", "value": f"{avg_yield:.1f}%"},
+            {"label": "Efficiency", "value": f"{avg_post_eff:.1f}%"},
+            {"label": "Risk", "value": "Low" if at_risk_batches == 0 else ("Medium" if at_risk_batches < 3 else "High")},
+        ]
+    )
+
     top = st.columns(8)
     with top[0]:
         kpi_card("Extraction Runs", total_runs)
@@ -3364,7 +3441,7 @@ def render_extraction_command_center():
     with overview_tab:
         c1, c2 = st.columns([1.2, 1])
         with c1:
-            st.subheader("Output by Method")
+            chart_card_start("Output by Method", "Finished output trend and weekly executive totals.")
             if run_df.empty:
                 st.info("No data yet.")
             else:
@@ -3394,8 +3471,9 @@ def render_extraction_command_center():
                             use_container_width=True,
                             hide_index=True,
                         )
+            chart_card_end()
         with c2:
-            st.subheader("Smart Flags")
+            chart_card_start("Smart Flags", "Automated risk and inventory support signals.")
             flags = []
             if avg_yield < 10 and total_runs > 0:
                 flags.append("Average yield is running below 10%.")
@@ -3423,6 +3501,7 @@ def render_extraction_command_center():
                     kpi_card("Aging Lots (30+ days)", inventory_aging_count)
                 with i3:
                     kpi_card("Projected Output (g)", f"{projected_output_g:,.1f}")
+            chart_card_end()
 
     with runs_tab:
         st.subheader("Run Explorer")
@@ -3639,7 +3718,11 @@ def render_extraction_command_center():
             # Mass-balance status badge
             _flag_val = str(selected_row.get("mass_balance_flag", "OK"))
             _flag_icon = {"OK": "🟢", "Warning": "🟡", "Critical": "🔴"}.get(_flag_val, "⚪")
-            st.markdown(f"**Mass Balance Status:** {_flag_icon} {_flag_val}")
+            _flag_color = "green" if _flag_val == "OK" else ("yellow" if _flag_val == "Warning" else "red")
+            st.markdown(
+                f"<span class='pill-badge' style='background:{'#4cd388' if _flag_color == 'green' else ('#f3c74c' if _flag_color == 'yellow' else '#ff6161')};'>{_flag_icon} Mass Balance: {_flag_val}</span>",
+                unsafe_allow_html=True,
+            )
 
             # ── Process status controls (preserved from original) ─────────
             st.markdown("#### Process Status")
@@ -3982,6 +4065,10 @@ def render_extraction_command_center():
             key="ecc_inventory_global_yield_pct",
         )
         use_method_defaults = yield_model == "Method defaults"
+        chart_card_start("Projected Output Calculator", "Tune the projected output model before appending inventory.")
+        st.caption("Method defaults use method-specific assumptions. Global mode applies one yield % to all lots.")
+        st.caption(f"Current active model: {'Method defaults' if use_method_defaults else f'Global {global_yield_pct:.1f}%'}")
+        chart_card_end()
 
         uploaded_inventory_file = st.file_uploader(
             "Upload extraction inventory (CSV, XLSX, XLS)",
@@ -4086,6 +4173,16 @@ def render_extraction_command_center():
         aging_lots = int((inventory_df["age_days"] >= age_threshold).sum()) if not inventory_df.empty else 0
         projected_total = float(inventory_df["estimated_output_g"].sum()) if not inventory_df.empty else 0.0
 
+        render_extraction_kpi(
+            [
+                {"label": "Total Input Weight", "value": f"{total_input:,.1f} g"},
+                {"label": "Available Weight", "value": f"{total_available:,.1f} g"},
+                {"label": "Reserved Weight", "value": f"{total_reserved:,.1f} g"},
+                {"label": "Aging Lots", "value": aging_lots},
+                {"label": "Estimated Output", "value": f"{projected_total:,.1f} g"},
+            ]
+        )
+
         k1, k2, k3, k4, k5, k6 = st.columns(6)
         with k1:
             kpi_card("Total Input Weight (g)", f"{total_input:,.1f}")
@@ -4109,21 +4206,33 @@ def render_extraction_command_center():
 
             p1, p2 = st.columns(2)
             with p1:
+                chart_card_start("Inventory by Material Type", "Estimated output grouped by material type.")
                 by_type = (
                     inventory_df.groupby("material_type", as_index=False)["estimated_output_g"]
                     .sum()
                     .sort_values("estimated_output_g", ascending=False)
                 )
-                st.markdown("#### Projected Output by Material Type")
                 st.bar_chart(by_type.set_index("material_type")["estimated_output_g"])
+                chart_card_end()
             with p2:
+                chart_card_start("Output by Intended Method", "Estimated output grouped by intended extraction method.")
                 by_method = (
                     inventory_df.groupby("intended_method", as_index=False)["estimated_output_g"]
                     .sum()
                     .sort_values("estimated_output_g", ascending=False)
                 )
-                st.markdown("#### Projected Output by Intended Method")
                 st.bar_chart(by_method.set_index("intended_method")["estimated_output_g"])
+                chart_card_end()
+
+            chart_card_start("Aging Distribution", "Lot aging distribution for planning priority runs.")
+            _aging_bins = pd.cut(
+                pd.to_numeric(inventory_df["age_days"], errors="coerce").fillna(0),
+                bins=[-1, 7, 30, 60, 10_000],
+                labels=["Fresh (0-7)", "Aging (8-30)", "Priority Run (31-60)", "Stale (60+)"],
+            )
+            _aging_chart = _aging_bins.value_counts().reindex(["Fresh (0-7)", "Aging (8-30)", "Priority Run (31-60)", "Stale (60+)"], fill_value=0)
+            st.bar_chart(_aging_chart)
+            chart_card_end()
 
             st.markdown("#### Inventory Filters")
             f1, f2, f3 = st.columns(3)
@@ -4186,21 +4295,27 @@ def render_extraction_command_center():
                 ).str.lower()
                 filtered_inv = filtered_inv[text_cols.str.contains(text_filter, na=False)]
 
+            filtered_inv["priority"] = filtered_inv["aging_flag"].map(
+                {
+                    "Fresh": "Fresh",
+                    "Aging": "Aging",
+                    "Priority Run": "Priority Run",
+                    "Stale": "Stale",
+                }
+            ).fillna("Fresh")
+
             table_cols = [
                 "material_name",
                 "material_type",
-                "strain",
                 "batch_id_internal",
-                "current_weight_g",
-                "reserved_weight_g",
                 "available_weight_g",
                 "age_days",
-                "aging_flag",
+                "priority",
                 "intended_method",
-                "storage_location",
-                "status",
             ]
-            st.dataframe(filtered_inv[table_cols], use_container_width=True, hide_index=True)
+            chart_card_start("Extraction Inventory Table", "Material Name, Type, Batch, Available, Age, Priority, Method.")
+            st.dataframe(filtered_inv[[c for c in table_cols if c in filtered_inv.columns]], use_container_width=True, hide_index=True)
+            chart_card_end()
 
     with toll_tab:
         st.subheader("Toll Processing Command View")
@@ -4284,7 +4399,9 @@ def render_extraction_command_center():
         st.dataframe(required_fields, use_container_width=True, hide_index=True)
 
     with inputs_tab:
+        chart_card_start("Data Input + Mapping", "Upload extraction data, preview parsed rows, map fields, and convert to run log.")
         render_extraction_partner_upload_ui()
+        chart_card_end()
 
     with ai_ops_tab:
         st.subheader("AI Operations Brief")
@@ -4333,7 +4450,15 @@ app_mode = st.radio(
     help="Switch between the purchasing dashboard and the extraction workspace.",
 )
 
+_render_sidebar_nav_mockup(app_mode, None)
+
 if app_mode == "🧪 Extraction Command Center":
+    render_hero(
+        "Good Morning, Extraction Team",
+        "Command center KPIs, process signals, and inventory risk in one view.",
+        _display_user,
+        "Operations",
+    )
     render_main_ai_copilot(app_mode, "🧪 Extraction Command Center")
     render_extraction_command_center()
     st.stop()
@@ -4372,12 +4497,20 @@ section = st.sidebar.radio(
     index=0,
 )
 
+_render_sidebar_nav_mockup(app_mode, section)
+
 render_main_ai_copilot(app_mode, section)
 
 # ============================================================
 # PAGE 1 – INVENTORY DASHBOARD
 # ============================================================
 if section == "📊 Inventory Dashboard":
+    render_hero(
+        f"Good Morning, {_display_user}",
+        "Here's what's happening with your portfolio today.",
+        str(_display_user),
+        "Buyer • Operations",
+    )
 
     st.sidebar.markdown("### 🧩 Data Source")
     data_source = st.sidebar.selectbox(
@@ -4965,6 +5098,120 @@ if section == "📊 Inventory Dashboard":
         st.session_state.detail_cached_df = detail.copy()
         st.session_state.detail_product_cached_df = detail_product.copy()
         st.session_state.doh_threshold_cache = int(doh_threshold)
+
+        # =======================
+        # POLISHED BUYER OVERVIEW
+        # =======================
+        _revenue_series = pd.to_numeric(sales_df["net_sales"], errors="coerce").fillna(0) if "net_sales" in sales_df.columns else pd.Series(dtype=float)
+        _total_revenue = float(_revenue_series.sum()) if not _revenue_series.empty else 0.0
+        _avg_doh = float(pd.to_numeric(detail["daysonhand"], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0).mean()) if not detail.empty else 0.0
+        _active_skus = int((pd.to_numeric(detail["onhandunits"], errors="coerce").fillna(0) > 0).sum()) if "onhandunits" in detail.columns else 0
+        _low_stock = int(((detail["daysonhand"] > 0) & (detail["daysonhand"] <= doh_threshold)).sum()) if "daysonhand" in detail.columns else 0
+        _oos = int((pd.to_numeric(detail["onhandunits"], errors="coerce").fillna(0) <= 0).sum()) if "onhandunits" in detail.columns else 0
+        _health_score = max(0, min(100, int(100 - ((_low_stock * 2) + (_oos * 3)))))
+
+        render_metric_tiles(
+            [
+                {"label": "Total Revenue", "value": f"${_total_revenue:,.0f}", "help": "Current sales window", "color": "green"},
+                {"label": "Avg DOH", "value": f"{_avg_doh:,.1f}", "help": "Days on hand across lines", "color": "orange"},
+                {"label": "Active SKUs", "value": f"{_active_skus:,}", "help": "On-hand inventory > 0", "color": "blue"},
+                {"label": "Low Stock", "value": f"{_low_stock:,}", "help": f"DOH ≤ {doh_threshold}", "color": "yellow"},
+                {"label": "Out of Stock", "value": f"{_oos:,}", "help": "Requires replenishment", "color": "red"},
+            ]
+        )
+
+        _ov1, _ov2 = st.columns([1.7, 1])
+        with _ov1:
+            chart_card_start("Sales Trend", "Net sales trend over available order/report dates.")
+            _sales_date_col = next((c for c in sales_raw.columns if "date" in str(c).lower() or "time" in str(c).lower()), None)
+            if _sales_date_col is None:
+                st.info("No date column detected for trend chart.")
+            else:
+                _trend = sales_raw.copy()
+                _trend["_date"] = pd.to_datetime(_trend[_sales_date_col], errors="coerce").dt.date
+                _trend = _trend[_trend["_date"].notna()]
+                if _trend.empty:
+                    st.info("No valid date rows for trend chart.")
+                else:
+                    if "net_sales" in _trend.columns:
+                        _trend["_metric"] = pd.to_numeric(_trend["net_sales"], errors="coerce").fillna(0)
+                    else:
+                        _trend["_metric"] = pd.to_numeric(_trend.get("unitssold", 0), errors="coerce").fillna(0)
+                    _trend_plot = _trend.groupby("_date", as_index=False)["_metric"].sum().sort_values("_date")
+                    if PLOTLY_AVAILABLE:
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(x=_trend_plot["_date"], y=_trend_plot["_metric"], mode="lines+markers", line={"color": "#ff9a3c", "width": 3}))
+                        fig.update_layout(
+                            margin={"l": 10, "r": 10, "t": 10, "b": 10},
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            height=280,
+                            font={"color": "rgba(255,255,255,0.88)"},
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.line_chart(_trend_plot.set_index("_date")["_metric"])
+            chart_card_end()
+        with _ov2:
+            chart_card_start("Revenue by Category", "Revenue mix by category (or units fallback).")
+            _cat_metric = "net_sales" if "net_sales" in sales_df.columns else "unitssold"
+            _cat_df = (
+                sales_df.groupby("mastercategory", as_index=False)[_cat_metric].sum().sort_values(_cat_metric, ascending=False)
+                if "mastercategory" in sales_df.columns and not sales_df.empty
+                else pd.DataFrame()
+            )
+            if _cat_df.empty:
+                st.info("No category distribution available.")
+            elif PLOTLY_AVAILABLE:
+                fig = go.Figure(
+                    go.Pie(
+                        labels=_cat_df["mastercategory"].astype(str),
+                        values=_cat_df[_cat_metric],
+                        hole=0.48,
+                        marker={"colors": ["#ff9a3c", "#5aa8ff", "#4cd388", "#f3c74c", "#ff6161"]},
+                    )
+                )
+                fig.update_layout(
+                    margin={"l": 10, "r": 10, "t": 10, "b": 10},
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font={"color": "rgba(255,255,255,0.88)"},
+                    height=280,
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(_cat_df.set_index("mastercategory")[_cat_metric])
+            chart_card_end()
+
+        _tbl_col, _health_col = st.columns([1.7, 1])
+        with _tbl_col:
+            chart_card_start("Top Slow Movers", "Highest days-on-hand with low movement.")
+            _slow_cols = [c for c in ["subcategory", "product_name", "packagesize", "daysonhand", "reorderpriority"] if c in detail_product.columns]
+            _slow = detail_product.copy() if not detail_product.empty else pd.DataFrame()
+            if _slow.empty or "daysonhand" not in _slow.columns:
+                st.info("No slow mover rows available yet.")
+            else:
+                _slow = _slow.sort_values("daysonhand", ascending=False).head(12)
+                st.dataframe(_slow[_slow_cols], use_container_width=True, hide_index=True)
+            chart_card_end()
+        with _health_col:
+            chart_card_start("Inventory Health", "Composite score from low-stock and OOS pressure.")
+            if PLOTLY_AVAILABLE:
+                fig = go.Figure(go.Indicator(mode="gauge+number", value=_health_score, gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#ff9a3c"}}))
+                fig.update_layout(height=260, margin={"l": 10, "r": 10, "t": 20, "b": 0}, paper_bgcolor="rgba(0,0,0,0)", font={"color": "rgba(255,255,255,0.88)"})
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.progress(max(0, min(100, _health_score)) / 100.0, text=f"Health score: {_health_score}/100")
+            chart_card_end()
+
+        _insights = [
+            f"{_low_stock} lines are in low-stock range (DOH <= {doh_threshold}).",
+            f"{_oos} lines are out of stock and need immediate attention.",
+            f"Average DOH is {_avg_doh:,.1f} days across filtered rows.",
+        ]
+        _actions = ["Prioritize Reorders", "Review Aging Lots", "Open Ask Doobie"]
+        render_ai_brief(_insights, _actions)
+        render_action_button("Open Ask Doobie")
+        st.text_input("Ask Doobie", placeholder="What should I buy this week?", key="buyer_ai_brief_prompt")
 
         # =======================
         # SUMMARY + CLICK FILTERS
