@@ -25,13 +25,20 @@ CRITICAL:
 """
 
 import difflib
-from datetime import datetime
 from io import BytesIO
 from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+AUTO_DEFAULTS = {
+    "state": "Other",
+    "client_name": "In House",
+    "status": "Processing",
+    "method": "BHO",
+    "coa_status": "Pending",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -94,10 +101,9 @@ def detect_header_row(df_no_header: pd.DataFrame, max_scan: int = 20) -> int:
 
 
 def load_partner_file_multisheet(uploaded_file) -> Dict[str, pd.DataFrame]:
-    file_name = str(getattr(uploaded_file, "name", "")).lower()
+    file_name = getattr(uploaded_file, "name", "").lower()
     uploaded_file.seek(0)
     raw = uploaded_file.read()
-    uploaded_file.seek(0)
     sheets = {}
     if file_name.endswith((".xlsx", ".xls")):
         try:
@@ -106,7 +112,6 @@ def load_partner_file_multisheet(uploaded_file) -> Dict[str, pd.DataFrame]:
                 if df.empty:
                     continue
                 header_row = detect_header_row(df, max_scan=20)
-                uploaded_file.seek(0)
                 sheet_df = pd.read_excel(BytesIO(raw), sheet_name=sheet_name, header=header_row)
                 sheets[sheet_name] = sheet_df
         except Exception as e:
@@ -228,6 +233,7 @@ def normalize_partner_extraction_workbook(
         "status": ["status", "run status"],
         "notes": ["notes", "comments", "remarks"],
     }
+    date_columns = {"run_date"}
     all_runs = []
     for sheet_name, df in sheets_dict.items():
         if df.empty:
@@ -262,7 +268,7 @@ def normalize_partner_extraction_workbook(
         run_data = {}
         for ecc_col, partner_col in sheet_mapping.items():
             if partner_col in df_clean.columns:
-                if "date" in ecc_col:
+                if ecc_col in date_columns:
                     run_data[ecc_col] = pd.to_datetime(df_clean[partner_col], errors="coerce")
                 else:
                     run_data[ecc_col] = df_clean[partner_col]
@@ -275,7 +281,13 @@ def normalize_partner_extraction_workbook(
         combined_runs = pd.concat(all_runs, ignore_index=True)
         for col in ecc_run_columns:
             if col not in combined_runs.columns:
-                if col in ["state", "status", "method", "product_type"]:
+                if col == "state":
+                    combined_runs[col] = "Other"
+                elif col == "status":
+                    combined_runs[col] = "Processing"
+                elif col == "method":
+                    combined_runs[col] = "BHO"
+                elif col == "product_type":
                     combined_runs[col] = "Other"
                 elif col in ["toll_processing", "qa_hold"]:
                     combined_runs[col] = False
@@ -333,7 +345,8 @@ def render_manual_mapping_ui(df: pd.DataFrame, suggested_mapping: Dict[str, str]
             suggested = suggested_mapping.get(ecc_col, "IGNORE")
             sample_text = ""
             if suggested != "IGNORE" and suggested in df.columns:
-                sample_val = df[suggested].dropna().iloc[0] if len(df[suggested].dropna()) > 0 else ""
+                non_null_values = df[suggested].dropna()
+                sample_val = non_null_values.iloc[0] if len(non_null_values) > 0 else ""
                 sample_text = f" [sample: {sample_val}]"
             selected = st.selectbox(
                 label=f"Map {ecc_col}",
@@ -413,13 +426,31 @@ def deduplicate_and_append_to_ecc(
 ) -> Tuple[pd.DataFrame, int, str]:
     if new_runs.empty:
         return existing_ecc_log, 0, "No rows to append."
+    # ECC uniqueness requirement: same run_date + batch_id_internal + method is a duplicate upload.
     dedup_key = ["run_date", "batch_id_internal", "method"]
     new_runs = new_runs.copy()
     new_runs["_source"] = "uploaded"
     existing_ecc_log = existing_ecc_log.copy()
     existing_ecc_log["_source"] = "existing"
     combined = pd.concat([existing_ecc_log, new_runs], ignore_index=True)
-    combined_deduped = combined.drop_duplicates(subset=dedup_key, keep="first")
+    combined_dedupe = combined.copy()
+    for key in dedup_key:
+        if key not in combined_dedupe.columns:
+            combined_dedupe[key] = ""
+        if key == "run_date":
+            normalized_key = pd.to_datetime(combined_dedupe[key], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+        else:
+            normalized_key = (
+                combined_dedupe[key]
+                .astype("string")
+                .fillna("")
+                .str.strip()
+                .str.lower()
+            )
+        combined_dedupe[f"_dedup_{key}"] = normalized_key
+    dedupe_subset = [f"_dedup_{key}" for key in dedup_key]
+    combined_deduped = combined_dedupe.drop_duplicates(subset=dedupe_subset, keep="first")
+    combined_deduped = combined_deduped.drop(columns=dedupe_subset)
     num_added = (combined_deduped["_source"] == "uploaded").sum()
     combined_deduped = combined_deduped.drop(columns=["_source"])
     msg = f"✅ Added {num_added} unique run(s) to Extraction Command Center."
@@ -441,7 +472,11 @@ def render_diagnostics_panel(diagnostics: Dict):
         if diagnostics.get("columns_detected"):
             st.markdown("#### Columns Detected Per Sheet")
             for sheet, cols in diagnostics["columns_detected"].items():
-                st.write(f"**{sheet}**: {', '.join(cols[:10])}..." if len(cols) > 10 else f"**{sheet}**: {', '.join(cols)}")
+                display_cols = ", ".join(cols[:10])
+                if len(cols) > 10:
+                    st.write(f"**{sheet}**: {display_cols}...")
+                else:
+                    st.write(f"**{sheet}**: {display_cols}")
         if diagnostics.get("mapping_confidence"):
             st.markdown("#### Mapping Confidence Scores")
             for sheet, scores in diagnostics["mapping_confidence"].items():
@@ -476,7 +511,17 @@ def render_extraction_partner_upload_ui():
     st.info(f"Mapping confidence: **{avg_confidence:.0%}**")
     if show_manual_ui:
         st.warning("Low confidence: Please verify column mappings below.")
-        first_sheet_df = list(sheets_dict.values())[0]
+        preferred_sheet_name = None
+        best_sheet_confidence = -1.0
+        for sheet_name, scores in diagnostics.get("mapping_confidence", {}).items():
+            avg_score = np.mean(list(scores.values())) if scores else 0.0
+            if avg_score > best_sheet_confidence and sheet_name in sheets_dict:
+                best_sheet_confidence = avg_score
+                preferred_sheet_name = sheet_name
+        if not sheets_dict:
+            st.error("No sheets available for manual mapping.")
+            return
+        first_sheet_df = sheets_dict[preferred_sheet_name] if preferred_sheet_name else list(sheets_dict.values())[0]
         target_cols = [
             "run_date",
             "batch_id_internal",
@@ -504,14 +549,8 @@ def render_extraction_partner_upload_ui():
             st.dataframe(ecc_runs.head(20), use_container_width=True, hide_index=True)
     else:
         st.success("✅ Auto-mapping successful. Appending to ECC…")
-        defaults = {
-            "state": "Other",
-            "client_name": "In House",
-            "status": "Processing",
-            "method": "BHO",
-            "coa_status": "Pending",
-        }
-        auto_mapping = {col: col for col in runs_df.columns if col != "IGNORE"}
+        defaults = AUTO_DEFAULTS
+        auto_mapping = {col: col for col in runs_df.columns}
         ecc_runs = apply_mapping_to_dataframe(runs_df, auto_mapping, defaults)
         if "ecc_run_log" not in st.session_state:
             st.session_state.ecc_run_log = pd.DataFrame()

@@ -79,7 +79,10 @@ try:
     from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
 except (ImportError, AttributeError):
     def render_extraction_partner_upload_ui():
-        st.error("Extraction partner upload upgrade module is unavailable.")
+        st.error(
+            "Extraction partner upload upgrade module is unavailable. "
+            "Verify extraction_partner_upload_upgrade.py exists and has no import/syntax errors."
+        )
 
 if not _EXTRACTION_PARTNER_INTEL_AVAILABLE:
     def _partner_norm_col(name: str) -> str:
