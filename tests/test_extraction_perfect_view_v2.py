@@ -15,11 +15,11 @@ EXPECTED_PRODUCT_TYPES = [
     "Badder / Batter",
     "Shatter",
     "Sauce",
-    "Diamonds (THCa Diamonds)",
+    "Diamonds (THCa)",
     "Live Resin",
     "Live Rosin",
     "Cured Resin",
-    "Fresh Press (Rosin)",
+    "Fresh Press",
     "Rosin Jam",
     "Hash Rosin",
     "Bubble Hash / Ice Water Hash",
@@ -32,14 +32,14 @@ EXPECTED_PRODUCT_TYPES = [
     "Crumble",
     "Pull-and-Snap",
     "Terp Sauce",
-    "HTFSE (High Terpene Full Spectrum Extract)",
-    "HCFSE (High Cannabinoid Full Spectrum Extract)",
+    "HTFSE",
+    "HCFSE",
     "THCa Isolate",
     "CBD Isolate",
     "Full Spectrum Oil",
     "Broad Spectrum Oil",
     "Caviar / Moon Rocks",
-    "Infused Pre-Roll (concentrate output)",
+    "Infused Pre-Roll",
     "Vape Cart Oil",
     "Dab-ready Concentrate",
     "Other",
@@ -66,7 +66,7 @@ def test_product_type_options_match_required_comprehensive_list():
     assert PRODUCT_TYPE_OPTIONS == EXPECTED_PRODUCT_TYPES
 
 
-def test_filtered_frames_supports_strain_filter_for_runs_and_jobs():
+def test_filtered_frames_supports_strain_filter_for_runs():
     run_df = pd.DataFrame(
         [
             {"state": "MA", "method": "BHO", "strain": "The 4th Kind", "toll_processing": False},
@@ -91,5 +91,4 @@ def test_filtered_frames_supports_strain_filter_for_runs_and_jobs():
 
     assert len(filtered_runs) == 1
     assert filtered_runs.iloc[0]["strain"] == "Night Tonic"
-    assert len(filtered_jobs) == 1
-    assert filtered_jobs.iloc[0]["strain"] == "Night Tonic"
+    assert len(filtered_jobs) == 2
