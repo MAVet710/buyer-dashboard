@@ -1,12 +1,16 @@
+import html
+
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from core.session_keys import EXTRACTION_JOBS, EXTRACTION_RUNS
 from doobie_panels import run_extraction_doobie
-from ui.components import render_metric_card, render_section_header
+from ui_polish import chart_card_end, chart_card_start, render_metric_tiles, render_section_header
 
 METHOD_OPTIONS = ["All", "BHO", "CO2", "Rosin", "Ethanol"]
 ENTRY_METHOD_OPTIONS = ["BHO", "CO2", "Rosin", "Ethanol"]
+CHART_COLORS = ["#ff9a3c", "#5aa8ff", "#f3c74c", "#4cd388", "#ff6161"]
 
 
 def _ensure_defaults():
@@ -130,7 +134,7 @@ def _compute_alerts(run_df: pd.DataFrame, job_df: pd.DataFrame):
         if "cycle_time_hours" in run_df.columns:
             long_cycles = run_df[pd.to_numeric(run_df["cycle_time_hours"], errors="coerce").fillna(0) > 10]
             if not long_cycles.empty:
-                alerts.append(f"Long cycle times detected on {len(long_cycles)} run(s) over 10 hours.")")
+                alerts.append(f"Long cycle times detected on {len(long_cycles)} run(s) over 10 hours.")
     if job_df is not None and not job_df.empty:
         if "sla_status" in job_df.columns:
             at_risk_jobs = int((job_df["sla_status"] == "At Risk").sum())
@@ -188,6 +192,46 @@ def _variance_summary(run_df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def _chart_layout(showlegend: bool) -> dict:
+    """Return shared Plotly layout settings; `showlegend` controls chart legend visibility."""
+    return {
+        "paper_bgcolor": "rgba(0,0,0,0)",
+        "plot_bgcolor": "rgba(0,0,0,0.15)",
+        "font": {"color": "rgba(255,255,255,0.85)"},
+        "margin": {"l": 40, "r": 20, "t": 30, "b": 40},
+        "showlegend": showlegend,
+    }
+
+
+def _compute_health_score(alert_count: int, avg_yield: float, qa_holds: int, at_risk_batches: int) -> float:
+    """
+    Compute an extraction health score from 0-100 using weighted risk penalties.
+
+    Penalties:
+    - alert_count: -8 each (capped at -40)
+    - qa_holds: -12 each (capped at -36)
+    - avg_yield below 15%: -3 per missing yield point (capped at -30)
+    - at_risk_batches: -5 each (capped at -25)
+    """
+    score = 100.0
+    score -= min(alert_count * 8, 40)
+    score -= min(qa_holds * 12, 36)
+    if avg_yield < 15:
+        score -= min((15 - avg_yield) * 3, 30)
+    score -= min(at_risk_batches * 5, 25)
+    return max(0.0, min(100.0, score))
+
+
+def _flag_color(flag_text: str) -> str:
+    """Map alert text to visual severity colors for smart-flag cards."""
+    lowered = str(flag_text).lower()
+    if "low" in lowered or "risk" in lowered or "hold" in lowered:
+        return "#ff6161"
+    if "pending" in lowered or "overdue" in lowered or "long cycle" in lowered:
+        return "#f3c74c"
+    return "#5aa8ff"
+
+
 def render_extraction_perfect_view_v2():
     _ensure_defaults()
     render_section_header(
@@ -225,23 +269,18 @@ def render_extraction_perfect_view_v2():
     cogs = float(pd.to_numeric(run_df.get("cogs_usd", 0), errors="coerce").fillna(0).sum()) if not run_df.empty else 0.0
     gross_margin_pct = ((est_revenue - cogs) / est_revenue * 100) if est_revenue else 0.0
 
-    top = st.columns(8)
-    with top[0]:
-        render_metric_card("Runs", f"{total_runs:,}")
-    with top[1]:
-        render_metric_card("Finished Output", f"{total_finished_output:,.1f} g")
-    with top[2]:
-        render_metric_card("Avg Yield", f"{avg_yield:.1f}%")
-    with top[3]:
-        render_metric_card("Post-Process Eff.", f"{avg_post_eff:.1f}%")
-    with top[4]:
-        render_metric_card("Solvent Recovery", f"{avg_solvent_recovery:.1f}%")
-    with top[5]:
-        render_metric_card("Avg Cycle Time", f"{avg_cycle_time:.1f} hr")
-    with top[6]:
-        render_metric_card("At-Risk Batches", f"{at_risk_batches:,}")
-    with top[7]:
-        render_metric_card("Gross Margin", f"{gross_margin_pct:.1f}%")
+    render_metric_tiles(
+        [
+            {"label": "Runs", "value": f"{total_runs:,}", "help": "Filtered extraction runs", "color": "green"},
+            {"label": "Finished Output", "value": f"{total_finished_output:,.1f} g", "help": "Total output mass", "color": "blue"},
+            {"label": "Avg Yield", "value": f"{avg_yield:.1f}%", "help": "Across filtered runs", "color": "orange"},
+            {"label": "Post-Process Eff.", "value": f"{avg_post_eff:.1f}%", "help": "Intermediate to finished", "color": "blue"},
+            {"label": "Solvent Recovery", "value": f"{avg_solvent_recovery:.1f}%", "help": "Recovery efficiency", "color": "green"},
+            {"label": "Avg Cycle Time", "value": f"{avg_cycle_time:.1f} hr", "help": "Mean run duration", "color": "yellow"},
+            {"label": "At-Risk Batches", "value": f"{at_risk_batches:,}", "help": "QA hold or COA risk", "color": "yellow"},
+            {"label": "Gross Margin", "value": f"{gross_margin_pct:.1f}%", "help": "Revenue less COGS", "color": "red"},
+        ]
+    )
 
     overview_tab, method_tab, runs_tab, toll_tab, compliance_tab, inputs_tab, ai_ops_tab = st.tabs([
         "Executive Overview",
@@ -254,22 +293,140 @@ def render_extraction_perfect_view_v2():
     ])
 
     with overview_tab:
-        c1, c2 = st.columns([1.2, 1])
-        with c1:
-            st.markdown("### Output by Method")
-            if run_df.empty:
-                st.info("No data yet.")
+        alerts = _compute_alerts(run_df, job_df)
+        qa_holds = int(run_df.get("qa_hold", pd.Series(dtype=bool)).fillna(False).sum()) if not run_df.empty else 0
+        health_score = _compute_health_score(len(alerts), avg_yield, qa_holds, at_risk_batches)
+
+        pair_1 = st.columns([1.6, 1])
+        with pair_1[0]:
+            chart_card_start("Yield Trend", "Yield % across extraction runs")
+            if run_df.empty or "run_date" not in run_df.columns or "yield_pct" not in run_df.columns:
+                st.info("No yield trend data yet.")
             else:
-                method_summary = run_df.groupby("method", as_index=False)[["finished_output_g", "input_weight_g"]].sum().sort_values("finished_output_g", ascending=False)
-                st.bar_chart(method_summary.set_index("method")["finished_output_g"], use_container_width=True)
-        with c2:
-            st.markdown("### Smart Flags")
-            alerts = _compute_alerts(run_df, job_df)
+                yield_trend = run_df.copy()
+                yield_trend["run_date"] = pd.to_datetime(yield_trend["run_date"], errors="coerce")
+                yield_trend["yield_pct"] = pd.to_numeric(yield_trend["yield_pct"], errors="coerce")
+                yield_trend = yield_trend.dropna(subset=["run_date", "yield_pct"]).sort_values("run_date")
+                if yield_trend.empty:
+                    st.info("No yield trend data yet.")
+                else:
+                    fig = go.Figure()
+                    fig.add_trace(
+                        go.Scatter(
+                            x=yield_trend["run_date"],
+                            y=yield_trend["yield_pct"],
+                            mode="lines+markers",
+                            line={"color": "#ff9a3c", "width": 3},
+                            marker={"size": 6, "color": "#ff9a3c"},
+                            name="Yield %",
+                        )
+                    )
+                    fig.update_layout(**_chart_layout(showlegend=False))
+                    fig.update_xaxes(gridcolor="rgba(255,255,255,0.08)")
+                    fig.update_yaxes(title_text="Yield %", gridcolor="rgba(255,255,255,0.08)")
+                    st.plotly_chart(fig, use_container_width=True)
+            chart_card_end()
+
+        with pair_1[1]:
+            chart_card_start("Output by Method", "Finished output by extraction method")
+            if run_df.empty or "method" not in run_df.columns:
+                st.info("No method output data yet.")
+            else:
+                method_summary = (
+                    run_df.groupby("method", as_index=False)[["finished_output_g"]]
+                    .sum()
+                    .sort_values("finished_output_g", ascending=False)
+                )
+                if method_summary.empty:
+                    st.info("No method output data yet.")
+                else:
+                    fig = go.Figure(
+                        data=[
+                            go.Bar(
+                                x=method_summary["method"],
+                                y=method_summary["finished_output_g"],
+                                marker={"color": [CHART_COLORS[i % len(CHART_COLORS)] for i in range(len(method_summary))]},
+                                name="Finished Output (g)",
+                            )
+                        ]
+                    )
+                    fig.update_layout(**_chart_layout(showlegend=False))
+                    fig.update_xaxes(gridcolor="rgba(255,255,255,0.08)")
+                    fig.update_yaxes(title_text="Output (g)", gridcolor="rgba(255,255,255,0.08)")
+                    st.plotly_chart(fig, use_container_width=True)
+            chart_card_end()
+
+        pair_2 = st.columns([1.6, 1])
+        with pair_2[0]:
+            chart_card_start("Gross Margin by Method", "Method contribution to gross margin")
+            if run_df.empty or "method" not in run_df.columns:
+                st.info("No margin data yet.")
+            else:
+                margin_df = run_df.copy()
+                margin_df["est_revenue_usd"] = pd.to_numeric(margin_df.get("est_revenue_usd", 0), errors="coerce").fillna(0.0)
+                margin_df["cogs_usd"] = pd.to_numeric(margin_df.get("cogs_usd", 0), errors="coerce").fillna(0.0)
+                margin_df["gross_margin_usd"] = (margin_df["est_revenue_usd"] - margin_df["cogs_usd"]).clip(lower=0.0)
+                donut = margin_df.groupby("method", as_index=False)["gross_margin_usd"].sum()
+                if float(donut["gross_margin_usd"].sum()) <= 0:
+                    st.info("No positive gross margin data yet.")
+                else:
+                    fig = go.Figure(
+                        data=[
+                            go.Pie(
+                                labels=donut["method"],
+                                values=donut["gross_margin_usd"],
+                                hole=0.58,
+                                marker={"colors": [CHART_COLORS[i % len(CHART_COLORS)] for i in range(len(donut))]},
+                                textinfo="label+percent",
+                            )
+                        ]
+                    )
+                    fig.update_layout(**_chart_layout(showlegend=True))
+                    st.plotly_chart(fig, use_container_width=True)
+            chart_card_end()
+
+        with pair_2[1]:
+            chart_card_start("Extraction Health", "Overall risk-adjusted score")
+            gauge = go.Figure(
+                go.Indicator(
+                    mode="gauge+number",
+                    value=health_score,
+                    number={"suffix": " / 100"},
+                    gauge={
+                        "axis": {"range": [0, 100]},
+                        "bar": {"color": "#ff9a3c"},
+                        "bgcolor": "rgba(255,255,255,0.06)",
+                        "steps": [
+                            {"range": [0, 50], "color": "rgba(255,97,97,0.35)"},
+                            {"range": [50, 75], "color": "rgba(243,199,76,0.30)"},
+                            {"range": [75, 100], "color": "rgba(76,211,136,0.30)"},
+                        ],
+                    },
+                )
+            )
+            gauge.update_layout(**_chart_layout(showlegend=False))
+            st.plotly_chart(gauge, use_container_width=True)
+            status = "Healthy" if health_score >= 80 else "Watchlist" if health_score >= 60 else "At Risk"
+            st.markdown(
+                f"<div style='color:rgba(255,255,255,0.72);font-size:0.85rem;'>Status: <strong style='color:#ff9a3c'>{status}</strong> · Alerts: {len(alerts)} · QA Holds: {qa_holds}</div>",
+                unsafe_allow_html=True,
+            )
+            chart_card_end()
+
+            chart_card_start("Smart Flags", "Automated risk and operations checks")
             if not alerts:
-                st.success("No major automated flags from the current filtered view.")
+                st.markdown(
+                    "<div style='background:rgba(14,14,14,0.72);border:1px solid rgba(255,255,255,0.08);border-left:4px solid #4cd388;border-radius:12px;padding:.65rem .75rem;color:rgba(255,255,255,0.88);'>✅ No major automated flags from the current filtered view.</div>",
+                    unsafe_allow_html=True,
+                )
             else:
                 for flag in alerts:
-                    st.warning(flag)
+                    color = _flag_color(flag)
+                    st.markdown(
+                        f"<div style='background:rgba(14,14,14,0.72);border:1px solid rgba(255,255,255,0.08);border-left:4px solid {color};border-radius:12px;padding:.65rem .75rem;color:rgba(255,255,255,0.88);margin-bottom:.45rem;'>⚠️ {html.escape(flag)}</div>",
+                        unsafe_allow_html=True,
+                    )
+            chart_card_end()
 
     with method_tab:
         st.markdown("### Method Efficiency Tracker")
