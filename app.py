@@ -8,6 +8,7 @@ import sys
 import hashlib
 import requests
 from collections.abc import Mapping
+from typing import Any
 from datetime import datetime, timedelta
 from io import BytesIO
 from dotenv import load_dotenv
@@ -2849,7 +2850,12 @@ def _compute_extraction_alerts(run_df, job_df):
     return alerts
 
 
-def _generate_extraction_ai_brief(run_df, job_df, alerts, inventory_context=None):
+def _generate_extraction_ai_brief(
+    run_df,
+    job_df,
+    alerts,
+    inventory_context: dict[str, Any] | None = None,
+):
     if not OPENAI_AVAILABLE or ai_client is None:
         return "AI extraction brief unavailable. Configure provider in the Main AI Copilot panel."
 
@@ -3009,8 +3015,9 @@ def _ecc_finalize_inventory_frame(df: pd.DataFrame) -> pd.DataFrame:
 def _ecc_add_inventory_aging(inv_df: pd.DataFrame) -> pd.DataFrame:
     out = inv_df.copy()
     today = pd.Timestamp.today().normalize()
-    out["age_days"] = (today - pd.to_datetime(out["received_date"], errors="coerce")).dt.days
-    out["age_days"] = out["age_days"].fillna(0).astype(int)
+    age_days_raw = (today - pd.to_datetime(out["received_date"], errors="coerce")).dt.days
+    out["future_received_date"] = age_days_raw < 0
+    out["age_days"] = age_days_raw.fillna(0).clip(lower=0).astype(int)
     out["aging_flag"] = np.select(
         [
             out["age_days"] < 14,
@@ -3036,14 +3043,20 @@ def _ecc_add_estimated_output(inv_df: pd.DataFrame, global_yield_pct: float = 12
 
 def _ecc_append_inventory_rows(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
     merged = pd.concat([existing_df, new_df], ignore_index=True)
+    # Treat rows as duplicates when they refer to the same lot identity/location tuple.
     dedupe_subset = ["received_date", "material_name", "batch_id_internal", "metrc_package_id", "storage_location"]
     dedupe_key_present = merged[dedupe_subset].fillna("").astype(str).apply(
-        lambda row: any(str(v).strip() for v in row),
+        lambda row: any(v.strip() for v in row),
         axis=1,
     )
     deduped_with_keys = merged[dedupe_key_present].drop_duplicates(subset=dedupe_subset, keep="last")
     keep_without_keys = merged[~dedupe_key_present]
     return pd.concat([deduped_with_keys, keep_without_keys], ignore_index=True)
+
+
+def _ecc_apply_default_if_empty(df: pd.DataFrame, column_name: str, default_value: str):
+    df[column_name] = df[column_name].replace("", np.nan).fillna(default_value)
+    return df
 
 
 def render_extraction_command_center():
@@ -3693,11 +3706,11 @@ def render_extraction_command_center():
 
                         mapped_df = _ecc_enforce_inventory_schema(mapped_df)
                         if default_material_type != "(none)":
-                            mapped_df["material_type"] = mapped_df["material_type"].replace("", np.nan).fillna(default_material_type)
+                            mapped_df = _ecc_apply_default_if_empty(mapped_df, "material_type", default_material_type)
                         if default_status != "(none)":
-                            mapped_df["status"] = mapped_df["status"].replace("", np.nan).fillna(default_status)
+                            mapped_df = _ecc_apply_default_if_empty(mapped_df, "status", default_status)
                         if default_method != "(none)":
-                            mapped_df["intended_method"] = mapped_df["intended_method"].replace("", np.nan).fillna(default_method)
+                            mapped_df = _ecc_apply_default_if_empty(mapped_df, "intended_method", default_method)
 
                         mapped_df = _ecc_finalize_inventory_frame(mapped_df)
                         st.session_state.ecc_inventory_log = _ecc_append_inventory_rows(st.session_state.ecc_inventory_log, mapped_df)
@@ -3737,6 +3750,10 @@ def render_extraction_command_center():
         if inventory_df.empty:
             st.info("No extraction inventory rows in session yet. Upload a file to begin.")
         else:
+            future_date_count = int(inventory_df["future_received_date"].sum()) if "future_received_date" in inventory_df.columns else 0
+            if future_date_count > 0:
+                st.warning(f"{future_date_count} lot(s) have a received date in the future. Aging days were floored at 0.")
+
             p1, p2 = st.columns(2)
             with p1:
                 by_type = (
