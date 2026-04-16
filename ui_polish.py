@@ -466,11 +466,13 @@ def render_action_button(label: str) -> None:
 
 
 def render_extraction_kpi(metrics: list[dict]) -> None:
-    cards = []
-    for metric in metrics:
-        cards.append(
-            f"<div class='ex-kpi'><div class='label'>{html.escape(str(metric.get('label', '')))}</div><div class='value'>{html.escape(str(metric.get('value', '')))}</div></div>"
+    cards = [
+        (
+            f"<div class='ex-kpi'><div class='label'>{html.escape(str(metric.get('label', '')))}</div>"
+            f"<div class='value'>{html.escape(str(metric.get('value', '')))}</div></div>"
         )
+        for metric in metrics
+    ]
     st.markdown(f"<div class='kpi-mini-grid'>{''.join(cards)}</div>", unsafe_allow_html=True)
 
 

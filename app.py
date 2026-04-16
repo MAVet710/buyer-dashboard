@@ -3718,9 +3718,13 @@ def render_extraction_command_center():
             # Mass-balance status badge
             _flag_val = str(selected_row.get("mass_balance_flag", "OK"))
             _flag_icon = {"OK": "🟢", "Warning": "🟡", "Critical": "🔴"}.get(_flag_val, "⚪")
-            _flag_color = "green" if _flag_val == "OK" else ("yellow" if _flag_val == "Warning" else "red")
+            _flag_color = {
+                "OK": "#4cd388",
+                "Warning": "#f3c74c",
+                "Critical": "#ff6161",
+            }.get(_flag_val, "#5aa8ff")
             st.markdown(
-                f"<span class='pill-badge' style='background:{'#4cd388' if _flag_color == 'green' else ('#f3c74c' if _flag_color == 'yellow' else '#ff6161')};'>{_flag_icon} Mass Balance: {_flag_val}</span>",
+                f"<span class='pill-badge' style='background:{_flag_color};'>{_flag_icon} Mass Balance: {_flag_val}</span>",
                 unsafe_allow_html=True,
             )
 
@@ -4295,14 +4299,7 @@ def render_extraction_command_center():
                 ).str.lower()
                 filtered_inv = filtered_inv[text_cols.str.contains(text_filter, na=False)]
 
-            filtered_inv["priority"] = filtered_inv["aging_flag"].map(
-                {
-                    "Fresh": "Fresh",
-                    "Aging": "Aging",
-                    "Priority Run": "Priority Run",
-                    "Stale": "Stale",
-                }
-            ).fillna("Fresh")
+            filtered_inv["priority"] = filtered_inv["aging_flag"].fillna("Fresh")
 
             table_cols = [
                 "material_name",
@@ -5211,7 +5208,7 @@ if section == "📊 Inventory Dashboard":
         _actions = ["Prioritize Reorders", "Review Aging Lots", "Open Ask Doobie"]
         render_ai_brief(_insights, _actions)
         render_action_button("Open Ask Doobie")
-        st.text_input("Ask Doobie", placeholder="What should I buy this week?", key="buyer_ai_brief_prompt")
+        st.caption("Use the Main AI Copilot in the sidebar to ask buyer questions.")
 
         # =======================
         # SUMMARY + CLICK FILTERS
