@@ -8,6 +8,7 @@ import sys
 import hashlib
 import requests
 from collections.abc import Mapping
+from typing import Any
 from datetime import datetime, timedelta
 from io import BytesIO
 from dotenv import load_dotenv
@@ -2849,7 +2850,12 @@ def _compute_extraction_alerts(run_df, job_df):
     return alerts
 
 
-def _generate_extraction_ai_brief(run_df, job_df, alerts):
+def _generate_extraction_ai_brief(
+    run_df,
+    job_df,
+    alerts,
+    inventory_context: dict[str, Any] | None = None,
+):
     if not OPENAI_AVAILABLE or ai_client is None:
         return "AI extraction brief unavailable. Configure provider in the Main AI Copilot panel."
 
@@ -2862,6 +2868,7 @@ Create an extraction operations briefing for cannabis processing leadership.
 Alerts: {json.dumps(alerts, indent=2)}
 Runs sample: {json.dumps(run_preview, indent=2, default=str)}
 Jobs sample: {json.dumps(job_preview, indent=2, default=str)}
+Inventory context: {json.dumps(inventory_context or {}, indent=2, default=str)}
 
 Output sections:
 1) Operational health summary
@@ -2882,6 +2889,174 @@ Output sections:
         return resp.text
     except Exception as exc:
         return f"AI extraction brief failed: {exc}"
+
+
+_ECC_INVENTORY_COLUMNS = [
+    "received_date",
+    "material_name",
+    "material_type",
+    "strain",
+    "source_vendor",
+    "batch_id_internal",
+    "metrc_package_id",
+    "input_category",
+    "current_weight_g",
+    "reserved_weight_g",
+    "available_weight_g",
+    "cost_per_g",
+    "total_cost",
+    "status",
+    "storage_location",
+    "intended_method",
+    "notes",
+]
+
+_ECC_MATERIAL_TYPES = [
+    "Fresh Frozen",
+    "Cured Biomass",
+    "Trim",
+    "Hash",
+    "Crude",
+    "Distillate",
+    "Ethanol",
+    "Solvent",
+    "Other",
+]
+_ECC_STATUS_VALUES = ["Available", "Reserved", "In Process", "Quarantine", "Depleted"]
+_ECC_METHOD_VALUES = ["BHO", "CO2", "Rosin", "Ethanol", "Mixed / TBD"]
+_ECC_METHOD_DEFAULT_YIELD = {"BHO": 15.0, "CO2": 12.0, "Rosin": 8.0, "Ethanol": 14.0}
+
+
+def _ecc_load_uploaded_inventory_file(uploaded_file):
+    raw = uploaded_file.getvalue()
+    file_name = str(getattr(uploaded_file, "name", "")).lower()
+    if file_name.endswith((".xlsx", ".xls")):
+        return pd.read_excel(BytesIO(raw))
+    return pd.read_csv(BytesIO(raw))
+
+
+def _ecc_enforce_inventory_schema(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None:
+        df = pd.DataFrame()
+    out = df.copy()
+    for col in _ECC_INVENTORY_COLUMNS:
+        if col not in out.columns:
+            out[col] = np.nan
+    return out[_ECC_INVENTORY_COLUMNS]
+
+
+def _ecc_normalize_extraction_inventory(raw_df: pd.DataFrame):
+    alias_map = {
+        "material_name": ["material_name", "product", "item", "material", "inventory item", "material name"],
+        "material_type": ["material_type", "type", "material type", "category", "inventory category"],
+        "current_weight_g": ["current_weight_g", "weight", "qty", "quantity", "grams", "g", "current weight", "on hand"],
+        "reserved_weight_g": ["reserved_weight_g", "reserved", "allocated", "committed", "reserved grams"],
+        "received_date": ["received_date", "received date", "intake date", "date in", "date received"],
+        "source_vendor": ["source_vendor", "vendor", "supplier", "producer", "source"],
+        "storage_location": ["storage_location", "room", "location", "storage", "vault"],
+        "metrc_package_id": ["metrc_package_id", "package id", "metrc package", "metrc id"],
+        "batch_id_internal": ["batch_id_internal", "batch id", "internal batch id", "batch"],
+        "strain": ["strain"],
+        "input_category": ["input_category", "input category"],
+        "available_weight_g": ["available_weight_g", "available grams", "available weight", "available"],
+        "cost_per_g": ["cost_per_g", "cost per g", "cost per gram"],
+        "total_cost": ["total_cost", "total cost"],
+        "status": ["status"],
+        "intended_method": ["intended_method", "intended method", "method"],
+        "notes": ["notes", "note"],
+    }
+    mapped = {}
+    normalized = pd.DataFrame(index=raw_df.index)
+    for target_col, aliases in alias_map.items():
+        src_col = detect_column(raw_df.columns, [normalize_col(a) for a in aliases])
+        if src_col:
+            normalized[target_col] = raw_df[src_col]
+            mapped[target_col] = src_col
+
+    normalized = _ecc_enforce_inventory_schema(normalized)
+    return normalized, len(mapped), mapped
+
+
+def _ecc_finalize_inventory_frame(df: pd.DataFrame) -> pd.DataFrame:
+    inv = _ecc_enforce_inventory_schema(df)
+    for numeric_col in ["current_weight_g", "reserved_weight_g", "available_weight_g", "cost_per_g", "total_cost"]:
+        inv[numeric_col] = pd.to_numeric(inv[numeric_col], errors="coerce")
+    inv["current_weight_g"] = inv["current_weight_g"].fillna(0.0)
+    inv["reserved_weight_g"] = inv["reserved_weight_g"].fillna(0.0)
+    inv["available_weight_g"] = inv["available_weight_g"].fillna(inv["current_weight_g"] - inv["reserved_weight_g"])
+    inv["cost_per_g"] = inv["cost_per_g"].fillna(0.0)
+    inv["total_cost"] = inv["total_cost"].fillna(inv["current_weight_g"] * inv["cost_per_g"])
+
+    inv["received_date"] = pd.to_datetime(inv["received_date"], errors="coerce").dt.normalize()
+    for text_col in [
+        "material_name",
+        "material_type",
+        "strain",
+        "source_vendor",
+        "batch_id_internal",
+        "metrc_package_id",
+        "input_category",
+        "status",
+        "storage_location",
+        "intended_method",
+        "notes",
+    ]:
+        inv[text_col] = inv[text_col].fillna("").astype(str).str.strip()
+
+    material_lookup = {v.lower(): v for v in _ECC_MATERIAL_TYPES}
+    status_lookup = {v.lower(): v for v in _ECC_STATUS_VALUES}
+    method_lookup = {v.lower(): v for v in _ECC_METHOD_VALUES}
+    inv["material_type"] = inv["material_type"].str.lower().map(material_lookup).fillna("Other")
+    inv["status"] = inv["status"].str.lower().map(status_lookup).fillna("Available")
+    inv["intended_method"] = inv["intended_method"].str.lower().map(method_lookup).fillna("Mixed / TBD")
+    return inv
+
+
+def _ecc_add_inventory_aging(inv_df: pd.DataFrame) -> pd.DataFrame:
+    out = inv_df.copy()
+    today = pd.Timestamp.today().normalize()
+    age_days_raw = (today - pd.to_datetime(out["received_date"], errors="coerce")).dt.days
+    out["future_received_date"] = age_days_raw < 0
+    out["age_days"] = age_days_raw.fillna(0).clip(lower=0).astype(int)
+    out["aging_flag"] = np.select(
+        [
+            out["age_days"] < 14,
+            (out["age_days"] >= 14) & (out["age_days"] <= 29),
+            (out["age_days"] >= 30) & (out["age_days"] <= 59),
+            out["age_days"] >= 60,
+        ],
+        ["Fresh", "Aging", "Priority Run", "Stale"],
+        default="Fresh",
+    )
+    return out
+
+
+def _ecc_add_estimated_output(inv_df: pd.DataFrame, global_yield_pct: float = 12.0, use_method_defaults: bool = True):
+    out = inv_df.copy()
+    if use_method_defaults:
+        out["yield_pct_assumed"] = out["intended_method"].map(_ECC_METHOD_DEFAULT_YIELD).fillna(global_yield_pct)
+    else:
+        out["yield_pct_assumed"] = float(global_yield_pct)
+    out["estimated_output_g"] = out["available_weight_g"] * out["yield_pct_assumed"] / 100.0
+    return out
+
+
+def _ecc_append_inventory_rows(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
+    merged = pd.concat([existing_df, new_df], ignore_index=True)
+    # Treat rows as duplicates when they refer to the same lot identity/location tuple.
+    dedupe_subset = ["received_date", "material_name", "batch_id_internal", "metrc_package_id", "storage_location"]
+    dedupe_key_present = merged[dedupe_subset].fillna("").astype(str).apply(
+        lambda row: any(v.strip() for v in row),
+        axis=1,
+    )
+    deduped_with_keys = merged[dedupe_key_present].drop_duplicates(subset=dedupe_subset, keep="last")
+    keep_without_keys = merged[~dedupe_key_present]
+    return pd.concat([deduped_with_keys, keep_without_keys], ignore_index=True)
+
+
+def _ecc_apply_default_if_empty(df: pd.DataFrame, column_name: str, default_value: str):
+    df[column_name] = df[column_name].replace("", np.nan).fillna(default_value)
+    return df
 
 
 def render_extraction_command_center():
@@ -2953,6 +3128,8 @@ def render_extraction_command_center():
                 }
             ]
         )
+    if "ecc_inventory_log" not in st.session_state:
+        st.session_state.ecc_inventory_log = pd.DataFrame(columns=_ECC_INVENTORY_COLUMNS)
 
     st.subheader("🧪 Extraction Command Center")
     st.caption("Built for BHO, CO2, Rosin, and Ethanol operations with toll processing and METRC-aware workflows.")
@@ -2986,6 +3163,8 @@ def render_extraction_command_center():
 
     run_df = st.session_state.ecc_run_log.copy()
     job_df = st.session_state.ecc_client_jobs.copy()
+    inventory_master_df = _ecc_add_inventory_aging(_ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy()))
+    inventory_method_projection_df = _ecc_add_estimated_output(inventory_master_df, global_yield_pct=12.0, use_method_defaults=True)
 
     if selected_state != "All":
         run_df = run_df[run_df["state"] == selected_state]
@@ -3026,11 +3205,12 @@ def render_extraction_command_center():
     with top[7]:
         kpi_card("Gross Margin", f"{gross_margin_pct:.1f}%")
 
-    overview_tab, runs_tab, process_tab, toll_tab, compliance_tab, inputs_tab, ai_ops_tab = st.tabs(
+    overview_tab, runs_tab, process_tab, inv_tab, toll_tab, compliance_tab, inputs_tab, ai_ops_tab = st.tabs(
         [
             "Executive Overview",
             "Run Analytics",
             "Process Tracker",
+            "Extraction Inventory",
             "Toll Processing",
             "Compliance / METRC",
             "Data Input",
@@ -3085,6 +3265,21 @@ def render_extraction_command_center():
             else:
                 for flag in flags:
                     st.warning(flag)
+
+            st.markdown("#### Inventory Support Signals")
+            if inventory_master_df.empty:
+                st.caption("No extraction inventory uploaded yet.")
+            else:
+                available_input_weight = float(inventory_master_df["available_weight_g"].sum())
+                inventory_aging_count = int((inventory_master_df["age_days"] >= 30).sum())
+                projected_output_g = float(inventory_method_projection_df["estimated_output_g"].sum())
+                i1, i2, i3 = st.columns(3)
+                with i1:
+                    kpi_card("Available Input (g)", f"{available_input_weight:,.1f}")
+                with i2:
+                    kpi_card("Aging Lots (30+ days)", inventory_aging_count)
+                with i3:
+                    kpi_card("Projected Output (g)", f"{projected_output_g:,.1f}")
 
     with runs_tab:
         st.subheader("Run Explorer")
@@ -3407,6 +3602,253 @@ def render_extraction_command_center():
                 hide_index=True,
             )
 
+    with inv_tab:
+        st.subheader("Extraction Input Inventory")
+        st.caption("Track extraction input lots (fresh frozen, biomass, trim, hash, crude, distillate, solvents) separately from run records.")
+
+        age_threshold = st.slider("Aging threshold (days)", min_value=7, max_value=120, value=30, key="ecc_inventory_aging_threshold")
+        low_stock_threshold = st.number_input(
+            "Low available stock threshold (g)",
+            min_value=0.0,
+            value=250.0,
+            step=25.0,
+            key="ecc_inventory_low_stock_threshold",
+        )
+        yield_model = st.radio(
+            "Projected yield model",
+            ["Method defaults", "Single global yield %"],
+            horizontal=True,
+            key="ecc_inventory_yield_model",
+        )
+        global_yield_pct = st.slider(
+            "Global projected yield %",
+            min_value=1.0,
+            max_value=40.0,
+            value=12.0,
+            step=0.5,
+            key="ecc_inventory_global_yield_pct",
+        )
+        use_method_defaults = yield_model == "Method defaults"
+
+        uploaded_inventory_file = st.file_uploader(
+            "Upload extraction inventory (CSV, XLSX, XLS)",
+            type=["csv", "xlsx", "xls"],
+            key="ecc_inventory_upload",
+        )
+
+        if uploaded_inventory_file is not None:
+            try:
+                uploaded_inv_df = _ecc_load_uploaded_inventory_file(uploaded_inventory_file)
+                st.caption(f"Detected {len(uploaded_inv_df.columns)} source columns.")
+                auto_normalized, auto_matches, auto_map = _ecc_normalize_extraction_inventory(uploaded_inv_df)
+                st.caption(f"Auto-mapped fields: {auto_matches}")
+                if auto_map:
+                    st.write({k: v for k, v in auto_map.items()})
+
+                if auto_matches >= 3:
+                    auto_preview = _ecc_finalize_inventory_frame(auto_normalized)
+                    st.dataframe(auto_preview.head(100), use_container_width=True, hide_index=True)
+                    if st.button("Append Auto-Mapped Inventory", key="ecc_inventory_append_auto", type="primary"):
+                        st.session_state.ecc_inventory_log = _ecc_append_inventory_rows(st.session_state.ecc_inventory_log, auto_preview)
+                        st.success(f"Added {len(auto_preview)} row(s) into extraction inventory log.")
+                else:
+                    st.warning("Auto-mapping detected fewer than 3 fields. Use manual mapping below.")
+                    map_options = _ECC_INVENTORY_COLUMNS + ["IGNORE"]
+                    st.markdown("##### Manual Column Mapping")
+                    manual_rows = []
+                    for col_idx, col in enumerate(uploaded_inv_df.columns):
+                        col_key = f"{col_idx}_{normalize_col(col)}"
+                        sample = uploaded_inv_df[col].dropna().astype(str).head(1)
+                        sample_value = sample.iloc[0] if not sample.empty else ""
+                        c1, c2, c3 = st.columns([1.2, 1.6, 1.2])
+                        with c1:
+                            st.code(str(col))
+                        with c2:
+                            st.write(sample_value)
+                        with c3:
+                            target_field = st.selectbox(
+                                f"Map {col}",
+                                options=map_options,
+                                index=map_options.index("IGNORE"),
+                                key=f"ecc_inv_map_{col_key}",
+                                label_visibility="collapsed",
+                            )
+                        manual_rows.append((col, target_field))
+
+                    m1, m2, m3 = st.columns(3)
+                    with m1:
+                        default_material_type = st.selectbox(
+                            "Default material_type",
+                            options=["(none)"] + _ECC_MATERIAL_TYPES,
+                            index=0,
+                            key="ecc_inv_default_material_type",
+                        )
+                    with m2:
+                        default_status = st.selectbox(
+                            "Default status",
+                            options=["(none)"] + _ECC_STATUS_VALUES,
+                            index=1,
+                            key="ecc_inv_default_status",
+                        )
+                    with m3:
+                        default_method = st.selectbox(
+                            "Default intended_method",
+                            options=["(none)"] + _ECC_METHOD_VALUES,
+                            index=0,
+                            key="ecc_inv_default_method",
+                        )
+
+                    if st.button("Convert to Extraction Inventory", key="ecc_inventory_convert_manual", type="primary"):
+                        mapped_df = pd.DataFrame(index=uploaded_inv_df.index)
+                        for source_col, target_col in manual_rows:
+                            if target_col != "IGNORE":
+                                mapped_df[target_col] = uploaded_inv_df[source_col]
+
+                        mapped_df = _ecc_enforce_inventory_schema(mapped_df)
+                        if default_material_type != "(none)":
+                            mapped_df = _ecc_apply_default_if_empty(mapped_df, "material_type", default_material_type)
+                        if default_status != "(none)":
+                            mapped_df = _ecc_apply_default_if_empty(mapped_df, "status", default_status)
+                        if default_method != "(none)":
+                            mapped_df = _ecc_apply_default_if_empty(mapped_df, "intended_method", default_method)
+
+                        mapped_df = _ecc_finalize_inventory_frame(mapped_df)
+                        st.session_state.ecc_inventory_log = _ecc_append_inventory_rows(st.session_state.ecc_inventory_log, mapped_df)
+                        st.success(f"Converted and appended {len(mapped_df)} row(s).")
+                        st.dataframe(mapped_df.head(100), use_container_width=True, hide_index=True)
+            except Exception as exc:
+                st.error(f"Could not load extraction inventory file: {exc}")
+
+        inventory_df = _ecc_add_inventory_aging(_ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy()))
+        inventory_df = _ecc_add_estimated_output(
+            inventory_df,
+            global_yield_pct=global_yield_pct,
+            use_method_defaults=use_method_defaults,
+        )
+
+        total_input = float(inventory_df["current_weight_g"].sum()) if not inventory_df.empty else 0.0
+        total_available = float(inventory_df["available_weight_g"].sum()) if not inventory_df.empty else 0.0
+        total_reserved = float(inventory_df["reserved_weight_g"].sum()) if not inventory_df.empty else 0.0
+        total_lots = int(len(inventory_df))
+        aging_lots = int((inventory_df["age_days"] >= age_threshold).sum()) if not inventory_df.empty else 0
+        projected_total = float(inventory_df["estimated_output_g"].sum()) if not inventory_df.empty else 0.0
+
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
+        with k1:
+            kpi_card("Total Input Weight (g)", f"{total_input:,.1f}")
+        with k2:
+            kpi_card("Available Weight (g)", f"{total_available:,.1f}")
+        with k3:
+            kpi_card("Reserved Weight (g)", f"{total_reserved:,.1f}")
+        with k4:
+            kpi_card("Lots in Inventory", total_lots)
+        with k5:
+            kpi_card("Aging Lots", aging_lots)
+        with k6:
+            kpi_card("Est. Output Potential (g)", f"{projected_total:,.1f}")
+
+        if inventory_df.empty:
+            st.info("No extraction inventory rows in session yet. Upload a file to begin.")
+        else:
+            future_date_count = int(inventory_df["future_received_date"].sum()) if "future_received_date" in inventory_df.columns else 0
+            if future_date_count > 0:
+                st.warning(f"{future_date_count} lot(s) have a received date in the future. Aging days were floored at 0.")
+
+            p1, p2 = st.columns(2)
+            with p1:
+                by_type = (
+                    inventory_df.groupby("material_type", as_index=False)["estimated_output_g"]
+                    .sum()
+                    .sort_values("estimated_output_g", ascending=False)
+                )
+                st.markdown("#### Projected Output by Material Type")
+                st.bar_chart(by_type.set_index("material_type")["estimated_output_g"])
+            with p2:
+                by_method = (
+                    inventory_df.groupby("intended_method", as_index=False)["estimated_output_g"]
+                    .sum()
+                    .sort_values("estimated_output_g", ascending=False)
+                )
+                st.markdown("#### Projected Output by Intended Method")
+                st.bar_chart(by_method.set_index("intended_method")["estimated_output_g"])
+
+            st.markdown("#### Inventory Filters")
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                mat_filter = st.multiselect(
+                    "Material Type",
+                    options=sorted([x for x in inventory_df["material_type"].dropna().unique() if str(x).strip()]),
+                    default=[],
+                    key="ecc_inv_filter_material_type",
+                )
+                status_filter = st.multiselect(
+                    "Status",
+                    options=sorted([x for x in inventory_df["status"].dropna().unique() if str(x).strip()]),
+                    default=[],
+                    key="ecc_inv_filter_status",
+                )
+            with f2:
+                method_filter = st.multiselect(
+                    "Intended Method",
+                    options=sorted([x for x in inventory_df["intended_method"].dropna().unique() if str(x).strip()]),
+                    default=[],
+                    key="ecc_inv_filter_method",
+                )
+                aging_filter = st.multiselect(
+                    "Aging Flag",
+                    options=["Fresh", "Aging", "Priority Run", "Stale"],
+                    default=[],
+                    key="ecc_inv_filter_aging",
+                )
+            with f3:
+                location_filter = st.multiselect(
+                    "Storage Location",
+                    options=sorted([x for x in inventory_df["storage_location"].dropna().unique() if str(x).strip()]),
+                    default=[],
+                    key="ecc_inv_filter_location",
+                )
+                text_filter = st.text_input(
+                    "Search material / batch / vendor",
+                    key="ecc_inv_filter_text",
+                ).strip().lower()
+
+            filtered_inv = inventory_df.copy()
+            if mat_filter:
+                filtered_inv = filtered_inv[filtered_inv["material_type"].isin(mat_filter)]
+            if status_filter:
+                filtered_inv = filtered_inv[filtered_inv["status"].isin(status_filter)]
+            if method_filter:
+                filtered_inv = filtered_inv[filtered_inv["intended_method"].isin(method_filter)]
+            if aging_filter:
+                filtered_inv = filtered_inv[filtered_inv["aging_flag"].isin(aging_filter)]
+            if location_filter:
+                filtered_inv = filtered_inv[filtered_inv["storage_location"].isin(location_filter)]
+            if text_filter:
+                text_cols = (
+                    filtered_inv["material_name"].fillna("").astype(str)
+                    + " "
+                    + filtered_inv["batch_id_internal"].fillna("").astype(str)
+                    + " "
+                    + filtered_inv["source_vendor"].fillna("").astype(str)
+                ).str.lower()
+                filtered_inv = filtered_inv[text_cols.str.contains(text_filter, na=False)]
+
+            table_cols = [
+                "material_name",
+                "material_type",
+                "strain",
+                "batch_id_internal",
+                "current_weight_g",
+                "reserved_weight_g",
+                "available_weight_g",
+                "age_days",
+                "aging_flag",
+                "intended_method",
+                "storage_location",
+                "status",
+            ]
+            st.dataframe(filtered_inv[table_cols], use_container_width=True, hide_index=True)
+
     with toll_tab:
         st.subheader("Toll Processing Command View")
         st.dataframe(job_df, use_container_width=True, hide_index=True)
@@ -3494,6 +3936,23 @@ def render_extraction_command_center():
     with ai_ops_tab:
         st.subheader("AI Operations Brief")
         alerts = _compute_extraction_alerts(run_df, job_df)
+        inventory_context = {}
+        inventory_for_ai = _ecc_add_estimated_output(
+            _ecc_add_inventory_aging(_ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy())),
+            global_yield_pct=12.0,
+            use_method_defaults=True,
+        )
+        if not inventory_for_ai.empty:
+            ai_age_threshold = int(st.session_state.get("ecc_inventory_aging_threshold", 30))
+            ai_low_stock_threshold = float(st.session_state.get("ecc_inventory_low_stock_threshold", 250.0))
+            inventory_context = {
+                "inventory_lots": int(len(inventory_for_ai)),
+                "aging_material_count": int((inventory_for_ai["age_days"] >= ai_age_threshold).sum()),
+                "low_available_stock_count": int((inventory_for_ai["available_weight_g"] <= ai_low_stock_threshold).sum()),
+                "projected_output_g": float(inventory_for_ai["estimated_output_g"].sum()),
+            }
+            st.markdown("#### Inventory Context")
+            st.write(inventory_context)
 
         if alerts:
             st.markdown("#### Current Alerts")
@@ -3507,7 +3966,7 @@ def render_extraction_command_center():
 
         if st.button("Generate AI Extraction Brief", key="ecc_ai_ops_brief"):
             with st.spinner("Analyzing extraction operations..."):
-                brief = _generate_extraction_ai_brief(run_df, job_df, alerts)
+                brief = _generate_extraction_ai_brief(run_df, job_df, alerts, inventory_context=inventory_context)
             st.markdown(brief)
 
 # =========================
