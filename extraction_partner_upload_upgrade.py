@@ -70,6 +70,7 @@ ECC_REQUIRED_COLUMNS = [
     "qa_hold",
     "notes",
 ]
+DEDUP_KEY_SEPARATOR = "|"
 
 
 def detect_header_row(sheet: pd.DataFrame) -> int:
@@ -262,8 +263,8 @@ def apply_mapping_to_dataframe(source_df: pd.DataFrame, mapping: dict[str, str],
         else:
             out[target] = np.nan
 
-    out["run_date"] = pd.to_datetime(out["run_date"], errors="coerce").dt.date.astype(str)
-    out["run_date"] = out["run_date"].replace("NaT", "")
+    run_dates = pd.to_datetime(out["run_date"], errors="coerce")
+    out["run_date"] = run_dates.dt.strftime("%Y-%m-%d").fillna("")
     for num_col in ["input_weight_g", "intermediate_output_g", "finished_output_g", "residual_loss_g", "yield_pct", "post_process_efficiency_pct"]:
         out[num_col] = pd.to_numeric(out[num_col], errors="coerce").fillna(0.0)
 
@@ -325,7 +326,11 @@ def deduplicate_and_append_to_ecc(mapped_df: pd.DataFrame) -> tuple[int, int]:
         .fillna("")
         .astype(str)
         .drop_duplicates()
-        .assign(_join_key=lambda d: d["run_date"] + "|" + d["batch_id_internal"] + "|" + d["method"])
+        .assign(
+            _join_key=lambda d: (
+                d["run_date"] + DEDUP_KEY_SEPARATOR + d["batch_id_internal"] + DEDUP_KEY_SEPARATOR + d["method"]
+            )
+        )
     )
 
     incoming = mapped_df.copy()
@@ -334,9 +339,9 @@ def deduplicate_and_append_to_ecc(mapped_df: pd.DataFrame) -> tuple[int, int]:
             incoming[col] = np.nan
     incoming["_join_key"] = (
         incoming["run_date"].fillna("").astype(str)
-        + "|"
+        + DEDUP_KEY_SEPARATOR
         + incoming["batch_id_internal"].fillna("").astype(str)
-        + "|"
+        + DEDUP_KEY_SEPARATOR
         + incoming["method"].fillna("").astype(str)
     )
     new_rows = incoming[~incoming["_join_key"].isin(existing_keys["_join_key"])].drop(columns=["_join_key"])
@@ -395,6 +400,5 @@ def render_extraction_partner_upload_ui() -> None:
         st.success(f"Added {added} runs to Extraction Command Center")
         if duplicates:
             st.info(f"Skipped {duplicates} duplicate runs based on run_date + batch_id_internal + method.")
-        st.dataframe(mapped_df.head(100), use_container_width=True, hide_index=True)
 
     render_diagnostics_panel(diagnostics)
