@@ -75,6 +75,15 @@ try:
 except (ImportError, AttributeError):
     _EXTRACTION_PARTNER_INTEL_AVAILABLE = False
 
+try:
+    from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
+except (ImportError, AttributeError):
+    def render_extraction_partner_upload_ui():
+        st.error(
+            "Extraction partner upload upgrade module is unavailable. "
+            "Verify extraction_partner_upload_upgrade.py exists and has no import/syntax errors."
+        )
+
 if not _EXTRACTION_PARTNER_INTEL_AVAILABLE:
     def _partner_norm_col(name: str) -> str:
         return (
@@ -3489,29 +3498,7 @@ def render_extraction_command_center():
 
     with inputs_tab:
         st.subheader("Raw Data Upload Staging")
-        uploaded = st.file_uploader("Upload extraction runs file", type=["csv", "xlsx", "xls"], key="ecc_upload")
-        if uploaded is not None:
-            try:
-                if _EXTRACTION_PARTNER_INTEL_AVAILABLE and looks_like_partner_extraction_file(uploaded):
-                    uploaded_df = load_partner_file(uploaded)
-                    mapped_df = map_partner_runs_to_ecc_shape(uploaded_df)
-                    st.session_state.ecc_run_log = pd.concat(
-                        [st.session_state.ecc_run_log, mapped_df],
-                        ignore_index=True,
-                    )
-                    st.success("Partner extraction workbook detected and mapped into run log format.")
-                    st.dataframe(mapped_df, use_container_width=True, hide_index=True)
-                else:
-                    file_name = getattr(uploaded, "name", "").lower()
-                    if file_name.endswith((".xlsx", ".xls")):
-                        uploaded_df = pd.read_excel(uploaded)
-                    else:
-                        uploaded_df = pd.read_csv(uploaded)
-                    st.success("Run log loaded into preview.")
-                    st.dataframe(uploaded_df, use_container_width=True, hide_index=True)
-                    st.caption("Tip: partner-normalized files are auto-mapped when partner intel helpers are available.")
-            except Exception as exc:
-                st.error(f"Could not read uploaded run log: {exc}")
+        render_extraction_partner_upload_ui()
 
     with ai_ops_tab:
         st.subheader("AI Operations Brief")
