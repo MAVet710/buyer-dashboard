@@ -4483,6 +4483,27 @@ def render_extraction_command_center():
                     f"Source material: {linked_source_material or 'n/a'}"
                 )
 
+            st.markdown("#### Value Model Overrides")
+            ov1, ov2 = st.columns(2)
+            with ov1:
+                manual_cost_per_g = st.number_input(
+                    "Override Cost / g ($)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("manual_cost_per_gram", 0.0) or 0.0),
+                    help="Optional manual override. Set to 0 to use calculated cost-per-gram.",
+                    key=f"ecc_manual_cost_per_g_update_{int(selected_idx)}",
+                )
+            with ov2:
+                manual_value_per_g = st.number_input(
+                    "Override Value / g ($)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("manual_market_price_per_gram", 0.0) or 0.0),
+                    help="Optional manual override. Set to 0 to use taxonomy/method market value mapping.",
+                    key=f"ecc_manual_value_per_g_update_{int(selected_idx)}",
+                )
+
             # ── Process status controls (preserved from original) ─────────
             st.markdown("#### Process Status")
             p1, p2, p3 = st.columns(3)
