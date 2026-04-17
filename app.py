@@ -2907,6 +2907,16 @@ def _compute_extraction_alerts(run_df, job_df):
         if pending_or_failed > 0:
             alerts.append(f"COA risk: {pending_or_failed} run(s) pending/failed.")
 
+    if "margin_per_gram" in run_df.columns:
+        negative_margin = int((pd.to_numeric(run_df["margin_per_gram"], errors="coerce").fillna(0) < 0).sum())
+        if negative_margin > 0:
+            alerts.append(f"Negative margin runs: {negative_margin}.")
+
+    if "value_risk_flag" in run_df.columns:
+        high_value_risk = int(run_df["value_risk_flag"].isin(["Critical", "Warning"]).sum())
+        if high_value_risk > 0:
+            alerts.append(f"Value risk flags: {high_value_risk} run(s) need review.")
+
     if job_df is not None and not job_df.empty and "sla_status" in job_df.columns:
         at_risk_jobs = int((job_df["sla_status"] == "At Risk").sum())
         if at_risk_jobs > 0:
@@ -2920,6 +2930,7 @@ def _generate_extraction_ai_brief(
     job_df,
     alerts,
     inventory_context: dict[str, Any] | None = None,
+    value_context: dict[str, Any] | None = None,
 ):
     if not OPENAI_AVAILABLE or ai_client is None:
         return "AI extraction brief unavailable. Configure provider in the Main AI Copilot panel."
@@ -2934,6 +2945,7 @@ Alerts: {json.dumps(alerts, indent=2)}
 Runs sample: {json.dumps(run_preview, indent=2, default=str)}
 Jobs sample: {json.dumps(job_preview, indent=2, default=str)}
 Inventory context: {json.dumps(inventory_context or {}, indent=2, default=str)}
+Value context: {json.dumps(value_context or {}, indent=2, default=str)}
 
 Output sections:
 1) Operational health summary
@@ -2990,6 +3002,250 @@ _ECC_MATERIAL_TYPES = [
 _ECC_STATUS_VALUES = ["Available", "Reserved", "In Process", "Quarantine", "Depleted"]
 _ECC_METHOD_VALUES = ["BHO", "CO2", "Rosin", "Ethanol", "Mixed / TBD"]
 _ECC_METHOD_DEFAULT_YIELD = {"BHO": 15.0, "CO2": 12.0, "Rosin": 8.0, "Ethanol": 14.0}
+# TODO: replace MARKET_PRICE_MAP with live pricing API or admin-configurable pricing
+MARKET_PRICE_MAP = {
+    "bho": 14,
+    "live_resin": 20,
+    "badder": 16,
+    "shatter": 12,
+    "rosin": 35,
+    "rosin_jam": 38,
+    "distillate": 10,
+    "rso": 9,
+    "co2_oil": 11,
+    "vape": 18,
+    "bulk_oil": 12,
+    "concentrate": 15,
+}
+
+_ECC_TRACEABILITY_FIELDS: list[str] = [
+    "source_inventory_batch_ids",
+    "source_inventory_metrc_ids",
+    "allocated_input_weight_g",
+    "allocated_input_cost_total",
+    "inventory_linked",
+]
+_ECC_VALUE_FIELDS: list[str] = [
+    "input_cost_total",
+    "operational_cost_total",
+    "total_cost",
+    "cost_per_gram",
+    "market_price_per_gram",
+    "estimated_value_usd",
+    "margin_per_gram",
+    "total_profit_usd",
+    "margin_pct_est",
+    "value_risk_flag",
+]
+
+
+def _ecc_norm_price_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _ecc_parse_list_field(raw_value: Any) -> list[str]:
+    if raw_value is None or (isinstance(raw_value, float) and np.isnan(raw_value)):
+        return []
+    if isinstance(raw_value, (list, tuple, set)):
+        values = [str(v).strip() for v in raw_value if str(v).strip()]
+    else:
+        text = str(raw_value).strip()
+        if not text:
+            return []
+        try:
+            decoded = json.loads(text)
+            if isinstance(decoded, list):
+                values = [str(v).strip() for v in decoded if str(v).strip()]
+            else:
+                values = [x.strip() for x in text.split(",") if x.strip()]
+        except Exception:
+            values = [x.strip() for x in text.replace("[", "").replace("]", "").split(",") if x.strip()]
+    return list(dict.fromkeys(values))
+
+
+def _ecc_serialize_list_field(values: list[str]) -> str:
+    return json.dumps([str(v).strip() for v in values if str(v).strip()])
+
+
+def _ecc_safe_div(numerator: Any, denominator: Any) -> float:
+    try:
+        num = float(numerator)
+        den = float(denominator)
+    except Exception:
+        return 0.0
+    return (num / den) if den else 0.0
+
+
+def _ecc_get_market_price_per_gram(row: pd.Series) -> float:
+    keys = [
+        _ecc_norm_price_key(row.get("downstream_product", "")),
+        _ecc_norm_price_key(row.get("product_type", "")),
+        _ecc_norm_price_key(row.get("method", "")),
+    ]
+    alias_map = {
+        "bulk_distillate": "bulk_oil",
+        "disty_carts": "vape",
+        "disty_disposables": "vape",
+        "distillate_cart": "vape",
+        "distillate_disposable": "vape",
+        "sugar": "concentrate",
+        "sauce": "concentrate",
+        "fresh_press": "rosin",
+        "co2": "co2_oil",
+        "ethanol": "rso",
+        "n_a": "",
+        "other": "concentrate",
+    }
+    for key in keys:
+        mapped = alias_map.get(key, key)
+        if mapped and mapped in MARKET_PRICE_MAP:
+            return float(MARKET_PRICE_MAP[mapped])
+    return float(MARKET_PRICE_MAP["concentrate"])
+
+
+def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for col in _ECC_TRACEABILITY_FIELDS:
+        if col not in out.columns:
+            out[col] = False if col == "inventory_linked" else (0.0 if col.startswith("allocated_") else "[]")
+    for col in _ECC_VALUE_FIELDS:
+        if col not in out.columns:
+            out[col] = "Neutral" if col == "value_risk_flag" else 0.0
+    out["inventory_linked"] = out["inventory_linked"].fillna(False).astype(bool)
+    for numeric_col in [
+        "allocated_input_weight_g",
+        "allocated_input_cost_total",
+        "input_cost_total",
+        "operational_cost_total",
+        "total_cost",
+        "cost_per_gram",
+        "market_price_per_gram",
+        "estimated_value_usd",
+        "margin_per_gram",
+        "total_profit_usd",
+        "margin_pct_est",
+    ]:
+        out[numeric_col] = pd.to_numeric(out[numeric_col], errors="coerce").fillna(0.0)
+    for list_col in ["source_inventory_batch_ids", "source_inventory_metrc_ids"]:
+        out[list_col] = out[list_col].fillna("[]").astype(str)
+    out["value_risk_flag"] = out["value_risk_flag"].fillna("Neutral").astype(str)
+    return out
+
+
+def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.DataFrame | None = None) -> pd.DataFrame:
+    if run_df is None:
+        return pd.DataFrame()
+    out = _ecc_ensure_run_schema(run_df.copy())
+    for col in ["input_weight_g", "finished_output_g", "processing_fee_usd", "cogs_usd"]:
+        if col not in out.columns:
+            out[col] = 0.0
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+
+    inv = _ecc_finalize_inventory_frame(inventory_df.copy()) if inventory_df is not None else pd.DataFrame()
+    inv_avg_cost_per_g = float(pd.to_numeric(inv.get("cost_per_g", 0), errors="coerce").replace(0, np.nan).mean()) if not inv.empty else 0.0
+    fallback_input_cost_per_g = inv_avg_cost_per_g if inv_avg_cost_per_g > 0 else 1.25
+    fallback_operational_cost = 150.0
+
+    inv_batch_cost_map: dict[str, float] = {}
+    inv_metrc_cost_map: dict[str, float] = {}
+    if not inv.empty:
+        for _, inv_row in inv.iterrows():
+            _cost = float(pd.to_numeric(inv_row.get("cost_per_g", 0), errors="coerce") or 0.0)
+            _batch = str(inv_row.get("batch_id_internal", "")).strip()
+            _metrc = str(inv_row.get("metrc_package_id", "")).strip()
+            if _batch and _cost > 0:
+                inv_batch_cost_map[_batch] = _cost
+            if _metrc and _cost > 0:
+                inv_metrc_cost_map[_metrc] = _cost
+
+    input_cost_vals: list[float] = []
+    op_cost_vals: list[float] = []
+    total_cost_vals: list[float] = []
+    cost_per_g_vals: list[float] = []
+    mkt_price_vals: list[float] = []
+    est_val_vals: list[float] = []
+    margin_per_g_vals: list[float] = []
+    total_profit_vals: list[float] = []
+    margin_pct_vals: list[float] = []
+    value_risk_flags: list[str] = []
+
+    for _, row in out.iterrows():
+        finished_output_g = float(row.get("finished_output_g", 0.0) or 0.0)
+        input_weight_g = float(row.get("allocated_input_weight_g", 0.0) or 0.0)
+        if input_weight_g <= 0:
+            input_weight_g = float(row.get("input_weight_g", 0.0) or 0.0)
+
+        allocated_input_cost_total = float(row.get("allocated_input_cost_total", 0.0) or 0.0)
+        if allocated_input_cost_total > 0:
+            input_cost_total = allocated_input_cost_total
+        else:
+            linked_batch_ids = _ecc_parse_list_field(row.get("source_inventory_batch_ids", "[]"))
+            linked_metrc_ids = _ecc_parse_list_field(row.get("source_inventory_metrc_ids", "[]"))
+            matched_costs = [
+                inv_batch_cost_map[x]
+                for x in linked_batch_ids
+                if x in inv_batch_cost_map
+            ] + [
+                inv_metrc_cost_map[x]
+                for x in linked_metrc_ids
+                if x in inv_metrc_cost_map
+            ]
+            run_cost_per_input_g = float(pd.to_numeric(row.get("cost_per_input_gram", np.nan), errors="coerce"))
+            if matched_costs:
+                cost_per_input_g = float(np.mean(matched_costs))
+            elif pd.notna(run_cost_per_input_g) and run_cost_per_input_g > 0:
+                cost_per_input_g = run_cost_per_input_g
+            else:
+                cost_per_input_g = fallback_input_cost_per_g
+            input_cost_total = input_weight_g * cost_per_input_g
+
+        processing_fee = float(row.get("processing_fee_usd", 0.0) or 0.0)
+        labor_cost = float(pd.to_numeric(row.get("labor_cost_usd", 0.0), errors="coerce") or 0.0)
+        overhead_cost = float(pd.to_numeric(row.get("overhead_cost_usd", 0.0), errors="coerce") or 0.0)
+        operational_cost_total = processing_fee + labor_cost + overhead_cost
+        if operational_cost_total <= 0:
+            operational_cost_total = fallback_operational_cost
+
+        total_cost = input_cost_total + operational_cost_total
+        cost_per_gram = _ecc_safe_div(total_cost, finished_output_g)
+        market_price_per_gram = _ecc_get_market_price_per_gram(row)
+        estimated_value_usd = finished_output_g * market_price_per_gram
+        margin_per_gram = market_price_per_gram - cost_per_gram
+        total_profit_usd = estimated_value_usd - total_cost
+        margin_pct_est = _ecc_safe_div(total_profit_usd * 100.0, estimated_value_usd)
+
+        flag = "Neutral"
+        if margin_per_gram < 0 or total_profit_usd < 0:
+            flag = "Critical"
+        elif margin_per_gram < 2 or margin_pct_est < 10:
+            flag = "Warning"
+        elif cost_per_gram > market_price_per_gram * 0.85:
+            flag = "Warning"
+        elif margin_pct_est > 80 and finished_output_g > 0:
+            flag = "Review"
+
+        input_cost_vals.append(round(input_cost_total, 2))
+        op_cost_vals.append(round(operational_cost_total, 2))
+        total_cost_vals.append(round(total_cost, 2))
+        cost_per_g_vals.append(round(cost_per_gram, 4))
+        mkt_price_vals.append(round(market_price_per_gram, 4))
+        est_val_vals.append(round(estimated_value_usd, 2))
+        margin_per_g_vals.append(round(margin_per_gram, 4))
+        total_profit_vals.append(round(total_profit_usd, 2))
+        margin_pct_vals.append(round(margin_pct_est, 2))
+        value_risk_flags.append(flag)
+
+    out["input_cost_total"] = input_cost_vals
+    out["operational_cost_total"] = op_cost_vals
+    out["total_cost"] = total_cost_vals
+    out["cost_per_gram"] = cost_per_g_vals
+    out["market_price_per_gram"] = mkt_price_vals
+    out["estimated_value_usd"] = est_val_vals
+    out["margin_per_gram"] = margin_per_g_vals
+    out["total_profit_usd"] = total_profit_vals
+    out["margin_pct_est"] = margin_pct_vals
+    out["value_risk_flag"] = value_risk_flags
+    return out
 
 
 def _ecc_load_uploaded_inventory_file(uploaded_file):
@@ -3304,6 +3560,21 @@ def render_extraction_command_center():
                     "processing_fee_usd": 0.0,
                     "est_revenue_usd": 3440.0,
                     "cogs_usd": 1200.0,
+                    "source_inventory_batch_ids": "[]",
+                    "source_inventory_metrc_ids": "[]",
+                    "allocated_input_weight_g": 0.0,
+                    "allocated_input_cost_total": 0.0,
+                    "inventory_linked": False,
+                    "input_cost_total": 0.0,
+                    "operational_cost_total": 0.0,
+                    "total_cost": 0.0,
+                    "cost_per_gram": 0.0,
+                    "market_price_per_gram": 0.0,
+                    "estimated_value_usd": 0.0,
+                    "margin_per_gram": 0.0,
+                    "total_profit_usd": 0.0,
+                    "margin_pct_est": 0.0,
+                    "value_risk_flag": "Neutral",
                     "coa_status": "Passed",
                     "qa_hold": False,
                     "notes": "Sample seed record",
@@ -3338,6 +3609,7 @@ def render_extraction_command_center():
 
     # Ensure mass-balance columns exist for older sessions that pre-date this feature
     st.session_state.ecc_run_log = _ensure_mass_balance_cols(st.session_state.ecc_run_log)
+    st.session_state.ecc_run_log = _ecc_ensure_run_schema(st.session_state.ecc_run_log)
 
     render_section_header(
         "Extraction Command Center",
@@ -3375,6 +3647,7 @@ def render_extraction_command_center():
     job_df = st.session_state.ecc_client_jobs.copy()
     inventory_master_df = _ecc_add_inventory_aging(_ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy()))
     inventory_method_projection_df = _ecc_add_estimated_output(inventory_master_df, global_yield_pct=12.0, use_method_defaults=True)
+    run_df = _ecc_calculate_run_value_metrics(run_df, inventory_master_df)
 
     if selected_state != "All":
         run_df = run_df[run_df["state"] == selected_state]
@@ -3396,6 +3669,14 @@ def render_extraction_command_center():
     est_revenue = float(run_df["est_revenue_usd"].sum()) if not run_df.empty else 0.0
     cogs = float(run_df["cogs_usd"].sum()) if not run_df.empty else 0.0
     gross_margin_pct = ((est_revenue - cogs) / est_revenue * 100) if est_revenue else 0.0
+    avg_cost_per_g = float(run_df["cost_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0) if not run_df.empty else 0.0
+    avg_value_per_g = float(run_df["market_price_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0) if not run_df.empty else 0.0
+    avg_margin_per_g = float(run_df["margin_per_gram"].mean(skipna=True) or 0.0) if not run_df.empty else 0.0
+    total_est_profit = float(run_df["total_profit_usd"].sum()) if not run_df.empty else 0.0
+    negative_margin_runs = int((run_df["margin_per_gram"] < 0).sum()) if not run_df.empty else 0
+    low_margin_runs = int(((run_df["margin_per_gram"] >= 0) & (run_df["margin_per_gram"] < 2)).sum()) if not run_df.empty else 0
+    extreme_cost_runs = int((run_df["cost_per_gram"] > run_df["market_price_per_gram"] * 0.85).sum()) if not run_df.empty else 0
+    suspicious_profit_runs = int((run_df["margin_pct_est"] > 80).sum()) if not run_df.empty else 0
 
     render_extraction_kpi(
         [
@@ -3425,6 +3706,15 @@ def render_extraction_command_center():
     with top[7]:
         kpi_card("Gross Margin", f"{gross_margin_pct:.1f}%")
 
+    render_extraction_kpi(
+        [
+            {"label": "Avg Cost / g", "value": f"${avg_cost_per_g:,.2f}"},
+            {"label": "Avg Value / g", "value": f"${avg_value_per_g:,.2f}"},
+            {"label": "Avg Margin / g", "value": f"${avg_margin_per_g:,.2f}"},
+            {"label": "Total Est. Profit", "value": f"${total_est_profit:,.0f}"},
+        ]
+    )
+
     overview_tab, runs_tab, process_tab, inv_tab, toll_tab, compliance_tab, inputs_tab, ai_ops_tab = st.tabs(
         [
             "Executive Overview",
@@ -3439,68 +3729,343 @@ def render_extraction_command_center():
     )
 
     with overview_tab:
-        c1, c2 = st.columns([1.2, 1])
-        with c1:
-            chart_card_start("Output by Method", "Finished output trend and weekly executive totals.")
-            if run_df.empty:
-                st.info("No data yet.")
+        display_df = run_df.copy()
+        display_df["run_date_parsed"] = pd.to_datetime(display_df.get("run_date"), errors="coerce")
+        qa_hold_series = (
+            display_df["qa_hold"].fillna(False).astype(bool)
+            if "qa_hold" in display_df.columns
+            else pd.Series(False, index=display_df.index)
+        )
+        coa_series = (
+            display_df["coa_status"].fillna("Pending").astype(str)
+            if "coa_status" in display_df.columns
+            else pd.Series("Pending", index=display_df.index)
+        )
+        display_df["qa_risk_bucket"] = np.where(
+            qa_hold_series,
+            "QA Hold",
+            coa_series,
+        )
+        downstream_series = (
+            display_df["downstream_product"].replace("N/A", "").fillna("").astype(str)
+            if "downstream_product" in display_df.columns
+            else pd.Series("", index=display_df.index)
+        )
+        product_series = (
+            display_df["product_type"].fillna("Other").astype(str)
+            if "product_type" in display_df.columns
+            else pd.Series("Other", index=display_df.index)
+        )
+        display_df["product_bucket"] = downstream_series
+        display_df["product_bucket"] = np.where(
+            display_df["product_bucket"].astype(str).str.strip().eq(""),
+            product_series,
+            display_df["product_bucket"],
+        )
+
+        row1_l, row1_r = st.columns(2)
+        with row1_l:
+            chart_card_start("Output by Method", "Finished extraction output grouped by method.")
+            if display_df.empty:
+                st.info("No run data available.")
             else:
                 method_summary = (
-                    run_df.groupby("method", as_index=False)[["finished_output_g", "input_weight_g"]]
+                    display_df.groupby("method", as_index=False)["finished_output_g"]
                     .sum()
                     .sort_values("finished_output_g", ascending=False)
                 )
-                st.bar_chart(method_summary.set_index("method")["finished_output_g"])
-                if _EXTRACTION_PARTNER_INTEL_AVAILABLE:
-                    weekly_summary = build_extraction_weekly_summary(run_df)
-                    if not weekly_summary.empty:
-                        st.markdown("#### Weekly Executive Totals")
-                        weekly_chart = weekly_summary.sort_values("week_start").set_index("week_start")
-                        st.line_chart(weekly_chart[["finished_output_g", "est_revenue_usd"]])
-                        show_cols = [
-                            "week_start",
-                            "extraction_runs",
-                            "finished_output_g",
-                            "avg_yield_pct",
-                            "est_revenue_usd",
-                            "gross_margin_pct",
-                            "qa_hold_runs",
-                        ]
-                        st.dataframe(
-                            weekly_summary[show_cols],
-                            use_container_width=True,
-                            hide_index=True,
-                        )
+                if PLOTLY_AVAILABLE:
+                    fig = px.bar(
+                        method_summary,
+                        x="method",
+                        y="finished_output_g",
+                        color_discrete_sequence=["#f5a524"],
+                    )
+                    fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.bar_chart(method_summary.set_index("method")["finished_output_g"])
             chart_card_end()
-        with c2:
-            chart_card_start("Smart Flags", "Automated risk and inventory support signals.")
-            flags = []
-            if avg_yield < 10 and total_runs > 0:
-                flags.append("Average yield is running below 10%.")
-            if at_risk_batches > 0:
-                flags.append("One or more batches are on QA hold or still pending a COA outcome.")
-            if gross_margin_pct < 35 and est_revenue > 0:
-                flags.append("Gross margin is compressed. Review COGS, fee structure, and process losses.")
-            if not flags:
-                st.success("No major automated flags from the current filtered view.")
+        with row1_r:
+            chart_card_start("Yield Trend Over Time", "Run-level yield trend to spot process drift.")
+            trend_df = display_df[display_df["run_date_parsed"].notna()].sort_values("run_date_parsed")
+            if trend_df.empty:
+                st.caption("No dated runs available for trend view.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.line(
+                    trend_df,
+                    x="run_date_parsed",
+                    y="yield_pct",
+                    markers=True,
+                    color_discrete_sequence=["#f5a524"],
+                )
+                fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
             else:
-                for flag in flags:
-                    st.warning(flag)
+                st.line_chart(trend_df.set_index("run_date_parsed")["yield_pct"])
+            chart_card_end()
 
-            st.markdown("#### Inventory Support Signals")
-            if inventory_master_df.empty:
-                st.caption("No extraction inventory uploaded yet.")
+        row2_l, row2_r = st.columns(2)
+        with row2_l:
+            chart_card_start("Revenue vs COGS Trend", "Financial trendline across run dates.")
+            revenue_df = (
+                display_df[display_df["run_date_parsed"].notna()]
+                .assign(run_day=lambda d: d["run_date_parsed"].dt.date)
+                .groupby("run_day", as_index=False)[["est_revenue_usd", "cogs_usd"]]
+                .sum()
+            )
+            if revenue_df.empty:
+                st.caption("No financial timeline data yet.")
+            elif PLOTLY_AVAILABLE:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["est_revenue_usd"], mode="lines+markers", name="Revenue", line=dict(color="#f5a524")))
+                fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["cogs_usd"], mode="lines+markers", name="COGS", line=dict(color="#ff6161")))
+                fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
             else:
-                available_input_weight = float(inventory_master_df["available_weight_g"].sum())
-                inventory_aging_count = int((inventory_master_df["age_days"] >= 30).sum())
-                projected_output_g = float(inventory_method_projection_df["estimated_output_g"].sum())
-                i1, i2, i3 = st.columns(3)
-                with i1:
-                    kpi_card("Available Input (g)", f"{available_input_weight:,.1f}")
-                with i2:
-                    kpi_card("Aging Lots (30+ days)", inventory_aging_count)
-                with i3:
-                    kpi_card("Projected Output (g)", f"{projected_output_g:,.1f}")
+                st.line_chart(revenue_df.set_index("run_day")[["est_revenue_usd", "cogs_usd"]])
+            chart_card_end()
+        with row2_r:
+            chart_card_start("Batch Status Breakdown", "Current run status distribution.")
+            status_df = (
+                display_df.groupby("status", as_index=False)["batch_id_internal"]
+                .count()
+                .rename(columns={"batch_id_internal": "count"})
+                .sort_values("count", ascending=False)
+            )
+            if status_df.empty:
+                st.caption("No status data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.pie(status_df, values="count", names="status")
+                fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(status_df.set_index("status")["count"])
+            chart_card_end()
+
+        row3_l, row3_r = st.columns(2)
+        with row3_l:
+            chart_card_start("COA / QA Risk Breakdown", "QA hold and COA outcome composition.")
+            qa_df = (
+                display_df.groupby("qa_risk_bucket", as_index=False)["batch_id_internal"]
+                .count()
+                .rename(columns={"batch_id_internal": "count"})
+            )
+            if qa_df.empty:
+                st.caption("No QA/COA risk data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(qa_df, x="qa_risk_bucket", y="count", color="qa_risk_bucket")
+                fig.update_layout(height=340, template="plotly_dark", showlegend=False, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(qa_df.set_index("qa_risk_bucket")["count"])
+            chart_card_end()
+        with row3_r:
+            chart_card_start("Output by Product Type", "Finished output grouped by product downstream path.")
+            prod_df = (
+                display_df.groupby("product_bucket", as_index=False)["finished_output_g"]
+                .sum()
+                .sort_values("finished_output_g", ascending=False)
+            )
+            if prod_df.empty:
+                st.caption("No output product data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(prod_df, x="product_bucket", y="finished_output_g", color_discrete_sequence=["#f5a524"])
+                fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(prod_df.set_index("product_bucket")["finished_output_g"])
+            chart_card_end()
+
+        row4_l, row4_r = st.columns(2)
+        with row4_l:
+            chart_card_start("Method Efficiency Comparison", "Average post-process efficiency by method.")
+            eff_df = (
+                display_df.groupby("method", as_index=False)["post_process_efficiency_pct"]
+                .mean()
+                .sort_values("post_process_efficiency_pct", ascending=False)
+            )
+            if eff_df.empty:
+                st.caption("No efficiency data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(eff_df, x="method", y="post_process_efficiency_pct", color_discrete_sequence=["#f5a524"])
+                fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(eff_df.set_index("method")["post_process_efficiency_pct"])
+            chart_card_end()
+        with row4_r:
+            chart_card_start("Inventory Pressure Snapshot", "Available grams, aging pressure, and projected output by intended method.")
+            if inventory_method_projection_df.empty:
+                st.caption("No extraction inventory available.")
+            else:
+                inv_press = (
+                    inventory_method_projection_df.groupby("intended_method", as_index=False)[["available_weight_g", "estimated_output_g"]]
+                    .sum()
+                    .sort_values("available_weight_g", ascending=False)
+                )
+                if PLOTLY_AVAILABLE:
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(x=inv_press["intended_method"], y=inv_press["available_weight_g"], name="Available g", marker_color="#5aa8ff"))
+                    fig.add_trace(go.Bar(x=inv_press["intended_method"], y=inv_press["estimated_output_g"], name="Projected Output g", marker_color="#f5a524"))
+                    fig.update_layout(
+                        barmode="group",
+                        height=300,
+                        template="plotly_dark",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.bar_chart(inv_press.set_index("intended_method")[["available_weight_g", "estimated_output_g"]])
+                st.caption(
+                    f"Aging lots (30+ days): {int((inventory_method_projection_df['age_days'] >= 30).sum())} • "
+                    f"Projected output: {float(inventory_method_projection_df['estimated_output_g'].sum()):,.1f} g"
+                )
+            chart_card_end()
+
+        row5_l, row5_r = st.columns(2)
+        with row5_l:
+            chart_card_start("Top At-Risk Batches", "Operational, QA, and value-risk prioritized runs.")
+            at_risk_df = display_df.copy()
+            at_risk_df["risk_score"] = (
+                at_risk_df["qa_hold"].astype(int) * 3
+                + at_risk_df["coa_status"].isin(["Failed", "Pending"]).astype(int) * 2
+                + at_risk_df["margin_per_gram"].lt(0).astype(int) * 2
+                + at_risk_df["yield_pct"].lt(10).astype(int)
+            )
+            at_risk_df = at_risk_df.sort_values(["risk_score", "yield_pct"], ascending=[False, True]).head(12)
+            cols = ["batch_id_internal", "method", "yield_pct", "coa_status", "qa_hold", "status", "margin_per_gram"]
+            st.dataframe(at_risk_df[[c for c in cols if c in at_risk_df.columns]], use_container_width=True, hide_index=True)
+            chart_card_end()
+        with row5_r:
+            chart_card_start("Top Aging Material Lots", "Oldest lots requiring run allocation priority.")
+            aging_cols = ["material_name", "batch_id_internal", "age_days", "available_weight_g", "aging_flag", "intended_method"]
+            if inventory_master_df.empty:
+                st.caption("No inventory lots available.")
+            else:
+                aging_df = inventory_master_df.sort_values(["age_days", "available_weight_g"], ascending=[False, False]).head(12)
+                st.dataframe(aging_df[[c for c in aging_cols if c in aging_df.columns]], use_container_width=True, hide_index=True)
+            chart_card_end()
+
+        row6_l, row6_r = st.columns(2)
+        with row6_l:
+            chart_card_start("Executive Risk Summary", "Critical, warning, and neutral observations from workflow, inventory, and value layers.")
+            critical: list[str] = []
+            warning: list[str] = []
+            neutral: list[str] = []
+            if negative_margin_runs > 0:
+                critical.append(f"{negative_margin_runs} run(s) are currently negative-margin.")
+            if at_risk_batches > 0:
+                critical.append(f"{at_risk_batches} batch(es) are QA hold or COA pending/failed.")
+            if avg_yield < 10 and total_runs > 0:
+                warning.append("Average yield is below 10%.")
+            if low_margin_runs > 0:
+                warning.append(f"{low_margin_runs} run(s) have low margin (< $2/g).")
+            if extreme_cost_runs > 0:
+                warning.append(f"{extreme_cost_runs} run(s) show extreme cost-per-gram pressure.")
+            if not inventory_master_df.empty and int((inventory_master_df["age_days"] >= 30).sum()) > 0:
+                warning.append("Inventory contains aging lots (30+ days).")
+            if suspicious_profit_runs > 0:
+                neutral.append(f"{suspicious_profit_runs} run(s) have unusually high estimated profitability and should be reviewed.")
+            if total_runs > 0 and not critical and not warning:
+                neutral.append("No critical workflow or value risks detected in current filters.")
+
+            if critical:
+                st.error("Critical")
+                for msg in critical:
+                    st.markdown(f"- {msg}")
+            if warning:
+                st.warning("Warning")
+                for msg in warning:
+                    st.markdown(f"- {msg}")
+            if neutral:
+                st.info("Neutral / Review")
+                for msg in neutral:
+                    st.markdown(f"- {msg}")
+            chart_card_end()
+        with row6_r:
+            chart_card_start("AI Ops Context Preview", "Snapshot of context passed into AI Ops Brief.")
+            st.write(
+                {
+                    "negative_margin_runs": negative_margin_runs,
+                    "low_margin_runs": low_margin_runs,
+                    "extreme_cost_runs": extreme_cost_runs,
+                    "inventory_aging_lots_30_plus": int((inventory_master_df["age_days"] >= 30).sum()) if not inventory_master_df.empty else 0,
+                    "inventory_linked_runs": int(display_df["inventory_linked"].fillna(False).sum()) if not display_df.empty else 0,
+                }
+            )
+            chart_card_end()
+
+        st.markdown("### Value & Profitability Analysis")
+        v1, v2 = st.columns(2)
+        with v1:
+            chart_card_start("Profit by Method", "Total estimated profit by extraction method.")
+            profit_method_df = (
+                display_df.groupby("method", as_index=False)["total_profit_usd"]
+                .sum()
+                .sort_values("total_profit_usd", ascending=False)
+            )
+            if profit_method_df.empty:
+                st.caption("No profitability data yet.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(profit_method_df, x="method", y="total_profit_usd", color="total_profit_usd", color_continuous_scale=["#ff6161", "#f5a524", "#4cd388"])
+                fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(profit_method_df.set_index("method")["total_profit_usd"])
+            chart_card_end()
+        with v2:
+            chart_card_start("Cost vs Value per Method", "Average cost per gram versus market value per gram.")
+            method_cost_val_df = (
+                display_df.groupby("method", as_index=False)[["cost_per_gram", "market_price_per_gram"]]
+                .mean()
+                .sort_values("market_price_per_gram", ascending=False)
+            )
+            if method_cost_val_df.empty:
+                st.caption("No cost/value comparison data.")
+            elif PLOTLY_AVAILABLE:
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=method_cost_val_df["method"], y=method_cost_val_df["cost_per_gram"], name="Avg Cost/g", marker_color="#ff6161"))
+                fig.add_trace(go.Bar(x=method_cost_val_df["method"], y=method_cost_val_df["market_price_per_gram"], name="Avg Value/g", marker_color="#4cd388"))
+                fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(method_cost_val_df.set_index("method")[["cost_per_gram", "market_price_per_gram"]])
+            chart_card_end()
+
+        v3, v4 = st.columns(2)
+        with v3:
+            chart_card_start("Margin by Product Type", "Average margin per gram by product output.")
+            margin_product_df = (
+                display_df.groupby("product_bucket", as_index=False)["margin_per_gram"]
+                .mean()
+                .sort_values("margin_per_gram", ascending=False)
+            )
+            if margin_product_df.empty:
+                st.caption("No margin-by-product data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(
+                    margin_product_df,
+                    x="product_bucket",
+                    y="margin_per_gram",
+                    color="margin_per_gram",
+                    color_continuous_scale=["#ff6161", "#f5a524", "#4cd388"],
+                )
+                fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(margin_product_df.set_index("product_bucket")["margin_per_gram"])
+            chart_card_end()
+        with v4:
+            chart_card_start("Top Profitable / Worst Performing Runs", "Best and worst total profit outcomes.")
+            top_cols = ["run_date", "batch_id_internal", "method", "product_bucket", "finished_output_g", "total_profit_usd", "margin_per_gram", "margin_pct_est"]
+            top_runs = display_df.sort_values("total_profit_usd", ascending=False).head(8)
+            worst_runs = display_df.sort_values("total_profit_usd", ascending=True).head(8)
+            st.markdown("**Top Profitable Runs**")
+            st.dataframe(top_runs[[c for c in top_cols if c in top_runs.columns]], use_container_width=True, hide_index=True)
+            st.markdown("**Worst Performing Runs**")
+            st.dataframe(worst_runs[[c for c in top_cols if c in worst_runs.columns]], use_container_width=True, hide_index=True)
             chart_card_end()
 
     with runs_tab:
@@ -3554,6 +4119,13 @@ def render_extraction_command_center():
                     key="ecc_input_material_type",
                 )
                 input_weight_g = st.number_input("Input Weight (g)", min_value=0.0, step=1.0, key="ecc_input_weight")
+                cost_per_input_gram = st.number_input(
+                    "Input Cost Basis ($/g)",
+                    min_value=0.0,
+                    step=0.1,
+                    key="ecc_cost_per_input_gram",
+                    help="Used when the run is not linked to inventory lot allocations.",
+                )
                 intermediate_output_g = st.number_input(
                     "Intermediate Output (g)", min_value=0.0, step=0.1, key="ecc_intermediate_output"
                 )
@@ -3615,6 +4187,7 @@ def render_extraction_command_center():
                             "ready_for_transfer": process_stage == "Transferred",
                             "input_material_type": input_material_type,
                             "input_weight_g": input_weight_g,
+                            "cost_per_input_gram": cost_per_input_gram,
                             "intermediate_output_g": intermediate_output_g,
                             "finished_output_g": finished_output_g,
                             "residual_loss_g": residual_loss_g,
@@ -3627,6 +4200,11 @@ def render_extraction_command_center():
                             "processing_fee_usd": processing_fee_usd,
                             "est_revenue_usd": est_revenue_usd,
                             "cogs_usd": cogs_usd,
+                            "source_inventory_batch_ids": "[]",
+                            "source_inventory_metrc_ids": "[]",
+                            "allocated_input_weight_g": 0.0,
+                            "allocated_input_cost_total": 0.0,
+                            "inventory_linked": False,
                             "coa_status": coa_status,
                             "qa_hold": qa_hold,
                             "notes": notes,
@@ -3686,6 +4264,7 @@ def render_extraction_command_center():
 
             # ── Run selector ─────────────────────────────────────────────────
             process_df = _mb_all.reset_index(drop=True)
+            process_df = _ecc_calculate_run_value_metrics(process_df, inventory_master_df)
             if "process_stage" not in process_df.columns:
                 process_df["process_stage"] = "Intake"
             for _col in [
@@ -3727,6 +4306,25 @@ def render_extraction_command_center():
                 f"<span class='pill-badge' style='background:{_flag_color};'>{_flag_icon} Mass Balance: {_flag_val}</span>",
                 unsafe_allow_html=True,
             )
+
+            st.markdown("#### Linked Inventory & Value Context")
+            source_batches = _ecc_parse_list_field(selected_row.get("source_inventory_batch_ids", "[]"))
+            source_metrc = _ecc_parse_list_field(selected_row.get("source_inventory_metrc_ids", "[]"))
+            src1, src2, src3 = st.columns(3)
+            with src1:
+                st.metric("Inventory Linked", "Yes" if bool(selected_row.get("inventory_linked", False)) else "No")
+                st.metric("Allocated Input (g)", f"{float(selected_row.get('allocated_input_weight_g', 0.0)):.1f}")
+            with src2:
+                st.metric("Allocated Input Cost", f"${float(selected_row.get('allocated_input_cost_total', 0.0)):,.2f}")
+                st.metric("Cost / g", f"${float(selected_row.get('cost_per_gram', 0.0)):,.2f}")
+            with src3:
+                st.metric("Value / g", f"${float(selected_row.get('market_price_per_gram', 0.0)):,.2f}")
+                st.metric("Margin / g", f"${float(selected_row.get('margin_per_gram', 0.0)):,.2f}")
+            if source_batches or source_metrc:
+                st.caption(
+                    f"Source batches: {', '.join(source_batches) if source_batches else 'n/a'} | "
+                    f"Source METRC IDs: {', '.join(source_metrc) if source_metrc else 'n/a'}"
+                )
 
             # ── Process status controls (preserved from original) ─────────
             st.markdown("#### Process Status")
@@ -4314,6 +4912,214 @@ def render_extraction_command_center():
             st.dataframe(filtered_inv[[c for c in table_cols if c in filtered_inv.columns]], use_container_width=True, hide_index=True)
             chart_card_end()
 
+            st.markdown("### Inventory → Workflow Allocation")
+            st.caption("Reserve inventory lots and create a run draft or attach material to an existing run.")
+            selectable_inv = filtered_inv[filtered_inv["available_weight_g"] > 0].copy()
+            if selectable_inv.empty:
+                st.info("No available inventory lots match current filters.")
+            else:
+                lot_labels = {
+                    idx: (
+                        f"{row.get('material_name', 'Material')} • Batch {row.get('batch_id_internal', 'N/A')} • "
+                        f"METRC {row.get('metrc_package_id', 'N/A')} • Avail {float(row.get('available_weight_g', 0.0)):.1f} g"
+                    )
+                    for idx, row in selectable_inv.iterrows()
+                }
+                selected_lots = st.multiselect(
+                    "Select Inventory Lots",
+                    options=list(lot_labels.keys()),
+                    format_func=lambda x: lot_labels.get(x, str(x)),
+                    key="ecc_allocate_selected_lots",
+                )
+
+                allocation_amounts: dict[int, float] = {}
+                if selected_lots:
+                    st.markdown("#### Allocation Amounts")
+                    for lot_idx in selected_lots:
+                        max_avail = float(selectable_inv.loc[lot_idx, "available_weight_g"])
+                        allocation_amounts[lot_idx] = st.number_input(
+                            f"Allocate grams from lot {lot_idx}",
+                            min_value=0.0,
+                            max_value=max_avail,
+                            value=min(50.0, max_avail),
+                            step=1.0,
+                            key=f"ecc_allocate_amt_{lot_idx}",
+                        )
+
+                alloc_a, alloc_b, alloc_c = st.columns(3)
+                with alloc_a:
+                    allocation_target = st.radio(
+                        "Allocation Target",
+                        options=["Create new run draft", "Attach to existing run"],
+                        key="ecc_allocation_target",
+                    )
+                with alloc_b:
+                    allocation_method = st.selectbox(
+                        "Assigned Method",
+                        options=_ECC_METHOD_VALUES,
+                        key="ecc_allocation_method",
+                    )
+                with alloc_c:
+                    allocation_client = st.text_input(
+                        "Client / In-House",
+                        value="In House",
+                        key="ecc_allocation_client",
+                    )
+
+                selected_existing_run_idx = None
+                if allocation_target == "Attach to existing run" and not st.session_state.ecc_run_log.empty:
+                    attach_df = _ecc_ensure_run_schema(st.session_state.ecc_run_log.copy()).reset_index()
+                    attach_df["run_label"] = (
+                        attach_df["run_date"].astype(str)
+                        + " • "
+                        + attach_df["batch_id_internal"].astype(str).replace("", "No Batch ID")
+                        + " • "
+                        + attach_df["method"].astype(str)
+                    )
+                    selected_run_label = st.selectbox(
+                        "Run to attach inventory",
+                        options=attach_df["run_label"].tolist(),
+                        key="ecc_allocate_attach_run",
+                    )
+                    if selected_run_label:
+                        selected_existing_run_idx = int(
+                            attach_df.loc[attach_df["run_label"] == selected_run_label, "index"].iloc[0]
+                        )
+
+                if st.button("Allocate to Workflow", key="ecc_allocate_to_workflow", type="primary"):
+                    if not selected_lots:
+                        st.warning("Select at least one lot to allocate.")
+                    else:
+                        validation_errors: list[str] = []
+                        total_alloc_weight = 0.0
+                        total_alloc_cost = 0.0
+                        source_batch_ids: list[str] = []
+                        source_metrc_ids: list[str] = []
+                        inv_working = _ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy())
+
+                        for lot_idx in selected_lots:
+                            alloc_weight = float(allocation_amounts.get(lot_idx, 0.0) or 0.0)
+                            available_weight = float(inv_working.loc[lot_idx, "available_weight_g"])
+                            if alloc_weight <= 0:
+                                validation_errors.append(f"Lot {lot_idx}: allocation must be greater than 0.")
+                                continue
+                            if alloc_weight > available_weight:
+                                validation_errors.append(
+                                    f"Lot {lot_idx}: cannot allocate {alloc_weight:.1f} g (available {available_weight:.1f} g)."
+                                )
+                                continue
+
+                            inv_working.loc[lot_idx, "reserved_weight_g"] = float(inv_working.loc[lot_idx, "reserved_weight_g"]) + alloc_weight
+                            inv_working.loc[lot_idx, "available_weight_g"] = max(
+                                float(inv_working.loc[lot_idx, "available_weight_g"]) - alloc_weight,
+                                0.0,
+                            )
+                            if inv_working.loc[lot_idx, "available_weight_g"] <= 0:
+                                inv_working.loc[lot_idx, "status"] = "Depleted"
+                            elif str(inv_working.loc[lot_idx, "status"]).strip().lower() == "available":
+                                inv_working.loc[lot_idx, "status"] = "Reserved"
+
+                            total_alloc_weight += alloc_weight
+                            lot_cost_per_g = float(pd.to_numeric(inv_working.loc[lot_idx, "cost_per_g"], errors="coerce") or 0.0)
+                            total_alloc_cost += alloc_weight * lot_cost_per_g
+                            lot_batch_id = str(inv_working.loc[lot_idx, "batch_id_internal"]).strip()
+                            lot_metrc_id = str(inv_working.loc[lot_idx, "metrc_package_id"]).strip()
+                            if lot_batch_id:
+                                source_batch_ids.append(lot_batch_id)
+                            if lot_metrc_id:
+                                source_metrc_ids.append(lot_metrc_id)
+
+                        if validation_errors:
+                            for msg in validation_errors:
+                                st.warning(msg)
+                        else:
+                            st.session_state.ecc_inventory_log = inv_working[_ECC_INVENTORY_COLUMNS].copy()
+                            run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(st.session_state.ecc_run_log.copy()))
+                            source_batch_ids = list(dict.fromkeys(source_batch_ids))
+                            source_metrc_ids = list(dict.fromkeys(source_metrc_ids))
+
+                            if allocation_target == "Create new run draft":
+                                run_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                                run_batch_id = f"INV-DRAFT-{run_stamp}"
+                                draft_row = pd.DataFrame(
+                                    [
+                                        {
+                                            "run_date": str(datetime.today().date()),
+                                            "state": selected_state if selected_state != "All" else "Other",
+                                            "license_name": st.session_state.get("ecc_license_name", ""),
+                                            "client_name": allocation_client or "In House",
+                                            "batch_id_internal": run_batch_id,
+                                            "metrc_package_id_input": source_metrc_ids[0] if source_metrc_ids else "",
+                                            "metrc_package_id_output": "",
+                                            "metrc_manifest_or_transfer_id": "",
+                                            "method": allocation_method,
+                                            "product_type": "Other",
+                                            "downstream_product": "N/A",
+                                            "process_stage": "Intake",
+                                            "intake_complete": False,
+                                            "extraction_complete": False,
+                                            "post_process_complete": False,
+                                            "formulation_complete": False,
+                                            "filling_complete": False,
+                                            "packaging_complete": False,
+                                            "ready_for_transfer": False,
+                                            "input_material_type": "Mixed / TBD",
+                                            "input_weight_g": total_alloc_weight,
+                                            "cost_per_input_gram": _ecc_safe_div(total_alloc_cost, total_alloc_weight),
+                                            "intermediate_output_g": 0.0,
+                                            "finished_output_g": 0.0,
+                                            "residual_loss_g": 0.0,
+                                            "yield_pct": 0.0,
+                                            "post_process_efficiency_pct": 0.0,
+                                            "operator": "",
+                                            "machine_line": "",
+                                            "status": "Queued",
+                                            "toll_processing": False,
+                                            "processing_fee_usd": 0.0,
+                                            "est_revenue_usd": 0.0,
+                                            "cogs_usd": 0.0,
+                                            "coa_status": "Pending",
+                                            "qa_hold": False,
+                                            "source_inventory_batch_ids": _ecc_serialize_list_field(source_batch_ids),
+                                            "source_inventory_metrc_ids": _ecc_serialize_list_field(source_metrc_ids),
+                                            "allocated_input_weight_g": total_alloc_weight,
+                                            "allocated_input_cost_total": total_alloc_cost,
+                                            "inventory_linked": True,
+                                            "notes": f"Draft created from {len(selected_lots)} inventory lot(s).",
+                                        }
+                                    ]
+                                )
+                                run_log = pd.concat([run_log, draft_row], ignore_index=True)
+                                st.session_state.ecc_run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
+                                st.success(f"Allocated {total_alloc_weight:,.1f} g into new run draft {run_batch_id}.")
+                            else:
+                                if selected_existing_run_idx is None:
+                                    st.warning("Select an existing run to attach allocated inventory.")
+                                else:
+                                    existing_batches = _ecc_parse_list_field(run_log.loc[selected_existing_run_idx, "source_inventory_batch_ids"])
+                                    existing_metrc = _ecc_parse_list_field(run_log.loc[selected_existing_run_idx, "source_inventory_metrc_ids"])
+                                    merged_batches = list(dict.fromkeys(existing_batches + source_batch_ids))
+                                    merged_metrc = list(dict.fromkeys(existing_metrc + source_metrc_ids))
+                                    run_log.loc[selected_existing_run_idx, "source_inventory_batch_ids"] = _ecc_serialize_list_field(merged_batches)
+                                    run_log.loc[selected_existing_run_idx, "source_inventory_metrc_ids"] = _ecc_serialize_list_field(merged_metrc)
+                                    run_log.loc[selected_existing_run_idx, "allocated_input_weight_g"] = float(
+                                        run_log.loc[selected_existing_run_idx, "allocated_input_weight_g"]
+                                    ) + total_alloc_weight
+                                    run_log.loc[selected_existing_run_idx, "allocated_input_cost_total"] = float(
+                                        run_log.loc[selected_existing_run_idx, "allocated_input_cost_total"]
+                                    ) + total_alloc_cost
+                                    run_log.loc[selected_existing_run_idx, "inventory_linked"] = True
+                                    if float(run_log.loc[selected_existing_run_idx, "input_weight_g"]) <= 0:
+                                        run_log.loc[selected_existing_run_idx, "input_weight_g"] = float(
+                                            run_log.loc[selected_existing_run_idx, "allocated_input_weight_g"]
+                                        )
+                                    if str(run_log.loc[selected_existing_run_idx, "method"]).strip() in {"", "Mixed / TBD"}:
+                                        run_log.loc[selected_existing_run_idx, "method"] = allocation_method
+                                    st.session_state.ecc_run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
+                                    st.success(
+                                        f"Allocated {total_alloc_weight:,.1f} g to existing run and linked {len(source_batch_ids)} source batch(es)."
+                                    )
+
     with toll_tab:
         st.subheader("Toll Processing Command View")
         st.dataframe(job_df, use_container_width=True, hide_index=True)
@@ -4402,8 +5208,10 @@ def render_extraction_command_center():
 
     with ai_ops_tab:
         st.subheader("AI Operations Brief")
-        alerts = _compute_extraction_alerts(run_df, job_df)
+        run_value_df = _ecc_calculate_run_value_metrics(run_df.copy(), inventory_master_df)
+        alerts = _compute_extraction_alerts(run_value_df, job_df)
         inventory_context = {}
+        value_context = {}
         inventory_for_ai = _ecc_add_estimated_output(
             _ecc_add_inventory_aging(_ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy())),
             global_yield_pct=12.0,
@@ -4421,6 +5229,19 @@ def render_extraction_command_center():
             st.markdown("#### Inventory Context")
             st.write(inventory_context)
 
+        if not run_value_df.empty:
+            value_context = {
+                "negative_margin_runs": int((run_value_df["margin_per_gram"] < 0).sum()),
+                "low_margin_runs": int(((run_value_df["margin_per_gram"] >= 0) & (run_value_df["margin_per_gram"] < 2)).sum()),
+                "total_estimated_profit_usd": float(run_value_df["total_profit_usd"].sum()),
+                "avg_cost_per_gram": float(run_value_df["cost_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0),
+                "avg_value_per_gram": float(run_value_df["market_price_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0),
+                "inventory_linked_runs": int(run_value_df["inventory_linked"].fillna(False).sum()),
+                "value_risk_runs": int(run_value_df["value_risk_flag"].isin(["Critical", "Warning"]).sum()),
+            }
+            st.markdown("#### Value & Profitability Context")
+            st.write(value_context)
+
         if alerts:
             st.markdown("#### Current Alerts")
             for alert in alerts:
@@ -4433,7 +5254,13 @@ def render_extraction_command_center():
 
         if st.button("Generate AI Extraction Brief", key="ecc_ai_ops_brief"):
             with st.spinner("Analyzing extraction operations..."):
-                brief = _generate_extraction_ai_brief(run_df, job_df, alerts, inventory_context=inventory_context)
+                brief = _generate_extraction_ai_brief(
+                    run_value_df,
+                    job_df,
+                    alerts,
+                    inventory_context=inventory_context,
+                    value_context=value_context,
+                )
             st.markdown(brief)
 
 # =========================
