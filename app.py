@@ -4460,16 +4460,29 @@ def render_extraction_command_center():
             st.markdown("#### Linked Inventory & Value Context")
             source_batches = _ecc_parse_list_field(selected_row.get("source_inventory_batch_ids", "[]"))
             source_metrc = _ecc_parse_list_field(selected_row.get("source_inventory_metrc_ids", "[]"))
+            manual_cost_key = f"ecc_manual_cost_per_g_update_{int(selected_idx)}"
+            manual_value_key = f"ecc_manual_value_per_g_update_{int(selected_idx)}"
+            if manual_cost_key not in st.session_state:
+                st.session_state[manual_cost_key] = float(selected_row.get("manual_cost_per_gram", 0.0) or 0.0)
+            if manual_value_key not in st.session_state:
+                st.session_state[manual_value_key] = float(selected_row.get("manual_market_price_per_gram", 0.0) or 0.0)
+
+            manual_cost_preview = float(st.session_state.get(manual_cost_key, 0.0) or 0.0)
+            manual_value_preview = float(st.session_state.get(manual_value_key, 0.0) or 0.0)
+            effective_cost_per_g = manual_cost_preview if manual_cost_preview > 0 else float(selected_row.get("cost_per_gram", 0.0) or 0.0)
+            effective_value_per_g = manual_value_preview if manual_value_preview > 0 else float(selected_row.get("market_price_per_gram", 0.0) or 0.0)
+            effective_margin_per_g = effective_value_per_g - effective_cost_per_g
+
             src1, src2, src3 = st.columns(3)
             with src1:
                 st.metric("Inventory Linked", "Yes" if bool(selected_row.get("inventory_linked", False)) else "No")
                 st.metric("Allocated Input (g)", f"{float(selected_row.get('allocated_input_weight_g', 0.0)):.1f}")
             with src2:
                 st.metric("Allocated Input Cost", f"${float(selected_row.get('allocated_input_cost_total', 0.0)):,.2f}")
-                st.metric("Cost / g", f"${float(selected_row.get('cost_per_gram', 0.0)):,.2f}")
+                st.metric("Cost / g", f"${effective_cost_per_g:,.2f}")
             with src3:
-                st.metric("Value / g", f"${float(selected_row.get('market_price_per_gram', 0.0)):,.2f}")
-                st.metric("Margin / g", f"${float(selected_row.get('margin_per_gram', 0.0)):,.2f}")
+                st.metric("Value / g", f"${effective_value_per_g:,.2f}")
+                st.metric("Margin / g", f"${effective_margin_per_g:,.2f}")
             if source_batches or source_metrc:
                 st.caption(
                     f"Source batches: {', '.join(source_batches) if source_batches else 'n/a'} | "
@@ -4514,7 +4527,7 @@ def render_extraction_command_center():
                     index=["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"].index(
                         selected_row.get("process_stage", "Intake")
                     ) if selected_row.get("process_stage", "Intake") in ["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"] else 0,
-                    key="ecc_process_stage_update",
+                    key=f"ecc_process_stage_update_{int(selected_idx)}",
                 )
                 updated_status = st.selectbox(
                     "Operational Status",
@@ -4524,7 +4537,7 @@ def render_extraction_command_center():
                         if selected_row.get("status", "Processing") in ["Queued", "Processing", "Packaging", "Complete", "Hold"]
                         else 1
                     ),
-                    key="ecc_process_status_update",
+                    key=f"ecc_process_status_update_{int(selected_idx)}",
                 )
                 updated_product_type = st.selectbox(
                     "Finished Product Type",
@@ -4539,7 +4552,7 @@ def render_extraction_command_center():
                         in EXTRACTION_PRODUCT_TYPE_OPTIONS
                         else EXTRACTION_PRODUCT_TYPE_OPTIONS.index("Other")
                     ),
-                    key="ecc_process_product_type_update",
+                    key=f"ecc_process_product_type_update_{int(selected_idx)}",
                 )
             with p2:
                 updated_downstream = st.selectbox(
@@ -4554,7 +4567,7 @@ def render_extraction_command_center():
                         in EXTRACTION_DOWNSTREAM_OPTIONS
                         else 0
                     ),
-                    key="ecc_process_downstream_update",
+                    key=f"ecc_process_downstream_update_{int(selected_idx)}",
                 )
                 updated_coa = st.selectbox(
                     "COA Status",
@@ -4564,26 +4577,26 @@ def render_extraction_command_center():
                         if selected_row.get("coa_status", "Pending") in ["Pending", "Passed", "Failed", "Not Submitted"]
                         else 0
                     ),
-                    key="ecc_process_coa_update",
+                    key=f"ecc_process_coa_update_{int(selected_idx)}",
                 )
                 updated_qa_hold = st.checkbox(
                     "QA Hold",
                     value=bool(selected_row.get("qa_hold", False)),
-                    key="ecc_process_qa_hold_update",
+                    key=f"ecc_process_qa_hold_update_{int(selected_idx)}",
                 )
             with p3:
-                intake_complete = st.checkbox("Intake Complete", value=bool(selected_row.get("intake_complete", False)), key="ecc_intake_complete_update")
-                extraction_complete = st.checkbox("Extraction Complete", value=bool(selected_row.get("extraction_complete", False)), key="ecc_extraction_complete_update")
-                post_process_complete = st.checkbox("Post-Process Complete", value=bool(selected_row.get("post_process_complete", False)), key="ecc_post_process_complete_update")
-                formulation_complete = st.checkbox("Formulation Complete", value=bool(selected_row.get("formulation_complete", False)), key="ecc_formulation_complete_update")
-                filling_complete = st.checkbox("Filling Complete", value=bool(selected_row.get("filling_complete", False)), key="ecc_filling_complete_update")
-                packaging_complete = st.checkbox("Packaging Complete", value=bool(selected_row.get("packaging_complete", False)), key="ecc_packaging_complete_update")
-                ready_for_transfer = st.checkbox("Ready for Transfer", value=bool(selected_row.get("ready_for_transfer", False)), key="ecc_ready_for_transfer_update")
+                intake_complete = st.checkbox("Intake Complete", value=bool(selected_row.get("intake_complete", False)), key=f"ecc_intake_complete_update_{int(selected_idx)}")
+                extraction_complete = st.checkbox("Extraction Complete", value=bool(selected_row.get("extraction_complete", False)), key=f"ecc_extraction_complete_update_{int(selected_idx)}")
+                post_process_complete = st.checkbox("Post-Process Complete", value=bool(selected_row.get("post_process_complete", False)), key=f"ecc_post_process_complete_update_{int(selected_idx)}")
+                formulation_complete = st.checkbox("Formulation Complete", value=bool(selected_row.get("formulation_complete", False)), key=f"ecc_formulation_complete_update_{int(selected_idx)}")
+                filling_complete = st.checkbox("Filling Complete", value=bool(selected_row.get("filling_complete", False)), key=f"ecc_filling_complete_update_{int(selected_idx)}")
+                packaging_complete = st.checkbox("Packaging Complete", value=bool(selected_row.get("packaging_complete", False)), key=f"ecc_packaging_complete_update_{int(selected_idx)}")
+                ready_for_transfer = st.checkbox("Ready for Transfer", value=bool(selected_row.get("ready_for_transfer", False)), key=f"ecc_ready_for_transfer_update_{int(selected_idx)}")
 
             updated_notes = st.text_area(
                 "Process Notes / Handoff Notes",
                 value=str(selected_row.get("notes", "")),
-                key="ecc_process_notes_update",
+                key=f"ecc_process_notes_update_{int(selected_idx)}",
             )
 
             # ── Mass Balance — Stage Weights (inline editor) ──────────────
@@ -4600,7 +4613,7 @@ def render_extraction_command_center():
                     min_value=0.0,
                     step=1.0,
                     value=float(selected_row.get("input_weight_g", 0.0)),
-                    key="ecc_mb_input_weight",
+                    key=f"ecc_mb_input_weight_{int(selected_idx)}",
                 )
             with mb2:
                 upd_extraction_output = st.number_input(
@@ -4608,7 +4621,7 @@ def render_extraction_command_center():
                     min_value=0.0,
                     step=0.1,
                     value=float(selected_row.get("extraction_output_g", 0.0)),
-                    key="ecc_mb_extraction_output",
+                    key=f"ecc_mb_extraction_output_{int(selected_idx)}",
                 )
             with mb3:
                 upd_post_process_output = st.number_input(
@@ -4616,7 +4629,7 @@ def render_extraction_command_center():
                     min_value=0.0,
                     step=0.1,
                     value=float(selected_row.get("post_process_output_g", 0.0)),
-                    key="ecc_mb_post_process_output",
+                    key=f"ecc_mb_post_process_output_{int(selected_idx)}",
                     help="Leave 0 if post-process stage is not used for this run.",
                 )
             with mb4:
@@ -4625,7 +4638,7 @@ def render_extraction_command_center():
                     min_value=0.0,
                     step=0.1,
                     value=float(selected_row.get("distillation_output_g", 0.0)),
-                    key="ecc_mb_distillation_output",
+                    key=f"ecc_mb_distillation_output_{int(selected_idx)}",
                     help="Leave 0 if distillation stage is not used for this run.",
                 )
             with mb5:
@@ -4639,7 +4652,7 @@ def render_extraction_command_center():
                             float(selected_row.get("finished_output_g", 0.0)),
                         )
                     ),
-                    key="ecc_mb_final_output",
+                    key=f"ecc_mb_final_output_{int(selected_idx)}",
                 )
 
             # Live loss/yield preview (computed client-side without modifying session state)
