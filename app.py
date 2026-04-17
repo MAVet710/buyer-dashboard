@@ -3002,7 +3002,9 @@ _ECC_MATERIAL_TYPES = [
 _ECC_STATUS_VALUES = ["Available", "Reserved", "In Process", "Quarantine", "Depleted"]
 _ECC_METHOD_VALUES = ["BHO", "CO2", "Rosin", "Ethanol", "Mixed / TBD"]
 _ECC_METHOD_DEFAULT_YIELD = {"BHO": 15.0, "CO2": 12.0, "Rosin": 8.0, "Ethanol": 14.0}
-# TODO: replace MARKET_PRICE_MAP with live pricing API or admin-configurable pricing
+# TODO(ops-pricing-live): replace MARKET_PRICE_MAP with live pricing API or admin-configurable pricing
+# Pricing assumptions are USD per finished gram. Values are static planning defaults
+# for executive scenario analysis and should be reviewed by ops/finance regularly.
 MARKET_PRICE_MAP = {
     "bho": 14,
     "live_resin": 20,
@@ -3017,6 +3019,28 @@ MARKET_PRICE_MAP = {
     "bulk_oil": 12,
     "concentrate": 15,
 }
+_ECC_PRODUCT_PRICE_ALIAS_MAP = {
+    "bulk_distillate": "bulk_oil",
+    "disty_carts": "vape",
+    "disty_disposables": "vape",
+    "distillate_cart": "vape",
+    "distillate_disposable": "vape",
+    "sugar": "concentrate",
+    "sauce": "concentrate",
+    "fresh_press": "rosin",
+    "co2": "co2_oil",
+    "ethanol": "rso",
+    "n_a": "",
+    "other": "concentrate",
+}
+_ECC_FALLBACK_INPUT_COST_PER_G = 1.25
+_ECC_FALLBACK_OPERATIONAL_COST_USD = 150.0
+_ECC_LOW_MARGIN_PER_G_THRESHOLD = 2.0
+_ECC_LOW_MARGIN_PCT_THRESHOLD = 10.0
+_ECC_EXTREME_COST_TO_VALUE_WARNING_RATIO = 0.85
+_ECC_SUSPICIOUS_MARGIN_PCT_THRESHOLD = 80.0
+_ECC_DEFAULT_ALLOCATION_GRAMS = 50.0
+_ECC_DRAFT_BATCH_PREFIX = "INV-DRAFT"
 
 _ECC_TRACEABILITY_FIELDS: list[str] = [
     "source_inventory_batch_ids",
@@ -3040,10 +3064,12 @@ _ECC_VALUE_FIELDS: list[str] = [
 
 
 def _ecc_norm_price_key(value: Any) -> str:
+    """Normalize label text into a lowercase key for MARKET_PRICE_MAP lookups."""
     return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
 
 
 def _ecc_parse_list_field(raw_value: Any) -> list[str]:
+    """Parse list-like input from JSON/list/CSV-ish text into a deduplicated string list."""
     if raw_value is None or (isinstance(raw_value, float) and np.isnan(raw_value)):
         return []
     if isinstance(raw_value, (list, tuple, set)):
@@ -3068,6 +3094,7 @@ def _ecc_serialize_list_field(values: list[str]) -> str:
 
 
 def _ecc_safe_div(numerator: Any, denominator: Any) -> float:
+    """Safe division that returns 0.0 for invalid inputs or zero denominator."""
     try:
         num = float(numerator)
         den = float(denominator)
@@ -3077,27 +3104,14 @@ def _ecc_safe_div(numerator: Any, denominator: Any) -> float:
 
 
 def _ecc_get_market_price_per_gram(row: pd.Series) -> float:
+    """Return market price by priority: downstream product → product type → method → concentrate fallback."""
     keys = [
         _ecc_norm_price_key(row.get("downstream_product", "")),
         _ecc_norm_price_key(row.get("product_type", "")),
         _ecc_norm_price_key(row.get("method", "")),
     ]
-    alias_map = {
-        "bulk_distillate": "bulk_oil",
-        "disty_carts": "vape",
-        "disty_disposables": "vape",
-        "distillate_cart": "vape",
-        "distillate_disposable": "vape",
-        "sugar": "concentrate",
-        "sauce": "concentrate",
-        "fresh_press": "rosin",
-        "co2": "co2_oil",
-        "ethanol": "rso",
-        "n_a": "",
-        "other": "concentrate",
-    }
     for key in keys:
-        mapped = alias_map.get(key, key)
+        mapped = _ECC_PRODUCT_PRICE_ALIAS_MAP.get(key, key)
         if mapped and mapped in MARKET_PRICE_MAP:
             return float(MARKET_PRICE_MAP[mapped])
     return float(MARKET_PRICE_MAP["concentrate"])
@@ -3133,6 +3147,7 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Compute run-level cost, market value, margin, and risk flags using inventory-linked cost basis when available."""
     if run_df is None:
         return pd.DataFrame()
     out = _ecc_ensure_run_schema(run_df.copy())
@@ -3142,9 +3157,12 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
 
     inv = _ecc_finalize_inventory_frame(inventory_df.copy()) if inventory_df is not None else pd.DataFrame()
-    inv_avg_cost_per_g = float(pd.to_numeric(inv.get("cost_per_g", 0), errors="coerce").replace(0, np.nan).mean()) if not inv.empty else 0.0
-    fallback_input_cost_per_g = inv_avg_cost_per_g if inv_avg_cost_per_g > 0 else 1.25
-    fallback_operational_cost = 150.0
+    inv_avg_cost_per_g = 0.0
+    if not inv.empty:
+        inv_cost_series = pd.to_numeric(inv.get("cost_per_g", 0), errors="coerce").replace(0, np.nan)
+        inv_avg_cost_per_g = float(inv_cost_series.mean())
+    fallback_input_cost_per_g = inv_avg_cost_per_g if inv_avg_cost_per_g > 0 else _ECC_FALLBACK_INPUT_COST_PER_G
+    fallback_operational_cost = _ECC_FALLBACK_OPERATIONAL_COST_USD
 
     inv_batch_cost_map: dict[str, float] = {}
     inv_metrc_cost_map: dict[str, float] = {}
@@ -3214,14 +3232,18 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
         total_profit_usd = estimated_value_usd - total_cost
         margin_pct_est = _ecc_safe_div(total_profit_usd * 100.0, estimated_value_usd)
 
+        # Value risk classification:
+        # - Critical: negative margin/profit
+        # - Warning: thin margin or high cost-to-value pressure
+        # - Review: unusually high profitability, may indicate mapping/input anomaly
         flag = "Neutral"
         if margin_per_gram < 0 or total_profit_usd < 0:
             flag = "Critical"
-        elif margin_per_gram < 2 or margin_pct_est < 10:
+        elif margin_per_gram < _ECC_LOW_MARGIN_PER_G_THRESHOLD or margin_pct_est < _ECC_LOW_MARGIN_PCT_THRESHOLD:
             flag = "Warning"
-        elif cost_per_gram > market_price_per_gram * 0.85:
+        elif cost_per_gram > market_price_per_gram * _ECC_EXTREME_COST_TO_VALUE_WARNING_RATIO:
             flag = "Warning"
-        elif margin_pct_est > 80 and finished_output_g > 0:
+        elif margin_pct_est > _ECC_SUSPICIOUS_MARGIN_PCT_THRESHOLD and finished_output_g > 0:
             flag = "Review"
 
         input_cost_vals.append(round(input_cost_total, 2))
@@ -3674,9 +3696,13 @@ def render_extraction_command_center():
     avg_margin_per_g = float(run_df["margin_per_gram"].mean(skipna=True) or 0.0) if not run_df.empty else 0.0
     total_est_profit = float(run_df["total_profit_usd"].sum()) if not run_df.empty else 0.0
     negative_margin_runs = int((run_df["margin_per_gram"] < 0).sum()) if not run_df.empty else 0
-    low_margin_runs = int(((run_df["margin_per_gram"] >= 0) & (run_df["margin_per_gram"] < 2)).sum()) if not run_df.empty else 0
-    extreme_cost_runs = int((run_df["cost_per_gram"] > run_df["market_price_per_gram"] * 0.85).sum()) if not run_df.empty else 0
-    suspicious_profit_runs = int((run_df["margin_pct_est"] > 80).sum()) if not run_df.empty else 0
+    low_margin_runs = int(
+        ((run_df["margin_per_gram"] >= 0) & (run_df["margin_per_gram"] < _ECC_LOW_MARGIN_PER_G_THRESHOLD)).sum()
+    ) if not run_df.empty else 0
+    extreme_cost_runs = int(
+        (run_df["cost_per_gram"] > run_df["market_price_per_gram"] * _ECC_EXTREME_COST_TO_VALUE_WARNING_RATIO).sum()
+    ) if not run_df.empty else 0
+    suspicious_profit_runs = int((run_df["margin_pct_est"] > _ECC_SUSPICIOUS_MARGIN_PCT_THRESHOLD).sum()) if not run_df.empty else 0
 
     render_extraction_kpi(
         [
@@ -4941,7 +4967,7 @@ def render_extraction_command_center():
                             f"Allocate grams from lot {lot_idx}",
                             min_value=0.0,
                             max_value=max_avail,
-                            value=min(50.0, max_avail),
+                            value=min(_ECC_DEFAULT_ALLOCATION_GRAMS, max_avail),
                             step=1.0,
                             key=f"ecc_allocate_amt_{lot_idx}",
                         )
@@ -5040,7 +5066,7 @@ def render_extraction_command_center():
 
                             if allocation_target == "Create new run draft":
                                 run_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                                run_batch_id = f"INV-DRAFT-{run_stamp}"
+                                run_batch_id = f"{_ECC_DRAFT_BATCH_PREFIX}-{run_stamp}"
                                 draft_row = pd.DataFrame(
                                     [
                                         {
@@ -5232,7 +5258,12 @@ def render_extraction_command_center():
         if not run_value_df.empty:
             value_context = {
                 "negative_margin_runs": int((run_value_df["margin_per_gram"] < 0).sum()),
-                "low_margin_runs": int(((run_value_df["margin_per_gram"] >= 0) & (run_value_df["margin_per_gram"] < 2)).sum()),
+                "low_margin_runs": int(
+                    (
+                        (run_value_df["margin_per_gram"] >= 0)
+                        & (run_value_df["margin_per_gram"] < _ECC_LOW_MARGIN_PER_G_THRESHOLD)
+                    ).sum()
+                ),
                 "total_estimated_profit_usd": float(run_value_df["total_profit_usd"].sum()),
                 "avg_cost_per_gram": float(run_value_df["cost_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0),
                 "avg_value_per_gram": float(run_value_df["market_price_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0),
