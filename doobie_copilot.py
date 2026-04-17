@@ -1,41 +1,58 @@
 import streamlit as st
-from doobielogic_client import buyer_intelligence, extraction_intelligence
+
 from doobie_settings import doobie_config_summary
+from services.doobie_client import DoobieClient
 
 
 def render_doobie_copilot(app_mode: str, section: str, buyer_payload=None, extraction_payload=None, state: str = "MA"):
-    with st.sidebar.expander("🧠 Doobie Copilot", expanded=False):
-        cfg = doobie_config_summary()
-        if not cfg["configured"]:
-            st.warning("DoobieLogic not configured. Add DOOBIELOGIC_URL in secrets.")
-            return
+    st.markdown("### 🛰️ Doobie Copilot Chat")
+    cfg = doobie_config_summary()
+    if not cfg["configured"]:
+        st.caption("AI unavailable")
+        return
 
-        st.caption("Doobie-only copilot. Routes all questions through the DoobieLogic backend.")
-        st.write(f"Mode: {app_mode}")
-        st.write(f"Section: {section}")
+    client = DoobieClient(base_url=cfg["url"], api_key=cfg["api_key"])
+    if not client.enabled:
+        st.caption("AI unavailable")
+        return
 
-        question = st.text_area(
-            "Ask Doobie",
-            value="What should I focus on next in this section?",
-            key=f"doobie_copilot_question_{section}",
-            height=100,
-        )
+    chat_key = f"doobie_chat_{section}"
+    if chat_key not in st.session_state:
+        st.session_state[chat_key] = []
 
-        if st.button("Run Doobie Copilot", key=f"run_doobie_copilot_{section}"):
-            with st.spinner("Thinking with DoobieLogic..."):
-                if "Extraction" in app_mode or "Extraction" in section:
-                    payload = extraction_payload if isinstance(extraction_payload, dict) else {}
-                    result, err = extraction_intelligence(question=question, state=state, run_payload=payload)
-                else:
-                    payload = buyer_payload if isinstance(buyer_payload, dict) else {}
-                    result, err = buyer_intelligence(question=question, state=state, inventory_payload=payload)
+    st.caption("Doobie support layer only. Buyer Dashboard remains source of truth.")
+    st.write(f"Mode: {app_mode} · Section: {section} · State: {state}")
 
-            if err:
-                st.error(err)
-            elif result:
-                st.markdown(result.get("answer", ""))
-                recs = result.get("recommendations", [])
-                if recs:
-                    st.markdown("#### Suggested next moves")
-                    for rec in recs:
-                        st.write(f"- {rec}")
+    for msg in st.session_state[chat_key]:
+        if msg["role"] == "user":
+            st.markdown(f"**You:** {msg['text']}")
+        else:
+            st.markdown(f"**Doobie:** {msg['text']}")
+
+    question = st.text_input(
+        "Ask Doobie",
+        key=f"doobie_copilot_question_{section}",
+        placeholder="What should I focus on next in this section?",
+    )
+
+    in_flight_key = f"doobie_copilot_inflight_{section}"
+    submit = st.button(
+        "Submit to Copilot",
+        key=f"run_doobie_copilot_{section}",
+        disabled=bool(st.session_state.get(in_flight_key)),
+    )
+    if submit and question.strip():
+        st.session_state[in_flight_key] = True
+        try:
+            with st.spinner("Doobie is thinking..."):
+                context_data = {
+                    "state": state,
+                    "buyer": buyer_payload if isinstance(buyer_payload, dict) else {},
+                    "extraction": extraction_payload if isinstance(extraction_payload, dict) else {},
+                }
+                result = client.copilot(question=question.strip(), data=context_data, persona="support")
+            st.session_state[chat_key].append({"role": "user", "text": question.strip()})
+            st.session_state[chat_key].append({"role": "assistant", "text": result.get("answer", "Doobie is currently unavailable.")})
+            st.rerun()
+        finally:
+            st.session_state[in_flight_key] = False

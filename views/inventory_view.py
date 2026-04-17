@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 
+from doobie_panels import run_inventory_doobie
 from ui.components import render_section_header, render_metric_card
 from core.session_keys import INV_RAW, SALES_RAW, BUYER_READY
 
@@ -60,3 +61,11 @@ def render_inventory_view():
     if isinstance(sales_df, pd.DataFrame):
         st.subheader("Sales Preview")
         st.dataframe(sales_df.head(50), use_container_width=True)
+
+    st.markdown("### AI Inventory Check")
+    prepared = st.session_state.get(BUYER_READY)
+    if isinstance(prepared, pd.DataFrame) and not prepared.empty:
+        if st.button("Run AI Inventory Check", key="inventory_page_doobie_check"):
+            run_inventory_doobie(prepared, state="MA")
+    else:
+        st.caption("AI unavailable")
