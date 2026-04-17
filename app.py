@@ -4351,6 +4351,13 @@ def render_extraction_command_center():
                     f"Source batches: {', '.join(source_batches) if source_batches else 'n/a'} | "
                     f"Source METRC IDs: {', '.join(source_metrc) if source_metrc else 'n/a'}"
                 )
+            linked_source_batch = str(selected_row.get("source_inventory_batch_id", "")).strip()
+            linked_source_material = str(selected_row.get("source_material_name", "")).strip()
+            if linked_source_batch or linked_source_material:
+                st.caption(
+                    f"Linked source lot: {linked_source_batch or 'n/a'} | "
+                    f"Source material: {linked_source_material or 'n/a'}"
+                )
 
             # ── Process status controls (preserved from original) ─────────
             st.markdown("#### Process Status")
@@ -4939,212 +4946,137 @@ def render_extraction_command_center():
             chart_card_end()
 
             st.markdown("### Inventory → Workflow Allocation")
-            st.caption("Reserve inventory lots and create a run draft or attach material to an existing run.")
+            st.caption("Select one lot, allocate grams, and create a queued run draft.")
             selectable_inv = filtered_inv[filtered_inv["available_weight_g"] > 0].copy()
             if selectable_inv.empty:
                 st.info("No available inventory lots match current filters.")
             else:
-                lot_labels = {
-                    idx: (
-                        f"{row.get('material_name', 'Material')} • Batch {row.get('batch_id_internal', 'N/A')} • "
-                        f"METRC {row.get('metrc_package_id', 'N/A')} • Avail {float(row.get('available_weight_g', 0.0)):.1f} g"
-                    )
-                    for idx, row in selectable_inv.iterrows()
-                }
-                selected_lots = st.multiselect(
-                    "Select Inventory Lots",
-                    options=list(lot_labels.keys()),
-                    format_func=lambda x: lot_labels.get(x, str(x)),
-                    key="ecc_allocate_selected_lots",
+                selectable_inv["batch_id_internal"] = selectable_inv["batch_id_internal"].fillna("").astype(str)
+                lot_idx_options = selectable_inv.index.tolist()
+                selected_lot_idx = st.selectbox(
+                    "Inventory Lot (batch_id_internal)",
+                    options=lot_idx_options,
+                    format_func=lambda idx: str(selectable_inv.loc[idx, "batch_id_internal"]).strip() or f"Lot {idx}",
+                    key="ecc_allocate_selected_lot",
                 )
+                selected_lot = selectable_inv.loc[selected_lot_idx]
+                selected_batch_id = str(selected_lot.get("batch_id_internal", "")).strip()
+                selected_metrc_id = str(selected_lot.get("metrc_package_id", "")).strip()
+                selected_material_name = str(selected_lot.get("material_name", "")).strip()
+                selected_available_weight = float(pd.to_numeric(selected_lot.get("available_weight_g", 0), errors="coerce") or 0.0)
+                selected_cost_per_g = float(pd.to_numeric(selected_lot.get("cost_per_g", 0), errors="coerce") or 0.0)
+                selected_intended_method = str(selected_lot.get("intended_method", "")).strip()
 
-                allocation_amounts: dict[int, float] = {}
-                if selected_lots:
-                    st.markdown("#### Allocation Amounts")
-                    for lot_idx in selected_lots:
-                        max_avail = float(selectable_inv.loc[lot_idx, "available_weight_g"])
-                        allocation_amounts[lot_idx] = st.number_input(
-                            f"Allocate grams from lot {lot_idx}",
-                            min_value=0.0,
-                            max_value=max_avail,
-                            value=min(_ECC_DEFAULT_ALLOCATION_GRAMS, max_avail),
-                            step=1.0,
-                            key=f"ecc_allocate_amt_{lot_idx}",
-                        )
-
-                alloc_a, alloc_b, alloc_c = st.columns(3)
+                alloc_a, alloc_b = st.columns(2)
                 with alloc_a:
-                    allocation_target = st.radio(
-                        "Allocation Target",
-                        options=["Create new run draft", "Attach to existing run"],
-                        key="ecc_allocation_target",
+                    allocation_weight_g = st.number_input(
+                        "allocation_weight_g",
+                        min_value=0.0,
+                        value=min(_ECC_DEFAULT_ALLOCATION_GRAMS, selected_available_weight),
+                        step=1.0,
+                        key="ecc_allocation_weight_g",
+                    )
+                    allocation_client = st.text_input(
+                        "client_name",
+                        value="In House",
+                        key="ecc_allocation_client_name",
                     )
                 with alloc_b:
+                    method_options = _ECC_METHOD_VALUES.copy()
+                    if selected_intended_method and selected_intended_method not in method_options:
+                        method_options = [selected_intended_method] + method_options
+                    default_method_idx = method_options.index(selected_intended_method) if selected_intended_method in method_options else 0
                     allocation_method = st.selectbox(
-                        "Assigned Method",
-                        options=_ECC_METHOD_VALUES,
-                        key="ecc_allocation_method",
+                        "method",
+                        options=method_options,
+                        index=default_method_idx,
+                        key="ecc_allocation_method_single",
                     )
-                with alloc_c:
-                    allocation_client = st.text_input(
-                        "Client / In-House",
-                        value="In House",
-                        key="ecc_allocation_client",
+                    st.caption(
+                        f"METRC: {selected_metrc_id or 'n/a'} | Material: {selected_material_name or 'n/a'} | "
+                        f"Available: {selected_available_weight:,.1f} g"
                     )
 
-                selected_existing_run_idx = None
-                if allocation_target == "Attach to existing run" and not st.session_state.ecc_run_log.empty:
-                    attach_df = _ecc_ensure_run_schema(st.session_state.ecc_run_log.copy()).reset_index()
-                    attach_df["run_label"] = (
-                        attach_df["run_date"].astype(str)
-                        + " • "
-                        + attach_df["batch_id_internal"].astype(str).replace("", "No Batch ID")
-                        + " • "
-                        + attach_df["method"].astype(str)
-                    )
-                    selected_run_label = st.selectbox(
-                        "Run to attach inventory",
-                        options=attach_df["run_label"].tolist(),
-                        key="ecc_allocate_attach_run",
-                    )
-                    if selected_run_label:
-                        selected_existing_run_idx = int(
-                            attach_df.loc[attach_df["run_label"] == selected_run_label, "index"].iloc[0]
+                if st.button("Create Run From Inventory", key="ecc_create_run_from_inventory", type="primary"):
+                    if allocation_weight_g <= 0:
+                        st.error("Allocation weight must be greater than 0 g.")
+                    elif allocation_weight_g > selected_available_weight:
+                        st.error(
+                            f"Allocation weight cannot exceed available weight ({selected_available_weight:,.1f} g)."
                         )
-
-                if st.button("Allocate to Workflow", key="ecc_allocate_to_workflow", type="primary"):
-                    if not selected_lots:
-                        st.warning("Select at least one lot to allocate.")
                     else:
-                        validation_errors: list[str] = []
-                        total_alloc_weight = 0.0
-                        total_alloc_cost = 0.0
-                        source_batch_ids: list[str] = []
-                        source_metrc_ids: list[str] = []
                         inv_working = _ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy())
-
-                        for lot_idx in selected_lots:
-                            alloc_weight = float(allocation_amounts.get(lot_idx, 0.0) or 0.0)
-                            available_weight = float(inv_working.loc[lot_idx, "available_weight_g"])
-                            if alloc_weight <= 0:
-                                validation_errors.append(f"Lot {lot_idx}: allocation must be greater than 0.")
-                                continue
-                            if alloc_weight > available_weight:
-                                validation_errors.append(
-                                    f"Lot {lot_idx}: cannot allocate {alloc_weight:.1f} g (available {available_weight:.1f} g)."
-                                )
-                                continue
-
-                            inv_working.loc[lot_idx, "reserved_weight_g"] = float(inv_working.loc[lot_idx, "reserved_weight_g"]) + alloc_weight
-                            inv_working.loc[lot_idx, "available_weight_g"] = max(
-                                float(inv_working.loc[lot_idx, "available_weight_g"]) - alloc_weight,
-                                0.0,
-                            )
-                            if inv_working.loc[lot_idx, "available_weight_g"] <= 0:
-                                inv_working.loc[lot_idx, "status"] = "Depleted"
-                            elif str(inv_working.loc[lot_idx, "status"]).strip().lower() == "available":
-                                inv_working.loc[lot_idx, "status"] = "Reserved"
-
-                            total_alloc_weight += alloc_weight
-                            lot_cost_per_g = float(pd.to_numeric(inv_working.loc[lot_idx, "cost_per_g"], errors="coerce") or 0.0)
-                            total_alloc_cost += alloc_weight * lot_cost_per_g
-                            lot_batch_id = str(inv_working.loc[lot_idx, "batch_id_internal"]).strip()
-                            lot_metrc_id = str(inv_working.loc[lot_idx, "metrc_package_id"]).strip()
-                            if lot_batch_id:
-                                source_batch_ids.append(lot_batch_id)
-                            if lot_metrc_id:
-                                source_metrc_ids.append(lot_metrc_id)
-
-                        if validation_errors:
-                            for msg in validation_errors:
-                                st.warning(msg)
+                        if selected_lot_idx not in inv_working.index:
+                            st.error("Selected lot was not found in inventory. Please refresh selection.")
                         else:
-                            st.session_state.ecc_inventory_log = inv_working[_ECC_INVENTORY_COLUMNS].copy()
-                            run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(st.session_state.ecc_run_log.copy()))
-                            source_batch_ids = list(dict.fromkeys(source_batch_ids))
-                            source_metrc_ids = list(dict.fromkeys(source_metrc_ids))
+                            available_before = float(pd.to_numeric(inv_working.loc[selected_lot_idx, "available_weight_g"], errors="coerce") or 0.0)
+                            if allocation_weight_g > available_before:
+                                st.error(
+                                    f"Allocation weight cannot exceed available weight ({available_before:,.1f} g)."
+                                )
+                            else:
+                                inv_working.loc[selected_lot_idx, "available_weight_g"] = max(
+                                    available_before - float(allocation_weight_g),
+                                    0.0,
+                                )
+                                if "reserved_weight_g" in inv_working.columns:
+                                    reserved_before = float(pd.to_numeric(inv_working.loc[selected_lot_idx, "reserved_weight_g"], errors="coerce") or 0.0)
+                                    inv_working.loc[selected_lot_idx, "reserved_weight_g"] = max(
+                                        reserved_before + float(allocation_weight_g),
+                                        0.0,
+                                    )
+                                if inv_working.loc[selected_lot_idx, "available_weight_g"] <= 0:
+                                    inv_working.loc[selected_lot_idx, "status"] = "Depleted"
+                                elif str(inv_working.loc[selected_lot_idx, "status"]).strip().lower() == "available":
+                                    inv_working.loc[selected_lot_idx, "status"] = "Reserved"
+                                st.session_state.ecc_inventory_log = inv_working[_ECC_INVENTORY_COLUMNS].copy()
 
-                            if allocation_target == "Create new run draft":
-                                run_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                                run_batch_id = f"{_ECC_DRAFT_BATCH_PREFIX}-{run_stamp}"
+                                if "ecc_run_log" not in st.session_state:
+                                    st.session_state.ecc_run_log = []
+                                existing_run_log = st.session_state.ecc_run_log
+                                if isinstance(existing_run_log, list):
+                                    run_log = pd.DataFrame(existing_run_log)
+                                else:
+                                    run_log = existing_run_log.copy()
+                                run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
+
+                                run_id_values = (
+                                    run_log.get("batch_id_internal", pd.Series(dtype="object"))
+                                    .fillna("")
+                                    .astype(str)
+                                    .str.extract(r"^RUN-(\d{4})$")[0]
+                                )
+                                next_run_num = int(pd.to_numeric(run_id_values, errors="coerce").max() or 0) + 1
+                                run_batch_id = f"RUN-{next_run_num:04d}"
+                                allocation_cost_total = float(allocation_weight_g) * selected_cost_per_g
+
                                 draft_row = pd.DataFrame(
                                     [
                                         {
                                             "run_date": str(datetime.today().date()),
-                                            "state": selected_state if selected_state != "All" else "Other",
-                                            "license_name": st.session_state.get("ecc_license_name", ""),
-                                            "client_name": allocation_client or "In House",
                                             "batch_id_internal": run_batch_id,
-                                            "metrc_package_id_input": source_metrc_ids[0] if source_metrc_ids else "",
-                                            "metrc_package_id_output": "",
-                                            "metrc_manifest_or_transfer_id": "",
+                                            "client_name": allocation_client or "In House",
                                             "method": allocation_method,
-                                            "product_type": "Other",
-                                            "downstream_product": "N/A",
-                                            "process_stage": "Intake",
-                                            "intake_complete": False,
-                                            "extraction_complete": False,
-                                            "post_process_complete": False,
-                                            "formulation_complete": False,
-                                            "filling_complete": False,
-                                            "packaging_complete": False,
-                                            "ready_for_transfer": False,
-                                            "input_material_type": "Mixed / TBD",
-                                            "input_weight_g": total_alloc_weight,
-                                            "cost_per_input_gram": _ecc_safe_div(total_alloc_cost, total_alloc_weight),
-                                            "intermediate_output_g": 0.0,
-                                            "finished_output_g": 0.0,
-                                            "residual_loss_g": 0.0,
-                                            "yield_pct": 0.0,
-                                            "post_process_efficiency_pct": 0.0,
-                                            "operator": "",
-                                            "machine_line": "",
+                                            "process_stage": "Queued",
                                             "status": "Queued",
-                                            "toll_processing": False,
-                                            "processing_fee_usd": 0.0,
-                                            "est_revenue_usd": 0.0,
-                                            "cogs_usd": 0.0,
-                                            "coa_status": "Pending",
-                                            "qa_hold": False,
-                                            "source_inventory_batch_ids": _ecc_serialize_list_field(source_batch_ids),
-                                            "source_inventory_metrc_ids": _ecc_serialize_list_field(source_metrc_ids),
-                                            "allocated_input_weight_g": total_alloc_weight,
-                                            "allocated_input_cost_total": total_alloc_cost,
+                                            "input_weight_g": float(allocation_weight_g),
+                                            "source_inventory_batch_id": selected_batch_id,
+                                            "source_inventory_metrc_id": selected_metrc_id,
+                                            "source_material_name": selected_material_name,
+                                            "source_inventory_batch_ids": _ecc_serialize_list_field([selected_batch_id] if selected_batch_id else []),
+                                            "source_inventory_metrc_ids": _ecc_serialize_list_field([selected_metrc_id] if selected_metrc_id else []),
                                             "inventory_linked": True,
-                                            "notes": f"Draft created from {len(selected_lots)} inventory lot(s).",
+                                            "allocated_input_weight_g": float(allocation_weight_g),
+                                            "allocated_input_cost_total": allocation_cost_total,
+                                            "input_cost_total": allocation_cost_total,
                                         }
                                     ]
                                 )
                                 run_log = pd.concat([run_log, draft_row], ignore_index=True)
                                 st.session_state.ecc_run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
-                                st.success(f"Allocated {total_alloc_weight:,.1f} g into new run draft {run_batch_id}.")
-                            else:
-                                if selected_existing_run_idx is None:
-                                    st.warning("Select an existing run to attach allocated inventory.")
-                                else:
-                                    existing_batches = _ecc_parse_list_field(run_log.loc[selected_existing_run_idx, "source_inventory_batch_ids"])
-                                    existing_metrc = _ecc_parse_list_field(run_log.loc[selected_existing_run_idx, "source_inventory_metrc_ids"])
-                                    merged_batches = list(dict.fromkeys(existing_batches + source_batch_ids))
-                                    merged_metrc = list(dict.fromkeys(existing_metrc + source_metrc_ids))
-                                    run_log.loc[selected_existing_run_idx, "source_inventory_batch_ids"] = _ecc_serialize_list_field(merged_batches)
-                                    run_log.loc[selected_existing_run_idx, "source_inventory_metrc_ids"] = _ecc_serialize_list_field(merged_metrc)
-                                    run_log.loc[selected_existing_run_idx, "allocated_input_weight_g"] = float(
-                                        run_log.loc[selected_existing_run_idx, "allocated_input_weight_g"]
-                                    ) + total_alloc_weight
-                                    run_log.loc[selected_existing_run_idx, "allocated_input_cost_total"] = float(
-                                        run_log.loc[selected_existing_run_idx, "allocated_input_cost_total"]
-                                    ) + total_alloc_cost
-                                    run_log.loc[selected_existing_run_idx, "inventory_linked"] = True
-                                    if float(run_log.loc[selected_existing_run_idx, "input_weight_g"]) <= 0:
-                                        run_log.loc[selected_existing_run_idx, "input_weight_g"] = float(
-                                            run_log.loc[selected_existing_run_idx, "allocated_input_weight_g"]
-                                        )
-                                    if str(run_log.loc[selected_existing_run_idx, "method"]).strip() in {"", "Mixed / TBD"}:
-                                        run_log.loc[selected_existing_run_idx, "method"] = allocation_method
-                                    st.session_state.ecc_run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
-                                    st.success(
-                                        f"Allocated {total_alloc_weight:,.1f} g to existing run and linked {len(source_batch_ids)} source batch(es)."
-                                    )
+                                st.success(
+                                    f"Created run {run_batch_id} with {float(allocation_weight_g):,.1f} g from lot {selected_batch_id or 'n/a'}."
+                                )
 
     with toll_tab:
         st.subheader("Toll Processing Command View")
