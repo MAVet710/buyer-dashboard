@@ -3135,10 +3135,6 @@ _ECC_VALUE_FIELDS: list[str] = [
     "output_mapping_warning",
     "normalized_output_type",
 ]
-_ECC_MANUAL_VALUE_FIELDS: list[str] = [
-    "manual_cost_per_gram",
-    "manual_market_price_per_gram",
-]
 
 
 def _ecc_norm_price_key(value: Any) -> str:
@@ -3226,9 +3222,6 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
                 out[col] = ""
             else:
                 out[col] = False if col == "unmapped_output_type" else 0.0
-    for col in _ECC_MANUAL_VALUE_FIELDS:
-        if col not in out.columns:
-            out[col] = 0.0
     out["inventory_linked"] = out["inventory_linked"].fillna(False).astype(bool)
     for numeric_col in [
         "allocated_input_weight_g",
@@ -3250,8 +3243,6 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
     out["output_mapping_warning"] = out["output_mapping_warning"].fillna("").astype(str)
     out["normalized_output_type"] = out["normalized_output_type"].fillna("").astype(str)
     out["unmapped_output_type"] = out["unmapped_output_type"].fillna(False).astype(bool)
-    for numeric_col in _ECC_MANUAL_VALUE_FIELDS:
-        out[numeric_col] = pd.to_numeric(out[numeric_col], errors="coerce").fillna(0.0)
     if "finished_product_type" not in out.columns:
         out["finished_product_type"] = out.get("product_type", "Other")
     out["finished_product_type"] = out["finished_product_type"].fillna(out.get("product_type", "Other")).astype(str)
@@ -3342,13 +3333,6 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
         total_cost = input_cost_total + operational_cost_total
         cost_per_gram = _ecc_safe_div(total_cost, finished_output_g)
         market_price_per_gram, normalized_output_type, is_unmapped_output = _ecc_get_market_price_per_gram(row)
-        manual_cost_override = float(pd.to_numeric(row.get("manual_cost_per_gram", np.nan), errors="coerce") or 0.0)
-        manual_market_price_override = float(pd.to_numeric(row.get("manual_market_price_per_gram", np.nan), errors="coerce") or 0.0)
-        if manual_cost_override > 0:
-            cost_per_gram = manual_cost_override
-            total_cost = round(cost_per_gram * finished_output_g, 4)
-        if manual_market_price_override > 0:
-            market_price_per_gram = manual_market_price_override
         estimated_value_usd = finished_output_g * market_price_per_gram
         margin_per_gram = market_price_per_gram - cost_per_gram
         total_profit_usd = estimated_value_usd - total_cost
@@ -4521,7 +4505,7 @@ def render_extraction_command_center():
                     step=0.1,
                     value=float(selected_row.get("manual_cost_per_gram", 0.0) or 0.0),
                     help="Optional manual override. Set to 0 to use calculated cost-per-gram.",
-                    key=manual_cost_key,
+                    key=f"ecc_manual_cost_per_g_update_{int(selected_idx)}",
                 )
             with ov2:
                 manual_value_per_g = st.number_input(
@@ -4530,7 +4514,7 @@ def render_extraction_command_center():
                     step=0.1,
                     value=float(selected_row.get("manual_market_price_per_gram", 0.0) or 0.0),
                     help="Optional manual override. Set to 0 to use taxonomy/method market value mapping.",
-                    key=manual_value_key,
+                    key=f"ecc_manual_value_per_g_update_{int(selected_idx)}",
                 )
 
             # ── Process status controls (preserved from original) ─────────
@@ -4728,8 +4712,6 @@ def render_extraction_command_center():
                 st.session_state.ecc_run_log.loc[selected_idx, "product_type"] = normalized_product_type
                 st.session_state.ecc_run_log.loc[selected_idx, "finished_product_type"] = normalized_product_type
                 st.session_state.ecc_run_log.loc[selected_idx, "downstream_product"] = normalized_downstream
-                st.session_state.ecc_run_log.loc[selected_idx, "manual_cost_per_gram"] = float(manual_cost_per_g or 0.0)
-                st.session_state.ecc_run_log.loc[selected_idx, "manual_market_price_per_gram"] = float(manual_value_per_g or 0.0)
                 st.session_state.ecc_run_log.loc[selected_idx, "coa_status"] = updated_coa
                 st.session_state.ecc_run_log.loc[selected_idx, "qa_hold"] = updated_qa_hold
                 st.session_state.ecc_run_log.loc[selected_idx, "intake_complete"] = intake_complete
