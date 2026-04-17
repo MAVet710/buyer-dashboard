@@ -3002,6 +3002,135 @@ _ECC_MATERIAL_TYPES = [
 _ECC_STATUS_VALUES = ["Available", "Reserved", "In Process", "Quarantine", "Depleted"]
 _ECC_METHOD_VALUES = ["BHO", "CO2", "Rosin", "Ethanol", "Mixed / TBD"]
 _ECC_METHOD_DEFAULT_YIELD = {"BHO": 15.0, "CO2": 12.0, "Rosin": 8.0, "Ethanol": 14.0}
+EXTRACTION_METHOD_FAMILY_MAP: dict[str, str] = {
+    "BHO": "Hydrocarbon",
+    "PHO": "Hydrocarbon",
+    "Hydrocarbon Blend": "Hydrocarbon",
+    "Ethanol": "Ethanol",
+    "CO2": "CO2",
+    "Ice Water Hash": "Ice Water Hash",
+    "Dry Sift": "Dry Sift",
+    "Rosin": "Rosin",
+}
+EXTRACTION_METHOD_OPTIONS = ["BHO", "CO2", "Rosin", "Ethanol", "Ice Water Hash", "Dry Sift", "PHO", "Hydrocarbon Blend"]
+EXTRACTION_WORKFLOW_TEMPLATES: dict[str, list[str]] = {
+    "Hydrocarbon": [
+        "Intake",
+        "Extraction",
+        "Solvent Recovery / Purge",
+        "Dewax / Post-Process",
+        "Separation / Crystallization",
+        "Formulation",
+        "Filling / Packaging",
+        "Final Output",
+    ],
+    "Ethanol": [
+        "Intake",
+        "Extraction / Wash",
+        "Solvent Recovery",
+        "Winterization",
+        "Filtration",
+        "Decarboxylation",
+        "Distillation",
+        "Formulation",
+        "Filling / Packaging",
+        "Final Output",
+    ],
+    "CO2": [
+        "Intake",
+        "Extraction",
+        "Separation",
+        "Refinement",
+        "Winterization",
+        "Decarboxylation",
+        "Distillation",
+        "Formulation",
+        "Filling / Packaging",
+        "Final Output",
+    ],
+    "Ice Water Hash": [
+        "Intake",
+        "Wash / Agitation",
+        "Bag Separation",
+        "Drying",
+        "Grading",
+        "Rosin Press",
+        "Final Output",
+    ],
+    "Dry Sift": [
+        "Intake",
+        "Screening / Sifting",
+        "Refinement",
+        "Pressed Hash",
+        "Rosin Press",
+        "Final Output",
+    ],
+    "Rosin": [
+        "Intake",
+        "Preparation / Bagging",
+        "Press",
+        "Collection",
+        "Curing / Jar Tech",
+        "Formulation",
+        "Filling / Packaging",
+        "Final Output",
+    ],
+}
+EXTRACTION_INTERMEDIATE_PRODUCT_OPTIONS = [
+    "Crude Oil",
+    "Winterized Oil",
+    "Filtered Oil",
+    "Decarbed Oil",
+    "Distillate",
+    "Live Resin Fraction",
+    "Bubble Hash",
+    "Dry Sift",
+    "Rosin",
+]
+EXTRACTION_TERPENE_HANDLING_MODES = [
+    "Native / No Add-Back",
+    "Reintroduced Cannabis Terpenes",
+    "Botanically Derived Terpenes",
+    "Terp Fraction Recombined",
+    "Custom Blend",
+]
+EXTRACTION_METHOD_STAGE_OUTPUT_FIELDS: dict[str, list[tuple[str, str]]] = {
+    "Hydrocarbon": [
+        ("extraction_output_g", "Extraction Output (g)"),
+        ("purge_output_g", "Purge Output (g)"),
+        ("crystallization_output_g", "Crystallization Output (g)"),
+        ("sauce_fraction_g", "Sauce Fraction (g)"),
+        ("diamond_fraction_g", "Diamond Fraction (g)"),
+    ],
+    "Ethanol": [
+        ("crude_output_g", "Crude Output (g)"),
+        ("winterized_output_g", "Winterized Output (g)"),
+        ("filtered_output_g", "Filtered Output (g)"),
+        ("decarbed_output_g", "Decarbed Output (g)"),
+        ("distillate_output_g", "Distillate Output (g)"),
+    ],
+    "CO2": [
+        ("crude_output_g", "Crude Output (g)"),
+        ("winterized_output_g", "Winterized Output (g)"),
+        ("filtered_output_g", "Filtered Output (g)"),
+        ("decarbed_output_g", "Decarbed Output (g)"),
+        ("distillate_output_g", "Distillate Output (g)"),
+    ],
+    "Ice Water Hash": [
+        ("wash_output_g", "Wash Output (g)"),
+        ("dried_hash_output_g", "Dried Hash Output (g)"),
+        ("rosin_output_g", "Rosin Output (g)"),
+    ],
+    "Dry Sift": [
+        ("sift_output_g", "Sift Output (g)"),
+        ("pressed_hash_output_g", "Pressed Hash Output (g)"),
+        ("rosin_output_g", "Rosin Output (g)"),
+    ],
+    "Rosin": [
+        ("rosin_output_g", "Rosin Output (g)"),
+        ("jar_tech_output_g", "Curing / Jar Tech Output (g)"),
+    ],
+}
 # Centralized extraction output taxonomy used across run forms, process updates,
 # valuation mapping, and chart grouping logic.
 EXTRACTION_OUTPUT_OPTIONS: dict[str, list[str]] = {
@@ -3119,6 +3248,13 @@ _ECC_TRACEABILITY_FIELDS: list[str] = [
     "allocated_input_weight_g",
     "allocated_input_cost_total",
     "inventory_linked",
+    "metrc_input_package_id",
+    "metrc_intermediate_package_id",
+    "metrc_distillate_package_id",
+    "metrc_formulation_package_id",
+    "metrc_final_package_id",
+    "metrc_stage_input_id",
+    "metrc_stage_output_id",
 ]
 _ECC_VALUE_FIELDS: list[str] = [
     "input_cost_total",
@@ -3154,6 +3290,40 @@ def normalize_extraction_output_label(value: Any) -> str:
     if alias_match:
         return alias_match
     return EXTRACTION_OUTPUT_NORM_LOOKUP.get(key, raw)
+
+
+def _ecc_get_method_family(method: Any) -> str:
+    method_text = str(method or "").strip()
+    return EXTRACTION_METHOD_FAMILY_MAP.get(method_text, method_text if method_text in EXTRACTION_WORKFLOW_TEMPLATES else "Hydrocarbon")
+
+
+def _ecc_get_workflow_stages(method: Any, workflow_template: Any = "") -> list[str]:
+    template = str(workflow_template or "").strip()
+    if template in EXTRACTION_WORKFLOW_TEMPLATES:
+        return EXTRACTION_WORKFLOW_TEMPLATES[template]
+    family = _ecc_get_method_family(method)
+    return EXTRACTION_WORKFLOW_TEMPLATES.get(family, EXTRACTION_WORKFLOW_TEMPLATES["Hydrocarbon"])
+
+
+def _ecc_workflow_supports_formulation(method: Any, workflow_template: Any = "") -> bool:
+    return "Formulation" in _ecc_get_workflow_stages(method, workflow_template)
+
+
+def _ecc_validate_terpene_percentage(terpene_pct: float) -> tuple[bool, str]:
+    if terpene_pct < 0:
+        return False, "Terpene % cannot be negative."
+    if terpene_pct > 15:
+        return False, "Terpene % above 15% is unusually high. Verify formulation."
+    if terpene_pct > 12:
+        return True, "Terpene % is high for most vape/concentrate formulations; review if intentional."
+    return True, ""
+
+
+def _ecc_compute_formulation_terpene_weight(formulation_base_g: float, terpene_pct: float, manual_terpene_weight_g: float) -> float:
+    manual_val = float(manual_terpene_weight_g or 0.0)
+    if manual_val > 0:
+        return manual_val
+    return float(formulation_base_g or 0.0) * float(terpene_pct or 0.0) / 100.0
 
 
 def _ecc_parse_list_field(raw_value: Any) -> list[str]:
@@ -3192,10 +3362,12 @@ def _ecc_safe_div(numerator: Any, denominator: Any) -> float:
 
 
 def _ecc_get_market_price_per_gram(row: pd.Series) -> tuple[float, str, bool]:
-    """Return market price by priority: downstream product → finished product type → product type → method."""
+    """Return market price by priority: final product type → downstream product → intermediate type → method fallback."""
     candidates = [
+        normalize_extraction_output_label(row.get("final_product_type", "")),
         normalize_extraction_output_label(row.get("downstream_product", "")),
         normalize_extraction_output_label(row.get("finished_product_type", "")),
+        normalize_extraction_output_label(row.get("intermediate_product_type", "")),
         normalize_extraction_output_label(row.get("product_type", "")),
     ]
     for label in candidates:
@@ -3223,6 +3395,25 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
             else:
                 out[col] = False if col == "unmapped_output_type" else 0.0
     out["inventory_linked"] = out["inventory_linked"].fillna(False).astype(bool)
+    text_defaults = {
+        "workflow_template": "",
+        "intermediate_product_type": "",
+        "final_product_type": "",
+        "formulation_base_g": 0.0,
+        "terpene_handling_mode": "",
+        "terpene_type": "",
+        "terpene_source": "",
+        "terpene_percentage": 0.0,
+        "terpene_weight_g": 0.0,
+        "formulation_applied": False,
+    }
+    for col, default_val in text_defaults.items():
+        if col not in out.columns:
+            out[col] = default_val
+    for output_fields in EXTRACTION_METHOD_STAGE_OUTPUT_FIELDS.values():
+        for field_name, _ in output_fields:
+            if field_name not in out.columns:
+                out[field_name] = 0.0
     for numeric_col in [
         "allocated_input_weight_g",
         "allocated_input_cost_total",
@@ -3235,6 +3426,9 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
         "margin_per_gram",
         "total_profit_usd",
         "margin_pct_est",
+        "formulation_base_g",
+        "terpene_percentage",
+        "terpene_weight_g",
     ]:
         out[numeric_col] = pd.to_numeric(out[numeric_col], errors="coerce").fillna(0.0)
     for list_col in ["source_inventory_batch_ids", "source_inventory_metrc_ids"]:
@@ -3246,6 +3440,13 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
     if "finished_product_type" not in out.columns:
         out["finished_product_type"] = out.get("product_type", "Other")
     out["finished_product_type"] = out["finished_product_type"].fillna(out.get("product_type", "Other")).astype(str)
+    out["workflow_template"] = out["workflow_template"].fillna("").astype(str)
+    out["intermediate_product_type"] = out["intermediate_product_type"].fillna("").astype(str)
+    out["final_product_type"] = out["final_product_type"].fillna("").astype(str)
+    out["terpene_handling_mode"] = out["terpene_handling_mode"].fillna("").astype(str)
+    out["terpene_type"] = out["terpene_type"].fillna("").astype(str)
+    out["terpene_source"] = out["terpene_source"].fillna("").astype(str)
+    out["formulation_applied"] = out["formulation_applied"].fillna(False).astype(bool)
     return out
 
 
@@ -3619,11 +3820,14 @@ def _compute_mass_balance(df: pd.DataFrame) -> pd.DataFrame:
         if "method" in df.columns
         else pd.Series(40.0, index=df.index)
     )
+    terpene_allowance = pd.to_numeric(df.get("terpene_weight_g", 0.0), errors="coerce").fillna(0.0)
+    formulation_applied = df.get("formulation_applied", pd.Series(False, index=df.index)).fillna(False).astype(bool)
+    allowed_final_cap = last_upstream + terpene_allowance.where(formulation_applied, other=0.0)
     critical_mask = (
         ((ext > df["input_weight_g"]) & (df["input_weight_g"] > 0) & (ext > 0))
         | ((pp > ext) & (ext > 0) & (pp > 0))
         | ((dist > pp) & (pp > 0) & (dist > 0))
-        | ((final > last_upstream) & (last_upstream > 0) & (final > 0))
+        | ((final > allowed_final_cap) & (last_upstream > 0) & (final > 0))
     )
     warning_mask = (
         (df["final_yield_pct"] > method_thresh) & (df["input_weight_g"] > 0)
@@ -3653,9 +3857,19 @@ def render_extraction_command_center():
                     "metrc_package_id_input": "1A4060300000000000001111",
                     "metrc_package_id_output": "1A4060300000000000002222",
                     "metrc_manifest_or_transfer_id": "TR-001",
+                    "metrc_input_package_id": "1A4060300000000000001111",
+                    "metrc_intermediate_package_id": "",
+                    "metrc_distillate_package_id": "",
+                    "metrc_formulation_package_id": "",
+                    "metrc_final_package_id": "1A4060300000000000002222",
+                    "metrc_stage_input_id": "",
+                    "metrc_stage_output_id": "",
                     "method": "BHO",
+                    "workflow_template": "Hydrocarbon",
                     "strain": "The 4th Kind",
                     "product_type": "Sugar",
+                    "intermediate_product_type": "Live Resin Fraction",
+                    "final_product_type": "Sugar",
                     "downstream_product": "N/A",
                     "process_stage": "Packaged",
                     "intake_complete": True,
@@ -3680,6 +3894,13 @@ def render_extraction_command_center():
                     "distillation_output_g": 0.0,
                     "distillation_loss_g": 0.0,
                     "final_output_g": 430.0,
+                    "formulation_base_g": 0.0,
+                    "formulation_applied": False,
+                    "terpene_handling_mode": "Native / No Add-Back",
+                    "terpene_type": "",
+                    "terpene_source": "",
+                    "terpene_percentage": 0.0,
+                    "terpene_weight_g": 0.0,
                     "final_loss_g": 0.0,
                     "extraction_yield_pct": 19.2,
                     "post_process_yield_pct": 17.2,
@@ -3755,7 +3976,7 @@ def render_extraction_command_center():
     with st.sidebar:
         st.markdown("### 🧪 Extraction Controls")
         states = ["All", "MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"]
-        methods = ["All", "BHO", "CO2", "Rosin", "Ethanol"]
+        methods = ["All"] + EXTRACTION_METHOD_OPTIONS
 
         selected_state = st.selectbox("State", states, index=0, key="ecc_selected_state")
         selected_method = st.selectbox("Extraction Method", methods, index=0, key="ecc_selected_method")
@@ -3891,6 +4112,11 @@ def render_extraction_command_center():
             if "downstream_product" in display_df.columns
             else pd.Series("", index=display_df.index)
         )
+        final_product_series = (
+            display_df["final_product_type"].fillna("").astype(str).map(normalize_extraction_output_label)
+            if "final_product_type" in display_df.columns
+            else pd.Series("", index=display_df.index)
+        )
         finished_product_series = (
             display_df["finished_product_type"].fillna("").astype(str).map(normalize_extraction_output_label)
             if "finished_product_type" in display_df.columns
@@ -3901,9 +4127,14 @@ def render_extraction_command_center():
             if "product_type" in display_df.columns
             else pd.Series("Other", index=display_df.index)
         )
-        display_df["product_bucket"] = downstream_series
+        display_df["product_bucket"] = final_product_series
         display_df["product_bucket"] = np.where(
             display_df["product_bucket"].astype(str).str.strip().eq(""),
+            downstream_series,
+            display_df["product_bucket"],
+        )
+        display_df["product_bucket"] = np.where(
+            pd.Series(display_df["product_bucket"]).astype(str).str.strip().eq(""),
             finished_product_series,
             display_df["product_bucket"],
         )
@@ -4243,11 +4474,32 @@ def render_extraction_command_center():
                 license_name = st.text_input("Facility / License Name", key="ecc_license_name")
                 client_name = st.text_input("Client Name", value="In House", key="ecc_client_name")
                 batch_id_internal = st.text_input("Internal Batch ID", key="ecc_batch_id")
-                method = st.selectbox("Method", ["BHO", "CO2", "Rosin", "Ethanol"], key="ecc_method")
+                method = st.selectbox("Method", EXTRACTION_METHOD_OPTIONS, key="ecc_method")
+                workflow_family_default = _ecc_get_method_family(method)
+                workflow_template = st.selectbox(
+                    "Workflow Template",
+                    list(EXTRACTION_WORKFLOW_TEMPLATES.keys()),
+                    index=list(EXTRACTION_WORKFLOW_TEMPLATES.keys()).index(workflow_family_default)
+                    if workflow_family_default in EXTRACTION_WORKFLOW_TEMPLATES
+                    else 0,
+                    key="ecc_workflow_template",
+                )
+                stage_options = _ecc_get_workflow_stages(method, workflow_template)
                 product_type = st.selectbox(
                     "Product Type",
                     EXTRACTION_PRODUCT_TYPE_OPTIONS,
                     key="ecc_product_type",
+                )
+                intermediate_product_type = st.selectbox(
+                    "Intermediate Product Type",
+                    [""] + EXTRACTION_INTERMEDIATE_PRODUCT_OPTIONS,
+                    key="ecc_intermediate_product_type",
+                )
+                final_product_type = st.selectbox(
+                    "Final Product Type",
+                    [""] + EXTRACTION_PRODUCT_TYPE_OPTIONS,
+                    key="ecc_final_product_type",
+                    help="Used for valuation priority and finished-product KPIs.",
                 )
                 downstream_product = st.selectbox(
                     "Downstream Product Path",
@@ -4257,7 +4509,7 @@ def render_extraction_command_center():
                 )
                 process_stage = st.selectbox(
                     "Current Process Stage",
-                    ["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"],
+                    stage_options,
                     index=0,
                     key="ecc_process_stage",
                 )
@@ -4286,13 +4538,46 @@ def render_extraction_command_center():
                 )
                 operator = st.text_input("Operator", key="ecc_operator")
                 machine_line = st.text_input("Machine / Line", key="ecc_machine_line")
+                formulation_base_g = st.number_input(
+                    "Formulation Base (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    key="ecc_formulation_base_g",
+                    help="Optional base mass entering formulation stage.",
+                )
+                terpene_percentage = st.number_input(
+                    "Terpene % (optional)",
+                    min_value=0.0,
+                    step=0.1,
+                    key="ecc_terpene_percentage",
+                )
+                terpene_weight_g = st.number_input(
+                    "Terpene Weight (g, optional override)",
+                    min_value=0.0,
+                    step=0.1,
+                    key="ecc_terpene_weight_g",
+                )
             with r3:
                 metrc_package_id_input = st.text_input("METRC Package ID - Input", key="ecc_pkg_input")
                 metrc_package_id_output = st.text_input("METRC Package ID - Output", key="ecc_pkg_output")
+                metrc_input_package_id = st.text_input("METRC Input Package ID", key="ecc_metrc_input_package_id")
+                metrc_intermediate_package_id = st.text_input("METRC Intermediate Package ID", key="ecc_metrc_intermediate_package_id")
+                metrc_distillate_package_id = st.text_input("METRC Distillate Package ID", key="ecc_metrc_distillate_package_id")
+                metrc_formulation_package_id = st.text_input("METRC Formulation Package ID", key="ecc_metrc_formulation_package_id")
+                metrc_final_package_id = st.text_input("METRC Final Package ID", key="ecc_metrc_final_package_id")
+                metrc_stage_input_id = st.text_input("METRC Stage Input ID", key="ecc_metrc_stage_input_id")
+                metrc_stage_output_id = st.text_input("METRC Stage Output ID", key="ecc_metrc_stage_output_id")
                 metrc_manifest_or_transfer_id = st.text_input(
                     "METRC Manifest / Transfer ID",
                     key="ecc_manifest_id",
                 )
+                terpene_handling_mode = st.selectbox(
+                    "Terpene Handling Mode",
+                    [""] + EXTRACTION_TERPENE_HANDLING_MODES,
+                    key="ecc_terpene_handling_mode",
+                )
+                terpene_type = st.text_input("Terpene Type (optional)", key="ecc_terpene_type")
+                terpene_source = st.text_input("Terpene Source (optional)", key="ecc_terpene_source")
                 coa_status = st.selectbox(
                     "COA Status",
                     ["Pending", "Passed", "Failed", "Not Submitted"],
@@ -4308,10 +4593,42 @@ def render_extraction_command_center():
                 )
                 cogs_usd = st.number_input("COGS (USD)", min_value=0.0, step=10.0, key="ecc_cogs")
                 notes = st.text_area("Run Notes", key="ecc_notes")
+                stage_output_inputs: dict[str, float] = {}
+                stage_fields = EXTRACTION_METHOD_STAGE_OUTPUT_FIELDS.get(workflow_template, [])
+                if stage_fields:
+                    st.markdown("**Method-Aware Stage Outputs (optional)**")
+                    for field_name, field_label in stage_fields:
+                        stage_output_inputs[field_name] = st.number_input(
+                            field_label,
+                            min_value=0.0,
+                            step=0.1,
+                            key=f"ecc_add_{field_name}",
+                        )
 
             if st.button("Add Run", type="primary", key="ecc_add_run"):
-                yield_pct = (finished_output_g / input_weight_g * 100) if input_weight_g else 0.0
-                post_eff = (finished_output_g / intermediate_output_g * 100) if intermediate_output_g else 0.0
+                terpene_ok, terpene_msg = _ecc_validate_terpene_percentage(float(terpene_percentage or 0.0))
+                if not terpene_ok:
+                    st.error(terpene_msg)
+                    st.stop()
+                if terpene_msg:
+                    st.warning(terpene_msg)
+                formulation_applied = _ecc_workflow_supports_formulation(method, workflow_template) and (
+                    float(formulation_base_g or 0.0) > 0
+                    or float(terpene_percentage or 0.0) > 0
+                    or float(terpene_weight_g or 0.0) > 0
+                    or str(terpene_handling_mode or "").strip() not in {"", "Native / No Add-Back"}
+                )
+                terpene_weight_calc_g = _ecc_compute_formulation_terpene_weight(
+                    float(formulation_base_g or intermediate_output_g or finished_output_g or 0.0),
+                    float(terpene_percentage or 0.0),
+                    float(terpene_weight_g or 0.0),
+                )
+                adjusted_final_output_g = float(finished_output_g or 0.0)
+                if formulation_applied:
+                    base_for_formulation = float(formulation_base_g or finished_output_g or intermediate_output_g or 0.0)
+                    adjusted_final_output_g = base_for_formulation + float(terpene_weight_calc_g or 0.0)
+                yield_pct = (adjusted_final_output_g / input_weight_g * 100) if input_weight_g else 0.0
+                post_eff = (adjusted_final_output_g / intermediate_output_g * 100) if intermediate_output_g else 0.0
                 new_row = pd.DataFrame(
                     [
                         {
@@ -4322,27 +4639,44 @@ def render_extraction_command_center():
                             "batch_id_internal": batch_id_internal,
                             "metrc_package_id_input": metrc_package_id_input,
                             "metrc_package_id_output": metrc_package_id_output,
+                            "metrc_input_package_id": metrc_input_package_id or metrc_package_id_input,
+                            "metrc_intermediate_package_id": metrc_intermediate_package_id,
+                            "metrc_distillate_package_id": metrc_distillate_package_id,
+                            "metrc_formulation_package_id": metrc_formulation_package_id,
+                            "metrc_final_package_id": metrc_final_package_id or metrc_package_id_output,
+                            "metrc_stage_input_id": metrc_stage_input_id,
+                            "metrc_stage_output_id": metrc_stage_output_id,
                             "metrc_manifest_or_transfer_id": metrc_manifest_or_transfer_id,
                             "method": method,
+                            "workflow_template": workflow_template,
                             "product_type": normalize_extraction_output_label(product_type) or product_type,
-                            "finished_product_type": normalize_extraction_output_label(product_type) or product_type,
+                            "intermediate_product_type": normalize_extraction_output_label(intermediate_product_type) or intermediate_product_type,
+                            "finished_product_type": normalize_extraction_output_label(final_product_type or product_type) or final_product_type or product_type,
+                            "final_product_type": normalize_extraction_output_label(final_product_type or product_type) or final_product_type or product_type,
                             "downstream_product": normalize_extraction_output_label(downstream_product) or downstream_product,
                             "process_stage": process_stage,
-                            "intake_complete": process_stage in ["Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"],
-                            "extraction_complete": process_stage in ["Post-Process", "Formulation", "Filling", "Packaged", "Transferred"],
-                            "post_process_complete": process_stage in ["Formulation", "Filling", "Packaged", "Transferred"],
-                            "formulation_complete": process_stage in ["Filling", "Packaged", "Transferred"],
-                            "filling_complete": process_stage in ["Packaged", "Transferred"],
-                            "packaging_complete": process_stage in ["Packaged", "Transferred"],
-                            "ready_for_transfer": process_stage == "Transferred",
+                            "intake_complete": stage_options.index(process_stage) >= 1 if process_stage in stage_options else False,
+                            "extraction_complete": stage_options.index(process_stage) >= 2 if process_stage in stage_options and len(stage_options) > 2 else False,
+                            "post_process_complete": "Dewax / Post-Process" in stage_options and stage_options.index(process_stage) > stage_options.index("Dewax / Post-Process") if process_stage in stage_options and "Dewax / Post-Process" in stage_options else False,
+                            "formulation_complete": "Formulation" in stage_options and stage_options.index(process_stage) > stage_options.index("Formulation") if process_stage in stage_options and "Formulation" in stage_options else False,
+                            "filling_complete": "Filling / Packaging" in stage_options and stage_options.index(process_stage) > stage_options.index("Filling / Packaging") if process_stage in stage_options and "Filling / Packaging" in stage_options else False,
+                            "packaging_complete": "Final Output" in stage_options and stage_options.index(process_stage) >= stage_options.index("Final Output") if process_stage in stage_options and "Final Output" in stage_options else False,
+                            "ready_for_transfer": process_stage == "Final Output",
                             "input_material_type": input_material_type,
                             "input_weight_g": input_weight_g,
                             "cost_per_input_gram": cost_per_input_gram,
                             "intermediate_output_g": intermediate_output_g,
-                            "finished_output_g": finished_output_g,
+                            "finished_output_g": adjusted_final_output_g,
                             "residual_loss_g": residual_loss_g,
                             "yield_pct": yield_pct,
                             "post_process_efficiency_pct": post_eff,
+                            "formulation_base_g": formulation_base_g,
+                            "formulation_applied": formulation_applied,
+                            "terpene_handling_mode": terpene_handling_mode,
+                            "terpene_type": terpene_type,
+                            "terpene_source": terpene_source,
+                            "terpene_percentage": terpene_percentage,
+                            "terpene_weight_g": terpene_weight_calc_g,
                             "operator": operator,
                             "machine_line": machine_line,
                             "status": "Complete",
@@ -4358,6 +4692,7 @@ def render_extraction_command_center():
                             "coa_status": coa_status,
                             "qa_hold": qa_hold,
                             "notes": notes,
+                            **stage_output_inputs,
                         }
                     ]
                 )
@@ -4456,6 +4791,17 @@ def render_extraction_command_center():
                 f"<span class='pill-badge' style='background:{_flag_color};'>{_flag_icon} Mass Balance: {_flag_val}</span>",
                 unsafe_allow_html=True,
             )
+            st.info(
+                " | ".join(
+                    [
+                        f"Workflow: {str(selected_row.get('workflow_template', '') or _ecc_get_method_family(selected_row.get('method', '')))}",
+                        f"Current Stage: {str(selected_row.get('process_stage', 'Intake'))}",
+                        f"METRC Input/Final: {str(selected_row.get('metrc_input_package_id', selected_row.get('metrc_package_id_input', 'n/a'))) or 'n/a'} / {str(selected_row.get('metrc_final_package_id', selected_row.get('metrc_package_id_output', 'n/a'))) or 'n/a'}",
+                        f"Terpenes: {str(selected_row.get('terpene_handling_mode', 'n/a') or 'n/a')}",
+                        f"Intermediate→Final: {str(selected_row.get('intermediate_product_type', 'n/a') or 'n/a')} → {str(selected_row.get('final_product_type', selected_row.get('finished_product_type', 'n/a')) or 'n/a')}",
+                    ]
+                )
+            )
 
             st.markdown("#### Linked Inventory & Value Context")
             source_batches = _ecc_parse_list_field(selected_row.get("source_inventory_batch_ids", "[]"))
@@ -4519,14 +4865,16 @@ def render_extraction_command_center():
 
             # ── Process status controls (preserved from original) ─────────
             st.markdown("#### Process Status")
+            selected_workflow_template = str(selected_row.get("workflow_template", "")).strip() or _ecc_get_method_family(selected_row.get("method", ""))
+            selected_stage_options = _ecc_get_workflow_stages(selected_row.get("method", ""), selected_workflow_template)
             p1, p2, p3 = st.columns(3)
             with p1:
                 updated_stage = st.selectbox(
                     "Process Stage",
-                    ["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"],
-                    index=["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"].index(
-                        selected_row.get("process_stage", "Intake")
-                    ) if selected_row.get("process_stage", "Intake") in ["Intake", "Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"] else 0,
+                    selected_stage_options,
+                    index=selected_stage_options.index(selected_row.get("process_stage", selected_stage_options[0]))
+                    if selected_row.get("process_stage", selected_stage_options[0]) in selected_stage_options
+                    else 0,
                     key=f"ecc_process_stage_update_{int(selected_idx)}",
                 )
                 updated_status = st.selectbox(
@@ -4593,6 +4941,80 @@ def render_extraction_command_center():
                 packaging_complete = st.checkbox("Packaging Complete", value=bool(selected_row.get("packaging_complete", False)), key=f"ecc_packaging_complete_update_{int(selected_idx)}")
                 ready_for_transfer = st.checkbox("Ready for Transfer", value=bool(selected_row.get("ready_for_transfer", False)), key=f"ecc_ready_for_transfer_update_{int(selected_idx)}")
 
+            st.markdown("#### Workflow, Product Path, and METRC Traceability")
+            w1, w2, w3 = st.columns(3)
+            with w1:
+                updated_workflow_template = st.selectbox(
+                    "Workflow Template",
+                    list(EXTRACTION_WORKFLOW_TEMPLATES.keys()),
+                    index=list(EXTRACTION_WORKFLOW_TEMPLATES.keys()).index(selected_workflow_template)
+                    if selected_workflow_template in EXTRACTION_WORKFLOW_TEMPLATES
+                    else 0,
+                    key=f"ecc_workflow_template_update_{int(selected_idx)}",
+                )
+                updated_intermediate_product_type = st.selectbox(
+                    "Intermediate Product Type",
+                    [""] + EXTRACTION_INTERMEDIATE_PRODUCT_OPTIONS,
+                    index=([""] + EXTRACTION_INTERMEDIATE_PRODUCT_OPTIONS).index(
+                        normalize_extraction_output_label(selected_row.get("intermediate_product_type", "")) or str(selected_row.get("intermediate_product_type", ""))
+                    ) if (normalize_extraction_output_label(selected_row.get("intermediate_product_type", "")) or str(selected_row.get("intermediate_product_type", ""))) in ([""] + EXTRACTION_INTERMEDIATE_PRODUCT_OPTIONS) else 0,
+                    key=f"ecc_intermediate_product_update_{int(selected_idx)}",
+                )
+                updated_final_product_type = st.selectbox(
+                    "Final Product Type",
+                    [""] + EXTRACTION_PRODUCT_TYPE_OPTIONS,
+                    index=([""] + EXTRACTION_PRODUCT_TYPE_OPTIONS).index(
+                        normalize_extraction_output_label(selected_row.get("final_product_type", selected_row.get("finished_product_type", ""))) or str(selected_row.get("final_product_type", selected_row.get("finished_product_type", "")))
+                    ) if (normalize_extraction_output_label(selected_row.get("final_product_type", selected_row.get("finished_product_type", ""))) or str(selected_row.get("final_product_type", selected_row.get("finished_product_type", "")))) in ([""] + EXTRACTION_PRODUCT_TYPE_OPTIONS) else 0,
+                    key=f"ecc_final_product_update_{int(selected_idx)}",
+                )
+            with w2:
+                updated_metrc_input_pkg = st.text_input("METRC Input Package ID", value=str(selected_row.get("metrc_input_package_id", selected_row.get("metrc_package_id_input", ""))), key=f"ecc_metrc_input_pkg_update_{int(selected_idx)}")
+                updated_metrc_intermediate_pkg = st.text_input("METRC Intermediate Package ID", value=str(selected_row.get("metrc_intermediate_package_id", "")), key=f"ecc_metrc_intermediate_pkg_update_{int(selected_idx)}")
+                updated_metrc_distillate_pkg = st.text_input("METRC Distillate Package ID", value=str(selected_row.get("metrc_distillate_package_id", "")), key=f"ecc_metrc_distillate_pkg_update_{int(selected_idx)}")
+                updated_metrc_formulation_pkg = st.text_input("METRC Formulation Package ID", value=str(selected_row.get("metrc_formulation_package_id", "")), key=f"ecc_metrc_formulation_pkg_update_{int(selected_idx)}")
+                updated_metrc_final_pkg = st.text_input("METRC Final Package ID", value=str(selected_row.get("metrc_final_package_id", selected_row.get("metrc_package_id_output", ""))), key=f"ecc_metrc_final_pkg_update_{int(selected_idx)}")
+            with w3:
+                updated_metrc_stage_input = st.text_input("METRC Stage Input ID", value=str(selected_row.get("metrc_stage_input_id", "")), key=f"ecc_metrc_stage_input_update_{int(selected_idx)}")
+                updated_metrc_stage_output = st.text_input("METRC Stage Output ID", value=str(selected_row.get("metrc_stage_output_id", "")), key=f"ecc_metrc_stage_output_update_{int(selected_idx)}")
+                updated_terpene_handling_mode = st.selectbox(
+                    "Terpene Handling Mode",
+                    [""] + EXTRACTION_TERPENE_HANDLING_MODES,
+                    index=([""] + EXTRACTION_TERPENE_HANDLING_MODES).index(str(selected_row.get("terpene_handling_mode", "")))
+                    if str(selected_row.get("terpene_handling_mode", "")) in ([""] + EXTRACTION_TERPENE_HANDLING_MODES)
+                    else 0,
+                    key=f"ecc_terpene_mode_update_{int(selected_idx)}",
+                )
+                updated_terpene_type = st.text_input("Terpene Type", value=str(selected_row.get("terpene_type", "")), key=f"ecc_terpene_type_update_{int(selected_idx)}")
+                updated_terpene_source = st.text_input("Terpene Source", value=str(selected_row.get("terpene_source", "")), key=f"ecc_terpene_source_update_{int(selected_idx)}")
+
+            st.markdown("#### Formulation Controls")
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                upd_formulation_base_g = st.number_input(
+                    "Formulation Base (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("formulation_base_g", 0.0) or 0.0),
+                    key=f"ecc_formulation_base_update_{int(selected_idx)}",
+                )
+            with f2:
+                upd_terpene_pct = st.number_input(
+                    "Terpene % (optional)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("terpene_percentage", 0.0) or 0.0),
+                    key=f"ecc_terpene_pct_update_{int(selected_idx)}",
+                )
+            with f3:
+                upd_terpene_weight_g = st.number_input(
+                    "Terpene Weight (g, optional override)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("terpene_weight_g", 0.0) or 0.0),
+                    key=f"ecc_terpene_weight_update_{int(selected_idx)}",
+                )
+
             updated_notes = st.text_area(
                 "Process Notes / Handoff Notes",
                 value=str(selected_row.get("notes", "")),
@@ -4655,14 +5077,32 @@ def render_extraction_command_center():
                     key=f"ecc_mb_final_output_{int(selected_idx)}",
                 )
 
+            stage_output_updates: dict[str, float] = {}
+            stage_field_defs = EXTRACTION_METHOD_STAGE_OUTPUT_FIELDS.get(selected_workflow_template, [])
+            if stage_field_defs:
+                st.markdown("#### Method-Aware Stage Outputs")
+                so_cols = st.columns(min(3, len(stage_field_defs)))
+                for idx, (field_name, field_label) in enumerate(stage_field_defs):
+                    with so_cols[idx % len(so_cols)]:
+                        stage_output_updates[field_name] = st.number_input(
+                            field_label,
+                            min_value=0.0,
+                            step=0.1,
+                            value=float(selected_row.get(field_name, 0.0) or 0.0),
+                            key=f"ecc_stage_output_{field_name}_{int(selected_idx)}",
+                        )
+
             # Live loss/yield preview (computed client-side without modifying session state)
             _inp_v = float(upd_input_weight)
             _ext_v = float(upd_extraction_output)
             _pp_v = float(upd_post_process_output)
             _dist_v = float(upd_distillation_output)
             _final_v = float(upd_final_output)
+            _terp_v = float(upd_terpene_weight_g)
+            _supports_formulation_preview = _ecc_workflow_supports_formulation(selected_row.get("method", ""), updated_workflow_template)
             _inp_safe = _inp_v if _inp_v > 0 else float("nan")
             _last_up_v = _dist_v if _dist_v > 0 else (_pp_v if _pp_v > 0 else _ext_v)
+            _allowed_final_cap_v = _last_up_v + (_terp_v if _supports_formulation_preview else 0.0)
             _ext_loss_v = max(0.0, _inp_v - _ext_v) if _inp_v > 0 else 0.0
             _pp_loss_v = max(0.0, _ext_v - _pp_v) if _pp_v > 0 and _ext_v > 0 else 0.0
             _dist_loss_v = max(0.0, _pp_v - _dist_v) if _dist_v > 0 and _pp_v > 0 else 0.0
@@ -4693,7 +5133,7 @@ def render_extraction_command_center():
                 st.error("🔴 Critical: Post-process output exceeds extraction output.")
             elif _dist_v > 0 and _pp_v > 0 and _dist_v > _pp_v:
                 st.error("🔴 Critical: Distillation output exceeds post-process output.")
-            elif _final_v > 0 and _last_up_v > 0 and _final_v > _last_up_v:
+            elif _final_v > 0 and _last_up_v > 0 and _final_v > _allowed_final_cap_v:
                 st.error("🔴 Critical: Final output exceeds last upstream stage output.")
             elif _final_yield_v > _method_thresh and _inp_v > 0:
                 st.warning(
@@ -4704,13 +5144,36 @@ def render_extraction_command_center():
 
             # ── Save button ───────────────────────────────────────────────
             if st.button("Update Extraction Process", type="primary", key="ecc_update_process"):
+                terpene_ok_update, terpene_msg_update = _ecc_validate_terpene_percentage(float(upd_terpene_pct or 0.0))
+                if not terpene_ok_update:
+                    st.error(terpene_msg_update)
+                    st.stop()
+                if terpene_msg_update:
+                    st.warning(terpene_msg_update)
+                supports_formulation = _ecc_workflow_supports_formulation(selected_row.get("method", ""), updated_workflow_template)
+                calculated_terpene_weight = _ecc_compute_formulation_terpene_weight(
+                    float(upd_formulation_base_g or upd_final_output or 0.0),
+                    float(upd_terpene_pct or 0.0),
+                    float(upd_terpene_weight_g or 0.0),
+                )
+                formulation_applied_update = bool(supports_formulation and (upd_formulation_base_g > 0 or calculated_terpene_weight > 0 or updated_terpene_handling_mode not in {"", "Native / No Add-Back"}))
+                final_output_effective = float(upd_final_output)
+                if formulation_applied_update:
+                    formulation_base_effective = float(upd_formulation_base_g or upd_distillation_output or upd_post_process_output or upd_extraction_output or upd_final_output or 0.0)
+                    final_output_effective = formulation_base_effective + float(calculated_terpene_weight or 0.0)
+
                 # Write back status/workflow fields
                 st.session_state.ecc_run_log.loc[selected_idx, "process_stage"] = updated_stage
                 st.session_state.ecc_run_log.loc[selected_idx, "status"] = updated_status
                 normalized_product_type = normalize_extraction_output_label(updated_product_type) or updated_product_type
                 normalized_downstream = normalize_extraction_output_label(updated_downstream) or updated_downstream
+                normalized_intermediate = normalize_extraction_output_label(updated_intermediate_product_type) or updated_intermediate_product_type
+                normalized_final = normalize_extraction_output_label(updated_final_product_type or updated_product_type) or updated_final_product_type or updated_product_type
                 st.session_state.ecc_run_log.loc[selected_idx, "product_type"] = normalized_product_type
-                st.session_state.ecc_run_log.loc[selected_idx, "finished_product_type"] = normalized_product_type
+                st.session_state.ecc_run_log.loc[selected_idx, "finished_product_type"] = normalized_final
+                st.session_state.ecc_run_log.loc[selected_idx, "intermediate_product_type"] = normalized_intermediate
+                st.session_state.ecc_run_log.loc[selected_idx, "final_product_type"] = normalized_final
+                st.session_state.ecc_run_log.loc[selected_idx, "workflow_template"] = updated_workflow_template
                 st.session_state.ecc_run_log.loc[selected_idx, "downstream_product"] = normalized_downstream
                 st.session_state.ecc_run_log.loc[selected_idx, "coa_status"] = updated_coa
                 st.session_state.ecc_run_log.loc[selected_idx, "qa_hold"] = updated_qa_hold
@@ -4721,18 +5184,34 @@ def render_extraction_command_center():
                 st.session_state.ecc_run_log.loc[selected_idx, "filling_complete"] = filling_complete
                 st.session_state.ecc_run_log.loc[selected_idx, "packaging_complete"] = packaging_complete
                 st.session_state.ecc_run_log.loc[selected_idx, "ready_for_transfer"] = ready_for_transfer
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_input_package_id"] = updated_metrc_input_pkg
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_intermediate_package_id"] = updated_metrc_intermediate_pkg
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_distillate_package_id"] = updated_metrc_distillate_pkg
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_formulation_package_id"] = updated_metrc_formulation_pkg
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_final_package_id"] = updated_metrc_final_pkg
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_stage_input_id"] = updated_metrc_stage_input
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_stage_output_id"] = updated_metrc_stage_output
+                st.session_state.ecc_run_log.loc[selected_idx, "terpene_handling_mode"] = updated_terpene_handling_mode
+                st.session_state.ecc_run_log.loc[selected_idx, "terpene_type"] = updated_terpene_type
+                st.session_state.ecc_run_log.loc[selected_idx, "terpene_source"] = updated_terpene_source
+                st.session_state.ecc_run_log.loc[selected_idx, "terpene_percentage"] = upd_terpene_pct
+                st.session_state.ecc_run_log.loc[selected_idx, "terpene_weight_g"] = calculated_terpene_weight
+                st.session_state.ecc_run_log.loc[selected_idx, "formulation_base_g"] = upd_formulation_base_g
+                st.session_state.ecc_run_log.loc[selected_idx, "formulation_applied"] = formulation_applied_update
                 st.session_state.ecc_run_log.loc[selected_idx, "notes"] = updated_notes
                 # Write back editable mass-balance stage weights
                 st.session_state.ecc_run_log.loc[selected_idx, "input_weight_g"] = upd_input_weight
                 st.session_state.ecc_run_log.loc[selected_idx, "extraction_output_g"] = upd_extraction_output
                 st.session_state.ecc_run_log.loc[selected_idx, "post_process_output_g"] = upd_post_process_output
                 st.session_state.ecc_run_log.loc[selected_idx, "distillation_output_g"] = upd_distillation_output
-                st.session_state.ecc_run_log.loc[selected_idx, "final_output_g"] = upd_final_output
+                st.session_state.ecc_run_log.loc[selected_idx, "final_output_g"] = final_output_effective
+                for field_name, field_val in stage_output_updates.items():
+                    st.session_state.ecc_run_log.loc[selected_idx, field_name] = float(field_val or 0.0)
                 # Keep legacy fields in sync so upstream views (Executive Overview, Run Analytics) reflect edits
                 st.session_state.ecc_run_log.loc[selected_idx, "intermediate_output_g"] = upd_extraction_output
                 # Use the last non-zero downstream stage as the legacy finished_output_g fallback
                 _legacy_finished = next(
-                    (v for v in [upd_final_output, upd_distillation_output, upd_post_process_output, upd_extraction_output] if v > 0),
+                    (v for v in [final_output_effective, upd_distillation_output, upd_post_process_output, upd_extraction_output] if v > 0),
                     0.0,
                 )
                 st.session_state.ecc_run_log.loc[selected_idx, "finished_output_g"] = _legacy_finished
@@ -4752,8 +5231,11 @@ def render_extraction_command_center():
                 "run_date",
                 "batch_id_internal",
                 "method",
+                "workflow_template",
                 "process_stage",
                 "status",
+                "intermediate_product_type",
+                "final_product_type",
                 "input_weight_g",
                 "extraction_output_g",
                 "extraction_loss_g",
@@ -4766,6 +5248,11 @@ def render_extraction_command_center():
                 "final_loss_g",
                 "final_yield_pct",
                 "mass_balance_flag",
+                "metrc_stage_input_id",
+                "metrc_stage_output_id",
+                "terpene_handling_mode",
+                "terpene_percentage",
+                "terpene_weight_g",
                 "coa_status",
                 "qa_hold",
                 "ready_for_transfer",
