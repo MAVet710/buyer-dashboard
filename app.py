@@ -3002,37 +3002,108 @@ _ECC_MATERIAL_TYPES = [
 _ECC_STATUS_VALUES = ["Available", "Reserved", "In Process", "Quarantine", "Depleted"]
 _ECC_METHOD_VALUES = ["BHO", "CO2", "Rosin", "Ethanol", "Mixed / TBD"]
 _ECC_METHOD_DEFAULT_YIELD = {"BHO": 15.0, "CO2": 12.0, "Rosin": 8.0, "Ethanol": 14.0}
-# TODO(ops-pricing-live): replace MARKET_PRICE_MAP with live pricing API or admin-configurable pricing
-# Pricing assumptions are USD per finished gram. Values are static planning defaults
-# for executive scenario analysis and should be reviewed by ops/finance regularly.
+# Centralized extraction output taxonomy used across run forms, process updates,
+# valuation mapping, and chart grouping logic.
+EXTRACTION_OUTPUT_OPTIONS: dict[str, list[str]] = {
+    "solvent_based": [
+        "BHO",
+        "Live Resin",
+        "Badder",
+        "Budder",
+        "Batter",
+        "Shatter",
+        "Crumble",
+        "Sugar",
+        "Sauce",
+        "Terp Sauce",
+        "Diamonds",
+        "THCA Crystalline",
+        "Diamonds in Sauce",
+        "HTE",
+        "HTFSE",
+        "Distillate",
+        "CO2 Oil",
+        "RSO",
+        "Bulk Oil",
+    ],
+    "solventless": [
+        "Rosin",
+        "Live Rosin",
+        "Hash Rosin",
+        "Bubble Hash",
+        "Ice Water Hash",
+        "Full Melt",
+        "Dry Sift",
+        "Pressed Hash",
+        "Temple Ball",
+        "Piatella",
+    ],
+    "filled_products": [
+        "Vape Oil",
+        "Vape Cart Fill",
+        "Disposable Fill",
+        "Infused Pre-Roll Input",
+    ],
+}
+EXTRACTION_OUTPUT_FLAT_OPTIONS = [label for labels in EXTRACTION_OUTPUT_OPTIONS.values() for label in labels]
+EXTRACTION_PRODUCT_TYPE_OPTIONS = EXTRACTION_OUTPUT_FLAT_OPTIONS + ["Other"]
+EXTRACTION_DOWNSTREAM_OPTIONS = ["N/A"] + EXTRACTION_OUTPUT_FLAT_OPTIONS
+EXTRACTION_OUTPUT_NORM_LOOKUP = {
+    re.sub(r"[^a-z0-9]+", "_", v.strip().lower()).strip("_"): v
+    for v in EXTRACTION_OUTPUT_FLAT_OPTIONS
+}
+EXTRACTION_OUTPUT_ALIAS_LOOKUP = {
+    "diamonds_sauce": "Diamonds in Sauce",
+    "diamonds_and_sauce": "Diamonds in Sauce",
+    "ice_hash": "Ice Water Hash",
+    "cart_fill": "Vape Cart Fill",
+    "distillate_cart": "Vape Cart Fill",
+    "distillate_disposable": "Disposable Fill",
+    "disty_carts": "Vape Cart Fill",
+    "disty_disposables": "Disposable Fill",
+    "bulk_distillate": "Bulk Oil",
+    "fresh_press": "Rosin",
+    "rosin_jam": "Hash Rosin",
+}
+# Estimated default market assumptions (USD per finished gram) for internal KPI
+# modeling only. These are not live market feeds.
+# TODO: replace MARKET_PRICE_MAP with admin-configurable pricing or live pricing feed
 MARKET_PRICE_MAP = {
-    "bho": 14,
-    "live_resin": 20,
-    "badder": 16,
-    "shatter": 12,
-    "rosin": 35,
-    "rosin_jam": 38,
-    "distillate": 10,
-    "rso": 9,
-    "co2_oil": 11,
-    "vape": 18,
-    "bulk_oil": 12,
-    "concentrate": 15,
+    "BHO": 12,
+    "Live Resin": 20,
+    "Badder": 16,
+    "Budder": 16,
+    "Batter": 16,
+    "Shatter": 11,
+    "Crumble": 10,
+    "Sugar": 14,
+    "Sauce": 18,
+    "Terp Sauce": 20,
+    "Diamonds": 24,
+    "THCA Crystalline": 22,
+    "Diamonds in Sauce": 26,
+    "HTE": 18,
+    "HTFSE": 22,
+    "Distillate": 9,
+    "CO2 Oil": 10,
+    "RSO": 8,
+    "Bulk Oil": 10,
+    "Rosin": 32,
+    "Live Rosin": 38,
+    "Hash Rosin": 42,
+    "Bubble Hash": 18,
+    "Ice Water Hash": 20,
+    "Full Melt": 30,
+    "Dry Sift": 14,
+    "Pressed Hash": 12,
+    "Temple Ball": 14,
+    "Piatella": 36,
+    "Vape Oil": 14,
+    "Vape Cart Fill": 16,
+    "Disposable Fill": 16,
+    "Infused Pre-Roll Input": 7,
 }
-_ECC_PRODUCT_PRICE_ALIAS_MAP = {
-    "bulk_distillate": "bulk_oil",
-    "disty_carts": "vape",
-    "disty_disposables": "vape",
-    "distillate_cart": "vape",
-    "distillate_disposable": "vape",
-    "sugar": "concentrate",
-    "sauce": "concentrate",
-    "fresh_press": "rosin",
-    "co2": "co2_oil",
-    "ethanol": "rso",
-    "n_a": "",
-    "other": "concentrate",
-}
+_ECC_METHOD_TO_OUTPUT_FALLBACK = {"BHO": "BHO", "CO2": "CO2 Oil", "Rosin": "Rosin", "Ethanol": "RSO"}
 _ECC_FALLBACK_INPUT_COST_PER_G = 1.25
 _ECC_FALLBACK_OPERATIONAL_COST_USD = 150.0
 _ECC_LOW_MARGIN_PER_G_THRESHOLD = 2.0
@@ -3060,12 +3131,33 @@ _ECC_VALUE_FIELDS: list[str] = [
     "total_profit_usd",
     "margin_pct_est",
     "value_risk_flag",
+    "unmapped_output_type",
+    "output_mapping_warning",
+    "normalized_output_type",
+]
+_ECC_MANUAL_VALUE_FIELDS: list[str] = [
+    "manual_cost_per_gram",
+    "manual_market_price_per_gram",
 ]
 
 
 def _ecc_norm_price_key(value: Any) -> str:
     """Normalize label text into a lowercase key for MARKET_PRICE_MAP lookups."""
     return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def normalize_extraction_output_label(value: Any) -> str:
+    """Normalize extraction output labels to a canonical centralized taxonomy label."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    key = _ecc_norm_price_key(raw)
+    if key in {"n_a", "na", "none"}:
+        return ""
+    alias_match = EXTRACTION_OUTPUT_ALIAS_LOOKUP.get(key)
+    if alias_match:
+        return alias_match
+    return EXTRACTION_OUTPUT_NORM_LOOKUP.get(key, raw)
 
 
 def _ecc_parse_list_field(raw_value: Any) -> list[str]:
@@ -3103,18 +3195,22 @@ def _ecc_safe_div(numerator: Any, denominator: Any) -> float:
     return (num / den) if den else 0.0
 
 
-def _ecc_get_market_price_per_gram(row: pd.Series) -> float:
-    """Return market price by priority: downstream product → product type → method → concentrate fallback."""
-    keys = [
-        _ecc_norm_price_key(row.get("downstream_product", "")),
-        _ecc_norm_price_key(row.get("product_type", "")),
-        _ecc_norm_price_key(row.get("method", "")),
+def _ecc_get_market_price_per_gram(row: pd.Series) -> tuple[float, str, bool]:
+    """Return market price by priority: downstream product → finished product type → product type → method."""
+    candidates = [
+        normalize_extraction_output_label(row.get("downstream_product", "")),
+        normalize_extraction_output_label(row.get("finished_product_type", "")),
+        normalize_extraction_output_label(row.get("product_type", "")),
     ]
-    for key in keys:
-        mapped = _ECC_PRODUCT_PRICE_ALIAS_MAP.get(key, key)
-        if mapped and mapped in MARKET_PRICE_MAP:
-            return float(MARKET_PRICE_MAP[mapped])
-    return float(MARKET_PRICE_MAP["concentrate"])
+    for label in candidates:
+        if label in MARKET_PRICE_MAP:
+            return float(MARKET_PRICE_MAP[label]), label, False
+
+    method_norm = str(row.get("method", "")).strip()
+    method_fallback = _ECC_METHOD_TO_OUTPUT_FALLBACK.get(method_norm, "")
+    if method_fallback and method_fallback in MARKET_PRICE_MAP:
+        return float(MARKET_PRICE_MAP[method_fallback]), method_fallback, True
+    return 0.0, "unmapped_output_type", True
 
 
 def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
@@ -3124,7 +3220,15 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
             out[col] = False if col == "inventory_linked" else (0.0 if col.startswith("allocated_") else "[]")
     for col in _ECC_VALUE_FIELDS:
         if col not in out.columns:
-            out[col] = "Neutral" if col == "value_risk_flag" else 0.0
+            if col == "value_risk_flag":
+                out[col] = "Neutral"
+            elif col in ["output_mapping_warning", "normalized_output_type"]:
+                out[col] = ""
+            else:
+                out[col] = False if col == "unmapped_output_type" else 0.0
+    for col in _ECC_MANUAL_VALUE_FIELDS:
+        if col not in out.columns:
+            out[col] = 0.0
     out["inventory_linked"] = out["inventory_linked"].fillna(False).astype(bool)
     for numeric_col in [
         "allocated_input_weight_g",
@@ -3143,6 +3247,14 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
     for list_col in ["source_inventory_batch_ids", "source_inventory_metrc_ids"]:
         out[list_col] = out[list_col].fillna("[]").astype(str)
     out["value_risk_flag"] = out["value_risk_flag"].fillna("Neutral").astype(str)
+    out["output_mapping_warning"] = out["output_mapping_warning"].fillna("").astype(str)
+    out["normalized_output_type"] = out["normalized_output_type"].fillna("").astype(str)
+    out["unmapped_output_type"] = out["unmapped_output_type"].fillna(False).astype(bool)
+    for numeric_col in _ECC_MANUAL_VALUE_FIELDS:
+        out[numeric_col] = pd.to_numeric(out[numeric_col], errors="coerce").fillna(0.0)
+    if "finished_product_type" not in out.columns:
+        out["finished_product_type"] = out.get("product_type", "Other")
+    out["finished_product_type"] = out["finished_product_type"].fillna(out.get("product_type", "Other")).astype(str)
     return out
 
 
@@ -3186,6 +3298,9 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
     total_profit_vals: list[float] = []
     margin_pct_vals: list[float] = []
     value_risk_flags: list[str] = []
+    unmapped_vals: list[bool] = []
+    mapping_warning_vals: list[str] = []
+    normalized_output_vals: list[str] = []
 
     for _, row in out.iterrows():
         finished_output_g = float(row.get("finished_output_g", 0.0) or 0.0)
@@ -3226,7 +3341,14 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
 
         total_cost = input_cost_total + operational_cost_total
         cost_per_gram = _ecc_safe_div(total_cost, finished_output_g)
-        market_price_per_gram = _ecc_get_market_price_per_gram(row)
+        market_price_per_gram, normalized_output_type, is_unmapped_output = _ecc_get_market_price_per_gram(row)
+        manual_cost_override = float(pd.to_numeric(row.get("manual_cost_per_gram", np.nan), errors="coerce") or 0.0)
+        manual_market_price_override = float(pd.to_numeric(row.get("manual_market_price_per_gram", np.nan), errors="coerce") or 0.0)
+        if manual_cost_override > 0:
+            cost_per_gram = manual_cost_override
+            total_cost = round(cost_per_gram * finished_output_g, 4)
+        if manual_market_price_override > 0:
+            market_price_per_gram = manual_market_price_override
         estimated_value_usd = finished_output_g * market_price_per_gram
         margin_per_gram = market_price_per_gram - cost_per_gram
         total_profit_usd = estimated_value_usd - total_cost
@@ -3245,6 +3367,8 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
             flag = "Warning"
         elif margin_pct_est > _ECC_SUSPICIOUS_MARGIN_PCT_THRESHOLD and finished_output_g > 0:
             flag = "Review"
+        if is_unmapped_output and flag != "Critical":
+            flag = "Warning"
 
         input_cost_vals.append(round(input_cost_total, 2))
         op_cost_vals.append(round(operational_cost_total, 2))
@@ -3256,6 +3380,9 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
         total_profit_vals.append(round(total_profit_usd, 2))
         margin_pct_vals.append(round(margin_pct_est, 2))
         value_risk_flags.append(flag)
+        unmapped_vals.append(bool(is_unmapped_output))
+        mapping_warning_vals.append("⚠️ Unmapped Output Type" if is_unmapped_output else "")
+        normalized_output_vals.append(normalized_output_type)
 
     out["input_cost_total"] = input_cost_vals
     out["operational_cost_total"] = op_cost_vals
@@ -3267,6 +3394,9 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
     out["total_profit_usd"] = total_profit_vals
     out["margin_pct_est"] = margin_pct_vals
     out["value_risk_flag"] = value_risk_flags
+    out["unmapped_output_type"] = unmapped_vals
+    out["output_mapping_warning"] = mapping_warning_vals
+    out["normalized_output_type"] = normalized_output_vals
     return out
 
 
@@ -3773,18 +3903,28 @@ def render_extraction_command_center():
             coa_series,
         )
         downstream_series = (
-            display_df["downstream_product"].replace("N/A", "").fillna("").astype(str)
+            display_df["downstream_product"].fillna("").astype(str).map(normalize_extraction_output_label)
             if "downstream_product" in display_df.columns
             else pd.Series("", index=display_df.index)
         )
+        finished_product_series = (
+            display_df["finished_product_type"].fillna("").astype(str).map(normalize_extraction_output_label)
+            if "finished_product_type" in display_df.columns
+            else pd.Series("", index=display_df.index)
+        )
         product_series = (
-            display_df["product_type"].fillna("Other").astype(str)
+            display_df["product_type"].fillna("Other").astype(str).map(normalize_extraction_output_label)
             if "product_type" in display_df.columns
             else pd.Series("Other", index=display_df.index)
         )
         display_df["product_bucket"] = downstream_series
         display_df["product_bucket"] = np.where(
             display_df["product_bucket"].astype(str).str.strip().eq(""),
+            finished_product_series,
+            display_df["product_bucket"],
+        )
+        display_df["product_bucket"] = np.where(
+            pd.Series(display_df["product_bucket"]).astype(str).str.strip().eq(""),
             product_series,
             display_df["product_bucket"],
         )
@@ -3954,14 +4094,18 @@ def render_extraction_command_center():
         with row5_l:
             chart_card_start("Top At-Risk Batches", "Operational, QA, and value-risk prioritized runs.")
             at_risk_df = display_df.copy()
+            qa_hold_flag = at_risk_df.get("qa_hold", pd.Series(False, index=at_risk_df.index)).fillna(False).astype(bool).astype(int)
+            coa_status_flag = at_risk_df.get("coa_status", pd.Series("", index=at_risk_df.index)).fillna("").isin(["Failed", "Pending"]).astype(int)
+            negative_margin_flag = at_risk_df.get("margin_per_gram", pd.Series(0.0, index=at_risk_df.index)).fillna(0.0).lt(0).astype(int)
+            low_yield_flag = at_risk_df.get("yield_pct", pd.Series(0.0, index=at_risk_df.index)).fillna(0.0).lt(10).astype(int)
             at_risk_df["risk_score"] = (
-                at_risk_df["qa_hold"].astype(int) * 3
-                + at_risk_df["coa_status"].isin(["Failed", "Pending"]).astype(int) * 2
-                + at_risk_df["margin_per_gram"].lt(0).astype(int) * 2
-                + at_risk_df["yield_pct"].lt(10).astype(int)
+                qa_hold_flag * 3
+                + coa_status_flag * 2
+                + negative_margin_flag * 2
+                + low_yield_flag
             )
             at_risk_df = at_risk_df.sort_values(["risk_score", "yield_pct"], ascending=[False, True]).head(12)
-            cols = ["batch_id_internal", "method", "yield_pct", "coa_status", "qa_hold", "status", "margin_per_gram"]
+            cols = ["batch_id_internal", "method", "yield_pct", "coa_status", "qa_hold", "status", "margin_per_gram", "output_mapping_warning"]
             st.dataframe(at_risk_df[[c for c in cols if c in at_risk_df.columns]], use_container_width=True, hide_index=True)
             chart_card_end()
         with row5_r:
@@ -3994,6 +4138,9 @@ def render_extraction_command_center():
                 warning.append("Inventory contains aging lots (30+ days).")
             if suspicious_profit_runs > 0:
                 neutral.append(f"{suspicious_profit_runs} run(s) have unusually high estimated profitability and should be reviewed.")
+            unmapped_output_runs = int(display_df.get("unmapped_output_type", pd.Series(False, index=display_df.index)).fillna(False).astype(bool).sum()) if not display_df.empty else 0
+            if unmapped_output_runs > 0:
+                warning.append(f"{unmapped_output_runs} run(s) use unmapped output taxonomy and are on fallback valuation.")
             if total_runs > 0 and not critical and not warning:
                 neutral.append("No critical workflow or value risks detected in current filters.")
 
@@ -4085,7 +4232,7 @@ def render_extraction_command_center():
             chart_card_end()
         with v4:
             chart_card_start("Top Profitable / Worst Performing Runs", "Best and worst total profit outcomes.")
-            top_cols = ["run_date", "batch_id_internal", "method", "product_bucket", "finished_output_g", "total_profit_usd", "margin_per_gram", "margin_pct_est"]
+            top_cols = ["run_date", "batch_id_internal", "method", "product_bucket", "finished_output_g", "total_profit_usd", "margin_per_gram", "margin_pct_est", "output_mapping_warning"]
             top_runs = display_df.sort_values("total_profit_usd", ascending=False).head(8)
             worst_runs = display_df.sort_values("total_profit_usd", ascending=True).head(8)
             st.markdown("**Top Profitable Runs**")
@@ -4096,7 +4243,10 @@ def render_extraction_command_center():
 
     with runs_tab:
         st.subheader("Run Explorer")
-        st.dataframe(run_df, use_container_width=True, hide_index=True)
+        run_explorer_df = run_df.copy()
+        if "output_mapping_warning" in run_explorer_df.columns:
+            run_explorer_df["output_mapping_warning"] = run_explorer_df["output_mapping_warning"].fillna("")
+        st.dataframe(run_explorer_df, use_container_width=True, hide_index=True)
         with st.expander("Add Run Record", expanded=False):
             r1, r2, r3 = st.columns(3)
             with r1:
@@ -4112,23 +4262,12 @@ def render_extraction_command_center():
                 method = st.selectbox("Method", ["BHO", "CO2", "Rosin", "Ethanol"], key="ecc_method")
                 product_type = st.selectbox(
                     "Product Type",
-                    [
-                        "Sugar",
-                        "Badder",
-                        "Shatter",
-                        "Sauce",
-                        "Distillate",
-                        "Distillate Cart",
-                        "Distillate Disposable",
-                        "Rosin Jam",
-                        "Fresh Press",
-                        "Other",
-                    ],
+                    EXTRACTION_PRODUCT_TYPE_OPTIONS,
                     key="ecc_product_type",
                 )
                 downstream_product = st.selectbox(
                     "Downstream Product Path",
-                    ["N/A", "Bulk Distillate", "Disty Carts", "Disty Disposables"],
+                    EXTRACTION_DOWNSTREAM_OPTIONS,
                     key="ecc_downstream_product",
                     help="Track whether extracted oil is converted into finished vape products.",
                 )
@@ -4201,8 +4340,9 @@ def render_extraction_command_center():
                             "metrc_package_id_output": metrc_package_id_output,
                             "metrc_manifest_or_transfer_id": metrc_manifest_or_transfer_id,
                             "method": method,
-                            "product_type": product_type,
-                            "downstream_product": downstream_product,
+                            "product_type": normalize_extraction_output_label(product_type) or product_type,
+                            "finished_product_type": normalize_extraction_output_label(product_type) or product_type,
+                            "downstream_product": normalize_extraction_output_label(downstream_product) or downstream_product,
                             "process_stage": process_stage,
                             "intake_complete": process_stage in ["Extraction", "Post-Process", "Formulation", "Filling", "Packaged", "Transferred"],
                             "extraction_complete": process_stage in ["Post-Process", "Formulation", "Filling", "Packaged", "Transferred"],
@@ -4359,6 +4499,27 @@ def render_extraction_command_center():
                     f"Source material: {linked_source_material or 'n/a'}"
                 )
 
+            st.markdown("#### Value Model Overrides")
+            ov1, ov2 = st.columns(2)
+            with ov1:
+                manual_cost_per_g = st.number_input(
+                    "Override Cost / g ($)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("manual_cost_per_gram", 0.0) or 0.0),
+                    help="Optional manual override. Set to 0 to use calculated cost-per-gram.",
+                    key=f"ecc_manual_cost_per_g_update_{int(selected_idx)}",
+                )
+            with ov2:
+                manual_value_per_g = st.number_input(
+                    "Override Value / g ($)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("manual_market_price_per_gram", 0.0) or 0.0),
+                    help="Optional manual override. Set to 0 to use taxonomy/method market value mapping.",
+                    key=f"ecc_manual_value_per_g_update_{int(selected_idx)}",
+                )
+
             # ── Process status controls (preserved from original) ─────────
             st.markdown("#### Process Status")
             p1, p2, p3 = st.columns(3)
@@ -4383,56 +4544,30 @@ def render_extraction_command_center():
                 )
                 updated_product_type = st.selectbox(
                     "Finished Product Type",
-                    [
-                        "Sugar",
-                        "Badder",
-                        "Shatter",
-                        "Sauce",
-                        "Distillate",
-                        "Distillate Cart",
-                        "Distillate Disposable",
-                        "Rosin Jam",
-                        "Fresh Press",
-                        "Other",
-                    ],
+                    EXTRACTION_PRODUCT_TYPE_OPTIONS,
                     index=(
-                        [
-                            "Sugar",
-                            "Badder",
-                            "Shatter",
-                            "Sauce",
-                            "Distillate",
-                            "Distillate Cart",
-                            "Distillate Disposable",
-                            "Rosin Jam",
-                            "Fresh Press",
-                            "Other",
-                        ].index(selected_row.get("product_type", "Other"))
-                        if selected_row.get("product_type", "Other") in [
-                            "Sugar",
-                            "Badder",
-                            "Shatter",
-                            "Sauce",
-                            "Distillate",
-                            "Distillate Cart",
-                            "Distillate Disposable",
-                            "Rosin Jam",
-                            "Fresh Press",
-                            "Other",
-                        ]
-                        else 9
+                        EXTRACTION_PRODUCT_TYPE_OPTIONS.index(
+                            normalize_extraction_output_label(
+                                selected_row.get("finished_product_type", selected_row.get("product_type", "Other"))
+                            ) or "Other"
+                        )
+                        if (normalize_extraction_output_label(selected_row.get("finished_product_type", selected_row.get("product_type", "Other"))) or "Other")
+                        in EXTRACTION_PRODUCT_TYPE_OPTIONS
+                        else EXTRACTION_PRODUCT_TYPE_OPTIONS.index("Other")
                     ),
                     key="ecc_process_product_type_update",
                 )
             with p2:
                 updated_downstream = st.selectbox(
                     "Downstream Output",
-                    ["N/A", "Bulk Distillate", "Disty Carts", "Disty Disposables"],
+                    EXTRACTION_DOWNSTREAM_OPTIONS,
                     index=(
-                        ["N/A", "Bulk Distillate", "Disty Carts", "Disty Disposables"].index(
-                            selected_row.get("downstream_product", "N/A")
+                        EXTRACTION_DOWNSTREAM_OPTIONS.index(
+                            normalize_extraction_output_label(selected_row.get("downstream_product", "N/A"))
+                            or selected_row.get("downstream_product", "N/A")
                         )
-                        if selected_row.get("downstream_product", "N/A") in ["N/A", "Bulk Distillate", "Disty Carts", "Disty Disposables"]
+                        if (normalize_extraction_output_label(selected_row.get("downstream_product", "N/A")) or selected_row.get("downstream_product", "N/A"))
+                        in EXTRACTION_DOWNSTREAM_OPTIONS
                         else 0
                     ),
                     key="ecc_process_downstream_update",
@@ -4575,8 +4710,13 @@ def render_extraction_command_center():
                 # Write back status/workflow fields
                 st.session_state.ecc_run_log.loc[selected_idx, "process_stage"] = updated_stage
                 st.session_state.ecc_run_log.loc[selected_idx, "status"] = updated_status
-                st.session_state.ecc_run_log.loc[selected_idx, "product_type"] = updated_product_type
-                st.session_state.ecc_run_log.loc[selected_idx, "downstream_product"] = updated_downstream
+                normalized_product_type = normalize_extraction_output_label(updated_product_type) or updated_product_type
+                normalized_downstream = normalize_extraction_output_label(updated_downstream) or updated_downstream
+                st.session_state.ecc_run_log.loc[selected_idx, "product_type"] = normalized_product_type
+                st.session_state.ecc_run_log.loc[selected_idx, "finished_product_type"] = normalized_product_type
+                st.session_state.ecc_run_log.loc[selected_idx, "downstream_product"] = normalized_downstream
+                st.session_state.ecc_run_log.loc[selected_idx, "manual_cost_per_gram"] = float(manual_cost_per_g or 0.0)
+                st.session_state.ecc_run_log.loc[selected_idx, "manual_market_price_per_gram"] = float(manual_value_per_g or 0.0)
                 st.session_state.ecc_run_log.loc[selected_idx, "coa_status"] = updated_coa
                 st.session_state.ecc_run_log.loc[selected_idx, "qa_hold"] = updated_qa_hold
                 st.session_state.ecc_run_log.loc[selected_idx, "intake_complete"] = intake_complete
