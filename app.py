@@ -5036,6 +5036,7 @@ def render_extraction_command_center():
                                 existing_run_log = st.session_state.ecc_run_log
                                 if isinstance(existing_run_log, list):
                                     run_log = pd.DataFrame(existing_run_log)
+                                    st.session_state.ecc_run_log = run_log.copy()
                                 else:
                                     run_log = existing_run_log.copy()
                                 run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
@@ -5046,7 +5047,9 @@ def render_extraction_command_center():
                                     .astype(str)
                                     .str.extract(r"^RUN-(\d{4})$")[0]
                                 )
-                                next_run_num = int(pd.to_numeric(run_id_values, errors="coerce").max() or 0) + 1
+                                parsed_run_nums = pd.to_numeric(run_id_values, errors="coerce").dropna()
+                                current_max_run_num = int(parsed_run_nums.max()) if not parsed_run_nums.empty else 0
+                                next_run_num = current_max_run_num + 1
                                 run_batch_id = f"RUN-{next_run_num:04d}"
                                 allocation_cost_total = float(allocation_weight_g) * selected_cost_per_g
 
