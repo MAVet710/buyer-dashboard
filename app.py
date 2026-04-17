@@ -4078,11 +4078,15 @@ def render_extraction_command_center():
         with row5_l:
             chart_card_start("Top At-Risk Batches", "Operational, QA, and value-risk prioritized runs.")
             at_risk_df = display_df.copy()
+            qa_hold_flag = at_risk_df.get("qa_hold", pd.Series(False, index=at_risk_df.index)).fillna(False).astype(bool).astype(int)
+            coa_status_flag = at_risk_df.get("coa_status", pd.Series("", index=at_risk_df.index)).fillna("").isin(["Failed", "Pending"]).astype(int)
+            negative_margin_flag = at_risk_df.get("margin_per_gram", pd.Series(0.0, index=at_risk_df.index)).fillna(0.0).lt(0).astype(int)
+            low_yield_flag = at_risk_df.get("yield_pct", pd.Series(0.0, index=at_risk_df.index)).fillna(0.0).lt(10).astype(int)
             at_risk_df["risk_score"] = (
-                at_risk_df["qa_hold"].astype(int) * 3
-                + at_risk_df["coa_status"].isin(["Failed", "Pending"]).astype(int) * 2
-                + at_risk_df["margin_per_gram"].lt(0).astype(int) * 2
-                + at_risk_df["yield_pct"].lt(10).astype(int)
+                qa_hold_flag * 3
+                + coa_status_flag * 2
+                + negative_margin_flag * 2
+                + low_yield_flag
             )
             at_risk_df = at_risk_df.sort_values(["risk_score", "yield_pct"], ascending=[False, True]).head(12)
             cols = ["batch_id_internal", "method", "yield_pct", "coa_status", "qa_hold", "status", "margin_per_gram", "output_mapping_warning"]
