@@ -2682,11 +2682,9 @@ def _refresh_doobie_connection_state() -> None:
 
 
 def _doobie_ai_access_enabled() -> bool:
-    status = st.session_state.get("doobie_status") or {}
-    if not bool(status.get("connected")):
-        return False
-    features = status.get("features") if isinstance(status.get("features"), dict) else {}
-    return bool(features.get("ai_support", True))
+    # Buyer Dashboard AI remains usable without a Doobie key.
+    # Doobie connection is an optional enhancement layer, not a hard AI gate.
+    return True
 
 
 def _render_doobie_ai_panel() -> None:
