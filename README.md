@@ -180,6 +180,57 @@ Use the filter bar to narrow results by category, brand, DOH threshold, and velo
 
 ---
 
+## License Validation (DoobieLogic Source of Truth)
+
+Buyer Dashboard now requires a DoobieLogic-issued opaque license key before loading the full app.
+
+### Required environment variables
+
+- `DOOBIE_BASE_URL` — base URL of the DoobieLogic service (example: `https://api.doobielogic.com`).
+- `DOOBIE_API_KEY` *(optional, if required by your DoobieLogic deployment)* — bearer token used when calling DoobieLogic.
+
+### Optional license environment variables
+
+- `BUYER_DASHBOARD_LICENSE_FILE` — local cache file path (default: `.buyer_dashboard_license.json`).
+- `DOOBIE_LICENSE_RECHECK_HOURS` — how old a cached validation can be before re-check (default: `24`).
+- `DOOBIE_LICENSE_GRACE_HOURS` — temporary offline grace window if DoobieLogic is unavailable (default: `48`).
+- `DOOBIE_LICENSE_TIMEOUT_SECONDS` — network timeout for validation requests (default: `8`).
+
+### Validation flow
+
+1. On startup, Buyer Dashboard checks for a cached validated license session.
+2. If no valid cache exists, users are shown a **License Required** screen with a license key input and **Validate License** button.
+3. The first gate also supports approved **trial-code username/password login** for configured trial users (God/Jwin), validated against existing bcrypt-backed auth users.
+4. Key entry always calls `POST /api/v1/license/validate` on DoobieLogic.
+5. Only a successful DoobieLogic response grants access.
+6. Invalid responses keep users on the license screen and show the server reason when available.
+
+### Local cache behavior (not authority)
+
+- Buyer Dashboard stores a lightweight local cache containing key/license metadata and feature flags.
+- Cache is convenience only; DoobieLogic remains the authority.
+- Cached sessions are periodically revalidated (default every 24 hours).
+
+### Grace-period behavior
+
+- If DoobieLogic is temporarily unavailable:
+  - Access is allowed **only** when a recent previously-valid cache exists and is within grace.
+  - New users without a prior validated cache remain blocked.
+- UI indicates grace mode with: **\"License server temporarily unavailable\"**.
+
+### Feature gating behavior
+
+Feature flags returned by DoobieLogic can gate modules like:
+
+- `buyer_module`
+- `extraction_module`
+- `ai_support`
+- `admin_exports`
+
+Unavailable features are hidden or shown as unavailable without crashing the app.
+
+---
+
 ## Slow Movers & Trends — Glossary
 
 ### Days-on-Hand (DOH)

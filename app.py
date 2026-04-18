@@ -16,6 +16,16 @@ from dotenv import load_dotenv
 from ai_providers import build_provider
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
+from services.license_client import validate_license_key
+from services.license_session import (
+    build_cached_license_session,
+    clear_local_license_session,
+    get_license_features,
+    is_license_recheck_needed,
+    license_in_grace_period,
+    load_local_license_session,
+    save_local_license_session,
+)
 from ui_polish import (
     load_polished_theme,
     render_section_header,
@@ -936,6 +946,10 @@ if "_daily_restored" not in st.session_state:
     st.session_state._daily_restored = False
 if "_daily_restore_msg" not in st.session_state:
     st.session_state._daily_restore_msg = False
+if "license_session_data" not in st.session_state:
+    st.session_state.license_session_data = None
+if "license_grace_mode" not in st.session_state:
+    st.session_state.license_grace_mode = False
 
 # Brute-force login protection counters
 _LOCKOUT_MAX_ATTEMPTS = 5
@@ -2569,9 +2583,144 @@ Tasks:
         return f"AI check failed: {e}"
 
 
+def _feature_enabled(feature_name: str, default_enabled: bool = True) -> bool:
+    features = get_license_features(st.session_state.get("license_session_data"))
+    if feature_name not in features:
+        return default_enabled
+    return bool(features.get(feature_name))
+
+
+_TRIAL_GATE_ALLOWED_USERS = {"god", "jwin"}
+
+
+def _lookup_stored_user_hash(username: str) -> str:
+    user = str(username or "").strip()
+    if not user:
+        return ""
+    if user in USER_USERS:
+        return str(USER_USERS.get(user) or "")
+    if user in ADMIN_USERS:
+        return str(ADMIN_USERS.get(user) or "")
+    # Case-insensitive fallback
+    lowered = user.lower()
+    for name, value in USER_USERS.items():
+        if str(name).lower() == lowered:
+            return str(value or "")
+    for name, value in ADMIN_USERS.items():
+        if str(name).lower() == lowered:
+            return str(value or "")
+    return ""
+
+
+def _check_trial_gate_user(username: str, password: str) -> bool:
+    user = str(username or "").strip()
+    if not user or user.lower() not in _TRIAL_GATE_ALLOWED_USERS:
+        return False
+    stored_hash = _lookup_stored_user_hash(user)
+    if not stored_hash:
+        return False
+    return _check_password(password, stored_hash)
+
+
+def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any] | None]:
+    cached_key = str(session_data.get("license_key") or "").strip()
+    if not cached_key:
+        return False, "missing_cached_license_key", None
+
+    result = validate_license_key(cached_key)
+    if result.get("ok") and result.get("valid"):
+        updated = build_cached_license_session(cached_key, result.get("payload") or {})
+        save_local_license_session(updated)
+        return True, None, updated
+
+    if result.get("ok") and not result.get("valid"):
+        clear_local_license_session()
+        return False, str(result.get("reason") or "license_invalid"), None
+
+    if license_in_grace_period(session_data):
+        return True, "License server temporarily unavailable. Using recent cached validation.", session_data
+
+    return False, "License server temporarily unavailable", None
+
+
+def _enforce_license_gate() -> None:
+    if st.session_state.get("user_authenticated"):
+        active_user = str(st.session_state.get("user_user") or "").strip().lower()
+        if active_user in _TRIAL_GATE_ALLOWED_USERS:
+            return
+
+    cached_session = load_local_license_session()
+    if cached_session:
+        st.session_state.license_session_data = cached_session
+        st.session_state.license_grace_mode = False
+        if is_license_recheck_needed(cached_session.get("validated_at")):
+            is_allowed, message, refreshed = _try_revalidate_cached_license(cached_session)
+            if is_allowed and refreshed:
+                st.session_state.license_session_data = refreshed
+                st.session_state.license_grace_mode = bool(message)
+                return
+            if message:
+                st.session_state["_license_gate_error"] = message
+            st.session_state.license_session_data = None
+        elif bool(cached_session.get("valid")):
+            return
+
+    st.markdown("## 🌿 Buyer Dashboard")
+    st.markdown("### License Required")
+    st.write("Enter your DoobieLogic-issued license key to continue.")
+    st.caption("Trial-code login is available for approved users (God and Jwin).")
+
+    gate_error = st.session_state.pop("_license_gate_error", None)
+    if gate_error:
+        st.error(gate_error)
+
+    license_key_input = st.text_input(
+        "License Key",
+        type="password",
+        key="license_key_input",
+        help="License keys are validated directly with DoobieLogic.",
+    )
+    if st.button("Validate License", key="validate_license_button", type="primary"):
+        entered_key = str(license_key_input or "").strip()
+        if not entered_key:
+            st.error("Please enter a license key.")
+            st.stop()
+        with st.spinner("Validating with DoobieLogic..."):
+            result = validate_license_key(entered_key)
+        if result.get("ok") and result.get("valid"):
+            session_payload = build_cached_license_session(entered_key, result.get("payload") or {})
+            save_local_license_session(session_payload)
+            st.session_state.license_session_data = session_payload
+            st.session_state.license_grace_mode = False
+            st.success("License validated.")
+            _safe_rerun()
+        elif result.get("ok"):
+            clear_local_license_session()
+            st.error(str(result.get("reason") or "License is invalid."))
+        else:
+            st.error("License server temporarily unavailable")
+
+    st.markdown("---")
+    st.markdown("#### Trial Code Login")
+    trial_user = st.text_input("Trial Username", key="trial_gate_user_input")
+    trial_pass = st.text_input("Trial Password", type="password", key="trial_gate_pass_input")
+    if st.button("Login with Trial Code", key="trial_gate_login_button"):
+        if _check_trial_gate_user(trial_user, trial_pass):
+            st.session_state.user_authenticated = True
+            st.session_state.user_user = str(trial_user).strip()
+            st.session_state.trial_start = datetime.now().isoformat()
+            st.success("Trial login accepted.")
+            _safe_rerun()
+        else:
+            st.error("Invalid trial credentials. Use your approved God/Jwin trial login.")
+    st.stop()
+
+
 # =========================
 # INIT OPENAI + SHOW DEBUG (admin-only)
 # =========================
+_enforce_license_gate()
+
 init_openai_client()
 
 # Debug panel is gated behind admin access to avoid exposing internals.
@@ -2651,6 +2800,18 @@ if theme_choice != st.session_state.theme:
     _safe_rerun()
 
 st.sidebar.markdown("### 👑 Admin Login")
+st.sidebar.markdown("### 🔐 License")
+_active_license = st.session_state.get("license_session_data") or {}
+_license_company = _active_license.get("company_name") or "Licensed Tenant"
+_license_plan = _active_license.get("plan_type") or "standard"
+st.sidebar.caption(f"{_license_company} • {_license_plan}")
+if st.session_state.get("license_grace_mode"):
+    st.sidebar.warning("License server temporarily unavailable (grace mode).")
+if st.sidebar.button("Reset License", key="reset_license_btn"):
+    clear_local_license_session()
+    st.session_state.license_session_data = None
+    st.session_state.license_grace_mode = False
+    _safe_rerun()
 
 if not st.session_state.is_admin:
     now = datetime.now()
@@ -6187,9 +6348,17 @@ def render_extraction_command_center():
 # =========================
 # TOP-LEVEL APP MODE SWITCH
 # =========================
+workspace_options = []
+if _feature_enabled("buyer_module", default_enabled=True):
+    workspace_options.append("🛒 Buyer Operations")
+if _feature_enabled("extraction_module", default_enabled=True):
+    workspace_options.append("🧪 Extraction Command Center")
+if not workspace_options:
+    st.error("Your license does not include any enabled workspace modules.")
+    st.stop()
 app_mode = st.radio(
     "Workspace",
-    ["🛒 Buyer Operations", "🧪 Extraction Command Center"],
+    workspace_options,
     index=0,
     horizontal=True,
     help="Switch between the purchasing dashboard and the extraction workspace.",
@@ -6204,7 +6373,10 @@ if app_mode == "🧪 Extraction Command Center":
         _display_user,
         "Operations",
     )
-    render_main_ai_copilot(app_mode, "🧪 Extraction Command Center")
+    if _feature_enabled("ai_support", default_enabled=True):
+        render_main_ai_copilot(app_mode, "🧪 Extraction Command Center")
+    else:
+        st.info("AI support is not enabled for this license plan.")
     render_extraction_command_center()
     st.stop()
 
@@ -6227,24 +6399,30 @@ st.sidebar.markdown("---")
 # =========================
 # PAGE SWITCH (BUYER OPERATIONS)
 # =========================
+section_options = [
+    "📊 Inventory Dashboard",
+    "📈 Trends",
+    "🚚 Delivery Impact",
+    "🐢 Slow Movers",
+    "🧾 PO Builder",
+    "🧭 Compliance Q&A",
+    "🧠 Buyer Intelligence",
+]
+if _feature_enabled("admin_exports", default_enabled=True):
+    section_options.append("🛠️ Admin Tools")
+
 section = st.sidebar.radio(
     "App Section",
-    [
-        "📊 Inventory Dashboard",
-        "📈 Trends",
-        "🚚 Delivery Impact",
-        "🐢 Slow Movers",
-        "🧾 PO Builder",
-        "🧭 Compliance Q&A",
-        "🧠 Buyer Intelligence",
-        "🛠️ Admin Tools",
-    ],
+    section_options,
     index=0,
 )
 
 _render_sidebar_nav_mockup(app_mode, section)
 
-render_main_ai_copilot(app_mode, section)
+if _feature_enabled("ai_support", default_enabled=True):
+    render_main_ai_copilot(app_mode, section)
+else:
+    st.caption("AI support is unavailable for your current plan.")
 
 # ============================================================
 # PAGE 1 – INVENTORY DASHBOARD
