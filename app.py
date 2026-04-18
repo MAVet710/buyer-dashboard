@@ -175,8 +175,18 @@ if not _EXTRACTION_PARTNER_INTEL_AVAILABLE:
         out["status"] = _partner_pick(df, ["status"], default="Processing")
         out["toll_processing"] = pd.Series(_partner_pick(df, ["toll_processing", "is_toll"], default=False)).astype(bool)
         out["processing_fee_usd"] = pd.to_numeric(_partner_pick(df, ["processing_fee_usd", "processing_fee"], default=0), errors="coerce").fillna(0)
-        out["est_revenue_usd"] = pd.to_numeric(_partner_pick(df, ["est_revenue_usd", "revenue_usd"], default=0), errors="coerce").fillna(0)
-        out["cogs_usd"] = pd.to_numeric(_partner_pick(df, ["cogs_usd", "cogs"], default=0), errors="coerce").fillna(0)
+        out["est_revenue_usd"] = pd.to_numeric(_partner_pick(df, ["est_revenue_usd", "estimated_revenue_usd", "revenue_usd"], default=0), errors="coerce").fillna(0)
+        out["estimated_revenue_usd"] = out["est_revenue_usd"]
+        out["cogs_usd"] = pd.to_numeric(_partner_pick(df, ["cogs_usd", "total_cogs_usd", "cogs"], default=0), errors="coerce").fillna(0)
+        out["total_cogs_usd"] = out["cogs_usd"]
+        out["raw_material_cogs_usd"] = pd.to_numeric(_partner_pick(df, ["raw_material_cogs_usd"], default=0), errors="coerce").fillna(0)
+        out["processing_cogs_usd"] = pd.to_numeric(_partner_pick(df, ["processing_cogs_usd"], default=0), errors="coerce").fillna(0)
+        out["packaging_cogs_usd"] = pd.to_numeric(_partner_pick(df, ["packaging_cogs_usd"], default=0), errors="coerce").fillna(0)
+        out["labor_cogs_usd"] = pd.to_numeric(_partner_pick(df, ["labor_cogs_usd"], default=0), errors="coerce").fillna(0)
+        out["overhead_cogs_usd"] = pd.to_numeric(_partner_pick(df, ["overhead_cogs_usd"], default=0), errors="coerce").fillna(0)
+        out["unit_size_g"] = pd.to_numeric(_partner_pick(df, ["unit_size_g"], default=0), errors="coerce").fillna(0)
+        out["unit_price_usd"] = pd.to_numeric(_partner_pick(df, ["unit_price_usd"], default=0), errors="coerce").fillna(0)
+        out["packaging_yield_loss_g"] = pd.to_numeric(_partner_pick(df, ["packaging_yield_loss_g"], default=0), errors="coerce").fillna(0)
         out["coa_status"] = _partner_pick(df, ["coa_status"], default="Pending")
         out["qa_hold"] = pd.Series(_partner_pick(df, ["qa_hold"], default=False)).astype(bool)
         out["notes"] = _partner_pick(df, ["notes"], default="")
@@ -191,8 +201,8 @@ if not _EXTRACTION_PARTNER_INTEL_AVAILABLE:
         df["week_start"] = (dt.dt.normalize() - pd.to_timedelta(dt.dt.weekday, unit="D")).dt.date.astype(str)
         df["finished_output_g"] = pd.to_numeric(df.get("finished_output_g", 0), errors="coerce").fillna(0)
         df["yield_pct"] = pd.to_numeric(df.get("yield_pct", 0), errors="coerce").fillna(0)
-        df["est_revenue_usd"] = pd.to_numeric(df.get("est_revenue_usd", 0), errors="coerce").fillna(0)
-        df["cogs_usd"] = pd.to_numeric(df.get("cogs_usd", 0), errors="coerce").fillna(0)
+        df["est_revenue_usd"] = pd.to_numeric(df.get("estimated_revenue_usd", df.get("est_revenue_usd", 0)), errors="coerce").fillna(0)
+        df["cogs_usd"] = pd.to_numeric(df.get("total_cogs_usd", df.get("cogs_usd", 0)), errors="coerce").fillna(0)
         df["qa_hold"] = pd.Series(df.get("qa_hold", False)).astype(bool)
         weekly = (
             df.groupby("week_start", dropna=True)
@@ -3480,6 +3490,22 @@ _ECC_EXTREME_COST_TO_VALUE_WARNING_RATIO = 0.85
 _ECC_SUSPICIOUS_MARGIN_PCT_THRESHOLD = 80.0
 _ECC_DEFAULT_ALLOCATION_GRAMS = 50.0
 _ECC_DRAFT_BATCH_PREFIX = "INV-DRAFT"
+_ECC_PACKAGED_REVENUE_ALERT_RATIO = 0.75
+_ECC_PACK_UNIT_PRESETS: dict[str, list[float]] = {
+    "Concentrate / Dabs": [0.5, 1.0, 2.0, 3.5],
+    "Vape Cart Fill": [0.5, 1.0],
+    "Disposable Fill": [0.5, 1.0],
+    "Infused Pre-Roll Input": [0.25, 0.5, 1.0],
+    "Bulk / Formulation": [],
+}
+_ECC_BULK_ONLY_OUTPUTS = {
+    "Bulk Oil",
+    "Vape Oil",
+    "RSO",
+    "CO2 Oil",
+    "HTE",
+    "HTFSE",
+}
 
 _ECC_TRACEABILITY_FIELDS: list[str] = [
     "source_inventory_batch_ids",
@@ -3509,7 +3535,49 @@ _ECC_VALUE_FIELDS: list[str] = [
     "unmapped_output_type",
     "output_mapping_warning",
     "normalized_output_type",
+    "raw_material_cogs_usd",
+    "processing_cogs_usd",
+    "packaging_cogs_usd",
+    "labor_cogs_usd",
+    "overhead_cogs_usd",
+    "total_cogs_usd",
+    "total_cogs_override",
+    "final_product_type",
+    "unit_size_g",
+    "unit_price_usd",
+    "units_per_batch",
+    "leftover_grams",
+    "packaging_yield_loss_g",
+    "usable_output_g",
+    "packaging_mode",
+    "bulk_estimated_value_usd",
+    "packaged_estimated_revenue_usd",
+    "estimated_revenue_usd",
+    "revenue_per_gram_realized",
+    "cost_per_unit",
+    "gross_profit_usd",
+    "gross_margin_pct",
+    "packaging_warning",
 ]
+
+
+def _ecc_get_packaging_mode(final_product_type: Any) -> str:
+    normalized = normalize_extraction_output_label(final_product_type)
+    if normalized in {"Vape Cart Fill"}:
+        return "Vape Cart Fill"
+    if normalized in {"Disposable Fill"}:
+        return "Disposable Fill"
+    if normalized in {"Infused Pre-Roll Input"}:
+        return "Infused Pre-Roll Input"
+    if normalized in _ECC_BULK_ONLY_OUTPUTS:
+        return "Bulk / Formulation"
+    if normalized:
+        return "Concentrate / Dabs"
+    return "Bulk / Formulation"
+
+
+def _ecc_get_pack_size_presets(final_product_type: Any) -> list[float]:
+    return _ECC_PACK_UNIT_PRESETS.get(_ecc_get_packaging_mode(final_product_type), [])
 
 
 def _ecc_norm_price_key(value: Any) -> str:
@@ -3638,6 +3706,8 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
         "workflow_template": "",
         "intermediate_product_type": "",
         "final_product_type": "",
+        "packaging_mode": "",
+        "packaging_warning": "",
         "formulation_base_g": 0.0,
         "terpene_handling_mode": "",
         "terpene_type": "",
@@ -3645,6 +3715,7 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
         "terpene_percentage": 0.0,
         "terpene_weight_g": 0.0,
         "formulation_applied": False,
+        "total_cogs_override": False,
     }
     for col, default_val in text_defaults.items():
         if col not in out.columns:
@@ -3668,6 +3739,25 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
         "formulation_base_g",
         "terpene_percentage",
         "terpene_weight_g",
+        "raw_material_cogs_usd",
+        "processing_cogs_usd",
+        "packaging_cogs_usd",
+        "labor_cogs_usd",
+        "overhead_cogs_usd",
+        "total_cogs_usd",
+        "unit_size_g",
+        "unit_price_usd",
+        "units_per_batch",
+        "leftover_grams",
+        "packaging_yield_loss_g",
+        "usable_output_g",
+        "bulk_estimated_value_usd",
+        "packaged_estimated_revenue_usd",
+        "estimated_revenue_usd",
+        "revenue_per_gram_realized",
+        "cost_per_unit",
+        "gross_profit_usd",
+        "gross_margin_pct",
     ]:
         out[numeric_col] = pd.to_numeric(out[numeric_col], errors="coerce").fillna(0.0)
     for list_col in ["source_inventory_batch_ids", "source_inventory_metrc_ids"]:
@@ -3686,6 +3776,11 @@ def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
     out["terpene_type"] = out["terpene_type"].fillna("").astype(str)
     out["terpene_source"] = out["terpene_source"].fillna("").astype(str)
     out["formulation_applied"] = out["formulation_applied"].fillna(False).astype(bool)
+    out["total_cogs_override"] = out["total_cogs_override"].fillna(False).astype(bool)
+    out["packaging_mode"] = out["packaging_mode"].replace("", np.nan).fillna(
+        out["final_product_type"].map(_ecc_get_packaging_mode)
+    ).astype(str)
+    out["packaging_warning"] = out["packaging_warning"].fillna("").astype(str)
     return out
 
 
@@ -3694,7 +3789,7 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
     if run_df is None:
         return pd.DataFrame()
     out = _ecc_ensure_run_schema(run_df.copy())
-    for col in ["input_weight_g", "finished_output_g", "processing_fee_usd", "cogs_usd"]:
+    for col in ["input_weight_g", "finished_output_g", "processing_fee_usd", "cogs_usd", "est_revenue_usd"]:
         if col not in out.columns:
             out[col] = 0.0
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
@@ -3732,6 +3827,26 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
     unmapped_vals: list[bool] = []
     mapping_warning_vals: list[str] = []
     normalized_output_vals: list[str] = []
+    raw_material_cogs_vals: list[float] = []
+    processing_cogs_vals: list[float] = []
+    packaging_cogs_vals: list[float] = []
+    labor_cogs_vals: list[float] = []
+    overhead_cogs_vals: list[float] = []
+    total_cogs_vals: list[float] = []
+    packaging_modes: list[str] = []
+    unit_size_vals: list[float] = []
+    unit_price_vals: list[float] = []
+    units_vals: list[int] = []
+    leftover_vals: list[float] = []
+    pkg_loss_vals: list[float] = []
+    usable_output_vals: list[float] = []
+    bulk_value_vals: list[float] = []
+    packaged_revenue_vals: list[float] = []
+    realized_rev_per_g_vals: list[float] = []
+    cost_per_unit_vals: list[float] = []
+    gross_profit_vals: list[float] = []
+    gross_margin_vals: list[float] = []
+    packaging_warning_vals: list[str] = []
 
     for _, row in out.iterrows():
         finished_output_g = float(row.get("finished_output_g", 0.0) or 0.0)
@@ -3763,17 +3878,60 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
                 cost_per_input_g = fallback_input_cost_per_g
             input_cost_total = input_weight_g * cost_per_input_g
 
-        processing_fee = float(row.get("processing_fee_usd", 0.0) or 0.0)
-        labor_cost = float(pd.to_numeric(row.get("labor_cost_usd", 0.0), errors="coerce") or 0.0)
-        overhead_cost = float(pd.to_numeric(row.get("overhead_cost_usd", 0.0), errors="coerce") or 0.0)
-        operational_cost_total = processing_fee + labor_cost + overhead_cost
+        raw_material_cogs = float(pd.to_numeric(row.get("raw_material_cogs_usd", np.nan), errors="coerce") or 0.0)
+        if raw_material_cogs <= 0:
+            raw_material_cogs = input_cost_total
+        processing_cogs = float(pd.to_numeric(row.get("processing_cogs_usd", np.nan), errors="coerce") or 0.0)
+        if processing_cogs <= 0:
+            processing_cogs = float(row.get("processing_fee_usd", 0.0) or 0.0)
+        packaging_cogs = float(pd.to_numeric(row.get("packaging_cogs_usd", np.nan), errors="coerce") or 0.0)
+        labor_cost = float(pd.to_numeric(row.get("labor_cogs_usd", row.get("labor_cost_usd", 0.0)), errors="coerce") or 0.0)
+        overhead_cost = float(pd.to_numeric(row.get("overhead_cogs_usd", row.get("overhead_cost_usd", 0.0)), errors="coerce") or 0.0)
+        operational_cost_total = processing_cogs + packaging_cogs + labor_cost + overhead_cost
         if operational_cost_total <= 0:
             operational_cost_total = fallback_operational_cost
 
-        total_cost = input_cost_total + operational_cost_total
+        component_cogs_total = raw_material_cogs + processing_cogs + packaging_cogs + labor_cost + overhead_cost
+        total_cogs_override = bool(row.get("total_cogs_override", False))
+        manual_total_cogs = float(pd.to_numeric(row.get("total_cogs_usd", np.nan), errors="coerce") or 0.0)
+        legacy_cogs = float(pd.to_numeric(row.get("cogs_usd", np.nan), errors="coerce") or 0.0)
+        if total_cogs_override and manual_total_cogs >= 0:
+            total_cogs = manual_total_cogs
+        elif component_cogs_total > 0:
+            total_cogs = component_cogs_total
+        elif legacy_cogs > 0:
+            total_cogs = legacy_cogs
+        else:
+            total_cogs = input_cost_total + operational_cost_total
+
+        total_cost = total_cogs
         cost_per_gram = _ecc_safe_div(total_cost, finished_output_g)
         market_price_per_gram, normalized_output_type, is_unmapped_output = _ecc_get_market_price_per_gram(row)
-        estimated_value_usd = finished_output_g * market_price_per_gram
+        bulk_estimated_value_usd = finished_output_g * market_price_per_gram
+        packaging_mode = str(row.get("packaging_mode", "") or _ecc_get_packaging_mode(row.get("final_product_type", "")))
+        unit_size_g = float(pd.to_numeric(row.get("unit_size_g", 0.0), errors="coerce") or 0.0)
+        unit_price_usd = float(pd.to_numeric(row.get("unit_price_usd", 0.0), errors="coerce") or 0.0)
+        packaging_yield_loss_g = max(float(pd.to_numeric(row.get("packaging_yield_loss_g", 0.0), errors="coerce") or 0.0), 0.0)
+        if packaging_yield_loss_g > finished_output_g:
+            packaging_yield_loss_g = finished_output_g
+        usable_output_g = max(finished_output_g - packaging_yield_loss_g, 0.0)
+        units_per_batch = int(np.floor(usable_output_g / unit_size_g)) if unit_size_g > 0 else 0
+        units_per_batch = max(units_per_batch, 0)
+        leftover_grams = max(usable_output_g - (units_per_batch * unit_size_g), 0.0) if unit_size_g > 0 else usable_output_g
+        packaged_estimated_revenue_usd = float(units_per_batch * unit_price_usd) if (unit_size_g > 0 and unit_price_usd >= 0) else 0.0
+        legacy_revenue = float(pd.to_numeric(row.get("est_revenue_usd", 0.0), errors="coerce") or 0.0)
+        estimated_value_usd = (
+            packaged_estimated_revenue_usd
+            if packaged_estimated_revenue_usd > 0
+            else (legacy_revenue if legacy_revenue > 0 else bulk_estimated_value_usd)
+        )
+        packaging_warning = ""
+        if unit_size_g <= 0 and packaging_mode != "Bulk / Formulation" and unit_price_usd > 0:
+            packaging_warning = "Unit price entered without a valid unit size."
+        elif unit_size_g > 0 and leftover_grams >= unit_size_g * 0.5:
+            packaging_warning = "Noticeable leftover grams due to pack-size rounding."
+        if bulk_estimated_value_usd > 0 and packaged_estimated_revenue_usd > 0 and (packaged_estimated_revenue_usd / bulk_estimated_value_usd) < _ECC_PACKAGED_REVENUE_ALERT_RATIO:
+            packaging_warning = "Packaged revenue is materially below bulk value assumption."
         margin_per_gram = market_price_per_gram - cost_per_gram
         total_profit_usd = estimated_value_usd - total_cost
         margin_pct_est = _ecc_safe_div(total_profit_usd * 100.0, estimated_value_usd)
@@ -3807,6 +3965,26 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
         unmapped_vals.append(bool(is_unmapped_output))
         mapping_warning_vals.append("⚠️ Unmapped Output Type" if is_unmapped_output else "")
         normalized_output_vals.append(normalized_output_type)
+        raw_material_cogs_vals.append(round(raw_material_cogs, 2))
+        processing_cogs_vals.append(round(processing_cogs, 2))
+        packaging_cogs_vals.append(round(packaging_cogs, 2))
+        labor_cogs_vals.append(round(labor_cost, 2))
+        overhead_cogs_vals.append(round(overhead_cost, 2))
+        total_cogs_vals.append(round(total_cogs, 2))
+        packaging_modes.append(packaging_mode)
+        unit_size_vals.append(round(unit_size_g, 4))
+        unit_price_vals.append(round(unit_price_usd, 2))
+        units_vals.append(units_per_batch)
+        leftover_vals.append(round(leftover_grams, 4))
+        pkg_loss_vals.append(round(packaging_yield_loss_g, 4))
+        usable_output_vals.append(round(usable_output_g, 4))
+        bulk_value_vals.append(round(bulk_estimated_value_usd, 2))
+        packaged_revenue_vals.append(round(packaged_estimated_revenue_usd, 2))
+        realized_rev_per_g_vals.append(round(_ecc_safe_div(estimated_value_usd, finished_output_g), 4))
+        cost_per_unit_vals.append(round(_ecc_safe_div(total_cogs, units_per_batch), 4))
+        gross_profit_vals.append(round(estimated_value_usd - total_cogs, 2))
+        gross_margin_vals.append(round(_ecc_safe_div((estimated_value_usd - total_cogs) * 100.0, estimated_value_usd), 2))
+        packaging_warning_vals.append(packaging_warning)
 
     out["input_cost_total"] = input_cost_vals
     out["operational_cost_total"] = op_cost_vals
@@ -3821,6 +3999,31 @@ def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.Data
     out["unmapped_output_type"] = unmapped_vals
     out["output_mapping_warning"] = mapping_warning_vals
     out["normalized_output_type"] = normalized_output_vals
+    out["raw_material_cogs_usd"] = raw_material_cogs_vals
+    out["processing_cogs_usd"] = processing_cogs_vals
+    out["packaging_cogs_usd"] = packaging_cogs_vals
+    out["labor_cogs_usd"] = labor_cogs_vals
+    out["overhead_cogs_usd"] = overhead_cogs_vals
+    out["total_cogs_usd"] = total_cogs_vals
+    out["cogs_usd"] = total_cogs_vals
+    out["packaging_mode"] = packaging_modes
+    out["unit_size_g"] = unit_size_vals
+    out["unit_price_usd"] = unit_price_vals
+    out["units_per_batch"] = units_vals
+    out["leftover_grams"] = leftover_vals
+    out["packaging_yield_loss_g"] = pkg_loss_vals
+    out["usable_output_g"] = usable_output_vals
+    out["bulk_estimated_value_usd"] = bulk_value_vals
+    out["packaged_estimated_revenue_usd"] = packaged_revenue_vals
+    out["estimated_revenue_usd"] = est_val_vals
+    out["est_revenue_usd"] = est_val_vals
+    out["revenue_per_gram_realized"] = realized_rev_per_g_vals
+    out["cost_per_unit"] = cost_per_unit_vals
+    out["gross_profit_usd"] = gross_profit_vals
+    out["gross_margin_pct"] = gross_margin_vals
+    out["packaging_warning"] = packaging_warning_vals
+    out["total_profit_usd"] = gross_profit_vals
+    out["margin_pct_est"] = gross_margin_vals
     return out
 
 
@@ -4156,6 +4359,28 @@ def render_extraction_command_center():
                     "processing_fee_usd": 0.0,
                     "est_revenue_usd": 3440.0,
                     "cogs_usd": 1200.0,
+                    "raw_material_cogs_usd": 700.0,
+                    "processing_cogs_usd": 220.0,
+                    "packaging_cogs_usd": 80.0,
+                    "labor_cogs_usd": 120.0,
+                    "overhead_cogs_usd": 80.0,
+                    "total_cogs_usd": 1200.0,
+                    "total_cogs_override": False,
+                    "packaging_mode": "Concentrate / Dabs",
+                    "unit_size_g": 1.0,
+                    "unit_price_usd": 38.0,
+                    "packaging_yield_loss_g": 2.0,
+                    "usable_output_g": 428.0,
+                    "units_per_batch": 428,
+                    "leftover_grams": 0.0,
+                    "bulk_estimated_value_usd": 6020.0,
+                    "packaged_estimated_revenue_usd": 16264.0,
+                    "estimated_revenue_usd": 16264.0,
+                    "revenue_per_gram_realized": 37.82,
+                    "cost_per_unit": 2.80,
+                    "gross_profit_usd": 15064.0,
+                    "gross_margin_pct": 92.62,
+                    "packaging_warning": "",
                     "source_inventory_batch_ids": "[]",
                     "source_inventory_metrc_ids": "[]",
                     "allocated_input_weight_g": 0.0,
@@ -4262,13 +4487,15 @@ def render_extraction_command_center():
     at_risk_batches = int(
         ((run_df["qa_hold"]) | (run_df["coa_status"].isin(["Failed", "Pending"]))).sum()
     ) if not run_df.empty else 0
-    est_revenue = float(run_df["est_revenue_usd"].sum()) if not run_df.empty else 0.0
-    cogs = float(run_df["cogs_usd"].sum()) if not run_df.empty else 0.0
+    est_revenue = float(run_df["estimated_revenue_usd"].sum()) if not run_df.empty else 0.0
+    cogs = float(run_df["total_cogs_usd"].sum()) if not run_df.empty else 0.0
     gross_margin_pct = ((est_revenue - cogs) / est_revenue * 100) if est_revenue else 0.0
     avg_cost_per_g = float(run_df["cost_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0) if not run_df.empty else 0.0
+    avg_cost_per_unit = float(run_df["cost_per_unit"].replace(0, np.nan).mean(skipna=True) or 0.0) if not run_df.empty else 0.0
     avg_value_per_g = float(run_df["market_price_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0) if not run_df.empty else 0.0
     avg_margin_per_g = float(run_df["margin_per_gram"].mean(skipna=True) or 0.0) if not run_df.empty else 0.0
-    total_est_profit = float(run_df["total_profit_usd"].sum()) if not run_df.empty else 0.0
+    total_est_profit = float(run_df["gross_profit_usd"].sum()) if not run_df.empty else 0.0
+    total_units_est = int(pd.to_numeric(run_df.get("units_per_batch", 0), errors="coerce").fillna(0).sum()) if not run_df.empty else 0
     negative_margin_runs = int((run_df["margin_per_gram"] < 0).sum()) if not run_df.empty else 0
     low_margin_runs = int(
         ((run_df["margin_per_gram"] >= 0) & (run_df["margin_per_gram"] < _ECC_LOW_MARGIN_PER_G_THRESHOLD)).sum()
@@ -4309,6 +4536,8 @@ def render_extraction_command_center():
     render_extraction_kpi(
         [
             {"label": "Avg Cost / g", "value": f"${avg_cost_per_g:,.2f}"},
+            {"label": "Avg Cost / Unit", "value": f"${avg_cost_per_unit:,.2f}"},
+            {"label": "Estimated Units", "value": f"{total_units_est:,}"},
             {"label": "Avg Value / g", "value": f"${avg_value_per_g:,.2f}"},
             {"label": "Avg Margin / g", "value": f"${avg_margin_per_g:,.2f}"},
             {"label": "Total Est. Profit", "value": f"${total_est_profit:,.0f}"},
@@ -4431,19 +4660,19 @@ def render_extraction_command_center():
             revenue_df = (
                 display_df[display_df["run_date_parsed"].notna()]
                 .assign(run_day=lambda d: d["run_date_parsed"].dt.date)
-                .groupby("run_day", as_index=False)[["est_revenue_usd", "cogs_usd"]]
+                .groupby("run_day", as_index=False)[["estimated_revenue_usd", "total_cogs_usd"]]
                 .sum()
             )
             if revenue_df.empty:
                 st.caption("No financial timeline data yet.")
             elif PLOTLY_AVAILABLE:
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["est_revenue_usd"], mode="lines+markers", name="Revenue", line=dict(color="#f5a524")))
-                fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["cogs_usd"], mode="lines+markers", name="COGS", line=dict(color="#ff6161")))
+                fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["estimated_revenue_usd"], mode="lines+markers", name="Revenue", line=dict(color="#f5a524")))
+                fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["total_cogs_usd"], mode="lines+markers", name="COGS", line=dict(color="#ff6161")))
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.line_chart(revenue_df.set_index("run_day")[["est_revenue_usd", "cogs_usd"]])
+                st.line_chart(revenue_df.set_index("run_day")[["estimated_revenue_usd", "total_cogs_usd"]])
             chart_card_end()
         with row2_r:
             chart_card_start("Batch Status Breakdown", "Current run status distribution.")
@@ -4595,6 +4824,9 @@ def render_extraction_command_center():
             unmapped_output_runs = int(display_df.get("unmapped_output_type", pd.Series(False, index=display_df.index)).fillna(False).astype(bool).sum()) if not display_df.empty else 0
             if unmapped_output_runs > 0:
                 warning.append(f"{unmapped_output_runs} run(s) use unmapped output taxonomy and are on fallback valuation.")
+            packaging_warning_runs = int(display_df.get("packaging_warning", pd.Series("", index=display_df.index)).fillna("").astype(str).str.strip().ne("").sum()) if not display_df.empty else 0
+            if packaging_warning_runs > 0:
+                warning.append(f"{packaging_warning_runs} run(s) have packaging/unitization warnings.")
             if total_runs > 0 and not critical and not warning:
                 neutral.append("No critical workflow or value risks detected in current filters.")
 
@@ -4693,6 +4925,88 @@ def render_extraction_command_center():
             st.dataframe(top_runs[[c for c in top_cols if c in top_runs.columns]], use_container_width=True, hide_index=True)
             st.markdown("**Worst Performing Runs**")
             st.dataframe(worst_runs[[c for c in top_cols if c in worst_runs.columns]], use_container_width=True, hide_index=True)
+            chart_card_end()
+
+        st.markdown("### Post-Production Financials")
+        f1, f2 = st.columns(2)
+        with f1:
+            chart_card_start("Revenue by Product Type", "Packaged revenue vs bulk value comparison.")
+            product_revenue_df = (
+                display_df.groupby("product_bucket", as_index=False)[["packaged_estimated_revenue_usd", "bulk_estimated_value_usd"]]
+                .sum()
+                .sort_values("packaged_estimated_revenue_usd", ascending=False)
+            )
+            if product_revenue_df.empty:
+                st.caption("No packaged revenue data.")
+            elif PLOTLY_AVAILABLE:
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=product_revenue_df["product_bucket"], y=product_revenue_df["packaged_estimated_revenue_usd"], name="Packaged Revenue", marker_color="#4cd388"))
+                fig.add_trace(go.Bar(x=product_revenue_df["product_bucket"], y=product_revenue_df["bulk_estimated_value_usd"], name="Bulk Value", marker_color="#5aa8ff"))
+                fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(product_revenue_df.set_index("product_bucket")[["packaged_estimated_revenue_usd", "bulk_estimated_value_usd"]])
+            chart_card_end()
+        with f2:
+            chart_card_start("Units by Product Type", "Estimated sellable units by output format.")
+            units_df = (
+                display_df.groupby("product_bucket", as_index=False)["units_per_batch"]
+                .sum()
+                .sort_values("units_per_batch", ascending=False)
+            )
+            if units_df.empty:
+                st.caption("No unitization data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(units_df, x="product_bucket", y="units_per_batch", color_discrete_sequence=["#f5a524"])
+                fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(units_df.set_index("product_bucket")["units_per_batch"])
+            chart_card_end()
+
+        f3, f4 = st.columns(2)
+        with f3:
+            chart_card_start("Cost vs Revenue by Method", "Total COGs versus packaged revenue grouped by extraction method.")
+            cvr_df = (
+                display_df.groupby("method", as_index=False)[["total_cogs_usd", "estimated_revenue_usd"]]
+                .sum()
+                .sort_values("estimated_revenue_usd", ascending=False)
+            )
+            if cvr_df.empty:
+                st.caption("No method-level financial data.")
+            elif PLOTLY_AVAILABLE:
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=cvr_df["method"], y=cvr_df["total_cogs_usd"], name="COGs", marker_color="#ff6161"))
+                fig.add_trace(go.Bar(x=cvr_df["method"], y=cvr_df["estimated_revenue_usd"], name="Revenue", marker_color="#4cd388"))
+                fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.bar_chart(cvr_df.set_index("method")[["total_cogs_usd", "estimated_revenue_usd"]])
+            chart_card_end()
+        with f4:
+            chart_card_start("Pack Size Sensitivity", "How alternate pack sizes impact estimated unit counts.")
+            sensitivity_rows: list[dict[str, Any]] = []
+            for _, r in display_df.iterrows():
+                current_type = r.get("final_product_type", r.get("product_type", ""))
+                for size in _ecc_get_pack_size_presets(current_type):
+                    usable = max(float(r.get("usable_output_g", r.get("finished_output_g", 0.0)) or 0.0), 0.0)
+                    sensitivity_rows.append(
+                        {
+                            "batch_id_internal": r.get("batch_id_internal", ""),
+                            "product_type": normalize_extraction_output_label(current_type) or current_type or "Other",
+                            "pack_size_g": size,
+                            "estimated_units": int(np.floor(usable / size)) if size > 0 else 0,
+                        }
+                    )
+            sensitivity_df = pd.DataFrame(sensitivity_rows)
+            if sensitivity_df.empty:
+                st.caption("Sensitivity view appears when product type has pack-size presets.")
+            else:
+                st.dataframe(
+                    sensitivity_df.sort_values(["product_type", "pack_size_g", "estimated_units"], ascending=[True, True, False]).head(40),
+                    use_container_width=True,
+                    hide_index=True,
+                )
             chart_card_end()
 
     with runs_tab:
@@ -4827,10 +5141,47 @@ def render_extraction_command_center():
                 processing_fee_usd = st.number_input(
                     "Processing Fee (USD)", min_value=0.0, step=10.0, key="ecc_processing_fee"
                 )
-                est_revenue_usd = st.number_input(
-                    "Estimated Revenue (USD)", min_value=0.0, step=10.0, key="ecc_est_revenue"
+                st.markdown("**COGs Inputs (optional)**")
+                raw_material_cogs_usd = st.number_input("Raw Material COGs (USD)", min_value=0.0, step=10.0, key="ecc_raw_material_cogs_usd")
+                processing_cogs_usd = st.number_input("Processing COGs (USD)", min_value=0.0, step=10.0, key="ecc_processing_cogs_usd")
+                packaging_cogs_usd = st.number_input("Packaging COGs (USD)", min_value=0.0, step=10.0, key="ecc_packaging_cogs_usd")
+                labor_cogs_usd = st.number_input("Labor COGs (USD)", min_value=0.0, step=10.0, key="ecc_labor_cogs_usd")
+                overhead_cogs_usd = st.number_input("Overhead COGs (USD)", min_value=0.0, step=10.0, key="ecc_overhead_cogs_usd")
+                total_cogs_override = st.checkbox("Manual Total COGs Override", key="ecc_total_cogs_override")
+                total_cogs_usd = st.number_input("Total COGs (USD)", min_value=0.0, step=10.0, key="ecc_total_cogs")
+                st.markdown("**Finished Pack Configuration**")
+                packaging_mode = _ecc_get_packaging_mode(final_product_type or product_type)
+                pack_presets = _ecc_get_pack_size_presets(final_product_type or product_type)
+                preset_opts = ["Bulk / No Unitization"] + [f"{x:g} g" for x in pack_presets]
+                preset_choice = st.selectbox(
+                    "Pack Size Preset",
+                    preset_opts,
+                    key="ecc_pack_size_preset",
+                    help="Select a default pack size for concentrates/cart fill/disposable workflows.",
                 )
-                cogs_usd = st.number_input("COGS (USD)", min_value=0.0, step=10.0, key="ecc_cogs")
+                inferred_unit_size = 0.0 if preset_choice == "Bulk / No Unitization" else float(preset_choice.replace(" g", ""))
+                unit_size_g = st.number_input(
+                    "Unit Size (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(inferred_unit_size),
+                    key="ecc_unit_size_g",
+                    help="Custom unit size override supported (e.g., 0.5g / 1g / 2g / 3.5g).",
+                )
+                unit_price_usd = st.number_input("Unit Price (USD)", min_value=0.0, step=0.5, key="ecc_unit_price_usd")
+                packaging_yield_loss_g = st.number_input(
+                    "Packaging Yield Loss (g, optional)",
+                    min_value=0.0,
+                    step=0.1,
+                    key="ecc_packaging_yield_loss_g",
+                )
+                est_revenue_usd_manual = st.number_input(
+                    "Estimated Revenue Override (USD, optional)",
+                    min_value=0.0,
+                    step=10.0,
+                    key="ecc_est_revenue",
+                    help="Used if unitized pricing is not configured.",
+                )
                 notes = st.text_area("Run Notes", key="ecc_notes")
                 stage_output_inputs: dict[str, float] = {}
                 stage_fields = EXTRACTION_METHOD_STAGE_OUTPUT_FIELDS.get(workflow_template, [])
@@ -4851,6 +5202,21 @@ def render_extraction_command_center():
                     st.stop()
                 if terpene_msg:
                     st.warning(terpene_msg)
+                if packaging_yield_loss_g > float(finished_output_g or 0.0):
+                    st.error("Packaging yield loss cannot exceed finished output grams.")
+                    st.stop()
+                if unit_size_g < 0:
+                    st.error("Unit size must be >= 0.")
+                    st.stop()
+                if unit_price_usd < 0:
+                    st.error("Unit price must be >= 0.")
+                    st.stop()
+                if total_cogs_usd < 0:
+                    st.error("Total COGs must be >= 0.")
+                    st.stop()
+                if (final_product_type or product_type) and (packaging_mode != "Bulk / Formulation") and unit_price_usd > 0 and unit_size_g <= 0:
+                    st.error("Unit size must be > 0 when unit pricing is entered for packaged products.")
+                    st.stop()
                 formulation_applied = _ecc_workflow_supports_formulation(method, workflow_template) and (
                     float(formulation_base_g or 0.0) > 0
                     or float(terpene_percentage or 0.0) > 0
@@ -4921,8 +5287,21 @@ def render_extraction_command_center():
                             "status": "Complete",
                             "toll_processing": toll_processing_flag,
                             "processing_fee_usd": processing_fee_usd,
-                            "est_revenue_usd": est_revenue_usd,
-                            "cogs_usd": cogs_usd,
+                            "est_revenue_usd": est_revenue_usd_manual,
+                            "raw_material_cogs_usd": raw_material_cogs_usd,
+                            "processing_cogs_usd": processing_cogs_usd,
+                            "packaging_cogs_usd": packaging_cogs_usd,
+                            "labor_cogs_usd": labor_cogs_usd,
+                            "overhead_cogs_usd": overhead_cogs_usd,
+                            "total_cogs_usd": total_cogs_usd,
+                            "total_cogs_override": total_cogs_override,
+                            "cogs_usd": total_cogs_usd if total_cogs_override else (
+                                raw_material_cogs_usd + processing_cogs_usd + packaging_cogs_usd + labor_cogs_usd + overhead_cogs_usd
+                            ),
+                            "packaging_mode": packaging_mode,
+                            "unit_size_g": unit_size_g,
+                            "unit_price_usd": unit_price_usd,
+                            "packaging_yield_loss_g": packaging_yield_loss_g,
                             "source_inventory_batch_ids": "[]",
                             "source_inventory_metrc_ids": "[]",
                             "allocated_input_weight_g": 0.0,
@@ -5227,6 +5606,88 @@ def render_extraction_command_center():
                 updated_terpene_type = st.text_input("Terpene Type", value=str(selected_row.get("terpene_type", "")), key=f"ecc_terpene_type_update_{int(selected_idx)}")
                 updated_terpene_source = st.text_input("Terpene Source", value=str(selected_row.get("terpene_source", "")), key=f"ecc_terpene_source_update_{int(selected_idx)}")
 
+            st.markdown("#### Post-Production Financials")
+            fin1, fin2, fin3 = st.columns(3)
+            with fin1:
+                upd_raw_material_cogs = st.number_input(
+                    "Raw Material COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("raw_material_cogs_usd", selected_row.get("input_cost_total", 0.0)) or 0.0),
+                    key=f"ecc_raw_material_cogs_update_{int(selected_idx)}",
+                )
+                upd_processing_cogs = st.number_input(
+                    "Processing COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("processing_cogs_usd", selected_row.get("processing_fee_usd", 0.0)) or 0.0),
+                    key=f"ecc_processing_cogs_update_{int(selected_idx)}",
+                )
+                upd_packaging_cogs = st.number_input(
+                    "Packaging COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("packaging_cogs_usd", 0.0) or 0.0),
+                    key=f"ecc_packaging_cogs_update_{int(selected_idx)}",
+                )
+            with fin2:
+                upd_labor_cogs = st.number_input(
+                    "Labor COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("labor_cogs_usd", selected_row.get("labor_cost_usd", 0.0)) or 0.0),
+                    key=f"ecc_labor_cogs_update_{int(selected_idx)}",
+                )
+                upd_overhead_cogs = st.number_input(
+                    "Overhead COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("overhead_cogs_usd", selected_row.get("overhead_cost_usd", 0.0)) or 0.0),
+                    key=f"ecc_overhead_cogs_update_{int(selected_idx)}",
+                )
+                upd_total_cogs_override = st.checkbox(
+                    "Manual Total COGs Override",
+                    value=bool(selected_row.get("total_cogs_override", False)),
+                    key=f"ecc_total_cogs_override_update_{int(selected_idx)}",
+                )
+                upd_total_cogs = st.number_input(
+                    "Total COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("total_cogs_usd", selected_row.get("cogs_usd", 0.0)) or 0.0),
+                    key=f"ecc_total_cogs_update_{int(selected_idx)}",
+                )
+            with fin3:
+                upd_packaging_mode = st.selectbox(
+                    "Packaging Mode",
+                    list(_ECC_PACK_UNIT_PRESETS.keys()),
+                    index=list(_ECC_PACK_UNIT_PRESETS.keys()).index(str(selected_row.get("packaging_mode", _ecc_get_packaging_mode(selected_row.get("final_product_type", "")))))
+                    if str(selected_row.get("packaging_mode", _ecc_get_packaging_mode(selected_row.get("final_product_type", "")))) in list(_ECC_PACK_UNIT_PRESETS.keys())
+                    else 0,
+                    key=f"ecc_packaging_mode_update_{int(selected_idx)}",
+                )
+                upd_unit_size = st.number_input(
+                    "Unit Size (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("unit_size_g", 0.0) or 0.0),
+                    key=f"ecc_unit_size_update_{int(selected_idx)}",
+                )
+                upd_unit_price = st.number_input(
+                    "Unit Price (USD)",
+                    min_value=0.0,
+                    step=0.5,
+                    value=float(selected_row.get("unit_price_usd", 0.0) or 0.0),
+                    key=f"ecc_unit_price_update_{int(selected_idx)}",
+                )
+                upd_packaging_loss = st.number_input(
+                    "Packaging Yield Loss (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("packaging_yield_loss_g", 0.0) or 0.0),
+                    key=f"ecc_packaging_loss_update_{int(selected_idx)}",
+                )
+
             st.markdown("#### Formulation Controls")
             f1, f2, f3 = st.columns(3)
             with f1:
@@ -5389,6 +5850,12 @@ def render_extraction_command_center():
                     st.stop()
                 if terpene_msg_update:
                     st.warning(terpene_msg_update)
+                if upd_packaging_loss > float(upd_final_output or 0.0):
+                    st.error("Packaging yield loss cannot exceed final output grams.")
+                    st.stop()
+                if upd_packaging_mode != "Bulk / Formulation" and upd_unit_price > 0 and upd_unit_size <= 0:
+                    st.error("Unit size must be > 0 for packaged products with a unit price.")
+                    st.stop()
                 supports_formulation = _ecc_workflow_supports_formulation(selected_row.get("method", ""), updated_workflow_template)
                 calculated_terpene_weight = _ecc_compute_formulation_terpene_weight(
                     float(upd_formulation_base_g or upd_final_output or 0.0),
@@ -5437,6 +5904,17 @@ def render_extraction_command_center():
                 st.session_state.ecc_run_log.loc[selected_idx, "terpene_weight_g"] = calculated_terpene_weight
                 st.session_state.ecc_run_log.loc[selected_idx, "formulation_base_g"] = upd_formulation_base_g
                 st.session_state.ecc_run_log.loc[selected_idx, "formulation_applied"] = formulation_applied_update
+                st.session_state.ecc_run_log.loc[selected_idx, "raw_material_cogs_usd"] = upd_raw_material_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "processing_cogs_usd"] = upd_processing_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "packaging_cogs_usd"] = upd_packaging_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "labor_cogs_usd"] = upd_labor_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "overhead_cogs_usd"] = upd_overhead_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "total_cogs_override"] = upd_total_cogs_override
+                st.session_state.ecc_run_log.loc[selected_idx, "total_cogs_usd"] = upd_total_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "packaging_mode"] = upd_packaging_mode
+                st.session_state.ecc_run_log.loc[selected_idx, "unit_size_g"] = upd_unit_size
+                st.session_state.ecc_run_log.loc[selected_idx, "unit_price_usd"] = upd_unit_price
+                st.session_state.ecc_run_log.loc[selected_idx, "packaging_yield_loss_g"] = upd_packaging_loss
                 st.session_state.ecc_run_log.loc[selected_idx, "notes"] = updated_notes
                 # Write back editable mass-balance stage weights
                 st.session_state.ecc_run_log.loc[selected_idx, "input_weight_g"] = upd_input_weight
