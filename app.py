@@ -950,6 +950,12 @@ if "license_session_data" not in st.session_state:
     st.session_state.license_session_data = None
 if "license_grace_mode" not in st.session_state:
     st.session_state.license_grace_mode = False
+if "doobie_status" not in st.session_state:
+    st.session_state.doobie_status = {
+        "status": "not_connected",
+        "connected": False,
+        "message": "Not Connected",
+    }
 
 # Brute-force login protection counters
 _LOCKOUT_MAX_ATTEMPTS = 5
@@ -2599,6 +2605,29 @@ def _feature_enabled(feature_name: str, default_enabled: bool = True) -> bool:
     return bool(features.get(feature_name))
 
 
+def _normalize_license_status(raw_status: str | None, valid: bool = False) -> str:
+    status = str(raw_status or "").strip().lower()
+    if status in {"active", "trial", "ok"} and valid:
+        return "connected"
+    if status in {"revoked"}:
+        return "revoked"
+    if status in {"invalid", "expired", "inactive", "suspended", "blocked"}:
+        return "invalid"
+    if valid:
+        return "connected"
+    return "not_connected"
+
+
+def _doobie_status_message(status: str) -> str:
+    return {
+        "connected": "Connected",
+        "invalid": "Invalid",
+        "revoked": "Revoked",
+        "unavailable": "Unavailable",
+        "not_connected": "Not Connected",
+    }.get(status, "Not Connected")
+
+
 def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any] | None]:
     cached_key = str(session_data.get("license_key") or "").strip()
     if not cached_key:
@@ -2620,8 +2649,14 @@ def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, 
     return False, "License server temporarily unavailable", None
 
 
-def _enforce_license_gate() -> None:
+def _refresh_doobie_connection_state() -> None:
     cached_session = load_local_license_session()
+    status_payload = {
+        "status": "not_connected",
+        "connected": False,
+        "message": _doobie_status_message("not_connected"),
+    }
+
     if cached_session:
         st.session_state.license_session_data = cached_session
         st.session_state.license_grace_mode = False
@@ -2630,53 +2665,134 @@ def _enforce_license_gate() -> None:
             if is_allowed and refreshed:
                 st.session_state.license_session_data = refreshed
                 st.session_state.license_grace_mode = bool(message)
-                return
-            if message:
-                st.session_state["_license_gate_error"] = message
-            st.session_state.license_session_data = None
+                refreshed_status = _normalize_license_status(
+                    str(refreshed.get("status") or ""),
+                    valid=bool(refreshed.get("valid")),
+                )
+                if message:
+                    status_payload = {
+                        "status": "unavailable",
+                        "connected": True,
+                        "message": _doobie_status_message("unavailable"),
+                    }
+                else:
+                    status_payload = {
+                        "status": refreshed_status,
+                        "connected": refreshed_status == "connected",
+                        "message": _doobie_status_message(refreshed_status),
+                    }
+            else:
+                invalid_status = _normalize_license_status(str(message or ""), valid=False)
+                status_payload = {
+                    "status": invalid_status if invalid_status in {"invalid", "revoked"} else "invalid",
+                    "connected": False,
+                    "message": _doobie_status_message(
+                        invalid_status if invalid_status in {"invalid", "revoked"} else "invalid"
+                    ),
+                }
+                st.session_state.license_session_data = None
         elif bool(cached_session.get("valid")):
-            return
-
-    st.markdown("## 🌿 Buyer Dashboard")
-    st.markdown("### License Required")
-    st.write("Enter your DoobieLogic-issued license key to continue.")
-
-    gate_error = st.session_state.pop("_license_gate_error", None)
-    if gate_error:
-        st.error(gate_error)
-
-    license_key_input = st.text_input(
-        "License Key",
-        type="password",
-        key="license_key_input",
-        help="License keys are validated directly with DoobieLogic.",
-    )
-    if st.button("Validate License", key="validate_license_button", type="primary"):
-        entered_key = str(license_key_input or "").strip()
-        if not entered_key:
-            st.error("Please enter a license key.")
-            st.stop()
-        with st.spinner("Validating with DoobieLogic..."):
-            result = validate_license_key(entered_key)
-        if result.get("ok") and result.get("valid"):
-            session_payload = build_cached_license_session(entered_key, result.get("payload") or {})
-            save_local_license_session(session_payload)
-            st.session_state.license_session_data = session_payload
-            st.session_state.license_grace_mode = False
-            st.success("License validated.")
-            _safe_rerun()
-        elif result.get("ok"):
-            clear_local_license_session()
-            st.error(str(result.get("reason") or "License is invalid."))
+            cached_status = _normalize_license_status(
+                str(cached_session.get("status") or ""),
+                valid=bool(cached_session.get("valid")),
+            )
+            status_payload = {
+                "status": cached_status,
+                "connected": cached_status == "connected",
+                "message": _doobie_status_message(cached_status),
+            }
         else:
-            st.error("License server temporarily unavailable")
-    st.stop()
+            stale_status = _normalize_license_status(str(cached_session.get("status") or ""), valid=False)
+            status_payload = {
+                "status": stale_status if stale_status in {"invalid", "revoked"} else "invalid",
+                "connected": False,
+                "message": _doobie_status_message(
+                    stale_status if stale_status in {"invalid", "revoked"} else "invalid"
+                ),
+            }
+    else:
+        st.session_state.license_session_data = None
+
+    st.session_state.doobie_status = status_payload
+
+
+def _doobie_ai_access_enabled() -> bool:
+    status = st.session_state.get("doobie_status") or {}
+    return bool(status.get("connected"))
+
+
+def _render_doobie_ai_panel() -> None:
+    with st.sidebar.expander("🤖 Doobie AI", expanded=False):
+        status = st.session_state.get("doobie_status") or {}
+        status_code = str(status.get("status") or "not_connected")
+        st.markdown(f"**Status:** {status.get('message') or _doobie_status_message(status_code)}")
+        if st.session_state.get("license_grace_mode"):
+            st.caption("License server unavailable; cached connection is active.")
+        st.caption("Doobie license controls AI features only. Core dashboard tools remain available.")
+
+        active_license = st.session_state.get("license_session_data") or {}
+        if active_license:
+            company = active_license.get("company_name") or "Licensed Tenant"
+            plan = active_license.get("plan_type") or "standard"
+            st.caption(f"{company} • {plan}")
+
+        license_key_input = st.text_input(
+            "Doobie Key",
+            type="password",
+            key="doobie_license_key_input",
+            help="Enter your Doobie key to enable AI features.",
+        )
+        if st.button("Connect Doobie AI", key="doobie_validate_license_button", type="primary"):
+            entered_key = str(license_key_input or "").strip()
+            if not entered_key:
+                st.error("Please enter a Doobie key.")
+            else:
+                with st.spinner("Validating Doobie key..."):
+                    result = validate_license_key(entered_key)
+                if result.get("ok") and result.get("valid"):
+                    session_payload = build_cached_license_session(entered_key, result.get("payload") or {})
+                    save_local_license_session(session_payload)
+                    st.session_state.license_session_data = session_payload
+                    st.session_state.license_grace_mode = False
+                    st.success("Doobie AI connected.")
+                    _refresh_doobie_connection_state()
+                    _safe_rerun()
+                elif result.get("ok"):
+                    clear_local_license_session()
+                    st.session_state.license_session_data = None
+                    invalid_status = _normalize_license_status(str(result.get("reason") or "invalid"), valid=False)
+                    st.session_state.doobie_status = {
+                        "status": invalid_status if invalid_status in {"invalid", "revoked"} else "invalid",
+                        "connected": False,
+                        "message": _doobie_status_message(
+                            invalid_status if invalid_status in {"invalid", "revoked"} else "invalid"
+                        ),
+                    }
+                    st.error(str(result.get("reason") or "License is invalid."))
+                else:
+                    st.session_state.doobie_status = {
+                        "status": "unavailable",
+                        "connected": False,
+                        "message": _doobie_status_message("unavailable"),
+                    }
+                    st.error("Doobie license server unavailable.")
+
+        if st.button("Disconnect Doobie AI", key="reset_license_btn"):
+            clear_local_license_session()
+            st.session_state.license_session_data = None
+            st.session_state.license_grace_mode = False
+            st.session_state.doobie_status = {
+                "status": "not_connected",
+                "connected": False,
+                "message": _doobie_status_message("not_connected"),
+            }
+            _safe_rerun()
 
 
 # =========================
 # INIT OPENAI + SHOW DEBUG (admin-only)
 # =========================
-_enforce_license_gate()
+_refresh_doobie_connection_state()
 
 init_openai_client()
 
@@ -2757,18 +2873,6 @@ if theme_choice != st.session_state.theme:
     _safe_rerun()
 
 st.sidebar.markdown("### 👑 Admin Login")
-st.sidebar.markdown("### 🔐 License")
-_active_license = st.session_state.get("license_session_data") or {}
-_license_company = _active_license.get("company_name") or "Licensed Tenant"
-_license_plan = _active_license.get("plan_type") or "standard"
-st.sidebar.caption(f"{_license_company} • {_license_plan}")
-if st.session_state.get("license_grace_mode"):
-    st.sidebar.warning("License server temporarily unavailable (grace mode).")
-if st.sidebar.button("Reset License", key="reset_license_btn"):
-    clear_local_license_session()
-    st.session_state.license_session_data = None
-    st.session_state.license_grace_mode = False
-    _safe_rerun()
 
 if not st.session_state.is_admin:
     now = datetime.now()
