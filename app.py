@@ -16,6 +16,15 @@ from dotenv import load_dotenv
 from ai_providers import build_provider
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
+from services.license_client import validate_license_key
+from services.license_session import (
+    build_cached_license_session,
+    clear_local_license_session,
+    is_license_recheck_needed,
+    license_in_grace_period,
+    load_local_license_session,
+    save_local_license_session,
+)
 from ui_polish import (
     load_polished_theme,
     render_section_header,
@@ -936,6 +945,18 @@ if "_daily_restored" not in st.session_state:
     st.session_state._daily_restored = False
 if "_daily_restore_msg" not in st.session_state:
     st.session_state._daily_restore_msg = False
+if "license_session_data" not in st.session_state:
+    st.session_state.license_session_data = None
+if "license_grace_mode" not in st.session_state:
+    st.session_state.license_grace_mode = False
+if "doobie_status" not in st.session_state:
+    st.session_state.doobie_status = {
+        "connected": False,
+        "plan_type": None,
+        "status": "not_connected",
+        "features": {},
+        "last_validated": None,
+    }
 
 # Brute-force login protection counters
 _LOCKOUT_MAX_ATTEMPTS = 5
@@ -2391,6 +2412,8 @@ def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
 
 
 def _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days):
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
     if not OPENAI_AVAILABLE or ai_client is None:
         return "AI buyer brief unavailable. Configure an AI provider in the Main AI Copilot panel."
 
@@ -2423,6 +2446,8 @@ Output sections:
 
 
 def _run_main_ai_copilot(question, app_mode, section):
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
     if not OPENAI_AVAILABLE or ai_client is None:
         return (
             "AI copilot is unavailable. Configure AI_API_KEY (or OPENAI_API_KEY) or local Ollama, "
@@ -2463,6 +2488,9 @@ User question:
 
 def render_main_ai_copilot(app_mode, section):
     with st.sidebar.expander("🧠 Main AI Copilot", expanded=False):
+        if not _doobie_ai_access_enabled():
+            st.caption("Connect Doobie AI to enable this feature.")
+            return
         st.caption("Use this assistant across buyer, compliance, and extraction workflows.")
 
         provider_choice = st.selectbox(
@@ -2501,6 +2529,8 @@ def ai_inventory_check(detail_view, doh_threshold, data_source):
     Send a small slice of the current table to the AI so it can
     comment on obvious issues: zero on-hand, crazy DOH, etc.
     """
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
     if not OPENAI_AVAILABLE or ai_client is None:
         return (
             "AI is not enabled. Add AI_API_KEY (or OPENAI_API_KEY) to Streamlit secrets "
@@ -2567,6 +2597,163 @@ Tasks:
         return response.text
     except Exception as e:
         return f"AI check failed: {e}"
+
+
+def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any] | None]:
+    cached_key = str(session_data.get("license_key") or "").strip()
+    if not cached_key:
+        return False, "missing_cached_license_key", None
+
+    result = validate_license_key(cached_key)
+    if result.get("ok") and result.get("valid"):
+        updated = build_cached_license_session(cached_key, result.get("payload") or {})
+        save_local_license_session(updated)
+        return True, None, updated
+
+    if result.get("ok") and not result.get("valid"):
+        clear_local_license_session()
+        return False, str(result.get("reason") or "license_invalid"), None
+
+    if license_in_grace_period(session_data):
+        return True, "License server temporarily unavailable. Using recent cached validation.", session_data
+
+    return False, "License server temporarily unavailable", None
+
+
+def _build_doobie_status(
+    connected: bool,
+    status: str,
+    session_data: dict[str, Any] | None = None,
+    message: str | None = None,
+) -> dict[str, Any]:
+    payload = session_data or {}
+    return {
+        "connected": bool(connected),
+        "plan_type": payload.get("plan_type"),
+        "status": str(status),
+        "features": payload.get("features") if isinstance(payload.get("features"), dict) else {},
+        "last_validated": payload.get("validated_at"),
+        "company_name": payload.get("company_name") or "",
+        "message": message or "",
+    }
+
+
+def _refresh_doobie_connection_state() -> None:
+    cached_session = load_local_license_session()
+    if not cached_session:
+        st.session_state.license_session_data = None
+        st.session_state.license_grace_mode = False
+        st.session_state.doobie_status = _build_doobie_status(False, "not_connected")
+        return
+
+    st.session_state.license_session_data = cached_session
+    if bool(cached_session.get("valid")) and not is_license_recheck_needed(cached_session.get("validated_at")):
+        st.session_state.license_grace_mode = False
+        st.session_state.doobie_status = _build_doobie_status(True, "active", cached_session)
+        return
+
+    is_allowed, message, refreshed = _try_revalidate_cached_license(cached_session)
+    if is_allowed and refreshed:
+        st.session_state.license_session_data = refreshed
+        grace_mode = bool(message)
+        st.session_state.license_grace_mode = grace_mode
+        status = "unavailable" if grace_mode else "active"
+        st.session_state.doobie_status = _build_doobie_status(
+            bool(refreshed.get("valid")),
+            status,
+            refreshed,
+            message=message,
+        )
+        return
+
+    reason = str(message or "invalid")
+    st.session_state.license_grace_mode = False
+    if refreshed is None:
+        clear_local_license_session()
+        st.session_state.license_session_data = None
+    status_map = {
+        "license_invalid": "invalid",
+        "revoked": "revoked",
+        "expired": "expired",
+        "License server temporarily unavailable": "unavailable",
+    }
+    normalized_status = status_map.get(reason, "invalid")
+    st.session_state.doobie_status = _build_doobie_status(False, normalized_status, cached_session, message=reason)
+
+
+def _doobie_ai_access_enabled() -> bool:
+    status = st.session_state.get("doobie_status") or {}
+    if not bool(status.get("connected")):
+        return False
+    features = status.get("features") if isinstance(status.get("features"), dict) else {}
+    return bool(features.get("ai_support", True))
+
+
+def _render_doobie_ai_panel() -> None:
+    doobie_status = st.session_state.get("doobie_status") or _build_doobie_status(False, "not_connected")
+    st.sidebar.markdown("### 🤖 Doobie AI")
+    if doobie_status.get("connected"):
+        st.sidebar.success(
+            f"Connected • {doobie_status.get('company_name') or 'Doobie Tenant'} • "
+            f"{doobie_status.get('plan_type') or 'standard'}"
+        )
+        st.sidebar.caption(f"Status: {doobie_status.get('status', 'active')}")
+        if doobie_status.get("message"):
+            st.sidebar.warning(str(doobie_status.get("message")))
+        if st.sidebar.button("Disconnect / Reset Key", key="reset_doobie_ai_btn"):
+            clear_local_license_session()
+            st.session_state.license_session_data = None
+            st.session_state.license_grace_mode = False
+            st.session_state.doobie_status = _build_doobie_status(False, "not_connected")
+            _safe_rerun()
+        return
+
+    if doobie_status.get("status") == "unavailable":
+        st.sidebar.warning("Doobie AI unavailable. Dashboard remains usable.")
+    else:
+        st.sidebar.caption("Doobie AI not connected")
+
+    key_input = st.sidebar.text_input(
+        "Doobie License Key",
+        type="password",
+        key="doobie_license_key_input",
+        help="Connect Doobie AI without blocking dashboard access.",
+    )
+    if st.sidebar.button("Connect", key="connect_doobie_ai_btn"):
+        entered_key = str(key_input or "").strip()
+        if not entered_key:
+            st.sidebar.error("Enter a license key to connect Doobie AI.")
+            return
+        result = validate_license_key(entered_key)
+        if result.get("ok") and result.get("valid"):
+            session_payload = build_cached_license_session(entered_key, result.get("payload") or {})
+            save_local_license_session(session_payload)
+            st.session_state.license_session_data = session_payload
+            st.session_state.license_grace_mode = False
+            st.session_state.doobie_status = _build_doobie_status(True, "active", session_payload)
+            st.sidebar.success("Doobie AI connected.")
+            _safe_rerun()
+        elif result.get("ok"):
+            reason = str(result.get("reason") or "invalid")
+            st.session_state.doobie_status = _build_doobie_status(False, reason, message=reason)
+            st.sidebar.error(f"Connection failed: {reason}")
+        else:
+            cached = st.session_state.get("license_session_data")
+            if license_in_grace_period(cached):
+                st.session_state.license_grace_mode = True
+                st.session_state.doobie_status = _build_doobie_status(
+                    True,
+                    "unavailable",
+                    cached,
+                    message="License server temporarily unavailable",
+                )
+            else:
+                st.session_state.doobie_status = _build_doobie_status(
+                    False,
+                    "unavailable",
+                    message="License server temporarily unavailable",
+                )
+            st.sidebar.warning("License server temporarily unavailable")
 
 
 # =========================
@@ -2772,6 +2959,16 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
 
 # =========================
+# DOOBIE AI CONNECTION (non-blocking, layered on top of login)
+# =========================
+if st.session_state.get("is_admin") or st.session_state.get("user_authenticated"):
+    _refresh_doobie_connection_state()
+    _render_doobie_ai_panel()
+else:
+    # Keep login/trial flow primary. Doobie connection appears only after login.
+    st.session_state.doobie_status = _build_doobie_status(False, "not_connected")
+
+# =========================
 # RESTORE TODAY'S UPLOADS (cross-session persistence)
 # Runs once per session, after authentication is confirmed.
 # =========================
@@ -2799,16 +2996,25 @@ render_section_header(
     "BUYER DASHBOARD",
     subtitle="Compliance and operations intelligence for buyer and extraction teams.",
 )
+_doobie_header_status = st.session_state.get("doobie_status") or {}
+if _doobie_header_status.get("connected"):
+    st.caption("🟢 Doobie Connected")
+elif _doobie_header_status.get("status") in {"invalid", "revoked", "expired"}:
+    st.caption("🔴 Doobie Invalid / Revoked")
+else:
+    st.caption("🟡 Doobie Not Connected")
 if st.session_state.get("_daily_restore_msg"):
     st.info(
         "📂 Your uploads from earlier today have been restored automatically. "
         "You can re-upload files at any time to refresh them."
     )
     st.session_state._daily_restore_msg = False
-if OPENAI_AVAILABLE:
+if _doobie_ai_access_enabled() and OPENAI_AVAILABLE:
     st.markdown("✅ AI buyer-assist is **ON** for this session.")
+elif not _doobie_ai_access_enabled():
+    st.markdown("🟡 AI buyer-assist is **OFF** until Doobie AI is connected.")
 else:
-    st.markdown("⚠️ AI buyer-assist is **OFF** (local Ollama not reachable).")
+    st.markdown("⚠️ AI buyer-assist is **OFF** (AI provider not reachable).")
 st.markdown("---")
 
 with st.sidebar.expander("🔗 Local App Link", expanded=False):
@@ -2932,6 +3138,8 @@ def _generate_extraction_ai_brief(
     inventory_context: dict[str, Any] | None = None,
     value_context: dict[str, Any] | None = None,
 ):
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
     if not OPENAI_AVAILABLE or ai_client is None:
         return "AI extraction brief unavailable. Configure provider in the Main AI Copilot panel."
 
@@ -6173,7 +6381,9 @@ def render_extraction_command_center():
         st.markdown("#### Recommended Actions")
         st.caption("Generate a shift-ready brief grounded in current run and toll job data.")
 
-        if st.button("Generate AI Extraction Brief", key="ecc_ai_ops_brief"):
+        if not _doobie_ai_access_enabled():
+            st.info("Connect Doobie AI to enable this feature.")
+        elif st.button("Generate AI Extraction Brief", key="ecc_ai_ops_brief"):
             with st.spinner("Analyzing extraction operations..."):
                 brief = _generate_extraction_ai_brief(
                     run_value_df,
@@ -7809,7 +8019,9 @@ if section == "📊 Inventory Dashboard":
         st.markdown("---")
         st.markdown("### 🤖 AI Inventory Check (Optional)")
 
-        if OPENAI_AVAILABLE:
+        if not _doobie_ai_access_enabled():
+            st.info("Connect Doobie AI to enable this feature.")
+        elif OPENAI_AVAILABLE:
             if st.button("Run AI check on current view"):
                 with st.spinner("Having the AI look over this slice like a buyer..."):
                     ai_summary = ai_inventory_check(detail_view, doh_threshold, data_source)
@@ -7959,7 +8171,9 @@ elif section == "🧠 Buyer Intelligence":
 
         st.markdown("---")
         st.markdown("### 🤖 AI Buyer Brief")
-        if st.button("Generate AI Buyer Brief", key="buyer_intel_ai_brief"):
+        if not _doobie_ai_access_enabled():
+            st.info("Connect Doobie AI to enable this feature.")
+        elif st.button("Generate AI Buyer Brief", key="buyer_intel_ai_brief"):
             with st.spinner("Generating buyer brief..."):
                 brief = _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days)
             st.markdown(brief)

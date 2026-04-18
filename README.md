@@ -180,6 +180,58 @@ Use the filter bar to narrow results by category, brand, DOH threshold, and velo
 
 ---
 
+## Doobie AI Connection (DoobieLogic Source of Truth)
+
+Buyer Dashboard login controls dashboard access.  
+DoobieLogic license validation controls **AI feature access only**.
+
+### Required environment variables
+
+- `DOOBIE_BASE_URL` — base URL of the DoobieLogic service (example: `https://api.doobielogic.com`).
+- `DOOBIE_API_KEY` *(optional, if required by your DoobieLogic deployment)* — bearer token used when calling DoobieLogic.
+
+### Optional license environment variables
+
+- `BUYER_DASHBOARD_LICENSE_FILE` — local cache file path (default: `.buyer_dashboard_license.json`).
+- `DOOBIE_LICENSE_RECHECK_HOURS` — how old a cached validation can be before re-check (default: `24`).
+- `DOOBIE_LICENSE_GRACE_HOURS` — temporary offline grace window if DoobieLogic is unavailable (default: `48`).
+- `DOOBIE_LICENSE_TIMEOUT_SECONDS` — network timeout for validation requests (default: `8`).
+
+### Validation flow
+
+1. Users log in with the existing auth system exactly as before.
+2. After login, the app loads normally regardless of license state.
+3. After login, the sidebar includes a **Doobie AI** panel with connect/disconnect controls.
+4. Clicking **Connect** validates key entry via `POST /api/v1/license/validate` on DoobieLogic.
+5. Valid responses enable AI features; invalid responses keep AI disabled while the rest of the app stays usable.
+
+### Local cache behavior (not authority)
+
+- Buyer Dashboard stores a lightweight local cache containing key/license metadata and feature flags.
+- Cache is convenience only; DoobieLogic remains the authority.
+- Cached sessions are periodically revalidated (default every 24 hours).
+
+### Grace-period behavior
+
+- If DoobieLogic is temporarily unavailable:
+  - Dashboard remains usable.
+  - AI access can continue briefly only when a recent previously-valid cache exists and is within grace.
+  - Without recent cache, AI remains disconnected until the service is reachable.
+- UI indicates this with an unavailable status/warning in the Doobie AI panel.
+
+### Feature gating behavior
+
+Feature flags returned by DoobieLogic can gate modules like:
+
+- `buyer_module`
+- `extraction_module`
+- `ai_support`
+- `admin_exports`
+
+Unavailable AI features show a connect message without crashing the app.
+
+---
+
 ## Slow Movers & Trends — Glossary
 
 ### Days-on-Hand (DOH)
