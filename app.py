@@ -2405,6 +2405,8 @@ def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
 
 
 def _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days):
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
     if not OPENAI_AVAILABLE or ai_client is None:
         return "AI buyer brief unavailable. Configure an AI provider in the Main AI Copilot panel."
 
@@ -2437,6 +2439,8 @@ Output sections:
 
 
 def _run_main_ai_copilot(question, app_mode, section):
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
     if not OPENAI_AVAILABLE or ai_client is None:
         return (
             "AI copilot is unavailable. Configure AI_API_KEY (or OPENAI_API_KEY) or local Ollama, "
@@ -2477,6 +2481,9 @@ User question:
 
 def render_main_ai_copilot(app_mode, section):
     with st.sidebar.expander("🧠 Main AI Copilot", expanded=False):
+        if not _doobie_ai_access_enabled():
+            st.caption("Connect Doobie AI to enable this feature.")
+            return
         st.caption("Use this assistant across buyer, compliance, and extraction workflows.")
 
         provider_choice = st.selectbox(
@@ -2515,6 +2522,8 @@ def ai_inventory_check(detail_view, doh_threshold, data_source):
     Send a small slice of the current table to the AI so it can
     comment on obvious issues: zero on-hand, crazy DOH, etc.
     """
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
     if not OPENAI_AVAILABLE or ai_client is None:
         return (
             "AI is not enabled. Add AI_API_KEY (or OPENAI_API_KEY) to Streamlit secrets "
@@ -2881,6 +2890,12 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
 
 # =========================
+# DOOBIE AI CONNECTION (non-blocking, layered on top of login)
+# =========================
+_refresh_doobie_connection_state()
+_render_doobie_ai_panel()
+
+# =========================
 # RESTORE TODAY'S UPLOADS (cross-session persistence)
 # Runs once per session, after authentication is confirmed.
 # =========================
@@ -2908,16 +2923,25 @@ render_section_header(
     "BUYER DASHBOARD",
     subtitle="Compliance and operations intelligence for buyer and extraction teams.",
 )
+_doobie_header_status = st.session_state.get("doobie_status") or {}
+if _doobie_header_status.get("connected"):
+    st.caption("🟢 Doobie Connected")
+elif _doobie_header_status.get("status") in {"invalid", "revoked", "expired"}:
+    st.caption("🔴 Doobie Invalid / Revoked")
+else:
+    st.caption("🟡 Doobie Not Connected")
 if st.session_state.get("_daily_restore_msg"):
     st.info(
         "📂 Your uploads from earlier today have been restored automatically. "
         "You can re-upload files at any time to refresh them."
     )
     st.session_state._daily_restore_msg = False
-if OPENAI_AVAILABLE:
+if _doobie_ai_access_enabled() and OPENAI_AVAILABLE:
     st.markdown("✅ AI buyer-assist is **ON** for this session.")
+elif not _doobie_ai_access_enabled():
+    st.markdown("🟡 AI buyer-assist is **OFF** until Doobie AI is connected.")
 else:
-    st.markdown("⚠️ AI buyer-assist is **OFF** (local Ollama not reachable).")
+    st.markdown("⚠️ AI buyer-assist is **OFF** (AI provider not reachable).")
 st.markdown("---")
 
 with st.sidebar.expander("🔗 Local App Link", expanded=False):
@@ -3041,6 +3065,8 @@ def _generate_extraction_ai_brief(
     inventory_context: dict[str, Any] | None = None,
     value_context: dict[str, Any] | None = None,
 ):
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
     if not OPENAI_AVAILABLE or ai_client is None:
         return "AI extraction brief unavailable. Configure provider in the Main AI Copilot panel."
 
@@ -6282,7 +6308,9 @@ def render_extraction_command_center():
         st.markdown("#### Recommended Actions")
         st.caption("Generate a shift-ready brief grounded in current run and toll job data.")
 
-        if st.button("Generate AI Extraction Brief", key="ecc_ai_ops_brief"):
+        if not _doobie_ai_access_enabled():
+            st.info("Connect Doobie AI to enable this feature.")
+        elif st.button("Generate AI Extraction Brief", key="ecc_ai_ops_brief"):
             with st.spinner("Analyzing extraction operations..."):
                 brief = _generate_extraction_ai_brief(
                     run_value_df,
@@ -7935,7 +7963,9 @@ if section == "📊 Inventory Dashboard":
         st.markdown("---")
         st.markdown("### 🤖 AI Inventory Check (Optional)")
 
-        if OPENAI_AVAILABLE:
+        if not _doobie_ai_access_enabled():
+            st.info("Connect Doobie AI to enable this feature.")
+        elif OPENAI_AVAILABLE:
             if st.button("Run AI check on current view"):
                 with st.spinner("Having the AI look over this slice like a buyer..."):
                     ai_summary = ai_inventory_check(detail_view, doh_threshold, data_source)
@@ -8085,7 +8115,9 @@ elif section == "🧠 Buyer Intelligence":
 
         st.markdown("---")
         st.markdown("### 🤖 AI Buyer Brief")
-        if st.button("Generate AI Buyer Brief", key="buyer_intel_ai_brief"):
+        if not _doobie_ai_access_enabled():
+            st.info("Connect Doobie AI to enable this feature.")
+        elif st.button("Generate AI Buyer Brief", key="buyer_intel_ai_brief"):
             with st.spinner("Generating buyer brief..."):
                 brief = _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days)
             st.markdown(brief)
