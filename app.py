@@ -20,6 +20,7 @@ from services.license_client import validate_license_key
 from services.license_session import (
     build_cached_license_session,
     clear_local_license_session,
+    get_license_features,
     is_license_recheck_needed,
     license_in_grace_period,
     load_local_license_session,
@@ -949,14 +950,6 @@ if "license_session_data" not in st.session_state:
     st.session_state.license_session_data = None
 if "license_grace_mode" not in st.session_state:
     st.session_state.license_grace_mode = False
-if "doobie_status" not in st.session_state:
-    st.session_state.doobie_status = {
-        "connected": False,
-        "plan_type": None,
-        "status": "not_connected",
-        "features": {},
-        "last_validated": None,
-    }
 
 # Brute-force login protection counters
 _LOCKOUT_MAX_ATTEMPTS = 5
@@ -2599,6 +2592,13 @@ Tasks:
         return f"AI check failed: {e}"
 
 
+def _feature_enabled(feature_name: str, default_enabled: bool = True) -> bool:
+    features = get_license_features(st.session_state.get("license_session_data"))
+    if feature_name not in features:
+        return default_enabled
+    return bool(features.get(feature_name))
+
+
 def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any] | None]:
     cached_key = str(session_data.get("license_key") or "").strip()
     if not cached_key:
@@ -2620,145 +2620,64 @@ def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, 
     return False, "License server temporarily unavailable", None
 
 
-def _build_doobie_status(
-    connected: bool,
-    status: str,
-    session_data: dict[str, Any] | None = None,
-    message: str | None = None,
-) -> dict[str, Any]:
-    payload = session_data or {}
-    return {
-        "connected": bool(connected),
-        "plan_type": payload.get("plan_type"),
-        "status": str(status),
-        "features": payload.get("features") if isinstance(payload.get("features"), dict) else {},
-        "last_validated": payload.get("validated_at"),
-        "company_name": payload.get("company_name") or "",
-        "message": message or "",
-    }
-
-
-def _refresh_doobie_connection_state() -> None:
+def _enforce_license_gate() -> None:
     cached_session = load_local_license_session()
-    if not cached_session:
-        st.session_state.license_session_data = None
+    if cached_session:
+        st.session_state.license_session_data = cached_session
         st.session_state.license_grace_mode = False
-        st.session_state.doobie_status = _build_doobie_status(False, "not_connected")
-        return
-
-    st.session_state.license_session_data = cached_session
-    if bool(cached_session.get("valid")) and not is_license_recheck_needed(cached_session.get("validated_at")):
-        st.session_state.license_grace_mode = False
-        st.session_state.doobie_status = _build_doobie_status(True, "active", cached_session)
-        return
-
-    is_allowed, message, refreshed = _try_revalidate_cached_license(cached_session)
-    if is_allowed and refreshed:
-        st.session_state.license_session_data = refreshed
-        grace_mode = bool(message)
-        st.session_state.license_grace_mode = grace_mode
-        status = "unavailable" if grace_mode else "active"
-        st.session_state.doobie_status = _build_doobie_status(
-            bool(refreshed.get("valid")),
-            status,
-            refreshed,
-            message=message,
-        )
-        return
-
-    reason = str(message or "invalid")
-    st.session_state.license_grace_mode = False
-    if refreshed is None:
-        clear_local_license_session()
-        st.session_state.license_session_data = None
-    status_map = {
-        "license_invalid": "invalid",
-        "revoked": "revoked",
-        "expired": "expired",
-        "License server temporarily unavailable": "unavailable",
-    }
-    normalized_status = status_map.get(reason, "invalid")
-    st.session_state.doobie_status = _build_doobie_status(False, normalized_status, cached_session, message=reason)
-
-
-def _doobie_ai_access_enabled() -> bool:
-    status = st.session_state.get("doobie_status") or {}
-    if not bool(status.get("connected")):
-        return False
-    features = status.get("features") if isinstance(status.get("features"), dict) else {}
-    return bool(features.get("ai_support", True))
-
-
-def _render_doobie_ai_panel() -> None:
-    doobie_status = st.session_state.get("doobie_status") or _build_doobie_status(False, "not_connected")
-    st.sidebar.markdown("### 🤖 Doobie AI")
-    if doobie_status.get("connected"):
-        st.sidebar.success(
-            f"Connected • {doobie_status.get('company_name') or 'Doobie Tenant'} • "
-            f"{doobie_status.get('plan_type') or 'standard'}"
-        )
-        st.sidebar.caption(f"Status: {doobie_status.get('status', 'active')}")
-        if doobie_status.get("message"):
-            st.sidebar.warning(str(doobie_status.get("message")))
-        if st.sidebar.button("Disconnect / Reset Key", key="reset_doobie_ai_btn"):
-            clear_local_license_session()
+        if is_license_recheck_needed(cached_session.get("validated_at")):
+            is_allowed, message, refreshed = _try_revalidate_cached_license(cached_session)
+            if is_allowed and refreshed:
+                st.session_state.license_session_data = refreshed
+                st.session_state.license_grace_mode = bool(message)
+                return
+            if message:
+                st.session_state["_license_gate_error"] = message
             st.session_state.license_session_data = None
-            st.session_state.license_grace_mode = False
-            st.session_state.doobie_status = _build_doobie_status(False, "not_connected")
-            _safe_rerun()
-        return
-
-    if doobie_status.get("status") == "unavailable":
-        st.sidebar.warning("Doobie AI unavailable. Dashboard remains usable.")
-    else:
-        st.sidebar.caption("Doobie AI not connected")
-
-    key_input = st.sidebar.text_input(
-        "Doobie License Key",
-        type="password",
-        key="doobie_license_key_input",
-        help="Connect Doobie AI without blocking dashboard access.",
-    )
-    if st.sidebar.button("Connect", key="connect_doobie_ai_btn"):
-        entered_key = str(key_input or "").strip()
-        if not entered_key:
-            st.sidebar.error("Enter a license key to connect Doobie AI.")
+        elif bool(cached_session.get("valid")):
             return
-        result = validate_license_key(entered_key)
+
+    st.markdown("## 🌿 Buyer Dashboard")
+    st.markdown("### License Required")
+    st.write("Enter your DoobieLogic-issued license key to continue.")
+
+    gate_error = st.session_state.pop("_license_gate_error", None)
+    if gate_error:
+        st.error(gate_error)
+
+    license_key_input = st.text_input(
+        "License Key",
+        type="password",
+        key="license_key_input",
+        help="License keys are validated directly with DoobieLogic.",
+    )
+    if st.button("Validate License", key="validate_license_button", type="primary"):
+        entered_key = str(license_key_input or "").strip()
+        if not entered_key:
+            st.error("Please enter a license key.")
+            st.stop()
+        with st.spinner("Validating with DoobieLogic..."):
+            result = validate_license_key(entered_key)
         if result.get("ok") and result.get("valid"):
             session_payload = build_cached_license_session(entered_key, result.get("payload") or {})
             save_local_license_session(session_payload)
             st.session_state.license_session_data = session_payload
             st.session_state.license_grace_mode = False
-            st.session_state.doobie_status = _build_doobie_status(True, "active", session_payload)
-            st.sidebar.success("Doobie AI connected.")
+            st.success("License validated.")
             _safe_rerun()
         elif result.get("ok"):
-            reason = str(result.get("reason") or "invalid")
-            st.session_state.doobie_status = _build_doobie_status(False, reason, message=reason)
-            st.sidebar.error(f"Connection failed: {reason}")
+            clear_local_license_session()
+            st.error(str(result.get("reason") or "License is invalid."))
         else:
-            cached = st.session_state.get("license_session_data")
-            if license_in_grace_period(cached):
-                st.session_state.license_grace_mode = True
-                st.session_state.doobie_status = _build_doobie_status(
-                    True,
-                    "unavailable",
-                    cached,
-                    message="License server temporarily unavailable",
-                )
-            else:
-                st.session_state.doobie_status = _build_doobie_status(
-                    False,
-                    "unavailable",
-                    message="License server temporarily unavailable",
-                )
-            st.sidebar.warning("License server temporarily unavailable")
+            st.error("License server temporarily unavailable")
+    st.stop()
 
 
 # =========================
 # INIT OPENAI + SHOW DEBUG (admin-only)
 # =========================
+_enforce_license_gate()
+
 init_openai_client()
 
 # Debug panel is gated behind admin access to avoid exposing internals.
@@ -2838,6 +2757,18 @@ if theme_choice != st.session_state.theme:
     _safe_rerun()
 
 st.sidebar.markdown("### 👑 Admin Login")
+st.sidebar.markdown("### 🔐 License")
+_active_license = st.session_state.get("license_session_data") or {}
+_license_company = _active_license.get("company_name") or "Licensed Tenant"
+_license_plan = _active_license.get("plan_type") or "standard"
+st.sidebar.caption(f"{_license_company} • {_license_plan}")
+if st.session_state.get("license_grace_mode"):
+    st.sidebar.warning("License server temporarily unavailable (grace mode).")
+if st.sidebar.button("Reset License", key="reset_license_btn"):
+    clear_local_license_session()
+    st.session_state.license_session_data = None
+    st.session_state.license_grace_mode = False
+    _safe_rerun()
 
 if not st.session_state.is_admin:
     now = datetime.now()
@@ -6393,9 +6324,17 @@ def render_extraction_command_center():
 # =========================
 # TOP-LEVEL APP MODE SWITCH
 # =========================
+workspace_options = []
+if _feature_enabled("buyer_module", default_enabled=True):
+    workspace_options.append("🛒 Buyer Operations")
+if _feature_enabled("extraction_module", default_enabled=True):
+    workspace_options.append("🧪 Extraction Command Center")
+if not workspace_options:
+    st.error("Your license does not include any enabled workspace modules.")
+    st.stop()
 app_mode = st.radio(
     "Workspace",
-    ["🛒 Buyer Operations", "🧪 Extraction Command Center"],
+    workspace_options,
     index=0,
     horizontal=True,
     help="Switch between the purchasing dashboard and the extraction workspace.",
@@ -6410,7 +6349,10 @@ if app_mode == "🧪 Extraction Command Center":
         _display_user,
         "Operations",
     )
-    render_main_ai_copilot(app_mode, "🧪 Extraction Command Center")
+    if _feature_enabled("ai_support", default_enabled=True):
+        render_main_ai_copilot(app_mode, "🧪 Extraction Command Center")
+    else:
+        st.info("AI support is not enabled for this license plan.")
     render_extraction_command_center()
     st.stop()
 
@@ -6433,24 +6375,30 @@ st.sidebar.markdown("---")
 # =========================
 # PAGE SWITCH (BUYER OPERATIONS)
 # =========================
+section_options = [
+    "📊 Inventory Dashboard",
+    "📈 Trends",
+    "🚚 Delivery Impact",
+    "🐢 Slow Movers",
+    "🧾 PO Builder",
+    "🧭 Compliance Q&A",
+    "🧠 Buyer Intelligence",
+]
+if _feature_enabled("admin_exports", default_enabled=True):
+    section_options.append("🛠️ Admin Tools")
+
 section = st.sidebar.radio(
     "App Section",
-    [
-        "📊 Inventory Dashboard",
-        "📈 Trends",
-        "🚚 Delivery Impact",
-        "🐢 Slow Movers",
-        "🧾 PO Builder",
-        "🧭 Compliance Q&A",
-        "🧠 Buyer Intelligence",
-        "🛠️ Admin Tools",
-    ],
+    section_options,
     index=0,
 )
 
 _render_sidebar_nav_mockup(app_mode, section)
 
-render_main_ai_copilot(app_mode, section)
+if _feature_enabled("ai_support", default_enabled=True):
+    render_main_ai_copilot(app_mode, section)
+else:
+    st.caption("AI support is unavailable for your current plan.")
 
 # ============================================================
 # PAGE 1 – INVENTORY DASHBOARD

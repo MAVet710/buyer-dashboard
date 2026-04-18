@@ -111,24 +111,3 @@ def build_cached_license_session(license_key: str, payload: dict[str, Any]) -> d
         "validated_at": str(validated_at),
         "expires_at": payload.get("expires_at"),
     }
-
-
-# Alias helpers for app-level integration clarity.
-def load_license_session() -> dict[str, Any] | None:
-    return load_local_license_session()
-
-
-def save_license_session(data: dict[str, Any]) -> None:
-    save_local_license_session(data)
-
-
-def clear_license_session() -> None:
-    clear_local_license_session()
-
-
-def license_is_fresh(session_data: dict[str, Any] | None, recheck_hours: int = DEFAULT_RECHECK_HOURS) -> bool:
-    return license_is_valid_and_fresh(session_data, recheck_hours=recheck_hours)
-
-
-def should_revalidate_license(validated_at: str | None, recheck_hours: int = DEFAULT_RECHECK_HOURS) -> bool:
-    return is_license_recheck_needed(validated_at, recheck_hours=recheck_hours)
