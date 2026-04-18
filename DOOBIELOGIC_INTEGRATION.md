@@ -5,8 +5,12 @@
 Add these to Streamlit secrets or environment variables:
 
 ```toml
-DOOBIELOGIC_URL = "https://your-doobielogic-service-url"
-DOOBIELOGIC_API_KEY = "your-secure-api-key"
+DOOBIE_BASE_URL = "https://your-doobielogic-service-url" # preferred
+DOOBIE_API_KEY = "your-secure-api-key" # preferred
+
+# legacy aliases still supported:
+# DOOBIELOGIC_URL = "https://your-doobielogic-service-url"
+# DOOBIELOGIC_API_KEY = "your-secure-api-key"
 ```
 
 ## Dashboard client

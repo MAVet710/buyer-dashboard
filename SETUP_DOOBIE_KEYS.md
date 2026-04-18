@@ -28,8 +28,12 @@ Settings → Secrets
 Add:
 
 ```toml
-DOOBIELOGIC_URL = "http://localhost:8000"
-DOOBIELOGIC_API_KEY = "doobie-secret-420"
+DOOBIE_BASE_URL = "http://localhost:8000" # preferred
+DOOBIE_API_KEY = "doobie-secret-420" # preferred
+
+# legacy aliases still supported:
+# DOOBIELOGIC_URL = "http://localhost:8000"
+# DOOBIELOGIC_API_KEY = "doobie-secret-420"
 ```
 
 ---

@@ -11,11 +11,18 @@ DEFAULT_TIMEOUT_SECONDS = 8
 
 
 def _base_url() -> str:
-    return str(os.getenv("DOOBIE_BASE_URL", "")).strip().rstrip("/")
+    primary = str(os.getenv("DOOBIE_BASE_URL", "")).strip()
+    if primary:
+        return primary.rstrip("/")
+    legacy = str(os.getenv("DOOBIELOGIC_URL", "")).strip()
+    return legacy.rstrip("/")
 
 
 def _api_key() -> str:
-    return str(os.getenv("DOOBIE_API_KEY", "")).strip()
+    primary = str(os.getenv("DOOBIE_API_KEY", "")).strip()
+    if primary:
+        return primary
+    return str(os.getenv("DOOBIELOGIC_API_KEY", "")).strip()
 
 
 def validate_license_key(license_key: str) -> dict[str, Any]:
@@ -54,6 +61,7 @@ def validate_license_key(license_key: str) -> dict[str, Any]:
     headers = {"Content-Type": "application/json"}
     api_key = _api_key()
     if api_key:
+        headers["x-api-key"] = api_key
         headers["Authorization"] = f"Bearer {api_key}"
 
     timeout_seconds = int(os.getenv("DOOBIE_LICENSE_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
@@ -85,10 +93,18 @@ def validate_license_key(license_key: str) -> dict[str, Any]:
             reason = None
             if isinstance(payload, dict):
                 reason = payload.get("reason") or payload.get("error") or payload.get("message")
+            if status_code in {401, 403}:
+                default_reason = "unauthorized"
+            elif status_code == 404:
+                default_reason = "license_endpoint_not_found"
+            elif status_code == 408:
+                default_reason = "license_timeout"
+            else:
+                default_reason = "license_invalid"
             return {
                 "ok": True,
                 "valid": False,
-                "reason": str(reason or "license_invalid"),
+                "reason": str(reason or default_reason),
                 "payload": payload if isinstance(payload, dict) else {},
                 "status_code": status_code,
             }

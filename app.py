@@ -2638,6 +2638,30 @@ def _doobie_status_message(status: str) -> str:
     }.get(status, "Not Connected")
 
 
+def _format_license_validation_error(reason: str | None, status_code: int | None = None) -> str:
+    reason_code = str(reason or "").strip().lower()
+    reason_messages = {
+        "missing_doobie_base_url": "Doobie config error: missing DOOBIE_BASE_URL (or DOOBIELOGIC_URL).",
+        "missing_license_key": "Please enter a Doobie key.",
+        "license_timeout": "Doobie license validation timed out. Please retry.",
+        "license_request_error": "Doobie license request failed. Check network/DNS and try again.",
+        "unauthorized": "Doobie auth failed (service API key rejected). Check DOOBIE_API_KEY / DOOBIELOGIC_API_KEY.",
+        "license_endpoint_not_found": "Doobie endpoint not found. Expected POST /api/v1/license/validate.",
+        "license_server_error": "Doobie license server error. Please retry in a moment.",
+        "license_invalid": "Doobie key is invalid.",
+        "invalid_license": "Doobie key is invalid.",
+        "invalid_key": "Doobie key is invalid.",
+        "revoked": "Doobie key has been revoked.",
+        "expired": "Doobie key is expired.",
+    }
+    message = reason_messages.get(reason_code)
+    if message:
+        return message
+    if status_code in {401, 403}:
+        return "Doobie auth failed (service API key rejected). Check API key configuration."
+    return f"Doobie license validation failed: {reason_code or 'unknown_error'}."
+
+
 def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any] | None]:
     cached_key = str(session_data.get("license_key") or "").strip()
     if not cached_key:
@@ -2654,9 +2678,9 @@ def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, 
         return False, str(result.get("reason") or "license_invalid"), None
 
     if license_in_grace_period(session_data):
-        return True, "License server temporarily unavailable. Using recent cached validation.", session_data
+        return True, _format_license_validation_error(result.get("reason"), result.get("status_code")), session_data
 
-    return False, "License server temporarily unavailable", None
+    return False, _format_license_validation_error(result.get("reason"), result.get("status_code")), None
 
 
 def _refresh_doobie_connection_state() -> None:
@@ -2691,6 +2715,8 @@ def _refresh_doobie_connection_state() -> None:
                         "connected": refreshed_status == "connected",
                         "message": _doobie_status_message(refreshed_status),
                     }
+                if message:
+                    status_payload["detail"] = str(message)
             else:
                 invalid_status = _normalize_license_status(str(message or ""), valid=False)
                 status_payload = {
@@ -2700,6 +2726,8 @@ def _refresh_doobie_connection_state() -> None:
                         invalid_status if invalid_status in {"invalid", "revoked"} else "invalid"
                     ),
                 }
+                if message:
+                    status_payload["detail"] = str(message)
                 st.session_state.license_session_data = None
         elif bool(cached_session.get("valid")):
             cached_status = _normalize_license_status(
@@ -2736,6 +2764,8 @@ def _render_doobie_ai_panel() -> None:
         status = st.session_state.get("doobie_status") or {}
         status_code = str(status.get("status") or "not_connected")
         st.markdown(f"**Status:** {status.get('message') or _doobie_status_message(status_code)}")
+        if status.get("detail"):
+            st.caption(str(status.get("detail")))
         if st.session_state.get("license_grace_mode"):
             st.caption("License server unavailable; cached connection is active.")
         st.caption("Doobie license controls AI features only. Core dashboard tools remain available.")
@@ -2771,21 +2801,25 @@ def _render_doobie_ai_panel() -> None:
                     clear_local_license_session()
                     st.session_state.license_session_data = None
                     invalid_status = _normalize_license_status(str(result.get("reason") or "invalid"), valid=False)
+                    error_message = _format_license_validation_error(result.get("reason"), result.get("status_code"))
                     st.session_state.doobie_status = {
                         "status": invalid_status if invalid_status in {"invalid", "revoked"} else "invalid",
                         "connected": False,
                         "message": _doobie_status_message(
                             invalid_status if invalid_status in {"invalid", "revoked"} else "invalid"
                         ),
+                        "detail": error_message,
                     }
-                    st.error(str(result.get("reason") or "License is invalid."))
+                    st.error(error_message)
                 else:
+                    error_message = _format_license_validation_error(result.get("reason"), result.get("status_code"))
                     st.session_state.doobie_status = {
                         "status": "unavailable",
                         "connected": False,
                         "message": _doobie_status_message("unavailable"),
+                        "detail": error_message,
                     }
-                    st.error("Doobie license server unavailable.")
+                    st.error(error_message)
 
         if st.button("Disconnect Doobie AI", key="reset_license_btn"):
             clear_local_license_session()

@@ -61,6 +61,48 @@ def test_invalid_key_response_blocks(monkeypatch):
     assert result["reason"] == "invalid_key"
 
 
+def test_validate_request_contract_and_headers(monkeypatch):
+    monkeypatch.setenv("DOOBIE_BASE_URL", "https://licenses.example.com/")
+    monkeypatch.setenv("DOOBIE_API_KEY", "svc_key")
+    captured = {}
+
+    def _fake_post(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return _DummyResponse(200, {"valid": True, "status": "active"})
+
+    monkeypatch.setattr(license_client.requests, "post", _fake_post)
+    result = license_client.validate_license_key("lic_good")
+    assert result["ok"] is True
+    assert result["valid"] is True
+    assert captured["args"][0] == "https://licenses.example.com/api/v1/license/validate"
+    assert captured["kwargs"]["json"] == {"license_key": "lic_good"}
+    headers = captured["kwargs"]["headers"]
+    assert headers["x-api-key"] == "svc_key"
+    assert headers["Authorization"] == "Bearer svc_key"
+
+
+def test_legacy_env_var_fallbacks(monkeypatch):
+    monkeypatch.delenv("DOOBIE_BASE_URL", raising=False)
+    monkeypatch.delenv("DOOBIE_API_KEY", raising=False)
+    monkeypatch.setenv("DOOBIELOGIC_URL", "https://legacy.example.com")
+    monkeypatch.setenv("DOOBIELOGIC_API_KEY", "legacy_key")
+    captured = {}
+
+    def _fake_post(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return _DummyResponse(200, {"valid": True})
+
+    monkeypatch.setattr(license_client.requests, "post", _fake_post)
+    result = license_client.validate_license_key("lic_legacy")
+    assert result["ok"] is True
+    assert captured["args"][0] == "https://legacy.example.com/api/v1/license/validate"
+    headers = captured["kwargs"]["headers"]
+    assert headers["x-api-key"] == "legacy_key"
+    assert headers["Authorization"] == "Bearer legacy_key"
+
+
 def test_stale_key_triggers_recheck():
     stale_ts = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
     assert is_license_recheck_needed(stale_ts, recheck_hours=24) is True
@@ -86,6 +128,19 @@ def test_doobie_unavailable_no_valid_cache_blocked(monkeypatch):
     result = license_client.validate_license_key("candidate")
     assert result["ok"] is False
     assert result["reason"] == "license_request_error"
+
+
+def test_unauthorized_maps_reason(monkeypatch):
+    monkeypatch.setenv("DOOBIE_BASE_URL", "https://licenses.example.com")
+
+    def _fake_post(*args, **kwargs):
+        return _DummyResponse(401, {})
+
+    monkeypatch.setattr(license_client.requests, "post", _fake_post)
+    result = license_client.validate_license_key("candidate")
+    assert result["ok"] is True
+    assert result["valid"] is False
+    assert result["reason"] == "unauthorized"
 
 
 def test_doobie_unavailable_recent_valid_cache_grace_allowed():

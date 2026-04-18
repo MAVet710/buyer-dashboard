@@ -188,8 +188,14 @@ Buyer Dashboard now requires a DoobieLogic-issued opaque license key before load
 
 ### Required environment variables
 
-- `DOOBIE_BASE_URL` — base URL of the DoobieLogic service (example: `https://api.doobielogic.com`).
-- `DOOBIE_API_KEY` *(optional, if required by your DoobieLogic deployment)* — bearer token used when calling DoobieLogic.
+- Base URL (supports both names; first one wins):
+  - `DOOBIE_BASE_URL` *(preferred)*
+  - `DOOBIELOGIC_URL` *(legacy compatibility)*
+- Service API key (supports both names; first one wins):
+  - `DOOBIE_API_KEY` *(preferred)*
+  - `DOOBIELOGIC_API_KEY` *(legacy compatibility)*
+
+Buyer Dashboard sends both auth headers when a service key is configured, prioritizing Doobie-compatible `x-api-key` while also sending `Authorization: Bearer <key>` for backward compatibility.
 
 ### Optional license environment variables
 
