@@ -200,10 +200,9 @@ Buyer Dashboard now requires a DoobieLogic-issued opaque license key before load
 
 1. On startup, Buyer Dashboard checks for a cached validated license session.
 2. If no valid cache exists, users are shown a **License Required** screen with a license key input and **Validate License** button.
-3. The first gate also supports approved **trial-code username/password login** for configured trial users (God/Jwin), validated against existing bcrypt-backed auth users.
-4. Key entry always calls `POST /api/v1/license/validate` on DoobieLogic.
-5. Only a successful DoobieLogic response grants access.
-6. Invalid responses keep users on the license screen and show the server reason when available.
+3. Key entry always calls `POST /api/v1/license/validate` on DoobieLogic.
+4. Only a successful DoobieLogic response grants access.
+5. Invalid responses keep users on the license screen and show the server reason when available.
 
 ### Local cache behavior (not authority)
 

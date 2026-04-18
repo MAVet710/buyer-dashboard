@@ -2590,38 +2590,6 @@ def _feature_enabled(feature_name: str, default_enabled: bool = True) -> bool:
     return bool(features.get(feature_name))
 
 
-_TRIAL_GATE_ALLOWED_USERS = {"god", "jwin"}
-
-
-def _lookup_stored_user_hash(username: str) -> str:
-    user = str(username or "").strip()
-    if not user:
-        return ""
-    if user in USER_USERS:
-        return str(USER_USERS.get(user) or "")
-    if user in ADMIN_USERS:
-        return str(ADMIN_USERS.get(user) or "")
-    # Case-insensitive fallback
-    lowered = user.lower()
-    for name, value in USER_USERS.items():
-        if str(name).lower() == lowered:
-            return str(value or "")
-    for name, value in ADMIN_USERS.items():
-        if str(name).lower() == lowered:
-            return str(value or "")
-    return ""
-
-
-def _check_trial_gate_user(username: str, password: str) -> bool:
-    user = str(username or "").strip()
-    if not user or user.lower() not in _TRIAL_GATE_ALLOWED_USERS:
-        return False
-    stored_hash = _lookup_stored_user_hash(user)
-    if not stored_hash:
-        return False
-    return _check_password(password, stored_hash)
-
-
 def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any] | None]:
     cached_key = str(session_data.get("license_key") or "").strip()
     if not cached_key:
@@ -2644,11 +2612,6 @@ def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, 
 
 
 def _enforce_license_gate() -> None:
-    if st.session_state.get("user_authenticated"):
-        active_user = str(st.session_state.get("user_user") or "").strip().lower()
-        if active_user in _TRIAL_GATE_ALLOWED_USERS:
-            return
-
     cached_session = load_local_license_session()
     if cached_session:
         st.session_state.license_session_data = cached_session
@@ -2668,7 +2631,6 @@ def _enforce_license_gate() -> None:
     st.markdown("## 🌿 Buyer Dashboard")
     st.markdown("### License Required")
     st.write("Enter your DoobieLogic-issued license key to continue.")
-    st.caption("Trial-code login is available for approved users (God and Jwin).")
 
     gate_error = st.session_state.pop("_license_gate_error", None)
     if gate_error:
@@ -2699,20 +2661,6 @@ def _enforce_license_gate() -> None:
             st.error(str(result.get("reason") or "License is invalid."))
         else:
             st.error("License server temporarily unavailable")
-
-    st.markdown("---")
-    st.markdown("#### Trial Code Login")
-    trial_user = st.text_input("Trial Username", key="trial_gate_user_input")
-    trial_pass = st.text_input("Trial Password", type="password", key="trial_gate_pass_input")
-    if st.button("Login with Trial Code", key="trial_gate_login_button"):
-        if _check_trial_gate_user(trial_user, trial_pass):
-            st.session_state.user_authenticated = True
-            st.session_state.user_user = str(trial_user).strip()
-            st.session_state.trial_start = datetime.now().isoformat()
-            st.success("Trial login accepted.")
-            _safe_rerun()
-        else:
-            st.error("Invalid trial credentials. Use your approved God/Jwin trial login.")
     st.stop()
 
 
