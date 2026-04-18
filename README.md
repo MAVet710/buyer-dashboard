@@ -333,3 +333,38 @@ The buyer view works without these columns but unlocks additional features when 
 | `expiration date` / `expiry` / `best by` | Enables Expiring tab and Days-to-Expire column |
 
 Missing columns are reported as an info message above the filter bar.
+
+---
+
+## Separate App — 🌿 Cannabis AI
+
+A standalone Streamlit app is now available at `cannabis_ai_app.py` to run AI workflows independently from the dashboard UI.
+
+### What it includes
+- **🧾 Compliance AI tab** powered by a structured SQLite compliance database (no compliance answers from model memory).
+- **🛒 Buyer AI tab** powered by retrieval + provider abstraction (`ollama` or `openai`).
+- **🧪 Extraction AI tab** powered by retrieval + provider abstraction.
+
+### Bootstrap the AI databases
+Run this once to load starter compliance sources and vector knowledge chunks:
+
+```bash
+python scripts/bootstrap_cannabis_ai_data.py
+```
+
+This seeds:
+- `data/compliance/compliance.db` (structured compliance records; MA starter records point to the CCC regulations portal, and non-MA starter records use DISA + NORML law references: https://disa.com/marijuana-legality-by-state/ and https://norml.org/laws/)
+- `data/vectorstore/chroma_db` (Chroma vector store for retrieval)
+
+### Run the separate app
+
+```bash
+streamlit run cannabis_ai_app.py
+```
+
+Environment variables:
+- `COMPLIANCE_DB_PATH` (optional override for SQLite compliance DB path)
+- `VECTOR_DB_PATH` (optional override for Chroma path)
+- `AI_PROVIDER` (`ollama` or `openai`, default `ollama`)
+- `OPENAI_API_KEY` (required only when using OpenAI)
+- `OLLAMA_ENDPOINT` / `OLLAMA_MODEL` (when using Ollama)
