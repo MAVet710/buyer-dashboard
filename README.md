@@ -8,6 +8,8 @@ Streamlit dashboard for cannabis purchasing decisions based on Dutchie/BLAZE inv
 
 ### Getting Started
 
+> Deploy/run entrypoint: `streamlit_app.py` (which loads `app.py`).
+
 1. **Open the app** and log in using your Admin or User credentials in the left sidebar.
 2. **Navigate between pages** using the "App Section" radio buttons in the sidebar.
 3. **Upload your reports** in the sidebar of the relevant page (see sections below).
