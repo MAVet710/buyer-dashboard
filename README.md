@@ -203,7 +203,7 @@ DoobieLogic license validation controls **AI feature access only**.
 2. After login, the app loads normally regardless of license state.
 3. After login, the sidebar includes a **Doobie AI** panel with connect/disconnect controls.
 4. Clicking **Connect** validates key entry via `POST /api/v1/license/validate` on DoobieLogic.
-5. Valid responses connect Doobie AI enhancements; invalid responses do not block dashboard usage or baseline AI tooling.
+5. Valid responses enable Doobie-gated AI features; invalid responses keep AI disabled while the rest of the app stays usable.
 
 ### Local cache behavior (not authority)
 
