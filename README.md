@@ -182,10 +182,9 @@ Use the filter bar to narrow results by category, brand, DOH threshold, and velo
 
 ---
 
-## Doobie AI Connection (DoobieLogic Source of Truth)
+## License Validation (DoobieLogic Source of Truth)
 
-Buyer Dashboard login controls dashboard access.  
-DoobieLogic license validation controls **AI feature access only**.
+Buyer Dashboard now requires a DoobieLogic-issued opaque license key before loading the full app.
 
 ### Required environment variables
 
@@ -201,11 +200,11 @@ DoobieLogic license validation controls **AI feature access only**.
 
 ### Validation flow
 
-1. Users log in with the existing auth system exactly as before.
-2. After login, the app loads normally regardless of license state.
-3. After login, the sidebar includes a **Doobie AI** panel with connect/disconnect controls.
-4. Clicking **Connect** validates key entry via `POST /api/v1/license/validate` on DoobieLogic.
-5. Valid responses enable Doobie-gated AI features; invalid responses keep AI disabled while the rest of the app stays usable.
+1. On startup, Buyer Dashboard checks for a cached validated license session.
+2. If no valid cache exists, users are shown a **License Required** screen with a license key input and **Validate License** button.
+3. Key entry always calls `POST /api/v1/license/validate` on DoobieLogic.
+4. Only a successful DoobieLogic response grants access.
+5. Invalid responses keep users on the license screen and show the server reason when available.
 
 ### Local cache behavior (not authority)
 
@@ -216,10 +215,9 @@ DoobieLogic license validation controls **AI feature access only**.
 ### Grace-period behavior
 
 - If DoobieLogic is temporarily unavailable:
-  - Dashboard remains usable.
-  - AI access can continue briefly only when a recent previously-valid cache exists and is within grace.
-  - Without recent cache, AI remains disconnected until the service is reachable.
-- UI indicates this with an unavailable status/warning in the Doobie AI panel.
+  - Access is allowed **only** when a recent previously-valid cache exists and is within grace.
+  - New users without a prior validated cache remain blocked.
+- UI indicates grace mode with: **\"License server temporarily unavailable\"**.
 
 ### Feature gating behavior
 
@@ -230,7 +228,7 @@ Feature flags returned by DoobieLogic can gate modules like:
 - `ai_support`
 - `admin_exports`
 
-Unavailable AI features show a connect message without crashing the app.
+Unavailable features are hidden or shown as unavailable without crashing the app.
 
 ---
 

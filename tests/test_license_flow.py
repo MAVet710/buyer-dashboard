@@ -1,22 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import requests
 
 from services.license_session import (
     build_cached_license_session,
-    clear_license_session,
     is_license_recheck_needed,
-    license_is_fresh,
     license_in_grace_period,
     license_is_valid_and_fresh,
-    load_license_session,
     load_local_license_session,
-    save_license_session,
     save_local_license_session,
-    should_revalidate_license,
 )
 from services import license_client
 
@@ -52,19 +46,6 @@ def test_valid_key_response_saves_local_session(tmp_path, monkeypatch):
     assert cached is not None
     assert cached["license_key"] == "lic_abc"
     assert cached["valid"] is True
-
-
-def test_alias_helpers_match_local_cache_helpers(tmp_path, monkeypatch):
-    monkeypatch.setenv("BUYER_DASHBOARD_LICENSE_FILE", str(tmp_path / ".license.json"))
-    payload = build_cached_license_session("lic_alias", {"valid": True, "status": "active"})
-    save_license_session(payload)
-    cached = load_license_session()
-    assert cached is not None
-    assert cached["license_key"] == "lic_alias"
-    assert license_is_fresh(cached, recheck_hours=24) is True
-    assert should_revalidate_license(cached["validated_at"], recheck_hours=24) is False
-    clear_license_session()
-    assert load_license_session() is None
 
 
 def test_invalid_key_response_blocks(monkeypatch):
@@ -115,9 +96,3 @@ def test_doobie_unavailable_recent_valid_cache_grace_allowed():
         "validated_at": recent_ts,
     }
     assert license_in_grace_period(session, grace_hours=48) is True
-
-
-def test_no_hard_license_gate_screen_in_app_entry():
-    app_text = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
-    assert "License Required" not in app_text
-    assert "Validate License" not in app_text
