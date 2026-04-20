@@ -103,6 +103,21 @@ def test_legacy_env_var_fallbacks(monkeypatch):
     assert headers["Authorization"] == "Bearer legacy_key"
 
 
+def test_default_doobie_base_url_fallback(monkeypatch):
+    monkeypatch.delenv("DOOBIE_BASE_URL", raising=False)
+    monkeypatch.delenv("DOOBIELOGIC_URL", raising=False)
+    captured = {}
+
+    def _fake_post(*args, **kwargs):
+        captured["args"] = args
+        return _DummyResponse(200, {"valid": True})
+
+    monkeypatch.setattr(license_client.requests, "post", _fake_post)
+    result = license_client.validate_license_key("lic_default")
+    assert result["ok"] is True
+    assert captured["args"][0] == "https://doobie-api.onrender.com/api/v1/license/validate"
+
+
 def test_stale_key_triggers_recheck():
     stale_ts = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
     assert is_license_recheck_needed(stale_ts, recheck_hours=24) is True
