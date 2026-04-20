@@ -17,6 +17,13 @@ from compliance_engine import ComplianceRepository, ComplianceSource, format_com
 from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
 from services.license_client import validate_license_key
 from services.doobie_client import DoobieClient
+from services.doobie_config import (
+    clear_session_doobie_config,
+    get_default_doobie_config,
+    mask_api_key,
+    resolve_doobie_config,
+    test_doobie_connection,
+)
 from services.license_session import (
     build_cached_license_session,
     clear_local_license_session,
@@ -483,14 +490,18 @@ class _DoobieTextResponse:
 
 
 def _get_doobie_ai_client() -> DoobieClient:
+    cfg = resolve_doobie_config()
     return DoobieClient(
-        base_url=os.environ.get("DOOBIE_BASE_URL") or os.environ.get("DOOBIELOGIC_URL", ""),
-        api_key=os.environ.get("DOOBIE_API_KEY") or os.environ.get("DOOBIELOGIC_API_KEY", ""),
+        base_url=str(cfg.get("base_url") or ""),
+        api_key=str(cfg.get("api_key") or ""),
     )
 
 
 def _doobie_ai_status() -> str:
     status = st.session_state.get("doobie_status") or {}
+    if isinstance(status, str):
+        return str(status).strip().lower() or "not_connected"
+
     raw_status = str(status.get("status") or "not_connected").strip().lower()
 
     if raw_status in {"invalid", "invalid_license", "revoked", "expired"}:
@@ -926,11 +937,17 @@ if "license_session_data" not in st.session_state:
 if "license_grace_mode" not in st.session_state:
     st.session_state.license_grace_mode = False
 if "doobie_status" not in st.session_state:
-    st.session_state.doobie_status = {
-        "status": "not_connected",
-        "connected": False,
-        "message": "Not Connected",
-    }
+    st.session_state.doobie_status = "not_connected"
+if "doobie_base_url" not in st.session_state:
+    st.session_state.doobie_base_url = ""
+if "doobie_api_key" not in st.session_state:
+    st.session_state.doobie_api_key = ""
+if "doobie_connected" not in st.session_state:
+    st.session_state.doobie_connected = False
+if "doobie_last_validated" not in st.session_state:
+    st.session_state.doobie_last_validated = None
+if "doobie_features" not in st.session_state:
+    st.session_state.doobie_features = {}
 
 # Brute-force login protection counters
 _LOCKOUT_MAX_ATTEMPTS = 5
@@ -2608,6 +2625,11 @@ def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, 
 
 
 def _refresh_doobie_connection_state() -> None:
+    session_cfg = resolve_doobie_config()
+    if session_cfg.get("source") == "session":
+        st.session_state.doobie_status = "connected" if bool(st.session_state.get("doobie_connected")) else "not_connected"
+        return
+
     cached_session = load_local_license_session()
     status_payload = {
         "status": "not_connected",
@@ -2671,83 +2693,79 @@ def _refresh_doobie_connection_state() -> None:
     else:
         st.session_state.license_session_data = None
 
-    st.session_state.doobie_status = status_payload
+    st.session_state.doobie_status = str(status_payload.get("status") or "not_connected")
+    st.session_state.doobie_connected = bool(status_payload.get("connected"))
 
 
 def _doobie_ai_access_enabled() -> bool:
+    if bool(st.session_state.get("doobie_connected")):
+        return True
     status = st.session_state.get("doobie_status") or {}
+    if isinstance(status, str):
+        return str(status).strip().lower() == "connected"
     return bool(status.get("connected"))
 
 
 def _render_doobie_ai_panel() -> None:
-    with st.sidebar.expander("🤖 Doobie AI", expanded=False):
-        status = st.session_state.get("doobie_status") or {}
-        status_code = str(status.get("status") or "not_connected")
-        st.markdown(f"**Status:** {status.get('message') or _doobie_status_message(status_code)}")
-        if status.get("detail"):
-            st.caption(str(status.get("detail")))
-        if st.session_state.get("license_grace_mode"):
-            st.caption("License server unavailable; cached connection is active.")
-        st.caption("Doobie license controls AI features only. Core dashboard tools remain available.")
+    with st.sidebar.expander("⚙️ Connect Doobie", expanded=False):
+        resolved = resolve_doobie_config()
+        status_code = _doobie_ai_status()
+        status_badge = "🟢 connected" if status_code == "connected" else ("🟠 unavailable" if status_code == "unavailable" else "🟡 not connected")
+        st.markdown(f"**Status:** {status_badge}")
+        st.caption(f"Current base URL: {str(resolved.get('base_url') or 'Not configured')}")
+        if resolved.get("api_key"):
+            st.caption(f"Current API key: {mask_api_key(str(resolved.get('api_key') or ''))}")
+        st.caption(f"AI Availability: {'Enabled' if _doobie_ai_access_enabled() else 'Disabled'}")
+        st.caption("Core dashboard remains usable even when Doobie is disconnected.")
 
-        active_license = st.session_state.get("license_session_data") or {}
-        if active_license:
-            company = active_license.get("company_name") or "Licensed Tenant"
-            plan = active_license.get("plan_type") or "standard"
-            st.caption(f"{company} • {plan}")
-
-        license_key_input = st.text_input(
-            "Doobie Key",
-            type="password",
-            key="doobie_license_key_input",
-            help="Enter your Doobie key to enable AI features.",
+        default_cfg = get_default_doobie_config()
+        base_url_input = st.text_input(
+            "Doobie Base URL",
+            value=str(st.session_state.get("doobie_base_url") or default_cfg.get("base_url") or ""),
+            key="doobie_base_url_input",
+            placeholder="https://doobie.yourdomain.com",
         )
-        if st.button("Connect Doobie AI", key="doobie_validate_license_button", type="primary"):
-            entered_key = str(license_key_input or "").strip()
-            if not entered_key:
-                st.error("Please enter a Doobie key.")
-            else:
-                with st.spinner("Validating Doobie key..."):
-                    result = validate_license_key(entered_key)
-                if result.get("ok") and result.get("valid"):
-                    session_payload = build_cached_license_session(entered_key, result.get("payload") or {})
-                    save_local_license_session(session_payload)
-                    st.session_state.license_session_data = session_payload
-                    st.session_state.license_grace_mode = False
-                    st.success("Doobie AI connected.")
-                    _refresh_doobie_connection_state()
-                    _safe_rerun()
-                elif result.get("ok"):
-                    clear_local_license_session()
-                    st.session_state.license_session_data = None
-                    invalid_status = _normalize_license_status(str(result.get("reason") or "invalid"), valid=False)
-                    error_message = _format_license_validation_error(result.get("reason"), result.get("status_code"))
-                    st.session_state.doobie_status = {
-                        "status": "invalid_license",
-                        "connected": False,
-                        "message": _doobie_status_message("invalid_license"),
-                        "detail": error_message,
-                    }
-                    st.error(error_message)
-                else:
-                    error_message = _format_license_validation_error(result.get("reason"), result.get("status_code"))
-                    st.session_state.doobie_status = {
-                        "status": "unavailable",
-                        "connected": False,
-                        "message": _doobie_status_message("unavailable"),
-                        "detail": error_message,
-                    }
-                    st.error(error_message)
+        api_key_input = st.text_input(
+            "Doobie API Key / Client Key",
+            value="",
+            type="password",
+            key="doobie_api_key_input",
+            help="Saved keys are masked for safety.",
+        )
 
-        if st.button("Disconnect Doobie AI", key="reset_license_btn"):
-            clear_local_license_session()
-            st.session_state.license_session_data = None
-            st.session_state.license_grace_mode = False
-            st.session_state.doobie_status = {
-                "status": "not_connected",
-                "connected": False,
-                "message": _doobie_status_message("not_connected"),
-            }
+        if st.button("Test Connection", key="doobie_test_connection_button"):
+            candidate_key = str(api_key_input or st.session_state.get("doobie_api_key") or "").strip()
+            test_result = test_doobie_connection(base_url_input, candidate_key)
+            st.session_state.doobie_status = str(test_result.get("status") or "not_connected")
+            if test_result.get("ok"):
+                st.session_state.doobie_last_validated = test_result.get("validated_at")
+                st.success(str(test_result.get("message") or "Connected"))
+            else:
+                st.warning(str(test_result.get("message") or "Connection failed"))
+
+        if st.button("Connect", key="doobie_connect_button", type="primary"):
+            candidate_key = str(api_key_input or st.session_state.get("doobie_api_key") or "").strip()
+            test_result = test_doobie_connection(base_url_input, candidate_key)
+            if test_result.get("ok"):
+                st.session_state.doobie_base_url = str(base_url_input or "").strip().rstrip("/")
+                st.session_state.doobie_api_key = candidate_key
+                st.session_state.doobie_connected = True
+                st.session_state.doobie_status = "connected"
+                st.session_state.doobie_last_validated = test_result.get("validated_at")
+                st.session_state.doobie_features = {"ai": True}
+                st.success("Doobie connected for this session.")
+                _safe_rerun()
+            else:
+                st.session_state.doobie_connected = False
+                st.session_state.doobie_status = str(test_result.get("status") or "unavailable")
+                st.error(str(test_result.get("message") or "Unable to connect to Doobie."))
+
+        if st.button("Disconnect / Clear", key="doobie_disconnect_button"):
+            clear_session_doobie_config()
+            st.session_state.doobie_status = "not_connected"
+            st.session_state.doobie_connected = False
+            st.session_state.doobie_features = {}
+            st.success("Doobie disconnected.")
             _safe_rerun()
 
 
@@ -2760,16 +2778,12 @@ _refresh_doobie_connection_state()
 if st.session_state.get("is_admin", False):
     with st.sidebar.expander("🔍 AI Debug Info", expanded=False):
         status = _doobie_ai_status()
+        resolved_cfg = resolve_doobie_config()
         st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
         st.write(f"AI Status: {status}")
-        st.write(
-            f"DOOBIE_BASE_URL/DOOBIELOGIC_URL configured: "
-            f"{bool((os.environ.get('DOOBIE_BASE_URL') or os.environ.get('DOOBIELOGIC_URL', '')).strip())}"
-        )
-        st.write(
-            f"DOOBIE_API_KEY/DOOBIELOGIC_API_KEY configured: "
-            f"{bool((os.environ.get('DOOBIE_API_KEY') or os.environ.get('DOOBIELOGIC_API_KEY', '')).strip())}"
-        )
+        st.write(f"Doobie config source: {resolved_cfg.get('source')}")
+        st.write(f"Doobie base URL configured: {bool(str(resolved_cfg.get('base_url') or '').strip())}")
+        st.write(f"Doobie API key configured: {bool(str(resolved_cfg.get('api_key') or '').strip())}")
 
     with st.sidebar.expander("🔐 Auth Debug Info", expanded=False):
         _auth_admins_section = False
@@ -2984,11 +2998,13 @@ render_section_header(
     "BUYER DASHBOARD",
     subtitle="Compliance and operations intelligence for buyer and extraction teams.",
 )
-_doobie_header_status = st.session_state.get("doobie_status") or {}
-if _doobie_header_status.get("connected"):
+_doobie_header_status = _doobie_ai_status()
+if _doobie_header_status == "connected":
     st.caption("🟢 Doobie Connected")
-elif _doobie_header_status.get("status") in {"invalid", "revoked", "expired", "invalid_license"}:
+elif _doobie_header_status in {"invalid", "revoked", "expired", "invalid_license"}:
     st.caption("🔴 Doobie Invalid / Revoked")
+elif _doobie_header_status == "unavailable":
+    st.caption("🟠 Doobie Unavailable")
 else:
     st.caption("🟡 Doobie Not Connected")
 if st.session_state.get("_daily_restore_msg"):
