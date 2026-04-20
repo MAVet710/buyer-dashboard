@@ -25,46 +25,27 @@ def detect_module(question: str) -> str:
 
 def answer_buyer_question(question: str, state: str = "MA", program: str = "medical") -> str:
     client = get_llm_client()
-    model = get_chat_model()
+    if not client.enabled:
+        return "Doobie AI is currently unavailable."
 
     module = detect_module(question)
-    from ai.retriever import retrieve_context
+    model = get_chat_model()
 
-    retrieved = retrieve_context(
+    payload = {
+        "question": question,
+        "state": state,
+        "program": program,
+        "module": module,
+        "model": model,
+        "system_prompt": SYSTEM_PROMPT.strip(),
+    }
+
+    response = client.copilot(
         question=question,
-        module=module,
-        state=state,
-        program=program,
-        n_results=6,
+        data=payload,
+        persona="buyer_assistant",
     )
+    if str(response.get("mode", "")).lower() == "fallback":
+        return "Doobie AI is currently unavailable."
 
-    docs = retrieved.get("documents", [[]])[0]
-    metas = retrieved.get("metadatas", [[]])[0]
-
-    context_blocks = []
-    for i, (doc, meta) in enumerate(zip(docs, metas), start=1):
-        source = meta.get("source", "unknown_source")
-        topic = meta.get("topic", "general")
-        context_blocks.append(f"[Source {i} | {source} | {topic}]\n{doc}")
-
-    context_text = "\n\n".join(context_blocks) if context_blocks else "No relevant context found."
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"""Use the context below to answer the buyer question.
-
-Context:
-{context_text}
-
-Question:
-{question}
-""",
-            },
-        ],
-    )
-
-    return response.choices[0].message.content or ""
+    return str(response.get("answer") or "Doobie AI is currently unavailable.")

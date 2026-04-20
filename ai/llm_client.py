@@ -1,12 +1,14 @@
 import os
-from openai import OpenAI
+
+from services.doobie_client import DoobieClient
 
 
-def get_llm_client() -> OpenAI:
-    base_url = os.getenv("OLLAMA_OPENAI_BASE_URL", "http://localhost:11434/v1")
-    api_key = os.getenv("OLLAMA_API_KEY", "ollama")
-    return OpenAI(base_url=base_url, api_key=api_key)
+def get_llm_client() -> DoobieClient:
+    return DoobieClient(
+        base_url=os.getenv("DOOBIE_BASE_URL") or os.getenv("DOOBIELOGIC_URL", ""),
+        api_key=os.getenv("DOOBIE_API_KEY") or os.getenv("DOOBIELOGIC_API_KEY", ""),
+    )
 
 
 def get_chat_model() -> str:
-    return os.getenv("OLLAMA_CHAT_MODEL", "llama3.1")
+    return "doobie-copilot"
