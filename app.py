@@ -13,10 +13,10 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from dotenv import load_dotenv
 
-from ai_providers import build_provider
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
 from services.license_client import validate_license_key
+from services.doobie_client import DoobieClient
 from services.license_session import (
     build_cached_license_session,
     clear_local_license_session,
@@ -62,11 +62,9 @@ except Exception:
     PLOTLY_AVAILABLE = False
 
 # ------------------------------------------------------------
-# AI PROVIDER ABSTRACTION (AI INVENTORY CHECK)
+# DOOBIE AI STATUS (single AI backend)
 # ------------------------------------------------------------
-OPENAI_AVAILABLE = False
-ai_client = None
-ai_provider = None
+DOOBIE_PROVIDER_NAME = "DoobieLogic"
 
 # ------------------------------------------------------------
 # OPTIONAL / SAFE IMPORT FOR BCRYPT (PASSWORD HASHING)
@@ -479,64 +477,31 @@ BUYER_MARKET_REFERENCES = [
 LOCAL_APP_URL = os.environ.get("LOCAL_APP_URL", "http://localhost:8501")
 
 
-def _find_openai_key():
-    """
-    Robust key lookup for AI provider credentials.
-
-    Search order supports both legacy and project-specific key names:
-    1) st.secrets["AI_API_KEY"] / st.secrets["OPENAI_API_KEY"] at top-level
-    2) Any nested table containing either key name
-    3) os.environ["AI_API_KEY"] / os.environ["OPENAI_API_KEY"]
-    Returns (key or None, where_found_str)
-    """
-    key_names = ["AI_API_KEY", "OPENAI_API_KEY"]
-
-    # 1) top-level
-    try:
-        for key_name in key_names:
-            if key_name in st.secrets:
-                k = str(st.secrets[key_name]).strip()
-                if k:
-                    return k, f"secrets:top:{key_name}"
-    except Exception:
-        pass
-
-    # 2) nested
-    try:
-        for k0 in list(st.secrets.keys()):
-            try:
-                v = st.secrets.get(k0)
-                if isinstance(v, dict):
-                    for key_name in key_names:
-                        if key_name in v:
-                            k = str(v[key_name]).strip()
-                            if k:
-                                return k, f"secrets:{k0}:{key_name}"
-            except Exception:
-                continue
-    except Exception:
-        pass
-
-    # 3) env
-    for key_name in key_names:
-        envk = os.environ.get(key_name, "").strip()
-        if envk:
-            return envk, f"env:{key_name}"
-
-    return None, None
+class _DoobieTextResponse:
+    def __init__(self, text: str) -> None:
+        self.text = text
 
 
-def init_openai_client():
-    global OPENAI_AVAILABLE, ai_client, ai_provider
+def _get_doobie_ai_client() -> DoobieClient:
+    return DoobieClient(
+        base_url=os.environ.get("DOOBIE_BASE_URL") or os.environ.get("DOOBIELOGIC_URL", ""),
+        api_key=os.environ.get("DOOBIE_API_KEY") or os.environ.get("DOOBIELOGIC_API_KEY", ""),
+    )
 
-    key, _where = _find_openai_key()
-    preferred_provider = st.session_state.get("preferred_ai_provider")
-    if not preferred_provider:
-        preferred_provider = os.environ.get("AI_PROVIDER", "").strip().lower() or None
 
-    ai_provider = build_provider(preferred_provider, key)
-    OPENAI_AVAILABLE = ai_provider is not None
-    ai_client = ai_provider
+def _doobie_ai_status() -> str:
+    status = st.session_state.get("doobie_status") or {}
+    raw_status = str(status.get("status") or "not_connected").strip().lower()
+
+    if raw_status in {"invalid", "invalid_license", "revoked", "expired"}:
+        return "invalid_license"
+    if raw_status in {"not_connected", "unavailable"}:
+        return raw_status
+    if not bool(status.get("connected")):
+        return "not_connected"
+
+    client = _get_doobie_ai_client()
+    return "connected" if client.enabled else "unavailable"
 
 
 # =========================
@@ -2201,7 +2166,7 @@ def _generate_grounded_compliance_response(repo, state, scope, topic, question):
         return base_answer
 
     # Optional synthesis, still constrained by retrieved source rows.
-    if OPENAI_AVAILABLE and ai_client is not None:
+    if _doobie_ai_status() == "connected":
         context = "\n\n".join(
             [
                 (
@@ -2259,61 +2224,33 @@ Output format:
 
 
 def _generate_ai_with_quota_fallback(system_prompt, user_prompt, max_tokens=700):
-    """Generate AI output and fallback to Ollama if OpenAI quota is exceeded."""
-    global ai_client, ai_provider, OPENAI_AVAILABLE
+    """Generate AI output through Doobie only."""
+    if not _doobie_ai_access_enabled():
+        raise RuntimeError("Doobie AI is not connected.")
 
-    if not OPENAI_AVAILABLE or ai_client is None:
-        raise RuntimeError("AI provider unavailable")
+    client = _get_doobie_ai_client()
+    if not client.enabled:
+        raise RuntimeError("Doobie AI is currently unavailable.")
 
-    try:
-        return ai_client.generate(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=max_tokens,
-        )
-    except Exception as exc:
-        msg = str(exc).lower()
-        if "insufficient_quota" in msg or "error code: 429" in msg:
-            try:
-                fallback = build_provider("ollama", None)
-                if fallback is not None:
-                    ai_provider = fallback
-                    ai_client = fallback
-                    OPENAI_AVAILABLE = True
-                    return ai_client.generate(
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        max_tokens=max_tokens,
-                    )
-            except Exception:
-                pass
-            raise RuntimeError(
-                "OpenAI quota exceeded (429 insufficient_quota). "
-                "Switched to local fallback if available; otherwise configure Ollama "
-                "or set AI_API_KEY with available quota."
-            )
+    result = client.copilot(
+        question=str(user_prompt or "").strip(),
+        data={
+            "system_prompt": str(system_prompt or "").strip(),
+            "max_tokens": int(max_tokens),
+        },
+        persona="main",
+    )
+    if str(result.get("mode", "")).lower() == "fallback":
+        raise RuntimeError("Doobie AI is currently unavailable.")
 
-        # If local Ollama is selected but not running, try OpenAI as fallback.
-        if "connection refused" in msg or "max retries exceeded" in msg:
-            try:
-                key, _ = _find_openai_key()
-                fallback = build_provider("openai", key)
-                if fallback is not None:
-                    ai_provider = fallback
-                    ai_client = fallback
-                    OPENAI_AVAILABLE = True
-                    return ai_client.generate(
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        max_tokens=max_tokens,
-                    )
-            except Exception:
-                pass
-            raise RuntimeError(
-                "Local Ollama is not reachable at localhost:11434. "
-                "Start Ollama or switch provider to OpenAI in Main AI Copilot settings."
-            )
-        raise
+    answer = str(result.get("answer") or "").strip()
+    recommendations = result.get("recommendations", [])
+    if isinstance(recommendations, list) and recommendations:
+        answer = f"{answer}\n\n" + "\n".join(f"- {rec}" for rec in recommendations)
+
+    if not answer:
+        answer = "Doobie AI is currently unavailable."
+    return _DoobieTextResponse(answer)
 
 
 def _build_copilot_context(app_mode, section):
@@ -2423,8 +2360,8 @@ def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
 def _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days):
     if not _doobie_ai_access_enabled():
         return "Connect Doobie AI to enable this feature."
-    if not OPENAI_AVAILABLE or ai_client is None:
-        return "AI buyer brief unavailable. Configure an AI provider in the Main AI Copilot panel."
+    if _doobie_ai_status() != "connected":
+        return "Doobie AI is currently unavailable."
 
     top_categories = by_category.head(8).to_dict(orient="records")
     top_risks = by_product[by_product["risk_flag"] == "Reorder Risk"].head(20).to_dict(orient="records")
@@ -2444,24 +2381,29 @@ Output sections:
 4) Suggested buyer actions for next 7 days
 """
     try:
-        resp = _generate_ai_with_quota_fallback(
-            system_prompt="You are a senior cannabis retail inventory strategist.",
-            user_prompt=prompt,
-            max_tokens=700,
+        client = _get_doobie_ai_client()
+        resp = client.buyer_brief(
+            data={
+                "summary": summary,
+                "top_categories": top_categories,
+                "at_risk_skus": top_risks,
+                "lookback_days": lookback_days,
+                "prompt": prompt,
+            },
+            state="MA",
         )
-        return resp.text
+        if str(resp.get("mode", "")).lower() == "fallback":
+            return "Doobie AI is currently unavailable."
+        return str(resp.get("answer") or "Doobie AI is currently unavailable.")
     except Exception as exc:
-        return f"AI buyer brief failed: {exc}"
+        return f"Doobie buyer brief failed: {exc}"
 
 
 def _run_main_ai_copilot(question, app_mode, section):
     if not _doobie_ai_access_enabled():
         return "Connect Doobie AI to enable this feature."
-    if not OPENAI_AVAILABLE or ai_client is None:
-        return (
-            "AI copilot is unavailable. Configure AI_API_KEY (or OPENAI_API_KEY) or local Ollama, "
-            "then select a provider in AI Copilot settings."
-        )
+    if _doobie_ai_status() != "connected":
+        return "Doobie AI is currently unavailable."
 
     context = _build_copilot_context(app_mode, section)
     prompt = f"""
@@ -2501,26 +2443,12 @@ def render_main_ai_copilot(app_mode, section):
             st.caption("Connect Doobie AI to enable this feature.")
             return
         st.caption("Use this assistant across buyer, compliance, and extraction workflows.")
+        st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
+        st.write(f"Status: {_doobie_ai_status()}")
 
-        provider_choice = st.selectbox(
-            "Provider",
-            ["auto", "openai", "ollama"],
-            index=["auto", "openai", "ollama"].index(st.session_state.get("preferred_ai_provider", "auto") if st.session_state.get("preferred_ai_provider", "auto") in ["auto", "openai", "ollama"] else "auto"),
-            key="preferred_ai_provider_selector",
-            help="auto tries OpenAI first (if key exists) then Ollama.",
-        )
-
-        if provider_choice == "auto":
-            st.session_state["preferred_ai_provider"] = None
-        else:
-            st.session_state["preferred_ai_provider"] = provider_choice
-
-        if st.button("Reconnect AI Provider", key="reconnect_ai_provider"):
-            init_openai_client()
-
-        st.write(f"Connected: {'Yes' if OPENAI_AVAILABLE else 'No'}")
-        if ai_provider is not None:
-            st.write(f"Provider: {getattr(ai_provider, 'provider_name', 'unknown')}")
+        if st.button("Refresh Doobie Status", key="refresh_doobie_ai_status"):
+            _refresh_doobie_connection_state()
+            _safe_rerun()
 
         question = st.text_area(
             "Ask the AI copilot",
@@ -2540,11 +2468,8 @@ def ai_inventory_check(detail_view, doh_threshold, data_source):
     """
     if not _doobie_ai_access_enabled():
         return "Connect Doobie AI to enable this feature."
-    if not OPENAI_AVAILABLE or ai_client is None:
-        return (
-            "AI is not enabled. Add AI_API_KEY (or OPENAI_API_KEY) to Streamlit secrets "
-            "to turn on the buyer-assist checks."
-        )
+    if _doobie_ai_status() != "connected":
+        return "Doobie AI is currently unavailable."
 
     sample = detail_view.copy()
     if "reorderpriority" in sample.columns:
@@ -2598,14 +2523,16 @@ Tasks:
 """
 
     try:
-        response = _generate_ai_with_quota_fallback(
-            system_prompt="You are a sharp, no-BS cannabis retail buyer coach.",
-            user_prompt=prompt,
-            max_tokens=600,
+        client = _get_doobie_ai_client()
+        response = client.inventory_check(
+            data={"rows": sample_records, "doh_threshold": doh_threshold, "prompt": prompt},
+            state="MA",
         )
-        return response.text
+        if str(response.get("mode", "")).lower() == "fallback":
+            return "Doobie AI is currently unavailable."
+        return str(response.get("answer") or "Doobie AI is currently unavailable.")
     except Exception as e:
-        return f"AI check failed: {e}"
+        return f"Doobie inventory check failed: {e}"
 
 
 def _feature_enabled(feature_name: str, default_enabled: bool = True) -> bool:
@@ -2619,10 +2546,8 @@ def _normalize_license_status(raw_status: str | None, valid: bool = False) -> st
     status = str(raw_status or "").strip().lower()
     if status in {"active", "trial", "ok"} and valid:
         return "connected"
-    if status in {"revoked"}:
-        return "revoked"
-    if status in {"invalid", "expired", "inactive", "suspended", "blocked"}:
-        return "invalid"
+    if status in {"revoked", "invalid", "expired", "inactive", "suspended", "blocked"}:
+        return "invalid_license"
     if valid:
         return "connected"
     return "not_connected"
@@ -2631,8 +2556,7 @@ def _normalize_license_status(raw_status: str | None, valid: bool = False) -> st
 def _doobie_status_message(status: str) -> str:
     return {
         "connected": "Connected",
-        "invalid": "Invalid",
-        "revoked": "Revoked",
+        "invalid_license": "Invalid License",
         "unavailable": "Unavailable",
         "not_connected": "Not Connected",
     }.get(status, "Not Connected")
@@ -2720,11 +2644,9 @@ def _refresh_doobie_connection_state() -> None:
             else:
                 invalid_status = _normalize_license_status(str(message or ""), valid=False)
                 status_payload = {
-                    "status": invalid_status if invalid_status in {"invalid", "revoked"} else "invalid",
+                    "status": "invalid_license",
                     "connected": False,
-                    "message": _doobie_status_message(
-                        invalid_status if invalid_status in {"invalid", "revoked"} else "invalid"
-                    ),
+                    "message": _doobie_status_message("invalid_license"),
                 }
                 if message:
                     status_payload["detail"] = str(message)
@@ -2742,11 +2664,9 @@ def _refresh_doobie_connection_state() -> None:
         else:
             stale_status = _normalize_license_status(str(cached_session.get("status") or ""), valid=False)
             status_payload = {
-                "status": stale_status if stale_status in {"invalid", "revoked"} else "invalid",
+                "status": "invalid_license",
                 "connected": False,
-                "message": _doobie_status_message(
-                    stale_status if stale_status in {"invalid", "revoked"} else "invalid"
-                ),
+                "message": _doobie_status_message("invalid_license"),
             }
     else:
         st.session_state.license_session_data = None
@@ -2803,11 +2723,9 @@ def _render_doobie_ai_panel() -> None:
                     invalid_status = _normalize_license_status(str(result.get("reason") or "invalid"), valid=False)
                     error_message = _format_license_validation_error(result.get("reason"), result.get("status_code"))
                     st.session_state.doobie_status = {
-                        "status": invalid_status if invalid_status in {"invalid", "revoked"} else "invalid",
+                        "status": "invalid_license",
                         "connected": False,
-                        "message": _doobie_status_message(
-                            invalid_status if invalid_status in {"invalid", "revoked"} else "invalid"
-                        ),
+                        "message": _doobie_status_message("invalid_license"),
                         "detail": error_message,
                     }
                     st.error(error_message)
@@ -2834,29 +2752,24 @@ def _render_doobie_ai_panel() -> None:
 
 
 # =========================
-# INIT OPENAI + SHOW DEBUG (admin-only)
+# INIT DOOBIE CONNECTION + SHOW DEBUG (admin-only)
 # =========================
 _refresh_doobie_connection_state()
-
-init_openai_client()
 
 # Debug panel is gated behind admin access to avoid exposing internals.
 if st.session_state.get("is_admin", False):
     with st.sidebar.expander("🔍 AI Debug Info", expanded=False):
-        key1 = False
-        key2 = False
-        where = None
-        try:
-            key, where = _find_openai_key()
-            key1 = bool(key)
-        except Exception:
-            key1 = False
-        key2 = bool(os.environ.get("AI_API_KEY", "").strip() or os.environ.get("OPENAI_API_KEY", "").strip())
-        st.write(f"Secrets has AI_API_KEY/OPENAI_API_KEY: {key1}")
-        st.write(f"Env has AI_API_KEY/OPENAI_API_KEY: {key2}")
-        st.write(f"Using key: {OPENAI_AVAILABLE}")
-        if where:
-            st.write(f"Found via: {where}")
+        status = _doobie_ai_status()
+        st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
+        st.write(f"AI Status: {status}")
+        st.write(
+            f"DOOBIE_BASE_URL/DOOBIELOGIC_URL configured: "
+            f"{bool((os.environ.get('DOOBIE_BASE_URL') or os.environ.get('DOOBIELOGIC_URL', '')).strip())}"
+        )
+        st.write(
+            f"DOOBIE_API_KEY/DOOBIELOGIC_API_KEY configured: "
+            f"{bool((os.environ.get('DOOBIE_API_KEY') or os.environ.get('DOOBIELOGIC_API_KEY', '')).strip())}"
+        )
 
     with st.sidebar.expander("🔐 Auth Debug Info", expanded=False):
         _auth_admins_section = False
@@ -3074,7 +2987,7 @@ render_section_header(
 _doobie_header_status = st.session_state.get("doobie_status") or {}
 if _doobie_header_status.get("connected"):
     st.caption("🟢 Doobie Connected")
-elif _doobie_header_status.get("status") in {"invalid", "revoked", "expired"}:
+elif _doobie_header_status.get("status") in {"invalid", "revoked", "expired", "invalid_license"}:
     st.caption("🔴 Doobie Invalid / Revoked")
 else:
     st.caption("🟡 Doobie Not Connected")
@@ -3084,12 +2997,12 @@ if st.session_state.get("_daily_restore_msg"):
         "You can re-upload files at any time to refresh them."
     )
     st.session_state._daily_restore_msg = False
-if _doobie_ai_access_enabled() and OPENAI_AVAILABLE:
+if _doobie_ai_status() == "connected":
     st.markdown("✅ AI buyer-assist is **ON** for this session.")
 elif not _doobie_ai_access_enabled():
     st.markdown("🟡 AI buyer-assist is **OFF** until Doobie AI is connected.")
 else:
-    st.markdown("⚠️ AI buyer-assist is **OFF** (AI provider not reachable).")
+    st.markdown("⚠️ AI buyer-assist is **OFF** (Doobie AI unavailable).")
 st.markdown("---")
 
 with st.sidebar.expander("🔗 Local App Link", expanded=False):
@@ -3215,8 +3128,8 @@ def _generate_extraction_ai_brief(
 ):
     if not _doobie_ai_access_enabled():
         return "Connect Doobie AI to enable this feature."
-    if not OPENAI_AVAILABLE or ai_client is None:
-        return "AI extraction brief unavailable. Configure provider in the Main AI Copilot panel."
+    if _doobie_ai_status() != "connected":
+        return "Doobie AI is currently unavailable."
 
     run_preview = run_df.head(50).to_dict(orient="records") if run_df is not None else []
     job_preview = job_df.head(50).to_dict(orient="records") if job_df is not None else []
@@ -3238,17 +3151,23 @@ Output sections:
 """
 
     try:
-        resp = _generate_ai_with_quota_fallback(
-            system_prompt=(
-                "You are a cannabis extraction operations strategist. "
-                "Provide practical, compliance-aware actions."
-            ),
-            user_prompt=prompt,
-            max_tokens=750,
+        client = _get_doobie_ai_client()
+        resp = client.extraction_brief(
+            data={
+                "alerts": alerts,
+                "run_preview": run_preview,
+                "job_preview": job_preview,
+                "inventory_context": inventory_context or {},
+                "value_context": value_context or {},
+                "prompt": prompt,
+            },
+            state="MA",
         )
-        return resp.text
+        if str(resp.get("mode", "")).lower() == "fallback":
+            return "Doobie AI is currently unavailable."
+        return str(resp.get("answer") or "Doobie AI is currently unavailable.")
     except Exception as exc:
-        return f"AI extraction brief failed: {exc}"
+        return f"Doobie extraction brief failed: {exc}"
 
 
 _ECC_INVENTORY_COLUMNS = [
@@ -8581,16 +8500,13 @@ if section == "📊 Inventory Dashboard":
 
         if not _doobie_ai_access_enabled():
             st.info("Connect Doobie AI to enable this feature.")
-        elif OPENAI_AVAILABLE:
+        elif _doobie_ai_status() == "connected":
             if st.button("Run AI check on current view"):
                 with st.spinner("Having the AI look over this slice like a buyer..."):
                     ai_summary = ai_inventory_check(detail_view, doh_threshold, data_source)
                 st.markdown(ai_summary)
         else:
-            st.info(
-                "AI buyer-assist is disabled because no `AI_API_KEY` (or `OPENAI_API_KEY`) was found in "
-                "Streamlit secrets or environment."
-            )
+            st.info("Doobie AI is currently unavailable.")
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -8751,18 +8667,14 @@ elif section == "🛠️ Admin Tools":
         st.warning("Admin access is required for this section.")
         st.stop()
 
-    st.caption("Provider diagnostics, compliance source QA, and operational admin utilities.")
+    st.caption("Doobie diagnostics, compliance source QA, and operational admin utilities.")
 
     a1, a2 = st.columns(2)
     with a1:
-        st.markdown("### AI Provider Diagnostics")
-        key, where = _find_openai_key()
-        st.write(f"Configured key found: {'Yes' if bool(key) else 'No'}")
-        if where:
-            st.write(f"Key source: {where}")
-        st.write(f"Provider connected: {'Yes' if OPENAI_AVAILABLE else 'No'}")
-        if ai_provider is not None:
-            st.write(f"Provider name: {getattr(ai_provider, 'provider_name', 'unknown')}")
+        st.markdown("### Doobie AI Diagnostics")
+        st.write(f"Provider name: {DOOBIE_PROVIDER_NAME}")
+        st.write(f"Provider connected: {'Yes' if _doobie_ai_status() == 'connected' else 'No'}")
+        st.write(f"Status code: {_doobie_ai_status()}")
 
         if st.button("Run AI Health Check", key="admin_ai_health_check"):
             try:

@@ -1,6 +1,6 @@
-"""AI provider abstraction for buyer-dashboard.
+"""Doobie-only AI provider abstraction for buyer-dashboard.
 
-Keeps provider-specific wiring out of business logic.
+Legacy provider names are retained only as inert compatibility values.
 """
 
 from __future__ import annotations
@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from typing import Optional
+
+from services.doobie_client import DoobieClient
 
 
 @dataclass
@@ -27,83 +29,38 @@ class AIProvider:
         raise NotImplementedError
 
 
-class OpenAIProvider(AIProvider):
-    provider_name = "openai"
+class DoobieProvider(AIProvider):
+    provider_name = "doobielogic"
 
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini") -> None:
-        from openai import OpenAI  # type: ignore
-
-        self._client = OpenAI(api_key=api_key)
-        self._model = model
-
-    def is_available(self) -> bool:
-        return self._client is not None
-
-    def generate(self, system_prompt: str, user_prompt: str, max_tokens: int = 600) -> AIResponse:
-        resp = self._client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=max_tokens,
+    def __init__(self) -> None:
+        self._client = DoobieClient(
+            base_url=os.environ.get("DOOBIE_BASE_URL") or os.environ.get("DOOBIELOGIC_URL", ""),
+            api_key=os.environ.get("DOOBIE_API_KEY") or os.environ.get("DOOBIELOGIC_API_KEY", ""),
         )
-        text = (resp.choices[0].message.content or "").strip()
-        return AIResponse(text=text, provider=self.provider_name, model=self._model)
-
-
-class OllamaProvider(AIProvider):
-    provider_name = "ollama"
-
-    def __init__(self, model: str = "llama3.1") -> None:
-        import requests
-
-        self._requests = requests
-        self._endpoint = os.environ.get("OLLAMA_ENDPOINT", "http://localhost:11434/api/generate")
-        self._model = model
 
     def is_available(self) -> bool:
-        if not (self._endpoint and self._model):
-            return False
-        try:
-            base = self._endpoint.split("/api/")[0]
-            r = self._requests.get(f"{base}/api/tags", timeout=2)
-            return r.status_code == 200
-        except Exception:
-            return False
+        return self._client.enabled
 
     def generate(self, system_prompt: str, user_prompt: str, max_tokens: int = 600) -> AIResponse:
-        payload = {
-            "model": self._model,
-            "prompt": f"System:\n{system_prompt}\n\nUser:\n{user_prompt}",
-            "stream": False,
-            "options": {"num_predict": max_tokens},
-        }
-        r = self._requests.post(self._endpoint, json=payload, timeout=60)
-        r.raise_for_status()
-        data = r.json()
-        text = str(data.get("response", "")).strip()
-        return AIResponse(text=text, provider=self.provider_name, model=self._model)
+        result = self._client.copilot(
+            question=str(user_prompt or "").strip(),
+            data={"system_prompt": str(system_prompt or "").strip(), "max_tokens": int(max_tokens)},
+            persona="main",
+        )
+        if str(result.get("mode", "")).lower() == "fallback":
+            raise RuntimeError("Doobie AI is currently unavailable.")
+        text = str(result.get("answer") or "").strip() or "Doobie AI is currently unavailable."
+        return AIResponse(text=text, provider=self.provider_name, model="doobie-copilot")
 
 
 def build_provider(preferred: Optional[str], openai_api_key: Optional[str]) -> Optional[AIProvider]:
-    """Build the first available provider in preference order.
+    """Build the app AI provider.
 
-    Preferred values: "openai", "ollama", or None for auto.
+    `preferred` and `openai_api_key` are accepted for backward compatibility only.
     """
-    candidates = [preferred] if preferred else ["ollama", "openai"]
-
-    for candidate in candidates:
-        try:
-            if candidate == "openai" and openai_api_key:
-                provider = OpenAIProvider(api_key=openai_api_key)
-                if provider.is_available():
-                    return provider
-            if candidate == "ollama":
-                provider = OllamaProvider(model=os.environ.get("OLLAMA_MODEL", "llama3.1"))
-                if provider.is_available():
-                    return provider
-        except Exception:
-            continue
-
+    _ = preferred
+    _ = openai_api_key
+    provider = DoobieProvider()
+    if provider.is_available():
+        return provider
     return None
