@@ -8,6 +8,7 @@ import requests
 
 LICENSE_VALIDATE_PATH = "/api/v1/license/validate"
 DEFAULT_TIMEOUT_SECONDS = 8
+DEFAULT_DOOBIE_BASE_URL = "https://doobie-api.onrender.com"
 
 
 def _base_url() -> str:
@@ -15,7 +16,9 @@ def _base_url() -> str:
     if primary:
         return primary.rstrip("/")
     legacy = str(os.getenv("DOOBIELOGIC_URL", "")).strip()
-    return legacy.rstrip("/")
+    if legacy:
+        return legacy.rstrip("/")
+    return DEFAULT_DOOBIE_BASE_URL
 
 
 def _api_key() -> str:

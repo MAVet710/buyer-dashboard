@@ -1,10 +1,14 @@
 import os
 
 
+DEFAULT_DOOBIE_BASE_URL = "https://doobie-api.onrender.com"
+
+
 def get_doobie_url() -> str:
     return (
         os.environ.get("DOOBIE_BASE_URL")
         or os.environ.get("DOOBIELOGIC_URL", "")
+        or DEFAULT_DOOBIE_BASE_URL
     ).strip().rstrip("/")
 
 
