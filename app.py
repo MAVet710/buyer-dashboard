@@ -2742,10 +2742,51 @@ def _normalize_license_status(raw_status: str | None, valid: bool = False) -> st
 def _doobie_status_message(status: str) -> str:
     return {
         "connected": "Connected",
+        "service_only": "Service Only",
+        "ai_unavailable": "AI Unavailable",
         "invalid_license": "Invalid License",
         "unavailable": "Unavailable",
         "not_connected": "Not Connected",
     }.get(status, "Not Connected")
+
+
+def _run_doobie_support_endpoint_check(timeout_seconds: int = 6) -> dict[str, Any]:
+    client = _get_doobie_ai_client()
+    client.timeout_seconds = timeout_seconds
+    result = client.support_copilot_health_check()
+    if result.get("ok"):
+        return result
+
+    error_code = str(result.get("error_code") or "").strip().lower()
+    reason_map = {
+        "endpoint_missing": "support endpoint not found",
+        "unauthorized": "unauthorized",
+        "timeout": "timeout",
+        "invalid_json": "invalid JSON",
+        "request_error": "request error",
+        "fallback_response_detected": "fallback returned",
+    }
+    likely_cause = reason_map.get(error_code) or "invalid response"
+    result["likely_cause"] = likely_cause
+    return result
+
+
+def _derive_doobie_ai_readiness_status(
+    config_present: bool,
+    service_check: dict[str, Any],
+    support_check: dict[str, Any],
+) -> str:
+    if not config_present:
+        return "not_connected"
+    service_ok = bool(service_check.get("ok"))
+    support_ok = bool(support_check.get("ok"))
+    if service_ok and support_ok:
+        return "connected"
+    if service_ok and not support_ok:
+        return "ai_unavailable"
+    if not service_ok and support_ok:
+        return "service_only"
+    return "unavailable"
 
 
 def _format_license_validation_error(reason: str | None, status_code: int | None = None) -> str:
@@ -9039,20 +9080,53 @@ elif section == "🛠️ Admin Tools":
     a1, a2 = st.columns(2)
     with a1:
         st.markdown("### Doobie AI Diagnostics")
+        resolved_cfg = resolve_doobie_config()
+        config_present = bool(str(resolved_cfg.get("base_url") or "").strip() and str(resolved_cfg.get("api_key") or "").strip())
+        service_check = (
+            test_doobie_connection(
+                str(resolved_cfg.get("base_url") or ""),
+                str(resolved_cfg.get("api_key") or ""),
+                timeout_seconds=4,
+            )
+            if config_present
+            else {"ok": False, "status": "not_connected", "message": "Missing base URL or API key."}
+        )
+        support_check = _run_doobie_support_endpoint_check(timeout_seconds=6)
+        readiness_code = _derive_doobie_ai_readiness_status(config_present, service_check, support_check)
+
         st.write(f"Provider name: {DOOBIE_PROVIDER_NAME}")
-        st.write(f"Provider connected: {'Yes' if _doobie_ai_status() == 'connected' else 'No'}")
-        st.write(f"Status code: {_doobie_ai_status()}")
+        st.write(f"Config present: {'Yes' if config_present else 'No'}")
+        st.write(f"Service auth check: {'Passed' if service_check.get('ok') else 'Failed'}")
+        st.write(f"AI support endpoint: {'Ready' if support_check.get('ok') else 'Failed'}")
+        st.write(f"Overall AI readiness: {'Ready' if readiness_code == 'connected' else 'Unavailable'}")
+        st.write(f"Readiness status code: {readiness_code}")
+
+        if not service_check.get("ok"):
+            st.warning(f"Service/auth failure: {service_check.get('message') or service_check.get('status') or 'unknown'}")
+
+        if support_check.get("ok"):
+            st.success(
+                f"Support endpoint check passed (HTTP {support_check.get('http_status', 'n/a')}). "
+                f"Health phrase present: {'Yes' if support_check.get('health_phrase_present') else 'No'}."
+            )
+            if support_check.get("answer_preview"):
+                st.caption(f"AI response preview: {support_check.get('answer_preview')}")
+        else:
+            likely_cause = support_check.get("likely_cause") or support_check.get("error_code") or "unknown"
+            http_status = support_check.get("http_status")
+            detail = support_check.get("message") or "Support endpoint check failed."
+            prefix = f"HTTP {http_status} — " if http_status is not None else ""
+            if service_check.get("ok"):
+                st.error(f"AI support check failed ({likely_cause}): {prefix}{detail}. Health/auth works but support endpoint failed.")
+            else:
+                st.error(f"AI support check failed ({likely_cause}): {prefix}{detail}.")
 
         if st.button("Run AI Health Check", key="admin_ai_health_check"):
-            try:
-                result = _generate_ai_with_quota_fallback(
-                    system_prompt="You are a diagnostic assistant.",
-                    user_prompt="Respond with: AI health check OK.",
-                    max_tokens=30,
-                )
-                st.success(f"AI check response: {result.text}")
-            except Exception as exc:
-                st.error(f"AI health check failed: {exc}")
+            if support_check.get("ok"):
+                st.success("AI health check passed: support endpoint is ready.")
+            else:
+                likely_cause = support_check.get("likely_cause") or support_check.get("error_code") or "unknown"
+                st.error(f"AI health check failed: {likely_cause}. {support_check.get('message') or ''}".strip())
 
     with a2:
         st.markdown("### Session Data Overview")
