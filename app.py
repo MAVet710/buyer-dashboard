@@ -7756,14 +7756,38 @@ if section == "📊 Inventory Dashboard":
         # Deduplicate exact duplicate exported rows to prevent double counting
         sales_detail_df = sales_detail_df.drop_duplicates()
 
-        sales_summary = (
-            sales_df.groupby(["mastercategory", "packagesize"], dropna=False)["unitssold"]
-            .sum()
-            .reset_index()
+        demand_model_modes = {
+            "High-Level Group View": ["subcategory", "packagesize"],
+            "Group + Strain Type": ["subcategory", "packagesize", "strain_type"],
+            "Group + Strain Type + Brand": ["subcategory", "packagesize", "strain_type", "brand"],
+            "Full SKU Allocation": ["subcategory", "packagesize", "strain_type", "brand", "product_name"],
+        }
+        demand_model_mode = st.sidebar.selectbox(
+            "Demand Model Mode",
+            list(demand_model_modes.keys()),
+            index=0,
+            help="Pool demand at high level by default, then allocate down as you drill into strain, brand, and SKU.",
+            key="buyer_demand_model_mode",
         )
-        sales_summary["avgunitsperday"] = (sales_summary["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
+        active_group_cols = demand_model_modes[demand_model_mode]
 
-        # -------- PRODUCT-LEVEL SALES GROUPING --------
+        def _clean_group_dim(series: pd.Series, fallback: str = "unspecified") -> pd.Series:
+            cleaned = series.astype(str).str.strip()
+            cleaned = cleaned.replace({"": fallback, "nan": fallback, "None": fallback, "none": fallback})
+            return cleaned.fillna(fallback)
+
+        def _resolve_brand(df: pd.DataFrame, preferred_cols: list[str]) -> pd.Series:
+            for col in preferred_cols:
+                if col in df.columns:
+                    return _clean_group_dim(df[col], fallback="unspecified")
+            return pd.Series(["unspecified"] * len(df), index=df.index, dtype=object)
+
+        inv_df["brand"] = _resolve_brand(inv_df, ["brand", "brand_vendor", "vendor", "supplier"])
+        sales_df["brand"] = _resolve_brand(sales_df, ["brand", "brand_vendor", "vendor", "supplier"])
+        sales_df["product_name"] = _clean_group_dim(sales_df["product_name"], fallback="unspecified")
+        inv_df["product_name"] = _clean_group_dim(inv_df["product_name"], fallback="unspecified")
+
+        # -------- PRODUCT-LEVEL SALES GROUPING (legacy compatibility) --------
         sales_product = (
             sales_df.groupby(["mastercategory", "product_name", "strain_type", "packagesize"], dropna=False)["unitssold"]
             .sum()
@@ -7779,13 +7803,60 @@ if section == "📊 Inventory Dashboard":
             right_on=["mastercategory", "product_name", "strain_type", "packagesize"],
         ).fillna(0)
 
-        detail = pd.merge(
-            inv_summary,
-            sales_summary,
-            how="left",
-            left_on=["subcategory", "packagesize"],
-            right_on=["mastercategory", "packagesize"],
-        ).fillna(0)
+        parent_cols = ["subcategory", "packagesize"]
+        for _col in ["strain_type", "brand", "product_name"]:
+            if _col not in inv_df.columns:
+                inv_df[_col] = "unspecified"
+            if _col not in sales_df.columns:
+                sales_df[_col] = "unspecified"
+            inv_df[_col] = _clean_group_dim(inv_df[_col], fallback="unspecified")
+            sales_df[_col] = _clean_group_dim(sales_df[_col], fallback="unspecified")
+
+        inv_level = inv_df.groupby(active_group_cols, dropna=False).agg(onhandunits=("onhandunits", "sum")).reset_index()
+        if "unit_cost" in inv_df.columns:
+            inv_level = inv_level.merge(
+                inv_df.groupby(active_group_cols, dropna=False)["unit_cost"].median().reset_index(),
+                on=active_group_cols,
+                how="left",
+            )
+        if "retail_price" in inv_df.columns:
+            inv_level = inv_level.merge(
+                inv_df.groupby(active_group_cols, dropna=False)["retail_price"].median().reset_index(),
+                on=active_group_cols,
+                how="left",
+            )
+
+        sales_level = sales_df.groupby(active_group_cols, dropna=False).agg(unitssold=("unitssold", "sum")).reset_index()
+        parent_sales = sales_df.groupby(parent_cols, dropna=False).agg(parent_unitssold=("unitssold", "sum")).reset_index()
+        parent_sales["parent_avgunitsperday"] = (parent_sales["parent_unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
+
+        detail = inv_level.merge(sales_level, on=active_group_cols, how="outer")
+        detail = detail.merge(parent_sales, on=parent_cols, how="left")
+        detail["onhandunits"] = pd.to_numeric(detail["onhandunits"], errors="coerce").fillna(0)
+        detail["unitssold"] = pd.to_numeric(detail["unitssold"], errors="coerce").fillna(0)
+        detail["parent_unitssold"] = pd.to_numeric(detail["parent_unitssold"], errors="coerce").fillna(0)
+        detail["parent_avgunitsperday"] = pd.to_numeric(detail["parent_avgunitsperday"], errors="coerce").fillna(0)
+
+        sibling_count = detail.groupby(parent_cols, dropna=False).size().rename("sibling_count").reset_index()
+        detail = detail.merge(sibling_count, on=parent_cols, how="left")
+        detail["sibling_count"] = detail["sibling_count"].replace(0, 1).fillna(1)
+
+        detail["demand_share"] = np.where(
+            detail["parent_unitssold"] > 0,
+            detail["unitssold"] / detail["parent_unitssold"],
+            1.0 / detail["sibling_count"],
+        )
+        detail["demand_share"] = detail["demand_share"].replace([np.inf, -np.inf], 0).fillna(0).clip(lower=0)
+        detail["allocated_unitssold"] = detail["parent_unitssold"] * detail["demand_share"]
+        detail["allocated_avgunitsperday"] = detail["parent_avgunitsperday"] * detail["demand_share"]
+        detail["unitssold"] = detail["allocated_unitssold"]
+        detail["avgunitsperday"] = detail["allocated_avgunitsperday"]
+        detail["demand_share_pct"] = (detail["demand_share"] * 100).round(2)
+        detail["mastercategory"] = detail["subcategory"]
+
+        for _optional_col, _fallback in [("strain_type", "all"), ("brand", "all"), ("product_name", "grouped")]:
+            if _optional_col not in detail.columns:
+                detail[_optional_col] = _fallback
 
         # ---- FLOWER 28g educated guess ----
         flower_mask = detail["subcategory"].astype(str).str.contains("flower", na=False)
@@ -8077,29 +8148,32 @@ if section == "📊 Inventory Dashboard":
 
         # Enrich summary rows with product context (product_count, top_products)
         try:
-            _dp = detail_product[["subcategory", "product_name", "strain_type", "packagesize", "unitssold"]].copy()
+            _ctx_keys = [c for c in active_group_cols if c in detail.columns]
+            _dp_cols = list(dict.fromkeys(_ctx_keys + ["product_name", "unitssold"]))
+            _dp = detail_product[_dp_cols].copy()
             _dp["unitssold"] = pd.to_numeric(_dp["unitssold"], errors="coerce").fillna(0)
             _dp_sorted = _dp.sort_values("unitssold", ascending=False)
             _top_products = (
-                _dp_sorted.groupby(["subcategory", "strain_type", "packagesize"], dropna=False, sort=False)["product_name"]
+                _dp_sorted.groupby(_ctx_keys, dropna=False, sort=False)["product_name"]
                 .apply(lambda x: ", ".join(x.astype(str).head(5).tolist()))
                 .reset_index()
                 .rename(columns={"product_name": "top_products"})
             )
             _product_counts = (
-                _dp.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["product_name"]
+                _dp.groupby(_ctx_keys, dropna=False)["product_name"]
                 .nunique()
                 .reset_index()
                 .rename(columns={"product_name": "product_count"})
             )
-            _prod_ctx_df = _top_products.merge(_product_counts, on=["subcategory", "strain_type", "packagesize"], how="left")
-            detail_view = detail_view.merge(_prod_ctx_df, on=["subcategory", "strain_type", "packagesize"], how="left")
+            _prod_ctx_df = _top_products.merge(_product_counts, on=_ctx_keys, how="left")
+            detail_view = detail_view.merge(_prod_ctx_df, on=_ctx_keys, how="left")
             detail_view["product_count"] = detail_view["product_count"].fillna(0).astype(int)
             detail_view["top_products"] = detail_view["top_products"].fillna("")
         except Exception:
             pass
 
         st.markdown(f"*Current filter:* **{st.session_state.metric_filter}**")
+        st.caption(f"Demand model: **{demand_model_mode}** · Default pools demand at subcategory + package size, then allocates by share.")
         st.markdown("### Forecast Table")
 
         # Quick view: Category DOS at a glance
@@ -8191,7 +8265,12 @@ if section == "📊 Inventory Dashboard":
             "mastercategory",
             "subcategory",
             "strain_type",
+            "brand",
+            "product_name",
             "packagesize",
+            "parent_unitssold",
+            "demand_share_pct",
+            "allocated_avgunitsperday",
             "onhandunits",
             "unitssold",
             "avgunitsperday",
@@ -8317,7 +8396,10 @@ if section == "📊 Inventory Dashboard":
                 if not flagged.empty:
                     st.markdown("#### 🔎 Flagged Reorder Lines — View SKUs (Weighted by Velocity)")
                     for _, r in flagged.iterrows():
-                        row_label = f"{r.get('strain_type','unspecified')} • {r.get('packagesize','unspecified')} • Reorder Qty: {int(r.get('reorderqty',0))}"
+                        row_label = (
+                            f"{r.get('strain_type','all')} • {r.get('brand','all')} • "
+                            f"{r.get('packagesize','unspecified')} • Reorder Qty: {int(r.get('reorderqty',0))}"
+                        )
                         with st.expander(f"View SKUs — {row_label}", expanded=False):
                             sku_df_out, batch_df_out = sku_drilldown_table(
                                 cat=r.get("subcategory"),
