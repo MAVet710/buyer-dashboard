@@ -25,7 +25,7 @@ REB_CATEGORIES = [
 ]
 
 INV_NAME_ALIASES = [
-    "product", "productname", "item", "itemname", "name", "skuname", "skuid", "product name", "product_name", "product title", "title"
+    "product", "productname", "item", "itemname", "name", "skuname", "skuid", "sku", "product name", "product_name", "product title", "title"
 ]
 INV_CAT_ALIASES = [
     "category", "subcategory", "productcategory", "department", "mastercategory", "product category", "cannabis", "product_category", "ecomm category", "ecommcategory"
@@ -47,6 +47,55 @@ SALES_CAT_ALIASES = ["mastercategory", "category", "master_category", "productca
 SALES_REV_ALIASES = ["netsales", "net sales", "sales", "totalsales", "total sales", "revenue", "grosssales", "gross sales"]
 SALES_SKU_ALIASES = ["sku", "skuid", "productid", "product_id"]
 
+
+ITEMNAME_SOURCE_ALIASES = [
+    "itemname", "product_name", "name", "product", "sku_name", "item", "sku", "title", "skuname"
+]
+
+
+def _resolve_itemname_series(inv_df: pd.DataFrame, detected_name_col: str | None) -> pd.Series:
+    if detected_name_col and detected_name_col in inv_df.columns:
+        series = inv_df[detected_name_col]
+    else:
+        source_col = detect_column(inv_df.columns, [normalize_col(a) for a in ITEMNAME_SOURCE_ALIASES])
+        series = inv_df[source_col] if source_col else pd.Series(["unknown item"] * len(inv_df), index=inv_df.index)
+    return series.astype(str).str.strip()
+
+
+def _fill_blank_with(series: pd.Series, fallback: pd.Series | str) -> pd.Series:
+    out = series.copy()
+    invalid = out.isna() | out.astype(str).str.strip().isin(["", "nan", "none", "unknown", "unspecified"])
+    if isinstance(fallback, pd.Series):
+        out.loc[invalid] = fallback.loc[invalid]
+    else:
+        out.loc[invalid] = fallback
+    return out
+
+
+def _ensure_inventory_derived_fields(inv_df: pd.DataFrame) -> pd.DataFrame:
+    inv_df = inv_df.copy()
+    inv_df["itemname"] = _resolve_itemname_series(inv_df, "itemname")
+
+    if "subcategory" not in inv_df.columns:
+        inv_df["subcategory"] = inv_df["itemname"]
+    inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
+    inferred_subcategory = inv_df["itemname"].apply(normalize_rebelle_category)
+    inv_df["subcategory"] = _fill_blank_with(inv_df["subcategory"], inferred_subcategory).fillna("unspecified")
+    inv_df["subcategory"] = inv_df["subcategory"].replace("unknown", "unspecified")
+
+    inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+    if "_explicit_strain_type" in inv_df.columns:
+        explicit = inv_df["_explicit_strain_type"].astype(str).str.strip().str.lower()
+        valid = explicit.isin(VALID_STRAIN_TYPES)
+        inv_df.loc[valid, "strain_type"] = explicit[valid]
+        inv_df = inv_df.drop(columns=["_explicit_strain_type"])
+    inv_df["strain_type"] = _fill_blank_with(inv_df["strain_type"], "unspecified")
+
+    inv_df["packagesize"] = inv_df.apply(lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+    inv_df["packagesize"] = _fill_blank_with(inv_df["packagesize"], "unknown")
+    inv_df["packagesize"] = inv_df["packagesize"].replace("unspecified", "unknown")
+
+    return inv_df
 
 def normalize_col(col: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(col).lower())
@@ -307,10 +356,13 @@ def _build_buyer_pipeline(inv_raw_df: pd.DataFrame, sales_raw_df: pd.DataFrame, 
     strain_type_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_STRAIN_TYPE_ALIASES])
     brand_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BRAND_ALIASES])
     expiry_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_EXPIRY_ALIASES])
-    if not (name_col and cat_col and qty_col):
-        raise ValueError("Could not auto-detect inventory columns (product / category / on-hand).")
+    if not (name_col and qty_col):
+        raise ValueError("Could not auto-detect inventory columns (product and on-hand).")
 
-    inv_df = inv_df.rename(columns={name_col: "itemname", cat_col: "subcategory", qty_col: "onhandunits"})
+    rename_map = {name_col: "itemname", qty_col: "onhandunits"}
+    if cat_col:
+        rename_map[cat_col] = "subcategory"
+    inv_df = inv_df.rename(columns=rename_map)
     if sku_col:
         inv_df = inv_df.rename(columns={sku_col: "sku"})
     if batch_col:
@@ -329,17 +381,10 @@ def _build_buyer_pipeline(inv_raw_df: pd.DataFrame, sales_raw_df: pd.DataFrame, 
         inv_df = inv_df.rename(columns={expiry_col: "expiration_date"})
         inv_df["expiration_date"] = pd.to_datetime(inv_df["expiration_date"], errors="coerce")
 
-    inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
+    inv_df["itemname"] = _resolve_itemname_series(inv_df, "itemname")
     inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
     inv_df, _, _ = deduplicate_inventory(inv_df)
-    inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
-    inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
-    if "_explicit_strain_type" in inv_df.columns:
-        explicit = inv_df["_explicit_strain_type"].astype(str).str.strip().str.lower()
-        valid = explicit.isin(VALID_STRAIN_TYPES)
-        inv_df.loc[valid, "strain_type"] = explicit[valid]
-        inv_df = inv_df.drop(columns=["_explicit_strain_type"])
-    inv_df["packagesize"] = inv_df.apply(lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+    inv_df = _ensure_inventory_derived_fields(inv_df)
     inv_df["product_name"] = inv_df["itemname"]
 
     inv_summary = inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["onhandunits"].sum().reset_index()
