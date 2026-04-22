@@ -47,8 +47,11 @@ from ui_polish import (
     render_extraction_kpi,
     render_inventory_table_css,
 )
+from user_integrations_store import UserIntegrationsStore
 
 load_dotenv()
+
+USER_INTEGRATIONS_STORE = UserIntegrationsStore()
 
 # Owner mark (non-functional, intentional signature fragment).
 # __  ______             __ ____________
@@ -878,6 +881,75 @@ def _clear_daily_store(username: str) -> None:
         st.session_state[sk] = None
 
 
+def _current_authenticated_identity() -> tuple[str | None, bool]:
+    if st.session_state.get("is_admin") and st.session_state.get("admin_user"):
+        return str(st.session_state.get("admin_user")), True
+    if st.session_state.get("user_authenticated") and st.session_state.get("user_user"):
+        return str(st.session_state.get("user_user")), False
+    return None, False
+
+
+def _hydrate_persistent_user_integrations() -> None:
+    """
+    Attach persistent integrations to the currently authenticated username.
+    Never blocks login; silently degrades when DB is unavailable.
+    """
+    username, is_admin = _current_authenticated_identity()
+    if not username:
+        return
+
+    normalized = str(username).strip().casefold()
+    hydrated_user = str(st.session_state.get("_db_hydrated_username") or "")
+    if hydrated_user == normalized:
+        return
+
+    if not USER_INTEGRATIONS_STORE.available:
+        st.session_state["_db_hydrated_username"] = normalized
+        st.session_state["_db_available"] = False
+        return
+
+    st.session_state["_db_available"] = True
+    record = USER_INTEGRATIONS_STORE.ensure_user(username=username, is_admin=bool(is_admin))
+    if record:
+        # Existing auth remains source-of-truth. DB stores integration data only.
+        st.session_state.doobie_base_url = str(record.doobie_base_url or "")
+        st.session_state.doobie_api_key = str(record.doobie_api_key or "")
+        st.session_state.doobie_status = str(record.doobie_status or "not_connected")
+        st.session_state.doobie_last_validated = record.doobie_last_validated
+        st.session_state.metrc_api_key = str(record.metrc_api_key or "")
+        st.session_state.metrc_state = str(record.metrc_state or "")
+        st.session_state.metrc_license = str(record.metrc_license or "")
+
+    st.session_state["_db_hydrated_username"] = normalized
+
+
+def _save_persistent_user_integrations() -> None:
+    """
+    Save integration settings for the current authenticated user.
+    No-op when DB is unavailable; keeps app usable without persistence.
+    """
+    username, is_admin = _current_authenticated_identity()
+    if not username or not USER_INTEGRATIONS_STORE.available:
+        return
+    USER_INTEGRATIONS_STORE.save_user_integrations(
+        username=username,
+        is_admin=bool(is_admin),
+        values={
+            "doobie_base_url": str(st.session_state.get("doobie_base_url") or ""),
+            "doobie_api_key": str(st.session_state.get("doobie_api_key") or ""),
+            "doobie_status": str(st.session_state.get("doobie_status") or "not_connected"),
+            "doobie_last_validated": (
+                str(st.session_state.get("doobie_last_validated"))
+                if st.session_state.get("doobie_last_validated")
+                else None
+            ),
+            "metrc_api_key": str(st.session_state.get("metrc_api_key") or ""),
+            "metrc_state": str(st.session_state.get("metrc_state") or ""),
+            "metrc_license": str(st.session_state.get("metrc_license") or ""),
+        },
+    )
+
+
 # =========================
 # SESSION STATE DEFAULTS
 # =========================
@@ -948,6 +1020,16 @@ if "doobie_last_validated" not in st.session_state:
     st.session_state.doobie_last_validated = None
 if "doobie_features" not in st.session_state:
     st.session_state.doobie_features = {}
+if "metrc_api_key" not in st.session_state:
+    st.session_state.metrc_api_key = ""
+if "metrc_state" not in st.session_state:
+    st.session_state.metrc_state = ""
+if "metrc_license" not in st.session_state:
+    st.session_state.metrc_license = ""
+if "_db_hydrated_username" not in st.session_state:
+    st.session_state._db_hydrated_username = ""
+if "_db_available" not in st.session_state:
+    st.session_state._db_available = USER_INTEGRATIONS_STORE.available
 
 # Brute-force login protection counters
 _LOCKOUT_MAX_ATTEMPTS = 5
@@ -2739,8 +2821,10 @@ def _render_doobie_ai_panel() -> None:
             st.session_state.doobie_status = str(test_result.get("status") or "not_connected")
             if test_result.get("ok"):
                 st.session_state.doobie_last_validated = test_result.get("validated_at")
+                _save_persistent_user_integrations()
                 st.success(str(test_result.get("message") or "Connected"))
             else:
+                _save_persistent_user_integrations()
                 st.warning(str(test_result.get("message") or "Connection failed"))
 
         if st.button("Connect", key="doobie_connect_button", type="primary"):
@@ -2753,11 +2837,13 @@ def _render_doobie_ai_panel() -> None:
                 st.session_state.doobie_status = "connected"
                 st.session_state.doobie_last_validated = test_result.get("validated_at")
                 st.session_state.doobie_features = {"ai": True}
+                _save_persistent_user_integrations()
                 st.success("Doobie connected for this session.")
                 _safe_rerun()
             else:
                 st.session_state.doobie_connected = False
                 st.session_state.doobie_status = str(test_result.get("status") or "unavailable")
+                _save_persistent_user_integrations()
                 st.error(str(test_result.get("message") or "Unable to connect to Doobie."))
 
         if st.button("Disconnect / Clear", key="doobie_disconnect_button"):
@@ -2765,6 +2851,8 @@ def _render_doobie_ai_panel() -> None:
             st.session_state.doobie_status = "not_connected"
             st.session_state.doobie_connected = False
             st.session_state.doobie_features = {}
+            st.session_state.doobie_api_key = ""
+            _save_persistent_user_integrations()
             st.success("Doobie disconnected.")
             _safe_rerun()
 
@@ -2863,6 +2951,7 @@ if not st.session_state.is_admin:
             if admin_user in ADMIN_USERS and _check_password(admin_pass, ADMIN_USERS[admin_user]):
                 st.session_state.is_admin = True
                 st.session_state.admin_user = admin_user
+                st.session_state._db_hydrated_username = ""
                 st.session_state._admin_fail_count = 0
                 st.session_state._admin_lockout_until = None
                 st.sidebar.success("✅ Admin mode enabled.")
@@ -2883,6 +2972,7 @@ else:
     if st.sidebar.button("Logout Admin"):
         st.session_state.is_admin = False
         st.session_state.admin_user = None
+        st.session_state._db_hydrated_username = ""
         _safe_rerun()
 
 # -------------------------
@@ -2908,6 +2998,7 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             if u_user in USER_USERS and _check_password(u_pass, USER_USERS[u_user]):
                 st.session_state.user_authenticated = True
                 st.session_state.user_user = u_user
+                st.session_state._db_hydrated_username = ""
                 st.session_state._user_fail_count = 0
                 st.session_state._user_lockout_until = None
                 st.sidebar.success("✅ User access enabled.")
@@ -2928,6 +3019,7 @@ elif (not st.session_state.is_admin) and st.session_state.user_authenticated:
     if st.sidebar.button("Logout", key="logout_user_btn"):
         st.session_state.user_authenticated = False
         st.session_state.user_user = None
+        st.session_state._db_hydrated_username = ""
         _safe_rerun()
 
 trial_now = datetime.now()
@@ -2963,6 +3055,9 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             hours_left = int(remaining.total_seconds() // 3600)
             mins_left = int((remaining.total_seconds() % 3600) // 60)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
+
+# Hydrate per-user persistent integrations after auth succeeds.
+_hydrate_persistent_user_integrations()
 
 # =========================
 # DOOBIE AI CONNECTION (non-blocking, layered on top of login)

@@ -14,3 +14,4 @@ altair>=5.0.0
 bcrypt>=4.0.0
 requests>=2.31.0
 chromadb>=0.5.5
+sqlalchemy>=2.0.0
