@@ -48,10 +48,12 @@ from ui_polish import (
     render_inventory_table_css,
 )
 from user_integrations_store import UserIntegrationsStore
+from global_integrations_store import GlobalIntegrationsStore
 
 load_dotenv()
 
 USER_INTEGRATIONS_STORE = UserIntegrationsStore()
+GLOBAL_INTEGRATIONS_STORE = GlobalIntegrationsStore()
 
 # Owner mark (non-functional, intentional signature fragment).
 # __  ______             __ ____________
@@ -950,6 +952,65 @@ def _save_persistent_user_integrations() -> None:
     )
 
 
+def _hydrate_global_integrations() -> None:
+    """
+    Load admin-managed global integrations into runtime session context.
+    Never blocks login/auth flows.
+    """
+    if st.session_state.get("_global_integrations_hydrated"):
+        return
+
+    st.session_state["_global_integrations_store_available"] = GLOBAL_INTEGRATIONS_STORE.available
+    if not GLOBAL_INTEGRATIONS_STORE.available:
+        st.session_state["_global_integrations_hydrated"] = True
+        return
+
+    record = GLOBAL_INTEGRATIONS_STORE.get_global()
+    if record:
+        st.session_state.global_doobie_base_url = str(record.doobie_base_url or "")
+        st.session_state.global_doobie_api_key = str(record.doobie_api_key or "")
+        st.session_state.global_doobie_status = str(record.doobie_status or "not_connected")
+        st.session_state.global_doobie_last_validated = record.doobie_last_validated
+        st.session_state.global_metrc_api_key = str(record.metrc_api_key or "")
+        st.session_state.global_metrc_state = str(record.metrc_state or "")
+        st.session_state.global_metrc_license = str(record.metrc_license or "")
+        st.session_state.global_metrc_status = str(record.metrc_status or "not_connected")
+        st.session_state.global_metrc_last_validated = record.metrc_last_validated
+        st.session_state.global_integrations_updated_by = str(record.updated_by or "")
+        st.session_state.global_integrations_updated_at = (
+            record.updated_at.isoformat() if record.updated_at else ""
+        )
+
+    st.session_state["_global_integrations_hydrated"] = True
+
+
+def _save_global_integrations(updated_by: str) -> bool:
+    if not GLOBAL_INTEGRATIONS_STORE.available:
+        return False
+    return GLOBAL_INTEGRATIONS_STORE.save_global_integrations(
+        values={
+            "doobie_base_url": str(st.session_state.get("global_doobie_base_url") or ""),
+            "doobie_api_key": str(st.session_state.get("global_doobie_api_key") or ""),
+            "doobie_status": str(st.session_state.get("global_doobie_status") or "not_connected"),
+            "doobie_last_validated": (
+                str(st.session_state.get("global_doobie_last_validated"))
+                if st.session_state.get("global_doobie_last_validated")
+                else None
+            ),
+            "metrc_api_key": str(st.session_state.get("global_metrc_api_key") or ""),
+            "metrc_state": str(st.session_state.get("global_metrc_state") or ""),
+            "metrc_license": str(st.session_state.get("global_metrc_license") or ""),
+            "metrc_status": str(st.session_state.get("global_metrc_status") or "not_connected"),
+            "metrc_last_validated": (
+                str(st.session_state.get("global_metrc_last_validated"))
+                if st.session_state.get("global_metrc_last_validated")
+                else None
+            ),
+        },
+        updated_by=updated_by,
+    )
+
+
 # =========================
 # SESSION STATE DEFAULTS
 # =========================
@@ -1030,6 +1091,32 @@ if "_db_hydrated_username" not in st.session_state:
     st.session_state._db_hydrated_username = ""
 if "_db_available" not in st.session_state:
     st.session_state._db_available = USER_INTEGRATIONS_STORE.available
+if "global_doobie_base_url" not in st.session_state:
+    st.session_state.global_doobie_base_url = ""
+if "global_doobie_api_key" not in st.session_state:
+    st.session_state.global_doobie_api_key = ""
+if "global_doobie_status" not in st.session_state:
+    st.session_state.global_doobie_status = "not_connected"
+if "global_doobie_last_validated" not in st.session_state:
+    st.session_state.global_doobie_last_validated = None
+if "global_metrc_api_key" not in st.session_state:
+    st.session_state.global_metrc_api_key = ""
+if "global_metrc_state" not in st.session_state:
+    st.session_state.global_metrc_state = ""
+if "global_metrc_license" not in st.session_state:
+    st.session_state.global_metrc_license = ""
+if "global_metrc_status" not in st.session_state:
+    st.session_state.global_metrc_status = "not_connected"
+if "global_metrc_last_validated" not in st.session_state:
+    st.session_state.global_metrc_last_validated = None
+if "global_integrations_updated_by" not in st.session_state:
+    st.session_state.global_integrations_updated_by = ""
+if "global_integrations_updated_at" not in st.session_state:
+    st.session_state.global_integrations_updated_at = ""
+if "_global_integrations_hydrated" not in st.session_state:
+    st.session_state._global_integrations_hydrated = False
+if "_global_integrations_store_available" not in st.session_state:
+    st.session_state._global_integrations_store_available = GLOBAL_INTEGRATIONS_STORE.available
 
 # Brute-force login protection counters
 _LOCKOUT_MAX_ATTEMPTS = 5
@@ -2791,14 +2878,21 @@ def _doobie_ai_access_enabled() -> bool:
 def _render_doobie_ai_panel() -> None:
     with st.sidebar.expander("⚙️ Connect Doobie", expanded=False):
         resolved = resolve_doobie_config()
+        is_admin = bool(st.session_state.get("is_admin", False))
         status_code = _doobie_ai_status()
         status_badge = "🟢 connected" if status_code == "connected" else ("🟠 unavailable" if status_code == "unavailable" else "🟡 not connected")
         st.markdown(f"**Status:** {status_badge}")
-        st.caption(f"Current base URL: {str(resolved.get('base_url') or 'Not configured')}")
-        if resolved.get("api_key"):
-            st.caption(f"Current API key: {mask_api_key(str(resolved.get('api_key') or ''))}")
+        if is_admin:
+            st.caption(f"Current base URL: {str(resolved.get('base_url') or 'Not configured')}")
+            if resolved.get("api_key"):
+                st.caption(f"Current API key: {mask_api_key(str(resolved.get('api_key') or ''))}")
+        else:
+            st.caption("Shared configuration is managed by admins.")
         st.caption(f"AI Availability: {'Enabled' if _doobie_ai_access_enabled() else 'Disabled'}")
         st.caption("Core dashboard remains usable even when Doobie is disconnected.")
+
+        if not is_admin:
+            return
 
         default_cfg = get_default_doobie_config()
         base_url_input = st.text_input(
@@ -2856,6 +2950,165 @@ def _render_doobie_ai_panel() -> None:
             st.success("Doobie disconnected.")
             _safe_rerun()
 
+
+def _render_admin_integrations_page() -> None:
+    if not st.session_state.get("is_admin", False):
+        st.error("Admin access is required.")
+        return
+
+    st.subheader("🔌 Integrations")
+    st.caption("Admin-only shared service credentials and connection settings.")
+
+    if not st.session_state.get("_global_integrations_store_available"):
+        st.warning("Global integrations persistence is unavailable in this environment.")
+
+    last_by = str(st.session_state.get("global_integrations_updated_by") or "n/a")
+    last_at = str(st.session_state.get("global_integrations_updated_at") or "n/a")
+    st.caption(f"Last updated by: **{last_by}** • Updated at: **{last_at}**")
+
+    admin_user = str(st.session_state.get("admin_user") or "admin")
+
+    with st.container(border=True):
+        st.markdown("### DoobieLogic")
+        st.caption("Shared default connection used when session override is not present.")
+        st.text_input(
+            "Base URL",
+            value=str(st.session_state.get("global_doobie_base_url") or ""),
+            key="admin_global_doobie_base_url_input",
+            placeholder="https://doobie.yourdomain.com",
+        )
+        st.text_input(
+            "API Key",
+            value="",
+            key="admin_global_doobie_api_key_input",
+            type="password",
+            help="Leave blank to keep the currently saved key.",
+        )
+        st.caption(
+            f"Saved key: {mask_api_key(str(st.session_state.get('global_doobie_api_key') or '')) or '(not set)'}"
+        )
+        st.caption(f"Status: **{st.session_state.get('global_doobie_status') or 'not_connected'}**")
+        st.caption(
+            f"Last validated: **{st.session_state.get('global_doobie_last_validated') or 'never'}**"
+        )
+
+        col_test, col_save, col_clear = st.columns(3)
+        if col_test.button("Test Connection", key="admin_global_doobie_test_btn"):
+            candidate_url = str(st.session_state.get("admin_global_doobie_base_url_input") or "").strip()
+            candidate_key = str(
+                st.session_state.get("admin_global_doobie_api_key_input")
+                or st.session_state.get("global_doobie_api_key")
+                or ""
+            ).strip()
+            result = test_doobie_connection(candidate_url, candidate_key)
+            st.session_state.global_doobie_status = str(result.get("status") or "not_connected")
+            if result.get("ok"):
+                st.session_state.global_doobie_last_validated = result.get("validated_at")
+                st.success(str(result.get("message") or "Connected"))
+            else:
+                st.warning(str(result.get("message") or "Connection failed"))
+
+        if col_save.button("Save", key="admin_global_doobie_save_btn", type="primary"):
+            candidate_url = str(st.session_state.get("admin_global_doobie_base_url_input") or "").strip().rstrip("/")
+            candidate_key = str(st.session_state.get("admin_global_doobie_api_key_input") or "").strip()
+            st.session_state.global_doobie_base_url = candidate_url
+            if candidate_key:
+                st.session_state.global_doobie_api_key = candidate_key
+            st.session_state.global_integrations_updated_by = admin_user
+            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
+            if _save_global_integrations(updated_by=admin_user):
+                st.success("Doobie global settings saved.")
+            else:
+                st.error("Unable to save Doobie global settings.")
+
+        if col_clear.button("Clear / Reset", key="admin_global_doobie_clear_btn"):
+            st.session_state.global_doobie_base_url = ""
+            st.session_state.global_doobie_api_key = ""
+            st.session_state.global_doobie_status = "not_connected"
+            st.session_state.global_doobie_last_validated = None
+            st.session_state.admin_global_doobie_base_url_input = ""
+            st.session_state.admin_global_doobie_api_key_input = ""
+            st.session_state.global_integrations_updated_by = admin_user
+            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
+            if _save_global_integrations(updated_by=admin_user):
+                st.success("Doobie global settings cleared.")
+            else:
+                st.error("Unable to clear Doobie global settings.")
+
+    with st.container(border=True):
+        st.markdown("### METRC (Future-ready)")
+        st.caption("Scaffold for shared METRC configuration and validation workflow.")
+        st.text_input(
+            "METRC API Key",
+            value="",
+            key="admin_global_metrc_api_key_input",
+            type="password",
+            help="Leave blank to keep the currently saved key.",
+        )
+        st.text_input(
+            "State",
+            value=str(st.session_state.get("global_metrc_state") or ""),
+            key="admin_global_metrc_state_input",
+            placeholder="e.g., CA",
+        )
+        st.text_input(
+            "License / Facility",
+            value=str(st.session_state.get("global_metrc_license") or ""),
+            key="admin_global_metrc_license_input",
+        )
+        st.caption(
+            f"Saved key: {mask_api_key(str(st.session_state.get('global_metrc_api_key') or '')) or '(not set)'}"
+        )
+        st.caption(f"Status: **{st.session_state.get('global_metrc_status') or 'not_connected'}**")
+        st.caption(
+            f"Last validated: **{st.session_state.get('global_metrc_last_validated') or 'never'}**"
+        )
+
+        m_test, m_save, m_clear = st.columns(3)
+        if m_test.button("Test Connection", key="admin_global_metrc_test_btn"):
+            state = str(st.session_state.get("admin_global_metrc_state_input") or "").strip()
+            license_name = str(st.session_state.get("admin_global_metrc_license_input") or "").strip()
+            api_key = str(
+                st.session_state.get("admin_global_metrc_api_key_input")
+                or st.session_state.get("global_metrc_api_key")
+                or ""
+            ).strip()
+            if state and license_name and api_key:
+                st.session_state.global_metrc_status = "future_ready_stub_ok"
+                st.session_state.global_metrc_last_validated = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                st.info("METRC live connectivity is not implemented yet. Configuration looks complete.")
+            else:
+                st.session_state.global_metrc_status = "missing_required_fields"
+                st.warning("Add API key, state, and license/facility to test this scaffold.")
+
+        if m_save.button("Save", key="admin_global_metrc_save_btn", type="primary"):
+            candidate_key = str(st.session_state.get("admin_global_metrc_api_key_input") or "").strip()
+            st.session_state.global_metrc_state = str(st.session_state.get("admin_global_metrc_state_input") or "").strip()
+            st.session_state.global_metrc_license = str(st.session_state.get("admin_global_metrc_license_input") or "").strip()
+            if candidate_key:
+                st.session_state.global_metrc_api_key = candidate_key
+            st.session_state.global_integrations_updated_by = admin_user
+            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
+            if _save_global_integrations(updated_by=admin_user):
+                st.success("METRC global settings saved.")
+            else:
+                st.error("Unable to save METRC global settings.")
+
+        if m_clear.button("Clear / Reset", key="admin_global_metrc_clear_btn"):
+            st.session_state.global_metrc_api_key = ""
+            st.session_state.global_metrc_state = ""
+            st.session_state.global_metrc_license = ""
+            st.session_state.global_metrc_status = "not_connected"
+            st.session_state.global_metrc_last_validated = None
+            st.session_state.admin_global_metrc_api_key_input = ""
+            st.session_state.admin_global_metrc_state_input = ""
+            st.session_state.admin_global_metrc_license_input = ""
+            st.session_state.global_integrations_updated_by = admin_user
+            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
+            if _save_global_integrations(updated_by=admin_user):
+                st.success("METRC global settings cleared.")
+            else:
+                st.error("Unable to clear METRC global settings.")
 
 # =========================
 # INIT DOOBIE CONNECTION + SHOW DEBUG (admin-only)
@@ -3058,6 +3311,7 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
 
 # Hydrate per-user persistent integrations after auth succeeds.
 _hydrate_persistent_user_integrations()
+_hydrate_global_integrations()
 
 # =========================
 # DOOBIE AI CONNECTION (non-blocking, layered on top of login)
@@ -7032,6 +7286,8 @@ section_options = [
 ]
 if _feature_enabled("admin_exports", default_enabled=True):
     section_options.append("🛠️ Admin Tools")
+if st.session_state.get("is_admin", False):
+    section_options.append("🔌 Integrations")
 
 section = st.sidebar.radio(
     "App Section",
@@ -8843,6 +9099,15 @@ elif section == "🛠️ Admin Tools":
                 st.success("Required columns are present.")
         except Exception as exc:
             st.error(f"Could not audit file: {exc}")
+
+# ============================================================
+# PAGE 2D – INTEGRATIONS (ADMIN ONLY)
+# ============================================================
+elif section == "🔌 Integrations":
+    if not st.session_state.get("is_admin", False):
+        st.warning("Admin access is required for this section.")
+        st.stop()
+    _render_admin_integrations_page()
 
 # ============================================================
 # PAGE 2 – TRENDS

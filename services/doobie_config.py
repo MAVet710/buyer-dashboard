@@ -62,6 +62,15 @@ def get_session_doobie_config() -> dict[str, str | bool | None]:
     }
 
 
+def get_global_doobie_config() -> dict[str, str | bool | None]:
+    return {
+        "base_url": str(st.session_state.get("global_doobie_base_url") or "").strip(),
+        "api_key": str(st.session_state.get("global_doobie_api_key") or "").strip(),
+        "status": str(st.session_state.get("global_doobie_status") or "").strip(),
+        "source": "admin_global",
+    }
+
+
 def _load_local_runtime_config() -> dict[str, str]:
     try:
         if not RUNTIME_CONFIG_PATH.exists():
@@ -89,13 +98,13 @@ def resolve_doobie_config() -> dict[str, str | bool]:
             "available": True,
         }
 
-    local_cfg = _load_local_runtime_config()
-    if local_cfg.get("base_url") and local_cfg.get("api_key"):
+    global_cfg = get_global_doobie_config()
+    if global_cfg.get("base_url") and global_cfg.get("api_key"):
         return {
-            "base_url": str(local_cfg.get("base_url") or ""),
-            "api_key": str(local_cfg.get("api_key") or ""),
-            "source": "local_runtime",
-            "connected": False,
+            "base_url": str(global_cfg.get("base_url") or ""),
+            "api_key": str(global_cfg.get("api_key") or ""),
+            "source": "admin_global",
+            "connected": str(global_cfg.get("status") or "") == "connected",
             "available": True,
         }
 
@@ -106,6 +115,16 @@ def resolve_doobie_config() -> dict[str, str | bool]:
             "api_key": str(default_cfg.get("api_key") or ""),
             "source": "env_or_secrets",
             "connected": True,
+            "available": True,
+        }
+
+    local_cfg = _load_local_runtime_config()
+    if local_cfg.get("base_url") and local_cfg.get("api_key"):
+        return {
+            "base_url": str(local_cfg.get("base_url") or ""),
+            "api_key": str(local_cfg.get("api_key") or ""),
+            "source": "local_runtime",
+            "connected": False,
             "available": True,
         }
 
