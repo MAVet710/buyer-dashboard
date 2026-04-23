@@ -9,7 +9,6 @@ import streamlit as st
 from core.session_keys import INV_RAW, SALES_RAW, BUYER_READY
 from doobie_panels import run_buyer_doobie
 from ui.components import render_metric_card, render_section_header
-from buyer_inventory_normalization import ensure_inventory_derived_fields, fill_blank_with, resolve_itemname_series
 
 UNKNOWN_DAYS_OF_SUPPLY = 999
 PRODUCT_TABLE_DISPLAY_LIMIT = 2000
@@ -26,7 +25,7 @@ REB_CATEGORIES = [
 ]
 
 INV_NAME_ALIASES = [
-    "product", "productname", "item", "itemname", "name", "skuname", "skuid", "sku", "product name", "product_name", "product title", "title"
+    "product", "productname", "item", "itemname", "name", "skuname", "skuid", "product name", "product_name", "product title", "title"
 ]
 INV_CAT_ALIASES = [
     "category", "subcategory", "productcategory", "department", "mastercategory", "product category", "cannabis", "product_category", "ecomm category", "ecommcategory"
@@ -48,38 +47,6 @@ SALES_CAT_ALIASES = ["mastercategory", "category", "master_category", "productca
 SALES_REV_ALIASES = ["netsales", "net sales", "sales", "totalsales", "total sales", "revenue", "grosssales", "gross sales"]
 SALES_SKU_ALIASES = ["sku", "skuid", "productid", "product_id"]
 
-
-ITEMNAME_SOURCE_ALIASES = [
-    "itemname", "product_name", "name", "product", "sku_name", "item", "sku", "title", "skuname"
-]
-
-
-def _resolve_itemname_series(inv_df: pd.DataFrame, detected_name_col: str | None) -> pd.Series:
-    return resolve_itemname_series(
-        inv_df,
-        detected_name_col,
-        detect_column=detect_column,
-        normalize_col=normalize_col,
-        itemname_aliases=ITEMNAME_SOURCE_ALIASES,
-    )
-
-
-def _fill_blank_with(series: pd.Series, fallback: pd.Series | str) -> pd.Series:
-    return fill_blank_with(series, fallback)
-
-
-def _ensure_inventory_derived_fields(inv_df: pd.DataFrame) -> pd.DataFrame:
-    return ensure_inventory_derived_fields(
-        inv_df,
-        normalize_category=normalize_rebelle_category,
-        extract_strain_type=extract_strain_type,
-        extract_size=extract_size,
-        valid_strain_types=VALID_STRAIN_TYPES,
-        detect_column=detect_column,
-        normalize_col=normalize_col,
-        detected_name_col="itemname",
-        itemname_aliases=ITEMNAME_SOURCE_ALIASES,
-    )
 
 def normalize_col(col: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(col).lower())
@@ -324,75 +291,15 @@ def _safe_ratio(a, b):
         return 0
 
 
-def _normalize_buyer_uploaded_columns(raw_df: pd.DataFrame, dataset: str) -> pd.DataFrame:
-    df = raw_df.copy()
-    df.columns = df.columns.astype(str).str.strip().str.lower()
-
-    if dataset == "inventory":
-        name_col = detect_column(df.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
-        cat_col = detect_column(df.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
-        qty_col = detect_column(df.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
-        rename_map = {}
-        if name_col:
-            rename_map[name_col] = "itemname"
-        if cat_col:
-            rename_map[cat_col] = "subcategory"
-        if qty_col:
-            rename_map[qty_col] = "onhandunits"
-        df = df.rename(columns=rename_map)
-        if "subcategory" not in df.columns:
-            df["subcategory"] = "unspecified"
-        if "itemname" not in df.columns:
-            raise ValueError("Inventory upload normalization failed: missing required canonical field `itemname`.")
-        if "onhandunits" not in df.columns:
-            raise ValueError("Inventory upload normalization failed: missing required canonical field `onhandunits`.")
-        return df
-
-    if dataset == "sales":
-        name_col = detect_column(df.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
-        cat_col = detect_column(df.columns, [normalize_col(a) for a in SALES_CAT_ALIASES])
-        qty_col = detect_column(df.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
-        rename_map = {}
-        if name_col:
-            rename_map[name_col] = "itemname"
-        if cat_col:
-            rename_map[cat_col] = "subcategory"
-        if qty_col:
-            rename_map[qty_col] = "units_sold"
-        df = df.rename(columns=rename_map)
-        if "subcategory" not in df.columns:
-            df["subcategory"] = "unspecified"
-        if "itemname" not in df.columns:
-            raise ValueError("Sales upload normalization failed: missing required canonical field `itemname`.")
-        if "units_sold" not in df.columns:
-            raise ValueError("Sales upload normalization failed: missing required canonical field `units_sold`.")
-        return df
-
-    raise ValueError(f"Unknown buyer dataset type for normalization: {dataset}")
-
-
-def _assert_buyer_canonical_columns(inv_df: pd.DataFrame, sales_df: pd.DataFrame) -> None:
-    inv_required = {"itemname", "subcategory", "onhandunits"}
-    sales_required = {"itemname", "subcategory", "units_sold"}
-    missing_inv = sorted(inv_required - set(inv_df.columns))
-    missing_sales = sorted(sales_required - set(sales_df.columns))
-    if missing_inv or missing_sales:
-        issues = []
-        if missing_inv:
-            issues.append(f"inventory missing {missing_inv}")
-        if missing_sales:
-            issues.append(f"sales missing {missing_sales}")
-        raise ValueError(
-            "Buyer upload normalization check failed before grouping: "
-            + "; ".join(issues)
-            + "."
-        )
-
-
 def _build_buyer_pipeline(inv_raw_df: pd.DataFrame, sales_raw_df: pd.DataFrame, doh_threshold: int, velocity_adjustment: float, date_diff: int):
-    inv_df = _normalize_buyer_uploaded_columns(inv_raw_df, dataset="inventory")
-    sales_raw = _normalize_buyer_uploaded_columns(sales_raw_df, dataset="sales")
+    inv_df = inv_raw_df.copy()
+    sales_raw = sales_raw_df.copy()
+    inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
+    sales_raw.columns = sales_raw.columns.astype(str).str.strip().str.lower()
 
+    name_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+    cat_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+    qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
     sku_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_SKU_ALIASES])
     batch_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BATCH_ALIASES])
     cost_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_COST_ALIASES])
@@ -400,6 +307,10 @@ def _build_buyer_pipeline(inv_raw_df: pd.DataFrame, sales_raw_df: pd.DataFrame, 
     strain_type_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_STRAIN_TYPE_ALIASES])
     brand_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BRAND_ALIASES])
     expiry_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_EXPIRY_ALIASES])
+    if not (name_col and cat_col and qty_col):
+        raise ValueError("Could not auto-detect inventory columns (product / category / on-hand).")
+
+    inv_df = inv_df.rename(columns={name_col: "itemname", cat_col: "subcategory", qty_col: "onhandunits"})
     if sku_col:
         inv_df = inv_df.rename(columns={sku_col: "sku"})
     if batch_col:
@@ -418,10 +329,17 @@ def _build_buyer_pipeline(inv_raw_df: pd.DataFrame, sales_raw_df: pd.DataFrame, 
         inv_df = inv_df.rename(columns={expiry_col: "expiration_date"})
         inv_df["expiration_date"] = pd.to_datetime(inv_df["expiration_date"], errors="coerce")
 
-    inv_df["itemname"] = _resolve_itemname_series(inv_df, "itemname")
+    inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
     inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
     inv_df, _, _ = deduplicate_inventory(inv_df)
-    inv_df = _ensure_inventory_derived_fields(inv_df)
+    inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
+    inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+    if "_explicit_strain_type" in inv_df.columns:
+        explicit = inv_df["_explicit_strain_type"].astype(str).str.strip().str.lower()
+        valid = explicit.isin(VALID_STRAIN_TYPES)
+        inv_df.loc[valid, "strain_type"] = explicit[valid]
+        inv_df = inv_df.drop(columns=["_explicit_strain_type"])
+    inv_df["packagesize"] = inv_df.apply(lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
     inv_df["product_name"] = inv_df["itemname"]
 
     inv_summary = inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["onhandunits"].sum().reset_index()
@@ -438,10 +356,15 @@ def _build_buyer_pipeline(inv_raw_df: pd.DataFrame, sales_raw_df: pd.DataFrame, 
             _extra = inv_df.groupby(["subcategory", "product_name", "strain_type", "packagesize"], dropna=False)[extra_col].first().reset_index()
             inv_product = inv_product.merge(_extra, on=["subcategory", "product_name", "strain_type", "packagesize"], how="left")
 
+    name_col_sales = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
+    qty_col_sales = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
+    mc_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_CAT_ALIASES])
     sales_sku_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_SKU_ALIASES])
     rev_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_REV_ALIASES])
-    _assert_buyer_canonical_columns(inv_df, sales_raw)
-    sales_raw = sales_raw.rename(columns={"itemname": "product_name", "units_sold": "unitssold", "subcategory": "mastercategory"})
+    if not (name_col_sales and qty_col_sales and mc_col):
+        raise ValueError("Could not detect required sales columns (name, quantity, category).")
+
+    sales_raw = sales_raw.rename(columns={name_col_sales: "product_name", qty_col_sales: "unitssold", mc_col: "mastercategory"})
     if sales_sku_col:
         sales_raw = sales_raw.rename(columns={sales_sku_col: "sku"})
     if rev_col:
