@@ -95,3 +95,31 @@ def test_pipeline_parser_failures_use_safe_fallback_values():
     assert (inv_df["subcategory"] == "unspecified").all()
     assert (inv_df["packagesize"] == "unknown").all()
     assert (inv_df["strain_type"] == "unspecified").all()
+
+
+def test_pipeline_normalizes_real_upload_headers_for_inventory_and_sales():
+    inv_raw = pd.DataFrame(
+        [
+            {"Product": "Blue Dream Pre-Roll 1g", "Category": "Pre Rolls", "Available": 10},
+            {"Product": "Northern Lights Vape 0.5g", "Category": "Vapes", "Available": 4},
+        ]
+    )
+    sales_raw = pd.DataFrame(
+        [
+            {"Product Name": "Blue Dream Pre-Roll 1g", "Category": "Pre Rolls", "Total Inventory Sold": 12},
+            {"Product Name": "Northern Lights Vape 0.5g", "Category": "Vapes", "Total Inventory Sold": 5},
+        ]
+    )
+
+    detail, detail_product, inv_df, sales_detail_df = _build_buyer_pipeline(
+        inv_raw_df=inv_raw,
+        sales_raw_df=sales_raw,
+        doh_threshold=21,
+        velocity_adjustment=1.0,
+        date_diff=30,
+    )
+
+    assert {"itemname", "subcategory", "onhandunits"}.issubset(inv_df.columns)
+    assert {"product_name", "mastercategory", "unitssold"}.issubset(sales_detail_df.columns)
+    assert "subcategory" in detail.columns
+    assert "subcategory" in detail_product.columns
