@@ -49,7 +49,6 @@ from ui_polish import (
 )
 from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
-from buyer_inventory_normalization import ensure_inventory_derived_fields
 
 load_dotenv()
 
@@ -1292,19 +1291,6 @@ def detect_column(columns, aliases):
         if alias in norm_map:
             return norm_map[alias]
     return None
-
-
-def _ensure_inventory_derived_fields(inv_df: pd.DataFrame) -> pd.DataFrame:
-    return ensure_inventory_derived_fields(
-        inv_df,
-        normalize_category=normalize_rebelle_category,
-        extract_strain_type=extract_strain_type,
-        extract_size=extract_size,
-        valid_strain_types=VALID_STRAIN_TYPES,
-        detect_column=detect_column,
-        normalize_col=normalize_col,
-        detected_name_col="itemname",
-    )
 
 
 def parse_currency_to_float(series: "pd.Series") -> "pd.Series":
@@ -7625,17 +7611,14 @@ if section == "📊 Inventory Dashboard":
         retail_price_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
         strain_type_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_STRAIN_TYPE_ALIASES])
 
-        if not (name_col and qty_col):
+        if not (name_col and cat_col and qty_col):
             st.error(
-                "Could not auto-detect inventory columns (product / on-hand). "
+                "Could not auto-detect inventory columns (product / category / on-hand). "
                 "Check your Inventory export headers."
             )
             st.stop()
 
-        rename_map = {name_col: "itemname", qty_col: "onhandunits"}
-        if cat_col:
-            rename_map[cat_col] = "subcategory"
-        inv_df = inv_df.rename(columns=rename_map)
+        inv_df = inv_df.rename(columns={name_col: "itemname", cat_col: "subcategory", qty_col: "onhandunits"})
         if sku_col:
             inv_df = inv_df.rename(columns={sku_col: "sku"})
         if batch_col:
@@ -7654,7 +7637,7 @@ if section == "📊 Inventory Dashboard":
 
         # Normalize itemname for better matching
         inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
-
+        
         inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
 
         # -------- Inventory Deduplication (Product Name + Batch ID) --------
@@ -7666,7 +7649,15 @@ if section == "📊 Inventory Dashboard":
         elif "No batch" not in dedupe_log and "No inventory" not in dedupe_log:
             st.sidebar.info(dedupe_log)
 
-        inv_df = _ensure_inventory_derived_fields(inv_df)
+        inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
+        # Derive strain_type from name/category, then prefer explicit column if present
+        inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+        if "_explicit_strain_type" in inv_df.columns:
+            explicit = inv_df["_explicit_strain_type"].astype(str).str.strip().str.lower()
+            valid = explicit.isin(VALID_STRAIN_TYPES)
+            inv_df.loc[valid, "strain_type"] = explicit[valid]
+            inv_df = inv_df.drop(columns=["_explicit_strain_type"])
+        inv_df["packagesize"] = inv_df.apply(lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
         inv_df["product_name"] = inv_df["itemname"]  # alias for product-level groupings; itemname retained for existing merges
 
         inv_summary = (
@@ -9373,12 +9364,11 @@ elif section == "📈 Trends":
         cat_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
         qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
 
-        if name_col and qty_col:
-            rename_map = {name_col: "itemname", qty_col: "onhandunits"}
-            if cat_col:
-                rename_map[cat_col] = "subcategory"
-            inv_df = inv_df.rename(columns=rename_map)
-            inv_df = _ensure_inventory_derived_fields(inv_df)
+        if name_col and cat_col and qty_col:
+            inv_df = inv_df.rename(columns={name_col: "itemname", cat_col: "subcategory", qty_col: "onhandunits"})
+            inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
+            inv_df["packagesize"] = inv_df.apply(lambda r: extract_size(r.get("itemname", ""), r.get("subcategory", "")), axis=1)
+            inv_df["strain_type"] = inv_df.apply(lambda r: extract_strain_type(r.get("itemname", ""), r.get("subcategory", "")), axis=1)
             inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
 
             inv_small = inv_df[["itemname", "subcategory", "packagesize", "strain_type", "onhandunits"]].copy()
