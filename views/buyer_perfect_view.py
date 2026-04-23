@@ -9,6 +9,7 @@ import streamlit as st
 from core.session_keys import INV_RAW, SALES_RAW, BUYER_READY
 from doobie_panels import run_buyer_doobie
 from ui.components import render_metric_card, render_section_header
+from buyer_inventory_normalization import ensure_inventory_derived_fields, fill_blank_with, resolve_itemname_series
 
 UNKNOWN_DAYS_OF_SUPPLY = 999
 PRODUCT_TABLE_DISPLAY_LIMIT = 2000
@@ -54,48 +55,31 @@ ITEMNAME_SOURCE_ALIASES = [
 
 
 def _resolve_itemname_series(inv_df: pd.DataFrame, detected_name_col: str | None) -> pd.Series:
-    if detected_name_col and detected_name_col in inv_df.columns:
-        series = inv_df[detected_name_col]
-    else:
-        source_col = detect_column(inv_df.columns, [normalize_col(a) for a in ITEMNAME_SOURCE_ALIASES])
-        series = inv_df[source_col] if source_col else pd.Series(["unknown item"] * len(inv_df), index=inv_df.index)
-    return series.astype(str).str.strip()
+    return resolve_itemname_series(
+        inv_df,
+        detected_name_col,
+        detect_column=detect_column,
+        normalize_col=normalize_col,
+        itemname_aliases=ITEMNAME_SOURCE_ALIASES,
+    )
 
 
 def _fill_blank_with(series: pd.Series, fallback: pd.Series | str) -> pd.Series:
-    out = series.copy()
-    invalid = out.isna() | out.astype(str).str.strip().isin(["", "nan", "none", "unknown", "unspecified"])
-    if isinstance(fallback, pd.Series):
-        out.loc[invalid] = fallback.loc[invalid]
-    else:
-        out.loc[invalid] = fallback
-    return out
+    return fill_blank_with(series, fallback)
 
 
 def _ensure_inventory_derived_fields(inv_df: pd.DataFrame) -> pd.DataFrame:
-    inv_df = inv_df.copy()
-    inv_df["itemname"] = _resolve_itemname_series(inv_df, "itemname")
-
-    if "subcategory" not in inv_df.columns:
-        inv_df["subcategory"] = inv_df["itemname"]
-    inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
-    inferred_subcategory = inv_df["itemname"].apply(normalize_rebelle_category)
-    inv_df["subcategory"] = _fill_blank_with(inv_df["subcategory"], inferred_subcategory).fillna("unspecified")
-    inv_df["subcategory"] = inv_df["subcategory"].replace("unknown", "unspecified")
-
-    inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
-    if "_explicit_strain_type" in inv_df.columns:
-        explicit = inv_df["_explicit_strain_type"].astype(str).str.strip().str.lower()
-        valid = explicit.isin(VALID_STRAIN_TYPES)
-        inv_df.loc[valid, "strain_type"] = explicit[valid]
-        inv_df = inv_df.drop(columns=["_explicit_strain_type"])
-    inv_df["strain_type"] = _fill_blank_with(inv_df["strain_type"], "unspecified")
-
-    inv_df["packagesize"] = inv_df.apply(lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
-    inv_df["packagesize"] = _fill_blank_with(inv_df["packagesize"], "unknown")
-    inv_df["packagesize"] = inv_df["packagesize"].replace("unspecified", "unknown")
-
-    return inv_df
+    return ensure_inventory_derived_fields(
+        inv_df,
+        normalize_category=normalize_rebelle_category,
+        extract_strain_type=extract_strain_type,
+        extract_size=extract_size,
+        valid_strain_types=VALID_STRAIN_TYPES,
+        detect_column=detect_column,
+        normalize_col=normalize_col,
+        detected_name_col="itemname",
+        itemname_aliases=ITEMNAME_SOURCE_ALIASES,
+    )
 
 def normalize_col(col: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(col).lower())
