@@ -1373,27 +1373,6 @@ def calculate_active_inventory_cost(inventory_df: pd.DataFrame, cogs_pct: float,
 
     return idf, float(idf["_active_cost"].sum())
 
-
-def build_category_multiplier_map(category_values: list[str], default_multiplier: float) -> dict[str, float]:
-    category_multiplier_map: dict[str, float] = {}
-    if not category_values:
-        return category_multiplier_map
-    st.sidebar.markdown("#### Category-specific cost multipliers (estimates)")
-    for category_name in category_values:
-        key = f"pb_mult_{normalize_col(category_name)}"
-        category_multiplier_map[category_name] = (
-            st.sidebar.number_input(
-                f"{category_name}",
-                min_value=0.0,
-                max_value=2.0,
-                value=float(default_multiplier),
-                step=0.01,
-                key=key,
-                help="Estimated wholesale multiplier used when actual cost is unavailable.",
-            )
-        )
-    return category_multiplier_map
-
 def normalize_rebelle_category(raw):
     """
     Map similar names to canonical categories.
@@ -10700,15 +10679,6 @@ elif section == "💰 Purchasing Budget":
         selected_days = st.sidebar.selectbox("Planning sales window", [14, 30, 60, 90], index=1, key="pb_days")
         target_dos = st.sidebar.number_input("Target DOS", min_value=1, value=45, key="pb_target_dos")
         cogs_pct_input = st.sidebar.number_input("COGS % fallback", min_value=0.0, max_value=100.0, value=50.0, key="pb_cogs") / 100
-        default_cost_multiplier = st.sidebar.number_input(
-            "Global default cost multiplier (estimate)",
-            min_value=0.0,
-            max_value=2.0,
-            value=0.50,
-            step=0.01,
-            key="pb_default_multiplier",
-            help="Used to estimate wholesale cost as retail_price × multiplier when actual cost columns are missing.",
-        )
         safety_stock = st.sidebar.number_input("Safety stock %", min_value=0.0, max_value=200.0, value=10.0, key="pb_safety") / 100
         growth_adj = st.sidebar.number_input("Growth adjustment %", min_value=-100.0, max_value=300.0, value=0.0, key="pb_growth") / 100
         include_dead = st.sidebar.checkbox("Include dead stock?", value=False, key="pb_dead")
@@ -10722,33 +10692,6 @@ elif section == "💰 Purchasing Budget":
             st.warning("Could not detect a retail sales column in your sales file.")
         active_inv_df, active_inventory_cost = calculate_active_inventory_cost(inv_raw, cogs_pct_input, include_dead, include_quarantine, include_accessories)
 
-        inv_category_col = detect_column(active_inv_df.columns, [normalize_col(x) for x in ["mastercategory", "subcategory", "category"]])
-        category_values = (
-            sorted([str(x) for x in active_inv_df[inv_category_col].dropna().unique().tolist()])
-            if inv_category_col and not active_inv_df.empty else []
-        )
-        category_multiplier_map = build_category_multiplier_map(category_values, default_cost_multiplier)
-
-        unit_cost_col = detect_column(active_inv_df.columns, [normalize_col(x) for x in ["unit_cost", "cost", "cost/unit", "unit cost"]])
-        retail_col = detect_column(active_inv_df.columns, [normalize_col(x) for x in ["retail price", "price", "retail", "med price"]])
-        qty_col = detect_column(active_inv_df.columns, [normalize_col(x) for x in ["on hand", "qty", "quantity", "onhandunits", "quantity on hand"]])
-        if not active_inv_df.empty:
-            active_inv_df["_qty"] = pd.to_numeric(active_inv_df[qty_col], errors="coerce").fillna(0) if qty_col else 0
-            active_inv_df["_actual_unit_cost"] = parse_currency_to_float(active_inv_df[unit_cost_col]).fillna(0) if unit_cost_col else 0
-            active_inv_df["_retail_price"] = parse_currency_to_float(active_inv_df[retail_col]).fillna(0) if retail_col else 0
-            if inv_category_col:
-                active_inv_df["_cat_key"] = active_inv_df[inv_category_col].astype(str)
-                active_inv_df["_cost_multiplier"] = active_inv_df["_cat_key"].map(category_multiplier_map).fillna(float(default_cost_multiplier))
-            else:
-                active_inv_df["_cost_multiplier"] = float(default_cost_multiplier)
-            active_inv_df["Estimated Unit Cost (Estimate)"] = np.where(
-                active_inv_df["_actual_unit_cost"] > 0,
-                active_inv_df["_actual_unit_cost"],
-                active_inv_df["_retail_price"] * active_inv_df["_cost_multiplier"],
-            )
-            active_inv_df["Estimated Inventory Cost (Estimate)"] = active_inv_df["_qty"] * active_inv_df["Estimated Unit Cost (Estimate)"]
-            active_inventory_cost = float(active_inv_df["Estimated Inventory Cost (Estimate)"].sum())
-
         avg_daily_sales = sales_window_total / max(int(selected_days), 1)
         avg_daily_cogs = avg_daily_sales * cogs_pct_input
         target_inventory_cost = avg_daily_cogs * float(target_dos)
@@ -10756,8 +10699,6 @@ elif section == "💰 Purchasing Budget":
         target_inventory_cost *= (1 + growth_adj)
         recommended_budget = target_inventory_cost - active_inventory_cost - on_order_cost
         available_to_buy = max(recommended_budget, 0)
-        estimated_reorder_cost = max(recommended_budget, 0)
-        estimated_margin_pct = (1 - cogs_pct_input) * 100
 
         c1,c2,c3 = st.columns(3)
         c1.metric("Recommended Purchasing Budget", format_currency(available_to_buy))
@@ -10768,11 +10709,6 @@ elif section == "💰 Purchasing Budget":
         c4.metric("Over/Under Position", over_under)
         c5.metric("Avg Daily COGS", format_currency(avg_daily_cogs))
         c6.metric("On Order Cost", format_currency(on_order_cost))
-        c7, c8, c9, c10 = st.columns(4)
-        c7.metric("Estimated Inventory Value at Cost (Estimate)", format_currency(active_inventory_cost))
-        c8.metric("Open-to-Buy Budget (Estimate)", format_currency(available_to_buy))
-        c9.metric("Suggested Reorder Budget (Estimate)", format_currency(estimated_reorder_cost))
-        c10.metric("Estimated Margin (Estimate)", f"{estimated_margin_pct:.1f}%")
 
         inv_cat_col = detect_column(active_inv_df.columns, [normalize_col(x) for x in ["mastercategory","subcategory","category"]])
         sales_cat_col = detect_column(sales_window_df.columns, [normalize_col(x) for x in ["mastercategory","subcategory","category"]])
@@ -10785,8 +10721,6 @@ elif section == "💰 Purchasing Budget":
             cat_df["Avg Daily COGS"] = cat_df["Avg Daily Sales"] * cogs_pct_input
             cat_df["Target Inventory at Cost"] = cat_df["Avg Daily COGS"] * float(target_dos) * (1+safety_stock) * (1+growth_adj)
             cat_df["Recommended Budget"] = cat_df["Target Inventory at Cost"] - cat_df["Current Inventory at Cost"]
-            cat_df["Estimated Reorder Cost (Estimate)"] = cat_df["Recommended Budget"].clip(lower=0)
-            cat_df["Estimated Gross Margin % (Estimate)"] = estimated_margin_pct
             cat_df["Budget Status"] = np.where(cat_df["Recommended Budget"] > 0, "Buy", np.where(cat_df["Recommended Budget"] < 0, "Overstocked", "Hold"))
             cat_df["Notes"] = np.where(cat_df["Budget Status"]=="Buy", "Allocate purchasing budget", np.where(cat_df["Budget Status"]=="Overstocked", "Reduce buys and sell-through", "Near target"))
             st.markdown("### Category-Level Recommended Budget")
@@ -10803,7 +10737,6 @@ elif section == "💰 Purchasing Budget":
             scenario_rows.append({"Scenario":name,"Target Inventory":t,"Current Active Inventory":active_inventory_cost,"On Order":on_order_cost,"Recommended Budget":rb,"Status":"Available to Buy" if rb>=0 else "Overbought"})
         st.markdown("### Budget Scenario Table")
         st.dataframe(pd.DataFrame(scenario_rows), use_container_width=True)
-        st.caption("All fields labeled '(Estimate)' are modeled values and should be reviewed before final purchasing decisions.")
         if "po_items" in st.session_state:
             proposed_po_total = float(sum(float(i.get("Total",0) or 0) for i in st.session_state.po_items))
             remaining_budget_after_po = recommended_budget - proposed_po_total
