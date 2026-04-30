@@ -3669,6 +3669,7 @@ with _export_right:
         if st.button("Export Report", key="buyer_export_report_btn_disabled"):
             st.warning("Upload inventory and sales data before exporting a buyer report.")
     else:
+        st.caption("Export format: PDF executive summary")
         st.download_button(
             "Export Report",
             data=_build_buyer_executive_report_pdf(_buyer_export_payload),
