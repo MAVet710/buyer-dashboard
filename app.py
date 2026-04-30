@@ -3647,8 +3647,10 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
             plt.close(fig1)
 
             fig2, ax2 = plt.subplots(figsize=(2.7, 2.0))
+            fig2.patch.set_alpha(0.0)
+            ax2.set_facecolor("none")
             ax2.pie(grouped["onhandunits"], labels=None, wedgeprops=dict(width=0.45), startangle=90)
-            ax2.set_title("Inventory Mix", fontsize=9)
+            ax2.set_title("Inventory Mix", fontsize=9, color="white")
             fig2.tight_layout()
             fig2.savefig(donut_img, format="png", dpi=160, transparent=True)
             plt.close(fig2)
