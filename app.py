@@ -3508,34 +3508,8 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         for k in ["detail_view", "sales_df", "inv_df", "sales_summary", "inv_summary"]
     )
 
-    app_bg = colors.HexColor("#0F2747")
-    panel_bg = colors.HexColor("#163A63")
-    panel_border = colors.HexColor("#5AA8FF")
-    accent_green = colors.HexColor("#4CD388")
-    accent_orange = colors.HexColor("#FF9A3C")
-    accent_yellow = colors.HexColor("#F3C74C")
-
-    def _wrap_text(text: str, max_width: float, font_name: str = "Helvetica", font_size: int = 10, max_lines: int | None = None):
-        words = str(text or "").split()
-        lines, current = [], ""
-        for w in words:
-            candidate = f"{current} {w}".strip()
-            if c.stringWidth(candidate, font_name, font_size) <= max_width:
-                current = candidate
-            else:
-                if current:
-                    lines.append(current)
-                current = w
-        if current:
-            lines.append(current)
-        if max_lines and len(lines) > max_lines:
-            lines = lines[:max_lines]
-            if lines:
-                lines[-1] = f"{lines[-1].rstrip('. ')}..."
-        return lines
-
     if not has_real_data:
-        c.setFillColor(app_bg)
+        c.setFillColor(colors.HexColor("#0F2747"))
         c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 28)
@@ -3567,7 +3541,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     avg_days_on_hand = avg_dos
     health_score = max(0, min(100, int(100 - ((low_stock * 2) + (at_risk * 3)))))
 
-    c.setFillColor(app_bg)
+    c.setFillColor(colors.HexColor("#0F2747"))
     c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
     c.setFillColor(colors.white)
     c.setFont("Helvetica-Bold", 26)
@@ -3576,9 +3550,9 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     c.drawString(30, page_h - 58, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}   |   Period: {reporting_period}   |   Store: {store_name}")
 
     def panel(x, y, w, h, title):
-        c.setFillColor(panel_bg)
+        c.setFillColor(colors.HexColor("#163A63"))
         c.roundRect(x, y, w, h, 8, stroke=1, fill=1)
-        c.setStrokeColor(panel_border)
+        c.setStrokeColor(colors.HexColor("#5AA6D1"))
         c.roundRect(x, y, w, h, 8, stroke=1, fill=0)
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 11)
@@ -3610,7 +3584,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         row = idx // 3
         x = 36 + (col * 130)
         y = 360 - (row * 36)
-        c.setFillColor(accent_yellow)
+        c.setFillColor(colors.HexColor("#7EC7EA"))
         c.drawString(x, y, k)
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 10)
@@ -3624,7 +3598,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         if cat_col:
             grouped = detail_df.groupby(cat_col, as_index=False).agg({"daysonhand": "mean", "onhandunits": "sum"}).sort_values("daysonhand", ascending=False).head(6)
             fig1, ax1 = plt.subplots(figsize=(4.0, 2.0))
-            ax1.barh(grouped[cat_col].astype(str), grouped["daysonhand"], color="#5AA8FF")
+            ax1.barh(grouped[cat_col].astype(str), grouped["daysonhand"], color="#5AA6D1")
             ax1.set_title("Category DOS", fontsize=9)
             ax1.tick_params(labelsize=8)
             fig1.tight_layout()
@@ -3632,8 +3606,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
             plt.close(fig1)
 
             fig2, ax2 = plt.subplots(figsize=(2.7, 2.0))
-            _donut_colors = ["#4CD388", "#5AA8FF", "#F3C74C", "#FF9A3C", "#FF6161", "#9AA6B2"]
-            ax2.pie(grouped["onhandunits"], labels=None, wedgeprops=dict(width=0.45), startangle=90, colors=_donut_colors[: len(grouped)])
+            ax2.pie(grouped["onhandunits"], labels=None, wedgeprops=dict(width=0.45), startangle=90)
             ax2.set_title("Inventory Mix", fontsize=9)
             fig2.tight_layout()
             fig2.savefig(donut_img, format="png", dpi=160, transparent=True)
@@ -3660,15 +3633,9 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         f"Slow movers: {slow_movers} SKUs show no recent movement.",
         f"Inventory health score is {health_score}/100.",
     ]
-    insight_y = 500
+    c.setFont("Helvetica", 10)
     for i, text in enumerate(insights):
-        c.setFillColor(accent_green if i in {0, 4} else accent_orange if i in {1, 2} else accent_yellow)
-        c.circle(466, insight_y - (i * 46) + 3, 3, fill=1, stroke=0)
-        c.setFillColor(colors.white)
-        c.setFont("Helvetica", 10)
-        wrapped = _wrap_text(text, max_width=(page_w - 495), font_size=10, max_lines=2)
-        for j, line in enumerate(wrapped):
-            c.drawString(475, insight_y - (i * 46) - (j * 12), line)
+        c.drawString(460, 500 - (i * 36), f"• {text[:66]}")
 
     panel(448, 32, page_w - 472, 200, "Summary of Findings")
     summary = (
@@ -3680,7 +3647,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     text_obj = c.beginText(460, 200)
     text_obj.setFont("Helvetica", 10)
     text_obj.setFillColor(colors.white)
-    for line in _wrap_text(summary, max_width=(page_w - 495), font_size=10, max_lines=9):
+    for line in summary.split(". "):
         text_obj.textLine(line.strip())
     c.drawText(text_obj)
 
