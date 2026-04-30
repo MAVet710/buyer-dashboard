@@ -62,6 +62,11 @@ GLOBAL_INTEGRATIONS_STORE = GlobalIntegrationsStore()
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import landscape
+from reportlab.lib.utils import ImageReader
+
+import matplotlib.pyplot as plt
 
 # ------------------------------------------------------------
 # OPTIONAL / SAFE IMPORT FOR PLOTLY
@@ -3485,13 +3490,212 @@ def _build_buyer_executive_report_bytes(payload: dict) -> bytes:
     out.seek(0)
     return out.read()
 
+
+def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
+    payload = payload or {}
+    out = BytesIO()
+    page_w, page_h = landscape(letter)
+    c = canvas.Canvas(out, pagesize=(page_w, page_h))
+
+    detail_df = _to_report_df(payload.get("detail_view"))
+    sales_df = _to_report_df(payload.get("sales_df"))
+    inv_df = _to_report_df(payload.get("inv_df"))
+    reporting_period = payload.get("reporting_period") or "N/A"
+    store_name = payload.get("store_name") or "N/A"
+
+    has_real_data = any(
+        isinstance(payload.get(k), pd.DataFrame) and not payload.get(k).empty
+        for k in ["detail_view", "sales_df", "inv_df", "sales_summary", "inv_summary"]
+    )
+
+    app_bg = colors.HexColor("#0F2747")
+    panel_bg = colors.HexColor("#163A63")
+    panel_border = colors.HexColor("#5AA8FF")
+    accent_green = colors.HexColor("#4CD388")
+    accent_orange = colors.HexColor("#FF9A3C")
+    accent_yellow = colors.HexColor("#F3C74C")
+
+    def _wrap_text(text: str, max_width: float, font_name: str = "Helvetica", font_size: int = 10, max_lines: int | None = None):
+        words = str(text or "").split()
+        lines, current = [], ""
+        for w in words:
+            candidate = f"{current} {w}".strip()
+            if c.stringWidth(candidate, font_name, font_size) <= max_width:
+                current = candidate
+            else:
+                if current:
+                    lines.append(current)
+                current = w
+        if current:
+            lines.append(current)
+        if max_lines and len(lines) > max_lines:
+            lines = lines[:max_lines]
+            if lines:
+                lines[-1] = f"{lines[-1].rstrip('. ')}..."
+        return lines
+
+    if not has_real_data:
+        c.setFillColor(app_bg)
+        c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 28)
+        c.drawString(40, page_h - 70, "Buyer Executive Summary")
+        c.setFont("Helvetica", 12)
+        c.drawString(40, page_h - 95, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        c.setFont("Helvetica", 14)
+        c.drawString(40, page_h - 140, "Upload inventory and sales data before exporting a buyer executive summary.")
+        c.showPage()
+        c.save()
+        out.seek(0)
+        return out.read()
+
+    def _num(series, default=0.0):
+        s = pd.to_numeric(series, errors="coerce").fillna(0) if series is not None else pd.Series(dtype=float)
+        return float(s.sum()) if not s.empty else float(default)
+
+    total_units_sold = _num(sales_df["unitssold"]) if "unitssold" in sales_df.columns else 0.0
+    total_units_onhand = _num(inv_df["onhandunits"]) if "onhandunits" in inv_df.columns else 0.0
+    total_inventory_value = _num(inv_df["inventoryvalue"]) if "inventoryvalue" in inv_df.columns else 0.0
+    avg_dos = float(pd.to_numeric(detail_df.get("daysonhand", pd.Series(dtype=float)), errors="coerce").fillna(0).mean()) if "daysonhand" in detail_df.columns else 0.0
+    total_reorder_need = _num(detail_df["reorderqty"]) if "reorderqty" in detail_df.columns else 0.0
+    low_stock = int(((pd.to_numeric(detail_df.get("daysonhand", 0), errors="coerce").fillna(0) > 0) & (pd.to_numeric(detail_df.get("daysonhand", 0), errors="coerce").fillna(0) <= payload.get("doh_threshold", 21))).sum()) if "daysonhand" in detail_df.columns else 0
+    overstock = int((pd.to_numeric(detail_df.get("daysonhand", 0), errors="coerce").fillna(0) > 60).sum()) if "daysonhand" in detail_df.columns else 0
+    slow_movers = int((pd.to_numeric(detail_df.get("avgunitsperday", 0), errors="coerce").fillna(0) <= 0).sum()) if "avgunitsperday" in detail_df.columns else 0
+    reorder_skus = int((pd.to_numeric(detail_df.get("reorderqty", 0), errors="coerce").fillna(0) > 0).sum()) if "reorderqty" in detail_df.columns else 0
+    at_risk = int((pd.to_numeric(detail_df.get("daysonhand", 0), errors="coerce").fillna(0) <= 7).sum()) if "daysonhand" in detail_df.columns else 0
+    avg_units_per_day = float(pd.to_numeric(detail_df.get("avgunitsperday", pd.Series(dtype=float)), errors="coerce").fillna(0).mean()) if "avgunitsperday" in detail_df.columns else 0.0
+    avg_days_on_hand = avg_dos
+    health_score = max(0, min(100, int(100 - ((low_stock * 2) + (at_risk * 3)))))
+
+    c.setFillColor(app_bg)
+    c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 26)
+    c.drawString(30, page_h - 42, "Buyer Executive Summary")
+    c.setFont("Helvetica", 10)
+    c.drawString(30, page_h - 58, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}   |   Period: {reporting_period}   |   Store: {store_name}")
+
+    def panel(x, y, w, h, title):
+        c.setFillColor(panel_bg)
+        c.roundRect(x, y, w, h, 8, stroke=1, fill=1)
+        c.setStrokeColor(panel_border)
+        c.roundRect(x, y, w, h, 8, stroke=1, fill=0)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(x + 10, y + h - 18, title)
+
+    panel(24, 400, 410, 130, "Overview / Executive Snapshot")
+    overview_lines = [
+        f"Total Inventory Value: ${total_inventory_value:,.0f}",
+        f"Total Units Sold: {total_units_sold:,.0f}",
+        f"Total Units On Hand: {total_units_onhand:,.0f}",
+        f"Avg DOS: {avg_dos:,.1f}",
+        f"Total Reorder Need: {total_reorder_need:,.0f}",
+        f"Inventory Health Score: {health_score}",
+    ]
+    c.setFont("Helvetica", 10)
+    for i, line in enumerate(overview_lines):
+        c.drawString(36, 505 - (i * 18), line)
+
+    panel(24, 245, 410, 145, "KPI / Metrics")
+    kpis = [
+        ("Avg Units/Day", f"{avg_units_per_day:,.2f}"), ("Avg Days On Hand", f"{avg_days_on_hand:,.1f}"),
+        ("Low-stock SKUs", f"{low_stock:,}"), ("Overstock SKUs", f"{overstock:,}"),
+        ("Slow-movers", f"{slow_movers:,}"), ("Reorder SKUs", f"{reorder_skus:,}"),
+        ("At-risk SKUs", f"{at_risk:,}"), ("AOV", "N/A"), ("Items/Txn", "N/A"),
+    ]
+    c.setFont("Helvetica", 9)
+    for idx, (k, v) in enumerate(kpis):
+        col = idx % 3
+        row = idx // 3
+        x = 36 + (col * 130)
+        y = 360 - (row * 36)
+        c.setFillColor(accent_yellow)
+        c.drawString(x, y, k)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(x, y - 12, v)
+        c.setFont("Helvetica", 9)
+
+    panel(24, 32, 410, 200, "Category Charts")
+    bar_img, donut_img = BytesIO(), BytesIO()
+    try:
+        cat_col = "subcategory" if "subcategory" in detail_df.columns else ("mastercategory" if "mastercategory" in detail_df.columns else None)
+        if cat_col:
+            grouped = detail_df.groupby(cat_col, as_index=False).agg({"daysonhand": "mean", "onhandunits": "sum"}).sort_values("daysonhand", ascending=False).head(6)
+            fig1, ax1 = plt.subplots(figsize=(4.0, 2.0))
+            ax1.barh(grouped[cat_col].astype(str), grouped["daysonhand"], color="#5AA8FF")
+            ax1.set_title("Category DOS", fontsize=9)
+            ax1.tick_params(labelsize=8)
+            fig1.tight_layout()
+            fig1.savefig(bar_img, format="png", dpi=160, transparent=True)
+            plt.close(fig1)
+
+            fig2, ax2 = plt.subplots(figsize=(2.7, 2.0))
+            _donut_colors = ["#4CD388", "#5AA8FF", "#F3C74C", "#FF9A3C", "#FF6161", "#9AA6B2"]
+            ax2.pie(grouped["onhandunits"], labels=None, wedgeprops=dict(width=0.45), startangle=90, colors=_donut_colors[: len(grouped)])
+            ax2.set_title("Inventory Mix", fontsize=9)
+            fig2.tight_layout()
+            fig2.savefig(donut_img, format="png", dpi=160, transparent=True)
+            plt.close(fig2)
+    except Exception:
+        pass
+
+    if bar_img.getbuffer().nbytes > 0:
+        bar_img.seek(0)
+        c.drawImage(ImageReader(bar_img), 35, 58, width=250, height=150, mask="auto")
+    else:
+        c.setFillColor(colors.white); c.drawString(40, 110, "No data available for bar chart.")
+    if donut_img.getbuffer().nbytes > 0:
+        donut_img.seek(0)
+        c.drawImage(ImageReader(donut_img), 290, 58, width=130, height=145, mask="auto")
+    else:
+        c.setFillColor(colors.white); c.drawString(290, 110, "No data available for donut chart.")
+
+    panel(448, 245, page_w - 472, 285, "Insights / Findings")
+    insights = [
+        f"Reorder hotspots: {reorder_skus} SKUs currently need replenishment.",
+        f"At-risk inventory: {at_risk} SKUs are at or below 7 days on hand.",
+        f"Overstock exposure: {overstock} SKUs are above 60 days on hand.",
+        f"Slow movers: {slow_movers} SKUs show no recent movement.",
+        f"Inventory health score is {health_score}/100.",
+    ]
+    insight_y = 500
+    for i, text in enumerate(insights):
+        c.setFillColor(accent_green if i in {0, 4} else accent_orange if i in {1, 2} else accent_yellow)
+        c.circle(466, insight_y - (i * 46) + 3, 3, fill=1, stroke=0)
+        c.setFillColor(colors.white)
+        c.setFont("Helvetica", 10)
+        wrapped = _wrap_text(text, max_width=(page_w - 495), font_size=10, max_lines=2)
+        for j, line in enumerate(wrapped):
+            c.drawString(475, insight_y - (i * 46) - (j * 12), line)
+
+    panel(448, 32, page_w - 472, 200, "Summary of Findings")
+    summary = (
+        f"Buyer inventory is strongest where days-on-hand remains near target and reorder "
+        f"coverage is controlled. Current pressure is concentrated in {reorder_skus} reorder SKUs "
+        f"and {at_risk} at-risk SKUs, while {overstock} overstock positions and {slow_movers} slow movers "
+        f"represent carrying-risk exposure."
+    )
+    text_obj = c.beginText(460, 200)
+    text_obj.setFont("Helvetica", 10)
+    text_obj.setFillColor(colors.white)
+    for line in _wrap_text(summary, max_width=(page_w - 495), font_size=10, max_lines=9):
+        text_obj.textLine(line.strip())
+    c.drawText(text_obj)
+
+    c.showPage()
+    c.save()
+    out.seek(0)
+    return out.read()
+
 _display_user = (
     st.session_state.admin_user if st.session_state.get("is_admin")
     else st.session_state.get("user_user") or "Buyer"
 )
 render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
-_buyer_report_file = f"buyer_executive_report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+_buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
 _export_left, _export_right = st.columns([6, 1.4])
 with _export_right:
     if _buyer_export_payload is None:
@@ -3500,9 +3704,9 @@ with _export_right:
     else:
         st.download_button(
             "Export Report",
-            data=_build_buyer_executive_report_bytes(_buyer_export_payload),
-            file_name=_buyer_report_file,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            data=_build_buyer_executive_report_pdf(_buyer_export_payload),
+            file_name=_buyer_report_file_pdf,
+            mime="application/pdf",
             key="buyer_export_report_btn",
         )
 render_section_header(

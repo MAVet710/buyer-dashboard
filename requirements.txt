@@ -4,6 +4,7 @@ numpy>=1.24.0
 plotly>=5.18.0
 openpyxl==3.1.5
 reportlab>=4.0.0
+matplotlib>=3.8.0
 PyPDF2>=3.0.0
 pdfplumber>=0.10.0
 gspread>=6.0.0
