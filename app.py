@@ -3533,6 +3533,129 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         c.drawText(text_obj)
         return y_top
 
+    def _safe_report_df(value):
+        if isinstance(value, pd.DataFrame):
+            return value.copy()
+        if isinstance(value, list):
+            try:
+                return pd.DataFrame(value)
+            except Exception:
+                return pd.DataFrame()
+        if isinstance(value, dict):
+            if not value:
+                return pd.DataFrame()
+            try:
+                return pd.DataFrame(value)
+            except Exception:
+                try:
+                    return pd.DataFrame([value])
+                except Exception:
+                    return pd.DataFrame()
+        return pd.DataFrame()
+
+    def _norm_col(name: str) -> str:
+        return "".join(ch for ch in str(name).strip().lower() if ch.isalnum())
+
+    def _resolve_report_columns(df: pd.DataFrame, preferred_columns: list[tuple[str, list[str]]]) -> tuple[pd.DataFrame, dict]:
+        if df is None or df.empty:
+            return pd.DataFrame(), {}
+        normalized_map = {_norm_col(col): col for col in df.columns}
+        resolved = {}
+        out = pd.DataFrame(index=df.index)
+        for display_name, aliases in preferred_columns:
+            for alias in aliases:
+                real_col = normalized_map.get(_norm_col(alias))
+                if real_col:
+                    out[display_name] = df[real_col]
+                    resolved[display_name] = real_col
+                    break
+        return out, resolved
+
+    def _append_pdf_message_page(title: str, message: str):
+        c.showPage()
+        c.setFillColor(colors.HexColor("#FFFFFF"))
+        c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+        c.setFillColor(colors.HexColor("#102A43"))
+        c.setFont("Helvetica-Bold", 20)
+        c.drawString(30, page_h - 45, title)
+        c.setFont("Helvetica", 11)
+        c.setFillColor(colors.HexColor("#243B53"))
+        _draw_wrapped_text(30, page_h - 80, message, width=page_w - 60, font_name="Helvetica", font_size=11, color=colors.HexColor("#243B53"))
+
+    def _append_pdf_table_page(title: str, df: pd.DataFrame):
+        if df is None or df.empty:
+            _append_pdf_message_page(title, "No data available.")
+            return
+        rows = [list(df.columns)] + df.fillna("").astype(str).values.tolist()
+        available_w = page_w - 60
+        col_count = max(1, len(df.columns))
+        col_widths = [available_w / col_count] * col_count
+        style_cmds_base = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#163A63")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#B7CDE0")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]
+        max_rows_per_page = 34
+        data_rows = rows[1:]
+        for chunk_idx in range(0, len(data_rows), max_rows_per_page):
+            c.showPage()
+            c.setFillColor(colors.HexColor("#FFFFFF"))
+            c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+            c.setFillColor(colors.HexColor("#102A43"))
+            c.setFont("Helvetica-Bold", 20)
+            page_suffix = f" (cont. {chunk_idx // max_rows_per_page + 1})" if chunk_idx > 0 else ""
+            c.drawString(30, page_h - 45, f"{title}{page_suffix}")
+            chunk_rows = [rows[0]] + data_rows[chunk_idx:chunk_idx + max_rows_per_page]
+            table = Table(chunk_rows, colWidths=col_widths, repeatRows=1)
+            style_cmds = list(style_cmds_base)
+            for ridx in range(1, len(chunk_rows)):
+                bg = colors.HexColor("#F4F8FC") if ridx % 2 == 0 else colors.white
+                style_cmds.append(("BACKGROUND", (0, ridx), (-1, ridx), bg))
+            table.setStyle(TableStyle(style_cmds))
+            _, h = table.wrap(available_w, page_h - 100)
+            table.drawOn(c, 30, page_h - 70 - h)
+
+    def _derive_inventory_health_flags(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame()
+        out = df.copy()
+        doh = pd.to_numeric(out.get("Days on Hand"), errors="coerce").fillna(0)
+        sold = pd.to_numeric(out.get("Units Sold"), errors="coerce").fillna(0)
+        onhand = pd.to_numeric(out.get("On Hand"), errors="coerce").fillna(0)
+        flag = np.where((sold <= 0) & (onhand > 0), "Dead / No Movement",
+                        np.where(doh <= 7, "Low Stock",
+                                 np.where(doh <= 21, "Watch",
+                                          np.where(doh < 60, "Healthy", "Overstock"))))
+        out["Health Flag"] = flag
+        return out
+
+    def _build_category_performance_df(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame()
+        cat_col = "Category" if "Category" in df.columns else None
+        if not cat_col:
+            return pd.DataFrame()
+        tmp = df.copy()
+        for col in ["Units Sold", "On Hand", "Avg Units/Day", "Days on Hand", "Reorder Qty"]:
+            if col in tmp.columns:
+                tmp[col] = pd.to_numeric(tmp[col], errors="coerce").fillna(0)
+        grouped = tmp.groupby(cat_col, dropna=False).agg(
+            sku_count=("Item", "count") if "Item" in tmp.columns else (cat_col, "count"),
+            total_units_sold=("Units Sold", "sum") if "Units Sold" in tmp.columns else (cat_col, "size"),
+            total_on_hand_units=("On Hand", "sum") if "On Hand" in tmp.columns else (cat_col, "size"),
+            avg_units_per_day=("Avg Units/Day", "mean") if "Avg Units/Day" in tmp.columns else (cat_col, "size"),
+            avg_days_on_hand=("Days on Hand", "mean") if "Days on Hand" in tmp.columns else (cat_col, "size"),
+            total_reorder_qty=("Reorder Qty", "sum") if "Reorder Qty" in tmp.columns else (cat_col, "size"),
+        ).reset_index().rename(columns={cat_col: "Category"})
+        total_inv = grouped["total_on_hand_units"].sum() if "total_on_hand_units" in grouped.columns else 0
+        total_sold = grouped["total_units_sold"].sum() if "total_units_sold" in grouped.columns else 0
+        grouped["pct_inventory"] = (grouped["total_on_hand_units"] / total_inv * 100) if total_inv else 0
+        grouped["pct_units_sold"] = (grouped["total_units_sold"] / total_sold * 100) if total_sold else 0
+        return grouped
+
     detail_df = _to_report_df(payload.get("detail_view"))
     sales_df = _to_report_df(payload.get("sales_df"))
     inv_df = _to_report_df(payload.get("inv_df"))
@@ -3691,7 +3814,73 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     )
     _draw_wrapped_text(460, 190, summary, width=(page_w - 495), font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["body"])
 
-    c.showPage()
+    # Appendix A/B/C pages appended after executive summary page.
+    reorder_source = (
+        _safe_report_df(payload.get("reorder_summary"))
+        if not _safe_report_df(payload.get("reorder_summary")).empty
+        else _safe_report_df(payload.get("detail_view"))
+        if not _safe_report_df(payload.get("detail_view")).empty
+        else _safe_report_df(payload.get("product_detail"))
+    )
+    reorder_pref = [
+        ("Item", ["itemname", "product_name", "item name", "Product Name"]),
+        ("Brand/Vendor", ["brand", "vendor"]),
+        ("Category", ["subcategory", "category", "mastercategory"]),
+        ("Package Size", ["packagesize", "package_size", "package size"]),
+        ("Strain Type", ["strain_type", "strain type"]),
+        ("On Hand", ["onhandunits", "on_hand_units", "available"]),
+        ("Units Sold", ["unitssold", "units_sold", "total inventory sold"]),
+        ("Avg Units/Day", ["avgunitsperday", "avg_units_per_day"]),
+        ("Days on Hand", ["daysonhand", "days_on_hand", "dos"]),
+        ("Reorder Qty", ["reorderqty", "reorder_qty"]),
+        ("Priority", ["reorderpriority", "reorder_priority"]),
+    ]
+    reorder_table, _ = _resolve_report_columns(reorder_source, reorder_pref)
+    if reorder_table.empty:
+        _append_pdf_message_page("Appendix A: Reorder Action List", "No reorder action data available.")
+    else:
+        for c_name in ["Priority", "Days on Hand", "Avg Units/Day"]:
+            if c_name in reorder_table.columns:
+                reorder_table[c_name] = pd.to_numeric(reorder_table[c_name], errors="coerce")
+        sort_cols, ascending = [], []
+        if "Priority" in reorder_table.columns:
+            sort_cols.append("Priority"); ascending.append(True)
+        if "Days on Hand" in reorder_table.columns:
+            sort_cols.append("Days on Hand"); ascending.append(True)
+        if "Avg Units/Day" in reorder_table.columns:
+            sort_cols.append("Avg Units/Day"); ascending.append(False)
+        if sort_cols:
+            reorder_table = reorder_table.sort_values(sort_cols, ascending=ascending, na_position="last")
+        _append_pdf_table_page("Appendix A: Reorder Action List", reorder_table.head(250))
+
+    health_source = _safe_report_df(payload.get("inventory_health"))
+    if health_source.empty:
+        health_source = reorder_source
+    health_table, _ = _resolve_report_columns(health_source, reorder_pref[:-1] + [("Health Flag", ["health_flag", "healthflag"])])
+    if health_table.empty:
+        _append_pdf_message_page("Appendix B: Inventory Health Detail", "No inventory health data available.")
+    else:
+        if "Health Flag" not in health_table.columns:
+            health_table = _derive_inventory_health_flags(health_table)
+        severity = {"Low Stock": 1, "Watch": 2, "Healthy": 3, "Overstock": 4, "Dead / No Movement": 5}
+        health_table["_severity"] = health_table.get("Health Flag", "").map(severity).fillna(99)
+        if "Days on Hand" in health_table.columns:
+            health_table["Days on Hand"] = pd.to_numeric(health_table["Days on Hand"], errors="coerce")
+        health_table = health_table.sort_values(["_severity", "Days on Hand"] if "Days on Hand" in health_table.columns else ["_severity"], ascending=[True, True] if "Days on Hand" in health_table.columns else [True], na_position="last").drop(columns=["_severity"], errors="ignore")
+        _append_pdf_table_page("Appendix B: Inventory Health Detail", health_table.head(250))
+
+    cat_source = _safe_report_df(payload.get("detail_view"))
+    if cat_source.empty:
+        cat_source = reorder_source
+    cat_table_in, _ = _resolve_report_columns(cat_source, reorder_pref)
+    cat_perf = _build_category_performance_df(cat_table_in)
+    if cat_perf.empty:
+        _append_pdf_message_page("Appendix C: Category Performance", "No category performance data available.")
+    else:
+        sort_col = "total_reorder_qty" if "total_reorder_qty" in cat_perf.columns else "total_units_sold"
+        cat_perf = cat_perf.sort_values(sort_col, ascending=False)
+        _append_pdf_table_page("Appendix C: Category Performance", cat_perf.head(250))
+
     c.save()
     out.seek(0)
     return out.read()
