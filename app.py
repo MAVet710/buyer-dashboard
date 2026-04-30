@@ -3442,6 +3442,49 @@ if not st.session_state._daily_restored:
 # =========================
 # HEADER
 # =========================
+def _to_report_df(value):
+    if isinstance(value, pd.DataFrame):
+        return value.copy() if not value.empty else pd.DataFrame([{"Message": "No data available"}])
+    if isinstance(value, list):
+        try:
+            df = pd.DataFrame(value)
+            return df if not df.empty else pd.DataFrame([{"Message": "No data available"}])
+        except Exception:
+            return pd.DataFrame([{"Message": "No data available"}])
+    if isinstance(value, dict):
+        if not value:
+            return pd.DataFrame([{"Message": "No data available"}])
+        return pd.DataFrame([{"Key": str(k), "Value": v} for k, v in value.items()])
+    if value is None:
+        return pd.DataFrame([{"Message": "No data available"}])
+    return pd.DataFrame([{"Value": value}])
+
+
+def _build_buyer_executive_report_bytes(payload: dict) -> bytes:
+    payload = payload or {}
+    out = BytesIO()
+    sheet_map = [
+        ("Executive Summary", payload.get("summary") or payload.get("executive_summary")),
+        ("KPI Overview", payload.get("kpis") or payload.get("buyer_kpis")),
+        ("Inventory Health", payload.get("inventory_health")),
+        ("Reorder Summary", payload.get("reorder_summary") or payload.get("detail_view")),
+        ("Category Breakdown", payload.get("category_breakdown") or payload.get("inv_summary")),
+        ("Product Detail", payload.get("product_detail") or payload.get("sales_summary")),
+    ]
+    wrote_sheet = False
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        for sheet_name, section_value in sheet_map:
+            if section_value is None:
+                continue
+            _to_report_df(section_value).to_excel(writer, index=False, sheet_name=sheet_name[:31])
+            wrote_sheet = True
+        if not wrote_sheet:
+            pd.DataFrame(
+                [{"Message": "Upload inventory and sales data before exporting a buyer report."}]
+            ).to_excel(writer, index=False, sheet_name="Executive Summary")
+    out.seek(0)
+    return out.read()
+
 _display_user = (
     st.session_state.admin_user if st.session_state.get("is_admin")
     else st.session_state.get("user_user") or "Buyer"
