@@ -3447,6 +3447,21 @@ _display_user = (
     else st.session_state.get("user_user") or "Buyer"
 )
 render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
+_buyer_export_payload = st.session_state.get("buyer_export_payload")
+_buyer_report_file = f"buyer_executive_report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+_export_left, _export_right = st.columns([6, 1.4])
+with _export_right:
+    if _buyer_export_payload is None:
+        if st.button("Export Report", key="buyer_export_report_btn_disabled"):
+            st.warning("Upload inventory and sales data before exporting a buyer report.")
+    else:
+        st.download_button(
+            "Export Report",
+            data=_build_buyer_executive_report_bytes(_buyer_export_payload),
+            file_name=_buyer_report_file,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="buyer_export_report_btn",
+        )
 render_section_header(
     "BUYER DASHBOARD",
     subtitle="Compliance and operations intelligence for buyer and extraction teams.",
@@ -3545,6 +3560,103 @@ def kpi_card(label: str, value, help_text: str = ""):
         st.markdown(f"### {value}")
         if help_text:
             st.caption(help_text)
+
+
+def _safe_num(series: pd.Series) -> float:
+    return float(pd.to_numeric(series, errors="coerce").fillna(0).sum()) if series is not None else 0.0
+
+
+def _build_buyer_executive_report_bytes(report_payload: dict) -> bytes:
+    detail_view = report_payload.get("detail_view", pd.DataFrame()).copy()
+    detail_product = report_payload.get("detail_product", pd.DataFrame()).copy()
+    sales_df = report_payload.get("sales_df", pd.DataFrame()).copy()
+    inv_df = report_payload.get("inv_df", pd.DataFrame()).copy()
+    sales_summary = report_payload.get("sales_summary", pd.DataFrame()).copy()
+    inv_summary = report_payload.get("inv_summary", pd.DataFrame()).copy()
+    doh_threshold = int(report_payload.get("doh_threshold", 45))
+
+    generated_at = datetime.now()
+    _reporting_period = report_payload.get("reporting_period") or "Not available"
+    _store_name = report_payload.get("store_name") or "Not available"
+
+    total_sales = _safe_num(sales_df.get("net_sales")) if "net_sales" in sales_df.columns else 0.0
+    total_units_sold = _safe_num(sales_df.get("unitssold")) if "unitssold" in sales_df.columns else _safe_num(detail_view.get("unitssold"))
+    total_inventory_on_hand = _safe_num(detail_view.get("onhandunits")) if "onhandunits" in detail_view.columns else _safe_num(inv_df.get("onhandunits"))
+    total_retail_value = _safe_num(inv_df.get("retail_price") * pd.to_numeric(inv_df.get("onhandunits"), errors="coerce").fillna(0)) if {"retail_price", "onhandunits"}.issubset(inv_df.columns) else 0.0
+    reorder_total = _safe_num(detail_view.get("reorderqty")) if "reorderqty" in detail_view.columns else 0.0
+    avg_units_day = float(pd.to_numeric(detail_view.get("avgunitsperday"), errors="coerce").fillna(0).mean()) if "avgunitsperday" in detail_view.columns and not detail_view.empty else 0.0
+    avg_doh = float(pd.to_numeric(detail_view.get("daysonhand"), errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0).mean()) if "daysonhand" in detail_view.columns and not detail_view.empty else 0.0
+    aov = float(total_sales / max(pd.to_numeric(sales_df.get("order_id"), errors="coerce").nunique(), 1)) if "order_id" in sales_df.columns and total_sales > 0 else None
+    items_per_txn = float(total_units_sold / max(pd.to_numeric(sales_df.get("order_id"), errors="coerce").nunique(), 1)) if "order_id" in sales_df.columns and total_units_sold > 0 else None
+    gross_margin = None
+    if {"unit_cost", "unitssold"}.issubset(detail_view.columns) and total_sales > 0:
+        cogs = _safe_num(pd.to_numeric(detail_view["unit_cost"], errors="coerce").fillna(0) * pd.to_numeric(detail_view["unitssold"], errors="coerce").fillna(0))
+        gross_margin = (total_sales - cogs) / total_sales if total_sales > 0 else None
+
+    low_stock = detail_view[detail_view.get("daysonhand", pd.Series(dtype=float)).between(1, doh_threshold)] if "daysonhand" in detail_view.columns else pd.DataFrame()
+    overstocked = detail_view[detail_view.get("daysonhand", pd.Series(dtype=float)) > (doh_threshold * 2)] if "daysonhand" in detail_view.columns else pd.DataFrame()
+    slow_movers = detail_view[detail_view.get("reorderpriority", pd.Series(dtype=str)).astype(str).str.contains("Dead", case=False, na=False)] if "reorderpriority" in detail_view.columns else pd.DataFrame()
+    high_risk = detail_view[detail_view.get("reorderpriority", pd.Series(dtype=str)).astype(str).str.contains("ASAP", case=False, na=False)] if "reorderpriority" in detail_view.columns else pd.DataFrame()
+
+    exec_summary = pd.DataFrame([
+        ["Date generated", generated_at.strftime("%Y-%m-%d %H:%M:%S")],
+        ["Reporting period", _reporting_period],
+        ["Store / location", _store_name],
+        ["Total sales", f"${total_sales:,.2f}" if total_sales else "Not available"],
+        ["Total units sold", f"{int(total_units_sold):,}"],
+        ["Total inventory on hand", f"{int(total_inventory_on_hand):,}"],
+        ["Total retail value", f"${total_retail_value:,.2f}" if total_retail_value else "Not available"],
+    ], columns=["Metric", "Value"])
+
+    kpi_overview = pd.DataFrame([
+        ["Average units per day", f"{avg_units_day:,.2f}"],
+        ["Days on hand (avg)", f"{avg_doh:,.1f}"],
+        ["Reorder quantity total", f"{int(reorder_total):,}"],
+        ["AOV", f"${aov:,.2f}" if aov is not None else "Not available"],
+        ["Items per transaction", f"{items_per_txn:,.2f}" if items_per_txn is not None else "Not available"],
+        ["Gross margin", f"{gross_margin:.1%}" if gross_margin is not None else "Not available"],
+        ["Inventory health summary", f"{len(high_risk)} high-risk lines, {len(slow_movers)} dead/slow movers"],
+    ], columns=["KPI", "Value"])
+
+    cat_source = detail_view if "subcategory" in detail_view.columns else pd.DataFrame()
+    category_breakdown = pd.DataFrame()
+    if not cat_source.empty:
+        category_breakdown = cat_source.groupby("subcategory", dropna=False).agg(
+            category_sales=("unitssold", "sum") if "unitssold" in cat_source.columns else ("subcategory", "count"),
+            category_inventory=("onhandunits", "sum") if "onhandunits" in cat_source.columns else ("subcategory", "count"),
+            category_dos=("daysonhand", "mean") if "daysonhand" in cat_source.columns else ("subcategory", "count"),
+            category_reorder_pressure=("reorderqty", "sum") if "reorderqty" in cat_source.columns else ("subcategory", "count"),
+        ).reset_index()
+
+    product_cols = ["product_name", "brand", "subcategory", "packagesize", "strain_type", "onhandunits", "avgunitsperday", "daysonhand", "reorderqty", "reorderpriority"]
+    product_detail = detail_product.copy()
+    if "brand" not in product_detail.columns:
+        product_detail["brand"] = "Not available"
+    product_detail = product_detail[[c for c in product_cols if c in product_detail.columns]]
+
+    buyer_notes = pd.DataFrame([
+        ["Categories needing attention", ", ".join(category_breakdown.sort_values("category_reorder_pressure", ascending=False)["subcategory"].astype(str).head(3).tolist()) if not category_breakdown.empty else "Not available"],
+        ["Likely overstock risk", f"{len(overstocked)} lines with DOS > {doh_threshold * 2}"],
+        ["Likely reorder pressure", f"{len(high_risk)} lines flagged Reorder ASAP"],
+        ["Missing data warnings", "; ".join([k for k, v in {"AOV": aov, "Items/txn": items_per_txn, "Gross margin": gross_margin}.items() if v is None]) or "None"],
+    ], columns=["Topic", "Summary"])
+
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        exec_summary.to_excel(writer, index=False, sheet_name="Executive Summary")
+        kpi_overview.to_excel(writer, index=False, sheet_name="Buyer KPI Overview")
+        low_stock.to_excel(writer, index=False, sheet_name="Low Stock")
+        overstocked.to_excel(writer, index=False, sheet_name="Overstocked")
+        slow_movers.to_excel(writer, index=False, sheet_name="Slow Movers")
+        high_risk.to_excel(writer, index=False, sheet_name="High Risk")
+        detail_view.sort_values("reorderqty", ascending=False).head(100).to_excel(writer, index=False, sheet_name="Reorder Summary")
+        category_breakdown.to_excel(writer, index=False, sheet_name="Category Breakdown")
+        product_detail.to_excel(writer, index=False, sheet_name="Product Detail")
+        buyer_notes.to_excel(writer, index=False, sheet_name="Buyer Notes")
+        sales_summary.to_excel(writer, index=False, sheet_name="Sales Summary")
+        inv_summary.to_excel(writer, index=False, sheet_name="Inventory Summary")
+    out.seek(0)
+    return out.read()
 
 # ============================================================
 # EXTRA MODULE – EXTRACTION COMMAND CENTER
@@ -8005,6 +8117,17 @@ if section == "📊 Inventory Dashboard":
         st.session_state.detail_cached_df = detail.copy()
         st.session_state.detail_product_cached_df = detail_product.copy()
         st.session_state.doh_threshold_cache = int(doh_threshold)
+        st.session_state.buyer_export_payload = {
+            "detail_view": detail.copy(),
+            "detail_product": detail_product.copy(),
+            "sales_df": sales_df.copy(),
+            "inv_df": inv_df.copy(),
+            "sales_summary": sales_summary.copy(),
+            "inv_summary": inv_summary.copy(),
+            "doh_threshold": int(doh_threshold),
+            "reporting_period": f"{date_diff} day window",
+            "store_name": st.session_state.get("selected_location_name") or st.session_state.get("location_name"),
+        }
 
         # =======================
         # POLISHED BUYER OVERVIEW
