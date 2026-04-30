@@ -3442,11 +3442,145 @@ if not st.session_state._daily_restored:
 # =========================
 # HEADER
 # =========================
+def _to_report_df(value):
+    if isinstance(value, pd.DataFrame):
+        return value.copy() if not value.empty else pd.DataFrame([{"Message": "No data available"}])
+    if isinstance(value, list):
+        try:
+            df = pd.DataFrame(value)
+            return df if not df.empty else pd.DataFrame([{"Message": "No data available"}])
+        except Exception:
+            return pd.DataFrame([{"Message": "No data available"}])
+    if isinstance(value, dict):
+        if not value:
+            return pd.DataFrame([{"Message": "No data available"}])
+        return pd.DataFrame([{"Key": str(k), "Value": v} for k, v in value.items()])
+    if value is None:
+        return pd.DataFrame([{"Message": "No data available"}])
+    return pd.DataFrame([{"Value": value}])
+
+
+def _build_buyer_executive_report_pdf_bytes(payload: dict) -> bytes:
+    payload = payload or {}
+    detail_view = _to_report_df(payload.get("detail_view"))
+    sales_summary = _to_report_df(payload.get("sales_summary"))
+    inv_summary = _to_report_df(payload.get("inv_summary"))
+    generated = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    if "Message" in detail_view.columns and detail_view.iloc[0].get("Message") == "No data available":
+        notice = "Upload inventory and sales data before exporting a buyer report."
+        pdf_buf = BytesIO()
+        c = canvas.Canvas(pdf_buf, pagesize=letter)
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(72, 730, "Buyer Executive Report")
+        c.setFont("Helvetica", 11)
+        c.drawString(72, 705, notice)
+        c.save()
+        pdf_buf.seek(0)
+        return pdf_buf.read()
+
+    total_units = int(pd.to_numeric(detail_view.get("unitssold"), errors="coerce").fillna(0).sum()) if "unitssold" in detail_view.columns else 0
+    total_on_hand = int(pd.to_numeric(detail_view.get("onhandunits"), errors="coerce").fillna(0).sum()) if "onhandunits" in detail_view.columns else 0
+    reorder_total = int(pd.to_numeric(detail_view.get("reorderqty"), errors="coerce").fillna(0).sum()) if "reorderqty" in detail_view.columns else 0
+    avg_dos = float(pd.to_numeric(detail_view.get("daysonhand"), errors="coerce").fillna(0).mean()) if "daysonhand" in detail_view.columns else 0.0
+    low_dos = int((pd.to_numeric(detail_view.get("daysonhand"), errors="coerce").fillna(0) <= 14).sum()) if "daysonhand" in detail_view.columns else 0
+    high_dos = int((pd.to_numeric(detail_view.get("daysonhand"), errors="coerce").fillna(0) >= 90).sum()) if "daysonhand" in detail_view.columns else 0
+
+    top_reorders = detail_view.copy()
+    if "reorderqty" in top_reorders.columns:
+        top_reorders["reorderqty"] = pd.to_numeric(top_reorders["reorderqty"], errors="coerce").fillna(0)
+        top_reorders = top_reorders.sort_values("reorderqty", ascending=False).head(5)
+
+    sales_total = 0.0
+    for col in ["net_sales", "sales", "total_sales"]:
+        if col in sales_summary.columns:
+            sales_total = float(pd.to_numeric(sales_summary[col], errors="coerce").fillna(0).sum())
+            break
+
+    pdf_buf = BytesIO()
+    c = canvas.Canvas(pdf_buf, pagesize=letter)
+    w, h = letter
+    c.setFillColorRGB(0.09, 0.21, 0.41)
+    c.rect(0, 0, w, h, stroke=0, fill=1)
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 24)
+    c.drawString(40, h - 52, "Buyer Executive Summary")
+    c.setFont("Helvetica", 10)
+    c.drawString(40, h - 68, f"Generated: {generated}")
+
+    def card(x, y, cw, ch, title):
+        c.setStrokeColorRGB(0.45, 0.70, 0.90)
+        c.setFillColorRGB(0.12, 0.27, 0.49)
+        c.roundRect(x, y, cw, ch, 10, stroke=1, fill=1)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(x + 10, y + ch - 18, title)
+
+    card(40, h - 220, 250, 140, "Executive Snapshot")
+    c.setFont("Helvetica", 10)
+    c.drawString(52, h - 108, f"Total Sales: ${sales_total:,.0f}" if sales_total > 0 else "Total Sales: Not available")
+    c.drawString(52, h - 124, f"Total Units Sold: {total_units:,}")
+    c.drawString(52, h - 140, f"Inventory On Hand: {total_on_hand:,}")
+    c.drawString(52, h - 156, f"Reorder Qty Total: {reorder_total:,}")
+    c.drawString(52, h - 172, f"Avg Days on Hand: {avg_dos:,.1f}")
+
+    card(310, h - 220, 250, 140, "Inventory Health")
+    c.setFont("Helvetica", 10)
+    c.drawString(322, h - 108, f"Low DOS SKUs (<=14): {low_dos}")
+    c.drawString(322, h - 124, f"High DOS SKUs (>=90): {high_dos}")
+    c.drawString(322, h - 140, f"Category Rows: {len(inv_summary):,}")
+    c.drawString(322, h - 156, f"Sales Summary Rows: {len(sales_summary):,}")
+    c.drawString(322, h - 172, f"Review Status: Auto-generated")
+
+    card(40, h - 430, 520, 180, "Top Reorder Recommendations")
+    y = h - 280
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(52, y, "Item")
+    c.drawString(280, y, "Category")
+    c.drawString(430, y, "Reorder Qty")
+    c.setFont("Helvetica", 9)
+    y -= 16
+    if top_reorders.empty:
+        c.drawString(52, y, "No reorder recommendations available.")
+    else:
+        for _, row in top_reorders.iterrows():
+            item = str(row.get("product_name") or row.get("itemname") or "Not available")[:40]
+            cat = str(row.get("subcategory") or "Not available")[:22]
+            qty = int(pd.to_numeric(row.get("reorderqty"), errors="coerce")) if pd.notna(pd.to_numeric(row.get("reorderqty"), errors="coerce")) else 0
+            c.drawString(52, y, item)
+            c.drawString(280, y, cat)
+            c.drawRightString(520, y, f"{qty:,}")
+            y -= 15
+            if y < 90:
+                break
+
+    c.setFont("Helvetica-Oblique", 8)
+    c.setFillColorRGB(0.82, 0.90, 0.98)
+    c.drawString(40, 32, "Buyer Dashboard • Executive PDF export • Missing optional fields are shown as Not available.")
+    c.save()
+    pdf_buf.seek(0)
+    return pdf_buf.read()
+
 _display_user = (
     st.session_state.admin_user if st.session_state.get("is_admin")
     else st.session_state.get("user_user") or "Buyer"
 )
 render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
+_buyer_export_payload = st.session_state.get("buyer_export_payload")
+_buyer_report_file = f"buyer_executive_report_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+_export_left, _export_right = st.columns([6, 1.4])
+with _export_right:
+    if _buyer_export_payload is None:
+        if st.button("Export Report", key="buyer_export_report_btn_disabled"):
+            st.warning("Upload inventory and sales data before exporting a buyer report.")
+    else:
+        st.download_button(
+            "Export Report",
+            data=_build_buyer_executive_report_pdf_bytes(_buyer_export_payload),
+            file_name=_buyer_report_file,
+            mime="application/pdf",
+            key="buyer_export_report_btn",
+        )
 render_section_header(
     "BUYER DASHBOARD",
     subtitle="Compliance and operations intelligence for buyer and extraction teams.",
@@ -3545,6 +3679,7 @@ def kpi_card(label: str, value, help_text: str = ""):
         st.markdown(f"### {value}")
         if help_text:
             st.caption(help_text)
+
 
 # ============================================================
 # EXTRA MODULE – EXTRACTION COMMAND CENTER
@@ -8005,6 +8140,17 @@ if section == "📊 Inventory Dashboard":
         st.session_state.detail_cached_df = detail.copy()
         st.session_state.detail_product_cached_df = detail_product.copy()
         st.session_state.doh_threshold_cache = int(doh_threshold)
+        st.session_state.buyer_export_payload = {
+            "detail_view": detail.copy(),
+            "detail_product": detail_product.copy(),
+            "sales_df": sales_df.copy(),
+            "inv_df": inv_df.copy(),
+            "sales_summary": sales_summary.copy(),
+            "inv_summary": inv_summary.copy(),
+            "doh_threshold": int(doh_threshold),
+            "reporting_period": f"{date_diff} day window",
+            "store_name": st.session_state.get("selected_location_name") or st.session_state.get("location_name"),
+        }
 
         # =======================
         # POLISHED BUYER OVERVIEW
