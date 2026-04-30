@@ -65,6 +65,7 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
 
 import matplotlib.pyplot as plt
 
@@ -3497,6 +3498,41 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     page_w, page_h = landscape(letter)
     c = canvas.Canvas(out, pagesize=(page_w, page_h))
 
+    theme_name = str(st.session_state.get("theme", "Dark")).lower()
+    is_light_theme = theme_name == "light"
+    pdf_colors = {
+        "page_bg": colors.HexColor("#E9EEF6") if is_light_theme else colors.HexColor("#0F2747"),
+        "panel_bg": colors.HexColor("#F7FAFF") if is_light_theme else colors.HexColor("#163A63"),
+        "panel_border": colors.HexColor("#8CB9D8") if is_light_theme else colors.HexColor("#5AA6D1"),
+        "title": colors.HexColor("#102A43") if is_light_theme else colors.white,
+        "body": colors.HexColor("#243B53") if is_light_theme else colors.white,
+        "muted": colors.HexColor("#486581") if is_light_theme else colors.HexColor("#7EC7EA"),
+        "chart_grid": "#C2D6EA" if is_light_theme else "#2D598A",
+        "bar": "#5AA6D1",
+    }
+
+    def _draw_wrapped_text(x, y_top, text, width, font_name="Helvetica", font_size=10, line_height=14, color=None):
+        text_obj = c.beginText(x, y_top)
+        text_obj.setFont(font_name, font_size)
+        text_obj.setFillColor(color or pdf_colors["body"])
+
+        words = str(text or "").split()
+        if not words:
+            c.drawText(text_obj)
+            return y_top
+
+        line = words[0]
+        for word in words[1:]:
+            candidate = f"{line} {word}"
+            if pdfmetrics.stringWidth(candidate, font_name, font_size) <= width:
+                line = candidate
+            else:
+                text_obj.textLine(line)
+                line = word
+        text_obj.textLine(line)
+        c.drawText(text_obj)
+        return y_top
+
     detail_df = _to_report_df(payload.get("detail_view"))
     sales_df = _to_report_df(payload.get("sales_df"))
     inv_df = _to_report_df(payload.get("inv_df"))
@@ -3509,9 +3545,9 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     )
 
     if not has_real_data:
-        c.setFillColor(colors.HexColor("#0F2747"))
+        c.setFillColor(pdf_colors["page_bg"])
         c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
-        c.setFillColor(colors.white)
+        c.setFillColor(pdf_colors["title"])
         c.setFont("Helvetica-Bold", 28)
         c.drawString(40, page_h - 70, "Buyer Executive Summary")
         c.setFont("Helvetica", 12)
@@ -3541,20 +3577,20 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     avg_days_on_hand = avg_dos
     health_score = max(0, min(100, int(100 - ((low_stock * 2) + (at_risk * 3)))))
 
-    c.setFillColor(colors.HexColor("#0F2747"))
+    c.setFillColor(pdf_colors["page_bg"])
     c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
-    c.setFillColor(colors.white)
+    c.setFillColor(pdf_colors["title"])
     c.setFont("Helvetica-Bold", 26)
     c.drawString(30, page_h - 42, "Buyer Executive Summary")
     c.setFont("Helvetica", 10)
-    c.drawString(30, page_h - 58, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}   |   Period: {reporting_period}   |   Store: {store_name}")
+    _draw_wrapped_text(30, page_h - 58, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}   |   Period: {reporting_period}   |   Store: {store_name}", width=page_w - 60, font_name="Helvetica", font_size=10, line_height=12, color=pdf_colors["muted"])
 
     def panel(x, y, w, h, title):
-        c.setFillColor(colors.HexColor("#163A63"))
+        c.setFillColor(pdf_colors["panel_bg"])
         c.roundRect(x, y, w, h, 8, stroke=1, fill=1)
-        c.setStrokeColor(colors.HexColor("#5AA6D1"))
+        c.setStrokeColor(pdf_colors["panel_border"])
         c.roundRect(x, y, w, h, 8, stroke=1, fill=0)
-        c.setFillColor(colors.white)
+        c.setFillColor(pdf_colors["title"])
         c.setFont("Helvetica-Bold", 11)
         c.drawString(x + 10, y + h - 18, title)
 
@@ -3569,7 +3605,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     ]
     c.setFont("Helvetica", 10)
     for i, line in enumerate(overview_lines):
-        c.drawString(36, 505 - (i * 18), line)
+        _draw_wrapped_text(36, 505 - (i * 18), line, width=390, font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["body"])
 
     panel(24, 245, 410, 145, "KPI / Metrics")
     kpis = [
@@ -3584,9 +3620,9 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         row = idx // 3
         x = 36 + (col * 130)
         y = 360 - (row * 36)
-        c.setFillColor(colors.HexColor("#7EC7EA"))
+        c.setFillColor(pdf_colors["muted"])
         c.drawString(x, y, k)
-        c.setFillColor(colors.white)
+        c.setFillColor(pdf_colors["body"])
         c.setFont("Helvetica-Bold", 10)
         c.drawString(x, y - 12, v)
         c.setFont("Helvetica", 9)
@@ -3598,7 +3634,12 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         if cat_col:
             grouped = detail_df.groupby(cat_col, as_index=False).agg({"daysonhand": "mean", "onhandunits": "sum"}).sort_values("daysonhand", ascending=False).head(6)
             fig1, ax1 = plt.subplots(figsize=(4.0, 2.0))
-            ax1.barh(grouped[cat_col].astype(str), grouped["daysonhand"], color="#5AA6D1")
+            ax1.barh(grouped[cat_col].astype(str), grouped["daysonhand"], color=pdf_colors["bar"])
+            ax1.set_facecolor("none")
+            fig1.patch.set_alpha(0.0)
+            ax1.tick_params(colors=pdf_colors["body"].hexval())
+            ax1.spines["bottom"].set_color(pdf_colors["chart_grid"])
+            ax1.spines["left"].set_color(pdf_colors["chart_grid"])
             ax1.set_title("Category DOS", fontsize=9)
             ax1.tick_params(labelsize=8)
             fig1.tight_layout()
@@ -3618,12 +3659,12 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         bar_img.seek(0)
         c.drawImage(ImageReader(bar_img), 35, 58, width=250, height=150, mask="auto")
     else:
-        c.setFillColor(colors.white); c.drawString(40, 110, "No data available for bar chart.")
+        c.setFillColor(pdf_colors["body"]); c.drawString(40, 110, "No data available for bar chart.")
     if donut_img.getbuffer().nbytes > 0:
         donut_img.seek(0)
         c.drawImage(ImageReader(donut_img), 290, 58, width=130, height=145, mask="auto")
     else:
-        c.setFillColor(colors.white); c.drawString(290, 110, "No data available for donut chart.")
+        c.setFillColor(pdf_colors["body"]); c.drawString(290, 110, "No data available for donut chart.")
 
     panel(448, 245, page_w - 472, 285, "Insights / Findings")
     insights = [
@@ -3634,8 +3675,10 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         f"Inventory health score is {health_score}/100.",
     ]
     c.setFont("Helvetica", 10)
-    for i, text in enumerate(insights):
-        c.drawString(460, 500 - (i * 36), f"• {text[:66]}")
+    insight_y = 500
+    for text in insights:
+        _draw_wrapped_text(460, insight_y, f"• {text}", width=(page_w - 495), font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["body"])
+        insight_y -= 44
 
     panel(448, 32, page_w - 472, 200, "Summary of Findings")
     summary = (
@@ -3644,12 +3687,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         f"and {at_risk} at-risk SKUs, while {overstock} overstock positions and {slow_movers} slow movers "
         f"represent carrying-risk exposure."
     )
-    text_obj = c.beginText(460, 200)
-    text_obj.setFont("Helvetica", 10)
-    text_obj.setFillColor(colors.white)
-    for line in summary.split(". "):
-        text_obj.textLine(line.strip())
-    c.drawText(text_obj)
+    _draw_wrapped_text(460, 190, summary, width=(page_w - 495), font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["body"])
 
     c.showPage()
     c.save()
