@@ -3498,14 +3498,16 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     page_w, page_h = landscape(letter)
     c = canvas.Canvas(out, pagesize=(page_w, page_h))
 
+    theme_name = str(st.session_state.get("theme", "Dark")).lower()
+    is_light_theme = theme_name == "light"
     pdf_colors = {
-        "page_bg": colors.HexColor("#0F2747"),
-        "panel_bg": colors.HexColor("#163A63"),
-        "panel_border": colors.HexColor("#5AA6D1"),
-        "title": colors.white,
-        "body": colors.white,
-        "muted": colors.HexColor("#7EC7EA"),
-        "chart_grid": "#5AA6D1",
+        "page_bg": colors.HexColor("#E9EEF6") if is_light_theme else colors.HexColor("#0F2747"),
+        "panel_bg": colors.HexColor("#F7FAFF") if is_light_theme else colors.HexColor("#163A63"),
+        "panel_border": colors.HexColor("#8CB9D8") if is_light_theme else colors.HexColor("#5AA6D1"),
+        "title": colors.HexColor("#102A43") if is_light_theme else colors.white,
+        "body": colors.HexColor("#243B53") if is_light_theme else colors.white,
+        "muted": colors.HexColor("#486581") if is_light_theme else colors.HexColor("#7EC7EA"),
+        "chart_grid": "#C2D6EA" if is_light_theme else "#2D598A",
         "bar": "#5AA6D1",
     }
 
@@ -3635,13 +3637,11 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
             ax1.barh(grouped[cat_col].astype(str), grouped["daysonhand"], color=pdf_colors["bar"])
             ax1.set_facecolor("none")
             fig1.patch.set_alpha(0.0)
-            ax1.set_title("Category DOS", fontsize=9, color="white")
-            ax1.tick_params(axis="x", labelsize=8, colors="white")
-            ax1.tick_params(axis="y", labelsize=8, colors="white")
+            ax1.tick_params(colors=pdf_colors["body"].hexval())
             ax1.spines["bottom"].set_color(pdf_colors["chart_grid"])
             ax1.spines["left"].set_color(pdf_colors["chart_grid"])
-            ax1.spines["top"].set_visible(False)
-            ax1.spines["right"].set_visible(False)
+            ax1.set_title("Category DOS", fontsize=9)
+            ax1.tick_params(labelsize=8)
             fig1.tight_layout()
             fig1.savefig(bar_img, format="png", dpi=160, transparent=True)
             plt.close(fig1)
