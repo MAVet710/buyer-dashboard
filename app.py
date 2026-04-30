@@ -66,6 +66,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
+from reportlab.platypus import Table, TableStyle
 
 import matplotlib.pyplot as plt
 
