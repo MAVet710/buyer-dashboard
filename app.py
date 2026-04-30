@@ -3460,106 +3460,30 @@ def _to_report_df(value):
     return pd.DataFrame([{"Value": value}])
 
 
-def _build_buyer_executive_report_pdf_bytes(payload: dict) -> bytes:
+def _build_buyer_executive_report_bytes(payload: dict) -> bytes:
     payload = payload or {}
-    detail_view = _to_report_df(payload.get("detail_view"))
-    sales_summary = _to_report_df(payload.get("sales_summary"))
-    inv_summary = _to_report_df(payload.get("inv_summary"))
-    generated = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    if "Message" in detail_view.columns and detail_view.iloc[0].get("Message") == "No data available":
-        notice = "Upload inventory and sales data before exporting a buyer report."
-        pdf_buf = BytesIO()
-        c = canvas.Canvas(pdf_buf, pagesize=letter)
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(72, 730, "Buyer Executive Report")
-        c.setFont("Helvetica", 11)
-        c.drawString(72, 705, notice)
-        c.save()
-        pdf_buf.seek(0)
-        return pdf_buf.read()
-
-    total_units = int(pd.to_numeric(detail_view.get("unitssold"), errors="coerce").fillna(0).sum()) if "unitssold" in detail_view.columns else 0
-    total_on_hand = int(pd.to_numeric(detail_view.get("onhandunits"), errors="coerce").fillna(0).sum()) if "onhandunits" in detail_view.columns else 0
-    reorder_total = int(pd.to_numeric(detail_view.get("reorderqty"), errors="coerce").fillna(0).sum()) if "reorderqty" in detail_view.columns else 0
-    avg_dos = float(pd.to_numeric(detail_view.get("daysonhand"), errors="coerce").fillna(0).mean()) if "daysonhand" in detail_view.columns else 0.0
-    low_dos = int((pd.to_numeric(detail_view.get("daysonhand"), errors="coerce").fillna(0) <= 14).sum()) if "daysonhand" in detail_view.columns else 0
-    high_dos = int((pd.to_numeric(detail_view.get("daysonhand"), errors="coerce").fillna(0) >= 90).sum()) if "daysonhand" in detail_view.columns else 0
-
-    top_reorders = detail_view.copy()
-    if "reorderqty" in top_reorders.columns:
-        top_reorders["reorderqty"] = pd.to_numeric(top_reorders["reorderqty"], errors="coerce").fillna(0)
-        top_reorders = top_reorders.sort_values("reorderqty", ascending=False).head(5)
-
-    sales_total = 0.0
-    for col in ["net_sales", "sales", "total_sales"]:
-        if col in sales_summary.columns:
-            sales_total = float(pd.to_numeric(sales_summary[col], errors="coerce").fillna(0).sum())
-            break
-
-    pdf_buf = BytesIO()
-    c = canvas.Canvas(pdf_buf, pagesize=letter)
-    w, h = letter
-    c.setFillColorRGB(0.09, 0.21, 0.41)
-    c.rect(0, 0, w, h, stroke=0, fill=1)
-    c.setFillColorRGB(1, 1, 1)
-    c.setFont("Helvetica-Bold", 24)
-    c.drawString(40, h - 52, "Buyer Executive Summary")
-    c.setFont("Helvetica", 10)
-    c.drawString(40, h - 68, f"Generated: {generated}")
-
-    def card(x, y, cw, ch, title):
-        c.setStrokeColorRGB(0.45, 0.70, 0.90)
-        c.setFillColorRGB(0.12, 0.27, 0.49)
-        c.roundRect(x, y, cw, ch, 10, stroke=1, fill=1)
-        c.setFillColorRGB(1, 1, 1)
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(x + 10, y + ch - 18, title)
-
-    card(40, h - 220, 250, 140, "Executive Snapshot")
-    c.setFont("Helvetica", 10)
-    c.drawString(52, h - 108, f"Total Sales: ${sales_total:,.0f}" if sales_total > 0 else "Total Sales: Not available")
-    c.drawString(52, h - 124, f"Total Units Sold: {total_units:,}")
-    c.drawString(52, h - 140, f"Inventory On Hand: {total_on_hand:,}")
-    c.drawString(52, h - 156, f"Reorder Qty Total: {reorder_total:,}")
-    c.drawString(52, h - 172, f"Avg Days on Hand: {avg_dos:,.1f}")
-
-    card(310, h - 220, 250, 140, "Inventory Health")
-    c.setFont("Helvetica", 10)
-    c.drawString(322, h - 108, f"Low DOS SKUs (<=14): {low_dos}")
-    c.drawString(322, h - 124, f"High DOS SKUs (>=90): {high_dos}")
-    c.drawString(322, h - 140, f"Category Rows: {len(inv_summary):,}")
-    c.drawString(322, h - 156, f"Sales Summary Rows: {len(sales_summary):,}")
-    c.drawString(322, h - 172, f"Review Status: Auto-generated")
-
-    card(40, h - 430, 520, 180, "Top Reorder Recommendations")
-    y = h - 280
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(52, y, "Item")
-    c.drawString(280, y, "Category")
-    c.drawString(430, y, "Reorder Qty")
-    c.setFont("Helvetica", 9)
-    y -= 16
-    if top_reorders.empty:
-        c.drawString(52, y, "No reorder recommendations available.")
-    else:
-        for _, row in top_reorders.iterrows():
-            item = str(row.get("product_name") or row.get("itemname") or "Not available")[:40]
-            cat = str(row.get("subcategory") or "Not available")[:22]
-            qty = int(pd.to_numeric(row.get("reorderqty"), errors="coerce")) if pd.notna(pd.to_numeric(row.get("reorderqty"), errors="coerce")) else 0
-            c.drawString(52, y, item)
-            c.drawString(280, y, cat)
-            c.drawRightString(520, y, f"{qty:,}")
-            y -= 15
-            if y < 90:
-                break
-
-    c.setFont("Helvetica-Oblique", 8)
-    c.setFillColorRGB(0.82, 0.90, 0.98)
-    c.drawString(40, 32, "Buyer Dashboard • Executive PDF export • Missing optional fields are shown as Not available.")
-    c.save()
-    pdf_buf.seek(0)
-    return pdf_buf.read()
+    out = BytesIO()
+    sheet_map = [
+        ("Executive Summary", payload.get("summary") or payload.get("executive_summary")),
+        ("KPI Overview", payload.get("kpis") or payload.get("buyer_kpis")),
+        ("Inventory Health", payload.get("inventory_health")),
+        ("Reorder Summary", payload.get("reorder_summary") or payload.get("detail_view")),
+        ("Category Breakdown", payload.get("category_breakdown") or payload.get("inv_summary")),
+        ("Product Detail", payload.get("product_detail") or payload.get("sales_summary")),
+    ]
+    wrote_sheet = False
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        for sheet_name, section_value in sheet_map:
+            if section_value is None:
+                continue
+            _to_report_df(section_value).to_excel(writer, index=False, sheet_name=sheet_name[:31])
+            wrote_sheet = True
+        if not wrote_sheet:
+            pd.DataFrame(
+                [{"Message": "Upload inventory and sales data before exporting a buyer report."}]
+            ).to_excel(writer, index=False, sheet_name="Executive Summary")
+    out.seek(0)
+    return out.read()
 
 _display_user = (
     st.session_state.admin_user if st.session_state.get("is_admin")
@@ -3567,7 +3491,7 @@ _display_user = (
 )
 render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
-_buyer_report_file = f"buyer_executive_report_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+_buyer_report_file = f"buyer_executive_report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
 _export_left, _export_right = st.columns([6, 1.4])
 with _export_right:
     if _buyer_export_payload is None:
@@ -3576,9 +3500,9 @@ with _export_right:
     else:
         st.download_button(
             "Export Report",
-            data=_build_buyer_executive_report_pdf_bytes(_buyer_export_payload),
+            data=_build_buyer_executive_report_bytes(_buyer_export_payload),
             file_name=_buyer_report_file,
-            mime="application/pdf",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="buyer_export_report_btn",
         )
 render_section_header(
@@ -3680,6 +3604,102 @@ def kpi_card(label: str, value, help_text: str = ""):
         if help_text:
             st.caption(help_text)
 
+
+def _safe_num(series: pd.Series) -> float:
+    return float(pd.to_numeric(series, errors="coerce").fillna(0).sum()) if series is not None else 0.0
+
+
+def _build_buyer_executive_report_bytes(report_payload: dict) -> bytes:
+    detail_view = report_payload.get("detail_view", pd.DataFrame()).copy()
+    detail_product = report_payload.get("detail_product", pd.DataFrame()).copy()
+    sales_df = report_payload.get("sales_df", pd.DataFrame()).copy()
+    inv_df = report_payload.get("inv_df", pd.DataFrame()).copy()
+    sales_summary = report_payload.get("sales_summary", pd.DataFrame()).copy()
+    inv_summary = report_payload.get("inv_summary", pd.DataFrame()).copy()
+    doh_threshold = int(report_payload.get("doh_threshold", 45))
+
+    generated_at = datetime.now()
+    _reporting_period = report_payload.get("reporting_period") or "Not available"
+    _store_name = report_payload.get("store_name") or "Not available"
+
+    total_sales = _safe_num(sales_df.get("net_sales")) if "net_sales" in sales_df.columns else 0.0
+    total_units_sold = _safe_num(sales_df.get("unitssold")) if "unitssold" in sales_df.columns else _safe_num(detail_view.get("unitssold"))
+    total_inventory_on_hand = _safe_num(detail_view.get("onhandunits")) if "onhandunits" in detail_view.columns else _safe_num(inv_df.get("onhandunits"))
+    total_retail_value = _safe_num(inv_df.get("retail_price") * pd.to_numeric(inv_df.get("onhandunits"), errors="coerce").fillna(0)) if {"retail_price", "onhandunits"}.issubset(inv_df.columns) else 0.0
+    reorder_total = _safe_num(detail_view.get("reorderqty")) if "reorderqty" in detail_view.columns else 0.0
+    avg_units_day = float(pd.to_numeric(detail_view.get("avgunitsperday"), errors="coerce").fillna(0).mean()) if "avgunitsperday" in detail_view.columns and not detail_view.empty else 0.0
+    avg_doh = float(pd.to_numeric(detail_view.get("daysonhand"), errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0).mean()) if "daysonhand" in detail_view.columns and not detail_view.empty else 0.0
+    aov = float(total_sales / max(pd.to_numeric(sales_df.get("order_id"), errors="coerce").nunique(), 1)) if "order_id" in sales_df.columns and total_sales > 0 else None
+    items_per_txn = float(total_units_sold / max(pd.to_numeric(sales_df.get("order_id"), errors="coerce").nunique(), 1)) if "order_id" in sales_df.columns and total_units_sold > 0 else None
+    gross_margin = None
+    if {"unit_cost", "unitssold"}.issubset(detail_view.columns) and total_sales > 0:
+        cogs = _safe_num(pd.to_numeric(detail_view["unit_cost"], errors="coerce").fillna(0) * pd.to_numeric(detail_view["unitssold"], errors="coerce").fillna(0))
+        gross_margin = (total_sales - cogs) / total_sales if total_sales > 0 else None
+
+    low_stock = detail_view[detail_view.get("daysonhand", pd.Series(dtype=float)).between(1, doh_threshold)] if "daysonhand" in detail_view.columns else pd.DataFrame()
+    overstocked = detail_view[detail_view.get("daysonhand", pd.Series(dtype=float)) > (doh_threshold * 2)] if "daysonhand" in detail_view.columns else pd.DataFrame()
+    slow_movers = detail_view[detail_view.get("reorderpriority", pd.Series(dtype=str)).astype(str).str.contains("Dead", case=False, na=False)] if "reorderpriority" in detail_view.columns else pd.DataFrame()
+    high_risk = detail_view[detail_view.get("reorderpriority", pd.Series(dtype=str)).astype(str).str.contains("ASAP", case=False, na=False)] if "reorderpriority" in detail_view.columns else pd.DataFrame()
+
+    exec_summary = pd.DataFrame([
+        ["Date generated", generated_at.strftime("%Y-%m-%d %H:%M:%S")],
+        ["Reporting period", _reporting_period],
+        ["Store / location", _store_name],
+        ["Total sales", f"${total_sales:,.2f}" if total_sales else "Not available"],
+        ["Total units sold", f"{int(total_units_sold):,}"],
+        ["Total inventory on hand", f"{int(total_inventory_on_hand):,}"],
+        ["Total retail value", f"${total_retail_value:,.2f}" if total_retail_value else "Not available"],
+    ], columns=["Metric", "Value"])
+
+    kpi_overview = pd.DataFrame([
+        ["Average units per day", f"{avg_units_day:,.2f}"],
+        ["Days on hand (avg)", f"{avg_doh:,.1f}"],
+        ["Reorder quantity total", f"{int(reorder_total):,}"],
+        ["AOV", f"${aov:,.2f}" if aov is not None else "Not available"],
+        ["Items per transaction", f"{items_per_txn:,.2f}" if items_per_txn is not None else "Not available"],
+        ["Gross margin", f"{gross_margin:.1%}" if gross_margin is not None else "Not available"],
+        ["Inventory health summary", f"{len(high_risk)} high-risk lines, {len(slow_movers)} dead/slow movers"],
+    ], columns=["KPI", "Value"])
+
+    cat_source = detail_view if "subcategory" in detail_view.columns else pd.DataFrame()
+    category_breakdown = pd.DataFrame()
+    if not cat_source.empty:
+        category_breakdown = cat_source.groupby("subcategory", dropna=False).agg(
+            category_sales=("unitssold", "sum") if "unitssold" in cat_source.columns else ("subcategory", "count"),
+            category_inventory=("onhandunits", "sum") if "onhandunits" in cat_source.columns else ("subcategory", "count"),
+            category_dos=("daysonhand", "mean") if "daysonhand" in cat_source.columns else ("subcategory", "count"),
+            category_reorder_pressure=("reorderqty", "sum") if "reorderqty" in cat_source.columns else ("subcategory", "count"),
+        ).reset_index()
+
+    product_cols = ["product_name", "brand", "subcategory", "packagesize", "strain_type", "onhandunits", "avgunitsperday", "daysonhand", "reorderqty", "reorderpriority"]
+    product_detail = detail_product.copy()
+    if "brand" not in product_detail.columns:
+        product_detail["brand"] = "Not available"
+    product_detail = product_detail[[c for c in product_cols if c in product_detail.columns]]
+
+    buyer_notes = pd.DataFrame([
+        ["Categories needing attention", ", ".join(category_breakdown.sort_values("category_reorder_pressure", ascending=False)["subcategory"].astype(str).head(3).tolist()) if not category_breakdown.empty else "Not available"],
+        ["Likely overstock risk", f"{len(overstocked)} lines with DOS > {doh_threshold * 2}"],
+        ["Likely reorder pressure", f"{len(high_risk)} lines flagged Reorder ASAP"],
+        ["Missing data warnings", "; ".join([k for k, v in {"AOV": aov, "Items/txn": items_per_txn, "Gross margin": gross_margin}.items() if v is None]) or "None"],
+    ], columns=["Topic", "Summary"])
+
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        exec_summary.to_excel(writer, index=False, sheet_name="Executive Summary")
+        kpi_overview.to_excel(writer, index=False, sheet_name="Buyer KPI Overview")
+        low_stock.to_excel(writer, index=False, sheet_name="Low Stock")
+        overstocked.to_excel(writer, index=False, sheet_name="Overstocked")
+        slow_movers.to_excel(writer, index=False, sheet_name="Slow Movers")
+        high_risk.to_excel(writer, index=False, sheet_name="High Risk")
+        detail_view.sort_values("reorderqty", ascending=False).head(100).to_excel(writer, index=False, sheet_name="Reorder Summary")
+        category_breakdown.to_excel(writer, index=False, sheet_name="Category Breakdown")
+        product_detail.to_excel(writer, index=False, sheet_name="Product Detail")
+        buyer_notes.to_excel(writer, index=False, sheet_name="Buyer Notes")
+        sales_summary.to_excel(writer, index=False, sheet_name="Sales Summary")
+        inv_summary.to_excel(writer, index=False, sheet_name="Inventory Summary")
+    out.seek(0)
+    return out.read()
 
 # ============================================================
 # EXTRA MODULE – EXTRACTION COMMAND CENTER
