@@ -3552,6 +3552,24 @@ def _safe_report_df(value, empty_message="No data available") -> pd.DataFrame:
     return pd.DataFrame([{"Value": str(value)}])
 
 
+
+
+def _safe_numeric_series(df, column_name, default=0.0) -> pd.Series:
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.Series(dtype="float64")
+
+    if column_name in df.columns:
+        return pd.to_numeric(df[column_name], errors="coerce").fillna(default)
+
+    return pd.Series([default] * len(df), index=df.index, dtype="float64")
+
+
+def _safe_series_mean(series: pd.Series, default=0.0) -> float:
+    if series is None or series.empty:
+        return float(default)
+    mean_value = series.mean()
+    return float(mean_value) if pd.notna(mean_value) else float(default)
+
 def _build_buyer_executive_report_bytes(payload: dict) -> bytes:
     payload = payload or {}
     out = BytesIO()
@@ -4152,16 +4170,16 @@ _extraction_payload = {
     },
     "kpis": {
         "total_runs": int(len(_ecc_runs)),
-        "total_input_weight_g": float(pd.to_numeric(_ecc_runs.get("input_weight_g"), errors="coerce").fillna(0).sum()) if not _ecc_runs.empty else 0.0,
-        "total_finished_output_g": float(pd.to_numeric(_ecc_runs.get("final_output_g", _ecc_runs.get("finished_output_g")), errors="coerce").fillna(0).sum()) if not _ecc_runs.empty else 0.0,
-        "avg_yield_pct": float(pd.to_numeric(_ecc_runs.get("yield_pct"), errors="coerce").mean() or 0.0) if not _ecc_runs.empty else 0.0,
-        "avg_efficiency_pct": float(pd.to_numeric(_ecc_runs.get("efficiency_pct"), errors="coerce").mean() or 0.0) if not _ecc_runs.empty else 0.0,
-        "total_estimated_revenue_usd": float(pd.to_numeric(_extraction_profitability.get("estimated_revenue_usd"), errors="coerce").fillna(0).sum()) if not _extraction_profitability.empty else 0.0,
-        "total_cogs_usd": float(pd.to_numeric(_extraction_profitability.get("total_cogs_usd"), errors="coerce").fillna(0).sum()) if not _extraction_profitability.empty else 0.0,
-        "gross_profit_usd": float(pd.to_numeric(_extraction_profitability.get("gross_profit_usd"), errors="coerce").fillna(0).sum()) if not _extraction_profitability.empty else 0.0,
-        "gross_margin_pct": float(pd.to_numeric(_extraction_profitability.get("gross_margin_pct"), errors="coerce").mean() or 0.0) if not _extraction_profitability.empty else 0.0,
-        "at_risk_batches": int(pd.to_numeric(_extraction_profitability.get("value_risk_flag").isin(["Critical", "Warning"]) if "value_risk_flag" in _extraction_profitability.columns else pd.Series([], dtype=int), errors="coerce").fillna(0).sum()),
-        "qa_holds_or_coa_pending": int((_ecc_runs.get("qa_hold", pd.Series([], dtype=bool)).fillna(False).astype(bool).sum() if "qa_hold" in _ecc_runs.columns else 0) + (_ecc_runs.get("coa_status", pd.Series([], dtype=str)).astype(str).str.contains("pending", case=False, na=False).sum() if "coa_status" in _ecc_runs.columns else 0)),
+        "total_input_weight_g": float(_safe_numeric_series(_ecc_runs, "input_weight_g").sum()),
+        "total_finished_output_g": float((_safe_numeric_series(_ecc_runs, "final_output_g") if "final_output_g" in _ecc_runs.columns else _safe_numeric_series(_ecc_runs, "finished_output_g")).sum()),
+        "avg_yield_pct": _safe_series_mean(_safe_numeric_series(_ecc_runs, "yield_pct")),
+        "avg_efficiency_pct": _safe_series_mean(_safe_numeric_series(_ecc_runs, "efficiency_pct")),
+        "total_estimated_revenue_usd": float(_safe_numeric_series(_extraction_profitability, "estimated_revenue_usd").sum()),
+        "total_cogs_usd": float(_safe_numeric_series(_extraction_profitability, "total_cogs_usd").sum()),
+        "gross_profit_usd": float(_safe_numeric_series(_extraction_profitability, "gross_profit_usd").sum()),
+        "gross_margin_pct": _safe_series_mean(_safe_numeric_series(_extraction_profitability, "gross_margin_pct")),
+        "at_risk_batches": int(_extraction_profitability["value_risk_flag"].astype(str).str.lower().isin(["critical", "warning"]).sum()) if "value_risk_flag" in _extraction_profitability.columns else 0,
+        "qa_holds_or_coa_pending": int((_ecc_runs["qa_hold"].astype(str).str.lower().isin(["true", "yes", "1", "hold"]).sum() if "qa_hold" in _ecc_runs.columns else 0) + (_ecc_runs["coa_status"].astype(str).str.contains("pending", case=False, na=False).sum() if "coa_status" in _ecc_runs.columns else 0)),
     },
     "run_performance": _ecc_runs,
     "profitability": _extraction_profitability,
