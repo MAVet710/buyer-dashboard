@@ -4020,6 +4020,103 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     out.seek(0)
     return out.read()
 
+def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
+    out = io.BytesIO()
+    c = canvas.Canvas(out, pagesize=letter)
+    page_w, page_h = letter
+
+    def _new_page():
+        c.showPage()
+        c.setFillColor(colors.HexColor("#0f0f10"))
+        c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+
+    def _draw_header(title: str):
+        c.setFillColor(colors.HexColor("#ffffff"))
+        c.setFont("Helvetica-Bold", 20)
+        c.drawString(40, page_h - 54, title)
+        c.setFont("Helvetica", 9)
+        c.setFillColor(colors.HexColor("#b8b8b8"))
+        c.drawString(40, page_h - 72, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
+
+    _new_page()
+    _draw_header("Extraction Executive Summary")
+
+    has_data = bool(payload and any(not _safe_report_df(payload.get(k)).empty for k in ["run_performance", "profitability", "process_tracking"]))
+    if not has_data:
+        c.setFillColor(colors.HexColor("#ffffff"))
+        c.setFont("Helvetica", 11)
+        c.drawString(40, page_h - 120, "Upload or enter extraction data before exporting an extraction executive summary.")
+        c.save()
+        out.seek(0)
+        return out.read()
+
+    summary = payload.get("summary", {}) or {}
+    kpis = payload.get("kpis", {}) or {}
+    c.setFont("Helvetica", 10)
+    c.setFillColor(colors.HexColor("#b8b8b8"))
+    c.drawString(40, page_h - 92, f"Reporting Period: {summary.get('reporting_period', 'N/A')}")
+    c.drawString(280, page_h - 92, f"Facility / State / License: {summary.get('facility_context', 'N/A')}")
+
+    metric_rows = [
+        ("Total Runs", kpis.get("total_runs", 0)),
+        ("Total Input Weight", f"{kpis.get('total_input_weight_g', 0):,.1f} g"),
+        ("Total Finished Output", f"{kpis.get('total_finished_output_g', 0):,.1f} g"),
+        ("Average Yield %", f"{kpis.get('avg_yield_pct', 0):.2f}%"),
+        ("Average Efficiency %", f"{kpis.get('avg_efficiency_pct', 0):.2f}%"),
+        ("Total Estimated Revenue", f"${kpis.get('total_estimated_revenue_usd', 0):,.2f}"),
+        ("Total COGs", f"${kpis.get('total_cogs_usd', 0):,.2f}"),
+        ("Gross Profit", f"${kpis.get('gross_profit_usd', 0):,.2f}"),
+        ("Gross Margin %", f"{kpis.get('gross_margin_pct', 0):.2f}%"),
+        ("At-Risk Batches", int(kpis.get("at_risk_batches", 0))),
+        ("QA Holds / COA Pending", int(kpis.get("qa_holds_or_coa_pending", 0))),
+    ]
+    y = page_h - 124
+    c.setFillColor(colors.HexColor("#ffffff"))
+    for label, value in metric_rows:
+        c.drawString(46, y, f"{label}:")
+        c.drawRightString(page_w - 46, y, str(value))
+        y -= 16
+
+    insights = payload.get("insights", {}) or {}
+    findings = insights.get("summary_of_findings") or "Extraction performance indicates targeted opportunities in yield, cost control, and QA throughput."
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(40, y - 10, "Summary of Findings")
+    c.setFont("Helvetica", 10)
+    c.setFillColor(colors.HexColor("#b8b8b8"))
+    c.drawString(40, y - 28, str(findings)[:150])
+
+    def _append_table_page(title: str, df: pd.DataFrame, cols: list[str]):
+        _new_page()
+        _draw_header(title)
+        if df.empty:
+            c.setFillColor(colors.HexColor("#ffffff"))
+            c.setFont("Helvetica", 11)
+            c.drawString(40, page_h - 120, "No data available.")
+            return
+        table_df = df.copy()
+        for col in cols:
+            if col not in table_df.columns:
+                table_df[col] = ""
+        table_df = table_df[cols].head(250)
+        table = Table([cols] + table_df.astype(str).values.tolist(), repeatRows=1)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#202124")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#ffffff")),
+            ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#181818")),
+            ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#b8b8b8")),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#343434")),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+        ]))
+        tw, th = table.wrap(page_w - 60, page_h - 130)
+        table.drawOn(c, 30, max(40, page_h - 120 - th))
+
+    _append_table_page("Appendix A: Run Performance Detail", _safe_report_df(payload.get("run_performance")), ["run_date", "batch_id_internal", "method", "input_material_type", "input_weight_g", "finished_output_g", "yield_pct", "status", "coa_status", "qa_hold"])
+    _append_table_page("Appendix B: Value & Profitability Detail", _safe_report_df(payload.get("profitability")), ["batch_id_internal", "method", "final_product_type", "finished_output_g", "unit_size_g", "units_per_batch", "unit_price_usd", "total_cogs_usd", "cost_per_gram", "cost_per_unit", "estimated_revenue_usd", "gross_profit_usd", "gross_margin_pct"])
+    _append_table_page("Appendix C: Process / Stage Tracking", _safe_report_df(payload.get("process_tracking")), ["batch_id_internal", "process_stage", "stage_input_weight_g", "stage_output_weight_g", "stage_loss_g", "stage_yield_pct", "metrc_stage_input_id", "metrc_stage_output_id", "notes"])
+    c.save()
+    out.seek(0)
+    return out.read()
+
 _display_user = (
     st.session_state.admin_user if st.session_state.get("is_admin")
     else st.session_state.get("user_user") or "Buyer"
@@ -4027,6 +4124,42 @@ _display_user = (
 render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+workspace_options = []
+if _feature_enabled("buyer_module", default_enabled=True):
+    workspace_options.append("🛒 Buyer Operations")
+if _feature_enabled("extraction_module", default_enabled=True):
+    workspace_options.append("🧪 Extraction Command Center")
+_active_workspace = st.session_state.get("workspace_mode", workspace_options[0] if workspace_options else "🛒 Buyer Operations")
+_ecc_runs = _safe_report_df(st.session_state.get("ecc_run_log"))
+_extraction_profitability = _safe_report_df(st.session_state.get("ecc_run_value_snapshot", _ecc_runs))
+_extraction_payload = {
+    "summary": {
+        "reporting_period": st.session_state.get("ecc_reporting_period", "Current session"),
+        "facility_context": st.session_state.get("ecc_facility_context", "N/A"),
+    },
+    "kpis": {
+        "total_runs": int(len(_ecc_runs)),
+        "total_input_weight_g": float(pd.to_numeric(_ecc_runs.get("input_weight_g"), errors="coerce").fillna(0).sum()) if not _ecc_runs.empty else 0.0,
+        "total_finished_output_g": float(pd.to_numeric(_ecc_runs.get("final_output_g", _ecc_runs.get("finished_output_g")), errors="coerce").fillna(0).sum()) if not _ecc_runs.empty else 0.0,
+        "avg_yield_pct": float(pd.to_numeric(_ecc_runs.get("yield_pct"), errors="coerce").mean() or 0.0) if not _ecc_runs.empty else 0.0,
+        "avg_efficiency_pct": float(pd.to_numeric(_ecc_runs.get("efficiency_pct"), errors="coerce").mean() or 0.0) if not _ecc_runs.empty else 0.0,
+        "total_estimated_revenue_usd": float(pd.to_numeric(_extraction_profitability.get("estimated_revenue_usd"), errors="coerce").fillna(0).sum()) if not _extraction_profitability.empty else 0.0,
+        "total_cogs_usd": float(pd.to_numeric(_extraction_profitability.get("total_cogs_usd"), errors="coerce").fillna(0).sum()) if not _extraction_profitability.empty else 0.0,
+        "gross_profit_usd": float(pd.to_numeric(_extraction_profitability.get("gross_profit_usd"), errors="coerce").fillna(0).sum()) if not _extraction_profitability.empty else 0.0,
+        "gross_margin_pct": float(pd.to_numeric(_extraction_profitability.get("gross_margin_pct"), errors="coerce").mean() or 0.0) if not _extraction_profitability.empty else 0.0,
+        "at_risk_batches": int(pd.to_numeric(_extraction_profitability.get("value_risk_flag").isin(["Critical", "Warning"]) if "value_risk_flag" in _extraction_profitability.columns else pd.Series([], dtype=int), errors="coerce").fillna(0).sum()),
+        "qa_holds_or_coa_pending": int((_ecc_runs.get("qa_hold", pd.Series([], dtype=bool)).fillna(False).astype(bool).sum() if "qa_hold" in _ecc_runs.columns else 0) + (_ecc_runs.get("coa_status", pd.Series([], dtype=str)).astype(str).str.contains("pending", case=False, na=False).sum() if "coa_status" in _ecc_runs.columns else 0)),
+    },
+    "run_performance": _ecc_runs,
+    "profitability": _extraction_profitability,
+    "process_tracking": _ecc_runs,
+    "extraction_inventory": _safe_report_df(st.session_state.get("ecc_inventory_log")),
+    "qa_compliance": _ecc_runs,
+    "formulation": _ecc_runs,
+    "unitization": _extraction_profitability,
+    "insights": {"summary_of_findings": st.session_state.get("ecc_summary_findings", "")},
+}
+_extraction_report_file = f"extraction_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
 st.markdown(
     """
     <style>
@@ -4045,7 +4178,15 @@ st.markdown(
 )
 _export_left, _export_right = st.columns([6, 1.4])
 with _export_right:
-    if _buyer_export_payload is None:
+    if _active_workspace == "🧪 Extraction Command Center":
+        st.download_button(
+            "Export Report",
+            data=_build_extraction_executive_report_pdf(_extraction_payload),
+            file_name=_extraction_report_file,
+            mime="application/pdf",
+            key="extraction_export_report_btn",
+        )
+    elif _buyer_export_payload is None:
         if st.button("Export Report", key="buyer_export_report_btn_disabled"):
             st.warning("Upload inventory and sales data before exporting a buyer report.")
     else:
@@ -8035,11 +8176,6 @@ def render_extraction_command_center():
 # =========================
 # TOP-LEVEL APP MODE SWITCH
 # =========================
-workspace_options = []
-if _feature_enabled("buyer_module", default_enabled=True):
-    workspace_options.append("🛒 Buyer Operations")
-if _feature_enabled("extraction_module", default_enabled=True):
-    workspace_options.append("🧪 Extraction Command Center")
 if not workspace_options:
     st.error("Your license does not include any enabled workspace modules.")
     st.stop()
@@ -8049,6 +8185,7 @@ app_mode = st.radio(
     index=0,
     horizontal=True,
     help="Switch between the purchasing dashboard and the extraction workspace.",
+    key="workspace_mode",
 )
 
 _render_sidebar_nav_mockup(app_mode, None)
