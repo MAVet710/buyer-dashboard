@@ -30,6 +30,12 @@ class UserIntegrationRecord:
     is_admin: bool
     doobie_base_url: str
     doobie_api_key: str
+    doobie_license_key: str
+    doobie_license_status: str
+    doobie_plan_type: str
+    doobie_customer_id: str
+    doobie_company_name: str
+    doobie_features_json: str
     doobie_status: str
     doobie_last_validated: str | None
     metrc_api_key: str
@@ -63,6 +69,12 @@ class UserIntegrationsStore:
                 Column("is_admin", Boolean, nullable=False, server_default="0"),
                 Column("doobie_base_url", String(1024), nullable=False, server_default=""),
                 Column("doobie_api_key", String(1024), nullable=False, server_default=""),
+                Column("doobie_license_key", String(1024), nullable=False, server_default=""),
+                Column("doobie_license_status", String(64), nullable=False, server_default="not_connected"),
+                Column("doobie_plan_type", String(128), nullable=False, server_default=""),
+                Column("doobie_customer_id", String(128), nullable=False, server_default=""),
+                Column("doobie_company_name", String(255), nullable=False, server_default=""),
+                Column("doobie_features_json", String(4096), nullable=False, server_default="{}"),
                 Column("doobie_status", String(64), nullable=False, server_default="not_connected"),
                 Column("doobie_last_validated", String(64), nullable=True),
                 Column("metrc_api_key", String(1024), nullable=False, server_default=""),
@@ -98,6 +110,12 @@ class UserIntegrationsStore:
                 is_admin=bool(row.get("is_admin")),
                 doobie_base_url=str(row.get("doobie_base_url") or ""),
                 doobie_api_key=str(row.get("doobie_api_key") or ""),
+                doobie_license_key=str(row.get("doobie_license_key") or ""),
+                doobie_license_status=str(row.get("doobie_license_status") or "not_connected"),
+                doobie_plan_type=str(row.get("doobie_plan_type") or ""),
+                doobie_customer_id=str(row.get("doobie_customer_id") or ""),
+                doobie_company_name=str(row.get("doobie_company_name") or ""),
+                doobie_features_json=str(row.get("doobie_features_json") or "{}"),
                 doobie_status=str(row.get("doobie_status") or "not_connected"),
                 doobie_last_validated=row.get("doobie_last_validated"),
                 metrc_api_key=str(row.get("metrc_api_key") or ""),
@@ -152,6 +170,12 @@ class UserIntegrationsStore:
         allowed_keys = {
             "doobie_base_url",
             "doobie_api_key",
+            "doobie_license_key",
+            "doobie_license_status",
+            "doobie_plan_type",
+            "doobie_customer_id",
+            "doobie_company_name",
+            "doobie_features_json",
             "doobie_status",
             "doobie_last_validated",
             "metrc_api_key",

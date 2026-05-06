@@ -10,6 +10,10 @@ import requests
 import streamlit as st
 
 RUNTIME_CONFIG_PATH = Path(os.environ.get("DOOBIE_RUNTIME_CONFIG_PATH", ".streamlit/doobie_runtime_config.json"))
+DOOBIE_SERVICE_API_KEY = "DOOBIE_SERVICE_API_KEY"
+DOOBIE_LICENSE_KEY = "DOOBIE_LICENSE_KEY"
+DOOBIE_ADMIN_API_KEY = "DOOBIE_ADMIN_API_KEY"
+METRC_API_KEY = "METRC_API_KEY"
 
 
 def _safe_secret(*keys: str) -> str:
@@ -40,9 +44,10 @@ def get_default_doobie_config() -> dict[str, str]:
         or ""
     ).strip()
     api_key = (
-        os.environ.get("DOOBIE_API_KEY")
+        os.environ.get("DOOBIE_SERVICE_API_KEY")
+        or os.environ.get("DOOBIE_API_KEY")
         or os.environ.get("DOOBIELOGIC_API_KEY")
-        or _safe_secret("DOOBIE_API_KEY", "DOOBIELOGIC_API_KEY")
+        or _safe_secret("DOOBIE_SERVICE_API_KEY", "DOOBIE_API_KEY", "DOOBIELOGIC_API_KEY")
         or ""
     ).strip()
     return {

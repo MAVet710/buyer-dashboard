@@ -7,7 +7,7 @@ import requests
 
 
 FALLBACK_RESPONSE: dict[str, Any] = {
-    "answer": "Doobie is currently unavailable.",
+    "answer": "Doobie server is unavailable.",
     "explanation": "",
     "recommendations": [],
     "confidence": "low",
@@ -40,6 +40,14 @@ class DoobieClient:
         response = dict(FALLBACK_RESPONSE)
         if reason:
             response["error"] = reason
+            if reason == "missing_service_key":
+                response["answer"] = "Doobie service key is missing. Admin must configure Integrations."
+            elif reason == "invalid_license":
+                response["answer"] = "Doobie license key is invalid or expired."
+            elif reason == "service_key_rejected":
+                response["answer"] = "Doobie service is reachable, but AI endpoint rejected the service key."
+            elif reason == "plan_blocked":
+                response["answer"] = "Doobie is connected, but this user’s plan does not include AI support."
         if status_code is not None:
             response["status_code"] = int(status_code)
         return response
@@ -54,18 +62,23 @@ class DoobieClient:
         out["mode"] = str(out.get("mode") or "live")
         return out
 
-    def call_endpoint(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def call_endpoint(self, endpoint: str, payload: dict[str, Any], license_context: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.enabled:
             return self._fallback("disabled")
 
         path = endpoint if str(endpoint).startswith("/") else f"/{endpoint}"
         try:
+            body = dict(payload)
+            if license_context:
+                body.update({k: v for k, v in license_context.items() if v not in (None, "")})
             resp = requests.post(
                 f"{self.base_url}{path}",
-                json=payload,
+                json=body,
                 headers=self._headers(),
                 timeout=self.timeout_seconds,
             )
+            if resp.status_code in {401, 403}:
+                return self._fallback("service_key_rejected", status_code=resp.status_code)
             if resp.status_code >= 400:
                 return self._fallback("http_error", status_code=resp.status_code)
             return self._standardize_response(resp.json())
