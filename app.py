@@ -3611,7 +3611,7 @@ def _build_buyer_executive_report_bytes(payload: dict) -> bytes:
 def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     payload = payload or {}
     out = BytesIO()
-    page_w, page_h = landscape(letter)
+    page_w, page_h = letter[1], letter[0]
     c = canvas.Canvas(out, pagesize=(page_w, page_h))
 
     # Buyer Dashboard PDF style tokens
@@ -4066,104 +4066,222 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
 def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
     payload = payload or {}
     out = BytesIO()
-    c = canvas.Canvas(out, pagesize=letter)
-    page_w, page_h = letter
+    page_w, page_h = letter[1], letter[0]
+    c = canvas.Canvas(out, pagesize=(page_w, page_h))
 
-    def _new_page():
-        c.showPage()
-        c.setFillColor(colors.HexColor("#0f0f10"))
-        c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+    pdf_colors = {
+        "BACKGROUND_DARK": colors.HexColor("#0f0f10"),
+        "CARD_BG": colors.HexColor("#181818"),
+        "CARD_BG_ALT": colors.HexColor("#202124"),
+        "BORDER": colors.HexColor("#343434"),
+        "ACCENT_ORANGE": colors.HexColor("#ff9a3c"),
+        "TEXT_PRIMARY": colors.HexColor("#ffffff"),
+        "TEXT_SECONDARY": colors.HexColor("#b8b8b8"),
+        "TEXT_MUTED": colors.HexColor("#7f7f7f"),
+        "SUCCESS_GREEN": colors.HexColor("#64d18a"),
+        "WARNING_YELLOW": colors.HexColor("#f6c453"),
+        "DANGER_RED": colors.HexColor("#ff5c5c"),
+        "BLUE_ACCENT": colors.HexColor("#5ea8ff"),
+        "APPENDIX_BG": colors.HexColor("#f7f8fa"),
+        "APPENDIX_ROW_ALT": colors.HexColor("#f0f2f5"),
+    }
 
-    def _draw_header(title: str):
-        c.setFillColor(colors.HexColor("#ffffff"))
-        c.setFont("Helvetica-Bold", 20)
-        c.drawString(40, page_h - 54, title)
+    def _norm_col(name: str) -> str:
+        return "".join(ch for ch in str(name).strip().lower() if ch.isalnum())
+
+    def _safe_float(v):
+        vv = pd.to_numeric(pd.Series([v]), errors="coerce").iloc[0]
+        return None if pd.isna(vv) else float(vv)
+
+    def _fmt_weight(v):
+        fv = _safe_float(v)
+        return "N/A" if fv is None else f"{fv:,.1f}g"
+
+    def _fmt_pct(v):
+        fv = _safe_float(v)
+        return "N/A" if fv is None else f"{fv:,.1f}%"
+
+    def _fmt_currency(v):
+        fv = _safe_float(v)
+        return "N/A" if fv is None else f"${fv:,.2f}"
+
+    def _fmt_cpg(v):
+        fv = _safe_float(v)
+        return "N/A" if fv is None else f"${fv:,.2f}/g"
+
+    def _fmt_units(v):
+        fv = _safe_float(v)
+        return "N/A" if fv is None else f"{int(round(fv)):,}"
+
+    def _fmt_bool(v):
+        if pd.isna(v):
+            return "N/A"
+        s = str(v).strip().lower()
+        if s in ["true", "1", "yes", "y", "hold"]:
+            return "Yes"
+        if s in ["false", "0", "no", "n"]:
+            return "No"
+        return str(v)
+
+    def _draw_report_header_footer(page_title: str, dark: bool = True):
+        if dark:
+            c.setFillColor(pdf_colors["BACKGROUND_DARK"])
+            c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["CARD_BG"])
+        c.rect(0, page_h - 46, page_w, 46, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.rect(0, page_h - 46, page_w, 2, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(30, page_h - 28, "Buyer Dashboard")
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"])
         c.setFont("Helvetica", 9)
-        c.setFillColor(colors.HexColor("#b8b8b8"))
-        c.drawString(40, page_h - 72, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
+        c.drawRightString(page_w - 30, page_h - 28, "Extraction Executive Summary")
+        c.setFillColor(pdf_colors["TEXT_MUTED"])
+        c.setFont("Helvetica", 8)
+        c.drawString(30, 16, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawRightString(page_w - 30, 16, f"Page {c.getPageNumber()}")
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.setFont("Helvetica-Bold", 15)
+        c.drawString(30, page_h - 72, page_title)
 
-    _new_page()
-    _draw_header("Extraction Executive Summary")
+    def _panel(x, y, w, h, title):
+        c.setFillColor(pdf_colors["CARD_BG"])
+        c.roundRect(x, y, w, h, 8, stroke=1, fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"])
+        c.roundRect(x, y, w, h, 8, stroke=1, fill=0)
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(x + 10, y + h - 18, title)
 
-    has_data = any(
-        not _safe_report_df(payload.get(k)).empty
-        for k in ["run_performance", "profitability", "process_tracking", "extraction_inventory", "qa_compliance"]
-    )
+    runs = _safe_report_df(payload.get("run_performance"))
+    profitability = _safe_report_df(payload.get("profitability"))
+    process = _safe_report_df(payload.get("process_tracking"))
+    _state = getattr(globals().get("st", None), "session_state", {}) or {}
+    inv_sources = [payload.get("extraction_inventory"), payload.get("ecc_inventory"), payload.get("material_inventory"), payload.get("source_materials"), _state.get("ecc_inventory_log"), _state.get("extraction_inventory")]
+    inventory = pd.DataFrame()
+    for src in inv_sources:
+        df = _safe_report_df(src)
+        if not df.empty:
+            inventory = df
+            break
+
+    has_data = any(not df.empty for df in [runs, profitability, process, inventory])
+    _draw_report_header_footer("Executive Summary", dark=True)
+
     if not has_data:
-        c.setFillColor(colors.HexColor("#ffffff"))
-        c.setFont("Helvetica", 11)
-        c.drawString(40, page_h - 120, "Upload or enter extraction data before exporting an extraction executive summary.")
-        c.save()
-        out.seek(0)
-        return out.read()
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        c.setFont("Helvetica", 13)
+        c.drawString(40, page_h - 130, "Upload or enter extraction data before exporting an extraction executive summary.")
+        c.save(); out.seek(0); return out.read()
 
     summary = payload.get("summary", {}) or {}
     kpis = payload.get("kpis", {}) or {}
-    c.setFont("Helvetica", 10)
-    c.setFillColor(colors.HexColor("#b8b8b8"))
-    c.drawString(40, page_h - 92, f"Reporting Period: {summary.get('reporting_period', 'N/A')}")
-    c.drawString(280, page_h - 92, f"Facility / State / License: {summary.get('facility_context', 'N/A')}")
+    c.setFillColor(pdf_colors["ACCENT_ORANGE"]); c.rect(30, page_h - 90, 240, 4, stroke=0, fill=1)
+    c.setFillColor(pdf_colors["TEXT_MUTED"]); c.setFont("Helvetica", 10)
+    c.drawString(30, page_h - 106, f"Period: {summary.get('reporting_period','N/A')}   |   Facility: {summary.get('facility_context','N/A')}")
 
+    qa_holds = int(kpis.get("qa_holds_or_coa_pending", 0) or 0)
+    at_risk = int(kpis.get("at_risk_batches", 0) or 0)
     metric_rows = [
-        ("Total Runs", kpis.get("total_runs", 0)),
-        ("Total Input Weight", f"{kpis.get('total_input_weight_g', 0):,.1f} g"),
-        ("Total Finished Output", f"{kpis.get('total_finished_output_g', 0):,.1f} g"),
-        ("Average Yield %", f"{kpis.get('avg_yield_pct', 0):.2f}%"),
-        ("Average Efficiency %", f"{kpis.get('avg_efficiency_pct', 0):.2f}%"),
-        ("Total Estimated Revenue", f"${kpis.get('total_estimated_revenue_usd', 0):,.2f}"),
-        ("Total COGs", f"${kpis.get('total_cogs_usd', 0):,.2f}"),
-        ("Gross Profit", f"${kpis.get('gross_profit_usd', 0):,.2f}"),
-        ("Gross Margin %", f"{kpis.get('gross_margin_pct', 0):.2f}%"),
-        ("At-Risk Batches", int(kpis.get("at_risk_batches", 0))),
-        ("QA Holds / COA Pending", int(kpis.get("qa_holds_or_coa_pending", 0))),
+        ("Total Runs", _fmt_units(kpis.get("total_runs"))), ("Total Input Weight", _fmt_weight(kpis.get("total_input_weight_g"))),
+        ("Total Finished Output", _fmt_weight(kpis.get("total_finished_output_g"))), ("Average Yield %", _fmt_pct(kpis.get("avg_yield_pct"))),
+        ("Average Efficiency %", _fmt_pct(kpis.get("avg_efficiency_pct"))), ("Total Estimated Revenue", _fmt_currency(kpis.get("total_estimated_revenue_usd"))),
+        ("Total COGs", _fmt_currency(kpis.get("total_cogs_usd"))), ("Gross Profit", _fmt_currency(kpis.get("gross_profit_usd"))),
+        ("Gross Margin %", _fmt_pct(kpis.get("gross_margin_pct"))), ("QA Holds / COA Pending", f"{qa_holds:,}"), ("At-Risk Batches", f"{at_risk:,}"),
     ]
-    y = page_h - 124
-    c.setFillColor(colors.HexColor("#ffffff"))
-    for label, value in metric_rows:
-        c.drawString(46, y, f"{label}:")
-        c.drawRightString(page_w - 46, y, str(value))
-        y -= 16
 
-    insights = payload.get("insights", {}) or {}
-    findings = insights.get("summary_of_findings") or "Extraction performance indicates targeted opportunities in yield, cost control, and QA throughput."
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(40, y - 10, "Summary of Findings")
-    c.setFont("Helvetica", 10)
-    c.setFillColor(colors.HexColor("#b8b8b8"))
-    _finding = str(findings) if findings else "No data available."
-    c.drawString(40, y - 28, _finding[:150])
+    _panel(24, 420, 470, 120, "KPI Metrics")
+    c.setFont("Helvetica", 9)
+    for i, (label, val) in enumerate(metric_rows):
+        col, row = i % 3, i // 3
+        x, y = 36 + (col * 150), 516 - (row * 26)
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.drawString(x, y, label)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"]); c.setFont("Helvetica-Bold", 10); c.drawString(x, y - 12, val); c.setFont("Helvetica", 9)
 
-    def _append_table_page(title: str, df: pd.DataFrame, cols: list[str]):
-        _new_page()
-        _draw_header(title)
+    _panel(24, 235, 300, 175, "Production Health")
+    method_mix = runs["method"].astype(str).value_counts().head(3).to_dict() if "method" in runs.columns else {}
+    prod_lines = [f"Yield performance: {_fmt_pct(kpis.get('avg_yield_pct'))}", f"Output volume: {_fmt_weight(kpis.get('total_finished_output_g'))}", f"QA/COA pressure: {qa_holds:,} flagged runs", f"Method mix: {', '.join([f'{k} ({v})' for k,v in method_mix.items()]) if method_mix else 'N/A'}"]
+    c.setFillColor(pdf_colors["TEXT_PRIMARY"]); c.setFont("Helvetica", 10)
+    for i, line in enumerate(prod_lines): c.drawString(36, 380 - (i*30), line[:80])
+
+    _panel(336, 235, 300, 175, "Financial Health")
+    fin_vals = [kpis.get("total_estimated_revenue_usd"), kpis.get("total_cogs_usd"), kpis.get("gross_profit_usd"), kpis.get("gross_margin_pct")]
+    fin_all_missing = all((_safe_float(v) in [None, 0.0] for v in fin_vals))
+    fin_lines = [f"Revenue: {_fmt_currency(kpis.get('total_estimated_revenue_usd'))}", f"COGs: {_fmt_currency(kpis.get('total_cogs_usd'))}", f"Gross profit: {_fmt_currency(kpis.get('gross_profit_usd'))}", f"Gross margin: {_fmt_pct(kpis.get('gross_margin_pct'))}"]
+    for i, line in enumerate(fin_lines): c.drawString(348, 380 - (i*30), line)
+    if fin_all_missing:
+        c.setFillColor(pdf_colors["WARNING_YELLOW"]); c.drawString(348, 258, "Financial inputs not provided")
+
+    _panel(648, 235, page_w-672, 175, "Extraction Inventory Summary")
+    if inventory.empty:
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.drawString(660, 330, "No extraction inventory data was available for this report.")
+    else:
+        cols = {_norm_col(cn):cn for cn in inventory.columns}
+        def col(*names):
+            for n in names:
+                if _norm_col(n) in cols: return cols[_norm_col(n)]
+            return None
+        cur, res, avail = col("current_weight_g","current_weight"), col("reserved_weight_g","reserved_weight"), col("available_weight_g","available_weight")
+        metrc, mtype, strain, status = col("metrc_package_id"), col("material_type"), col("strain"), col("status")
+        inv_lines = [
+            f"Total lots: {len(inventory):,}",
+            f"Current weight: {_fmt_weight(pd.to_numeric(inventory[cur],errors='coerce').sum()) if cur else 'N/A'}",
+            f"Reserved weight: {_fmt_weight(pd.to_numeric(inventory[res],errors='coerce').sum()) if res else 'N/A'}",
+            f"Available weight: {_fmt_weight(pd.to_numeric(inventory[avail],errors='coerce').sum()) if avail else 'N/A'}",
+            f"Material types: {inventory[mtype].nunique() if mtype else 0}",
+            f"Strains: {inventory[strain].nunique() if strain else 0}",
+            f"Missing METRC IDs: {int(inventory[metrc].isna().sum()) if metrc else 'N/A'}",
+            f"Held/Unavailable: {int(inventory[status].astype(str).str.contains('hold|unavail', case=False, na=False).sum()) if status else 'N/A'}",
+        ]
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        for i,line in enumerate(inv_lines[:6]): c.drawString(660, 380 - (i*24), line[:48])
+
+    _panel(24, 32, page_w - 48, 190, "Summary of Findings")
+    findings = (payload.get("insights", {}) or {}).get("summary_of_findings") or "Extraction performance indicates opportunities in yield, cost control, inventory pressure, and QA throughput."
+    c.setFillColor(pdf_colors["TEXT_PRIMARY"]); c.setFont("Helvetica", 10); c.drawString(36, 192, findings[:260])
+
+    def _format_table_value(col_name, value):
+        if pd.isna(value): return "N/A"
+        n = _norm_col(col_name)
+        financial_cols = {"unitsizeg","unitsperbatch","unitpriceusd","totalcogsusd","costpergram","costperunit","estimatedrevenueusd","grossprofitusd","grossmarginpct"}
+        if n in financial_cols and _safe_float(value) == 0.0: return "N/A"
+        if n in ["qahold"]: return _fmt_bool(value)
+        if "pct" in n: return _fmt_pct(value)
+        if any(k in n for k in ["revenue","cogs","profit","cost","price","usd"]):
+            return _fmt_cpg(value) if "costpergram" in n else _fmt_currency(value)
+        if "weightg" in n or "outputg" in n or "inputg" in n: return _fmt_weight(value)
+        if "units" in n: return _fmt_units(value)
+        return str(value)
+
+    def _append_table_page(title, df, cols, note=None):
+        c.showPage(); _draw_report_header_footer(title, dark=False); c.setFillColor(pdf_colors["APPENDIX_BG"]); c.rect(0,0,page_w,page_h-46,stroke=0,fill=1)
+        if note:
+            c.setFillColor(pdf_colors["WARNING_YELLOW"]); c.setFont("Helvetica", 9); c.drawString(30, page_h - 90, note)
         if df.empty:
-            c.setFillColor(colors.HexColor("#ffffff"))
-            c.setFont("Helvetica", 11)
-            c.drawString(40, page_h - 120, "No data available.")
-            return
-        table_df = df.copy()
-        for col in cols:
-            if col not in table_df.columns:
-                table_df[col] = ""
-        table_df = table_df[cols].head(250)
-        table = Table([cols] + table_df.astype(str).values.tolist(), repeatRows=1)
-        table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#202124")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#ffffff")),
-            ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#181818")),
-            ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#b8b8b8")),
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#343434")),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
-        ]))
-        tw, th = table.wrap(page_w - 60, page_h - 130)
-        table.drawOn(c, 30, max(40, page_h - 120 - th))
+            c.setFillColor(pdf_colors["TEXT_MUTED"]); c.drawString(30, page_h - 120, "No data available."); return
+        cmap = {_norm_col(cn): cn for cn in df.columns}
+        resolved = [cmap[_norm_col(cn)] for cn in cols if _norm_col(cn) in cmap]
+        data = df[resolved].copy() if resolved else pd.DataFrame()
+        labels = {"batch_id_internal":"Batch ID","input_weight_g":"Input Weight","finished_output_g":"Finished Output","yield_pct":"Yield %","coa_status":"COA Status","qa_hold":"QA Hold","total_cogs_usd":"Total COGs","cost_per_gram":"Cost/G","estimated_revenue_usd":"Est. Revenue","gross_profit_usd":"Gross Profit","gross_margin_pct":"Gross Margin %","metrc_package_id":"METRC Package","available_weight_g":"Available Weight"}
+        headers = [labels.get(cn, cn.replace('_',' ').title()) for cn in resolved]
+        for cn in resolved: data[cn] = data[cn].apply(lambda v: _format_table_value(cn, v))
+        rows = [headers] + data.fillna("N/A").astype(str).values.tolist()
+        chunk=30
+        for i in range(0, len(rows)-1, chunk):
+            if i>0: c.showPage(); _draw_report_header_footer(title, dark=False); c.setFillColor(pdf_colors["APPENDIX_BG"]); c.rect(0,0,page_w,page_h-46,stroke=0,fill=1)
+            page_rows=[rows[0]]+rows[i+1:i+1+chunk]
+            t=Table(page_rows, colWidths=[(page_w-60)/len(headers)]*len(headers), repeatRows=1)
+            style=[("BACKGROUND",(0,0),(-1,0),pdf_colors["ACCENT_ORANGE"]),("TEXTCOLOR",(0,0),(-1,0),colors.black),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),7),("GRID",(0,0),(-1,-1),0.25,pdf_colors["BORDER"])]
+            for ridx in range(1,len(page_rows)): style.append(("BACKGROUND",(0,ridx),(-1,ridx),pdf_colors["APPENDIX_ROW_ALT"] if ridx%2==0 else colors.white))
+            t.setStyle(TableStyle(style)); _,h=t.wrap(page_w-60,page_h-120); t.drawOn(c,30,page_h-100-h)
 
-    _append_table_page("Appendix A: Run Performance Detail", _safe_report_df(payload.get("run_performance")), ["run_date", "batch_id_internal", "method", "input_material_type", "input_weight_g", "finished_output_g", "yield_pct", "status", "coa_status", "qa_hold"])
-    _append_table_page("Appendix B: Value & Profitability Detail", _safe_report_df(payload.get("profitability")), ["batch_id_internal", "method", "final_product_type", "finished_output_g", "unit_size_g", "units_per_batch", "unit_price_usd", "total_cogs_usd", "cost_per_gram", "cost_per_unit", "estimated_revenue_usd", "gross_profit_usd", "gross_margin_pct"])
-    _append_table_page("Appendix C: Process / Stage Tracking", _safe_report_df(payload.get("process_tracking")), ["batch_id_internal", "process_stage", "stage_input_weight_g", "stage_output_weight_g", "stage_loss_g", "stage_yield_pct", "metrc_stage_input_id", "metrc_stage_output_id", "notes"])
-    c.save()
-    out.seek(0)
-    return out.read()
+    _append_table_page("Appendix A: Run Performance Detail", runs, ["run_date","batch_id_internal","method","input_material_type","input_weight_g","finished_output_g","yield_pct","status","coa_status","qa_hold"])
+    _append_table_page("Appendix B: Value & Profitability Detail", profitability, ["batch_id_internal","method","final_product_type","finished_output_g","unit_size_g","units_per_batch","unit_price_usd","total_cogs_usd","cost_per_gram","cost_per_unit","estimated_revenue_usd","gross_profit_usd","gross_margin_pct"], note="Financial inputs were not provided for some or all runs. Revenue, COGs, and margin values may be unavailable.")
+    _append_table_page("Appendix C: Process / Stage Tracking", process, ["batch_id_internal","process_stage","stage_input_weight_g","stage_output_weight_g","stage_loss_g","stage_yield_pct","metrc_stage_input_id","metrc_stage_output_id","notes"])
+    _append_table_page("Appendix D: Extraction Inventory / Material Pressure", inventory, ["material_name","material_type","strain","source_vendor","batch_id_internal","metrc_package_id","current_weight_g","reserved_weight_g","available_weight_g","cost_per_g","intended_method","status","storage_location"], note=None if not inventory.empty else "No extraction inventory detail available.")
+
+    c.save(); out.seek(0); return out.read()
 
 _display_user = (
     st.session_state.admin_user if st.session_state.get("is_admin")
