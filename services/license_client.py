@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 import requests
+from services.doobie_config import resolve_doobie_config
 
 
 LICENSE_VALIDATE_PATH = "/api/v1/license/validate"
@@ -22,6 +23,9 @@ def _base_url() -> str:
 
 
 def _api_key() -> str:
+    resolved = resolve_doobie_config()
+    if resolved.get("api_key"):
+        return str(resolved.get("api_key")).strip()
     primary = str(os.getenv("DOOBIE_API_KEY", "")).strip()
     if primary:
         return primary

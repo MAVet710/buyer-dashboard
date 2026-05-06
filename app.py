@@ -84,6 +84,11 @@ except Exception:
 # DOOBIE AI STATUS (single AI backend)
 # ------------------------------------------------------------
 DOOBIE_PROVIDER_NAME = "DoobieLogic"
+# Credential terminology:
+# DOOBIE_SERVICE_API_KEY = admin-managed service key for app->Doobie runtime calls.
+# DOOBIE_LICENSE_KEY = user/customer entitlement key.
+# DOOBIE_ADMIN_API_KEY = Doobie internal admin tooling key (not used in Buyer Dashboard user flow).
+# METRC_API_KEY = admin-managed METRC integration key.
 
 # ------------------------------------------------------------
 # OPTIONAL / SAFE IMPORT FOR BCRYPT (PASSWORD HASHING)
@@ -923,6 +928,11 @@ def _hydrate_persistent_user_integrations() -> None:
         # Existing auth remains source-of-truth. DB stores integration data only.
         st.session_state.doobie_base_url = str(record.doobie_base_url or "")
         st.session_state.doobie_api_key = str(record.doobie_api_key or "")
+        st.session_state.doobie_license_key = str(getattr(record, "doobie_license_key", "") or "")
+        st.session_state.doobie_license_status = str(getattr(record, "doobie_license_status", "not_connected") or "not_connected")
+        st.session_state.doobie_plan_type = str(getattr(record, "doobie_plan_type", "") or "")
+        st.session_state.doobie_customer_id = str(getattr(record, "doobie_customer_id", "") or "")
+        st.session_state.doobie_company_name = str(getattr(record, "doobie_company_name", "") or "")
         st.session_state.doobie_status = str(record.doobie_status or "not_connected")
         st.session_state.doobie_last_validated = record.doobie_last_validated
         st.session_state.metrc_api_key = str(record.metrc_api_key or "")
@@ -946,6 +956,12 @@ def _save_persistent_user_integrations() -> None:
         values={
             "doobie_base_url": str(st.session_state.get("doobie_base_url") or ""),
             "doobie_api_key": str(st.session_state.get("doobie_api_key") or ""),
+            "doobie_license_key": str(st.session_state.get("doobie_license_key") or ""),
+            "doobie_license_status": str(st.session_state.get("doobie_license_status") or "not_connected"),
+            "doobie_plan_type": str(st.session_state.get("doobie_plan_type") or ""),
+            "doobie_customer_id": str(st.session_state.get("doobie_customer_id") or ""),
+            "doobie_company_name": str(st.session_state.get("doobie_company_name") or ""),
+            "doobie_features_json": json.dumps(st.session_state.get("doobie_features") or {}),
             "doobie_status": str(st.session_state.get("doobie_status") or "not_connected"),
             "doobie_last_validated": (
                 str(st.session_state.get("doobie_last_validated"))
@@ -1088,6 +1104,16 @@ if "doobie_last_validated" not in st.session_state:
     st.session_state.doobie_last_validated = None
 if "doobie_features" not in st.session_state:
     st.session_state.doobie_features = {}
+if "doobie_license_key" not in st.session_state:
+    st.session_state.doobie_license_key = ""
+if "doobie_license_status" not in st.session_state:
+    st.session_state.doobie_license_status = "not_connected"
+if "doobie_plan_type" not in st.session_state:
+    st.session_state.doobie_plan_type = ""
+if "doobie_customer_id" not in st.session_state:
+    st.session_state.doobie_customer_id = ""
+if "doobie_company_name" not in st.session_state:
+    st.session_state.doobie_company_name = ""
 if "metrc_api_key" not in st.session_state:
     st.session_state.metrc_api_key = ""
 if "metrc_state" not in st.session_state:
@@ -3003,6 +3029,32 @@ def _render_doobie_ai_panel() -> None:
         st.caption("Core dashboard remains usable even when Doobie is disconnected.")
 
         if not is_admin:
+            license_input = st.text_input(
+                "Doobie License Key",
+                value="",
+                type="password",
+                key="doobie_license_key_input",
+                help="Your customer license key (not the shared service key).",
+            )
+            if st.button("Connect License", key="doobie_license_connect_btn", type="primary"):
+                candidate_license = str(license_input or st.session_state.get("doobie_license_key") or "").strip()
+                result = validate_license_key(candidate_license)
+                if result.get("ok") and result.get("valid"):
+                    payload = result.get("payload") or {}
+                    st.session_state.doobie_license_key = candidate_license
+                    st.session_state.doobie_license_status = "connected"
+                    st.session_state.doobie_connected = True
+                    st.session_state.doobie_status = "connected"
+                    st.session_state.doobie_plan_type = str(payload.get("plan_type") or "")
+                    st.session_state.doobie_customer_id = str(payload.get("customer_id") or "")
+                    st.session_state.doobie_company_name = str(payload.get("company_name") or "")
+                    st.session_state.doobie_features = payload.get("features") or {"ai": True}
+                    _save_persistent_user_integrations()
+                    st.success("Doobie license connected.")
+                elif result.get("ok"):
+                    st.error("Doobie license key is invalid or expired.")
+                else:
+                    st.error("Doobie service key is missing. Admin must configure Integrations.")
             return
 
         default_cfg = get_default_doobie_config()
@@ -3013,7 +3065,7 @@ def _render_doobie_ai_panel() -> None:
             placeholder="https://doobie.yourdomain.com",
         )
         api_key_input = st.text_input(
-            "Doobie API Key / Client Key",
+            "Doobie License Key",
             value="",
             type="password",
             key="doobie_api_key_input",
@@ -3080,16 +3132,16 @@ def _render_admin_integrations_page() -> None:
     admin_user = str(st.session_state.get("admin_user") or "admin")
 
     with st.container(border=True):
-        st.markdown("### DoobieLogic")
+        st.markdown("### Doobie")
         st.caption("Shared default connection used when session override is not present.")
         st.text_input(
-            "Base URL",
+            "Doobie Base URL",
             value=str(st.session_state.get("global_doobie_base_url") or ""),
             key="admin_global_doobie_base_url_input",
             placeholder="https://doobie.yourdomain.com",
         )
         st.text_input(
-            "API Key",
+            "Doobie Service API Key",
             value="",
             key="admin_global_doobie_api_key_input",
             type="password",
@@ -3157,13 +3209,13 @@ def _render_admin_integrations_page() -> None:
             help="Leave blank to keep the currently saved key.",
         )
         st.text_input(
-            "State",
+            "METRC State",
             value=str(st.session_state.get("global_metrc_state") or ""),
             key="admin_global_metrc_state_input",
             placeholder="e.g., CA",
         )
         st.text_input(
-            "License / Facility",
+            "METRC License / Facility",
             value=str(st.session_state.get("global_metrc_license") or ""),
             key="admin_global_metrc_license_input",
         )
@@ -5519,7 +5571,7 @@ def render_extraction_command_center():
         states = ["All", "MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"]
         methods = ["All"] + EXTRACTION_METHOD_OPTIONS
 
-        selected_state = st.selectbox("State", states, index=0, key="ecc_selected_state")
+        selected_state = st.selectbox("METRC State", states, index=0, key="ecc_selected_state")
         selected_method = st.selectbox("Extraction Method", methods, index=0, key="ecc_selected_method")
         toll_only = st.toggle("Show Toll Processing Only", value=False, key="ecc_toll_only")
         st.divider()
@@ -7837,7 +7889,7 @@ def render_extraction_command_center():
             t1, t2, t3 = st.columns(3)
             with t1:
                 client_name = st.text_input("Client Name", key="ecc_job_client_name")
-                state = st.selectbox("State", ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"], key="ecc_job_state")
+                state = st.selectbox("METRC State", ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"], key="ecc_job_state")
                 license_or_registration = st.text_input("Client License / Registration", key="ecc_job_license")
                 method = st.selectbox("Method", ["BHO", "CO2", "Rosin", "Ethanol"], key="ecc_job_method")
             with t2:
@@ -7896,7 +7948,7 @@ def render_extraction_command_center():
         st.subheader("Compliance / METRC Traceability")
         required_fields = pd.DataFrame(
             [
-                ["State", "Jurisdiction for reporting and workflow rules"],
+                ["METRC State", "Jurisdiction for reporting and workflow rules"],
                 ["Facility / License Name", "Required internal mapping for multi-site operations"],
                 ["Internal Batch ID", "Your own batch identifier"],
                 ["METRC Package ID - Input", "Starting package used in the run"],
@@ -9710,7 +9762,7 @@ elif section == "🧭 Compliance Q&A":
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        state = st.text_input("State", value="CA", key="compliance_state")
+        state = st.text_input("METRC State", value="CA", key="compliance_state")
     with c2:
         scope = st.selectbox("Scope", ["adult-use", "medical"], key="compliance_scope")
     with c3:
