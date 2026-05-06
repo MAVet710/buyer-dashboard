@@ -3499,17 +3499,22 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     page_w, page_h = landscape(letter)
     c = canvas.Canvas(out, pagesize=(page_w, page_h))
 
-    theme_name = str(st.session_state.get("theme", "Dark")).lower()
-    is_light_theme = theme_name == "light"
+    # Buyer Dashboard PDF style tokens
     pdf_colors = {
-        "page_bg": colors.HexColor("#E9EEF6") if is_light_theme else colors.HexColor("#0F2747"),
-        "panel_bg": colors.HexColor("#F7FAFF") if is_light_theme else colors.HexColor("#163A63"),
-        "panel_border": colors.HexColor("#8CB9D8") if is_light_theme else colors.HexColor("#5AA6D1"),
-        "title": colors.HexColor("#102A43") if is_light_theme else colors.white,
-        "body": colors.HexColor("#243B53") if is_light_theme else colors.white,
-        "muted": colors.HexColor("#486581") if is_light_theme else colors.HexColor("#7EC7EA"),
-        "chart_grid": "#C2D6EA" if is_light_theme else "#2D598A",
-        "bar": "#5AA6D1",
+        "BACKGROUND_DARK": colors.HexColor("#0f0f10"),
+        "CARD_BG": colors.HexColor("#181818"),
+        "CARD_BG_ALT": colors.HexColor("#202124"),
+        "BORDER": colors.HexColor("#343434"),
+        "ACCENT_ORANGE": colors.HexColor("#ff9a3c"),
+        "TEXT_PRIMARY": colors.HexColor("#ffffff"),
+        "TEXT_SECONDARY": colors.HexColor("#b8b8b8"),
+        "TEXT_MUTED": colors.HexColor("#7f7f7f"),
+        "SUCCESS_GREEN": colors.HexColor("#64d18a"),
+        "WARNING_YELLOW": colors.HexColor("#f6c453"),
+        "DANGER_RED": colors.HexColor("#ff5c5c"),
+        "BLUE_ACCENT": colors.HexColor("#5ea8ff"),
+        "APPENDIX_BG": colors.HexColor("#f7f8fa"),
+        "APPENDIX_ROW_ALT": colors.HexColor("#f0f2f5"),
     }
 
     def _draw_wrapped_text(x, y_top, text, width, font_name="Helvetica", font_size=10, line_height=14, color=None):
@@ -3572,22 +3577,85 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
                     break
         return out, resolved
 
+    def _draw_report_header_footer(page_title: str, use_dark_body: bool = True):
+        if use_dark_body:
+            c.setFillColor(pdf_colors["BACKGROUND_DARK"])
+            c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["CARD_BG"])
+        c.rect(0, page_h - 46, page_w, 46, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.rect(0, page_h - 46, page_w, 2, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(30, page_h - 28, "Buyer Dashboard")
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"])
+        c.setFont("Helvetica", 9)
+        c.drawRightString(page_w - 30, page_h - 28, "Buyer Executive Summary")
+        c.setFillColor(pdf_colors["TEXT_MUTED"])
+        c.setFont("Helvetica", 8)
+        c.drawString(30, 16, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawRightString(page_w - 30, 16, f"Page {c.getPageNumber()}")
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.setFont("Helvetica-Bold", 15)
+        c.drawString(30, page_h - 72, page_title)
+
+    def _format_display_value(col_name: str, value):
+        if pd.isna(value):
+            return ""
+        col_norm = _norm_col(col_name)
+        if "pct" in col_norm or "percent" in col_norm:
+            return f"{float(value):,.1f}%"
+        if any(k in col_norm for k in ["price", "value", "revenue", "cost", "amount", "dollar"]):
+            return f"${float(value):,.2f}"
+        if "avgunitsperday" in col_norm:
+            return f"{float(value):,.2f}"
+        if "avgdaysonhand" in col_norm or col_norm == "avgdos":
+            return f"{float(value):,.1f}"
+        if any(k in col_norm for k in ["reorderqty", "daysonhand", "count", "units", "onhand", "sold", "sku"]):
+            return f"{float(value):,.0f}"
+        return f"{float(value):,.2f}" if isinstance(value, (int, float, np.number)) else str(value)
+
+    def _humanize_label(name: str) -> str:
+        mapping = {
+            "sku_count": "SKU Count",
+            "total_units_sold": "Total Units Sold",
+            "total_on_hand_units": "Total On Hand",
+            "avg_units_per_day": "Avg Units/Day",
+            "avg_days_on_hand": "Avg DOS",
+            "total_reorder_qty": "Total Reorder Qty",
+            "pct_inventory": "% Inventory",
+            "pct_units_sold": "% Units Sold",
+        }
+        raw = str(name)
+        if raw in mapping:
+            return mapping[raw]
+        return raw.replace("_", " ").strip().title().replace("Dos", "DOS").replace("Sku", "SKU")
+
     def _append_pdf_message_page(title: str, message: str):
         c.showPage()
-        c.setFillColor(colors.HexColor("#FFFFFF"))
-        c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
-        c.setFillColor(colors.HexColor("#102A43"))
-        c.setFont("Helvetica-Bold", 20)
-        c.drawString(30, page_h - 45, title)
-        c.setFont("Helvetica", 11)
-        c.setFillColor(colors.HexColor("#243B53"))
-        _draw_wrapped_text(30, page_h - 80, message, width=page_w - 60, font_name="Helvetica", font_size=11, color=colors.HexColor("#243B53"))
+        _draw_report_header_footer(title, use_dark_body=False)
+        c.setFillColor(pdf_colors["APPENDIX_BG"])
+        c.rect(0, 0, page_w, page_h - 46, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["CARD_BG"])
+        c.roundRect(30, page_h - 180, page_w - 60, 90, 10, stroke=1, fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"])
+        c.roundRect(30, page_h - 180, page_w - 60, 90, 10, stroke=1, fill=0)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        _draw_wrapped_text(45, page_h - 130, message, width=page_w - 90, font_name="Helvetica", font_size=11, color=pdf_colors["TEXT_PRIMARY"])
 
     def _append_pdf_table_page(title: str, df: pd.DataFrame):
         if df is None or df.empty:
             _append_pdf_message_page(title, "No data available.")
             return
-        rows = [list(df.columns)] + df.fillna("").astype(str).values.tolist()
+        display_cols = [_humanize_label(cn) for cn in list(df.columns)]
+        data_df = df.copy()
+        for col in data_df.columns:
+            numeric = pd.to_numeric(data_df[col], errors="coerce")
+            if not numeric.isna().all():
+                data_df[col] = [ _format_display_value(col, v) for v in numeric ]
+            else:
+                data_df[col] = data_df[col].fillna("").astype(str)
+        rows = [display_cols] + data_df.fillna("").astype(str).values.tolist()
         available_w = page_w - 60
         col_count = max(1, len(df.columns))
         col_widths = [available_w / col_count] * col_count
@@ -3603,21 +3671,30 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         data_rows = rows[1:]
         for chunk_idx in range(0, len(data_rows), max_rows_per_page):
             c.showPage()
-            c.setFillColor(colors.HexColor("#FFFFFF"))
-            c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
-            c.setFillColor(colors.HexColor("#102A43"))
-            c.setFont("Helvetica-Bold", 20)
+            _draw_report_header_footer(title, use_dark_body=False)
+            c.setFillColor(pdf_colors["APPENDIX_BG"])
+            c.rect(0, 0, page_w, page_h - 46, stroke=0, fill=1)
             page_suffix = f" (cont. {chunk_idx // max_rows_per_page + 1})" if chunk_idx > 0 else ""
-            c.drawString(30, page_h - 45, f"{title}{page_suffix}")
+            c.setFillColor(pdf_colors["TEXT_SECONDARY"])
+            c.setFont("Helvetica", 9)
+            c.drawString(30, page_h - 84, f"{title}{page_suffix}")
             chunk_rows = [rows[0]] + data_rows[chunk_idx:chunk_idx + max_rows_per_page]
             table = Table(chunk_rows, colWidths=col_widths, repeatRows=1)
-            style_cmds = list(style_cmds_base)
+            style_cmds = [
+                ("BACKGROUND", (0, 0), (-1, 0), pdf_colors["ACCENT_ORANGE"]),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("GRID", (0, 0), (-1, -1), 0.25, pdf_colors["BORDER"]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ]
             for ridx in range(1, len(chunk_rows)):
-                bg = colors.HexColor("#F4F8FC") if ridx % 2 == 0 else colors.white
+                bg = pdf_colors["APPENDIX_ROW_ALT"] if ridx % 2 == 0 else colors.white
                 style_cmds.append(("BACKGROUND", (0, ridx), (-1, ridx), bg))
             table.setStyle(TableStyle(style_cmds))
             _, h = table.wrap(available_w, page_h - 100)
-            table.drawOn(c, 30, page_h - 70 - h)
+            table.drawOn(c, 30, page_h - 96 - h)
 
     def _derive_inventory_health_flags(df: pd.DataFrame) -> pd.DataFrame:
         if df is None or df.empty:
@@ -3669,14 +3746,16 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     )
 
     if not has_real_data:
-        c.setFillColor(pdf_colors["page_bg"])
+        c.setFillColor(pdf_colors["BACKGROUND_DARK"])
         c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
-        c.setFillColor(pdf_colors["title"])
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
         c.setFont("Helvetica-Bold", 28)
         c.drawString(40, page_h - 70, "Buyer Executive Summary")
         c.setFont("Helvetica", 12)
+        c.setFillColor(pdf_colors["TEXT_MUTED"])
         c.drawString(40, page_h - 95, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
         c.setFont("Helvetica", 14)
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"])
         c.drawString(40, page_h - 140, "Upload inventory and sales data before exporting a buyer executive summary.")
         c.showPage()
         c.save()
@@ -3701,20 +3780,19 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     avg_days_on_hand = avg_dos
     health_score = max(0, min(100, int(100 - ((low_stock * 2) + (at_risk * 3)))))
 
-    c.setFillColor(pdf_colors["page_bg"])
-    c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
-    c.setFillColor(pdf_colors["title"])
-    c.setFont("Helvetica-Bold", 26)
-    c.drawString(30, page_h - 42, "Buyer Executive Summary")
+    _draw_report_header_footer("Executive Summary", use_dark_body=True)
+    c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+    c.rect(30, page_h - 90, 180, 4, stroke=0, fill=1)
+    c.setFillColor(pdf_colors["TEXT_MUTED"])
     c.setFont("Helvetica", 10)
-    _draw_wrapped_text(30, page_h - 58, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}   |   Period: {reporting_period}   |   Store: {store_name}", width=page_w - 60, font_name="Helvetica", font_size=10, line_height=12, color=pdf_colors["muted"])
+    _draw_wrapped_text(30, page_h - 106, f"Period: {reporting_period}   |   Store: {store_name}", width=page_w - 60, font_name="Helvetica", font_size=10, line_height=12, color=pdf_colors["TEXT_MUTED"])
 
     def panel(x, y, w, h, title):
-        c.setFillColor(pdf_colors["panel_bg"])
+        c.setFillColor(pdf_colors["CARD_BG"])
         c.roundRect(x, y, w, h, 8, stroke=1, fill=1)
-        c.setStrokeColor(pdf_colors["panel_border"])
+        c.setStrokeColor(pdf_colors["BORDER"])
         c.roundRect(x, y, w, h, 8, stroke=1, fill=0)
-        c.setFillColor(pdf_colors["title"])
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
         c.setFont("Helvetica-Bold", 11)
         c.drawString(x + 10, y + h - 18, title)
 
@@ -3729,7 +3807,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     ]
     c.setFont("Helvetica", 10)
     for i, line in enumerate(overview_lines):
-        _draw_wrapped_text(36, 505 - (i * 18), line, width=390, font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["body"])
+        _draw_wrapped_text(36, 505 - (i * 18), line, width=390, font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["TEXT_PRIMARY"])
 
     panel(24, 245, 410, 145, "KPI / Metrics")
     kpis = [
@@ -3744,9 +3822,9 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         row = idx // 3
         x = 36 + (col * 130)
         y = 360 - (row * 36)
-        c.setFillColor(pdf_colors["muted"])
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"])
         c.drawString(x, y, k)
-        c.setFillColor(pdf_colors["body"])
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
         c.setFont("Helvetica-Bold", 10)
         c.drawString(x, y - 12, v)
         c.setFont("Helvetica", 9)
@@ -3758,12 +3836,12 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         if cat_col:
             grouped = detail_df.groupby(cat_col, as_index=False).agg({"daysonhand": "mean", "onhandunits": "sum"}).sort_values("daysonhand", ascending=False).head(6)
             fig1, ax1 = plt.subplots(figsize=(4.0, 2.0))
-            ax1.barh(grouped[cat_col].astype(str), grouped["daysonhand"], color=pdf_colors["bar"])
+            ax1.barh(grouped[cat_col].astype(str), grouped["daysonhand"], color="#ff9a3c")
             ax1.set_facecolor("none")
             fig1.patch.set_alpha(0.0)
-            ax1.tick_params(colors=pdf_colors["body"].hexval())
-            ax1.spines["bottom"].set_color(pdf_colors["chart_grid"])
-            ax1.spines["left"].set_color(pdf_colors["chart_grid"])
+            ax1.tick_params(colors="#ffffff")
+            ax1.spines["bottom"].set_color("#343434")
+            ax1.spines["left"].set_color("#343434")
             ax1.set_title("Category DOS", fontsize=9)
             ax1.tick_params(labelsize=8)
             fig1.tight_layout()
@@ -3773,7 +3851,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
             fig2, ax2 = plt.subplots(figsize=(2.7, 2.0))
             fig2.patch.set_alpha(0.0)
             ax2.set_facecolor("none")
-            ax2.pie(grouped["onhandunits"], labels=None, wedgeprops=dict(width=0.45), startangle=90)
+            ax2.pie(grouped["onhandunits"], labels=None, wedgeprops=dict(width=0.45), startangle=90, colors=["#ff9a3c", "#5ea8ff", "#64d18a", "#f6c453", "#ff5c5c", "#b8b8b8"])
             ax2.set_title("Inventory Mix", fontsize=9, color="white")
             fig2.tight_layout()
             fig2.savefig(donut_img, format="png", dpi=160, transparent=True)
@@ -3785,12 +3863,16 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         bar_img.seek(0)
         c.drawImage(ImageReader(bar_img), 35, 58, width=250, height=150, mask="auto")
     else:
-        c.setFillColor(pdf_colors["body"]); c.drawString(40, 110, "No data available for bar chart.")
+        c.setFillColor(pdf_colors["CARD_BG_ALT"]); c.roundRect(35, 92, 250, 44, 6, stroke=1, fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"]); c.roundRect(35, 92, 250, 44, 6, stroke=1, fill=0)
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.drawString(46, 112, "No data available for bar chart.")
     if donut_img.getbuffer().nbytes > 0:
         donut_img.seek(0)
         c.drawImage(ImageReader(donut_img), 290, 58, width=130, height=145, mask="auto")
     else:
-        c.setFillColor(pdf_colors["body"]); c.drawString(290, 110, "No data available for donut chart.")
+        c.setFillColor(pdf_colors["CARD_BG_ALT"]); c.roundRect(290, 92, 130, 44, 6, stroke=1, fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"]); c.roundRect(290, 92, 130, 44, 6, stroke=1, fill=0)
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.drawString(300, 112, "No data available.")
 
     panel(448, 245, page_w - 472, 285, "Insights / Findings")
     insights = [
@@ -3803,7 +3885,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     c.setFont("Helvetica", 10)
     insight_y = 500
     for text in insights:
-        _draw_wrapped_text(460, insight_y, f"• {text}", width=(page_w - 495), font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["body"])
+        _draw_wrapped_text(460, insight_y, f"• {text}", width=(page_w - 495), font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["TEXT_PRIMARY"])
         insight_y -= 44
 
     panel(448, 32, page_w - 472, 200, "Summary of Findings")
@@ -3813,7 +3895,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         f"and {at_risk} at-risk SKUs, while {overstock} overstock positions and {slow_movers} slow movers "
         f"represent carrying-risk exposure."
     )
-    _draw_wrapped_text(460, 190, summary, width=(page_w - 495), font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["body"])
+    _draw_wrapped_text(460, 190, summary, width=(page_w - 495), font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["TEXT_PRIMARY"])
 
     # Appendix A/B/C pages appended after executive summary page.
     reorder_source = (
