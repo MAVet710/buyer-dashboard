@@ -3570,6 +3570,18 @@ def _safe_series_mean(series: pd.Series, default=0.0) -> float:
     mean_value = series.mean()
     return float(mean_value) if pd.notna(mean_value) else float(default)
 
+
+def _safe_numeric_sum(df, column_name, default=0.0) -> float:
+    series = _safe_numeric_series(df, column_name, default=0.0)
+    if series.empty:
+        return float(default)
+    total = series.sum()
+    return float(total) if pd.notna(total) else float(default)
+
+
+def _safe_numeric_mean(df, column_name, default=0.0) -> float:
+    return _safe_series_mean(_safe_numeric_series(df, column_name, default=0.0), default=default)
+
 def _build_buyer_executive_report_bytes(payload: dict) -> bytes:
     payload = payload or {}
     out = BytesIO()
@@ -4052,7 +4064,8 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     return out.read()
 
 def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
-    out = io.BytesIO()
+    payload = payload or {}
+    out = BytesIO()
     c = canvas.Canvas(out, pagesize=letter)
     page_w, page_h = letter
 
@@ -4072,7 +4085,10 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
     _new_page()
     _draw_header("Extraction Executive Summary")
 
-    has_data = bool(payload and any(not _safe_report_df(payload.get(k)).empty for k in ["run_performance", "profitability", "process_tracking"]))
+    has_data = any(
+        not _safe_report_df(payload.get(k)).empty
+        for k in ["run_performance", "profitability", "process_tracking", "extraction_inventory", "qa_compliance"]
+    )
     if not has_data:
         c.setFillColor(colors.HexColor("#ffffff"))
         c.setFont("Helvetica", 11)
@@ -4114,7 +4130,8 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
     c.drawString(40, y - 10, "Summary of Findings")
     c.setFont("Helvetica", 10)
     c.setFillColor(colors.HexColor("#b8b8b8"))
-    c.drawString(40, y - 28, str(findings)[:150])
+    _finding = str(findings) if findings else "No data available."
+    c.drawString(40, y - 28, _finding[:150])
 
     def _append_table_page(title: str, df: pd.DataFrame, cols: list[str]):
         _new_page()
@@ -4170,14 +4187,14 @@ _extraction_payload = {
     },
     "kpis": {
         "total_runs": int(len(_ecc_runs)),
-        "total_input_weight_g": float(_safe_numeric_series(_ecc_runs, "input_weight_g").sum()),
-        "total_finished_output_g": float((_safe_numeric_series(_ecc_runs, "final_output_g") if "final_output_g" in _ecc_runs.columns else _safe_numeric_series(_ecc_runs, "finished_output_g")).sum()),
-        "avg_yield_pct": _safe_series_mean(_safe_numeric_series(_ecc_runs, "yield_pct")),
-        "avg_efficiency_pct": _safe_series_mean(_safe_numeric_series(_ecc_runs, "efficiency_pct")),
-        "total_estimated_revenue_usd": float(_safe_numeric_series(_extraction_profitability, "estimated_revenue_usd").sum()),
-        "total_cogs_usd": float(_safe_numeric_series(_extraction_profitability, "total_cogs_usd").sum()),
-        "gross_profit_usd": float(_safe_numeric_series(_extraction_profitability, "gross_profit_usd").sum()),
-        "gross_margin_pct": _safe_series_mean(_safe_numeric_series(_extraction_profitability, "gross_margin_pct")),
+        "total_input_weight_g": _safe_numeric_sum(_ecc_runs, "input_weight_g"),
+        "total_finished_output_g": _safe_numeric_sum(_ecc_runs, "final_output_g") if "final_output_g" in _ecc_runs.columns else _safe_numeric_sum(_ecc_runs, "finished_output_g"),
+        "avg_yield_pct": _safe_numeric_mean(_ecc_runs, "yield_pct"),
+        "avg_efficiency_pct": _safe_numeric_mean(_ecc_runs, "efficiency_pct"),
+        "total_estimated_revenue_usd": _safe_numeric_sum(_extraction_profitability, "estimated_revenue_usd"),
+        "total_cogs_usd": _safe_numeric_sum(_extraction_profitability, "total_cogs_usd"),
+        "gross_profit_usd": _safe_numeric_sum(_extraction_profitability, "gross_profit_usd"),
+        "gross_margin_pct": _safe_numeric_mean(_extraction_profitability, "gross_margin_pct"),
         "at_risk_batches": int(_extraction_profitability["value_risk_flag"].astype(str).str.lower().isin(["critical", "warning"]).sum()) if "value_risk_flag" in _extraction_profitability.columns else 0,
         "qa_holds_or_coa_pending": int((_ecc_runs["qa_hold"].astype(str).str.lower().isin(["true", "yes", "1", "hold"]).sum() if "qa_hold" in _ecc_runs.columns else 0) + (_ecc_runs["coa_status"].astype(str).str.contains("pending", case=False, na=False).sum() if "coa_status" in _ecc_runs.columns else 0)),
     },
