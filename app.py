@@ -4283,6 +4283,45 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
 
     c.save(); out.seek(0); return out.read()
 
+
+def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
+    out = BytesIO()
+    c = canvas.Canvas(out, pagesize=letter)
+    page_w, page_h = letter
+    c.setTitle("White Label / Repack Report")
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(30, page_h - 40, "White Label / Repack")
+    c.setFont("Helvetica", 10)
+    c.drawString(30, page_h - 58, "Operational and compliance planning worksheet (not legal advice).")
+    y = page_h - 90
+    summary = payload.get("summary", {})
+    for label, value in [
+        ("Scenario", payload.get("scenario_name", "Unnamed Scenario")),
+        ("Bulk Flower", summary.get("bulk_flower_name", "N/A")),
+        ("Source METRC Package", summary.get("source_metrc_package_id", "N/A")),
+        ("Landed Cost", f"${summary.get('landed_cost_usd', 0):,.2f}"),
+        ("Total Revenue", f"${summary.get('total_revenue_usd', 0):,.2f}"),
+        ("Gross Profit", f"${summary.get('gross_profit_usd', 0):,.2f}"),
+        ("Gross Margin", f"{summary.get('gross_margin_pct', 0):.1f}%"),
+        ("COA Link", summary.get("coa_link", "N/A")),
+    ]:
+        c.drawString(30, y, f"{label}: {value}")
+        y -= 16
+    c.showPage()
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(30, page_h - 40, "Package Size Comparison")
+    table_df = _safe_report_df(payload.get("package_comparison"))
+    if not table_df.empty:
+        cols = [col for col in ["Package Size", "Units", "Leftover Grams", "Retail Price", "Revenue", "Cost per Unit", "Gross Profit", "Gross Margin %"] if col in table_df.columns]
+        data = [cols] + table_df[cols].astype(str).values.tolist()
+        t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
+        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
+        _, h = t.wrap(page_w - 60, page_h - 120)
+        t.drawOn(c, 30, page_h - 70 - h)
+    c.save()
+    out.seek(0)
+    return out.read()
+
 _display_user = (
     st.session_state.admin_user if st.session_state.get("is_admin")
     else st.session_state.get("user_user") or "Buyer"
@@ -4293,6 +4332,7 @@ _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-
 workspace_options = []
 if _feature_enabled("buyer_module", default_enabled=True):
     workspace_options.append("🛒 Buyer Operations")
+    workspace_options.append("🏷️ White Label / Repack")
 if _feature_enabled("extraction_module", default_enabled=True):
     workspace_options.append("🧪 Extraction Command Center")
 _active_workspace = st.session_state.get("workspace_mode", workspace_options[0] if workspace_options else "🛒 Buyer Operations")
@@ -4353,7 +4393,20 @@ with _export_right:
             key="extraction_export_report_btn",
         )
     elif _buyer_export_payload is None:
-        if st.button("Export Report", key="buyer_export_report_btn_disabled"):
+        if _active_workspace == "🏷️ White Label / Repack":
+            white_payload = st.session_state.get("white_label_export_payload")
+            if white_payload is None:
+                if st.button("Export White Label Report", key="white_label_export_report_btn_disabled"):
+                    st.warning("Run a white label scenario first, then export.")
+            else:
+                st.download_button(
+                    "Export White Label Report",
+                    data=_build_white_label_repack_report_pdf(white_payload),
+                    file_name=f"white_label_repack_report_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+                    mime="application/pdf",
+                    key="white_label_export_report_btn",
+                )
+        elif st.button("Export Report", key="buyer_export_report_btn_disabled"):
             st.warning("Upload inventory and sales data before exporting a buyer report.")
     else:
         st.download_button(
@@ -8342,6 +8395,152 @@ def render_extraction_command_center():
 # =========================
 # TOP-LEVEL APP MODE SWITCH
 # =========================
+def _grams_from_unit(weight_value: float, weight_unit: str) -> float:
+    if weight_unit == "lb":
+        return weight_value * 453.59237
+    if weight_unit == "oz":
+        return weight_value * 28.349523125
+    return weight_value
+
+
+def render_white_label_repack_workspace():
+    st.markdown("## White Label / Repack")
+    st.caption("Operational and compliance tracking for private-label/repack flower workflows. Not legal advice.")
+    st.session_state.setdefault("white_label_scenarios", [])
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        bulk_flower_name = st.text_input("bulk_flower_name")
+        strain_name = st.text_input("strain_name")
+        strain_type = st.selectbox("strain_type", ["indica", "sativa", "hybrid", "cbd", "mixed", "unknown"])
+        cultivator_name = st.text_input("cultivator_name")
+        cultivator_license_number = st.text_input("cultivator_license_number")
+        vendor_name = st.text_input("vendor_name")
+        source_metrc_package_id = st.text_input("source_metrc_package_id")
+        batch_or_lot_number = st.text_input("batch_or_lot_number")
+    with col_b:
+        coa_link = st.text_input("coa_link")
+        coa_status = st.selectbox("coa_status", ["Pending", "Passed", "Failed", "Needs Review"])
+        testing_date = st.date_input("testing_date", value=datetime.now().date())
+        harvest_date = st.date_input("harvest_date", value=datetime.now().date())
+        received_date = st.date_input("received_date", value=datetime.now().date())
+        package_date = st.date_input("package/repack date", value=datetime.now().date())
+        packaging_licensee = st.text_input("packaging licensee / retailer")
+        label_review_status = st.selectbox("label review status", ["Missing", "Needs Review", "Ready"])
+    with col_c:
+        thca_pct = st.number_input("thca_pct", min_value=0.0, max_value=100.0, value=0.0)
+        total_thc_pct = st.number_input("total_thc_pct", min_value=0.0, max_value=100.0, value=0.0)
+        terpene_pct = st.number_input("terpene_pct", min_value=0.0, max_value=100.0, value=0.0)
+        moisture_pct = st.number_input("moisture_pct", min_value=0.0, max_value=100.0, value=0.0)
+        testing_notes = st.text_area("testing_notes", height=70)
+        child_metrc_package_ids = st.text_input("repackaged_metrc_package_ids (comma-separated)")
+        manifest_id = st.text_input("transfer/manifest id")
+        facility_license = st.text_input("facility license")
+
+    st.markdown("### Economics + Loss")
+    ec1, ec2, ec3 = st.columns(3)
+    with ec1:
+        bulk_weight_value = st.number_input("bulk_weight_value", min_value=0.0, value=0.0)
+        bulk_weight_unit = st.selectbox("bulk_weight_unit", ["g", "oz", "lb"])
+        bulk_total_cost_usd = st.number_input("bulk_total_cost_usd", min_value=0.0, value=0.0)
+        discount_pct = st.number_input("discount_pct", min_value=0.0, max_value=100.0, value=0.0)
+        discount_amount_usd = st.number_input("discount_amount_usd", min_value=0.0, value=0.0)
+    with ec2:
+        freight_or_delivery_cost_usd = st.number_input("freight_or_delivery_cost_usd", min_value=0.0, value=0.0)
+        sample_or_testing_cost_usd = st.number_input("sample_or_testing_cost_usd", min_value=0.0, value=0.0)
+        labor_cost_total_usd = st.number_input("labor_cost_total_usd", min_value=0.0, value=0.0)
+        labor_cost_per_unit_usd = st.number_input("labor_cost_per_unit_usd", min_value=0.0, value=0.0)
+        packaging_cost_per_unit_usd = st.number_input("packaging_cost_per_unit_usd", min_value=0.0, value=0.0)
+    with ec3:
+        label_cost_per_unit_usd = st.number_input("label_cost_per_unit_usd", min_value=0.0, value=0.0)
+        compliance_admin_cost_usd = st.number_input("compliance_admin_cost_usd", min_value=0.0, value=0.0)
+        other_costs_usd = st.number_input("other_costs_usd", min_value=0.0, value=0.0)
+        shrink_loss_pct = st.number_input("shrink_loss_pct", min_value=0.0, max_value=100.0, value=0.0)
+        trim_loss_pct = st.number_input("trim_loss_pct", min_value=0.0, max_value=100.0, value=0.0)
+        qa_hold_loss_pct = st.number_input("QA_hold_loss_pct", min_value=0.0, max_value=100.0, value=0.0)
+
+    total_g = _grams_from_unit(bulk_weight_value, bulk_weight_unit)
+    discount_dollar_from_pct = bulk_total_cost_usd * (discount_pct / 100.0)
+    landed_cost_usd = max(0.0, bulk_total_cost_usd - discount_dollar_from_pct - discount_amount_usd + freight_or_delivery_cost_usd + sample_or_testing_cost_usd)
+    total_loss_pct = min(100.0, shrink_loss_pct + trim_loss_pct + qa_hold_loss_pct)
+    usable_weight_g = max(0.0, total_g * (1 - total_loss_pct / 100.0))
+    bulk_cost_per_gram = landed_cost_usd / total_g if total_g > 0 else 0.0
+    st.info(f"landed_cost_usd: ${landed_cost_usd:,.2f} | bulk_cost_per_gram: ${bulk_cost_per_gram:,.2f} | usable_weight_g: {usable_weight_g:,.2f} g")
+
+    st.markdown("### Packaging / Unitization")
+    package_sizes = [1.0, 3.5, 7.0, 14.0, 28.0]
+    custom_size = st.number_input("custom grams", min_value=0.0, value=0.0)
+    if custom_size > 0:
+        package_sizes.append(float(custom_size))
+    unique_sizes = sorted({p for p in package_sizes if p > 0})
+
+    rows = []
+    for size in unique_sizes:
+        price = st.number_input(f"target_retail_price_per_unit ({size}g)", min_value=0.0, value=0.0, key=f"wl_price_{size}")
+        alloc_pct = st.number_input(f"allocation_pct ({size}g)", min_value=0.0, max_value=100.0, value=0.0, key=f"wl_alloc_{size}")
+        alloc_g = usable_weight_g * (alloc_pct / 100.0) if alloc_pct > 0 else usable_weight_g
+        units = int(np.floor(alloc_g / size)) if size > 0 else 0
+        leftover = max(0.0, alloc_g - units * size)
+        revenue = units * price
+        allocated_bulk_cost = units * size * bulk_cost_per_gram
+        labor_total = labor_cost_total_usd + (labor_cost_per_unit_usd * units)
+        packaging_total = packaging_cost_per_unit_usd * units
+        label_total = label_cost_per_unit_usd * units
+        all_in_cost_total = allocated_bulk_cost + labor_total + packaging_total + label_total + compliance_admin_cost_usd + other_costs_usd
+        all_in_cost_per_unit = all_in_cost_total / units if units > 0 else 0.0
+        gross_profit = revenue - all_in_cost_total
+        margin_pct = (gross_profit / revenue * 100.0) if revenue > 0 else 0.0
+        rows.append({"Package Size": f"{size:g}g", "Units": units, "Leftover Grams": round(leftover, 2), "Retail Price": round(price, 2), "Revenue": round(revenue, 2), "Cost per Unit": round(all_in_cost_per_unit, 2), "Gross Profit": round(gross_profit, 2), "Gross Margin %": round(margin_pct, 2), "allocation_pct": alloc_pct, "all_in_cost_total": all_in_cost_total})
+    package_df = pd.DataFrame(rows)
+    if package_df.empty:
+        st.warning("Add at least one unit size > 0.")
+        return None
+    alloc_sum = float(package_df["allocation_pct"].sum())
+    if alloc_sum > 100.0:
+        st.warning("Allocation percentages cannot exceed 100%.")
+    st.dataframe(package_df[["Package Size", "Units", "Leftover Grams", "Retail Price", "Revenue", "Cost per Unit", "Gross Profit", "Gross Margin %"]], use_container_width=True)
+    total_revenue = float(package_df["Revenue"].sum())
+    total_profit = float(package_df["Gross Profit"].sum())
+    total_margin = (total_profit / total_revenue * 100.0) if total_revenue > 0 else 0.0
+    best_pkg = package_df.sort_values("Gross Margin %", ascending=False).iloc[0]["Package Size"]
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Bulk Weight", f"{total_g:,.1f} g")
+    k2.metric("Usable Weight", f"{usable_weight_g:,.1f} g")
+    k3.metric("Total Revenue", f"${total_revenue:,.0f}")
+    k4.metric("Gross Margin %", f"{total_margin:.1f}%")
+    st.metric("Best Package Size by Margin", str(best_pkg))
+    compliance_rows = [
+        ("cultivator name present", "Ready" if cultivator_name else "Missing"),
+        ("cultivator license number present", "Ready" if cultivator_license_number else "Missing"),
+        ("COA link present", "Ready" if coa_link else "Missing"),
+        ("COA status passed", "Ready" if coa_status == "Passed" else "Needs Review"),
+        ("THCA / cannabinoid profile present", "Ready" if thca_pct > 0 or total_thc_pct > 0 else "Missing"),
+        ("terpene data present if available", "Ready" if terpene_pct > 0 else "Needs Review"),
+        ("harvest date present", "Ready" if harvest_date else "Missing"),
+        ("testing date present", "Ready" if testing_date else "Missing"),
+        ("source METRC package ID present", "Ready" if source_metrc_package_id else "Missing"),
+        ("batch/lot number present", "Ready" if batch_or_lot_number else "Missing"),
+        ("package date present", "Ready" if package_date else "Missing"),
+        ("packaging licensee present", "Ready" if packaging_licensee else "Missing"),
+        ("label review completed", "Ready" if label_review_status == "Ready" else "Needs Review"),
+        ("net weight selected", "Ready" if bulk_weight_value > 0 else "Missing"),
+    ]
+    compliance_df = pd.DataFrame(compliance_rows, columns=["Requirement", "Status"])
+    compliance_df["Notes"] = np.where(compliance_df["Status"] == "Ready", "Complete", "Update before launch")
+    st.dataframe(compliance_df, use_container_width=True)
+    return {
+        "scenario_name": "Current Session",
+        "summary": {
+            "bulk_flower_name": bulk_flower_name,
+            "source_metrc_package_id": source_metrc_package_id,
+            "landed_cost_usd": landed_cost_usd,
+            "total_revenue_usd": total_revenue,
+            "gross_profit_usd": total_profit,
+            "gross_margin_pct": total_margin,
+            "coa_link": coa_link,
+        },
+        "package_comparison": package_df[["Package Size", "Units", "Leftover Grams", "Retail Price", "Revenue", "Cost per Unit", "Gross Profit", "Gross Margin %"]],
+    }
+
 if not workspace_options:
     st.error("Your license does not include any enabled workspace modules.")
     st.stop()
@@ -8368,6 +8567,17 @@ if app_mode == "🧪 Extraction Command Center":
     else:
         st.info("AI support is not enabled for this license plan.")
     render_extraction_command_center()
+    st.stop()
+if app_mode == "🏷️ White Label / Repack":
+    render_hero(
+        "White Label / Repack",
+        "Model private-label repack economics and compliance readiness.",
+        _display_user,
+        "Buyer • Repack",
+    )
+    white_payload = render_white_label_repack_workspace()
+    if white_payload:
+        st.session_state["white_label_export_payload"] = white_payload
     st.stop()
 
 # =========================
