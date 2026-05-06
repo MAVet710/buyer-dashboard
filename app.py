@@ -3893,13 +3893,28 @@ _display_user = (
 render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+st.markdown(
+    """
+    <style>
+    .st-key-buyer_export_report_btn button,
+    .st-key-buyer_export_report_btn_disabled button {
+        border: none;
+        border-radius: 12px;
+        padding: 0.58rem 0.9rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, rgba(255,154,60,.95), rgba(255,187,119,.92));
+        color: #1b1308;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 _export_left, _export_right = st.columns([6, 1.4])
 with _export_right:
     if _buyer_export_payload is None:
         if st.button("Export Report", key="buyer_export_report_btn_disabled"):
             st.warning("Upload inventory and sales data before exporting a buyer report.")
     else:
-        st.caption("Export format: PDF executive summary")
         st.download_button(
             "Export Report",
             data=_build_buyer_executive_report_pdf(_buyer_export_payload),
@@ -3907,6 +3922,7 @@ with _export_right:
             mime="application/pdf",
             key="buyer_export_report_btn",
         )
+        st.caption("Export format: PDF executive summary")
 render_section_header(
     "BUYER DASHBOARD",
     subtitle="Compliance and operations intelligence for buyer and extraction teams.",

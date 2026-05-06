@@ -141,7 +141,7 @@ def load_polished_theme(background_url: str) -> str:
 
     .topbar {{
         display: grid;
-        grid-template-columns: 1fr 130px auto auto;
+        grid-template-columns: 1fr 130px auto;
         gap: 10px;
         align-items: center;
         margin: 0 0 14px 0;
@@ -361,7 +361,6 @@ def render_topbar(search_placeholder: str, date_str: str) -> None:
             <div class="search-shell">🔎 {html.escape(search_placeholder)} <span>⌘K</span></div>
             <div class="pill-badge">📅 {html.escape(date_str)}</div>
             <div class="pill-badge">🔔 Alerts</div>
-            <div><button class="action-button-chip">Export Report</button></div>
         </div>
         """,
         unsafe_allow_html=True,
