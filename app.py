@@ -3519,6 +3519,39 @@ def _to_report_df(value):
     return pd.DataFrame([{"Value": value}])
 
 
+def _safe_report_df(value, empty_message="No data available") -> pd.DataFrame:
+    if isinstance(value, pd.DataFrame):
+        return value.copy()
+
+    if value is None:
+        return pd.DataFrame([{"Message": empty_message}])
+
+    if isinstance(value, list):
+        if not value:
+            return pd.DataFrame([{"Message": empty_message}])
+        try:
+            df = pd.DataFrame(value)
+            return df if not df.empty else pd.DataFrame([{"Message": empty_message}])
+        except Exception:
+            return pd.DataFrame([{"Message": empty_message}])
+
+    if isinstance(value, dict):
+        if not value:
+            return pd.DataFrame([{"Message": empty_message}])
+        try:
+            if all(not isinstance(v, (dict, list, tuple, set, pd.Series, pd.DataFrame)) for v in value.values()):
+                return pd.DataFrame(
+                    [{"Metric": str(k), "Value": "" if v is None else str(v)} for k, v in value.items()]
+                )
+            return pd.DataFrame(
+                [{"Metric": str(k), "Value": "" if v is None else str(v)} for k, v in value.items()]
+            )
+        except Exception:
+            return pd.DataFrame([{"Message": empty_message}])
+
+    return pd.DataFrame([{"Value": str(value)}])
+
+
 def _build_buyer_executive_report_bytes(payload: dict) -> bytes:
     payload = payload or {}
     out = BytesIO()
@@ -3590,26 +3623,6 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         text_obj.textLine(line)
         c.drawText(text_obj)
         return y_top
-
-    def _safe_report_df(value):
-        if isinstance(value, pd.DataFrame):
-            return value.copy()
-        if isinstance(value, list):
-            try:
-                return pd.DataFrame(value)
-            except Exception:
-                return pd.DataFrame()
-        if isinstance(value, dict):
-            if not value:
-                return pd.DataFrame()
-            try:
-                return pd.DataFrame(value)
-            except Exception:
-                try:
-                    return pd.DataFrame([value])
-                except Exception:
-                    return pd.DataFrame()
-        return pd.DataFrame()
 
     def _norm_col(name: str) -> str:
         return "".join(ch for ch in str(name).strip().lower() if ch.isalnum())
