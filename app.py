@@ -24,6 +24,7 @@ from services.doobie_config import (
     resolve_doobie_config,
     test_doobie_connection,
 )
+from services.metrc_client import get_default_metrc_integrator_key, test_metrc_connection
 from services.license_session import (
     build_cached_license_session,
     clear_local_license_session,
@@ -3200,28 +3201,43 @@ def _render_admin_integrations_page() -> None:
                 st.error("Unable to clear Doobie global settings.")
 
     with st.container(border=True):
-        st.markdown("### METRC (Future-ready)")
-        st.caption("Scaffold for shared METRC configuration and validation workflow.")
+        st.markdown("### METRC")
+        st.caption("Read-only connection test using Metrc Basic Auth. Configure the integrator key in secrets/env as METRC_INTEGRATOR_API_KEY.")
         st.text_input(
-            "METRC API Key",
+            "METRC User API Key",
             value="",
             key="admin_global_metrc_api_key_input",
             type="password",
-            help="Leave blank to keep the currently saved key.",
+            help="This is the user API key generated from the Metrc account. Leave blank to keep the currently saved key.",
         )
         st.text_input(
             "METRC State",
             value=str(st.session_state.get("global_metrc_state") or ""),
             key="admin_global_metrc_state_input",
-            placeholder="e.g., CA",
+            placeholder="e.g., CA, MA, MI, or https://api-ca.metrc.com",
         )
         st.text_input(
             "METRC License / Facility",
             value=str(st.session_state.get("global_metrc_license") or ""),
             key="admin_global_metrc_license_input",
+            help="Optional but recommended. The connection test verifies whether this license appears in /facilities/v2/.",
+        )
+        _metrc_integrator_cfg = get_default_metrc_integrator_key()
+        _metrc_integrator_key = str(_metrc_integrator_cfg.get("api_key") or "").strip()
+        if not _metrc_integrator_key:
+            try:
+                _metrc_integrator_key = str(
+                    st.secrets.get("METRC_INTEGRATOR_API_KEY")
+                    or st.secrets.get("METRC_SOFTWARE_API_KEY")
+                    or ""
+                ).strip()
+            except Exception:
+                _metrc_integrator_key = ""
+        st.caption(
+            f"Saved user key: {mask_api_key(str(st.session_state.get('global_metrc_api_key') or '')) or '(not set)'}"
         )
         st.caption(
-            f"Saved key: {mask_api_key(str(st.session_state.get('global_metrc_api_key') or '')) or '(not set)'}"
+            f"Integrator key: {'configured' if _metrc_integrator_key else 'missing METRC_INTEGRATOR_API_KEY'}"
         )
         st.caption(f"Status: **{st.session_state.get('global_metrc_status') or 'not_connected'}**")
         st.caption(
@@ -3237,13 +3253,28 @@ def _render_admin_integrations_page() -> None:
                 or st.session_state.get("global_metrc_api_key")
                 or ""
             ).strip()
-            if state and license_name and api_key:
-                st.session_state.global_metrc_status = "future_ready_stub_ok"
+            result = test_metrc_connection(
+                state=state,
+                user_api_key=api_key,
+                integrator_api_key=_metrc_integrator_key,
+                license_number=license_name,
+            )
+            st.session_state.global_metrc_status = str(result.get("status") or "failed")
+            if result.get("ok"):
                 st.session_state.global_metrc_last_validated = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-                st.info("METRC live connectivity is not implemented yet. Configuration looks complete.")
+                st.success(str(result.get("message") or "Metrc connection succeeded."))
+                st.caption(f"Endpoint: {result.get('base_url')}/facilities/v2/")
+                st.caption(f"Facilities visible: {result.get('facility_count', 0)}")
+                if result.get("facilities_preview"):
+                    st.caption("Preview: " + ", ".join(str(x) for x in result.get("facilities_preview", [])))
+                if result.get("license_found") is False:
+                    st.warning("Connection works, but that license number was not found for this Metrc user key.")
             else:
-                st.session_state.global_metrc_status = "missing_required_fields"
-                st.warning("Add API key, state, and license/facility to test this scaffold.")
+                st.warning(str(result.get("message") or "Metrc connection test failed."))
+                if result.get("http_status"):
+                    st.caption(f"HTTP status: {result.get('http_status')}")
+                if result.get("base_url"):
+                    st.caption(f"Endpoint: {result.get('base_url')}/facilities/v2/")
 
         if m_save.button("Save", key="admin_global_metrc_save_btn", type="primary"):
             candidate_key = str(st.session_state.get("admin_global_metrc_api_key_input") or "").strip()
