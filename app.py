@@ -4311,14 +4311,155 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
 
 
 def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
+    payload = payload or {}
     out = BytesIO()
-    c = canvas.Canvas(out, pagesize=letter)
-    c.setTitle("White Label / Repack Report")
-    c.drawString(20, 760, "White Label / Repack Executive Summary")
-    c.drawString(20, 745, f"Scenario: {payload.get('scenario_name', 'Current Session')}")
-    c.save()
-    out.seek(0)
-    return out.read()
+    c = canvas.Canvas(out, pagesize=landscape(letter))
+    page_w, page_h = landscape(letter)
+
+    pdf_colors = {
+        "BACKGROUND_DARK": colors.HexColor("#0f0f10"),
+        "CARD_BG": colors.HexColor("#181818"),
+        "CARD_BG_ALT": colors.HexColor("#202124"),
+        "BORDER": colors.HexColor("#343434"),
+        "ACCENT_ORANGE": colors.HexColor("#ff9a3c"),
+        "TEXT_PRIMARY": colors.HexColor("#ffffff"),
+        "TEXT_SECONDARY": colors.HexColor("#b8b8b8"),
+        "TEXT_MUTED": colors.HexColor("#7f7f7f"),
+        "SUCCESS_GREEN": colors.HexColor("#64d18a"),
+        "WARNING_YELLOW": colors.HexColor("#f6c453"),
+        "DANGER_RED": colors.HexColor("#ff5c5c"),
+        "BLUE_ACCENT": colors.HexColor("#5ea8ff"),
+        "APPENDIX_BG": colors.HexColor("#f6f7f9"),
+    }
+    styles = getSampleStyleSheet()
+    p_wrap = ParagraphStyle("wl_wrap", parent=styles["BodyText"], fontName="Helvetica", fontSize=8, leading=10)
+    h_wrap = ParagraphStyle("wl_head", parent=styles["BodyText"], fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=colors.black)
+
+    def _is_nonempty(v):
+        if v is None:
+            return False
+        if isinstance(v, pd.DataFrame):
+            return not v.empty
+        if isinstance(v, (list, tuple, set, dict)):
+            return len(v) > 0
+        return True
+
+    def _df(v):
+        if isinstance(v, pd.DataFrame):
+            return v.copy()
+        if isinstance(v, list):
+            return pd.DataFrame(v)
+        if isinstance(v, dict):
+            return pd.DataFrame([v])
+        return pd.DataFrame()
+
+    def _num(v):
+        try: return float(v)
+        except Exception: return None
+
+    def _fmt_money(v):
+        n=_num(v); return f"${n:,.2f}" if n is not None else "N/A"
+    def _fmt_pct(v):
+        n=_num(v); return f"{n:.1f}%" if n is not None else "N/A"
+    def _fmt_g(v):
+        n=_num(v); return f"{n:,.1f} g" if n is not None else "N/A"
+    def _fmt_units(v):
+        n=_num(v); return f"{int(round(n)):,}" if n is not None else "N/A"
+
+    summary = payload.get("summary") or {}
+    scenario = payload.get("scenario_name") or "Current Session"
+    package_df = _df(payload.get("package_output_summary") or payload.get("package_plan"))
+    cost_df = _df(payload.get("cost_breakdown"))
+    comp_df = _df(payload.get("compliance_checklist"))
+    readiness = payload.get("margin_readiness") if isinstance(payload.get("margin_readiness"), dict) else {}
+
+    def _col(df, candidates):
+        lower = {str(c).strip().lower(): c for c in df.columns}
+        for cand in candidates:
+            if cand.lower() in lower:
+                return lower[cand.lower()]
+        return None
+
+    has_data = any([_is_nonempty(package_df), _is_nonempty(cost_df), _is_nonempty(comp_df), _is_nonempty(summary)])
+
+    def _header(title, dark=True):
+        if dark:
+            c.setFillColor(pdf_colors["BACKGROUND_DARK"]); c.rect(0,0,page_w,page_h,stroke=0,fill=1)
+        else:
+            c.setFillColor(pdf_colors["APPENDIX_BG"]); c.rect(0,0,page_w,page_h,stroke=0,fill=1)
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"]); c.rect(0,page_h-42,page_w,42,stroke=0,fill=1)
+        c.setFillColor(colors.black); c.setFont("Helvetica-Bold", 12); c.drawString(20,page_h-27,title)
+        c.setFont("Helvetica",8); c.drawRightString(page_w-20,page_h-27,f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}")
+
+    _header("White Label / Repack Executive Summary", dark=True)
+    c.setFillColor(pdf_colors["TEXT_PRIMARY"]); c.setFont("Helvetica-Bold", 20); c.drawString(24, page_h-84, "White Label / Repack Executive Summary")
+    c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.setFont("Helvetica", 10)
+    meta=[f"Scenario: {scenario}",f"Strain: {summary.get('strain_name') or 'N/A'}",f"Type: {payload.get('bulk_lot_details',{}).get('wl_strain_type') or 'N/A'}",f"Cultivator/Vendor: {payload.get('bulk_lot_details',{}).get('wl_vendor_name') or 'N/A'}",f"Source METRC Package: {summary.get('source_metrc_package_id') or 'N/A'}",f"COA: {summary.get('coa_link') or 'N/A'}"]
+    y=page_h-104
+    for m in meta:
+        c.drawString(26,y,m); y-=13
+
+    units_col = _col(package_df, ['units_produced','units'])
+    packaging_col = _col(package_df, ['total_packaging_cost'])
+    total_units = package_df[units_col].fillna(0).sum() if units_col else None
+    total_packaging_cost = package_df[packaging_col].fillna(0).sum() if packaging_col else None
+    avg_packaging_per_unit = (total_packaging_cost / max(1, total_units)) if (total_packaging_cost is not None and total_units is not None) else None
+
+    kpis = [
+        ("Landed Cost", _fmt_money(summary.get("landed_cost_usd"))),
+        ("Total Revenue", _fmt_money(summary.get("total_revenue_usd"))),
+        ("Gross Profit", _fmt_money(summary.get("gross_profit_usd"))),
+        ("Gross Margin %", _fmt_pct(summary.get("gross_margin_pct"))),
+        ("Total Units", _fmt_units(total_units)),
+        ("Usable Weight", _fmt_g(payload.get('bulk_lot_details',{}).get('wl_usable_weight_g'))),
+        ("Total Packaging Cost", _fmt_money(total_packaging_cost)),
+        ("Avg Packaging Cost / Unit", _fmt_money(avg_packaging_per_unit)),
+        ("Complete Margin Rows", str(int(readiness.get("complete_rows",0))) if readiness else "N/A"),
+        ("Incomplete Margin Rows", str(int(readiness.get("incomplete_rows",0))) if readiness else "N/A"),
+    ]
+    x0,y0,w,h=24,page_h-275,146,54
+    for i,(k,v) in enumerate(kpis):
+        r,cidx=divmod(i,5); x=x0+cidx*(w+8); y=y0-r*(h+8)
+        c.setFillColor(pdf_colors["CARD_BG"] if i%2==0 else pdf_colors["CARD_BG_ALT"]); c.roundRect(x,y,w,h,6,stroke=1,fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"]); c.setFillColor(pdf_colors["TEXT_MUTED"]); c.setFont("Helvetica",8); c.drawString(x+8,y+h-16,k)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"]); c.setFont("Helvetica-Bold",12); c.drawString(x+8,y+14,v)
+
+    c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.setFont("Helvetica",9)
+    c.drawString(24,70,f"Margin Readiness: complete {readiness.get('complete_rows','N/A') if readiness else 'N/A'}, incomplete {readiness.get('incomplete_rows','N/A') if readiness else 'N/A'}")
+    c.drawString(24,56,f"Packaging Cost Summary: {_fmt_money(package_df[_col(package_df,['total_packaging_cost'])].fillna(0).sum() if _col(package_df,['total_packaging_cost']) else None)}")
+    ready=(comp_df[_col(comp_df,['status'])].astype(str).str.lower().eq('ready').sum() if _col(comp_df,['status']) else 0)
+    review=(comp_df[_col(comp_df,['status'])].astype(str).str.contains('review',case=False,na=False).sum() if _col(comp_df,['status']) else 0)
+    missing=(comp_df[_col(comp_df,['status'])].astype(str).str.contains('missing',case=False,na=False).sum() if _col(comp_df,['status']) else 0)
+    c.drawString(24,42,f"Compliance Readiness: Ready {ready} | Needs Review {review} | Missing {missing}")
+
+    def _draw_table_page(title, df, columns, formatters=None):
+        c.showPage(); _header(title, dark=False)
+        columns=[(cname,label) for cname,label in columns if cname]
+        if not columns or df.empty:
+            c.setFillColor(pdf_colors["TEXT_MUTED"]); c.drawString(24,page_h-80,"No data available."); return
+        rows=[]
+        for _,row in df.iterrows():
+            rr=[]
+            for col,label in columns:
+                val=row.get(col)
+                if formatters and col in formatters: val=formatters[col](val)
+                rr.append(Paragraph(str(val if pd.notna(val) else "N/A"), p_wrap))
+            rows.append(rr)
+        header=[Paragraph(lbl,h_wrap) for _,lbl in columns]
+        table=Table([header]+rows, colWidths=[(page_w-48)/len(columns)]*len(columns), repeatRows=1)
+        st=[("BACKGROUND",(0,0),(-1,0),pdf_colors["ACCENT_ORANGE"]),("GRID",(0,0),(-1,-1),0.25,pdf_colors["BORDER"]),("VALIGN",(0,0),(-1,-1),"TOP")]
+        table.setStyle(TableStyle(st)); _,th=table.wrap(page_w-48,page_h-110); table.drawOn(c,24,max(30,page_h-80-th))
+
+    if not has_data:
+        c.showPage(); _header("White Label / Repack Executive Summary", dark=False); c.drawString(24,page_h-80,"No report data available. Run a scenario and export again.")
+    else:
+        _draw_table_page("Package Size Performance — Table A: Package Output", package_df, [(_col(package_df,['package_size_g','package_size']),'Package Size'),(_col(package_df,['allocation_pct']),'Allocation %'),(_col(package_df,['grams_allocated']),'Grams Allocated'),(_col(package_df,['units_produced','units']),'Units'),(_col(package_df,['target_retail_price_per_unit','retail_price']),'Retail Price'),(_col(package_df,['revenue','total_revenue','total_revenue_usd']),'Revenue'),(_col(package_df,['status']),'Status')], { _col(package_df,['allocation_pct']):_fmt_pct, _col(package_df,['grams_allocated']):_fmt_g, _col(package_df,['target_retail_price_per_unit','retail_price']):_fmt_money, _col(package_df,['revenue','total_revenue','total_revenue_usd']):_fmt_money })
+        _draw_table_page("Package Size Performance — Table B: Margin Detail", package_df, [(_col(package_df,['package_size_g','package_size']),'Package Size'),(_col(package_df,['total_packaging_cost_per_unit','packaging_per_unit']),'Packaging / Unit'),(_col(package_df,['total_packaging_cost']),'Total Packaging'),(_col(package_df,['all_in_cost_per_unit']),'All-In / Unit'),(_col(package_df,['break_even_price_per_unit']),'Break-even Price'),(_col(package_df,['gross_profit']),'Gross Profit'),(_col(package_df,['gross_margin_pct']),'Gross Margin %')], { _col(package_df,['total_packaging_cost_per_unit','packaging_per_unit']):_fmt_money,_col(package_df,['total_packaging_cost']):_fmt_money,_col(package_df,['all_in_cost_per_unit']):_fmt_money,_col(package_df,['break_even_price_per_unit']):_fmt_money,_col(package_df,['gross_profit']):_fmt_money,_col(package_df,['gross_margin_pct']):_fmt_pct })
+        _draw_table_page("Cost Breakdown", cost_df, [(_col(cost_df,['Cost Type','cost_type']),'Cost Type'),(_col(cost_df,['Total Cost','total_cost']),'Total Cost'),(_col(cost_df,['Cost per Gram','cost_per_gram']),'Cost per Gram'),(_col(cost_df,['Cost per Unit','cost_per_unit']),'Cost per Unit')], { _col(cost_df,['Total Cost','total_cost']):_fmt_money, _col(cost_df,['Cost per Gram','cost_per_gram']):lambda v: f"{_fmt_money(v)}/g" if _num(v) is not None else "N/A", _col(cost_df,['Cost per Unit','cost_per_unit']):_fmt_money })
+        _draw_table_page("Compliance Checklist", comp_df, [(_col(comp_df,['Requirement','requirement']),'Requirement'),(_col(comp_df,['Status','status']),'Status'),(_col(comp_df,['Notes','notes']),'Notes')], None)
+
+    c.save(); out.seek(0); return out.read()
+
 
 _display_user = (
     st.session_state.admin_user if st.session_state.get("is_admin")
