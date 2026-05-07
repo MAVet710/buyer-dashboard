@@ -4090,11 +4090,16 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     cost_df = _safe_report_df(payload.get("cost_breakdown"))
     if not cost_df.empty:
         cols = [col for col in ["Cost Type", "Total Cost", "Cost per Gram", "Cost per Unit"] if col in cost_df.columns]
-        data = [cols] + cost_df[cols].astype(str).values.tolist()
-        t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
-        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-        _, h = t.wrap(page_w - 60, page_h - 120)
-        t.drawOn(c, 30, page_h - 70 - h)
+        if cols:
+            data = [cols] + cost_df[cols].astype(str).values.tolist()
+            t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
+            t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
+            _, h = t.wrap(page_w - 60, page_h - 120)
+            t.drawOn(c, 30, page_h - 70 - h)
+        else:
+            c.setFillColor(colors.black)
+            c.setFont("Helvetica", 10)
+            c.drawString(30, page_h - 70, "No cost breakdown data available.")
 
     c.showPage()
     _draw_pdf_report_background(c, page_w, page_h, dark=False)
@@ -4103,11 +4108,16 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     comp_df = _safe_report_df(payload.get("compliance_checklist"))
     if not comp_df.empty:
         cols = [col for col in ["Requirement", "Status"] if col in comp_df.columns]
-        data = [cols] + comp_df[cols].astype(str).values.tolist()
-        t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
-        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-        _, h = t.wrap(page_w - 60, page_h - 120)
-        t.drawOn(c, 30, page_h - 70 - h)
+        if cols:
+            data = [cols] + comp_df[cols].astype(str).values.tolist()
+            t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
+            t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
+            _, h = t.wrap(page_w - 60, page_h - 120)
+            t.drawOn(c, 30, page_h - 70 - h)
+        else:
+            c.setFillColor(colors.black)
+            c.setFont("Helvetica", 10)
+            c.drawString(30, page_h - 70, "No compliance checklist data available.")
 
     c.save()
     out.seek(0)
