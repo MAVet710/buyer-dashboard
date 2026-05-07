@@ -66,7 +66,8 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
-from reportlab.platypus import Table, TableStyle
+from reportlab.platypus import Table, TableStyle, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 import matplotlib.pyplot as plt
 
@@ -4312,65 +4313,9 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
 def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
     out = BytesIO()
     c = canvas.Canvas(out, pagesize=letter)
-    page_w, page_h = letter
     c.setTitle("White Label / Repack Report")
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(30, page_h - 40, "White Label / Repack")
-    c.setFont("Helvetica", 10)
-    c.drawString(30, page_h - 58, "Operational and compliance planning worksheet (not legal advice).")
-    y = page_h - 90
-    summary = payload.get("summary", {})
-    readiness = payload.get("margin_readiness", {})
-    for label, value in [
-        ("Scenario", payload.get("scenario_name", "Unnamed Scenario")),
-        ("Strain", summary.get("strain_name", "N/A")),
-        ("Source METRC Package", summary.get("source_metrc_package_id", "N/A")),
-        ("Landed Cost", f"${summary.get('landed_cost_usd', 0):,.2f}"),
-        ("Total Revenue", f"${summary.get('total_revenue_usd', 0):,.2f}"),
-        ("Gross Profit", f"${summary.get('gross_profit_usd', 0):,.2f}"),
-        ("Gross Margin", f"{summary.get('gross_margin_pct', 0):.1f}%"),
-        ("COA Link", summary.get("coa_link", "N/A")),
-        ("Margin Complete Rows", readiness.get("complete_rows", "N/A")),
-        ("Margin Incomplete Rows", readiness.get("incomplete_rows", "N/A")),
-    ]:
-        c.drawString(30, y, f"{label}: {value}")
-        y -= 16
-    c.showPage()
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(30, page_h - 40, "Package Size Comparison")
-    table_df = _safe_report_df(payload.get("package_output_summary"))
-    if not table_df.empty:
-        cols = [col for col in ["Package Size", "Allocation %", "Grams Allocated", "Units Produced", "Retail Price", "Total Packaging / Unit", "Total Packaging Cost", "All-In Cost / Unit", "Break-even Price", "Revenue", "Gross Profit", "Gross Margin %", "Status", "Missing Inputs"] if col in table_df.columns]
-        data = [cols] + table_df[cols].astype(str).values.tolist()
-        t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
-        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-        _, h = t.wrap(page_w - 60, page_h - 120)
-        t.drawOn(c, 30, page_h - 70 - h)
-
-    c.showPage()
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(30, page_h - 40, "Cost Breakdown")
-    cost_df = _safe_report_df(payload.get("cost_breakdown"))
-    if not cost_df.empty:
-        cols = [col for col in ["Cost Type", "Total Cost", "Cost per Gram", "Cost per Unit"] if col in cost_df.columns]
-        data = [cols] + cost_df[cols].astype(str).values.tolist()
-        t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
-        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-        _, h = t.wrap(page_w - 60, page_h - 120)
-        t.drawOn(c, 30, page_h - 70 - h)
-
-    c.showPage()
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(30, page_h - 40, "Compliance Checklist")
-    comp_df = _safe_report_df(payload.get("compliance_checklist"))
-    if not comp_df.empty:
-        cols = [col for col in ["Requirement", "Status"] if col in comp_df.columns]
-        data = [cols] + comp_df[cols].astype(str).values.tolist()
-        t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
-        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-        _, h = t.wrap(page_w - 60, page_h - 120)
-        t.drawOn(c, 30, page_h - 70 - h)
-
+    c.drawString(20, 760, "White Label / Repack Executive Summary")
+    c.drawString(20, 745, f"Scenario: {payload.get('scenario_name', 'Current Session')}")
     c.save()
     out.seek(0)
     return out.read()
