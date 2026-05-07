@@ -4353,6 +4353,12 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
             return pd.DataFrame([v])
         return pd.DataFrame()
 
+    def _first_nonempty(*values):
+        for value in values:
+            if _is_nonempty(value):
+                return value
+        return None
+
     def _num(v):
         try: return float(v)
         except Exception: return None
@@ -4368,7 +4374,7 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
 
     summary = payload.get("summary") or {}
     scenario = payload.get("scenario_name") or "Current Session"
-    package_df = _df(payload.get("package_output_summary") or payload.get("package_plan"))
+    package_df = _df(_first_nonempty(payload.get("package_output_summary"), payload.get("package_plan")))
     cost_df = _df(payload.get("cost_breakdown"))
     comp_df = _df(payload.get("compliance_checklist"))
     readiness = payload.get("margin_readiness") if isinstance(payload.get("margin_readiness"), dict) else {}
