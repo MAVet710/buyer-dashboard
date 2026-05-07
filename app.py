@@ -4320,6 +4320,7 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
     c.drawString(30, page_h - 58, "Operational and compliance planning worksheet (not legal advice).")
     y = page_h - 90
     summary = payload.get("summary", {})
+    readiness = payload.get("margin_readiness", {})
     for label, value in [
         ("Scenario", payload.get("scenario_name", "Unnamed Scenario")),
         ("Strain", summary.get("strain_name", "N/A")),
@@ -4329,6 +4330,8 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
         ("Gross Profit", f"${summary.get('gross_profit_usd', 0):,.2f}"),
         ("Gross Margin", f"{summary.get('gross_margin_pct', 0):.1f}%"),
         ("COA Link", summary.get("coa_link", "N/A")),
+        ("Margin Complete Rows", readiness.get("complete_rows", "N/A")),
+        ("Margin Incomplete Rows", readiness.get("incomplete_rows", "N/A")),
     ]:
         c.drawString(30, y, f"{label}: {value}")
         y -= 16
@@ -4337,7 +4340,7 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
     c.drawString(30, page_h - 40, "Package Size Comparison")
     table_df = _safe_report_df(payload.get("package_output_summary"))
     if not table_df.empty:
-        cols = [col for col in ["Package Size", "Units", "Leftover Grams", "Retail Price", "Revenue", "Cost per Unit", "Gross Profit", "Gross Margin %"] if col in table_df.columns]
+        cols = [col for col in ["Package Size", "Allocation %", "Grams Allocated", "Units Produced", "Retail Price", "Total Packaging / Unit", "Total Packaging Cost", "All-In Cost / Unit", "Break-even Price", "Revenue", "Gross Profit", "Gross Margin %", "Status", "Missing Inputs"] if col in table_df.columns]
         data = [cols] + table_df[cols].astype(str).values.tolist()
         t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
         t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
@@ -8457,13 +8460,14 @@ def render_white_label_repack_workspace():
     st.markdown("## White Label / Repack")
     st.caption("Operational and compliance tracking for private-label/repack flower workflows. Not legal advice.")
 
+    default_retail_price_map = {1.0: 10.0, 3.5: 25.0, 7.0: 45.0, 14.0: 80.0, 28.0: 140.0}
     default_plan = [
-        {"enabled": False, "package_size_g": 1.0, "allocation_pct": 0.0, "bag_cost_per_unit": 0.12, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
-        {"enabled": True, "package_size_g": 3.5, "allocation_pct": 50.0, "bag_cost_per_unit": 0.18, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
-        {"enabled": True, "package_size_g": 7.0, "allocation_pct": 25.0, "bag_cost_per_unit": 0.24, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
-        {"enabled": True, "package_size_g": 14.0, "allocation_pct": 15.0, "bag_cost_per_unit": 0.32, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
-        {"enabled": True, "package_size_g": 28.0, "allocation_pct": 10.0, "bag_cost_per_unit": 0.45, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
-        {"enabled": False, "package_size_g": 0.0, "allocation_pct": 0.0, "bag_cost_per_unit": 0.2, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
+        {"enabled": False, "package_size_g": 1.0, "allocation_pct": 0.0, "bag_or_container_cost_per_unit": 0.12, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": default_retail_price_map[1.0]},
+        {"enabled": True, "package_size_g": 3.5, "allocation_pct": 50.0, "bag_or_container_cost_per_unit": 0.18, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": default_retail_price_map[3.5]},
+        {"enabled": True, "package_size_g": 7.0, "allocation_pct": 25.0, "bag_or_container_cost_per_unit": 0.24, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": default_retail_price_map[7.0]},
+        {"enabled": True, "package_size_g": 14.0, "allocation_pct": 15.0, "bag_or_container_cost_per_unit": 0.32, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": default_retail_price_map[14.0]},
+        {"enabled": True, "package_size_g": 28.0, "allocation_pct": 10.0, "bag_or_container_cost_per_unit": 0.45, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": default_retail_price_map[28.0]},
+        {"enabled": False, "package_size_g": 0.0, "allocation_pct": 0.0, "bag_or_container_cost_per_unit": 0.2, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
     ]
     st.session_state.setdefault("white_label_saved_scenarios", {})
     st.session_state.setdefault("white_label_active_scenario_name", "Current Session")
@@ -8549,8 +8553,29 @@ def render_white_label_repack_workspace():
     with tabs[2]:
         st.info("Choose how much of the lot goes into each package size. Packaging costs can vary by size.")
         plan_df = pd.DataFrame(st.session_state.get("white_label_package_plan", default_plan))
-        edited = st.data_editor(plan_df, use_container_width=True, num_rows="dynamic", key="wl_package_editor")
-        st.session_state["white_label_package_plan"] = edited.to_dict("records")
+        plan_df["bag_or_container_cost_per_unit"] = plan_df.get("bag_or_container_cost_per_unit", plan_df.get("bag_cost_per_unit", 0.0))
+        for col in ["tamper_seal_cost_per_unit", "humidity_pack_cost_per_unit", "compliance_sticker_cost_per_unit", "other_packaging_cost_per_unit"]:
+            if col not in plan_df.columns:
+                plan_df[col] = 0.0
+        plan_df["total_packaging_cost_per_unit"] = (
+            plan_df["bag_or_container_cost_per_unit"].fillna(0.0)
+            + plan_df["label_cost_per_unit"].fillna(0.0)
+            + plan_df["tamper_seal_cost_per_unit"].fillna(0.0)
+            + plan_df["humidity_pack_cost_per_unit"].fillna(0.0)
+            + plan_df["compliance_sticker_cost_per_unit"].fillna(0.0)
+            + plan_df["other_packaging_cost_per_unit"].fillna(0.0)
+        )
+        simple_mode = st.toggle("Simple Mode", value=st.session_state.get("wl_simple_mode", True), key="wl_simple_mode")
+        primary_cols = ["enabled", "package_size_g", "allocation_pct", "target_retail_price_per_unit", "total_packaging_cost_per_unit"]
+        edited = st.data_editor(plan_df[primary_cols], use_container_width=True, num_rows="dynamic", key="wl_package_editor")
+        detail_cols = ["enabled", "package_size_g", "bag_or_container_cost_per_unit", "label_cost_per_unit", "tamper_seal_cost_per_unit", "humidity_pack_cost_per_unit", "compliance_sticker_cost_per_unit", "other_packaging_cost_per_unit"]
+        if not simple_mode:
+            with st.expander("Packaging Cost Details", expanded=False):
+                details_edited = st.data_editor(plan_df[detail_cols], use_container_width=True, num_rows="dynamic", key="wl_packaging_detail_editor")
+        else:
+            details_edited = plan_df[detail_cols]
+        merged = edited.merge(details_edited, on=["enabled", "package_size_g"], how="left", suffixes=("", "_detail"))
+        st.session_state["white_label_package_plan"] = merged.to_dict("records")
         alloc_total = float(edited.loc[edited["enabled"], "allocation_pct"].sum()) if not edited.empty else 0.0
         if alloc_total > 100:
             st.warning("Your package allocation is over 100%.")
@@ -8567,35 +8592,47 @@ def render_white_label_repack_workspace():
     for _,r in enabled_df.iterrows():
         size=float(r.get("package_size_g",0) or 0)
         alloc_pct=float(r.get("allocation_pct",0) or 0)
-        bag=max(0.0,float(r.get("bag_cost_per_unit",0) or 0))
-        label=max(0.0,float(r.get("label_cost_per_unit",0) or 0))
-        addl=max(0.0,float(r.get("additional_packaging_cost_per_unit",0) or 0))
-        price=max(0.0,float(r.get("target_retail_price_per_unit",0) or 0))
+        bag=float(r.get("bag_or_container_cost_per_unit",r.get("bag_cost_per_unit",0)) or 0)
+        label=float(r.get("label_cost_per_unit",0) or 0)
+        tamper=float(r.get("tamper_seal_cost_per_unit",0) or 0)
+        humidity=float(r.get("humidity_pack_cost_per_unit",0) or 0)
+        compliance=float(r.get("compliance_sticker_cost_per_unit",0) or 0)
+        other_pack=float(r.get("other_packaging_cost_per_unit",r.get("additional_packaging_cost_per_unit",0)) or 0)
+        price=float(r.get("target_retail_price_per_unit",0) or 0)
+        missing_inputs=[]
+        if price <= 0: missing_inputs.append("Retail price missing")
+        if bag < 0 or label < 0 or tamper < 0 or humidity < 0 or compliance < 0 or other_pack < 0: missing_inputs.append("Packaging cost missing")
+        if alloc_pct <= 0: missing_inputs.append("Allocation missing")
+        if landed_cost_usd <= 0: missing_inputs.append("Bulk cost missing")
         if size<=0:
+            missing_inputs.append("Package size missing")
             st.warning("Enabled package rows must have package_size_g > 0.")
             continue
         alloc_g=usable_weight_g*(alloc_pct/100.0)
         units=int(np.floor(alloc_g/size))
         leftover=max(0.0,alloc_g-(units*size))
         if leftover>0: st.info("This package size produces leftover grams.")
-        revenue=units*price
-        packaging=units*bag
-        label_total=units*label
+        total_packaging_unit=max(0.0, bag + label + tamper + humidity + compliance + other_pack)
+        total_packaging_cost=units*total_packaging_unit
+        revenue=(units*price) if not missing_inputs else np.nan
         bulk_cost=units*size*effective_cost_per_gram
         unit_other=(st.session_state.get("wl_labor_cost_total_usd",0)+st.session_state.get("wl_other_costs_usd",0)+st.session_state.get("wl_compliance_admin_cost_usd",0))/max(1,len(enabled_df))
-        all_in=bulk_cost+packaging+label_total+(units*addl)+unit_other
-        profit=revenue-all_in
-        margin=(profit/revenue*100.0) if revenue>0 else 0
-        rows.append({"Package Size":f"{size:g}g","Allocation %":alloc_pct,"Grams Allocated":alloc_g,"Units Produced":units,"Leftover Grams":leftover,"Retail Price":price,"Revenue":revenue,"Packaging Cost":packaging,"Label Cost":label_total,"All-In Cost/Unit":(all_in/units if units>0 else 0),"Gross Profit":profit,"Gross Margin %":margin})
+        all_in=bulk_cost+total_packaging_cost+unit_other
+        profit=(revenue-all_in) if not missing_inputs else np.nan
+        margin=((profit/revenue*100.0) if revenue and revenue>0 else np.nan) if not missing_inputs else np.nan
+        break_even=(all_in/units) if units>0 and not missing_inputs else np.nan
+        status = "Complete" if not missing_inputs else "Incomplete"
+        rows.append({"Package Size":f"{size:g}g","Allocation %":alloc_pct,"Grams Allocated":alloc_g,"Units Produced":units,"Retail Price":(price if price>0 else np.nan),"Total Packaging / Unit":total_packaging_unit,"Total Packaging Cost":total_packaging_cost,"All-In Cost / Unit":(all_in/units if units>0 else np.nan),"Break-even Price":break_even,"Revenue":revenue,"Gross Profit":profit,"Gross Margin %":margin,"Status":status,"Missing Inputs":", ".join(missing_inputs) if missing_inputs else ""})
     results_df=pd.DataFrame(rows)
     total_units=int(results_df["Units Produced"].sum()) if not results_df.empty else 0
-    total_revenue=float(results_df["Revenue"].sum()) if not results_df.empty else 0
-    total_packaging=float(results_df["Packaging Cost"].sum()+results_df["Label Cost"].sum()) if not results_df.empty else 0
-    total_all_in=float((results_df["All-In Cost/Unit"]*results_df["Units Produced"]).sum()) if not results_df.empty else 0
+    total_revenue=float(results_df["Revenue"].fillna(0).sum()) if not results_df.empty else 0
+    total_packaging=float(results_df["Total Packaging Cost"].fillna(0).sum()) if not results_df.empty else 0
+    total_all_in=float((results_df["All-In Cost / Unit"].fillna(0)*results_df["Units Produced"]).sum()) if not results_df.empty else 0
     gross_profit=total_revenue-total_all_in
     gross_margin=(gross_profit/total_revenue*100.0) if total_revenue>0 else 0
     leftover_total=max(0.0, usable_weight_g - float(results_df["Grams Allocated"].sum()) if not results_df.empty else usable_weight_g)
 
+    margin_readiness = {}
     with tabs[3]:
         st.info("Review estimated units, revenue, profit, and margin.")
         k=st.columns(5)
@@ -8607,7 +8644,22 @@ def render_white_label_repack_workspace():
         st.metric("Leftover Grams", f"{leftover_total:,.1f} g")
         if not results_df.empty:
             st.metric("Best Package Size by Margin", str(results_df.sort_values("Gross Margin %", ascending=False).iloc[0]["Package Size"]))
-        st.dataframe(results_df, use_container_width=True)
+        if not results_df.empty:
+            readiness = {
+                "complete_rows": int((results_df["Status"] == "Complete").sum()),
+                "incomplete_rows": int((results_df["Status"] == "Incomplete").sum()),
+                "missing_retail_price_count": int(results_df["Missing Inputs"].str.contains("Retail price missing", na=False).sum()),
+                "missing_packaging_cost_count": int(results_df["Missing Inputs"].str.contains("Packaging cost missing", na=False).sum()),
+                "total_allocation_pct": float(results_df["Allocation %"].sum()),
+                "unallocated_grams": float(leftover_total),
+            }
+            st.markdown("#### Margin Readiness")
+            st.json(readiness)
+            margin_readiness = readiness
+            if readiness["incomplete_rows"] > 0:
+                st.warning("Some margins are incomplete because required inputs are missing.")
+        display_df = results_df.replace({np.nan: "N/A"})
+        st.dataframe(display_df, use_container_width=True)
         if not results_df.empty:
             st.bar_chart(results_df.set_index("Package Size")["Revenue"])
             st.bar_chart(results_df.set_index("Package Size")["Gross Profit"])
@@ -8631,7 +8683,7 @@ def render_white_label_repack_workspace():
         cdf = pd.DataFrame(checklist, columns=["Requirement", "Status"])
         st.dataframe(cdf, use_container_width=True)
 
-    return {"scenario_name": scenario_name or "Current Session", "summary": {"strain_name": st.session_state.get("wl_strain_name", ""), "source_metrc_package_id": st.session_state.get("wl_source_metrc_package_id", ""), "landed_cost_usd": landed_cost_usd, "total_revenue_usd": total_revenue, "gross_profit_usd": gross_profit, "gross_margin_pct": gross_margin, "coa_link": st.session_state.get("wl_coa_link", "")}, "bulk_lot_details": {k:v for k,v in st.session_state.items() if k.startswith("wl_")}, "package_plan": st.session_state.get("white_label_package_plan", default_plan), "package_output_summary": results_df, "cost_breakdown": pd.DataFrame([{"Cost Type":"Landed Cost","Total Cost":landed_cost_usd,"Cost per Gram":effective_cost_per_gram,"Cost per Unit":(total_all_in/max(1,total_units))},{"Cost Type":"Packaging+Label","Total Cost":total_packaging,"Cost per Gram":(total_packaging/max(1,usable_weight_g)),"Cost per Unit":(total_packaging/max(1,total_units))},{"Cost Type":"Labor","Total Cost":st.session_state.get("wl_labor_cost_total_usd",0.0),"Cost per Gram":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,usable_weight_g)),"Cost per Unit":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,total_units))}]), "compliance_checklist": cdf}
+    return {"scenario_name": scenario_name or "Current Session", "summary": {"strain_name": st.session_state.get("wl_strain_name", ""), "source_metrc_package_id": st.session_state.get("wl_source_metrc_package_id", ""), "landed_cost_usd": landed_cost_usd, "total_revenue_usd": total_revenue, "gross_profit_usd": gross_profit, "gross_margin_pct": gross_margin, "coa_link": st.session_state.get("wl_coa_link", "")}, "bulk_lot_details": {k:v for k,v in st.session_state.items() if k.startswith("wl_")}, "package_plan": st.session_state.get("white_label_package_plan", default_plan), "package_output_summary": results_df, "margin_readiness": margin_readiness, "cost_breakdown": pd.DataFrame([{"Cost Type":"Landed Cost","Total Cost":landed_cost_usd,"Cost per Gram":effective_cost_per_gram,"Cost per Unit":(total_all_in/max(1,total_units))},{"Cost Type":"Packaging+Label","Total Cost":total_packaging,"Cost per Gram":(total_packaging/max(1,usable_weight_g)),"Cost per Unit":(total_packaging/max(1,total_units))},{"Cost Type":"Labor","Total Cost":st.session_state.get("wl_labor_cost_total_usd",0.0),"Cost per Gram":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,usable_weight_g)),"Cost per Unit":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,total_units))}]), "compliance_checklist": cdf}
 
 if not workspace_options:
     st.error("Your license does not include any enabled workspace modules.")
