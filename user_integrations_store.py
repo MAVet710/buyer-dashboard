@@ -41,6 +41,12 @@ class UserIntegrationRecord:
     metrc_api_key: str
     metrc_state: str
     metrc_license: str
+    user_status: str
+    password_hash: str
+    email: str
+    display_name: str
+    notes: str
+    last_login: str | None
     created_at: datetime | None
     updated_at: datetime | None
 
@@ -80,10 +86,17 @@ class UserIntegrationsStore:
                 Column("metrc_api_key", String(1024), nullable=False, server_default=""),
                 Column("metrc_state", String(128), nullable=False, server_default=""),
                 Column("metrc_license", String(128), nullable=False, server_default=""),
+                Column("user_status", String(64), nullable=False, server_default="active"),
+                Column("password_hash", String(1024), nullable=False, server_default=""),
+                Column("email", String(255), nullable=False, server_default=""),
+                Column("display_name", String(255), nullable=False, server_default=""),
+                Column("notes", String(1024), nullable=False, server_default=""),
+                Column("last_login", String(64), nullable=True),
                 Column("created_at", DateTime(timezone=True), nullable=False, server_default=sa_func.now()),
                 Column("updated_at", DateTime(timezone=True), nullable=False, server_default=sa_func.now()),
             )
             metadata.create_all(self._engine)
+            self._ensure_optional_columns()
         except Exception:
             self._engine = None
             self._table = None
@@ -91,6 +104,24 @@ class UserIntegrationsStore:
     @property
     def available(self) -> bool:
         return self._engine is not None and self._table is not None
+
+    def _ensure_optional_columns(self) -> None:
+        if not self.available:
+            return
+        ddl = {
+            "user_status": "ALTER TABLE user_integrations ADD COLUMN user_status VARCHAR(64) DEFAULT 'active'",
+            "password_hash": "ALTER TABLE user_integrations ADD COLUMN password_hash VARCHAR(1024) DEFAULT ''",
+            "email": "ALTER TABLE user_integrations ADD COLUMN email VARCHAR(255) DEFAULT ''",
+            "display_name": "ALTER TABLE user_integrations ADD COLUMN display_name VARCHAR(255) DEFAULT ''",
+            "notes": "ALTER TABLE user_integrations ADD COLUMN notes VARCHAR(1024) DEFAULT ''",
+            "last_login": "ALTER TABLE user_integrations ADD COLUMN last_login VARCHAR(64)",
+        }
+        for _, statement in ddl.items():
+            try:
+                with self._engine.begin() as conn:
+                    conn.exec_driver_sql(statement)
+            except Exception:
+                pass
 
     def get_user(self, username: str) -> UserIntegrationRecord | None:
         if not self.available:
@@ -121,6 +152,12 @@ class UserIntegrationsStore:
                 metrc_api_key=str(row.get("metrc_api_key") or ""),
                 metrc_state=str(row.get("metrc_state") or ""),
                 metrc_license=str(row.get("metrc_license") or ""),
+                user_status=str(row.get("user_status") or "active"),
+                password_hash=str(row.get("password_hash") or ""),
+                email=str(row.get("email") or ""),
+                display_name=str(row.get("display_name") or ""),
+                notes=str(row.get("notes") or ""),
+                last_login=row.get("last_login"),
                 created_at=row.get("created_at"),
                 updated_at=row.get("updated_at"),
             )
@@ -181,6 +218,12 @@ class UserIntegrationsStore:
             "metrc_api_key",
             "metrc_state",
             "metrc_license",
+            "user_status",
+            "password_hash",
+            "email",
+            "display_name",
+            "notes",
+            "last_login",
         }
         update_values = {k: values.get(k) for k in allowed_keys if k in values}
         update_values["username"] = clean_username
@@ -203,3 +246,26 @@ class UserIntegrationsStore:
             return True
         except Exception:
             return False
+
+    def list_users(self) -> list[dict[str, Any]]:
+        if not self.available:
+            return []
+        try:
+            with self._engine.begin() as conn:
+                rows = conn.execute(select(self._table)).mappings().all()
+            return [
+                {
+                    "Username": str(r.get("username") or ""),
+                    "Display Name": str(r.get("display_name") or ""),
+                    "Email": str(r.get("email") or ""),
+                    "Role": "admin" if bool(r.get("is_admin")) else "user",
+                    "Status": str(r.get("user_status") or "active"),
+                    "Plan Type": str(r.get("doobie_plan_type") or ""),
+                    "License Status": str(r.get("doobie_license_status") or "not_connected"),
+                    "Created At": r.get("created_at"),
+                    "Last Login": r.get("last_login"),
+                }
+                for r in rows
+            ]
+        except Exception:
+            return []
