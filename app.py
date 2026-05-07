@@ -4059,6 +4059,31 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         cat_perf = cat_perf.sort_values(sort_col, ascending=False)
         _append_pdf_table_page("Appendix C: Category Performance", cat_perf.head(250))
 
+
+    c.showPage()
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(30, page_h - 40, "Cost Breakdown")
+    cost_df = _safe_report_df(payload.get("cost_breakdown"))
+    if not cost_df.empty:
+        cols = [col for col in ["Cost Type", "Total Cost", "Cost per Gram", "Cost per Unit"] if col in cost_df.columns]
+        data = [cols] + cost_df[cols].astype(str).values.tolist()
+        t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
+        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
+        _, h = t.wrap(page_w - 60, page_h - 120)
+        t.drawOn(c, 30, page_h - 70 - h)
+
+    c.showPage()
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(30, page_h - 40, "Compliance Checklist")
+    comp_df = _safe_report_df(payload.get("compliance_checklist"))
+    if not comp_df.empty:
+        cols = [col for col in ["Requirement", "Status"] if col in comp_df.columns]
+        data = [cols] + comp_df[cols].astype(str).values.tolist()
+        t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
+        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
+        _, h = t.wrap(page_w - 60, page_h - 120)
+        t.drawOn(c, 30, page_h - 70 - h)
+
     c.save()
     out.seek(0)
     return out.read()
@@ -4297,7 +4322,7 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
     summary = payload.get("summary", {})
     for label, value in [
         ("Scenario", payload.get("scenario_name", "Unnamed Scenario")),
-        ("Bulk Flower", summary.get("bulk_flower_name", "N/A")),
+        ("Strain", summary.get("strain_name", "N/A")),
         ("Source METRC Package", summary.get("source_metrc_package_id", "N/A")),
         ("Landed Cost", f"${summary.get('landed_cost_usd', 0):,.2f}"),
         ("Total Revenue", f"${summary.get('total_revenue_usd', 0):,.2f}"),
@@ -4310,7 +4335,7 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
     c.showPage()
     c.setFont("Helvetica-Bold", 12)
     c.drawString(30, page_h - 40, "Package Size Comparison")
-    table_df = _safe_report_df(payload.get("package_comparison"))
+    table_df = _safe_report_df(payload.get("package_output_summary"))
     if not table_df.empty:
         cols = [col for col in ["Package Size", "Units", "Leftover Grams", "Retail Price", "Revenue", "Cost per Unit", "Gross Profit", "Gross Margin %"] if col in table_df.columns]
         data = [cols] + table_df[cols].astype(str).values.tolist()
@@ -4318,6 +4343,31 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
         t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
         _, h = t.wrap(page_w - 60, page_h - 120)
         t.drawOn(c, 30, page_h - 70 - h)
+
+    c.showPage()
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(30, page_h - 40, "Cost Breakdown")
+    cost_df = _safe_report_df(payload.get("cost_breakdown"))
+    if not cost_df.empty:
+        cols = [col for col in ["Cost Type", "Total Cost", "Cost per Gram", "Cost per Unit"] if col in cost_df.columns]
+        data = [cols] + cost_df[cols].astype(str).values.tolist()
+        t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
+        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
+        _, h = t.wrap(page_w - 60, page_h - 120)
+        t.drawOn(c, 30, page_h - 70 - h)
+
+    c.showPage()
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(30, page_h - 40, "Compliance Checklist")
+    comp_df = _safe_report_df(payload.get("compliance_checklist"))
+    if not comp_df.empty:
+        cols = [col for col in ["Requirement", "Status"] if col in comp_df.columns]
+        data = [cols] + comp_df[cols].astype(str).values.tolist()
+        t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
+        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
+        _, h = t.wrap(page_w - 60, page_h - 120)
+        t.drawOn(c, 30, page_h - 70 - h)
+
     c.save()
     out.seek(0)
     return out.read()
@@ -8406,140 +8456,182 @@ def _grams_from_unit(weight_value: float, weight_unit: str) -> float:
 def render_white_label_repack_workspace():
     st.markdown("## White Label / Repack")
     st.caption("Operational and compliance tracking for private-label/repack flower workflows. Not legal advice.")
-    st.session_state.setdefault("white_label_scenarios", [])
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        bulk_flower_name = st.text_input("bulk_flower_name")
-        strain_name = st.text_input("strain_name")
-        strain_type = st.selectbox("strain_type", ["indica", "sativa", "hybrid", "cbd", "mixed", "unknown"])
-        cultivator_name = st.text_input("cultivator_name")
-        cultivator_license_number = st.text_input("cultivator_license_number")
-        vendor_name = st.text_input("vendor_name")
-        source_metrc_package_id = st.text_input("source_metrc_package_id")
-        batch_or_lot_number = st.text_input("batch_or_lot_number")
-    with col_b:
-        coa_link = st.text_input("coa_link")
-        coa_status = st.selectbox("coa_status", ["Pending", "Passed", "Failed", "Needs Review"])
-        testing_date = st.date_input("testing_date", value=datetime.now().date())
-        harvest_date = st.date_input("harvest_date", value=datetime.now().date())
-        received_date = st.date_input("received_date", value=datetime.now().date())
-        package_date = st.date_input("package/repack date", value=datetime.now().date())
-        packaging_licensee = st.text_input("packaging licensee / retailer")
-        label_review_status = st.selectbox("label review status", ["Missing", "Needs Review", "Ready"])
-    with col_c:
-        thca_pct = st.number_input("thca_pct", min_value=0.0, max_value=100.0, value=0.0)
-        total_thc_pct = st.number_input("total_thc_pct", min_value=0.0, max_value=100.0, value=0.0)
-        terpene_pct = st.number_input("terpene_pct", min_value=0.0, max_value=100.0, value=0.0)
-        moisture_pct = st.number_input("moisture_pct", min_value=0.0, max_value=100.0, value=0.0)
-        testing_notes = st.text_area("testing_notes", height=70)
-        child_metrc_package_ids = st.text_input("repackaged_metrc_package_ids (comma-separated)")
-        manifest_id = st.text_input("transfer/manifest id")
-        facility_license = st.text_input("facility license")
 
-    st.markdown("### Economics + Loss")
-    ec1, ec2, ec3 = st.columns(3)
-    with ec1:
-        bulk_weight_value = st.number_input("bulk_weight_value", min_value=0.0, value=0.0)
-        bulk_weight_unit = st.selectbox("bulk_weight_unit", ["g", "oz", "lb"])
-        bulk_total_cost_usd = st.number_input("bulk_total_cost_usd", min_value=0.0, value=0.0)
-        discount_pct = st.number_input("discount_pct", min_value=0.0, max_value=100.0, value=0.0)
-        discount_amount_usd = st.number_input("discount_amount_usd", min_value=0.0, value=0.0)
-    with ec2:
-        freight_or_delivery_cost_usd = st.number_input("freight_or_delivery_cost_usd", min_value=0.0, value=0.0)
-        sample_or_testing_cost_usd = st.number_input("sample_or_testing_cost_usd", min_value=0.0, value=0.0)
-        labor_cost_total_usd = st.number_input("labor_cost_total_usd", min_value=0.0, value=0.0)
-        labor_cost_per_unit_usd = st.number_input("labor_cost_per_unit_usd", min_value=0.0, value=0.0)
-        packaging_cost_per_unit_usd = st.number_input("packaging_cost_per_unit_usd", min_value=0.0, value=0.0)
-    with ec3:
-        label_cost_per_unit_usd = st.number_input("label_cost_per_unit_usd", min_value=0.0, value=0.0)
-        compliance_admin_cost_usd = st.number_input("compliance_admin_cost_usd", min_value=0.0, value=0.0)
-        other_costs_usd = st.number_input("other_costs_usd", min_value=0.0, value=0.0)
-        shrink_loss_pct = st.number_input("shrink_loss_pct", min_value=0.0, max_value=100.0, value=0.0)
-        trim_loss_pct = st.number_input("trim_loss_pct", min_value=0.0, max_value=100.0, value=0.0)
-        qa_hold_loss_pct = st.number_input("QA_hold_loss_pct", min_value=0.0, max_value=100.0, value=0.0)
-
-    total_g = _grams_from_unit(bulk_weight_value, bulk_weight_unit)
-    discount_dollar_from_pct = bulk_total_cost_usd * (discount_pct / 100.0)
-    landed_cost_usd = max(0.0, bulk_total_cost_usd - discount_dollar_from_pct - discount_amount_usd + freight_or_delivery_cost_usd + sample_or_testing_cost_usd)
-    total_loss_pct = min(100.0, shrink_loss_pct + trim_loss_pct + qa_hold_loss_pct)
-    usable_weight_g = max(0.0, total_g * (1 - total_loss_pct / 100.0))
-    bulk_cost_per_gram = landed_cost_usd / total_g if total_g > 0 else 0.0
-    st.info(f"landed_cost_usd: ${landed_cost_usd:,.2f} | bulk_cost_per_gram: ${bulk_cost_per_gram:,.2f} | usable_weight_g: {usable_weight_g:,.2f} g")
-
-    st.markdown("### Packaging / Unitization")
-    package_sizes = [1.0, 3.5, 7.0, 14.0, 28.0]
-    custom_size = st.number_input("custom grams", min_value=0.0, value=0.0)
-    if custom_size > 0:
-        package_sizes.append(float(custom_size))
-    unique_sizes = sorted({p for p in package_sizes if p > 0})
-
-    rows = []
-    for size in unique_sizes:
-        price = st.number_input(f"target_retail_price_per_unit ({size}g)", min_value=0.0, value=0.0, key=f"wl_price_{size}")
-        alloc_pct = st.number_input(f"allocation_pct ({size}g)", min_value=0.0, max_value=100.0, value=0.0, key=f"wl_alloc_{size}")
-        alloc_g = usable_weight_g * (alloc_pct / 100.0) if alloc_pct > 0 else usable_weight_g
-        units = int(np.floor(alloc_g / size)) if size > 0 else 0
-        leftover = max(0.0, alloc_g - units * size)
-        revenue = units * price
-        allocated_bulk_cost = units * size * bulk_cost_per_gram
-        labor_total = labor_cost_total_usd + (labor_cost_per_unit_usd * units)
-        packaging_total = packaging_cost_per_unit_usd * units
-        label_total = label_cost_per_unit_usd * units
-        all_in_cost_total = allocated_bulk_cost + labor_total + packaging_total + label_total + compliance_admin_cost_usd + other_costs_usd
-        all_in_cost_per_unit = all_in_cost_total / units if units > 0 else 0.0
-        gross_profit = revenue - all_in_cost_total
-        margin_pct = (gross_profit / revenue * 100.0) if revenue > 0 else 0.0
-        rows.append({"Package Size": f"{size:g}g", "Units": units, "Leftover Grams": round(leftover, 2), "Retail Price": round(price, 2), "Revenue": round(revenue, 2), "Cost per Unit": round(all_in_cost_per_unit, 2), "Gross Profit": round(gross_profit, 2), "Gross Margin %": round(margin_pct, 2), "allocation_pct": alloc_pct, "all_in_cost_total": all_in_cost_total})
-    package_df = pd.DataFrame(rows)
-    if package_df.empty:
-        st.warning("Add at least one unit size > 0.")
-        return None
-    alloc_sum = float(package_df["allocation_pct"].sum())
-    if alloc_sum > 100.0:
-        st.warning("Allocation percentages cannot exceed 100%.")
-    st.dataframe(package_df[["Package Size", "Units", "Leftover Grams", "Retail Price", "Revenue", "Cost per Unit", "Gross Profit", "Gross Margin %"]], use_container_width=True)
-    total_revenue = float(package_df["Revenue"].sum())
-    total_profit = float(package_df["Gross Profit"].sum())
-    total_margin = (total_profit / total_revenue * 100.0) if total_revenue > 0 else 0.0
-    best_pkg = package_df.sort_values("Gross Margin %", ascending=False).iloc[0]["Package Size"]
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Bulk Weight", f"{total_g:,.1f} g")
-    k2.metric("Usable Weight", f"{usable_weight_g:,.1f} g")
-    k3.metric("Total Revenue", f"${total_revenue:,.0f}")
-    k4.metric("Gross Margin %", f"{total_margin:.1f}%")
-    st.metric("Best Package Size by Margin", str(best_pkg))
-    compliance_rows = [
-        ("cultivator name present", "Ready" if cultivator_name else "Missing"),
-        ("cultivator license number present", "Ready" if cultivator_license_number else "Missing"),
-        ("COA link present", "Ready" if coa_link else "Missing"),
-        ("COA status passed", "Ready" if coa_status == "Passed" else "Needs Review"),
-        ("THCA / cannabinoid profile present", "Ready" if thca_pct > 0 or total_thc_pct > 0 else "Missing"),
-        ("terpene data present if available", "Ready" if terpene_pct > 0 else "Needs Review"),
-        ("harvest date present", "Ready" if harvest_date else "Missing"),
-        ("testing date present", "Ready" if testing_date else "Missing"),
-        ("source METRC package ID present", "Ready" if source_metrc_package_id else "Missing"),
-        ("batch/lot number present", "Ready" if batch_or_lot_number else "Missing"),
-        ("package date present", "Ready" if package_date else "Missing"),
-        ("packaging licensee present", "Ready" if packaging_licensee else "Missing"),
-        ("label review completed", "Ready" if label_review_status == "Ready" else "Needs Review"),
-        ("net weight selected", "Ready" if bulk_weight_value > 0 else "Missing"),
+    default_plan = [
+        {"enabled": False, "package_size_g": 1.0, "allocation_pct": 0.0, "bag_cost_per_unit": 0.12, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
+        {"enabled": True, "package_size_g": 3.5, "allocation_pct": 50.0, "bag_cost_per_unit": 0.18, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
+        {"enabled": True, "package_size_g": 7.0, "allocation_pct": 25.0, "bag_cost_per_unit": 0.24, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
+        {"enabled": True, "package_size_g": 14.0, "allocation_pct": 15.0, "bag_cost_per_unit": 0.32, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
+        {"enabled": True, "package_size_g": 28.0, "allocation_pct": 10.0, "bag_cost_per_unit": 0.45, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
+        {"enabled": False, "package_size_g": 0.0, "allocation_pct": 0.0, "bag_cost_per_unit": 0.2, "label_cost_per_unit": 0.05, "additional_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
     ]
-    compliance_df = pd.DataFrame(compliance_rows, columns=["Requirement", "Status"])
-    compliance_df["Notes"] = np.where(compliance_df["Status"] == "Ready", "Complete", "Update before launch")
-    st.dataframe(compliance_df, use_container_width=True)
-    return {
-        "scenario_name": "Current Session",
-        "summary": {
-            "bulk_flower_name": bulk_flower_name,
-            "source_metrc_package_id": source_metrc_package_id,
-            "landed_cost_usd": landed_cost_usd,
-            "total_revenue_usd": total_revenue,
-            "gross_profit_usd": total_profit,
-            "gross_margin_pct": total_margin,
-            "coa_link": coa_link,
-        },
-        "package_comparison": package_df[["Package Size", "Units", "Leftover Grams", "Retail Price", "Revenue", "Cost per Unit", "Gross Profit", "Gross Margin %"]],
-    }
+    st.session_state.setdefault("white_label_saved_scenarios", {})
+    st.session_state.setdefault("white_label_active_scenario_name", "Current Session")
+    st.session_state.setdefault("white_label_package_plan", default_plan)
+
+    scenario_name = st.text_input("scenario_name", value=st.session_state.get("white_label_active_scenario_name", "Current Session"))
+    s1, s2, s3, s4 = st.columns(4)
+    with s1:
+        if st.button("Save Scenario", key="wl_save"):
+            st.session_state["white_label_saved_scenarios"][scenario_name] = {k: v for k, v in st.session_state.items() if k.startswith("wl_")}
+            st.session_state["white_label_saved_scenarios"][scenario_name]["white_label_package_plan"] = st.session_state.get("white_label_package_plan", default_plan)
+            st.success(f"Saved scenario: {scenario_name}")
+    with s2:
+        names = ["Current Session"] + sorted(st.session_state["white_label_saved_scenarios"].keys())
+        load_name = st.selectbox("Load Scenario", names, key="wl_load_name")
+    with s3:
+        if st.button("Duplicate Scenario", key="wl_duplicate"):
+            src = st.session_state["white_label_saved_scenarios"].get(load_name)
+            if src:
+                dup_name = f"{load_name} Copy"
+                st.session_state["white_label_saved_scenarios"][dup_name] = dict(src)
+                st.success(f"Duplicated as {dup_name}")
+    with s4:
+        if st.button("Clear Scenario", key="wl_clear"):
+            for key in [k for k in list(st.session_state.keys()) if k.startswith("wl_")]:
+                del st.session_state[key]
+            st.session_state["white_label_package_plan"] = default_plan
+            st.success("Cleared scenario values for current session.")
+
+    if load_name != "Current Session" and st.button("Apply Loaded Scenario", key="wl_apply_load"):
+        payload = st.session_state["white_label_saved_scenarios"].get(load_name, {})
+        for key, val in payload.items():
+            st.session_state[key] = val
+        st.success(f"Loaded {load_name}")
+
+    tabs = st.tabs(["Step 1: Bulk Lot", "Step 2: Costs", "Step 3: Package Plan", "Step 4: Results", "Step 5: Compliance"])
+    with tabs[0]:
+        st.info("Start with the bulk flower lot you are considering buying or repacking.")
+        strain_name = st.text_input("strain_name (required)", key="wl_strain_name")
+        strain_type = st.selectbox("strain_type (required)", ["indica", "sativa", "hybrid", "cbd", "mixed", "unknown"], key="wl_strain_type")
+        cultivator_name = st.text_input("cultivator_name (required)", key="wl_cultivator_name")
+        vendor_name = st.text_input("vendor_name (required)", key="wl_vendor_name")
+        c1, c2 = st.columns(2)
+        bulk_weight_value = c1.number_input("bulk_weight_value (required)", min_value=0.0, value=0.0, key="wl_bulk_weight_value")
+        bulk_weight_unit = c2.selectbox("bulk_weight_unit (required)", ["g", "oz", "lb"], key="wl_bulk_weight_unit")
+        bulk_total_cost_usd = st.number_input("bulk_total_cost_usd (required)", min_value=0.0, value=0.0, key="wl_bulk_total_cost_usd")
+        coa_link = st.text_input("coa_link (required)", key="wl_coa_link")
+        thca_pct = st.number_input("thca_pct (required)", min_value=0.0, max_value=100.0, value=0.0, key="wl_thca_pct")
+        terpene_pct = st.number_input("terpene_pct (required)", min_value=0.0, max_value=100.0, value=0.0, key="wl_terpene_pct")
+        with st.expander("Advanced Lot Details"):
+            cultivator_license_number = st.text_input("cultivator_license_number", key="wl_cultivator_license_number")
+            source_metrc_package_id = st.text_input("source_metrc_package_id", key="wl_source_metrc_package_id")
+            batch_or_lot_number = st.text_input("batch_or_lot_number", key="wl_batch_or_lot_number")
+            harvest_date = st.date_input("harvest_date", value=datetime.now().date(), key="wl_harvest_date")
+            testing_date = st.date_input("testing_date", value=datetime.now().date(), key="wl_testing_date")
+            received_date = st.date_input("received_date", value=datetime.now().date(), key="wl_received_date")
+            total_thc_pct = st.number_input("total_thc_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_total_thc_pct")
+            moisture_pct = st.number_input("moisture_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_moisture_pct")
+            testing_notes = st.text_area("testing_notes", key="wl_testing_notes")
+            buyer_notes = st.text_area("buyer_notes", key="wl_buyer_notes")
+            compliance_notes = st.text_area("compliance_notes", key="wl_compliance_notes")
+
+    with tabs[1]:
+        st.info("Add the costs that change the true landed cost of the flower.")
+        discount_pct = st.number_input("discount_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_discount_pct")
+        shrink_loss_pct = st.number_input("shrink_loss_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_shrink_loss_pct")
+        labor_cost_total_usd = st.number_input("labor_cost_total_usd", min_value=0.0, value=0.0, key="wl_labor_cost_total_usd")
+        other_costs_usd = st.number_input("other_costs_usd", min_value=0.0, value=0.0, key="wl_other_costs_usd")
+        with st.expander("Advanced Costs"):
+            freight_or_delivery_cost_usd = st.number_input("freight_or_delivery_cost_usd", min_value=0.0, value=0.0, key="wl_freight_or_delivery_cost_usd")
+            sample_or_testing_cost_usd = st.number_input("sample_or_testing_cost_usd", min_value=0.0, value=0.0, key="wl_sample_or_testing_cost_usd")
+            compliance_admin_cost_usd = st.number_input("compliance_admin_cost_usd", min_value=0.0, value=0.0, key="wl_compliance_admin_cost_usd")
+            qa_hold_loss_pct = st.number_input("QA_hold_loss_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_qa_hold_loss_pct")
+            trim_loss_pct = st.number_input("trim_loss_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_trim_loss_pct")
+            moisture_loss_pct = st.number_input("moisture_loss_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_moisture_loss_pct")
+
+    total_g = _grams_from_unit(st.session_state.get("wl_bulk_weight_value", 0.0), st.session_state.get("wl_bulk_weight_unit", "g"))
+    landed_cost_usd = max(0.0, st.session_state.get("wl_bulk_total_cost_usd", 0.0) * (1 - st.session_state.get("wl_discount_pct", 0.0) / 100.0) + st.session_state.get("wl_freight_or_delivery_cost_usd", 0.0) + st.session_state.get("wl_sample_or_testing_cost_usd", 0.0))
+    total_loss_pct = min(100.0, st.session_state.get("wl_shrink_loss_pct", 0.0) + st.session_state.get("wl_trim_loss_pct", 0.0) + st.session_state.get("wl_qa_hold_loss_pct", 0.0) + st.session_state.get("wl_moisture_loss_pct", 0.0))
+    usable_weight_g = max(0.0, total_g * (1 - total_loss_pct / 100.0))
+    effective_cost_per_gram = landed_cost_usd / usable_weight_g if usable_weight_g > 0 else 0.0
+
+    with tabs[2]:
+        st.info("Choose how much of the lot goes into each package size. Packaging costs can vary by size.")
+        plan_df = pd.DataFrame(st.session_state.get("white_label_package_plan", default_plan))
+        edited = st.data_editor(plan_df, use_container_width=True, num_rows="dynamic", key="wl_package_editor")
+        st.session_state["white_label_package_plan"] = edited.to_dict("records")
+        alloc_total = float(edited.loc[edited["enabled"], "allocation_pct"].sum()) if not edited.empty else 0.0
+        if alloc_total > 100:
+            st.warning("Your package allocation is over 100%.")
+        elif alloc_total < 100:
+            st.warning(f"You still have {100 - alloc_total:.1f}% unallocated.")
+        if usable_weight_g < 0:
+            st.warning("Usable grams cannot be negative.")
+
+    enabled_df = pd.DataFrame(st.session_state.get("white_label_package_plan", default_plan))
+    if not enabled_df.empty:
+        enabled_df = enabled_df[enabled_df["enabled"] == True].copy()
+
+    rows=[]
+    for _,r in enabled_df.iterrows():
+        size=float(r.get("package_size_g",0) or 0)
+        alloc_pct=float(r.get("allocation_pct",0) or 0)
+        bag=max(0.0,float(r.get("bag_cost_per_unit",0) or 0))
+        label=max(0.0,float(r.get("label_cost_per_unit",0) or 0))
+        addl=max(0.0,float(r.get("additional_packaging_cost_per_unit",0) or 0))
+        price=max(0.0,float(r.get("target_retail_price_per_unit",0) or 0))
+        if size<=0:
+            st.warning("Enabled package rows must have package_size_g > 0.")
+            continue
+        alloc_g=usable_weight_g*(alloc_pct/100.0)
+        units=int(np.floor(alloc_g/size))
+        leftover=max(0.0,alloc_g-(units*size))
+        if leftover>0: st.info("This package size produces leftover grams.")
+        revenue=units*price
+        packaging=units*bag
+        label_total=units*label
+        bulk_cost=units*size*effective_cost_per_gram
+        unit_other=(st.session_state.get("wl_labor_cost_total_usd",0)+st.session_state.get("wl_other_costs_usd",0)+st.session_state.get("wl_compliance_admin_cost_usd",0))/max(1,len(enabled_df))
+        all_in=bulk_cost+packaging+label_total+(units*addl)+unit_other
+        profit=revenue-all_in
+        margin=(profit/revenue*100.0) if revenue>0 else 0
+        rows.append({"Package Size":f"{size:g}g","Allocation %":alloc_pct,"Grams Allocated":alloc_g,"Units Produced":units,"Leftover Grams":leftover,"Retail Price":price,"Revenue":revenue,"Packaging Cost":packaging,"Label Cost":label_total,"All-In Cost/Unit":(all_in/units if units>0 else 0),"Gross Profit":profit,"Gross Margin %":margin})
+    results_df=pd.DataFrame(rows)
+    total_units=int(results_df["Units Produced"].sum()) if not results_df.empty else 0
+    total_revenue=float(results_df["Revenue"].sum()) if not results_df.empty else 0
+    total_packaging=float(results_df["Packaging Cost"].sum()+results_df["Label Cost"].sum()) if not results_df.empty else 0
+    total_all_in=float((results_df["All-In Cost/Unit"]*results_df["Units Produced"]).sum()) if not results_df.empty else 0
+    gross_profit=total_revenue-total_all_in
+    gross_margin=(gross_profit/total_revenue*100.0) if total_revenue>0 else 0
+    leftover_total=max(0.0, usable_weight_g - float(results_df["Grams Allocated"].sum()) if not results_df.empty else usable_weight_g)
+
+    with tabs[3]:
+        st.info("Review estimated units, revenue, profit, and margin.")
+        k=st.columns(5)
+        k[0].metric("Usable Weight", f"{usable_weight_g:,.1f} g")
+        k[1].metric("Total Units", f"{total_units:,}")
+        k[2].metric("Total Revenue", f"${total_revenue:,.0f}")
+        k[3].metric("Gross Profit", f"${gross_profit:,.0f}")
+        k[4].metric("Gross Margin %", f"{gross_margin:.1f}%")
+        st.metric("Leftover Grams", f"{leftover_total:,.1f} g")
+        if not results_df.empty:
+            st.metric("Best Package Size by Margin", str(results_df.sort_values("Gross Margin %", ascending=False).iloc[0]["Package Size"]))
+        st.dataframe(results_df, use_container_width=True)
+        if not results_df.empty:
+            st.bar_chart(results_df.set_index("Package Size")["Revenue"])
+            st.bar_chart(results_df.set_index("Package Size")["Gross Profit"])
+            st.bar_chart(results_df.set_index("Package Size")["Gross Margin %"])
+
+    with tabs[4]:
+        st.info("Check whether the lot has the documentation needed before launch.")
+        checklist = [
+            ("COA Link Present", "Ready" if st.session_state.get("wl_coa_link") else "Missing"),
+            ("COA Status Passed", "Ready" if st.session_state.get("wl_coa_status", "Needs Review") == "Passed" else "Needs Review"),
+            ("THCA / Cannabinoid Data Present", "Ready" if st.session_state.get("wl_thca_pct", 0) > 0 or st.session_state.get("wl_total_thc_pct", 0) > 0 else "Missing"),
+            ("Terpene Data Present", "Ready" if st.session_state.get("wl_terpene_pct", 0) > 0 else "Needs Review"),
+            ("Cultivator Name Present", "Ready" if st.session_state.get("wl_cultivator_name") else "Missing"),
+            ("Cultivator License Present", "Ready" if st.session_state.get("wl_cultivator_license_number") else "Missing"),
+            ("Source METRC Package ID Present", "Ready" if st.session_state.get("wl_source_metrc_package_id") else "Missing"),
+            ("Batch/Lot Number Present", "Ready" if st.session_state.get("wl_batch_or_lot_number") else "Missing"),
+            ("Harvest Date Present", "Ready" if st.session_state.get("wl_harvest_date") else "Missing"),
+            ("Testing Date Present", "Ready" if st.session_state.get("wl_testing_date") else "Missing"),
+            ("Label Review Completed", "Ready" if st.session_state.get("wl_label_review_status", "Needs Review") == "Ready" else "Needs Review"),
+        ]
+        cdf = pd.DataFrame(checklist, columns=["Requirement", "Status"])
+        st.dataframe(cdf, use_container_width=True)
+
+    return {"scenario_name": scenario_name or "Current Session", "summary": {"strain_name": st.session_state.get("wl_strain_name", ""), "source_metrc_package_id": st.session_state.get("wl_source_metrc_package_id", ""), "landed_cost_usd": landed_cost_usd, "total_revenue_usd": total_revenue, "gross_profit_usd": gross_profit, "gross_margin_pct": gross_margin, "coa_link": st.session_state.get("wl_coa_link", "")}, "bulk_lot_details": {k:v for k,v in st.session_state.items() if k.startswith("wl_")}, "package_plan": st.session_state.get("white_label_package_plan", default_plan), "package_output_summary": results_df, "cost_breakdown": pd.DataFrame([{"Cost Type":"Landed Cost","Total Cost":landed_cost_usd,"Cost per Gram":effective_cost_per_gram,"Cost per Unit":(total_all_in/max(1,total_units))},{"Cost Type":"Packaging+Label","Total Cost":total_packaging,"Cost per Gram":(total_packaging/max(1,usable_weight_g)),"Cost per Unit":(total_packaging/max(1,total_units))},{"Cost Type":"Labor","Total Cost":st.session_state.get("wl_labor_cost_total_usd",0.0),"Cost per Gram":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,usable_weight_g)),"Cost per Unit":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,total_units))}]), "compliance_checklist": cdf}
 
 if not workspace_options:
     st.error("Your license does not include any enabled workspace modules.")
