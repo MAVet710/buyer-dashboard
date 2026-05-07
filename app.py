@@ -743,6 +743,25 @@ def _load_auth_secrets():
 
 ADMIN_USERS, USER_USERS, _TRIAL_VALUE, _AUTH_PLAINTEXT = _load_auth_secrets()
 
+
+def _db_user_record(username: str):
+    if not USER_INTEGRATIONS_STORE.available:
+        return None
+    return USER_INTEGRATIONS_STORE.get_user(username)
+
+
+def _is_disabled_user(username: str) -> bool:
+    record = _db_user_record(username)
+    return bool(record and str(getattr(record, "user_status", "active")) == "disabled")
+
+
+def _resolve_user_password_hash(username: str) -> str:
+    record = _db_user_record(username)
+    db_hash = str(getattr(record, "password_hash", "") or "")
+    if db_hash:
+        return db_hash
+    return str(USER_USERS.get(username) or "")
+
 if not BCRYPT_AVAILABLE and not st.session_state.get("_bcrypt_warning_shown"):
     st.warning(
         "⚠️ bcrypt is not installed. Password verification is disabled. "
@@ -3244,6 +3263,45 @@ def _render_admin_integrations_page() -> None:
             f"Last validated: **{st.session_state.get('global_metrc_last_validated') or 'never'}**"
         )
 
+
+def _render_admin_portal_page() -> None:
+    if not st.session_state.get("is_admin", False):
+        st.error("Admin access is required.")
+        return
+    st.subheader("🛡️ Admin Portal")
+    if not USER_INTEGRATIONS_STORE.available:
+        st.warning("Persistent user management requires database storage.")
+        return
+    users = USER_INTEGRATIONS_STORE.list_users() if hasattr(USER_INTEGRATIONS_STORE, "list_users") else []
+    tabs = st.tabs(["Users", "Create User", "Trial Keys", "Licenses", "Audit Log"])
+    with tabs[0]:
+        st.dataframe(pd.DataFrame(users), use_container_width=True)
+    with tabs[1]:
+        with st.form("create_user_form"):
+            username = st.text_input("username").strip()
+            email = st.text_input("email (optional)").strip()
+            display_name = st.text_input("display_name (optional)").strip()
+            temp_password = st.text_input("temporary_password", type="password")
+            role = st.selectbox("role", ["user", "admin"])
+            status = st.selectbox("status", ["active", "disabled", "trial_expired", "pending"])
+            plan_type = st.selectbox("plan_type", ["trial", "standard", "premium", "enterprise"])
+            notes = st.text_area("notes (optional)")
+            submitted = st.form_submit_button("Create User", type="primary")
+            if submitted and username and temp_password:
+                password_hash = hash_password(temp_password)
+                USER_INTEGRATIONS_STORE.save_user_integrations(
+                    username=username,
+                    is_admin=(role == "admin"),
+                    values={"password_hash": password_hash, "email": email, "display_name": display_name, "notes": notes, "user_status": status, "doobie_plan_type": plan_type},
+                )
+                st.success("User created.")
+    with tabs[2]:
+        st.info("Configure Doobie Admin API in Integrations to generate trial keys.")
+    with tabs[3]:
+        st.caption("License management tools are available for DB-backed users.")
+    with tabs[4]:
+        st.caption("Audit log support can be added in persistent storage.")
+
         m_test, m_save, m_clear = st.columns(3)
         if m_test.button("Test Connection", key="admin_global_metrc_test_btn"):
             state = str(st.session_state.get("admin_global_metrc_state_input") or "").strip()
@@ -3443,12 +3501,22 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
         u_user = st.sidebar.text_input("Username", key="user_user_input")
         u_pass = st.sidebar.text_input("Password", type="password", key="user_pass_input")
         if st.sidebar.button("Login", key="login_user_btn"):
-            if u_user in USER_USERS and _check_password(u_pass, USER_USERS[u_user]):
+            stored_hash = _resolve_user_password_hash(u_user)
+            if stored_hash and _check_password(u_pass, stored_hash):
+                if _is_disabled_user(u_user):
+                    st.sidebar.error("Your account is disabled. Please contact an administrator.")
+                    st.stop()
                 st.session_state.user_authenticated = True
                 st.session_state.user_user = u_user
                 st.session_state._db_hydrated_username = ""
                 st.session_state._user_fail_count = 0
                 st.session_state._user_lockout_until = None
+                if USER_INTEGRATIONS_STORE.available:
+                    USER_INTEGRATIONS_STORE.save_user_integrations(
+                        username=u_user,
+                        is_admin=False,
+                        values={"last_login": datetime.now(timezone.utc).isoformat()},
+                    )
                 st.sidebar.success("✅ User access enabled.")
             else:
                 st.session_state._user_fail_count += 1
@@ -8909,6 +8977,7 @@ if _feature_enabled("admin_exports", default_enabled=True):
     section_options.append("🛠️ Admin Tools")
 if st.session_state.get("is_admin", False):
     section_options.append("🔌 Integrations")
+    section_options.append("🛡️ Admin Portal")
 
 section = st.sidebar.radio(
     "App Section",
@@ -8922,6 +8991,10 @@ if _feature_enabled("ai_support", default_enabled=True):
     render_main_ai_copilot(app_mode, section)
 else:
     st.caption("AI support is unavailable for your current plan.")
+
+if section == "🛡️ Admin Portal":
+    _render_admin_portal_page()
+    st.stop()
 
 # ============================================================
 # PAGE 1 – INVENTORY DASHBOARD
