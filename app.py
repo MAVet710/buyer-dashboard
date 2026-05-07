@@ -3553,6 +3553,35 @@ def _safe_report_df(value, empty_message="No data available") -> pd.DataFrame:
     return pd.DataFrame([{"Value": str(value)}])
 
 
+def _draw_pdf_report_background(c, page_w, page_h, dark=True):
+    image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "IMG_7158.PNG")
+    try:
+        if os.path.exists(image_path):
+            img = ImageReader(image_path)
+            img_w, img_h = img.getSize()
+            scale = max(page_w / img_w, page_h / img_h)
+            draw_w, draw_h = img_w * scale, img_h * scale
+            c.drawImage(
+                img,
+                (page_w - draw_w) / 2,
+                (page_h - draw_h) / 2,
+                width=draw_w,
+                height=draw_h,
+                mask="auto",
+            )
+    except Exception:
+        pass
+
+    c.saveState()
+    try:
+        c.setFillAlpha(0.78 if dark else 0.9)
+    except Exception:
+        pass
+    c.setFillColor(colors.HexColor("#0f0f10") if dark else colors.white)
+    c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+    c.restoreState()
+
+
 
 
 def _safe_numeric_series(df, column_name, default=0.0) -> pd.Series:
@@ -3674,9 +3703,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         return out, resolved
 
     def _draw_report_header_footer(page_title: str, use_dark_body: bool = True):
-        if use_dark_body:
-            c.setFillColor(pdf_colors["BACKGROUND_DARK"])
-            c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+        _draw_pdf_report_background(c, page_w, page_h, dark=use_dark_body)
         c.setFillColor(pdf_colors["CARD_BG"])
         c.rect(0, page_h - 46, page_w, 46, stroke=0, fill=1)
         c.setFillColor(pdf_colors["ACCENT_ORANGE"])
@@ -3730,8 +3757,6 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     def _append_pdf_message_page(title: str, message: str):
         c.showPage()
         _draw_report_header_footer(title, use_dark_body=False)
-        c.setFillColor(pdf_colors["APPENDIX_BG"])
-        c.rect(0, 0, page_w, page_h - 46, stroke=0, fill=1)
         c.setFillColor(pdf_colors["CARD_BG"])
         c.roundRect(30, page_h - 180, page_w - 60, 90, 10, stroke=1, fill=1)
         c.setStrokeColor(pdf_colors["BORDER"])
@@ -3768,8 +3793,6 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         for chunk_idx in range(0, len(data_rows), max_rows_per_page):
             c.showPage()
             _draw_report_header_footer(title, use_dark_body=False)
-            c.setFillColor(pdf_colors["APPENDIX_BG"])
-            c.rect(0, 0, page_w, page_h - 46, stroke=0, fill=1)
             page_suffix = f" (cont. {chunk_idx // max_rows_per_page + 1})" if chunk_idx > 0 else ""
             c.setFillColor(pdf_colors["TEXT_SECONDARY"])
             c.setFont("Helvetica", 9)
@@ -3842,8 +3865,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     )
 
     if not has_real_data:
-        c.setFillColor(pdf_colors["BACKGROUND_DARK"])
-        c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+        _draw_pdf_report_background(c, page_w, page_h, dark=True)
         c.setFillColor(pdf_colors["TEXT_PRIMARY"])
         c.setFont("Helvetica-Bold", 28)
         c.drawString(40, page_h - 70, "Buyer Executive Summary")
@@ -4062,6 +4084,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
 
 
     c.showPage()
+    _draw_pdf_report_background(c, page_w, page_h, dark=False)
     c.setFont("Helvetica-Bold", 12)
     c.drawString(30, page_h - 40, "Cost Breakdown")
     cost_df = _safe_report_df(payload.get("cost_breakdown"))
@@ -4074,6 +4097,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         t.drawOn(c, 30, page_h - 70 - h)
 
     c.showPage()
+    _draw_pdf_report_background(c, page_w, page_h, dark=False)
     c.setFont("Helvetica-Bold", 12)
     c.drawString(30, page_h - 40, "Compliance Checklist")
     comp_df = _safe_report_df(payload.get("compliance_checklist"))
@@ -4150,9 +4174,7 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
         return str(v)
 
     def _draw_report_header_footer(page_title: str, dark: bool = True):
-        if dark:
-            c.setFillColor(pdf_colors["BACKGROUND_DARK"])
-            c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+        _draw_pdf_report_background(c, page_w, page_h, dark=dark)
         c.setFillColor(pdf_colors["CARD_BG"])
         c.rect(0, page_h - 46, page_w, 46, stroke=0, fill=1)
         c.setFillColor(pdf_colors["ACCENT_ORANGE"])
@@ -4281,7 +4303,7 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
         return str(value)
 
     def _append_table_page(title, df, cols, note=None):
-        c.showPage(); _draw_report_header_footer(title, dark=False); c.setFillColor(pdf_colors["APPENDIX_BG"]); c.rect(0,0,page_w,page_h-46,stroke=0,fill=1)
+        c.showPage(); _draw_report_header_footer(title, dark=False)
         if note:
             c.setFillColor(pdf_colors["WARNING_YELLOW"]); c.setFont("Helvetica", 9); c.drawString(30, page_h - 90, note)
         if df.empty:
@@ -4295,7 +4317,7 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
         rows = [headers] + data.fillna("N/A").astype(str).values.tolist()
         chunk=30
         for i in range(0, len(rows)-1, chunk):
-            if i>0: c.showPage(); _draw_report_header_footer(title, dark=False); c.setFillColor(pdf_colors["APPENDIX_BG"]); c.rect(0,0,page_w,page_h-46,stroke=0,fill=1)
+            if i>0: c.showPage(); _draw_report_header_footer(title, dark=False)
             page_rows=[rows[0]]+rows[i+1:i+1+chunk]
             t=Table(page_rows, colWidths=[(page_w-60)/len(headers)]*len(headers), repeatRows=1)
             style=[("BACKGROUND",(0,0),(-1,0),pdf_colors["ACCENT_ORANGE"]),("TEXTCOLOR",(0,0),(-1,0),colors.black),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),7),("GRID",(0,0),(-1,-1),0.25,pdf_colors["BORDER"])]
@@ -4389,10 +4411,7 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
     has_data = any([_is_nonempty(package_df), _is_nonempty(cost_df), _is_nonempty(comp_df), _is_nonempty(summary)])
 
     def _header(title, dark=True):
-        if dark:
-            c.setFillColor(pdf_colors["BACKGROUND_DARK"]); c.rect(0,0,page_w,page_h,stroke=0,fill=1)
-        else:
-            c.setFillColor(pdf_colors["APPENDIX_BG"]); c.rect(0,0,page_w,page_h,stroke=0,fill=1)
+        _draw_pdf_report_background(c, page_w, page_h, dark=dark)
         c.setFillColor(pdf_colors["ACCENT_ORANGE"]); c.rect(0,page_h-42,page_w,42,stroke=0,fill=1)
         c.setFillColor(colors.black); c.setFont("Helvetica-Bold", 12); c.drawString(20,page_h-27,title)
         c.setFont("Helvetica",8); c.drawRightString(page_w-20,page_h-27,f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}")
