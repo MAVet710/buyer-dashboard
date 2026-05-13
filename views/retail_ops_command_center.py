@@ -19,6 +19,9 @@ SCHEDULE_COLUMNS = [
     "covered_shift_flag", "notes",
 ]
 SALES_COLUMNS = ["date", "hour", "day_of_week", "total_sales", "transactions", "units_sold", "average_ticket", "items_per_transaction"]
+POS_HOUR_TOTALS_REQUIRED_HEADERS = [
+    "Location Name", "Day", "Starting Hour", "Total Orders", "Gross Sales", "Total Inventory Sold", "Total Delivery Orders"
+]
 
 
 def _safe_numeric_series(df: pd.DataFrame, col: str, default: float = 0.0) -> pd.Series:
@@ -48,6 +51,86 @@ def _read_upload(uploaded_file):
     return pd.read_csv(uploaded_file)
 
 
+def _first_existing_column(df: pd.DataFrame, candidates):
+    for col in candidates:
+        if col in df.columns:
+            return col
+    return None
+
+
+def _detect_pos_hour_totals(df_raw: pd.DataFrame, scan_rows: int = 10):
+    required = {h.lower().strip() for h in POS_HOUR_TOTALS_REQUIRED_HEADERS}
+    max_rows = min(scan_rows, len(df_raw))
+    for idx in range(max_rows):
+        row_values = {str(v).strip().lower() for v in df_raw.iloc[idx].tolist() if pd.notna(v)}
+        if required.issubset(row_values):
+            return idx
+    return None
+
+
+def _parse_pos_metadata(df_raw: pd.DataFrame, header_row: int):
+    metadata = {"export_date": None, "from_date": None, "to_date": None, "location": None, "source_type": "pos_hour_totals"}
+    key_map = {"export date": "export_date", "from date": "from_date", "to date": "to_date", "location": "location"}
+    for idx in range(max(0, header_row)):
+        row = [str(v).strip() for v in df_raw.iloc[idx].tolist() if pd.notna(v) and str(v).strip()]
+        if len(row) < 2:
+            continue
+        key = row[0].lower().rstrip(":")
+        if key in key_map:
+            metadata[key_map[key]] = row[1]
+    metadata["detected_header_row"] = header_row + 1
+    return metadata
+
+
+def _read_sales_upload(uploaded_file):
+    if uploaded_file is None:
+        return pd.DataFrame(columns=SALES_COLUMNS), {"source_type": "unknown"}
+    is_excel = uploaded_file.name.lower().endswith((".xlsx", ".xls"))
+    df_raw = pd.read_excel(uploaded_file, header=None) if is_excel else pd.read_csv(uploaded_file, header=None)
+    header_row = _detect_pos_hour_totals(df_raw, scan_rows=10)
+    if header_row is None:
+        uploaded_file.seek(0)
+        df = _read_upload(uploaded_file)
+        return df, {"source_type": "generic_sales"}
+
+    headers = [str(v).strip() for v in df_raw.iloc[header_row].tolist()]
+    table = df_raw.iloc[header_row + 1:].copy()
+    table.columns = headers
+    table = table.dropna(how="all").reset_index(drop=True)
+    sales = pd.DataFrame()
+    sales["location_name"] = table.get("Location Name")
+    sales["day_of_week"] = table.get("Day")
+    sales["sale_hour"] = pd.to_numeric(table.get("Starting Hour"), errors="coerce").fillna(-1).astype(int)
+    sales["transactions"] = pd.to_numeric(table.get("Total Orders"), errors="coerce").fillna(0.0)
+    sales["gross_sales"] = pd.to_numeric(table.get("Gross Sales"), errors="coerce").fillna(0.0)
+    sales["units_sold"] = pd.to_numeric(table.get("Total Inventory Sold"), errors="coerce").fillna(0.0)
+    sales["delivery_orders"] = pd.to_numeric(table.get("Total Delivery Orders"), errors="coerce").fillna(0.0)
+    sales["net_sales"] = sales["gross_sales"]
+    sales["total_sales"] = sales["gross_sales"]
+    sales["average_ticket"] = sales["gross_sales"] / sales["transactions"].replace(0, pd.NA)
+    sales["items_per_transaction"] = sales["units_sold"] / sales["transactions"].replace(0, pd.NA)
+    sales["average_ticket"] = sales["average_ticket"].fillna(0.0)
+    sales["items_per_transaction"] = sales["items_per_transaction"].fillna(0.0)
+    sales["analysis_granularity"] = "weekday_hour"
+
+    grouped = sales.groupby(["day_of_week", "sale_hour"], dropna=False).agg(
+        transactions=("transactions", "sum"),
+        gross_sales=("gross_sales", "sum"),
+        total_sales=("total_sales", "sum"),
+        units_sold=("units_sold", "sum"),
+        delivery_orders=("delivery_orders", "sum"),
+    ).reset_index()
+    grouped["average_ticket"] = grouped["gross_sales"] / grouped["transactions"].replace(0, pd.NA)
+    grouped["items_per_transaction"] = grouped["units_sold"] / grouped["transactions"].replace(0, pd.NA)
+    grouped["average_ticket"] = grouped["average_ticket"].fillna(0.0)
+    grouped["items_per_transaction"] = grouped["items_per_transaction"].fillna(0.0)
+    grouped["analysis_granularity"] = "weekday_hour"
+
+    metadata = _parse_pos_metadata(df_raw, header_row)
+    metadata["rows_processed"] = int(len(grouped))
+    return grouped, metadata
+
+
 def _normalize_data(employees, schedule, sales, thresholds):
     employees = employees.copy() if isinstance(employees, pd.DataFrame) else pd.DataFrame(columns=EMPLOYEE_COLUMNS)
     schedule = schedule.copy() if isinstance(schedule, pd.DataFrame) else pd.DataFrame(columns=SCHEDULE_COLUMNS)
@@ -64,21 +147,33 @@ def _normalize_data(employees, schedule, sales, thresholds):
         schedule["labor_cost"] = schedule["scheduled_hours"] * schedule["hourly_wage"]
         schedule["day_of_week"] = schedule["date"].dt.day_name()
 
+    analysis_granularity = None
+    if "analysis_granularity" in sales.columns and not sales.empty:
+        analysis_granularity = str(sales["analysis_granularity"].iloc[0])
     if not sales.empty:
         sales["date"] = pd.to_datetime(sales.get("date"), errors="coerce")
-        sales["hour"] = _safe_numeric_series(sales, "hour", -1)
+        sales["hour"] = _safe_numeric_series(sales, _first_existing_column(sales, ["hour", "sale_hour"]) or "hour", -1)
         sales["total_sales"] = _safe_numeric_series(sales, "total_sales", 0)
         sales["transactions"] = _safe_numeric_series(sales, "transactions", 0)
-        sales["day_of_week"] = sales["date"].dt.day_name()
+        if "day_of_week" not in sales.columns or sales["day_of_week"].isna().all():
+            sales["day_of_week"] = sales["date"].dt.day_name()
 
     if schedule.empty or sales.empty:
         return schedule, sales, pd.DataFrame()
 
-    group_cols = ["date"] + (["hour_block"] if "hour_block" in schedule.columns and "hour" in sales.columns else [])
-    labor_agg = schedule.groupby(group_cols, dropna=False).agg(labor_hours=("scheduled_hours", "sum"), labor_cost=("labor_cost", "sum")).reset_index()
-    sales_group_cols = ["date"] + (["hour"] if "hour" in sales.columns and "hour_block" in group_cols else [])
-    sales_agg = sales.groupby(sales_group_cols, dropna=False).agg(total_sales=("total_sales", "sum"), transactions=("transactions", "sum")).reset_index()
-    analysis = labor_agg.merge(sales_agg, on="date", how="outer")
+    if analysis_granularity == "weekday_hour":
+        schedule["day_of_week"] = schedule["date"].dt.day_name()
+        if "hour_block" in schedule.columns:
+            schedule["hour"] = pd.to_numeric(schedule["hour_block"], errors="coerce")
+        labor_agg = schedule.groupby(["day_of_week", "hour"], dropna=False).agg(labor_hours=("scheduled_hours", "sum"), labor_cost=("labor_cost", "sum")).reset_index()
+        sales_agg = sales.groupby(["day_of_week", "hour"], dropna=False).agg(total_sales=("total_sales", "sum"), transactions=("transactions", "sum"), units_sold=("units_sold", "sum")).reset_index()
+        analysis = labor_agg.merge(sales_agg, on=["day_of_week", "hour"], how="outer")
+    else:
+        group_cols = ["date"] + (["hour_block"] if "hour_block" in schedule.columns and "hour" in sales.columns else [])
+        labor_agg = schedule.groupby(group_cols, dropna=False).agg(labor_hours=("scheduled_hours", "sum"), labor_cost=("labor_cost", "sum")).reset_index()
+        sales_group_cols = ["date"] + (["hour"] if "hour" in sales.columns and "hour_block" in group_cols else [])
+        sales_agg = sales.groupby(sales_group_cols, dropna=False).agg(total_sales=("total_sales", "sum"), transactions=("transactions", "sum")).reset_index()
+        analysis = labor_agg.merge(sales_agg, on="date", how="outer")
 
     analysis["sales_per_labor_hour"] = analysis["total_sales"] / analysis["labor_hours"].replace(0, pd.NA)
     analysis["transactions_per_labor_hour"] = analysis["transactions"] / analysis["labor_hours"].replace(0, pd.NA)
@@ -132,6 +227,7 @@ def render_retail_ops_command_center():
     st.session_state.setdefault("retail_ops_employees", pd.DataFrame(columns=EMPLOYEE_COLUMNS))
     st.session_state.setdefault("retail_ops_schedule", pd.DataFrame(columns=SCHEDULE_COLUMNS))
     st.session_state.setdefault("retail_ops_sales", pd.DataFrame(columns=SALES_COLUMNS))
+    st.session_state.setdefault("retail_ops_sales_metadata", {"source_type": "unknown"})
     st.session_state.setdefault("retail_ops_analysis", pd.DataFrame())
     st.session_state.setdefault("retail_ops_thresholds", defaults.copy())
 
@@ -152,8 +248,28 @@ def render_retail_ops_command_center():
     with tabs[3]:
         up = st.file_uploader("Upload Sales Demand (CSV/XLSX)", type=["csv", "xlsx", "xls"], key="retail_sales_upload")
         if up is not None:
-            st.session_state["retail_ops_sales"] = _read_upload(up)
+            sales_df, sales_meta = _read_sales_upload(up)
+            st.session_state["retail_ops_sales"] = sales_df
+            st.session_state["retail_ops_sales_metadata"] = sales_meta | {"analysis_granularity": sales_df.get("analysis_granularity", pd.Series(dtype=str)).iloc[0] if not sales_df.empty and "analysis_granularity" in sales_df.columns else "date_hour"}
         st.session_state["retail_ops_sales"] = st.data_editor(st.session_state["retail_ops_sales"], use_container_width=True, num_rows="dynamic")
+        meta = st.session_state.get("retail_ops_sales_metadata", {})
+        if meta.get("source_type") == "pos_hour_totals":
+            st.caption("Sales Data Quality")
+            st.write({
+                "Source Type": "POS Hour Totals",
+                "Location": meta.get("location"),
+                "From Date": meta.get("from_date"),
+                "To Date": meta.get("to_date"),
+                "Export Date": meta.get("export_date"),
+                "Rows Processed": meta.get("rows_processed"),
+                "Detected Header Row": meta.get("detected_header_row"),
+                "Analysis Granularity": "Weekday + Hour",
+                "Sales Column": "Gross Sales",
+                "Transaction Column": "Total Orders",
+                "Units Column": "Total Inventory Sold",
+                "Delivery Orders Column": "Total Delivery Orders",
+            })
+            st.warning("This file provides weekday/hour demand patterns, not exact transaction dates.")
 
     with st.expander("Threshold Settings", expanded=False):
         for k in defaults:
