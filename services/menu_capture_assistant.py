@@ -5,16 +5,17 @@ from datetime import datetime
 from typing import Any
 import re
 import json
+from html import unescape
 
 import pandas as pd
 
 
 _CAPTURE_COLUMNS = [
-    "competitor_name","snapshot_date","menu_platform","source_url","category","subcategory",
+    "competitor_name","snapshot_date","menu_platform","source_file_name","source_url","category","subcategory",
     "product_name","normalized_product_name","brand","package_size_label","package_size_g",
-    "regular_price","sale_price","effective_price","discount_pct","thc_pct","thca_pct","cbd_pct",
+    "regular_price","sale_price","effective_price","discount_pct","thc_pct","thca_pct","tac_pct","cbd_pct",
     "terpene_pct","strain_type","availability_status","promo_text","product_url","raw_text",
-    "capture_confidence","needs_review","captured_at",
+    "capture_confidence","needs_review","missing_fields","captured_at",
 ]
 
 
@@ -69,6 +70,51 @@ def _extract_rows_from_text(content: str) -> list[dict[str, Any]]:
             "raw_text": line,
         })
     return rows
+
+
+def _find_json_blocks(text: str) -> list[str]:
+    return re.findall(r"<script[^>]*>(.*?)</script>", text or "", flags=re.IGNORECASE | re.DOTALL)
+
+
+def parse_competitor_html_snapshot(file_bytes: bytes, file_name: str, competitor_name: str, snapshot_date: str, default_category: str | None = None) -> tuple[pd.DataFrame, dict[str, Any]]:
+    content = (file_bytes or b"").decode("utf-8", errors="ignore")
+    content = unescape(content)
+    text_only = re.sub(r"<[^>]+>", " ", content or "")
+    menu_platform = "Unknown"
+    if "window.jointEcommerce" in content or "joint-ecommerce-config" in content:
+        menu_platform = "Joint"
+    elif "dutchie" in content.lower():
+        menu_platform = "Dutchie"
+    elif "weedmaps" in content.lower():
+        menu_platform = "Weedmaps"
+    title_match = re.search(r"<title>(.*?)</title>", content, flags=re.IGNORECASE | re.DOTALL)
+    inferred_category = default_category or ""
+    if not inferred_category and title_match:
+        inferred_category = re.sub(r"\s+", " ", title_match.group(1)).strip()[:80]
+    source_url = ""
+    canonical = re.search(r'rel=["\']canonical["\'][^>]*href=["\']([^"\']+)["\']', content, flags=re.IGNORECASE)
+    if canonical:
+        source_url = canonical.group(1).strip()
+
+    rows = _extract_rows_from_text(text_only)
+    for block in _find_json_blocks(content):
+        if "jointEcommerce" not in block and "product" not in block.lower():
+            continue
+        for name, price in re.findall(r'"name"\s*:\s*"([^"]+)"[^{}]{0,300}?"price"\s*:\s*"?(\d+(?:\.\d+)?)"?', block, flags=re.IGNORECASE | re.DOTALL):
+            rows.append({"product_name": name, "price": price, "category": inferred_category, "raw_text": name})
+    session = MenuCaptureSession()
+    df = session.extract_visible_product_cards(rows, competitor_name, snapshot_date, menu_platform, source_url, inferred_category)
+    df["source_file_name"] = file_name
+    df["snapshot_date"] = snapshot_date
+    meta = {
+        "source_file_name": file_name,
+        "source_type": file_name.split(".")[-1].lower() if "." in file_name else "unknown",
+        "menu_platform": menu_platform,
+        "source_url": source_url,
+        "rows_extracted": int(len(df)),
+        "category": inferred_category,
+    }
+    return df, meta
 
 
 @dataclass
@@ -128,6 +174,7 @@ class MenuCaptureSession:
                 "competitor_name": competitor_name,
                 "snapshot_date": snapshot_date,
                 "menu_platform": menu_platform,
+                "source_file_name": row.get("source_file_name", ""),
                 "source_url": source_url,
                 "category": row.get("category") or category,
                 "subcategory": row.get("subcategory", ""),
@@ -142,6 +189,7 @@ class MenuCaptureSession:
                 "discount_pct": discount_pct,
                 "thc_pct": row.get("thc_pct"),
                 "thca_pct": row.get("thca_pct"),
+                "tac_pct": row.get("tac_pct"),
                 "cbd_pct": row.get("cbd_pct"),
                 "terpene_pct": row.get("terpene_pct"),
                 "strain_type": row.get("strain_type", ""),
@@ -159,6 +207,7 @@ class MenuCaptureSession:
             else:
                 fields["capture_confidence"] = "Low"
             fields["needs_review"] = fields["capture_confidence"] == "Low"
+            fields["missing_fields"] = ", ".join(missing)
             cleaned.append(fields)
 
         df = pd.DataFrame(cleaned)
