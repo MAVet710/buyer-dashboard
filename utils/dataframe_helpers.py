@@ -49,5 +49,19 @@ def _safe_numeric_sum(df, column_name, default=0.0) -> float:
     total = series.sum()
     return float(total) if pd.notna(total) else float(default)
 
+def _safe_series_mean(series, default=0.0) -> float:
+    try:
+        if series is None:
+            return float(default)
+        if not isinstance(series, pd.Series):
+            series = pd.Series(series)
+        numeric = pd.to_numeric(series, errors="coerce").dropna()
+        if numeric.empty:
+            return float(default)
+        value = numeric.mean()
+        return float(value) if pd.notna(value) else float(default)
+    except Exception:
+        return float(default)
+
 def _safe_numeric_mean(df, column_name, default=0.0) -> float:
-    return _safe_series_mean(_safe_numeric_series(df, column_name, default=0.0), default=default)
+    return _safe_series_mean(_safe_numeric_series(df, column_name, default=default), default=default)
