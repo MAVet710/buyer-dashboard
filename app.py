@@ -51,6 +51,7 @@ from ui_polish import (
 from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
 from views.retail_ops_command_center import render_retail_ops_command_center
+from modules.competitor_intelligence_center import render_competitor_intelligence_center
 from utils.constants import *
 from utils.product_parsing import (
     free_strain_lookup, ai_lookup_strain_type,
@@ -4297,6 +4298,7 @@ if _feature_enabled("extraction_module", default_enabled=True):
     workspace_options.append("🧪 Extraction Command Center")
 if _feature_enabled("retail_ops_module", default_enabled=True):
     workspace_options.append("🏪 Retail Ops Command Center")
+workspace_options.append("🕵️ Competitor Intelligence Center")
 _active_workspace = st.session_state.get("workspace_mode", workspace_options[0] if workspace_options else "🛒 Buyer Operations")
 _ecc_runs = _safe_report_df(st.session_state.get("ecc_run_log"))
 _extraction_profitability = _safe_report_df(st.session_state.get("ecc_run_value_snapshot", _ecc_runs))
@@ -8640,6 +8642,15 @@ if app_mode == "🏪 Retail Ops Command Center":
         "Retail • Operations",
     )
     render_retail_ops_command_center()
+    st.stop()
+if app_mode == "🕵️ Competitor Intelligence Center":
+    render_hero(
+        "Competitor Intelligence Center",
+        "Human-in-the-loop competitor menu intelligence for pricing, assortment, and promo strategy.",
+        _display_user,
+        "Buyer • Competitive Intelligence",
+    )
+    render_competitor_intelligence_center()
     st.stop()
 
 # =========================
