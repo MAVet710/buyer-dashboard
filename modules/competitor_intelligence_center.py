@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from io import BytesIO
 import os
+import traceback
+import logging
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
@@ -10,6 +12,7 @@ import streamlit.components.v1 as components
 from reports.competitor_report import _build_competitor_intelligence_report_pdf
 from services.menu_capture_assistant import MenuCaptureSession, parse_competitor_html_snapshot
 from utils.dataframe_helpers import _safe_numeric_mean, _safe_numeric_series, _safe_numeric_sum
+logger = logging.getLogger(__name__)
 
 
 def _init_state() -> None:
@@ -32,6 +35,8 @@ def _init_state() -> None:
         "competitor_current_snapshot_metadata": {},
         "competitor_last_processed_at": "",
         "competitor_snapshot_dirty": False,
+        "competitor_file_processing_results": [],
+        "competitor_last_processing_error": "",
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -155,60 +160,111 @@ def render_competitor_intelligence_center() -> None:
             st.session_state["competitor_menu_snapshots_df"] = pd.DataFrame()
             st.session_state["competitor_saved_snapshot_rows"] = pd.DataFrame()
         if process_clicked or update_clicked:
-            cache_files = st.session_state.get("competitor_uploaded_files_cache", [])
-            parsed_frames = []
-            metadata_rows = []
-            for cf in cache_files:
-                name = cf.get("file_name", "")
-                ext = name.lower().split(".")[-1] if "." in name else ""
-                file_bytes = cf.get("file_bytes", b"")
-                if ext in {"html", "htm", "mhtml", "txt"}:
-                    parsed_df, meta = parse_competitor_html_snapshot(file_bytes, name, competitor_name, str(date.today()), category_for_extract)
-                elif ext == "csv":
-                    source = pd.read_csv(BytesIO(file_bytes))
-                    rows = source.to_dict(orient="records")
-                    parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
-                    parsed_df["source_file_name"] = name
-                    meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
-                elif ext in {"xlsx", "xls"}:
-                    source = pd.read_excel(BytesIO(file_bytes))
-                    rows = source.to_dict(orient="records")
-                    parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
-                    parsed_df["source_file_name"] = name
-                    meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
-                elif ext == "json":
-                    rows = session.parse_browser_capture_payload(file_bytes.decode("utf-8", errors="ignore"))
-                    parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
-                    parsed_df["source_file_name"] = name
-                    meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
-                else:
-                    continue
-                parsed_frames.append(parsed_df)
-                metadata_rows.append(meta)
-            pending = pd.concat(parsed_frames, ignore_index=True) if parsed_frames else pd.DataFrame()
-            dedup_cols = ["competitor_name", "snapshot_date", "normalized_product_name", "brand", "package_size_label", "category", "effective_price"]
-            before = len(pending)
-            if isinstance(pending, pd.DataFrame) and not pending.empty:
-                pending = pending.drop_duplicates(subset=[c for c in dedup_cols if c in pending.columns], keep="first")
-            st.session_state["competitor_capture_rows_pending"] = pending
-            if update_clicked:
-                existing = st.session_state.get("competitor_menu_snapshots_df")
-                if behavior.startswith("Replace") or not isinstance(existing, pd.DataFrame) or existing.empty:
-                    combined = pending.copy()
-                else:
-                    combined = pd.concat([existing, pending], ignore_index=True)
-                    combined = combined.drop_duplicates(subset=[c for c in dedup_cols if c in combined.columns], keep="first")
-                st.session_state["competitor_menu_snapshots_df"] = combined
-                st.session_state["competitor_saved_snapshot_rows"] = combined
-            st.session_state["competitor_current_snapshot_metadata"] = {"competitor_name": competitor_name, "snapshot_date": str(date.today()), "files_processed": len(metadata_rows), "source_types": sorted({m.get("source_type", "") for m in metadata_rows})}
-            st.session_state["competitor_data_quality"] = {"files_uploaded": len(cache_files), "files_processed": len(metadata_rows), "rows_extracted": before, "rows_saved": len(pending), "duplicate_rows_merged": max(0, before - len(pending)), "rows_needing_review": int(pending["needs_review"].sum()) if isinstance(pending, pd.DataFrame) and "needs_review" in pending.columns else 0, "missing_price_count": int(pending["effective_price"].isna().sum()) if isinstance(pending, pd.DataFrame) and "effective_price" in pending.columns else 0, "missing_package_size_count": int((pending["package_size_label"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "package_size_label" in pending.columns else 0, "missing_category_count": int((pending["category"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "category" in pending.columns else 0, "missing_brand_count": int((pending["brand"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "brand" in pending.columns else 0, "confidence_score": float((pending["capture_confidence"] == "High").mean()) if isinstance(pending, pd.DataFrame) and "capture_confidence" in pending.columns and not pending.empty else 0.0, "categories_detected": sorted(pending["category"].dropna().unique().tolist()) if isinstance(pending, pd.DataFrame) and "category" in pending.columns else [], "source_file_list": [m.get("source_file_name", "") for m in metadata_rows]}
-            st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%m/%d/%Y %I:%M %p")
-            st.session_state["competitor_snapshot_dirty"] = False
+            try:
+                st.session_state["competitor_last_processing_error"] = ""
+                cache_files = st.session_state.get("competitor_uploaded_files_cache", [])
+                parsed_frames = []
+                metadata_rows = []
+                file_results = []
+                status = st.status(f"Processing {len(cache_files)} uploaded file(s)...", expanded=True)
+                prog = st.progress(0.0)
+                for idx, cf in enumerate(cache_files):
+                    name = cf.get("file_name", "")
+                    ext = name.lower().split(".")[-1] if "." in name else ""
+                    file_bytes = cf.get("file_bytes", b"")
+                    file_warnings = []
+                    status.write(f"[{idx + 1}/{len(cache_files)}] File: {name}")
+                    status.write(f"Parser step: route type ({ext})")
+                    try:
+                        if cf.get("file_size", 0) > (20 * 1024 * 1024):
+                            file_warnings.append("File exceeds 20 MB; parsing in guarded mode.")
+                        if ext in {"html", "htm", "mhtml", "txt"}:
+                            status.write("Parser step: staged HTML parse")
+                            parsed_df, meta = parse_competitor_html_snapshot(file_bytes, name, competitor_name, str(date.today()), category_for_extract)
+                            file_warnings.extend(meta.get("warnings", []))
+                        elif ext == "csv":
+                            source = pd.read_csv(BytesIO(file_bytes))
+                            rows = source.to_dict(orient="records")
+                            parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
+                            parsed_df["source_file_name"] = name
+                            meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
+                        elif ext in {"xlsx", "xls"}:
+                            source = pd.read_excel(BytesIO(file_bytes))
+                            rows = source.to_dict(orient="records")
+                            parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
+                            parsed_df["source_file_name"] = name
+                            meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
+                        elif ext == "json":
+                            rows = session.parse_browser_capture_payload(file_bytes.decode("utf-8", errors="ignore"))
+                            parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
+                            parsed_df["source_file_name"] = name
+                            meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
+                        else:
+                            file_results.append({"file_name": name, "file_size": cf.get("file_size", 0), "status": "skipped", "rows_extracted": 0, "warnings": ["Unsupported file type for processing."], "error": ""})
+                            prog.progress((idx + 1) / max(1, len(cache_files)))
+                            continue
+                        parsed_frames.append(parsed_df)
+                        metadata_rows.append(meta)
+                        file_results.append({"file_name": name, "file_size": cf.get("file_size", 0), "status": "processed", "rows_extracted": int(len(parsed_df)), "warnings": file_warnings, "error": ""})
+                        status.write(f"Rows extracted: {len(parsed_df)}")
+                    except Exception as file_exc:
+                        logger.exception("Failed processing competitor upload file '%s'", name)
+                        file_results.append({"file_name": name, "file_size": cf.get("file_size", 0), "status": "failed", "rows_extracted": 0, "warnings": file_warnings, "error": str(file_exc)})
+                        status.write(f"Failed: {name}")
+                    prog.progress((idx + 1) / max(1, len(cache_files)))
+
+                pending = pd.concat(parsed_frames, ignore_index=True) if parsed_frames else pd.DataFrame()
+                dedup_cols = ["competitor_name", "snapshot_date", "normalized_product_name", "brand", "package_size_label", "category", "effective_price"]
+                before = len(pending)
+                if isinstance(pending, pd.DataFrame) and not pending.empty:
+                    pending = pending.drop_duplicates(subset=[c for c in dedup_cols if c in pending.columns], keep="first")
+                st.session_state["competitor_capture_rows_pending"] = pending
+                if update_clicked:
+                    existing = st.session_state.get("competitor_menu_snapshots_df")
+                    if behavior.startswith("Replace") or not isinstance(existing, pd.DataFrame) or existing.empty:
+                        combined = pending.copy()
+                    else:
+                        combined = pd.concat([existing, pending], ignore_index=True)
+                        combined = combined.drop_duplicates(subset=[c for c in dedup_cols if c in combined.columns], keep="first")
+                    st.session_state["competitor_menu_snapshots_df"] = combined
+                    st.session_state["competitor_saved_snapshot_rows"] = combined
+                st.session_state["competitor_file_processing_results"] = file_results
+                st.session_state["competitor_current_snapshot_metadata"] = {"competitor_name": competitor_name, "snapshot_date": str(date.today()), "files_processed": len(metadata_rows), "source_types": sorted({m.get("source_type", "") for m in metadata_rows})}
+                st.session_state["competitor_data_quality"] = {"files_uploaded": len(cache_files), "files_processed": len(metadata_rows), "rows_extracted": before, "rows_saved": len(pending), "duplicate_rows_merged": max(0, before - len(pending)), "rows_needing_review": int(pending["needs_review"].sum()) if isinstance(pending, pd.DataFrame) and "needs_review" in pending.columns else 0, "missing_price_count": int(pending["effective_price"].isna().sum()) if isinstance(pending, pd.DataFrame) and "effective_price" in pending.columns else 0, "missing_package_size_count": int((pending["package_size_label"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "package_size_label" in pending.columns else 0, "missing_category_count": int((pending["category"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "category" in pending.columns else 0, "missing_brand_count": int((pending["brand"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "brand" in pending.columns else 0, "confidence_score": float((pending["capture_confidence"] == "High").mean()) if isinstance(pending, pd.DataFrame) and "capture_confidence" in pending.columns and not pending.empty else 0.0, "categories_detected": sorted(pending["category"].dropna().unique().tolist()) if isinstance(pending, pd.DataFrame) and "category" in pending.columns else [], "source_file_list": [m.get("source_file_name", "") for m in metadata_rows]}
+                st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%m/%d/%Y %I:%M %p")
+                st.session_state["competitor_snapshot_dirty"] = False
+                processed_count = sum(1 for r in file_results if r.get("status") == "processed")
+                failed_count = sum(1 for r in file_results if r.get("status") == "failed")
+                status.update(label=f"Processed {processed_count} of {len(cache_files)} files. {failed_count} failed. Saved {len(pending)} product rows.", state="complete")
+                if failed_count > 0:
+                    st.warning(f"Processed {processed_count} of {len(cache_files)} files. {failed_count} file(s) failed. Saved {len(pending)} product rows.")
+            except Exception as e:
+                st.session_state["competitor_last_processing_error"] = traceback.format_exc()
+                logger.error("Competitor snapshot processing failed.\n%s", st.session_state["competitor_last_processing_error"])
+                st.error("Competitor snapshot processing failed.")
+                with st.expander("Debug details"):
+                    st.exception(e)
         md = st.session_state.get("competitor_current_snapshot_metadata", {})
         saved_snap = st.session_state.get("competitor_menu_snapshots_df")
         saved_rows = len(saved_snap) if isinstance(saved_snap, pd.DataFrame) else 0
         st.info(f"Snapshot loaded: {saved_rows} products from {md.get('files_processed', 0)} files. Last updated {st.session_state.get('competitor_last_processed_at') or 'N/A'}.")
         st.caption(f"Dirty status: {'Yes' if st.session_state.get('competitor_snapshot_dirty') else 'No'}")
+        with st.expander("Processing Diagnostics"):
+            st.write(f"Last processed timestamp: {st.session_state.get('competitor_last_processed_at') or 'N/A'}")
+            st.write(f"Uploaded files count: {len(st.session_state.get('competitor_uploaded_file_names', []))}")
+            st.write(f"Cached files count: {len(st.session_state.get('competitor_uploaded_files_cache', []))}")
+            st.write(f"Saved snapshot row count: {saved_rows}")
+            if st.session_state.get("competitor_last_processing_error"):
+                st.error("Last processing error:")
+                st.code(st.session_state.get("competitor_last_processing_error", ""), language="python")
+            result_df = pd.DataFrame(st.session_state.get("competitor_file_processing_results", []))
+            if not result_df.empty:
+                st.dataframe(result_df, width="stretch")
+                parser_warnings = [w for row in result_df.get("warnings", []) for w in (row if isinstance(row, list) else []) if w]
+                if parser_warnings:
+                    st.write("Parser warnings:")
+                    for warning in parser_warnings:
+                        st.warning(warning)
 
     with tabs[3]:
         df = st.session_state.competitor_menu_snapshots_df if isinstance(st.session_state.competitor_menu_snapshots_df, pd.DataFrame) and not st.session_state.competitor_menu_snapshots_df.empty else st.session_state.competitor_capture_rows_pending
