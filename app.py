@@ -53,8 +53,8 @@ from global_integrations_store import GlobalIntegrationsStore
 from views.retail_ops_command_center import render_retail_ops_command_center
 from utils.constants import *
 from utils.product_parsing import (
-    STRAIN_DATABASE, SIZE_PATTERN, PRODUCT_TYPE_PATTERN, SORTED_STRAIN_NAMES,
     free_strain_lookup, ai_lookup_strain_type,
+    get_strain_database_size, get_strain_lookup_cache_size, clear_strain_lookup_cache,
 )
 
 load_dotenv()
@@ -3140,11 +3140,11 @@ with st.sidebar.expander("🌿 Strain Lookup Settings", expanded=False):
     if strain_enabled != st.session_state.strain_lookup_enabled:
         st.session_state.strain_lookup_enabled = strain_enabled
         # Clear the cache when toggling
-        strain_lookup_cache.clear()
+        clear_strain_lookup_cache()
         st.success("Setting updated! Refresh your data to apply changes.")
     
-    st.info(f"📊 Database contains {len(STRAIN_DATABASE)} strain entries")
-    st.info(f"💾 Cache has {len(strain_lookup_cache)} lookups")
+    st.info(f"📊 Database contains {get_strain_database_size()} strain entries")
+    st.info(f"💾 Cache has {get_strain_lookup_cache_size()} lookups")
 
 # =========================
 # 🔐 THEME TOGGLE + ADMIN + TRIAL GATE
