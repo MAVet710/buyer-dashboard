@@ -131,10 +131,121 @@ def _read_sales_upload(uploaded_file):
     return grouped, metadata
 
 
+
+
+def _parse_shift_hour(value):
+    if pd.isna(value):
+        return None, False
+    raw = str(value).strip().lower()
+    if not raw:
+        return None, False
+    compact = raw.replace(" ", "")
+    suffix = None
+    if compact.endswith("am"):
+        suffix = "a"
+        compact = compact[:-2]
+    elif compact.endswith("pm"):
+        suffix = "p"
+        compact = compact[:-2]
+    elif compact.endswith("a"):
+        suffix = "a"
+        compact = compact[:-1]
+    elif compact.endswith("p"):
+        suffix = "p"
+        compact = compact[:-1]
+    if suffix is None:
+        return None, True
+    hour_text = compact.split(":")[0] if compact else ""
+    if not hour_text.isdigit():
+        return None, True
+    hour = int(hour_text)
+    if hour == 0 and suffix == "a":
+        # Common OCR issue in retail schedules where opening hour 10a is parsed as 0a.
+        return 10, True
+    if hour == 0 and suffix == "p":
+        return None, True
+    if hour < 0 or hour > 12:
+        return None, True
+    if suffix == "p" and hour != 12:
+        hour += 12
+    if suffix == "a" and hour == 12:
+        hour = 0
+    return hour, False
+
+
+def _expand_schedule_to_hourly(schedule_df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    quality = {
+        "rows_processed": 0,
+        "rows_with_valid_shift_times": 0,
+        "rows_missing_shift_start": 0,
+        "rows_missing_shift_end": 0,
+        "rows_missing_hourly_wage": 0,
+        "rows_needing_review": 0,
+        "rows_missing_time_range": 0,
+        "hourly_rows_generated": 0,
+    }
+    hourly_cols = ["date", "day_of_week", "employee_name", "role", "hour", "labor_hours", "hourly_wage", "labor_cost", "shift_start", "shift_end", "needs_review", "wage_missing", "missing_time_range"]
+    if not isinstance(schedule_df, pd.DataFrame) or schedule_df.empty:
+        return pd.DataFrame(columns=hourly_cols), quality
+
+    schedule = schedule_df.copy()
+    schedule["date"] = pd.to_datetime(schedule.get("date"), errors="coerce")
+    quality["rows_processed"] = int(len(schedule))
+    rows = []
+    for _, row in schedule.iterrows():
+        start_raw = row.get("shift_start")
+        end_raw = row.get("shift_end")
+        wage = pd.to_numeric(pd.Series([row.get("hourly_wage")]), errors="coerce").iloc[0]
+        wage_missing = pd.isna(wage)
+        if wage_missing:
+            quality["rows_missing_hourly_wage"] += 1
+            wage = 0.0
+        if pd.isna(start_raw) or str(start_raw).strip() == "":
+            quality["rows_missing_shift_start"] += 1
+            quality["rows_missing_time_range"] += 1
+            continue
+        if pd.isna(end_raw) or str(end_raw).strip() == "":
+            quality["rows_missing_shift_end"] += 1
+            quality["rows_missing_time_range"] += 1
+            continue
+
+        start_hour, start_review = _parse_shift_hour(start_raw)
+        end_hour, end_review = _parse_shift_hour(end_raw)
+        needs_review = start_review or end_review
+        if start_hour is None or end_hour is None:
+            quality["rows_needing_review"] += 1
+            continue
+        if end_hour <= start_hour:
+            needs_review = True
+            quality["rows_needing_review"] += 1
+            continue
+        quality["rows_with_valid_shift_times"] += 1
+        for hour in range(int(start_hour), int(end_hour)):
+            rows.append({
+                "date": row.get("date"),
+                "day_of_week": row.get("day_of_week") if pd.notna(row.get("day_of_week")) else (row.get("date").day_name() if pd.notna(row.get("date")) else pd.NA),
+                "employee_name": row.get("employee_name"),
+                "role": row.get("role"),
+                "hour": int(hour),
+                "labor_hours": 1.0,
+                "hourly_wage": float(wage),
+                "labor_cost": float(wage),
+                "shift_start": start_raw,
+                "shift_end": end_raw,
+                "needs_review": bool(needs_review),
+                "wage_missing": bool(wage_missing),
+                "missing_time_range": False,
+            })
+    hourly = pd.DataFrame(rows, columns=hourly_cols)
+    quality["hourly_rows_generated"] = int(len(hourly))
+    return hourly, quality
+
+
 def _normalize_data(employees, schedule, sales, thresholds):
     employees = employees.copy() if isinstance(employees, pd.DataFrame) else pd.DataFrame(columns=EMPLOYEE_COLUMNS)
     schedule = schedule.copy() if isinstance(schedule, pd.DataFrame) else pd.DataFrame(columns=SCHEDULE_COLUMNS)
     sales = sales.copy() if isinstance(sales, pd.DataFrame) else pd.DataFrame(columns=SALES_COLUMNS)
+    data_quality = {"analysis_granularity": "incomplete", "warnings": []}
 
     if not schedule.empty:
         schedule["date"] = pd.to_datetime(schedule.get("date"), errors="coerce")
@@ -147,9 +258,6 @@ def _normalize_data(employees, schedule, sales, thresholds):
         schedule["labor_cost"] = schedule["scheduled_hours"] * schedule["hourly_wage"]
         schedule["day_of_week"] = schedule["date"].dt.day_name()
 
-    analysis_granularity = None
-    if "analysis_granularity" in sales.columns and not sales.empty:
-        analysis_granularity = str(sales["analysis_granularity"].iloc[0])
     if not sales.empty:
         sales["date"] = pd.to_datetime(sales.get("date"), errors="coerce")
         sales["hour"] = _safe_numeric_series(sales, _first_existing_column(sales, ["hour", "sale_hour"]) or "hour", -1)
@@ -159,21 +267,24 @@ def _normalize_data(employees, schedule, sales, thresholds):
             sales["day_of_week"] = sales["date"].dt.day_name()
 
     if schedule.empty or sales.empty:
-        return schedule, sales, pd.DataFrame()
+        return schedule, sales, pd.DataFrame(), data_quality
 
-    if analysis_granularity == "weekday_hour":
-        schedule["day_of_week"] = schedule["date"].dt.day_name()
-        if "hour_block" in schedule.columns:
-            schedule["hour"] = pd.to_numeric(schedule["hour_block"], errors="coerce")
-        labor_agg = schedule.groupby(["day_of_week", "hour"], dropna=False).agg(labor_hours=("scheduled_hours", "sum"), labor_cost=("labor_cost", "sum")).reset_index()
+    schedule_hourly, quality = _expand_schedule_to_hourly(schedule)
+    data_quality.update(quality)
+
+    has_hourly = (not schedule_hourly.empty and "day_of_week" in schedule_hourly.columns and "hour" in schedule_hourly.columns)
+    if has_hourly and "day_of_week" in sales.columns and "hour" in sales.columns:
+        data_quality["analysis_granularity"] = "weekday_hour"
+        labor_agg = schedule_hourly.groupby(["day_of_week", "hour"], dropna=False).agg(labor_hours=("labor_hours", "sum"), labor_cost=("labor_cost", "sum")).reset_index()
         sales_agg = sales.groupby(["day_of_week", "hour"], dropna=False).agg(total_sales=("total_sales", "sum"), transactions=("transactions", "sum"), units_sold=("units_sold", "sum")).reset_index()
         analysis = labor_agg.merge(sales_agg, on=["day_of_week", "hour"], how="outer")
     else:
-        group_cols = ["date"] + (["hour_block"] if "hour_block" in schedule.columns and "hour" in sales.columns else [])
-        labor_agg = schedule.groupby(group_cols, dropna=False).agg(labor_hours=("scheduled_hours", "sum"), labor_cost=("labor_cost", "sum")).reset_index()
-        sales_group_cols = ["date"] + (["hour"] if "hour" in sales.columns and "hour_block" in group_cols else [])
-        sales_agg = sales.groupby(sales_group_cols, dropna=False).agg(total_sales=("total_sales", "sum"), transactions=("transactions", "sum")).reset_index()
-        analysis = labor_agg.merge(sales_agg, on="date", how="outer")
+        data_quality["analysis_granularity"] = "daily"
+        data_quality["warnings"].append("Hourly labor coverage could not be created because shift_start/shift_end were missing or unreadable.")
+        data_quality["warnings"].append("Schedule data does not include usable hourly shift times. Retail Ops is using daily labor analysis.")
+        labor_agg = schedule.groupby(["day_of_week"], dropna=False).agg(labor_hours=("scheduled_hours", "sum"), labor_cost=("labor_cost", "sum")).reset_index()
+        sales_agg = sales.groupby(["day_of_week"], dropna=False).agg(total_sales=("total_sales", "sum"), transactions=("transactions", "sum"), units_sold=("units_sold", "sum")).reset_index()
+        analysis = labor_agg.merge(sales_agg, on=["day_of_week"], how="outer")
 
     analysis["sales_per_labor_hour"] = analysis["total_sales"] / analysis["labor_hours"].replace(0, pd.NA)
     analysis["transactions_per_labor_hour"] = analysis["transactions"] / analysis["labor_hours"].replace(0, pd.NA)
@@ -188,12 +299,10 @@ def _normalize_data(employees, schedule, sales, thresholds):
             return "Heavy"
         if row["labor_pct_of_sales"] < 10 and row.get("transactions_per_labor_hour", 0) >= float(thresholds["target_transactions_per_labor_hour"]):
             return "Lean"
-        if float(thresholds["target_labor_pct_low"]) <= row["labor_pct_of_sales"] <= float(thresholds["target_labor_pct_high"]):
-            return "Balanced"
         return "Balanced"
 
     analysis["schedule_status"] = analysis.apply(_status, axis=1)
-    return schedule, sales, analysis
+    return schedule, sales, analysis, data_quality
 
 
 def _build_retail_ops_executive_report_pdf(payload: dict) -> bytes:
@@ -275,7 +384,7 @@ def render_retail_ops_command_center():
         for k in defaults:
             st.session_state["retail_ops_thresholds"][k] = st.number_input(k, value=float(st.session_state["retail_ops_thresholds"].get(k, defaults[k])), key=f"retail_thr_{k}")
 
-    schedule, sales, analysis = _normalize_data(st.session_state["retail_ops_employees"], st.session_state["retail_ops_schedule"], st.session_state["retail_ops_sales"], st.session_state["retail_ops_thresholds"])
+    schedule, sales, analysis, data_quality = _normalize_data(st.session_state["retail_ops_employees"], st.session_state["retail_ops_schedule"], st.session_state["retail_ops_sales"], st.session_state["retail_ops_thresholds"])
     st.session_state["retail_ops_analysis"] = analysis
 
     total_labor_cost = _safe_numeric_sum(schedule, "labor_cost")
@@ -301,15 +410,32 @@ def render_retail_ops_command_center():
         for i, m in enumerate(metrics):
             cols[i % 4].metric(m[0], m[1])
         st.info(f"Labor Health Status: **{status}**")
+        st.caption("Schedule Data Quality")
+        st.write({
+            "Rows Processed": data_quality.get("rows_processed", 0),
+            "Rows with Valid shift_start/shift_end": data_quality.get("rows_with_valid_shift_times", 0),
+            "Rows Missing shift_start": data_quality.get("rows_missing_shift_start", 0),
+            "Rows Missing shift_end": data_quality.get("rows_missing_shift_end", 0),
+            "Rows Missing hourly_wage": data_quality.get("rows_missing_hourly_wage", 0),
+            "Rows Needing Review": data_quality.get("rows_needing_review", 0),
+            "Rows Missing Time Range": data_quality.get("rows_missing_time_range", 0),
+            "Hourly Rows Generated": data_quality.get("hourly_rows_generated", 0),
+            "Analysis Granularity": data_quality.get("analysis_granularity", "incomplete"),
+        })
+        for warning in data_quality.get("warnings", []):
+            st.warning(warning)
 
     with tabs[4]:
         if analysis.empty:
             st.warning("Upload schedule and sales data to run lean vs heavy analysis.")
         else:
             st.dataframe(analysis, use_container_width=True)
-            by_day = analysis.groupby(analysis["date"].dt.date).agg(labor_cost=("labor_cost", "sum"), total_sales=("total_sales", "sum"), sales_per_labor_hour=("sales_per_labor_hour", "mean"), labor_pct_of_sales=("labor_pct_of_sales", "mean"), transactions_per_labor_hour=("transactions_per_labor_hour", "mean")).reset_index()
-            st.line_chart(by_day.set_index("date")[["labor_cost", "total_sales"]])
-            st.line_chart(by_day.set_index("date")[["sales_per_labor_hour", "labor_pct_of_sales", "transactions_per_labor_hour"]])
+            if "date" in analysis.columns and pd.api.types.is_datetime64_any_dtype(analysis["date"]):
+                by_day = analysis.groupby(analysis["date"].dt.date).agg(labor_cost=("labor_cost", "sum"), total_sales=("total_sales", "sum"), sales_per_labor_hour=("sales_per_labor_hour", "mean"), labor_pct_of_sales=("labor_pct_of_sales", "mean"), transactions_per_labor_hour=("transactions_per_labor_hour", "mean")).reset_index()
+                st.line_chart(by_day.set_index("date")[["labor_cost", "total_sales"]])
+                st.line_chart(by_day.set_index("date")[["sales_per_labor_hour", "labor_pct_of_sales", "transactions_per_labor_hour"]])
+            else:
+                st.caption("Daily date trend chart unavailable for weekday/hour aggregated analysis.")
 
     with tabs[5]:
         st.metric("Active Employee Count", int((st.session_state["retail_ops_employees"].get("employment_status", pd.Series(dtype=str)).astype(str).str.lower() == "active").sum()) if not st.session_state["retail_ops_employees"].empty else 0)
