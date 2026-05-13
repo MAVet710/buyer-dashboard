@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import os
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from reports.competitor_report import _build_competitor_intelligence_report_pdf
 from services.menu_capture_assistant import MenuCaptureSession
@@ -15,6 +17,8 @@ def _init_state() -> None:
         "competitor_capture_session": None,
         "competitor_current_snapshot_id": "",
         "competitor_capture_rows_pending": pd.DataFrame(),
+        "competitor_capture_menu_url": "",
+        "competitor_capture_mode": "Embedded Viewer",
         "competitor_saved_snapshot_rows": pd.DataFrame(),
         "competitor_menu_snapshots_df": pd.DataFrame(),
         "competitor_price_comparison_df": pd.DataFrame(),
@@ -66,28 +70,79 @@ def render_competitor_intelligence_center() -> None:
         st.dataframe(st.session_state.competitor_registry_df, use_container_width=True)
 
     with tabs[2]:
-        st.warning("Menu Capture Assistant only captures menu data visible after the user manually accesses the public site. It does not bypass age gates, CAPTCHA, logins, or access controls.")
-        mode = st.radio("Capture Mode", ["Browser-Assisted Capture", "Browser Capture File Upload", "Saved HTML/Text Upload", "CSV/XLSX Upload", "PDF/Screenshot Fallback", "Quick Market Pulse Mode", "Full Menu Capture Mode"])
-        if mode == "Browser-Assisted Capture":
-            url = st.text_input("Competitor Menu URL")
-            if st.button("Start Capture Session") and url:
-                sess = MenuCaptureSession()
-                st.session_state.competitor_capture_session = sess
-                st.success(sess.start(url)["message"])
-            cat = st.text_input("Current Category Name")
-            if st.button("Capture Current Category") and st.session_state.competitor_capture_session:
-                st.info(st.session_state.competitor_capture_session.capture_current_category(cat)["message"])
-            txt = st.text_area("Paste Visible Product Rows (JSON list)")
-            if st.button("Extract Visible Product Cards") and txt:
-                rows = pd.read_json(txt)
-                session = st.session_state.competitor_capture_session or MenuCaptureSession()
-                extracted = session.extract_visible_product_cards(rows.to_dict(orient="records"), st.text_input("Competitor Name", key="cap_comp"), str(date.today()), "Unknown", url, cat)
-                st.session_state.competitor_capture_rows_pending = pd.concat([st.session_state.competitor_capture_rows_pending, extracted], ignore_index=True)
-        else:
-            up = st.file_uploader("Upload capture file", type=["csv", "json", "xlsx", "xls", "txt", "html", "pdf", "png", "jpg"])
-            if up is not None and up.name.endswith(".csv"):
-                st.session_state.competitor_capture_rows_pending = pd.read_csv(up)
-            st.info("Fallback mode loaded. Review extracted rows in Snapshot Review.")
+        st.info("Because most cannabis menus are age-gated and embedded through third-party providers, Buyer Dash will not bypass access controls. Open the menu, complete the age gate manually, then import/capture the visible category data using one of the supported capture methods.")
+        st.warning("Some sites block embedded viewing. If the page below is blank or refuses to load, use Open Website in New Tab.")
+        mode = st.radio("Capture Mode", ["Embedded Viewer", "Open in New Tab", "Browser Capture File Upload", "Saved HTML/Text Upload", "CSV/XLSX Upload", "PDF/Screenshot Fallback", "Local Playwright Capture"], index=0)
+        st.session_state.competitor_capture_mode = mode
+        url = st.text_input("Competitor Menu URL", value=st.session_state.competitor_capture_menu_url)
+        if st.button("Start Capture Session") and url:
+            sess = MenuCaptureSession()
+            st.session_state.competitor_capture_session = sess
+            st.session_state.competitor_capture_menu_url = url.strip()
+            st.success(sess.start(url)["message"])
+
+        active_url = st.session_state.competitor_capture_menu_url or url
+        if active_url:
+            st.link_button("Open Website in New Tab", active_url)
+
+        if mode in ["Embedded Viewer", "Open in New Tab"] and active_url:
+            st.caption("Complete the age gate manually inside the viewer if the site allows embedding. Navigate to the menu category you want to capture, then click Capture Current Category.")
+            if mode == "Embedded Viewer":
+                components.iframe(active_url, height=800, scrolling=True)
+                st.info("If the website does not load below, it may block embedded viewing. Click Open Website in New Tab, complete the age gate there, then use one of the capture fallback methods.")
+
+        if mode == "Local Playwright Capture":
+            is_local = os.getenv("RENDER") is None and os.getenv("STREAMLIT_CLOUD") is None
+            st.markdown("**Local Browser Capture Only**")
+            if not is_local:
+                st.warning("Hosted deployments cannot reliably display a Playwright browser window to the user. Use local mode, browser extension capture, or upload/import fallback.")
+            else:
+                st.info("Local only mode is available. Manually access the site and capture visible menu data without bypassing access controls.")
+
+        cat = st.text_input("Current Category Name")
+        if st.button("Capture Current Category") and st.session_state.competitor_capture_session:
+            st.info(st.session_state.competitor_capture_session.capture_current_category(cat)["message"])
+        st.caption("After opening the menu and selecting a category, use a capture method below to import the visible category data.")
+
+        st.subheader("Browser Capture Assistant")
+        st.write("For full one-click category capture, use the future Browser Capture Assistant. It will run in your browser after you manually pass the age gate and will export the visible product cards to Buyer Dash.")
+        template = "product_name,brand,category,size,regular_price,sale_price,thc_pct,strain_type,promo_text,availability\n"
+        st.download_button("Download Capture Template", data=template, file_name="browser_capture_template.csv", mime="text/csv")
+        browser_upload = st.file_uploader("Upload Browser Capture CSV/JSON", type=["csv", "json"], key="browser_capture_upload")
+        browser_json = st.text_area("Paste Browser Capture JSON", key="browser_capture_json")
+
+        session = st.session_state.competitor_capture_session or MenuCaptureSession()
+        competitor_name = st.text_input("Competitor Name", key="cap_comp")
+        category_for_extract = cat or "Unspecified"
+        if browser_upload is not None:
+            if browser_upload.name.endswith(".csv"):
+                rows_df = pd.read_csv(browser_upload)
+                rows = rows_df.to_dict(orient="records")
+            else:
+                rows = session.parse_browser_capture_payload(browser_upload.read().decode("utf-8", errors="ignore"))
+            extracted = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
+            st.session_state.competitor_capture_rows_pending = pd.concat([st.session_state.competitor_capture_rows_pending, extracted], ignore_index=True)
+        if st.button("Import Pasted Browser Capture JSON") and browser_json.strip():
+            rows = session.parse_browser_capture_payload(browser_json)
+            extracted = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
+            st.session_state.competitor_capture_rows_pending = pd.concat([st.session_state.competitor_capture_rows_pending, extracted], ignore_index=True)
+
+        saved_up = st.file_uploader("Upload saved HTML/text file", type=["html", "htm", "txt"], key="saved_html_text_upload")
+        pasted_menu_text = st.text_area("Paste visible menu text", key="pasted_menu_text")
+        if saved_up is not None:
+            content = saved_up.read().decode("utf-8", errors="ignore")
+            rows = session.parse_saved_html_or_text(content)
+            extracted = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
+            st.session_state.competitor_capture_rows_pending = pd.concat([st.session_state.competitor_capture_rows_pending, extracted], ignore_index=True)
+        if st.button("Import Pasted Menu Text") and pasted_menu_text.strip():
+            rows = session.parse_saved_html_or_text(pasted_menu_text)
+            extracted = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
+            st.session_state.competitor_capture_rows_pending = pd.concat([st.session_state.competitor_capture_rows_pending, extracted], ignore_index=True)
+
+        up = st.file_uploader("Upload capture file", type=["csv", "json", "xlsx", "xls", "txt", "html", "pdf", "png", "jpg"], key="generic_capture_upload")
+        if up is not None and up.name.endswith(".csv"):
+            st.session_state.competitor_capture_rows_pending = pd.read_csv(up)
+        st.info("Fallback mode loaded. Review extracted rows in Snapshot Review.")
 
     with tabs[3]:
         df = st.session_state.competitor_capture_rows_pending
