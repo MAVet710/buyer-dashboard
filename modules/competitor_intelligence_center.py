@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from io import BytesIO
 import os
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
 from reports.competitor_report import _build_competitor_intelligence_report_pdf
-from services.menu_capture_assistant import MenuCaptureSession
+from services.menu_capture_assistant import MenuCaptureSession, parse_competitor_html_snapshot
 from utils.dataframe_helpers import _safe_numeric_mean, _safe_numeric_series, _safe_numeric_sum
 
 
@@ -26,6 +27,11 @@ def _init_state() -> None:
         "competitor_promo_df": pd.DataFrame(),
         "competitor_recommendations": [],
         "competitor_data_quality": {},
+        "competitor_uploaded_files_cache": [],
+        "competitor_uploaded_file_names": [],
+        "competitor_current_snapshot_metadata": {},
+        "competitor_last_processed_at": "",
+        "competitor_snapshot_dirty": False,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -127,25 +133,85 @@ def render_competitor_intelligence_center() -> None:
             extracted = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
             st.session_state.competitor_capture_rows_pending = pd.concat([st.session_state.competitor_capture_rows_pending, extracted], ignore_index=True)
 
-        saved_up = st.file_uploader("Upload saved HTML/text file", type=["html", "htm", "txt"], key="saved_html_text_upload")
-        pasted_menu_text = st.text_area("Paste visible menu text", key="pasted_menu_text")
-        if saved_up is not None:
-            content = saved_up.read().decode("utf-8", errors="ignore")
-            rows = session.parse_saved_html_or_text(content)
-            extracted = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
-            st.session_state.competitor_capture_rows_pending = pd.concat([st.session_state.competitor_capture_rows_pending, extracted], ignore_index=True)
-        if st.button("Import Pasted Menu Text") and pasted_menu_text.strip():
-            rows = session.parse_saved_html_or_text(pasted_menu_text)
-            extracted = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
-            st.session_state.competitor_capture_rows_pending = pd.concat([st.session_state.competitor_capture_rows_pending, extracted], ignore_index=True)
-
-        up = st.file_uploader("Upload capture file", type=["csv", "json", "xlsx", "xls", "txt", "html", "pdf", "png", "jpg"], key="generic_capture_upload")
-        if up is not None and up.name.endswith(".csv"):
-            st.session_state.competitor_capture_rows_pending = pd.read_csv(up)
-        st.info("Fallback mode loaded. Review extracted rows in Snapshot Review.")
+        st.caption("Upload saved HTML files from competitor menu pages. This is a fallback capture method for menus that cannot be captured directly inside the app.")
+        uploaded_files = st.file_uploader("Upload HTML / CSV / XLSX / JSON snapshots", type=["html", "htm", "mhtml", "txt", "csv", "xlsx", "xls", "json", "pdf", "png", "jpg", "jpeg"], accept_multiple_files=True, key="competitor_multi_upload")
+        if uploaded_files:
+            cache = []
+            for file_obj in uploaded_files:
+                cache.append({"file_name": file_obj.name, "file_type": (file_obj.type or ""), "file_size": file_obj.size, "file_bytes": file_obj.getvalue(), "uploaded_at": datetime.utcnow().isoformat()})
+            st.session_state["competitor_uploaded_files_cache"] = cache
+            st.session_state["competitor_uploaded_file_names"] = [c["file_name"] for c in cache]
+            st.session_state["competitor_snapshot_dirty"] = True
+        st.write(f"Files cached: {len(st.session_state.get('competitor_uploaded_files_cache', []))}")
+        behavior = st.radio("Update behavior", ["Replace current snapshot with uploaded files", "Merge uploaded files into current snapshot"], index=0)
+        c1, c2, c3, c4 = st.columns(4)
+        process_clicked = c1.button("Process Uploaded Files")
+        update_clicked = c2.button("Update Snapshot")
+        if c3.button("Clear Uploaded Files"):
+            st.session_state["competitor_uploaded_files_cache"] = []
+            st.session_state["competitor_uploaded_file_names"] = []
+            st.session_state["competitor_snapshot_dirty"] = False
+        if c4.button("Clear Saved Snapshot"):
+            st.session_state["competitor_menu_snapshots_df"] = pd.DataFrame()
+            st.session_state["competitor_saved_snapshot_rows"] = pd.DataFrame()
+        if process_clicked or update_clicked:
+            cache_files = st.session_state.get("competitor_uploaded_files_cache", [])
+            parsed_frames = []
+            metadata_rows = []
+            for cf in cache_files:
+                name = cf.get("file_name", "")
+                ext = name.lower().split(".")[-1] if "." in name else ""
+                file_bytes = cf.get("file_bytes", b"")
+                if ext in {"html", "htm", "mhtml", "txt"}:
+                    parsed_df, meta = parse_competitor_html_snapshot(file_bytes, name, competitor_name, str(date.today()), category_for_extract)
+                elif ext == "csv":
+                    source = pd.read_csv(BytesIO(file_bytes))
+                    rows = source.to_dict(orient="records")
+                    parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
+                    parsed_df["source_file_name"] = name
+                    meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
+                elif ext in {"xlsx", "xls"}:
+                    source = pd.read_excel(BytesIO(file_bytes))
+                    rows = source.to_dict(orient="records")
+                    parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
+                    parsed_df["source_file_name"] = name
+                    meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
+                elif ext == "json":
+                    rows = session.parse_browser_capture_payload(file_bytes.decode("utf-8", errors="ignore"))
+                    parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
+                    parsed_df["source_file_name"] = name
+                    meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
+                else:
+                    continue
+                parsed_frames.append(parsed_df)
+                metadata_rows.append(meta)
+            pending = pd.concat(parsed_frames, ignore_index=True) if parsed_frames else pd.DataFrame()
+            dedup_cols = ["competitor_name", "snapshot_date", "normalized_product_name", "brand", "package_size_label", "category", "effective_price"]
+            before = len(pending)
+            if isinstance(pending, pd.DataFrame) and not pending.empty:
+                pending = pending.drop_duplicates(subset=[c for c in dedup_cols if c in pending.columns], keep="first")
+            st.session_state["competitor_capture_rows_pending"] = pending
+            if update_clicked:
+                existing = st.session_state.get("competitor_menu_snapshots_df")
+                if behavior.startswith("Replace") or not isinstance(existing, pd.DataFrame) or existing.empty:
+                    combined = pending.copy()
+                else:
+                    combined = pd.concat([existing, pending], ignore_index=True)
+                    combined = combined.drop_duplicates(subset=[c for c in dedup_cols if c in combined.columns], keep="first")
+                st.session_state["competitor_menu_snapshots_df"] = combined
+                st.session_state["competitor_saved_snapshot_rows"] = combined
+            st.session_state["competitor_current_snapshot_metadata"] = {"competitor_name": competitor_name, "snapshot_date": str(date.today()), "files_processed": len(metadata_rows), "source_types": sorted({m.get("source_type", "") for m in metadata_rows})}
+            st.session_state["competitor_data_quality"] = {"files_uploaded": len(cache_files), "files_processed": len(metadata_rows), "rows_extracted": before, "rows_saved": len(pending), "duplicate_rows_merged": max(0, before - len(pending)), "rows_needing_review": int(pending["needs_review"].sum()) if isinstance(pending, pd.DataFrame) and "needs_review" in pending.columns else 0, "missing_price_count": int(pending["effective_price"].isna().sum()) if isinstance(pending, pd.DataFrame) and "effective_price" in pending.columns else 0, "missing_package_size_count": int((pending["package_size_label"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "package_size_label" in pending.columns else 0, "missing_category_count": int((pending["category"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "category" in pending.columns else 0, "missing_brand_count": int((pending["brand"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "brand" in pending.columns else 0, "confidence_score": float((pending["capture_confidence"] == "High").mean()) if isinstance(pending, pd.DataFrame) and "capture_confidence" in pending.columns and not pending.empty else 0.0, "categories_detected": sorted(pending["category"].dropna().unique().tolist()) if isinstance(pending, pd.DataFrame) and "category" in pending.columns else [], "source_file_list": [m.get("source_file_name", "") for m in metadata_rows]}
+            st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%m/%d/%Y %I:%M %p")
+            st.session_state["competitor_snapshot_dirty"] = False
+        md = st.session_state.get("competitor_current_snapshot_metadata", {})
+        saved_snap = st.session_state.get("competitor_menu_snapshots_df")
+        saved_rows = len(saved_snap) if isinstance(saved_snap, pd.DataFrame) else 0
+        st.info(f"Snapshot loaded: {saved_rows} products from {md.get('files_processed', 0)} files. Last updated {st.session_state.get('competitor_last_processed_at') or 'N/A'}.")
+        st.caption(f"Dirty status: {'Yes' if st.session_state.get('competitor_snapshot_dirty') else 'No'}")
 
     with tabs[3]:
-        df = st.session_state.competitor_capture_rows_pending
+        df = st.session_state.competitor_menu_snapshots_df if isinstance(st.session_state.competitor_menu_snapshots_df, pd.DataFrame) and not st.session_state.competitor_menu_snapshots_df.empty else st.session_state.competitor_capture_rows_pending
         st.subheader("Snapshot Review")
         if isinstance(df, pd.DataFrame) and not df.empty:
             if "capture_confidence" in df.columns:
@@ -158,7 +224,13 @@ def render_competitor_intelligence_center() -> None:
                 st.session_state.competitor_menu_snapshots_df = pd.concat([st.session_state.competitor_menu_snapshots_df, merged], ignore_index=True)
                 st.session_state.competitor_saved_snapshot_rows = merged
                 st.success("Snapshot saved.")
-            st.download_button("Export Cleaned Snapshot", data=df.to_csv(index=False), file_name="competitor_snapshot_cleaned.csv", mime="text/csv")
+            out = BytesIO()
+            with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
+                df.to_excel(writer, sheet_name="Competitor_Snapshot", index=False)
+                pd.DataFrame([st.session_state.get("competitor_current_snapshot_metadata", {})]).to_excel(writer, sheet_name="Metadata", index=False)
+                pd.DataFrame([st.session_state.get("competitor_data_quality", {})]).to_excel(writer, sheet_name="Data_Quality", index=False)
+                pd.DataFrame([{"rows": len(df), "categories": df["category"].nunique() if "category" in df.columns else 0}]).to_excel(writer, sheet_name="Summary", index=False)
+            st.download_button("Download Cleaned Snapshot XLSX", data=out.getvalue(), file_name="competitor_snapshot_cleaned.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             if st.button("Discard Snapshot"):
                 st.session_state.competitor_capture_rows_pending = pd.DataFrame()
 
@@ -225,4 +297,9 @@ def render_competitor_intelligence_center() -> None:
             "data_quality": st.session_state.competitor_data_quality,
         }
         st.download_button("Export Competitor Intelligence Report", data=_build_competitor_intelligence_report_pdf(payload), file_name=f"competitor_intelligence_report_{datetime.now().strftime('%Y-%m-%d')}.pdf", mime="application/pdf")
+        dq = st.session_state.get("competitor_data_quality", {})
+        if not dq:
+            st.info("No competitor snapshot has been processed yet.")
+        else:
+            st.json(dq)
         st.json({"source_type": "manual+uploads", "capture_method": "human_in_the_loop", "rows_extracted": int(len(st.session_state.competitor_capture_rows_pending)) if isinstance(st.session_state.competitor_capture_rows_pending, pd.DataFrame) else 0, "rows_saved": int(len(st.session_state.competitor_menu_snapshots_df)) if isinstance(st.session_state.competitor_menu_snapshots_df, pd.DataFrame) else 0, "last_captured_timestamp": datetime.utcnow().isoformat()})
