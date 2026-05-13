@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 import re
+import json
 
 import pandas as pd
 
@@ -30,6 +31,44 @@ def _parse_price(value: Any) -> float | None:
         return None
     m = re.search(r"(\d+(?:\.\d+)?)", text.replace(",", ""))
     return float(m.group(1)) if m else None
+
+
+def _to_percent(value: Any) -> float | None:
+    if value is None:
+        return None
+    text = str(value).strip().replace("%", "")
+    if not text:
+        return None
+    try:
+        return float(text)
+    except Exception:
+        return None
+
+
+def _extract_rows_from_text(content: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in [ln.strip() for ln in content.splitlines() if ln.strip()]:
+        price_match = re.search(r"\$\s*(\d+(?:\.\d{1,2})?)", line)
+        thc_match = re.search(r"THC\s*[:\-]?\s*(\d+(?:\.\d+)?)%", line, re.IGNORECASE)
+        strain_match = re.search(r"\b(indica|sativa|hybrid)\b", line, re.IGNORECASE)
+        availability = "In Stock" if re.search(r"in stock|available", line, re.IGNORECASE) else ("Out of Stock" if re.search(r"out of stock|sold out", line, re.IGNORECASE) else "Unknown")
+        promo_match = re.search(r"(sale|deal|discount|bogo|\d+% off)", line, re.IGNORECASE)
+
+        product_name = re.split(r"\s+-\s+|\s+\|\s+", line)[0][:200]
+        rows.append({
+            "product_name": product_name,
+            "brand": "",
+            "category": "",
+            "package_size_label": "",
+            "regular_price": price_match.group(1) if price_match else None,
+            "sale_price": None,
+            "thc_pct": _to_percent(thc_match.group(1) if thc_match else None),
+            "strain_type": strain_match.group(1).title() if strain_match else "",
+            "promo_text": promo_match.group(1) if promo_match else "",
+            "availability": availability,
+            "raw_text": line,
+        })
+    return rows
 
 
 @dataclass
@@ -127,6 +166,27 @@ class MenuCaptureSession:
             if col not in df.columns:
                 df[col] = None
         return df[_CAPTURE_COLUMNS]
+
+
+    def parse_saved_html_or_text(self, content: str) -> list[dict[str, Any]]:
+        text = re.sub(r"<[^>]+>", " ", content or "")
+        return _extract_rows_from_text(text)
+
+    def parse_browser_capture_payload(self, payload: str) -> list[dict[str, Any]]:
+        payload = (payload or "").strip()
+        if not payload:
+            return []
+        try:
+            data = json.loads(payload)
+        except Exception:
+            return []
+        if isinstance(data, list):
+            return [row for row in data if isinstance(row, dict)]
+        if isinstance(data, dict):
+            rows = data.get("rows")
+            if isinstance(rows, list):
+                return [row for row in rows if isinstance(row, dict)]
+        return []
 
     def close(self) -> None:
         self.started = False
