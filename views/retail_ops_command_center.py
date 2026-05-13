@@ -100,31 +100,42 @@ def _read_sales_upload(uploaded_file):
     sales = pd.DataFrame()
     sales["location_name"] = table.get("Location Name")
     sales["day_of_week"] = table.get("Day")
-    sales["sale_hour"] = pd.to_numeric(table.get("Starting Hour"), errors="coerce").fillna(-1).astype(int)
-    sales["transactions"] = pd.to_numeric(table.get("Total Orders"), errors="coerce").fillna(0.0)
-    sales["gross_sales"] = pd.to_numeric(table.get("Gross Sales"), errors="coerce").fillna(0.0)
-    sales["units_sold"] = pd.to_numeric(table.get("Total Inventory Sold"), errors="coerce").fillna(0.0)
-    sales["delivery_orders"] = pd.to_numeric(table.get("Total Delivery Orders"), errors="coerce").fillna(0.0)
-    sales["net_sales"] = sales["gross_sales"]
-    sales["total_sales"] = sales["gross_sales"]
-    sales["average_ticket"] = sales["gross_sales"] / sales["transactions"].replace(0, pd.NA)
-    sales["items_per_transaction"] = sales["units_sold"] / sales["transactions"].replace(0, pd.NA)
+    sales["hour"] = pd.to_numeric(table.get("Starting Hour"), errors="coerce").fillna(-1).astype(int)
+    sales["avg_transactions"] = pd.to_numeric(table.get("Total Orders"), errors="coerce").fillna(0.0)
+    sales["avg_sales"] = pd.to_numeric(table.get("Gross Sales"), errors="coerce").fillna(0.0)
+    sales["avg_items_sold"] = pd.to_numeric(table.get("Total Inventory Sold"), errors="coerce").fillna(0.0)
+    sales["avg_delivery_orders"] = pd.to_numeric(table.get("Total Delivery Orders"), errors="coerce").fillna(0.0)
+    sales["source_type"] = "pos_hour_totals"
+    sales["analysis_granularity"] = "weekday_hour_average"
+    # compatibility aliases
+    sales["transactions"] = sales["avg_transactions"]
+    sales["gross_sales"] = sales["avg_sales"]
+    sales["total_sales"] = sales["avg_sales"]
+    sales["units_sold"] = sales["avg_items_sold"]
+    sales["delivery_orders"] = sales["avg_delivery_orders"]
+    sales["net_sales"] = sales["avg_sales"]
+    sales["average_ticket"] = sales["avg_sales"] / sales["avg_transactions"].replace(0, pd.NA)
+    sales["items_per_transaction"] = sales["avg_items_sold"] / sales["avg_transactions"].replace(0, pd.NA)
     sales["average_ticket"] = sales["average_ticket"].fillna(0.0)
     sales["items_per_transaction"] = sales["items_per_transaction"].fillna(0.0)
-    sales["analysis_granularity"] = "weekday_hour"
-
-    grouped = sales.groupby(["day_of_week", "sale_hour"], dropna=False).agg(
-        transactions=("transactions", "sum"),
-        gross_sales=("gross_sales", "sum"),
-        total_sales=("total_sales", "sum"),
-        units_sold=("units_sold", "sum"),
-        delivery_orders=("delivery_orders", "sum"),
+    grouped = sales.groupby(["day_of_week", "hour"], dropna=False).agg(
+        avg_transactions=("avg_transactions", "mean"),
+        avg_sales=("avg_sales", "mean"),
+        avg_items_sold=("avg_items_sold", "mean"),
+        avg_delivery_orders=("avg_delivery_orders", "mean"),
     ).reset_index()
-    grouped["average_ticket"] = grouped["gross_sales"] / grouped["transactions"].replace(0, pd.NA)
-    grouped["items_per_transaction"] = grouped["units_sold"] / grouped["transactions"].replace(0, pd.NA)
+    # compatibility aliases
+    grouped["transactions"] = grouped["avg_transactions"]
+    grouped["gross_sales"] = grouped["avg_sales"]
+    grouped["total_sales"] = grouped["avg_sales"]
+    grouped["units_sold"] = grouped["avg_items_sold"]
+    grouped["delivery_orders"] = grouped["avg_delivery_orders"]
+    grouped["average_ticket"] = grouped["avg_sales"] / grouped["avg_transactions"].replace(0, pd.NA)
+    grouped["items_per_transaction"] = grouped["avg_items_sold"] / grouped["avg_transactions"].replace(0, pd.NA)
     grouped["average_ticket"] = grouped["average_ticket"].fillna(0.0)
     grouped["items_per_transaction"] = grouped["items_per_transaction"].fillna(0.0)
-    grouped["analysis_granularity"] = "weekday_hour"
+    grouped["source_type"] = "pos_hour_totals"
+    grouped["analysis_granularity"] = "weekday_hour_average"
 
     metadata = _parse_pos_metadata(df_raw, header_row)
     metadata["rows_processed"] = int(len(grouped))
@@ -274,7 +285,7 @@ def _normalize_data(employees, schedule, sales, thresholds):
 
     has_hourly = (not schedule_hourly.empty and "day_of_week" in schedule_hourly.columns and "hour" in schedule_hourly.columns)
     if has_hourly and "day_of_week" in sales.columns and "hour" in sales.columns:
-        data_quality["analysis_granularity"] = "weekday_hour"
+        data_quality["analysis_granularity"] = "weekday_hour_average"
         labor_agg = schedule_hourly.groupby(["day_of_week", "hour"], dropna=False).agg(labor_hours=("labor_hours", "sum"), labor_cost=("labor_cost", "sum")).reset_index()
         sales_agg = sales.groupby(["day_of_week", "hour"], dropna=False).agg(total_sales=("total_sales", "sum"), transactions=("transactions", "sum"), units_sold=("units_sold", "sum")).reset_index()
         analysis = labor_agg.merge(sales_agg, on=["day_of_week", "hour"], how="outer")
@@ -372,13 +383,13 @@ def render_retail_ops_command_center():
                 "Export Date": meta.get("export_date"),
                 "Rows Processed": meta.get("rows_processed"),
                 "Detected Header Row": meta.get("detected_header_row"),
-                "Analysis Granularity": "Weekday + Hour",
-                "Sales Column": "Gross Sales",
-                "Transaction Column": "Total Orders",
-                "Units Column": "Total Inventory Sold",
-                "Delivery Orders Column": "Total Delivery Orders",
+                "Analysis Type": "Average Weekday/Hour Demand Pattern",
+                "Sales Column": "Gross Sales -> avg_sales",
+                "Transaction Column": "Total Orders -> avg_transactions",
+                "Units Column": "Total Inventory Sold -> avg_items_sold",
+                "Delivery Orders Column": "Total Delivery Orders -> avg_delivery_orders",
             })
-            st.warning("This file provides weekday/hour demand patterns, not exact transaction dates.")
+            st.warning("This report provides averaged demand by weekday/hour, not exact transaction-level sales.")
 
     with st.expander("Threshold Settings", expanded=False):
         for k in defaults:
@@ -394,6 +405,28 @@ def render_retail_ops_command_center():
     sales_per_hour = total_sales / total_labor_hours if total_labor_hours else 0.0
     tx_per_hour = total_transactions / total_labor_hours if total_labor_hours else 0.0
     labor_pct = (total_labor_cost / total_sales * 100) if total_sales else 0.0
+    open_hour_rows = int(len(sales[sales.get("hour", pd.Series(dtype=float)).ge(0)]) if not sales.empty and "hour" in sales.columns else 0)
+    avg_sales_open_hour = (total_sales / open_hour_rows) if open_hour_rows else 0.0
+    avg_tx_open_hour = (total_transactions / open_hour_rows) if open_hour_rows else 0.0
+    delivery_total = _safe_numeric_sum(sales, "delivery_orders")
+    delivery_share = (delivery_total / total_transactions * 100) if total_transactions else 0.0
+    busiest_day = "N/A"
+    busiest_hour = "N/A"
+    peak_avg_tx = peak_avg_sales = peak_avg_items = peak_avg_delivery = 0.0
+    slowest_window = "N/A"
+    if not sales.empty and {"day_of_week", "hour", "avg_transactions", "avg_sales", "avg_items_sold", "avg_delivery_orders"}.issubset(set(sales.columns)):
+        by_day = sales.groupby("day_of_week", dropna=False)["avg_transactions"].mean().sort_values(ascending=False)
+        if not by_day.empty:
+            busiest_day = str(by_day.index[0])
+        by_hour = sales.groupby("hour", dropna=False)["avg_transactions"].mean().sort_values(ascending=False)
+        if not by_hour.empty:
+            busiest_hour = f"{int(by_hour.index[0])}:00"
+        peak_avg_tx = float(sales["avg_transactions"].max())
+        peak_avg_sales = float(sales["avg_sales"].max())
+        peak_avg_items = float(sales["avg_items_sold"].max())
+        peak_avg_delivery = float(sales["avg_delivery_orders"].max())
+        slow_row = sales.loc[sales["avg_transactions"].idxmin()]
+        slowest_window = f"{slow_row.get('day_of_week', 'N/A')} @ {int(slow_row.get('hour', -1))}:00"
 
     status = "Data Incomplete" if analysis.empty else ("Heavy" if labor_pct > 20 else "Lean" if labor_pct < 10 and tx_per_hour > st.session_state["retail_ops_thresholds"]["target_transactions_per_labor_hour"] else "Balanced")
 
@@ -402,14 +435,20 @@ def render_retail_ops_command_center():
         metrics = [
             ("Total Labor Cost", f"${total_labor_cost:,.0f}"), ("Total Labor Hours", f"{total_labor_hours:,.1f}"),
             ("Labor Cost per Hour", f"${(total_labor_cost/total_labor_hours if total_labor_hours else 0):,.2f}"), ("Labor % of Sales", f"{labor_pct:.1f}%"),
-            ("Sales per Labor Hour", f"${sales_per_hour:,.1f}"), ("Transactions per Labor Hour", f"{tx_per_hour:,.1f}"),
+            ("Avg Demand Sales per Labor Hour", f"${sales_per_hour:,.1f}"), ("Avg Demand Tx per Labor Hour", f"{tx_per_hour:,.1f}"),
             ("Avg Hourly Wage", f"${_safe_numeric_mean(schedule, 'hourly_wage'):,.2f}"), ("Scheduled Employees", str(schedule.get("employee_name", pd.Series(dtype=str)).nunique() if not schedule.empty else 0)),
             ("Lean Hours Count", str(int((analysis.get("schedule_status", pd.Series(dtype=str)) == "Lean").sum()))), ("Heavy Hours Count", str(int((analysis.get("schedule_status", pd.Series(dtype=str)) == "Heavy").sum()))),
             ("Balanced Hours Count", str(int((analysis.get("schedule_status", pd.Series(dtype=str)) == "Balanced").sum()))), ("Retention Risk Score", "0"),
+            ("Busiest Day", busiest_day), ("Busiest Hour", busiest_hour),
+            ("Peak Avg Transactions", f"{peak_avg_tx:,.1f}"), ("Peak Avg Sales", f"${peak_avg_sales:,.1f}"),
+            ("Peak Avg Items Sold", f"{peak_avg_items:,.1f}"), ("Peak Avg Delivery Orders", f"{peak_avg_delivery:,.1f}"),
+            ("Average Sales per Open Hour", f"${avg_sales_open_hour:,.1f}"), ("Average Transactions per Open Hour", f"{avg_tx_open_hour:,.1f}"),
+            ("Delivery Demand Share", f"{delivery_share:.1f}%"), ("Slowest Demand Window", slowest_window),
         ]
         for i, m in enumerate(metrics):
             cols[i % 4].metric(m[0], m[1])
         st.info(f"Labor Health Status: **{status}**")
+        st.caption("Demand interpretation: values are average weekday/hour demand patterns (not transaction-level period totals).")
         st.caption("Schedule Data Quality")
         st.write({
             "Rows Processed": data_quality.get("rows_processed", 0),
