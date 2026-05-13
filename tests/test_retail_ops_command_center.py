@@ -1,0 +1,29 @@
+import pandas as pd
+
+from views.retail_ops_command_center import _normalize_data, _build_retail_ops_executive_report_pdf
+
+
+def test_normalize_data_computes_analysis():
+    employees = pd.DataFrame([
+        {"employee_name": "A", "hourly_wage": 20},
+    ])
+    schedule = pd.DataFrame([
+        {"date": "2026-05-01", "employee_name": "A", "scheduled_hours": 8},
+    ])
+    sales = pd.DataFrame([
+        {"date": "2026-05-01", "total_sales": 2000, "transactions": 80},
+    ])
+    thresholds = {
+        "target_labor_pct_low": 12, "target_labor_pct_high": 18,
+        "target_sales_per_labor_hour": 250, "target_transactions_per_labor_hour": 8,
+        "minimum_staffing_floor": 1, "maximum_staffing_cap": 60,
+    }
+    _s, _d, analysis = _normalize_data(employees, schedule, sales, thresholds)
+    assert not analysis.empty
+    assert "schedule_status" in analysis.columns
+
+
+def test_pdf_builder_returns_bytes():
+    pdf = _build_retail_ops_executive_report_pdf({"summary_lines": ["x"], "recommendations": ["y"]})
+    assert isinstance(pdf, (bytes, bytearray))
+    assert len(pdf) > 100
