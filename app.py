@@ -50,6 +50,7 @@ from ui_polish import (
 )
 from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
+from views.retail_ops_command_center import render_retail_ops_command_center
 
 load_dotenv()
 
@@ -4608,6 +4609,8 @@ if _feature_enabled("buyer_module", default_enabled=True):
     workspace_options.append("🏷️ White Label / Repack")
 if _feature_enabled("extraction_module", default_enabled=True):
     workspace_options.append("🧪 Extraction Command Center")
+if _feature_enabled("retail_ops_module", default_enabled=True):
+    workspace_options.append("🏪 Retail Ops Command Center")
 _active_workspace = st.session_state.get("workspace_mode", workspace_options[0] if workspace_options else "🛒 Buyer Operations")
 _ecc_runs = _safe_report_df(st.session_state.get("ecc_run_log"))
 _extraction_profitability = _safe_report_df(st.session_state.get("ecc_run_value_snapshot", _ecc_runs))
@@ -8942,6 +8945,15 @@ if app_mode == "🏷️ White Label / Repack":
     white_payload = render_white_label_repack_workspace()
     if white_payload:
         st.session_state["white_label_export_payload"] = white_payload
+    st.stop()
+if app_mode == "🏪 Retail Ops Command Center":
+    render_hero(
+        "Retail Ops Command Center",
+        "Evaluate labor efficiency, schedule health, and retention risk.",
+        _display_user,
+        "Retail • Operations",
+    )
+    render_retail_ops_command_center()
     st.stop()
 
 # =========================
