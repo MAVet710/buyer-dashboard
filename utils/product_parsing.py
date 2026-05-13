@@ -35,3 +35,15 @@ def free_strain_lookup(product_name, category):
 
 def ai_lookup_strain_type(product_name, category):
     return free_strain_lookup(product_name, category)
+
+
+def get_strain_database_size() -> int:
+    return len(STRAIN_DATABASE)
+
+
+def get_strain_lookup_cache_size() -> int:
+    return len(strain_lookup_cache)
+
+
+def clear_strain_lookup_cache() -> None:
+    strain_lookup_cache.clear()
