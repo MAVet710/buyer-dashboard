@@ -100,7 +100,7 @@ def _read_sales_upload(uploaded_file):
     sales = pd.DataFrame()
     sales["location_name"] = table.get("Location Name")
     sales["day_of_week"] = table.get("Day")
-    sales["hour"] = pd.to_numeric(table.get("Starting Hour"), errors="coerce").fillna(-1).astype(int)
+    sales["hour"] = _parse_starting_hour_series(table.get("Starting Hour"))
     sales["avg_transactions"] = pd.to_numeric(table.get("Total Orders"), errors="coerce").fillna(0.0)
     sales["avg_sales"] = pd.to_numeric(table.get("Gross Sales"), errors="coerce").fillna(0.0)
     sales["avg_items_sold"] = pd.to_numeric(table.get("Total Inventory Sold"), errors="coerce").fillna(0.0)
@@ -140,6 +140,40 @@ def _read_sales_upload(uploaded_file):
     metadata = _parse_pos_metadata(df_raw, header_row)
     metadata["rows_processed"] = int(len(grouped))
     return grouped, metadata
+
+
+
+def _parse_starting_hour(value):
+    if pd.isna(value):
+        return -1
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        hour = int(value)
+        return hour if 0 <= hour <= 23 else -1
+    text = str(value).strip()
+    if not text:
+        return -1
+    numeric = pd.to_numeric(pd.Series([text]), errors="coerce").iloc[0]
+    if pd.notna(numeric):
+        hour = int(numeric)
+        return hour if 0 <= hour <= 23 else -1
+    dt = pd.to_datetime(text, errors="coerce")
+    if pd.notna(dt):
+        return int(dt.hour)
+    m = re.search(r"\b(\d{1,2})\b", text)
+    if m:
+        hour = int(m.group(1))
+        if "pm" in text.lower() and hour < 12:
+            hour += 12
+        if "am" in text.lower() and hour == 12:
+            hour = 0
+        return hour if 0 <= hour <= 23 else -1
+    return -1
+
+
+def _parse_starting_hour_series(series):
+    if series is None:
+        return pd.Series(dtype=int)
+    return pd.Series(series).map(_parse_starting_hour).fillna(-1).astype(int)
 
 
 
