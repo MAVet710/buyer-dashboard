@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from io import BytesIO
+import json
 import logging
 import os
+import re
 import traceback
+import zipfile
 
 import pandas as pd
 import streamlit as st
@@ -26,6 +29,97 @@ from services.competitor_report_narrative import (
 from utils.dataframe_helpers import _safe_numeric_mean, _safe_numeric_series, _safe_numeric_sum
 
 logger = logging.getLogger(__name__)
+_DUTCHIE_MAX_COMPANION_SIZE = 3_000_000
+
+
+def _category_from_name(value: str) -> str:
+    s = (value or "").lower()
+    if "pre-roll" in s or "preroll" in s:
+        return "Pre-Rolls"
+    if "flower" in s:
+        return "Flower"
+    if "concentrate" in s:
+        return "Concentrates"
+    if "edible" in s:
+        return "Edibles"
+    if "vape" in s:
+        return "Vapes"
+    return "Unspecified"
+
+
+def _is_likely_product_resource(text: str, name: str) -> tuple[bool, list[str]]:
+    lowered = f"{name} {text}".lower()
+    markers = []
+    for m in ['data-testid="product-list-item"', "add to cart", "product-list-item", "product-card", "thc", "cbd", "$"]:
+        if m in lowered:
+            markers.append(m)
+    potency_pattern = bool(re.search(r"\b(thc|cbd|potency)\b", lowered))
+    return bool(markers or potency_pattern), markers
+
+
+def build_dutchie_capture_bundle(parent_files, companion_files_or_zips) -> dict:
+    parents, companions, warnings = [], [], []
+    allowed_ext = {".html", ".htm", ".txt", ".json"}
+    for pf in parent_files or []:
+        html = (pf.getvalue() or b"").decode("utf-8", errors="ignore")
+        source_url_match = re.search(r"https?://[^\"'\\s>]+", html)
+        source_url = source_url_match.group(0) if source_url_match else ""
+        expected_folder = re.sub(r"\.html?$", "_files", pf.name, flags=re.IGNORECASE)
+        parents.append(
+            {
+                "source_file_name": pf.name,
+                "competitor_name": "Unknown",
+                "category": _category_from_name(pf.name),
+                "source_url": source_url,
+                "detected_platform": "dutchie_embedded",
+                "expected_folder_hint": expected_folder,
+                "file_bytes": pf.getvalue(),
+            }
+        )
+    for cf in companion_files_or_zips or []:
+        name = cf.name
+        if name.lower().endswith(".zip"):
+            try:
+                with zipfile.ZipFile(BytesIO(cf.getvalue())) as zf:
+                    for info in zf.infolist():
+                        if info.is_dir():
+                            continue
+                        if ".." in info.filename or info.filename.startswith("/"):
+                            warnings.append(f"Skipped unsafe ZIP path: {info.filename}")
+                            continue
+                        ext = os.path.splitext(info.filename)[1].lower()
+                        if ext not in allowed_ext:
+                            continue
+                        if info.file_size > _DUTCHIE_MAX_COMPANION_SIZE:
+                            warnings.append(f"Skipped large companion file: {info.filename}")
+                            continue
+                        payload = zf.read(info.filename)
+                        text = payload.decode("utf-8", errors="ignore")
+                        likely, markers = _is_likely_product_resource(text[:50000], info.filename)
+                        companions.append({"source_file_name": os.path.basename(info.filename), "inside_zip_name": info.filename, "file_bytes": payload, "likely_product_resource": likely, "detected_product_card_markers": markers, "folder_hint": info.filename.split('/')[0]})
+            except Exception as ex:
+                warnings.append(f"ZIP could not be inspected: {name} ({ex})")
+        else:
+            payload = cf.getvalue()
+            text = payload.decode("utf-8", errors="ignore")
+            likely, markers = _is_likely_product_resource(text[:50000], name)
+            companions.append({"source_file_name": name, "inside_zip_name": "", "file_bytes": payload, "likely_product_resource": likely, "detected_product_card_markers": markers, "folder_hint": name.split('/')[0]})
+
+    matches, unmatched = [], []
+    for c in companions:
+        candidate_parent = None
+        hay = f"{c.get('inside_zip_name','')} {c.get('source_file_name','')}".lower()
+        for p in parents:
+            if p["expected_folder_hint"].lower() in hay or re.sub(r"\.html?$", "", p["source_file_name"].lower()) in hay:
+                candidate_parent = p["source_file_name"]
+                break
+        if not candidate_parent and len(parents) == 1 and c.get("likely_product_resource"):
+            candidate_parent = parents[0]["source_file_name"]
+        if candidate_parent:
+            matches.append({"parent_file_name": candidate_parent, "companion_file_name": c["source_file_name"], "inside_zip_name": c.get("inside_zip_name", "")})
+        else:
+            unmatched.append(c["source_file_name"])
+    return {"parents": parents, "companions": companions, "matches": matches, "unmatched_companions": unmatched, "warnings": warnings}
 
 
 def _init_state() -> None:
@@ -58,6 +152,8 @@ def _init_state() -> None:
         "competitor_opportunity_risk_df": pd.DataFrame(),
         "competitor_market_read_text": "",
         "competitor_executive_summary_text": "",
+        "competitor_dutchie_bundle": {},
+        "competitor_dutchie_bundle_results": [],
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -327,6 +423,64 @@ def render_competitor_intelligence_center() -> None:
         st.caption("For Dutchie embedded menus, the parent page may only contain the menu shell. If detected, upload companion iframe HTML from the saved page _files folder.")
         snap_date = st.date_input("Snapshot Date", value=date.today())
         competitor_override = st.text_input("Competitor Override (optional)")
+        st.subheader("Dutchie Folder Packager")
+        st.caption("Dutchie menus often save product data inside a companion _files folder. If the parent HTML shows zero products, upload the matching _files folder contents or ZIP the folder and upload it here. The app will search for saved_resource.html and product-card files automatically.")
+        st.caption("Folder upload may not be supported by your browser or Streamlit. If you cannot upload a folder, select the files inside the folder or zip the folder first.")
+        dutchie_parent_files = st.file_uploader("Upload Dutchie Parent HTML", type=["html", "htm"], accept_multiple_files=True, key="dutchie_parent_upload")
+        dutchie_companion_files = st.file_uploader("Upload Companion Files or ZIP", type=["html", "htm", "txt", "zip"], accept_multiple_files=True, key="dutchie_companion_upload")
+        d1, d2, d3 = st.columns(3)
+        if d1.button("Build Dutchie Capture Bundle"):
+            st.session_state["competitor_dutchie_bundle"] = build_dutchie_capture_bundle(dutchie_parent_files, dutchie_companion_files)
+        if d2.button("Process Dutchie Bundle"):
+            bundle = st.session_state.get("competitor_dutchie_bundle", {})
+            files_to_process = []
+            for p in bundle.get("parents", []):
+                files_to_process.append({"file_name": p["source_file_name"], "file_bytes": p["file_bytes"], "file_size": len(p["file_bytes"])})
+            for c in bundle.get("companions", []):
+                if c.get("likely_product_resource"):
+                    files_to_process.append({"file_name": c.get("inside_zip_name") or c["source_file_name"], "file_bytes": c["file_bytes"], "file_size": len(c["file_bytes"])})
+            if files_to_process:
+                payload = _build_review_workbook_payload(files_to_process, competitor_override, str(snap_date), "Unspecified")
+                st.session_state["competitor_menu_snapshots_df"] = payload["cleaned_df"]
+                st.session_state["competitor_file_processing_results"] = payload["file_df"].to_dict("records")
+                st.session_state["competitor_data_quality"] = payload["dq"]
+                st.session_state["competitor_category_summary_df"] = payload["cat_summary"]
+                st.session_state["competitor_dutchie_bundle_results"] = payload["file_df"].to_dict("records")
+                _build_analysis_tables()
+        if d3.button("Clear Dutchie Bundle"):
+            st.session_state["competitor_dutchie_bundle"] = {}
+            st.session_state["competitor_dutchie_bundle_results"] = []
+
+        bundle = st.session_state.get("competitor_dutchie_bundle", {})
+        if bundle:
+            st.write(f"Parents detected: {len(bundle.get('parents', []))}")
+            st.write(f"Companion files detected: {len(bundle.get('companions', []))}")
+            st.write(f"Matched pairs: {len(bundle.get('matches', []))}")
+            st.write(f"Unmatched companions: {len(bundle.get('unmatched_companions', []))}")
+            missing = max(0, len(bundle.get("parents", [])) - len({m['parent_file_name'] for m in bundle.get("matches", [])}))
+            st.write(f"Missing companion resources: {missing}")
+            st.write(f"Product rows extracted: {len(st.session_state.get('competitor_menu_snapshots_df', pd.DataFrame()))}")
+            if bundle.get("warnings"):
+                st.warning("\n".join(bundle["warnings"]))
+            manifest = {"parent_files": [p["source_file_name"] for p in bundle.get("parents", [])], "companion_files": [c["source_file_name"] for c in bundle.get("companions", [])], "matched_pairs": bundle.get("matches", []), "created_at": datetime.utcnow().isoformat() + "Z"}
+            zbuf = BytesIO()
+            with zipfile.ZipFile(zbuf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for p in bundle.get("parents", []):
+                    zf.writestr(p["source_file_name"], p["file_bytes"])
+                for c in bundle.get("companions", []):
+                    zf.writestr(c.get("inside_zip_name") or c["source_file_name"], c["file_bytes"])
+                zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+            st.download_button("Download Dutchie Capture Bundle ZIP", data=zbuf.getvalue(), file_name="dutchie_capture_bundle.zip", mime="application/zip")
+            dq_rows = []
+            grouped = {}
+            for m in bundle.get("matches", []):
+                grouped.setdefault(m["parent_file_name"], []).append(m)
+            for p in bundle.get("parents", []):
+                matched = grouped.get(p["source_file_name"], [])
+                dq_rows.append({"Parent File": p["source_file_name"], "Competitor": p["competitor_name"], "Category": p["category"], "Companion Found": bool(matched), "Companion File": ", ".join(x["companion_file_name"] for x in matched), "Rows Extracted": 0, "Status": "companion_found" if matched else "needs_companion_resource", "Warning": "" if matched else "Upload the matching _files folder ZIP or saved_resource.html"})
+            for u in bundle.get("unmatched_companions", []):
+                dq_rows.append({"Parent File": "", "Competitor": "Unknown", "Category": "Unknown", "Companion Found": False, "Companion File": u, "Rows Extracted": 0, "Status": "unmatched_companion", "Warning": "Companion file has no matched parent."})
+            st.dataframe(pd.DataFrame(dq_rows), use_container_width=True)
         behavior = st.radio("Replace or Merge", ["Replace", "Merge"], horizontal=True)
         uploaded_files = st.file_uploader("Saved HTML Upload", type=["html", "htm", "mhtml", "txt", "csv", "xlsx", "xls", "json"], accept_multiple_files=True)
         if uploaded_files:
