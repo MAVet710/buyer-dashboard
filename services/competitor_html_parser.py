@@ -51,7 +51,14 @@ def detect_menu_platform(html_text: str, file_name: str, source_url: str | None 
 
 def detect_category(html_text: str, file_name: str, source_url: str | None = None, platform: str | None = None) -> str:
     lowered = f"{html_text} {file_name} {source_url or ''}".lower()
-    checks = [(r"/categories/flower/|dtche(?:%5b|\[)category(?:%5d|\])=flower|new leaf_flower|/products/flower", "Flower"), (r"/categories/pre-rolls/|dtche(?:%5b|\[)category(?:%5d|\])=pre-rolls|new leaf_prj", "Pre-Rolls"), (r"/categories/edibles/|/products/edibles", "Edibles"), (r"/categories/concentrates/", "Concentrates"), (r"/categories/topicals/", "Topicals"), (r"/products/vapes", "Vapes")]
+    checks = [
+        (r"/categories/flower/|dtche(?:%5b|\[)category(?:%5d|\])=flower|new leaf_flower|/products/flower", "Flower"),
+        (r"/categories/pre-rolls/|dtche(?:%5b|\[)category(?:%5d|\])=pre-rolls|dtche(?:%5b|\[)category(?:%5d|\])=prerolls|new leaf_prj", "Pre-Rolls"),
+        (r"/categories/edibles/|dtche(?:%5b|\[)category(?:%5d|\])=edibles|/products/edibles", "Edibles"),
+        (r"/categories/concentrates/|dtche(?:%5b|\[)category(?:%5d|\])=concentrates", "Concentrates"),
+        (r"/categories/topicals/|dtche(?:%5b|\[)category(?:%5d|\])=topicals", "Topicals"),
+        (r"/products/vapes|dtche(?:%5b|\[)category(?:%5d|\])=vapes", "Vapes"),
+    ]
     for p, v in checks:
         if re.search(p, lowered, re.I): return v
     return "Unspecified"
@@ -63,6 +70,7 @@ def detect_competitor(html_text: str, file_name: str, source_url: str | None = N
     if "kushgroove.com" in lowered or "kush groove" in lowered: return "Kush Groove"
     if "sunnyside.shop" in lowered or "sunnyside" in lowered: return "Sunnyside"
     if "newleafcanna.com" in lowered or "new leaf" in lowered: return "New Leaf"
+    if "goodnaturema.com" in lowered or "good nature cannabis" in lowered: return "Good Nature Cannabis"
     return "Unknown"
 
 
