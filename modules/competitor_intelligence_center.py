@@ -12,7 +12,7 @@ import streamlit.components.v1 as components
 
 from reports.competitor_report import _build_competitor_intelligence_report_pdf
 from services.menu_capture_assistant import MenuCaptureSession
-from services.competitor_html_parser import NORMALIZED_SCHEMA, parse_competitor_snapshot
+from services.competitor_html_parser import NORMALIZED_SCHEMA, parse_competitor_file, detect_menu_platform, detect_competitor, detect_category
 from utils.dataframe_helpers import _safe_numeric_mean, _safe_numeric_series, _safe_numeric_sum
 
 logger = logging.getLogger(__name__)
@@ -56,46 +56,35 @@ def _ensure_cleaned_schema(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _build_review_workbook_payload(files: list[dict], competitor_override: str, snap_date: str, default_category: str) -> dict:
-    cleaned_rows, raw_rows, candidate_rows, file_results, warnings = [], [], [], [], []
+    cleaned_parts, raw_parts, cand_parts, file_results, warning_rows = [], [], [], [], []
+    pass1 = {}
+    for cf in files:
+        name, data = cf["file_name"], cf["file_bytes"]
+        html = data.decode("utf-8", errors="ignore") if name.lower().endswith((".html", ".htm", ".mhtml", ".txt")) else ""
+        platform = detect_menu_platform(html, name)
+        pass1[name] = {"platform": platform, "competitor": detect_competitor(html, name, competitor_override=competitor_override), "category": detect_category(html, name), "has_dutchie_shell": platform == "dutchie_embedded"}
+    batch_context = {"has_dutchie_shell": any(v["has_dutchie_shell"] for v in pass1.values())}
+
     for cf in files:
         name, data = cf["file_name"], cf["file_bytes"]
         ext = name.split(".")[-1].lower()
-        file_status = {"source_file_name": name, "file_size": cf.get("file_size", len(data)), "detected_competitor": competitor_override or "Unknown", "detected_platform": "Unknown", "detected_category": default_category, "rows_extracted": 0, "rows_saved": 0, "duplicate_count": 0, "status": "failed", "warning": "", "embedded_iframe_detected": False, "embedded_iframe_src": "", "completeness_status": "unknown"}
-        try:
-            if ext in {"html", "htm", "mhtml", "txt"}:
-                parsed, meta = parse_competitor_snapshot(data, name, competitor_override, snap_date, default_category, "")
-            elif ext == "csv":
-                src = pd.read_csv(BytesIO(data)); parsed = MenuCaptureSession().extract_visible_product_cards(src.to_dict("records"), competitor_override, snap_date, "Structured CSV", "", default_category); meta = {"status": "ok", "detected_platform": "structured_csv", "warning": ""}
-            elif ext in {"xlsx", "xls"}:
-                src = pd.read_excel(BytesIO(data)); parsed = MenuCaptureSession().extract_visible_product_cards(src.to_dict("records"), competitor_override, snap_date, "Structured XLSX", "", default_category); meta = {"status": "ok", "detected_platform": "structured_xlsx", "warning": ""}
-            elif ext == "json":
-                src = MenuCaptureSession().parse_browser_capture_payload(data.decode("utf-8", errors="ignore")); parsed = MenuCaptureSession().extract_visible_product_cards(src, competitor_override, snap_date, "Structured JSON", "", default_category); meta = {"status": "ok", "detected_platform": "structured_json", "warning": ""}
-            else:
-                continue
-            parsed = _ensure_cleaned_schema(parsed)
-            parsed["source_file_name"] = name
-            cleaned_rows.append(parsed)
-            text = data.decode("utf-8", errors="ignore")[:20000]
-            chunks = [text[i:i+1000] for i in range(0, len(text), 1000)] or [""]
-            for i, chunk in enumerate(chunks[:30]):
-                raw_rows.append({"source_file_name": name, "detected_competitor": competitor_override or "Unknown", "detected_platform": meta.get("detected_platform", "Unknown"), "detected_category": default_category, "source_url": "", "raw_text_chunk": chunk, "chunk_index": i, "parser_stage": "input_extract"})
-            for _, row in parsed.iterrows():
-                candidate_rows.append({"source_file_name": name, "competitor_name": row.get("competitor_name"), "menu_platform": row.get("menu_platform"), "category": row.get("category"), "raw_product_block": row.get("raw_text"), "extracted_brand": row.get("brand"), "extracted_product_name": row.get("product_name"), "extracted_price_text": str(row.get("regular_price") or ""), "extracted_size_text": row.get("package_size_label"), "extracted_potency_text": f"THC:{row.get('thc_pct')}", "extracted_promo_text": row.get("promo_text"), "candidate_confidence": row.get("capture_confidence"), "parser_notes": row.get("missing_fields", "")})
-            warn_text = meta.get("warning") or ""
-            if warn_text:
-                warnings.append({"source_file_name": name, "warning_type": "parser", "warning_message": warn_text, "severity": "medium", "recommended_action": "Review companion files and cleaned rows."})
-            file_status.update({"detected_platform": meta.get("detected_platform", "Unknown"), "rows_extracted": len(parsed), "rows_saved": len(parsed), "status": "processed" if len(parsed) else meta.get("status", "processed"), "warning": warn_text, "embedded_iframe_detected": bool(meta.get("embedded_iframe_detected", False)), "embedded_iframe_src": meta.get("embedded_iframe_src", "")})
-            if len(parsed) == 0:
-                warnings.append({"source_file_name": name, "warning_type": "no_rows", "warning_message": "No product rows detected", "severity": "high", "recommended_action": "Upload companion iframe file or different category export."})
-        except Exception as ex:
-            file_status["warning"] = str(ex)
-            warnings.append({"source_file_name": name, "warning_type": "parse_error", "warning_message": str(ex), "severity": "high", "recommended_action": "Verify uploaded file format."})
-        file_results.append(file_status)
-    cleaned = _ensure_cleaned_schema(pd.concat(cleaned_rows, ignore_index=True) if cleaned_rows else pd.DataFrame())
-    raw_df, cand_df, file_df, warnings_df = pd.DataFrame(raw_rows), pd.DataFrame(candidate_rows), pd.DataFrame(file_results), pd.DataFrame(warnings)
-    cat_summary = cleaned.groupby(["competitor_name", "category", "menu_platform"], dropna=False).agg(rows_saved=("product_name", "count"), avg_regular_price=("regular_price", "mean"), avg_effective_price=("effective_price", "mean"), avg_discount_pct=("discount_pct", "mean"), promo_count=("promo_text", lambda s: (s.fillna("") != "").sum()), brand_count=("brand", "nunique"), missing_price_count=("effective_price", lambda s: s.isna().sum()), low_confidence_count=("capture_confidence", lambda s: s.astype(str).str.lower().eq("low").sum())).reset_index() if not cleaned.empty else pd.DataFrame(columns=["competitor_name","category","menu_platform","rows_saved","avg_regular_price","avg_effective_price","avg_discount_pct","promo_count","brand_count","missing_price_count","low_confidence_count"])
-    cat_summary["completeness_status"] = cat_summary.apply(lambda r: "incomplete" if r.get("missing_price_count", 0) else "complete", axis=1) if not cat_summary.empty else []
-    dq = {"files_processed": len(file_df), "total_rows_extracted": int(file_df["rows_extracted"].sum()) if "rows_extracted" in file_df else 0, "rows_saved": len(cleaned), "duplicate_rows_merged": 0, "rows_needing_review": int(cleaned["needs_review"].fillna(False).sum()) if "needs_review" in cleaned else 0, "missing_price_count": int(cleaned["effective_price"].isna().sum()) if "effective_price" in cleaned else 0, "missing_package_size_count": int(cleaned["package_size_label"].fillna("").eq("").sum()) if "package_size_label" in cleaned else 0, "missing_category_count": int(cleaned["category"].fillna("").eq("").sum()) if "category" in cleaned else 0, "missing_brand_count": int(cleaned["brand"].fillna("").eq("").sum()) if "brand" in cleaned else 0, "missing_potency_count": int(cleaned["thc_pct"].isna().sum()) if "thc_pct" in cleaned else 0, "low_confidence_count": int(cleaned["capture_confidence"].astype(str).str.lower().eq("low").sum()) if "capture_confidence" in cleaned else 0, "shell_files_needing_companion_iframe": int(file_df["embedded_iframe_detected"].sum()) if "embedded_iframe_detected" in file_df else 0, "incomplete_categories": int((cat_summary["completeness_status"] != "complete").sum()) if not cat_summary.empty else 0}
+        if ext in {"html", "htm", "mhtml", "txt"}:
+            cleaned_df, candidates_df, raw_df, file_result, parser_warnings = parse_competitor_file(data, name, snapshot_date=snap_date, competitor_override=competitor_override, batch_context=batch_context)
+            cleaned_parts.append(cleaned_df)
+            if not candidates_df.empty: cand_parts.append(candidates_df)
+            if not raw_df.empty: raw_parts.append(raw_df)
+            file_results.append(file_result)
+            warning_rows.extend(parser_warnings)
+        else:
+            continue
+
+    cleaned = _ensure_cleaned_schema(pd.concat(cleaned_parts, ignore_index=True) if cleaned_parts else pd.DataFrame())
+    raw_df = pd.concat(raw_parts, ignore_index=True) if raw_parts else pd.DataFrame()
+    cand_df = pd.concat(cand_parts, ignore_index=True) if cand_parts else pd.DataFrame()
+    file_df = pd.DataFrame(file_results)
+    warnings_df = pd.DataFrame(warning_rows)
+    cat_summary = cleaned.groupby(["competitor_name", "category", "menu_platform"], dropna=False).agg(rows_saved=("product_name", "count")).reset_index() if not cleaned.empty else pd.DataFrame(columns=["competitor_name","category","menu_platform","rows_saved"])
+    dq = {"files_processed": len(file_df), "total_rows_extracted": int(file_df["rows_extracted"].sum()) if "rows_extracted" in file_df else 0, "rows_saved": len(cleaned), "missing_category_count": int(cleaned["category"].fillna("").isin(["", "Unspecified"]).sum()) if "category" in cleaned else 0, "missing_brand_count": int(cleaned["brand"].fillna("").eq("").sum()) if "brand" in cleaned else 0, "low_confidence_count": int(cleaned["capture_confidence"].astype(str).str.lower().eq("low").sum()) if "capture_confidence" in cleaned else 0}
     dq_df = pd.DataFrame([{"metric": k, "value": v, "notes": ""} for k, v in dq.items()])
     out = BytesIO()
     with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
