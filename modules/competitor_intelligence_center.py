@@ -227,18 +227,22 @@ def _ensure_competitor_snapshot_schema(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _merge_into_competitor_snapshot(new_rows_df, source_label: str = "unknown", mode: str = "merge") -> pd.DataFrame:
+    st.session_state["competitor_last_merge_skipped"] = False
     existing = _ensure_competitor_snapshot_schema(st.session_state.get("competitor_menu_snapshots_df"))
     if not isinstance(new_rows_df, pd.DataFrame):
         st.warning("No valid competitor rows were available to merge.")
+        st.session_state["competitor_last_merge_skipped"] = True
         return existing
     inventory_like_cols = {"our_product_name", "our_category", "quantity_on_hand", "days_on_hand", "cost", "inventory_value"}
     incoming_cols = set(new_rows_df.columns)
     if len(inventory_like_cols.intersection(incoming_cols)) >= 2 and not ({"product_name", "competitor_name"} & incoming_cols):
         st.error("Inventory data cannot be merged into competitor snapshot. It was saved for comparison only.")
+        st.session_state["competitor_last_merge_skipped"] = True
         return existing
     incoming = _ensure_competitor_snapshot_schema(new_rows_df)
     if incoming.empty:
         st.warning("No valid competitor rows were available to merge.")
+        st.session_state["competitor_last_merge_skipped"] = True
         return existing
     mode = (mode or "merge").strip().lower()
     dedupe_cols = ["competitor_name", "snapshot_date", "category", "subcategory", "normalized_product_name", "brand", "package_size_label", "effective_price"]
@@ -258,6 +262,7 @@ def _merge_into_competitor_snapshot(new_rows_df, source_label: str = "unknown", 
         keys = candidate_keys[reliable].drop_duplicates()
         if keys.empty:
             st.warning("Replace matching competitor/category skipped because incoming rows do not have reliable competitor/category values.")
+            mode = "merge"
         else:
             keep_mask = pd.Series(True, index=base.index)
             for _, row in keys.iterrows():
@@ -599,8 +604,9 @@ def render_competitor_intelligence_center() -> None:
                 st.session_state["competitor_data_quality"] = dq
                 st.session_state["competitor_category_summary_df"] = payload["cat_summary"]
                 st.session_state["competitor_dutchie_bundle_results"] = payload["file_df"].to_dict("records")
-                _build_analysis_tables()
-                _build_comparison_tables()
+                if not st.session_state.get("competitor_last_merge_skipped", False):
+                    _build_analysis_tables()
+                    _build_comparison_tables()
                 if merged_snapshot is not None:
                     after_rows = len(merged_snapshot)
                     if int(payload["file_df"].get("rows_saved", pd.Series(dtype=int)).sum()) > 0 and after_rows <= before_rows:
@@ -667,7 +673,8 @@ def render_competitor_intelligence_center() -> None:
                 st.session_state["competitor_data_quality"] = payload["dq"]
                 st.session_state["competitor_category_summary_df"] = payload["cat_summary"]
                 st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-                _build_analysis_tables()
+                if not st.session_state.get("competitor_last_merge_skipped", False):
+                    _build_analysis_tables()
             except Exception as ex:
                 st.error("Competitor snapshot merge failed.")
                 with st.expander("Debug Details"):
@@ -683,7 +690,8 @@ def render_competitor_intelligence_center() -> None:
                 imported_cleaned = pd.read_excel(BytesIO(imported_workbook.getvalue()), sheet_name="Cleaned_Competitor_Snapshot")
                 imported_cleaned = _ensure_cleaned_schema(imported_cleaned)
                 _merge_into_competitor_snapshot(imported_cleaned, source_label="cleaned_workbook", mode="replace_entire")
-                _build_analysis_tables()
+                if not st.session_state.get("competitor_last_merge_skipped", False):
+                    _build_analysis_tables()
                 st.success("Loaded Cleaned_Competitor_Snapshot from workbook.")
             except Exception as ex:
                 st.error("Competitor snapshot merge failed.")
