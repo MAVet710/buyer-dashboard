@@ -233,7 +233,7 @@ def _merge_into_competitor_snapshot(new_rows_df, source_label: str = "unknown", 
         st.warning("No valid competitor rows were available to merge.")
         st.session_state["competitor_last_merge_skipped"] = True
         return existing
-    inventory_like_cols = {"our_product_name", "our_category", "quantity_on_hand", "days_on_hand", "cost", "inventory_value"}
+    inventory_like_cols = {"our_product_name", "our_category", "our_brand", "our_effective_price", "quantity_on_hand", "days_on_hand", "cost", "inventory_value"}
     incoming_cols = set(new_rows_df.columns)
     if len(inventory_like_cols.intersection(incoming_cols)) >= 2 and not ({"product_name", "competitor_name"} & incoming_cols):
         st.error("Inventory data cannot be merged into competitor snapshot. It was saved for comparison only.")
@@ -270,23 +270,32 @@ def _merge_into_competitor_snapshot(new_rows_df, source_label: str = "unknown", 
             base = base[keep_mask].copy()
 
     combined = pd.concat([base, incoming], ignore_index=True)
+    dedupe_key_parts = []
     for c in dedupe_cols:
         if c not in combined.columns:
             combined[c] = ""
-        combined[c] = combined[c].fillna("").astype(str)
-    combined["_completeness"] = combined[completeness_cols].notna().sum(axis=1) + (combined[completeness_cols].astype(str).replace("", pd.NA).notna().sum(axis=1))
+        dedupe_key_parts.append(combined[c].fillna("").astype(str).str.strip())
+    combined["_dedupe_key"] = pd.concat(dedupe_key_parts, axis=1).agg("||".join, axis=1)
+    filled_completeness = combined[completeness_cols].fillna("").astype(str).apply(lambda s: s.str.strip())
+    combined["_completeness"] = filled_completeness.ne("").sum(axis=1)
+    combined["_dup_size"] = combined.groupby("_dedupe_key")["_dedupe_key"].transform("size")
     combined["duplicate_count"] = pd.to_numeric(combined["duplicate_count"], errors="coerce").fillna(0).astype(int)
-    grouped = combined.groupby(dedupe_cols, dropna=False, sort=False)
-    deduped = grouped.apply(lambda g: g.sort_values(["_completeness"], ascending=False).head(1)).reset_index(drop=True)
-    dup_sizes = grouped.size().reset_index(name="_dup_size")
-    deduped = deduped.merge(dup_sizes, on=dedupe_cols, how="left")
-    deduped["duplicate_count"] = deduped["duplicate_count"] + deduped["_dup_size"].fillna(1).astype(int) - 1
+    deduped = (
+        combined.sort_values(["_dedupe_key", "_completeness"], ascending=[True, False])
+        .drop_duplicates("_dedupe_key", keep="first")
+        .copy()
+    )
+    deduped["duplicate_count"] = (
+        pd.to_numeric(deduped.get("duplicate_count", 0), errors="coerce").fillna(0).astype(int)
+        + pd.to_numeric(deduped["_dup_size"], errors="coerce").fillna(1).astype(int)
+        - 1
+    )
     if "source_file_name" in deduped.columns:
-        sources = combined.groupby(dedupe_cols, dropna=False)["source_file_name"].apply(
+        sources = combined.groupby("_dedupe_key", dropna=False)["source_file_name"].apply(
             lambda s: " | ".join(sorted({x.strip() for x in s.fillna("").astype(str) if x.strip()}))
-        ).reset_index(name="_source_files_merged")
-        deduped = deduped.drop(columns=["source_file_name"]).merge(sources, on=dedupe_cols, how="left").rename(columns={"_source_files_merged": "source_file_name"})
-    deduped = deduped.drop(columns=[c for c in ["_completeness", "_dup_size"] if c in deduped.columns], errors="ignore")
+        )
+        deduped = deduped.drop(columns=["source_file_name"]).join(sources, on="_dedupe_key").rename(columns={"source_file_name": "source_file_name"})
+    deduped = deduped.drop(columns=[c for c in ["_dedupe_key", "_completeness", "_dup_size"] if c in deduped.columns], errors="ignore")
     deduped = _ensure_competitor_snapshot_schema(deduped)
     st.session_state["competitor_menu_snapshots_df"] = deduped
     st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
