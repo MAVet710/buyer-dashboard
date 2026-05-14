@@ -173,32 +173,96 @@ def _ensure_cleaned_schema(df: pd.DataFrame) -> pd.DataFrame:
     return out[NORMALIZED_SCHEMA]
 
 
+def _ensure_competitor_snapshot_schema(df: pd.DataFrame) -> pd.DataFrame:
+    required_columns = [
+        "competitor_name","snapshot_date","menu_platform","source_type","source_file_name","source_url","category","subcategory","product_type","category_confidence","category_source","product_name","normalized_product_name","brand","package_size_label","package_size_g","package_size_mg","package_count","regular_price","sale_price","effective_price","discount_pct","promo_text","has_promo","thc_pct","thc_mg","thca_pct","cbd_pct","cbd_mg","cbg_pct","cbg_mg","tac_pct","tac_mg","terpene_pct","strain_type","availability_status","product_url","raw_text","capture_confidence","needs_review","missing_fields","duplicate_count","captured_at",
+    ]
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame(columns=required_columns)
+    out = df.copy()
+    defaults = {
+        "competitor_name": "Unknown",
+        "snapshot_date": "",
+        "menu_platform": "Unknown",
+        "source_type": "",
+        "source_file_name": "",
+        "source_url": "",
+        "category": "Unspecified",
+        "subcategory": "Unspecified",
+        "product_type": "",
+        "category_confidence": "",
+        "category_source": "",
+        "product_name": "",
+        "brand": "",
+        "package_size_label": "",
+        "promo_text": "",
+        "has_promo": False,
+        "strain_type": "",
+        "availability_status": "",
+        "product_url": "",
+        "raw_text": "",
+        "capture_confidence": "",
+        "needs_review": False,
+        "missing_fields": "",
+        "duplicate_count": 0,
+    }
+    numeric_cols = ["package_size_g","package_size_mg","package_count","regular_price","sale_price","effective_price","discount_pct","thc_pct","thc_mg","thca_pct","cbd_pct","cbd_mg","cbg_pct","cbg_mg","tac_pct","tac_mg","terpene_pct"]
+    for col in required_columns:
+        if col not in out.columns:
+            out[col] = defaults.get(col, 0.0 if col in numeric_cols else "")
+    for col, default_value in defaults.items():
+        out[col] = out[col].fillna(default_value)
+    for col in numeric_cols:
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+    out["has_promo"] = out["has_promo"].fillna(False).astype(bool)
+    out["needs_review"] = out["needs_review"].fillna(False).astype(bool)
+    out["duplicate_count"] = pd.to_numeric(out["duplicate_count"], errors="coerce").fillna(0).astype(int)
+    out["normalized_product_name"] = out.get("normalized_product_name", "").fillna("")
+    missing_norm = out["normalized_product_name"].astype(str).str.strip().eq("")
+    out.loc[missing_norm, "normalized_product_name"] = out.loc[missing_norm, "product_name"].fillna("").astype(str).str.strip().str.lower()
+    out["captured_at"] = out["captured_at"].fillna("")
+    missing_captured_at = out["captured_at"].astype(str).str.strip().eq("")
+    out.loc[missing_captured_at, "captured_at"] = datetime.utcnow().isoformat() + "Z"
+    return out[required_columns]
+
+
 def _merge_into_competitor_snapshot(new_rows_df, source_label: str = "unknown", mode: str = "merge") -> pd.DataFrame:
+    existing = _ensure_competitor_snapshot_schema(st.session_state.get("competitor_menu_snapshots_df"))
     if not isinstance(new_rows_df, pd.DataFrame):
-        raise ValueError("new_rows_df must be a pandas DataFrame")
-    incoming = _ensure_cleaned_schema(new_rows_df)
-    existing = st.session_state.get("competitor_menu_snapshots_df")
-    existing = _ensure_cleaned_schema(existing) if isinstance(existing, pd.DataFrame) else pd.DataFrame(columns=NORMALIZED_SCHEMA)
+        st.warning("No valid competitor rows were available to merge.")
+        return existing
+    inventory_like_cols = {"our_product_name", "our_category", "quantity_on_hand", "days_on_hand", "cost", "inventory_value"}
+    incoming_cols = set(new_rows_df.columns)
+    if len(inventory_like_cols.intersection(incoming_cols)) >= 2 and not ({"product_name", "competitor_name"} & incoming_cols):
+        st.error("Inventory data cannot be merged into competitor snapshot. It was saved for comparison only.")
+        return existing
+    incoming = _ensure_competitor_snapshot_schema(new_rows_df)
+    if incoming.empty:
+        st.warning("No valid competitor rows were available to merge.")
+        return existing
     mode = (mode or "merge").strip().lower()
     dedupe_cols = ["competitor_name", "snapshot_date", "category", "subcategory", "normalized_product_name", "brand", "package_size_label", "effective_price"]
     completeness_cols = ["product_name", "normalized_product_name", "brand", "package_size_label", "effective_price", "raw_text", "product_url", "source_file_name"]
-    for col in completeness_cols + ["duplicate_count", "captured_at", "source_type"]:
-        if col not in incoming.columns:
-            incoming[col] = None
-        if col not in existing.columns:
-            existing[col] = None
     incoming["source_type"] = incoming["source_type"].fillna("").replace("", source_label)
     incoming["captured_at"] = incoming["captured_at"].fillna(datetime.utcnow().isoformat() + "Z")
 
     base = existing.copy()
     if mode == "replace_entire":
-        base = pd.DataFrame(columns=NORMALIZED_SCHEMA)
+        base = pd.DataFrame(columns=existing.columns)
     elif mode == "replace_matching_competitor_category" and not incoming.empty:
-        keys = incoming[["competitor_name", "category"]].drop_duplicates()
-        keep_mask = pd.Series(True, index=base.index)
-        for _, row in keys.iterrows():
-            keep_mask &= ~((base["competitor_name"] == row["competitor_name"]) & (base["category"] == row["category"]))
-        base = base[keep_mask].copy()
+        candidate_keys = incoming[["competitor_name", "category"]].copy()
+        reliable = ~(
+            candidate_keys["competitor_name"].astype(str).str.strip().isin(["", "Unknown"])
+            | candidate_keys["category"].astype(str).str.strip().isin(["", "Unspecified"])
+        )
+        keys = candidate_keys[reliable].drop_duplicates()
+        if keys.empty:
+            st.warning("Replace matching competitor/category skipped because incoming rows do not have reliable competitor/category values.")
+        else:
+            keep_mask = pd.Series(True, index=base.index)
+            for _, row in keys.iterrows():
+                keep_mask &= ~((base["competitor_name"] == row["competitor_name"]) & (base["category"] == row["category"]))
+            base = base[keep_mask].copy()
 
     combined = pd.concat([base, incoming], ignore_index=True)
     for c in dedupe_cols:
@@ -218,7 +282,7 @@ def _merge_into_competitor_snapshot(new_rows_df, source_label: str = "unknown", 
         ).reset_index(name="_source_files_merged")
         deduped = deduped.drop(columns=["source_file_name"]).merge(sources, on=dedupe_cols, how="left").rename(columns={"_source_files_merged": "source_file_name"})
     deduped = deduped.drop(columns=[c for c in ["_completeness", "_dup_size"] if c in deduped.columns], errors="ignore")
-    deduped = _ensure_cleaned_schema(deduped)
+    deduped = _ensure_competitor_snapshot_schema(deduped)
     st.session_state["competitor_menu_snapshots_df"] = deduped
     st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     st.session_state["competitor_snapshot_dirty"] = True
@@ -498,26 +562,31 @@ def render_competitor_intelligence_center() -> None:
         if d1.button("Build Dutchie Capture Bundle"):
             st.session_state["competitor_dutchie_bundle"] = build_dutchie_capture_bundle(dutchie_parent_files, dutchie_companion_files)
         if d2.button("Process Dutchie Bundle"):
-            bundle = st.session_state.get("competitor_dutchie_bundle", {})
-            files_to_process = []
-            for p in bundle.get("parents", []):
-                files_to_process.append({"file_name": p["source_file_name"], "file_bytes": p["file_bytes"], "file_size": len(p["file_bytes"])})
-            for c in bundle.get("companions", []):
-                if c.get("likely_product_resource"):
-                    files_to_process.append({"file_name": c.get("inside_zip_name") or c["source_file_name"], "file_bytes": c["file_bytes"], "file_size": len(c["file_bytes"])})
-            if files_to_process:
-                payload = _build_review_workbook_payload(files_to_process, competitor_override, str(snap_date), "Unspecified")
-                before_rows = len(st.session_state.get("competitor_menu_snapshots_df", pd.DataFrame()))
-                try:
+            payload = None
+            merged_snapshot = None
+            try:
+                bundle = st.session_state.get("competitor_dutchie_bundle", {})
+                files_to_process = []
+                for p in bundle.get("parents", []):
+                    files_to_process.append({"file_name": p["source_file_name"], "file_bytes": p["file_bytes"], "file_size": len(p["file_bytes"])})
+                for c in bundle.get("companions", []):
+                    if c.get("likely_product_resource"):
+                        files_to_process.append({"file_name": c.get("inside_zip_name") or c["source_file_name"], "file_bytes": c["file_bytes"], "file_size": len(c["file_bytes"])})
+                if files_to_process:
+                    payload = _build_review_workbook_payload(files_to_process, competitor_override, str(snap_date), "Unspecified")
+                    before_rows = len(st.session_state.get("competitor_menu_snapshots_df", pd.DataFrame()))
                     merged_snapshot = _merge_into_competitor_snapshot(
                         payload["cleaned_df"],
                         source_label="dutchie_bundle",
                         mode=merge_mode_map.get(dutchie_merge_behavior, "merge"),
                     )
-                except Exception as ex:
+            except Exception as ex:
+                if payload is not None:
                     st.session_state["competitor_dutchie_bundle_results"] = payload["file_df"].to_dict("records")
-                    st.error(f"Dutchie rows were parsed but could not be merged into the main snapshot: {ex}")
-                    merged_snapshot = None
+                st.error("Competitor snapshot merge failed.")
+                with st.expander("Debug Details"):
+                    st.exception(ex)
+            if payload is not None:
                 existing_results = pd.DataFrame(st.session_state.get("competitor_file_processing_results", []))
                 dutchie_results = payload["file_df"].copy()
                 for col in ["companion_file", "parent_file"]:
@@ -589,15 +658,20 @@ def render_competitor_intelligence_center() -> None:
             st.session_state["competitor_review_workbook_bytes"] = b""
         if convert:
             payload = _build_review_workbook_payload(st.session_state.get("competitor_uploaded_files_cache", []), competitor_override, str(snap_date), "Unspecified")
-            st.session_state["competitor_review_workbook_bytes"] = payload["workbook_bytes"]
-            _merge_into_competitor_snapshot(payload["cleaned_df"], source_label="html_upload", mode="merge" if behavior == "Merge" else "replace_entire")
-            st.session_state["competitor_product_candidates_df"] = payload["candidate_df"]
-            st.session_state["competitor_raw_extracted_text_df"] = payload["raw_df"]
-            st.session_state["competitor_file_processing_results"] = payload["file_df"].to_dict("records")
-            st.session_state["competitor_data_quality"] = payload["dq"]
-            st.session_state["competitor_category_summary_df"] = payload["cat_summary"]
-            st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-            _build_analysis_tables()
+            try:
+                st.session_state["competitor_review_workbook_bytes"] = payload["workbook_bytes"]
+                _merge_into_competitor_snapshot(payload["cleaned_df"], source_label="html_upload", mode="merge" if behavior == "Merge" else "replace_entire")
+                st.session_state["competitor_product_candidates_df"] = payload["candidate_df"]
+                st.session_state["competitor_raw_extracted_text_df"] = payload["raw_df"]
+                st.session_state["competitor_file_processing_results"] = payload["file_df"].to_dict("records")
+                st.session_state["competitor_data_quality"] = payload["dq"]
+                st.session_state["competitor_category_summary_df"] = payload["cat_summary"]
+                st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+                _build_analysis_tables()
+            except Exception as ex:
+                st.error("Competitor snapshot merge failed.")
+                with st.expander("Debug Details"):
+                    st.exception(ex)
         if st.session_state.get("competitor_review_workbook_bytes"):
             st.download_button("Download Review Workbook XLSX", st.session_state["competitor_review_workbook_bytes"], "competitor_review_workbook.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if st.button("Use Cleaned Snapshot for Analysis"):
@@ -612,7 +686,9 @@ def render_competitor_intelligence_center() -> None:
                 _build_analysis_tables()
                 st.success("Loaded Cleaned_Competitor_Snapshot from workbook.")
             except Exception as ex:
-                st.error(f"Workbook import failed: {ex}")
+                st.error("Competitor snapshot merge failed.")
+                with st.expander("Debug Details"):
+                    st.exception(ex)
 
 
     with tabs[2]:
