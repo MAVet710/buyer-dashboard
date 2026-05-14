@@ -9,6 +9,7 @@ import logging
 from html import unescape
 
 import pandas as pd
+from services.competitor_html_parser import parse_competitor_snapshot
 
 logger = logging.getLogger(__name__)
 MAX_HTML_FILE_BYTES = 20 * 1024 * 1024
@@ -82,85 +83,14 @@ def _find_json_blocks(text: str) -> list[str]:
 
 
 def parse_competitor_html_snapshot(file_bytes: bytes, file_name: str, competitor_name: str, snapshot_date: str, default_category: str | None = None) -> tuple[pd.DataFrame, dict[str, Any]]:
-    warnings: list[str] = []
-    rows: list[dict[str, Any]] = []
-    source_url = ""
-    inferred_category = default_category or ""
-    menu_platform = "Unknown"
-    file_size = len(file_bytes or b"")
-
-    if file_size > MAX_HTML_FILE_BYTES:
-        warnings.append(f"Large file detected ({round(file_size / (1024 * 1024), 2)} MB). Running bounded parsing mode.")
-
-    # Stage 1: decode safely
-    try:
-        content = (file_bytes or b"").decode("utf-8", errors="ignore")
-        content = unescape(content)
-    except Exception as exc:
-        logger.exception("Failed to decode competitor HTML file: %s", file_name)
-        warnings.append(f"Decode failure: {exc}")
-        content = ""
-
-    # Stage 2: metadata extraction
-    try:
-        title_match = re.search(r"<title>(.*?)</title>", content, flags=re.IGNORECASE | re.DOTALL)
-        if not inferred_category and title_match:
-            inferred_category = re.sub(r"\s+", " ", title_match.group(1)).strip()[:80]
-        canonical = re.search(r'rel=["\']canonical["\'][^>]*href=["\']([^"\']+)["\']', content, flags=re.IGNORECASE)
-        if canonical:
-            source_url = canonical.group(1).strip()
-    except Exception as exc:
-        logger.exception("Metadata extraction failed for file: %s", file_name)
-        warnings.append(f"Metadata extraction warning: {exc}")
-
-    lowered = content.lower()
-    if "window.jointecommerce" in lowered or "joint-ecommerce-config" in lowered:
-        menu_platform = "Joint"
-    elif "dutchie" in lowered:
-        menu_platform = "Dutchie"
-    elif "weedmaps" in lowered:
-        menu_platform = "Weedmaps"
-
-    # Stage 3: structured parsers
-    try:
-        for block in _find_json_blocks(content):
-            if "jointEcommerce" not in block and "product" not in block.lower():
-                continue
-            for name, price in re.findall(r'"name"\s*:\s*"([^"]+)"[^{}]{0,300}?"price"\s*:\s*"?(\d+(?:\.\d+)?)"?', block, flags=re.IGNORECASE | re.DOTALL):
-                rows.append({"product_name": name, "price": price, "category": inferred_category, "raw_text": name})
-    except Exception as exc:
-        logger.exception("Structured JSON extraction failed for file: %s", file_name)
-        warnings.append(f"Structured extraction warning: {exc}")
-
-    # Stage 4: fallback visible text parser (bounded size, scripts stripped)
-    if not rows:
-        try:
-            stripped = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", " ", content, flags=re.IGNORECASE | re.DOTALL)
-            bounded = stripped[:MAX_FALLBACK_TEXT_BYTES]
-            if len(stripped) > MAX_FALLBACK_TEXT_BYTES:
-                warnings.append("Fallback text parsing limited to first 5 MB.")
-            text_only = re.sub(r"<[^>]+>", " ", bounded or "")
-            rows = _extract_rows_from_text(text_only)
-        except Exception as exc:
-            logger.exception("Fallback text parsing failed for file: %s", file_name)
-            warnings.append(f"Fallback parser warning: {exc}")
-
-    # Stage 5: normalize rows
-    session = MenuCaptureSession()
-    df = session.extract_visible_product_cards(rows, competitor_name, snapshot_date, menu_platform, source_url, inferred_category)
-    df["source_file_name"] = file_name
-    df["snapshot_date"] = snapshot_date
-    # Stage 6: return data + metadata + warnings
-    meta = {
-        "source_file_name": file_name,
-        "source_type": file_name.split(".")[-1].lower() if "." in file_name else "unknown",
-        "menu_platform": menu_platform,
-        "source_url": source_url,
-        "rows_extracted": int(len(df)),
-        "category": inferred_category,
-        "warnings": warnings,
-    }
-    return df, meta
+    """Backwards-compatible wrapper that now routes through the platform-aware parser registry."""
+    return parse_competitor_snapshot(
+        file_bytes=file_bytes,
+        file_name=file_name,
+        competitor_name=competitor_name,
+        snapshot_date=snapshot_date,
+        default_category=default_category,
+    )
 
 
 @dataclass
