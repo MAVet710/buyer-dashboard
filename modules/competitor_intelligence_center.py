@@ -65,7 +65,7 @@ def _build_review_workbook_payload(files: list[dict], competitor_override: str, 
 
     if file_df.empty:
         file_df = pd.DataFrame(columns=["source_file_name","detected_competitor","detected_platform","detected_category","rows_extracted","rows_saved","rejected_candidates","status","warning","completeness_status"])
-    cat_summary = cleaned.groupby(["competitor_name", "category", "menu_platform"], dropna=False).agg(rows_saved=("product_name", "count")).reset_index() if not cleaned.empty else pd.DataFrame(columns=["competitor_name","category","menu_platform","rows_saved"])
+    cat_summary = cleaned.groupby(["competitor_name", "category", "subcategory", "menu_platform"], dropna=False).agg(rows_saved=("product_name", "count")).reset_index() if not cleaned.empty else pd.DataFrame(columns=["competitor_name","category","subcategory","menu_platform","rows_saved"])
     dq = {"files_processed": len(file_df), "total_rows_extracted": int(file_df["rows_extracted"].sum()) if "rows_extracted" in file_df else 0, "rows_saved": len(cleaned), "missing_category_count": int(cleaned["category"].fillna("").isin(["", "Unspecified"]).sum()) if "category" in cleaned else 0, "missing_brand_count": int(cleaned["brand"].fillna("").eq("").sum()) if "brand" in cleaned else 0, "low_confidence_count": int(cleaned["capture_confidence"].astype(str).str.lower().eq("low").sum()) if "capture_confidence" in cleaned else 0}
     dq_rows = [{"metric": k, "value": v, "notes": ""} for k, v in dq.items()]
 
@@ -105,7 +105,7 @@ def _build_analysis_tables() -> None:
     df["effective_price"] = _safe_numeric_series(df, "effective_price")
     df["regular_price"] = _safe_numeric_series(df, "regular_price")
     df["discount_pct"] = _safe_numeric_series(df, "discount_pct")
-    price_cols = [c for c in ["competitor_name", "category"] if c in df.columns]
+    price_cols = [c for c in ["competitor_name", "category", "subcategory", "package_size_label"] if c in df.columns]
     if price_cols and "effective_price" in df.columns:
         st.session_state["competitor_price_summary_df"] = df.groupby(price_cols, dropna=False).agg(
             sku_count=("product_name", "count"),
@@ -116,14 +116,14 @@ def _build_analysis_tables() -> None:
             highest_price=("effective_price", "max"),
         ).reset_index()
     if "category" in df.columns:
-        st.session_state["competitor_assortment_summary_df"] = df.groupby(["competitor_name", "category"], dropna=False).agg(
+        st.session_state["competitor_assortment_summary_df"] = df.groupby(["competitor_name", "category", "subcategory", "package_size_label"], dropna=False).agg(
             rows_saved=("product_name", "count"),
             brand_count=("brand", "nunique"),
             package_sizes=("package_size_label", "nunique"),
         ).reset_index()
     promo = df[df["discount_pct"] > 0] if "discount_pct" in df.columns else pd.DataFrame()
     if isinstance(promo, pd.DataFrame) and not promo.empty:
-        st.session_state["competitor_promo_summary_df"] = promo.groupby(["competitor_name", "category"], dropna=False).agg(
+        st.session_state["competitor_promo_summary_df"] = promo.groupby(["competitor_name", "category", "subcategory"], dropna=False).agg(
             promo_count=("product_name", "count"),
             avg_discount=("discount_pct", "mean"),
             max_discount=("discount_pct", "max"),
@@ -221,7 +221,19 @@ def render_competitor_intelligence_center() -> None:
                     if col in df.columns:
                         mask = mask | df[col].astype(str).str.contains(q, case=False, na=False)
                 df = df[mask]
-            keep = ["competitor_name","category","brand","product_name","package_size_label","regular_price","sale_price","effective_price","discount_pct","promo_text","thc_pct","thc_mg","thca_pct","cbd_pct","cbd_mg","cbg_mg","tac_pct","tac_mg","terpene_pct","strain_type","availability_status","menu_platform","source_file_name","capture_confidence","needs_review","missing_fields"]
+            if "category" in df.columns:
+                cat_filter = st.multiselect("Filter category", sorted([x for x in df["category"].dropna().astype(str).unique() if x]))
+                if cat_filter:
+                    df = df[df["category"].isin(cat_filter)]
+            if "subcategory" in df.columns:
+                sub_filter = st.multiselect("Filter subcategory", sorted([x for x in df["subcategory"].dropna().astype(str).unique() if x]))
+                if sub_filter:
+                    df = df[df["subcategory"].isin(sub_filter)]
+            if "category_confidence" in df.columns:
+                conf_filter = st.multiselect("Filter category confidence", sorted([x for x in df["category_confidence"].dropna().astype(str).unique() if x]))
+                if conf_filter:
+                    df = df[df["category_confidence"].isin(conf_filter)]
+            keep = ["competitor_name","category","subcategory","product_type","category_confidence","category_source","brand","product_name","package_size_label","regular_price","sale_price","effective_price","discount_pct","promo_text","thc_pct","thc_mg","thca_pct","cbd_pct","cbd_mg","cbg_mg","tac_pct","tac_mg","terpene_pct","strain_type","availability_status","menu_platform","source_file_name","capture_confidence","needs_review","missing_fields"]
             show = [c for c in keep if c in df.columns]
             edited = st.data_editor(df[show], use_container_width=True, num_rows="dynamic")
             b1, b2 = st.columns(2)
@@ -263,6 +275,11 @@ def render_competitor_intelligence_center() -> None:
         if isinstance(snap, pd.DataFrame) and not snap.empty:
             if "discount_pct" in snap.columns and _safe_numeric_mean(snap, "discount_pct") >= 10:
                 recs.append("[Pricing] Flower pricing has heavy promo pressure. Review eighth and 14g positioning before new buys.")
+            if "subcategory" in snap.columns:
+                sub_mix = snap.groupby(["category", "subcategory"], dropna=False).size().reset_index(name="sku_count").sort_values("sku_count", ascending=False)
+                if not sub_mix.empty:
+                    top = sub_mix.iloc[0]
+                    recs.append(f"[Subcategory] {top['category']} shows strongest depth in {top['subcategory']} ({int(top['sku_count'])} SKUs).")
             if "package_size_label" in snap.columns and int((snap["package_size_label"].fillna("") == "").sum()) > 0:
                 recs.append("[Data Quality] Several rows are missing package size, so package-size comparison needs review.")
         if not recs:
@@ -278,7 +295,7 @@ def render_competitor_intelligence_center() -> None:
             st.dataframe(result_df, use_container_width=True)
         snap = st.session_state.get("competitor_menu_snapshots_df")
         if isinstance(snap, pd.DataFrame) and not snap.empty and "category" in snap.columns:
-            cat = snap.groupby(["competitor_name", "category"], dropna=False).agg(rows_saved=("product_name", "count")).reset_index()
+            cat = snap.groupby(["competitor_name", "category", "subcategory"], dropna=False).agg(rows_saved=("product_name", "count")).reset_index()
             st.dataframe(cat, use_container_width=True)
 
     with tabs[8]:

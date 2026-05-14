@@ -73,22 +73,22 @@ def _build_competitor_intelligence_report_pdf(payload: dict) -> bytes:
 
     # Price Intelligence
     c.showPage(); header("Price Intelligence")
-    if not price.empty and 'category' in price.columns and 'avg_effective_price' in price.columns:
-        s = price.groupby('category')['avg_effective_price'].mean().sort_values(ascending=False).head(8)
-        img = _chart_image(s, "Average Effective Price by Category")
+    if not price.empty and 'subcategory' in price.columns and 'avg_effective_price' in price.columns:
+        s = price.groupby('subcategory')['avg_effective_price'].mean().sort_values(ascending=False).head(8)
+        img = _chart_image(s, "Average Effective Price by Subcategory")
         if img: c.drawImage(img, 30, h-300, width=w-60, height=170, preserveAspectRatio=True)
     c.drawString(30, h-320, "Category price summary included in appendix.")
 
     c.showPage(); header("Assortment Intelligence")
-    if not assort.empty and 'category' in assort.columns and 'rows_saved' in assort.columns:
-        s = assort.groupby('category')['rows_saved'].sum().sort_values(ascending=False).head(8)
-        img = _chart_image(s, "SKU Count by Category")
+    if not assort.empty and 'subcategory' in assort.columns and 'rows_saved' in assort.columns:
+        s = assort.groupby('subcategory')['rows_saved'].sum().sort_values(ascending=False).head(8)
+        img = _chart_image(s, "Top Subcategories by SKU Count")
         if img: c.drawImage(img, 30, h-300, width=w-60, height=170, preserveAspectRatio=True)
 
     c.showPage(); header("Promo Pressure")
-    if not promo.empty and 'category' in promo.columns and 'promo_count' in promo.columns:
-        s = promo.groupby('category')['promo_count'].sum().sort_values(ascending=False).head(8)
-        img = _chart_image(s, "Promo Count by Category")
+    if not promo.empty and 'subcategory' in promo.columns and 'promo_count' in promo.columns:
+        s = promo.groupby('subcategory')['promo_count'].sum().sort_values(ascending=False).head(8)
+        img = _chart_image(s, "Promo Pressure by Subcategory")
         if img: c.drawImage(img, 30, h-300, width=w-60, height=170, preserveAspectRatio=True)
 
     c.showPage(); header("Strategic Recommendations")
@@ -105,7 +105,8 @@ def _build_competitor_intelligence_report_pdf(payload: dict) -> bytes:
 
     c.showPage(); header("Appendix A — Parsed Product Sample")
     if not snap.empty:
-        txt = snap.head(15).to_string(index=False)[:3400]
+        cols = [c for c in ["competitor_name", "category", "subcategory", "product_type", "product_name", "package_size_label", "effective_price"] if c in snap.columns]
+        txt = snap[cols].head(15).to_string(index=False)[:3400]
         t = c.beginText(30, h-90)
         t.setFont("Helvetica", 7)
         for ln in txt.split("\n"):

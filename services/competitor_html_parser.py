@@ -9,9 +9,11 @@ from html import unescape
 import pandas as pd
 from bs4 import BeautifulSoup
 
+from services.category_normalizer import normalize_competitor_category
+
 NORMALIZED_SCHEMA = [
     "competitor_name","snapshot_date","menu_platform","source_type","source_file_name","source_url",
-    "category","subcategory","product_name","normalized_product_name","brand","package_size_label",
+    "category","subcategory","product_type","category_confidence","category_source","product_name","normalized_product_name","brand","package_size_label",
     "package_size_g","package_size_mg","package_count","regular_price","sale_price","effective_price",
     "discount_pct","promo_text","thc_pct","thc_mg","thca_pct","cbd_pct","cbd_mg","cbg_pct","cbg_mg",
     "tac_pct","tac_mg","terpene_pct","strain_type","availability_status","product_url","raw_text",
@@ -93,6 +95,15 @@ def _base_row(meta: dict[str, Any]) -> dict[str, Any]:
     row.update({"competitor_name": meta.get("competitor_name", "Unknown"), "snapshot_date": meta.get("snapshot_date"), "menu_platform": meta.get("menu_platform"), "source_type": "html", "source_file_name": meta.get("source_file_name"), "source_url": meta.get("source_url", ""), "category": meta.get("category", "Unspecified"), "duplicate_count": 1, "captured_at": datetime.utcnow().isoformat()})
     return row
 
+
+def _apply_category_normalization(row: dict[str, Any], detected_category: str) -> dict[str, Any]:
+    info = normalize_competitor_category(product_name=row.get("product_name") or "", raw_text=row.get("raw_text") or "", page_category=detected_category or "", existing_category=row.get("category") or "", existing_subcategory=row.get("subcategory") or "")
+    row["category"] = info["category"]
+    row["subcategory"] = info["subcategory"]
+    row["product_type"] = info["product_type"]
+    row["category_confidence"] = info["category_confidence"]
+    row["category_source"] = info["category_source"]
+    return row
 
 def _finalize(rows):
     df = pd.DataFrame(rows or [])
@@ -203,6 +214,7 @@ def parse_competitor_file(file_bytes, file_name, snapshot_date=None, competitor_
             warnings.append({"source_file_name": file_name, "warning_type": dutchie_status, "warning_message": "Upload companion iframe HTML from saved _files folder"})
     elif platform == "dutchie_iframe_saved": parsed_rows, rejected = parse_dutchie_iframe_saved_html(html, meta)
 
+    parsed_rows = [_apply_category_normalization(r, category) for r in parsed_rows]
     cleaned = _finalize(parsed_rows)
     candidates_df = pd.DataFrame(rejected)
     raw_text_df = pd.DataFrame([{"source_file_name": file_name, "detected_competitor": competitor, "detected_platform": meta["menu_platform"], "detected_category": category, "source_url": source_url, "raw_text_chunk": html[:20000], "chunk_index": 0, "parser_stage": "input_extract"}])
