@@ -41,6 +41,12 @@ def _build_competitor_intelligence_report_pdf(payload: dict) -> bytes:
     assort = assort if isinstance(assort, pd.DataFrame) else pd.DataFrame()
     promo = payload.get("promo_summary")
     promo = promo if isinstance(promo, pd.DataFrame) else pd.DataFrame()
+    category_gap = payload.get("category_gap_df") if isinstance(payload.get("category_gap_df"), pd.DataFrame) else pd.DataFrame()
+    subcategory_gap = payload.get("subcategory_gap_df") if isinstance(payload.get("subcategory_gap_df"), pd.DataFrame) else pd.DataFrame()
+    price_gap = payload.get("price_gap_df") if isinstance(payload.get("price_gap_df"), pd.DataFrame) else pd.DataFrame()
+    brand_overlap = payload.get("brand_overlap_df") if isinstance(payload.get("brand_overlap_df"), pd.DataFrame) else pd.DataFrame()
+    package_gap = payload.get("package_size_gap_df") if isinstance(payload.get("package_size_gap_df"), pd.DataFrame) else pd.DataFrame()
+    opp_risk = payload.get("opportunity_risk_df") if isinstance(payload.get("opportunity_risk_df"), pd.DataFrame) else pd.DataFrame()
 
     def header(title: str, dark: bool = False):
         c.setFillColor(colors.HexColor(BACKGROUND_DARK if dark else "#ffffff"))
@@ -57,7 +63,7 @@ def _build_competitor_intelligence_report_pdf(payload: dict) -> bytes:
     c.drawString(40, h - 140, f"Competitors Included: {snap['competitor_name'].nunique() if 'competitor_name' in snap.columns and not snap.empty else 0}")
     c.drawString(40, h - 160, f"Categories Captured: {snap['category'].nunique() if 'category' in snap.columns and not snap.empty else 0}")
     c.drawString(40, h - 180, f"Products Captured: {len(snap)}")
-    c.drawString(40, h - 210, "Market Read: Promo and assortment pressures summarized in the following sections.")
+    c.drawString(40, h - 210, str(payload.get("market_read_text") or "Market Read: Promo and assortment pressures summarized in the following sections.")[:130])
 
     # KPI
     c.showPage(); header("KPI Overview")
@@ -111,6 +117,30 @@ def _build_competitor_intelligence_report_pdf(payload: dict) -> bytes:
         t.setFont("Helvetica", 7)
         for ln in txt.split("\n"):
             t.textLine(ln[:130])
+        c.drawText(t)
+
+
+    c.showPage(); header("Our Menu vs Competitors Overview")
+    if not category_gap.empty:
+        t = c.beginText(30, h-90); t.setFont("Helvetica", 8)
+        for ln in category_gap.head(18).to_string(index=False).split("\n"):
+            t.textLine(ln[:120])
+        c.drawText(t)
+    else:
+        c.drawString(30, h-90, "Internal inventory was not loaded, so this report reflects competitor menu intelligence only. Upload our inventory file to unlock direct gap, price, and assortment comparisons.")
+
+    c.showPage(); header("Price Positioning")
+    if not price_gap.empty:
+        t = c.beginText(30, h-90); t.setFont("Helvetica", 8)
+        for ln in price_gap.head(22).to_string(index=False).split("\n"):
+            t.textLine(ln[:120])
+        c.drawText(t)
+
+    c.showPage(); header("Opportunity / Risk Matrix")
+    if not opp_risk.empty:
+        t = c.beginText(30, h-90); t.setFont("Helvetica", 8)
+        for ln in opp_risk.head(22).to_string(index=False).split("\n"):
+            t.textLine(ln[:120])
         c.drawText(t)
 
     c.showPage(); header("Appendix B — Category Summary")

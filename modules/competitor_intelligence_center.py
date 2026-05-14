@@ -13,6 +13,16 @@ import streamlit.components.v1 as components
 from reports.competitor_report import _build_competitor_intelligence_report_pdf
 from services.menu_capture_assistant import MenuCaptureSession
 from services.competitor_html_parser import NORMALIZED_SCHEMA, process_competitor_files_batch
+from services.inventory_normalizer import load_inventory_file, normalize_inventory_for_competitor_comparison
+from services.competitor_report_narrative import (
+    build_assortment_narrative,
+    build_data_quality_narrative,
+    build_executive_recommendations,
+    build_market_read,
+    build_opportunity_risk_narrative,
+    build_price_intelligence_narrative,
+    build_promo_pressure_narrative,
+)
 from utils.dataframe_helpers import _safe_numeric_mean, _safe_numeric_series, _safe_numeric_sum
 
 logger = logging.getLogger(__name__)
@@ -36,6 +46,18 @@ def _init_state() -> None:
         "competitor_raw_extracted_text_df": pd.DataFrame(),
         "competitor_category_summary_df": pd.DataFrame(),
         "competitor_parser_warnings_df": pd.DataFrame(),
+        "competitor_our_inventory_df": pd.DataFrame(),
+        "competitor_our_inventory_source_name": "",
+        "competitor_our_inventory_uploaded_at": "",
+        "competitor_comparison_summary_df": pd.DataFrame(),
+        "competitor_category_gap_df": pd.DataFrame(),
+        "competitor_subcategory_gap_df": pd.DataFrame(),
+        "competitor_brand_overlap_df": pd.DataFrame(),
+        "competitor_package_size_gap_df": pd.DataFrame(),
+        "competitor_price_gap_df": pd.DataFrame(),
+        "competitor_opportunity_risk_df": pd.DataFrame(),
+        "competitor_market_read_text": "",
+        "competitor_executive_summary_text": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -130,10 +152,72 @@ def _build_analysis_tables() -> None:
         ).reset_index()
 
 
+
+
+def _build_comparison_tables() -> None:
+    comp = st.session_state.get("competitor_menu_snapshots_df")
+    our = st.session_state.get("competitor_our_inventory_df")
+    if not isinstance(comp, pd.DataFrame) or comp.empty or not isinstance(our, pd.DataFrame) or our.empty:
+        for k in ["competitor_category_gap_df","competitor_subcategory_gap_df","competitor_brand_overlap_df","competitor_package_size_gap_df","competitor_price_gap_df","competitor_opportunity_risk_df","competitor_comparison_summary_df"]:
+            st.session_state[k]=pd.DataFrame()
+        return
+    cdf = comp.copy(); odf = our.copy()
+    cdf["effective_price"] = _safe_numeric_series(cdf, "effective_price")
+    odf["our_effective_price"] = _safe_numeric_series(odf, "our_effective_price")
+
+    ccat = cdf.groupby("category", dropna=False).agg(competitor_sku_count=("product_name","count"), competitor_brand_count=("brand","nunique"), competitor_avg_effective_price=("effective_price","mean"), competitor_promo_count=("has_promo","sum")).reset_index()
+    ocat = odf.groupby("our_category", dropna=False).agg(our_sku_count=("our_product_name","count"), our_brand_count=("our_brand","nunique"), our_avg_effective_price=("our_effective_price","mean")).reset_index().rename(columns={"our_category":"category"})
+    cat = ocat.merge(ccat, on="category", how="outer").fillna(0)
+    cat["sku_gap"] = cat["competitor_sku_count"] - cat["our_sku_count"]
+    cat["brand_gap"] = cat["competitor_brand_count"] - cat["our_brand_count"]
+    cat["price_gap_dollars"] = cat["competitor_avg_effective_price"] - cat["our_avg_effective_price"]
+    cat["price_gap_pct"] = (cat["price_gap_dollars"] / cat["our_avg_effective_price"].replace(0, pd.NA))*100
+    cat["our_promo_count"] = 0
+    cat["promo_pressure"] = cat["competitor_promo_count"]
+    cat["risk_level"] = cat.apply(lambda r: "High" if r["competitor_sku_count"] > (r["our_sku_count"]*1.5 if r["our_sku_count"] else 0) else "Low", axis=1)
+    cat["recommendation"] = cat["risk_level"].map({"High":"Competitors have deeper category coverage. Review whether this is intentional or a menu gap.","Low":"We appear stronger in category depth. Consider featuring this category if margin supports it."})
+    st.session_state["competitor_category_gap_df"] = cat
+
+    sub_c = cdf.groupby(["category","subcategory"], dropna=False).agg(competitor_sku_count=("product_name","count"), competitor_avg_price=("effective_price","mean"), competitor_brand_count=("brand","nunique")).reset_index()
+    sub_o = odf.groupby(["our_category","our_subcategory"], dropna=False).agg(our_sku_count=("our_product_name","count"), our_avg_price=("our_effective_price","mean"), our_brand_count=("our_brand","nunique")).reset_index().rename(columns={"our_category":"category","our_subcategory":"subcategory"})
+    sub = sub_o.merge(sub_c, on=["category","subcategory"], how="outer").fillna(0)
+    sub["sku_gap"]=sub["competitor_sku_count"]-sub["our_sku_count"]; sub["price_gap_dollars"]=sub["competitor_avg_price"]-sub["our_avg_price"]
+    sub["gap_type"] = sub.apply(lambda r: "Missing From Our Menu" if r["our_sku_count"]==0 and r["competitor_sku_count"]>0 else ("Competitor Heavy" if r["sku_gap"]>3 else "Balanced"), axis=1)
+    sub["risk_level"] = sub["gap_type"].map({"Missing From Our Menu":"High","Competitor Heavy":"Medium","Balanced":"Low"}).fillna("Medium")
+    sub["opportunity_note"] = "Review subcategory depth and pricing position."
+    st.session_state["competitor_subcategory_gap_df"] = sub
+
+    ob = set(odf["our_brand"].fillna("").astype(str)); cb = set(cdf["brand"].fillna("").astype(str)); allb=sorted((ob|cb)-{""})
+    rows=[]
+    for b in allb:
+        rows.append({"brand":b,"our_sku_count":int((odf["our_brand"]==b).sum()),"competitor_sku_count":int((cdf["brand"]==b).sum()),"shared_brand":b in ob and b in cb,"only_us":b in ob and b not in cb,"only_competitor":b in cb and b not in ob,"categories_seen":", ".join(sorted(set(cdf.loc[cdf["brand"]==b,"category"].dropna().astype(str))))[:120],"risk_or_opportunity":"Competitor-only brand may be a buying opportunity." if b in cb and b not in ob else "Shared brand: verify price competitiveness."})
+    brand_df=pd.DataFrame(rows); st.session_state["competitor_brand_overlap_df"]=brand_df
+
+    pkg_c = cdf.groupby(["category","subcategory","package_size_label"], dropna=False).agg(competitor_sku_count=("product_name","count"), competitor_avg_price=("effective_price","mean")).reset_index()
+    pkg_o = odf.groupby(["our_category","our_subcategory","our_package_size_label"], dropna=False).agg(our_sku_count=("our_product_name","count"), our_avg_price=("our_effective_price","mean")).reset_index().rename(columns={"our_category":"category","our_subcategory":"subcategory","our_package_size_label":"package_size_label"})
+    pkg = pkg_o.merge(pkg_c, on=["category","subcategory","package_size_label"], how="outer").fillna(0)
+    pkg["gap_type"]=pkg.apply(lambda r: "Missing From Our Menu" if r["our_sku_count"]==0 and r["competitor_sku_count"]>0 else "Balanced", axis=1); pkg["recommendation"]="Expand missing sizes where velocity supports."
+    st.session_state["competitor_package_size_gap_df"]=pkg
+
+    price = sub[["category","subcategory","our_avg_price","competitor_avg_price"]].copy(); price["comparison_level"]="subcategory"; price["package_size_label"]=""; price["brand"]=""; price["market_low"]=price[["our_avg_price","competitor_avg_price"]].min(axis=1); price["market_high"]=price[["our_avg_price","competitor_avg_price"]].max(axis=1); price["price_gap_dollars"]=price["competitor_avg_price"]-price["our_avg_price"]; price["price_gap_pct"]=(price["price_gap_dollars"]/price["our_avg_price"].replace(0,pd.NA))*100
+    def _pos(v):
+        if pd.isna(v): return "Missing Data"
+        if -5 <= v <= 5: return "At Market"
+        if v < -5: return "Below Market"
+        if 5 < v <= 15: return "Above Market"
+        return "Premium"
+    price["our_position"]=price["price_gap_pct"].apply(_pos); price["recommendation"]="Validate against velocity and margin before any broad move."
+    st.session_state["competitor_price_gap_df"]=price
+
+    opp = sub[["category","subcategory","gap_type","risk_level"]].copy(); opp["signal"]=opp["gap_type"]; opp["evidence"]="SKU and pricing comparison"; opp["opportunity_score"]=(50 + (opp["gap_type"].eq("Missing From Our Menu")*30) + (opp["gap_type"].eq("Competitor Heavy")*15)).astype(int); opp["recommended_action"]="Prioritize close of high-confidence gaps."
+    st.session_state["competitor_opportunity_risk_df"]=opp[["category","subcategory","signal","evidence","risk_level","opportunity_score","recommended_action"]]
+
+    overlap = (brand_df["shared_brand"].sum()/max(1,len(set(cb)-{""})))*100 if not brand_df.empty else 0
+    st.session_state["competitor_comparison_summary_df"] = pd.DataFrame([{"our_categories":int(odf["our_category"].nunique()),"competitor_categories":int(cdf["category"].nunique()),"shared_categories":int(len(set(odf["our_category"]).intersection(set(cdf["category"])))),"missing_categories":int(len(set(cdf["category"]) - set(odf["our_category"]))),"our_skus":len(odf),"competitor_skus":len(cdf),"assortment_gap_count":int((sub["gap_type"]!="Balanced").sum()),"price_gap_count":int(price["price_gap_pct"].notna().sum()),"brand_overlap_pct":round(overlap,1),"promo_pressure_score":round(float(cdf.get("has_promo",pd.Series(dtype=float)).sum()),1),"opportunity_score":int(opp["opportunity_score"].mean() if not opp.empty else 0)}])
 def render_competitor_intelligence_center() -> None:
     _init_state()
     st.header("🕵️ Competitor Intelligence Center")
-    tabs = st.tabs(["Overview", "Upload + Process", "Parsed Data Review", "Price Intelligence", "Assortment Gaps", "Promo Pressure", "Strategic Recommendations", "Data Quality", "Export Report"])
+    tabs = st.tabs(["Overview", "Upload Competitor Menu HTML", "Review Parsed Competitor Data", "Compare Against Our Inventory", "Price Intelligence", "Assortment Gaps", "Promo Pressure", "Strategic Recommendations", "Data Quality", "Export Executive Intelligence Report"])
 
     with tabs[0]:
         snap = st.session_state.get("competitor_menu_snapshots_df")
@@ -247,6 +331,35 @@ def render_competitor_intelligence_center() -> None:
             st.download_button("Download Cleaned Snapshot XLSX", out.getvalue(), "competitor_snapshot_cleaned.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     with tabs[3]:
+        st.subheader("Our Menu / Inventory Comparison")
+        if st.button("Use Current Buyer Dashboard Inventory"):
+            source_df = st.session_state.get("inventory_df") or st.session_state.get("inv_raw_df")
+            if isinstance(source_df, pd.DataFrame) and not source_df.empty:
+                st.session_state["competitor_our_inventory_df"] = normalize_inventory_for_competitor_comparison(source_df)
+                st.session_state["competitor_our_inventory_source_name"] = "Buyer Dashboard Session"
+                st.session_state["competitor_our_inventory_uploaded_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        inv_upload = st.file_uploader("Upload Inventory File", type=["xlsx","csv"], key="competitor_inventory_upload")
+        if inv_upload is not None:
+            raw_inv = load_inventory_file(inv_upload)
+            st.session_state["competitor_our_inventory_df"] = normalize_inventory_for_competitor_comparison(raw_inv)
+            st.session_state["competitor_our_inventory_source_name"] = inv_upload.name
+            st.session_state["competitor_our_inventory_uploaded_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        if st.button("Clear Inventory Comparison File"):
+            st.session_state["competitor_our_inventory_df"] = pd.DataFrame()
+        if not isinstance(st.session_state.get("competitor_our_inventory_df"), pd.DataFrame) or st.session_state["competitor_our_inventory_df"].empty:
+            st.info("Upload your Buyer Dashboard inventory file to compare your menu against competitors.")
+        _build_comparison_tables()
+        summary = st.session_state.get("competitor_comparison_summary_df")
+        if isinstance(summary, pd.DataFrame) and not summary.empty:
+            r = summary.iloc[0].to_dict(); cols = st.columns(6); keys=list(r.keys())
+            for i,k in enumerate(keys[:6]): cols[i].metric(k.replace("_"," ").title(), r[k])
+            cols2 = st.columns(5)
+            for i,k in enumerate(keys[6:11]): cols2[i].metric(k.replace("_"," ").title(), r[k])
+            for label,key in [("Category Comparison","competitor_category_gap_df"),("Subcategory Comparison","competitor_subcategory_gap_df"),("Brand Overlap","competitor_brand_overlap_df"),("Package Size Comparison","competitor_package_size_gap_df"),("Price Gap Comparison","competitor_price_gap_df"),("Opportunity / Risk Matrix","competitor_opportunity_risk_df")]:
+                st.markdown(f"**{label}**")
+                st.dataframe(st.session_state.get(key, pd.DataFrame()), use_container_width=True)
+
+    with tabs[9]:
         st.subheader("Price Intelligence")
         _build_analysis_tables()
         price = st.session_state.get("competitor_price_summary_df")
@@ -283,7 +396,9 @@ def render_competitor_intelligence_center() -> None:
             if "package_size_label" in snap.columns and int((snap["package_size_label"].fillna("") == "").sum()) > 0:
                 recs.append("[Data Quality] Several rows are missing package size, so package-size comparison needs review.")
         if not recs:
-            recs.append("[Opportunity Plays] Continue capturing complete category snapshots to improve recommendation confidence.")
+            recs = build_executive_recommendations({})
+        st.session_state["competitor_market_read_text"] = build_market_read({"data_quality": st.session_state.get("competitor_data_quality", {})})
+        st.session_state["competitor_executive_summary_text"] = build_opportunity_risk_narrative({})
         st.session_state["competitor_recommendations"] = recs
         for rec in recs:
             st.write(f"- {rec}")
@@ -313,5 +428,12 @@ def render_competitor_intelligence_center() -> None:
                 "recommendations": st.session_state.get("competitor_recommendations", []),
                 "snapshot_metadata": st.session_state.get("competitor_current_snapshot_metadata", {}),
                 "last_processed": st.session_state.get("competitor_last_processed_at", ""),
+                "category_gap_df": st.session_state.get("competitor_category_gap_df"),
+                "subcategory_gap_df": st.session_state.get("competitor_subcategory_gap_df"),
+                "price_gap_df": st.session_state.get("competitor_price_gap_df"),
+                "brand_overlap_df": st.session_state.get("competitor_brand_overlap_df"),
+                "package_size_gap_df": st.session_state.get("competitor_package_size_gap_df"),
+                "opportunity_risk_df": st.session_state.get("competitor_opportunity_risk_df"),
+                "market_read_text": st.session_state.get("competitor_market_read_text", ""),
             }
-            st.download_button("Export Competitor Intelligence Report", data=_build_competitor_intelligence_report_pdf(payload), file_name=f"competitor_intelligence_report_{datetime.utcnow().strftime('%Y%m%d')}.pdf", mime="application/pdf")
+            st.download_button("Export Executive Intelligence Report", data=_build_competitor_intelligence_report_pdf(payload), file_name=f"competitor_intelligence_report_{datetime.utcnow().strftime('%Y%m%d')}.pdf", mime="application/pdf")
