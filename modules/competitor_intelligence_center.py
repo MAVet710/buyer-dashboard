@@ -12,7 +12,7 @@ import streamlit.components.v1 as components
 
 from reports.competitor_report import _build_competitor_intelligence_report_pdf
 from services.menu_capture_assistant import MenuCaptureSession
-from services.competitor_html_parser import NORMALIZED_SCHEMA, parse_competitor_file, detect_menu_platform, detect_competitor, detect_category
+from services.competitor_html_parser import NORMALIZED_SCHEMA, process_competitor_files_batch
 from utils.dataframe_helpers import _safe_numeric_mean, _safe_numeric_series, _safe_numeric_sum
 
 logger = logging.getLogger(__name__)
@@ -56,36 +56,32 @@ def _ensure_cleaned_schema(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _build_review_workbook_payload(files: list[dict], competitor_override: str, snap_date: str, default_category: str) -> dict:
-    cleaned_parts, raw_parts, cand_parts, file_results, warning_rows = [], [], [], [], []
-    pass1 = {}
-    for cf in files:
-        name, data = cf["file_name"], cf["file_bytes"]
-        html = data.decode("utf-8", errors="ignore") if name.lower().endswith((".html", ".htm", ".mhtml", ".txt")) else ""
-        platform = detect_menu_platform(html, name)
-        pass1[name] = {"platform": platform, "competitor": detect_competitor(html, name, competitor_override=competitor_override), "category": detect_category(html, name), "has_dutchie_shell": platform == "dutchie_embedded"}
-    batch_context = {"has_dutchie_shell": any(v["has_dutchie_shell"] for v in pass1.values())}
+    batch = process_competitor_files_batch(files, snapshot_date=snap_date, competitor_override=competitor_override)
+    cleaned = _ensure_cleaned_schema(batch["cleaned_df"])
+    raw_df = batch["raw_df"]
+    cand_df = batch["candidate_df"]
+    file_df = batch["file_df"]
+    warnings_df = batch["warnings_df"]
 
-    for cf in files:
-        name, data = cf["file_name"], cf["file_bytes"]
-        ext = name.split(".")[-1].lower()
-        if ext in {"html", "htm", "mhtml", "txt"}:
-            cleaned_df, candidates_df, raw_df, file_result, parser_warnings = parse_competitor_file(data, name, snapshot_date=snap_date, competitor_override=competitor_override, batch_context=batch_context)
-            cleaned_parts.append(cleaned_df)
-            if not candidates_df.empty: cand_parts.append(candidates_df)
-            if not raw_df.empty: raw_parts.append(raw_df)
-            file_results.append(file_result)
-            warning_rows.extend(parser_warnings)
-        else:
-            continue
-
-    cleaned = _ensure_cleaned_schema(pd.concat(cleaned_parts, ignore_index=True) if cleaned_parts else pd.DataFrame())
-    raw_df = pd.concat(raw_parts, ignore_index=True) if raw_parts else pd.DataFrame()
-    cand_df = pd.concat(cand_parts, ignore_index=True) if cand_parts else pd.DataFrame()
-    file_df = pd.DataFrame(file_results)
-    warnings_df = pd.DataFrame(warning_rows)
+    if file_df.empty:
+        file_df = pd.DataFrame(columns=["source_file_name","detected_competitor","detected_platform","detected_category","rows_extracted","rows_saved","rejected_candidates","status","warning","completeness_status"])
     cat_summary = cleaned.groupby(["competitor_name", "category", "menu_platform"], dropna=False).agg(rows_saved=("product_name", "count")).reset_index() if not cleaned.empty else pd.DataFrame(columns=["competitor_name","category","menu_platform","rows_saved"])
     dq = {"files_processed": len(file_df), "total_rows_extracted": int(file_df["rows_extracted"].sum()) if "rows_extracted" in file_df else 0, "rows_saved": len(cleaned), "missing_category_count": int(cleaned["category"].fillna("").isin(["", "Unspecified"]).sum()) if "category" in cleaned else 0, "missing_brand_count": int(cleaned["brand"].fillna("").eq("").sum()) if "brand" in cleaned else 0, "low_confidence_count": int(cleaned["capture_confidence"].astype(str).str.lower().eq("low").sum()) if "capture_confidence" in cleaned else 0}
-    dq_df = pd.DataFrame([{"metric": k, "value": v, "notes": ""} for k, v in dq.items()])
+    dq_rows = [{"metric": k, "value": v, "notes": ""} for k, v in dq.items()]
+
+    uploaded_count = len(files)
+    competitor_count = int(cleaned["competitor_name"].nunique()) if not cleaned.empty else 0
+    category_count = int(cleaned["category"].nunique()) if not cleaned.empty else 0
+    if uploaded_count > 3 and competitor_count <= 1:
+        dq_rows.append({"metric": "batch_warning", "value": 1, "notes": "Batch processing may have dropped files. Only one competitor was found."})
+    if uploaded_count > 3 and category_count <= 1:
+        dq_rows.append({"metric": "batch_warning", "value": 1, "notes": "Batch processing may have dropped categories. Only one category was found."})
+    if len(cand_df) > max(20, len(cleaned) * 2):
+        dq_rows.append({"metric": "batch_warning", "value": 1, "notes": "Parser extracted candidates but rejected most rows. Review parser warnings."})
+    if len(file_df) < uploaded_count:
+        dq_rows.append({"metric": "batch_error", "value": 1, "notes": "Some uploaded files were not processed."})
+
+    dq_df = pd.DataFrame(dq_rows)
     out = BytesIO()
     with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
         raw_df.to_excel(writer, index=False, sheet_name="Raw_Extracted_Text")
