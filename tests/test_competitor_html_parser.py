@@ -37,3 +37,23 @@ def test_batch_lifecycle_and_multi_competitor_survive():
     assert len(out["file_df"]) == len(files)
     assert out["cleaned_df"]["competitor_name"].nunique() >= 2
     assert out["cleaned_df"]["category"].nunique() >= 2
+
+
+def test_leafbridge_aura_detection_and_parsing():
+    cleaned, _, _, file_result, _ = parse_competitor_file(_b("Cannabis Near You _ Cannabis Flower _ Aura Canna Co._flower.html"), "Cannabis Near You _ Cannabis Flower _ Aura Canna Co._flower.html")
+    assert file_result["detected_platform"] == "LeafBridge"
+    assert file_result["detected_competitor"] == "Aura Canna Co."
+    assert file_result["detected_category"] == "Flower"
+    assert file_result["rows_saved"] == 20
+    assert cleaned["product_name"].str.len().min() > 0
+
+
+def test_leafbridge_batch_dedupes_after_merge():
+    files = [
+        {"file_name": "Cannabis Near You _ Cannabis Flower _ Aura Canna Co._flower.html", "file_bytes": _b("Cannabis Near You _ Cannabis Flower _ Aura Canna Co._flower.html")},
+        {"file_name": "Cannabis Near You _ Cannabis Flower _ Aura Canna Co._flower2.html", "file_bytes": _b("Cannabis Near You _ Cannabis Flower _ Aura Canna Co._flower2.html")},
+        {"file_name": "Cannabis Near You _ Cannabis Flower _ Aura Canna Co._flower3.html", "file_bytes": _b("Cannabis Near You _ Cannabis Flower _ Aura Canna Co._flower3.html")},
+    ]
+    out = process_competitor_files_batch(files, snapshot_date="2026-05-14")
+    assert out["file_df"]["rows_extracted"].tolist() == [20, 20, 15]
+    assert len(out["cleaned_df"]) == 53

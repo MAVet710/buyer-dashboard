@@ -5,6 +5,7 @@ import json
 import re
 from typing import Any
 from html import unescape
+from pathlib import Path
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -40,8 +41,13 @@ def _detect_source_url(html: str) -> str:
 
 def detect_menu_platform(html_text: str, file_name: str, source_url: str | None = None, batch_context: dict[str, Any] | None = None) -> str:
     lowered = f"{html_text or ''} {file_name or ''} {source_url or ''}".lower()
-    if any(x in lowered for x in ["window.jointecommerce", "joint-ecommerce-config", "joint-theme", "kushgroove.com", "/categories/"]): return "joint_ecommerce"
-    if any(x in lowered for x in ["sunnyside.shop", "productlistitem", "product-details", "brand-name", "product-name", "product-size", "product-price", "muichip-label"]): return "sunnyside_react"
+    sunnyside_markers = ["sunnyside.shop", "productlistitem", "product-details", "brand-name", "product-name", "product-size", "product-price", "muichip-label"]
+    leafbridge_markers = ["leafbridge_product_card", "leafbridge_brand_name", "leafbridge_product_name", "leafbridge_strain_type_label", "lb-product-weight", "potency_card_view", "leafbridge_product_modal_add_to_cart", "leafbridge_product_modal"]
+    joint_markers = ["window.jointecommerce", "joint-ecommerce-config", "joint-theme", "joint-product-card"]
+
+    if any(x in lowered for x in sunnyside_markers): return "sunnyside_react"
+    if any(x in lowered for x in leafbridge_markers): return "leafbridge"
+    if any(x in lowered for x in joint_markers) or ("kushgroove.com" in lowered and any(x in lowered for x in ["window.jointecommerce", "joint-theme", "joint-product-card"])): return "joint_ecommerce"
     if any(x in lowered for x in ["dutchie--embed__container", "dutchie--iframe", "dtche[category]", "dtche%5bcategory%5d", 'platform="dutchie"', "newleafcanna.com/menu"]): return "dutchie_embedded"
     if (re.search(r"\b\d+\.html\b", file_name.lower()) and (batch_context or {}).get("has_dutchie_shell")) or ("dutchie" in lowered and "add to cart" in lowered): return "dutchie_iframe_saved"
     if file_name.lower().endswith(".csv"): return "structured_upload"
@@ -52,26 +58,76 @@ def detect_menu_platform(html_text: str, file_name: str, source_url: str | None 
 def detect_category(html_text: str, file_name: str, source_url: str | None = None, platform: str | None = None) -> str:
     lowered = f"{html_text} {file_name} {source_url or ''}".lower()
     checks = [
-        (r"/categories/flower/|dtche(?:%5b|\[)category(?:%5d|\])=flower|new leaf_flower|/products/flower", "Flower"),
-        (r"/categories/pre-rolls/|dtche(?:%5b|\[)category(?:%5d|\])=pre-rolls|dtche(?:%5b|\[)category(?:%5d|\])=prerolls|new leaf_prj", "Pre-Rolls"),
-        (r"/categories/edibles/|dtche(?:%5b|\[)category(?:%5d|\])=edibles|/products/edibles", "Edibles"),
+        (r"/categories/flower/|/products/flower|dtche(?:%5b|\[)category(?:%5d|\])=flower", "Flower"),
+        (r"/categories/pre-rolls/|/categories/prerolls/|dtche(?:%5b|\[)category(?:%5d|\])=pre-rolls|dtche(?:%5b|\[)category(?:%5d|\])=prerolls", "Pre-Rolls"),
+        (r"/categories/edibles/|/products/edibles|dtche(?:%5b|\[)category(?:%5d|\])=edibles", "Edibles"),
         (r"/categories/concentrates/|dtche(?:%5b|\[)category(?:%5d|\])=concentrates", "Concentrates"),
         (r"/categories/topicals/|dtche(?:%5b|\[)category(?:%5d|\])=topicals", "Topicals"),
-        (r"/products/vapes|dtche(?:%5b|\[)category(?:%5d|\])=vapes", "Vapes"),
+        (r"/categories/vapes/|/products/vapes|dtche(?:%5b|\[)category(?:%5d|\])=vapes", "Vapes"),
     ]
     for p, v in checks:
-        if re.search(p, lowered, re.I): return v
+        if re.search(p, lowered, re.I):
+            return v
+    keyword_checks = [
+        (r"\bflower\b", "Flower"),
+        (r"\bpre[-\s]?rolls?\b|\bprerolls?\b", "Pre-Rolls"),
+        (r"\bedibles?\b", "Edibles"),
+        (r"\bconcentrates?\b", "Concentrates"),
+        (r"\btopicals?\b", "Topicals"),
+        (r"\bvapes?\b", "Vapes"),
+    ]
+    for p, v in keyword_checks:
+        if re.search(p, lowered, re.I):
+            return v
     return "Unspecified"
 
 
 def detect_competitor(html_text: str, file_name: str, source_url: str | None = None, competitor_override: str | None = None) -> str:
-    if competitor_override: return competitor_override
+    if competitor_override:
+        return competitor_override
+
+    soup = BeautifulSoup(html_text or "", "html.parser")
+    og_site = soup.select_one('meta[property="og:site_name"]')
+    if og_site and og_site.get("content"):
+        return og_site.get("content").strip()
+
+    for script in soup.select('script[type="application/ld+json"]'):
+        try:
+            data = json.loads(script.string or script.get_text() or "{}")
+        except Exception:
+            continue
+        blobs = data if isinstance(data, list) else [data]
+        for blob in blobs:
+            if isinstance(blob, dict) and str(blob.get("@type", "")).lower() == "organization" and blob.get("name"):
+                return str(blob["name"]).strip()
+
+    title = _txt(soup.title)
+    if title:
+        cleaned = re.split(r"\||-", title)[-1 if "cannabis near you" in title.lower() else 0].strip()
+        cleaned = re.sub(r"(cannabis near you|menu|shop)", "", cleaned, flags=re.I).strip(" -|")
+        if cleaned:
+            return cleaned
+
+    domain = ""
+    if source_url:
+        m = re.search(r"https?://(?:www\.)?([^/]+)", source_url)
+        domain = (m.group(1) if m else "").lower()
+    if domain:
+        root = domain.split(".")[0].replace("-", " ").strip()
+        if root:
+            return root.title()
+
     lowered = f"{html_text} {file_name} {source_url or ''}".lower()
-    if "kushgroove.com" in lowered or "kush groove" in lowered: return "Kush Groove"
-    if "sunnyside.shop" in lowered or "sunnyside" in lowered: return "Sunnyside"
-    if "newleafcanna.com" in lowered or "new leaf" in lowered: return "New Leaf"
-    if "goodnaturema.com" in lowered or "good nature cannabis" in lowered: return "Good Nature Cannabis"
-    return "Unknown"
+    known = {
+        "kushgroove.com": "Kush Groove",
+        "sunnyside.shop": "Sunnyside",
+        "newleafcanna.com": "New Leaf",
+        "goodnaturema.com": "Good Nature Cannabis",
+    }
+    for key, name in known.items():
+        if key in lowered:
+            return name
+    return Path(file_name).stem.replace("_", " ").strip() or "Unknown"
 
 
 def parse_price_fields(text: str) -> dict[str, Any]:
@@ -183,6 +239,57 @@ def parse_joint_ecommerce_html(html: str, meta: dict[str, Any]) -> tuple[list[di
     return rows, candidates
 
 
+
+
+def parse_leafbridge_html(html: str, meta: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    soup = BeautifulSoup(html, "html.parser")
+    rows, candidates = [], []
+    for c in soup.select('.leafbridge_product_card'):
+        name = _txt(c.select_one('.leafbridge_product_name'))
+        brand = _txt(c.select_one('.leafbridge_brand_name'))
+        text = _txt(c)
+        if not name:
+            continue
+        r = _base_row(meta)
+        r["product_name"] = name
+        r["brand"] = brand
+        r["normalized_product_name"] = _norm(name)
+        link = c.select_one('.leafbridge_product_name a')
+        if link and link.get('href'):
+            r["product_url"] = link.get('href')
+        r["subcategory"] = _txt(c.select_one('.pos_cat_name'))
+        r["promo_text"] = _txt(c.select_one('.pos_tag_name'))
+        r["strain_type"] = _txt(c.select_one('.leafbridge_strain_type_label span'))
+        r.update(parse_package_size(_txt(c.select_one('.lb-product-weight')) or text))
+        r.update(parse_potency_fields(" ".join(_txt(x) for x in c.select('.potency_card_view span')) or text))
+        prices = [float(v.replace(',', '')) for v in re.findall(r"\$\s*([\d,]+(?:\.\d{1,2})?)", text)]
+        if prices:
+            uniq = sorted(set(prices))
+            has_range = bool(re.search(r"\$\s*[\d,.]+\s*-\s*\$\s*[\d,.]+", text))
+            has_discount = "off" in text.lower() or len(uniq) > 1
+            if has_range:
+                r["regular_price"] = uniq[0]
+                r["effective_price"] = uniq[0]
+                r["missing_fields"] = "multiple_variants"
+            elif has_discount and len(uniq) > 1:
+                r["regular_price"] = max(uniq)
+                r["sale_price"] = min(uniq)
+                r["effective_price"] = min(uniq)
+            else:
+                r["regular_price"] = uniq[0]
+                r["effective_price"] = uniq[0]
+        if c.select_one('button') and 'add to cart' in text.lower():
+            r["availability_status"] = "Available"
+        r["raw_text"] = text
+        fields = [bool(name), bool(brand), bool(r.get("subcategory")), bool(r.get("package_size_label")), r.get("effective_price") is not None]
+        if all(fields): r["capture_confidence"] = "High"
+        elif bool(name) and bool(r.get("subcategory")) and r.get("effective_price") is not None: r["capture_confidence"] = "Medium"
+        else: r["capture_confidence"] = "Low"
+        ok, rs = validate_cleaned_product_row(r)
+        (rows if ok else candidates).append(r if ok else {"source_file_name": meta["source_file_name"], "raw_product_block": text, "extracted_product_name": name, "rejection_reason": ",".join(rs)})
+    return rows, candidates
+
+
 def parse_dutchie_embedded_html(html: str, meta: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
     soup = BeautifulSoup(html, "html.parser")
     if soup.select_one("iframe") and not soup.select("[class*='product-card'], [data-testid*='product']"):
@@ -287,12 +394,22 @@ def parse_competitor_file(file_bytes, file_name, snapshot_date=None, competitor_
             category = str(inherit_ctx.get("category") or category)
         if not source_url:
             source_url = str(inherit_ctx.get("source_url") or "")
-    meta = {"competitor_name": competitor, "snapshot_date": snapshot_date, "menu_platform": platform.replace("_", " ").title(), "source_file_name": file_name, "source_url": source_url, "category": category}
+    platform_labels = {
+        "sunnyside_react": "Sunnyside React/MUI",
+        "leafbridge": "LeafBridge",
+        "joint_ecommerce": "Joint E-Commerce",
+        "dutchie_embedded": "Dutchie Embedded Parent Shell",
+        "dutchie_iframe_saved": "Dutchie Companion Resource",
+        "structured_upload": "Structured Upload",
+        "generic_html": "Generic HTML",
+    }
+    meta = {"competitor_name": competitor, "snapshot_date": snapshot_date, "menu_platform": platform_labels.get(platform, platform.replace("_", " ").title()), "source_file_name": file_name, "source_url": source_url, "category": category}
     warnings, parsed_rows, rejected = [], [], []
     status = "processed"
 
     if platform == "sunnyside_react": parsed_rows, rejected = parse_sunnyside_html(html, meta)
     elif platform == "joint_ecommerce": parsed_rows, rejected = parse_joint_ecommerce_html(html, meta)
+    elif platform == "leafbridge": parsed_rows, rejected = parse_leafbridge_html(html, meta)
     elif platform == "dutchie_embedded":
         parsed_rows, rejected, dutchie_status = parse_dutchie_embedded_html(html, meta)
         if dutchie_status == "needs_companion_iframe_file":
@@ -311,7 +428,7 @@ def parse_competitor_file(file_bytes, file_name, snapshot_date=None, competitor_
     candidates_df = pd.DataFrame(rejected)
     raw_text_df = pd.DataFrame([{"source_file_name": file_name, "detected_competitor": competitor, "detected_platform": meta["menu_platform"], "detected_category": category, "source_url": source_url, "raw_text_chunk": html[:20000], "chunk_index": 0, "parser_stage": "input_extract"}])
     if not len(cleaned) and status == "processed": status = "processed_no_rows"
-    file_result = {"source_file_name": file_name, "detected_competitor": competitor, "detected_platform": meta["menu_platform"], "detected_category": category, "rows_extracted": len(parsed_rows) + len(rejected), "rows_saved": len(cleaned), "rejected_candidates": len(rejected), "status": status, "warning": warnings[0]["warning_message"] if warnings else ("Known platform parser returned no clean rows" if platform in {"joint_ecommerce", "sunnyside_react", "dutchie_iframe_saved", "dutchie_embedded"} and len(cleaned) == 0 else ""), "completeness_status": "complete" if len(cleaned) else "incomplete"}
+    file_result = {"source_file_name": file_name, "detected_competitor": competitor, "detected_platform": meta["menu_platform"], "detected_category": category, "rows_extracted": len(parsed_rows) + len(rejected), "rows_saved": len(cleaned), "rejected_candidates": len(rejected), "status": status, "warning": warnings[0]["warning_message"] if warnings else ("Known platform parser returned no clean rows" if platform in {"joint_ecommerce", "sunnyside_react", "dutchie_iframe_saved", "dutchie_embedded", "leafbridge"} and len(cleaned) == 0 else ""), "completeness_status": "complete" if len(cleaned) else "incomplete"}
     if file_result["warning"] and not warnings:
         warnings.append({"source_file_name": file_name, "warning_type": "no_clean_rows", "warning_message": file_result["warning"]})
     return cleaned, candidates_df, raw_text_df, file_result, warnings
@@ -334,7 +451,7 @@ def process_competitor_files_batch(files: list[dict[str, Any]], snapshot_date: s
             file_result["rows_saved"] = 0
         cleaned_parts.append(cleaned_df); raw_parts.append(raw_df); file_results.append(file_result); warning_rows.extend(parser_warnings)
         if not candidates_df.empty: cand_parts.append(candidates_df)
-    cleaned = _finalize(pd.concat(cleaned_parts, ignore_index=True).drop_duplicates(subset=["competitor_name", "category", "product_name", "package_size_label", "effective_price"]).to_dict("records") if cleaned_parts else [])
+    cleaned = _finalize(pd.concat(cleaned_parts, ignore_index=True).drop_duplicates(subset=["competitor_name", "category", "subcategory", "normalized_product_name", "brand", "package_size_label", "effective_price"]).to_dict("records") if cleaned_parts else [])
     if batch_context["uploaded_file_count"] > 3 and (cleaned["competitor_name"].nunique() <= 1 or cleaned["category"].nunique() <= 1):
         warning_rows.append({"source_file_name": "_batch_", "warning_type": "quality_guardrail", "warning_message": "Multiple files uploaded but cleaned output collapsed to one competitor/category"})
     return {"cleaned_df": cleaned, "candidate_df": pd.concat(cand_parts, ignore_index=True) if cand_parts else pd.DataFrame(columns=["source_file_name","rejection_reason"]), "raw_df": pd.concat(raw_parts, ignore_index=True) if raw_parts else pd.DataFrame(columns=["source_file_name","raw_text_chunk"]), "file_df": pd.DataFrame(file_results), "warnings_df": pd.DataFrame(warning_rows)}
