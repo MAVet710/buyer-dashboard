@@ -152,16 +152,101 @@ def _build_analysis_tables() -> None:
         ).reset_index()
 
 
+def _prepare_competitor_comparison_df(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    defaults = {
+        "competitor_name": "",
+        "category": "Unspecified",
+        "subcategory": "Unspecified",
+        "brand": "",
+        "product_name": "",
+        "package_size_label": "",
+        "effective_price": 0.0,
+        "regular_price": 0.0,
+        "sale_price": 0.0,
+        "discount_pct": 0.0,
+        "promo_text": "",
+        "capture_confidence": "Unknown",
+        "needs_review": False,
+    }
+    for col, value in defaults.items():
+        if col not in out.columns:
+            out[col] = value
+    out["effective_price"] = pd.to_numeric(out["effective_price"], errors="coerce").fillna(0.0)
+    out["regular_price"] = pd.to_numeric(out["regular_price"], errors="coerce").fillna(0.0)
+    out["sale_price"] = pd.to_numeric(out["sale_price"], errors="coerce").fillna(0.0)
+    out["discount_pct"] = pd.to_numeric(out["discount_pct"], errors="coerce").fillna(0.0)
+    out["promo_text"] = out["promo_text"].fillna("").astype(str)
+    out["needs_review"] = out["needs_review"].fillna(False).astype(bool)
+    has_existing_promo = "has_promo" in df.columns if isinstance(df, pd.DataFrame) else False
+    if not has_existing_promo:
+        promo_regex = r"(sale|deal|special|offer|promo|2\s*for|bundle|discount)"
+        out["has_promo"] = (
+            (out["discount_pct"] > 0)
+            | ((out["sale_price"] > 0) & (out["regular_price"] > 0) & (out["sale_price"] < out["regular_price"]))
+            | (out["promo_text"].str.strip() != "")
+            | (out["promo_text"].str.contains(promo_regex, case=False, na=False, regex=True))
+        )
+    else:
+        out["has_promo"] = out["has_promo"].fillna(False).astype(bool)
+    out["has_promo"] = out["has_promo"].fillna(False).astype(bool)
+    return out
+
+
+def _prepare_our_inventory_comparison_df(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    aliases = {
+        "our_category": ["category"],
+        "our_subcategory": ["subcategory"],
+        "our_brand": ["brand"],
+        "our_product_name": ["product_name", "name", "sku_name"],
+        "our_package_size_label": ["package_size_label", "package_size", "size"],
+        "our_effective_price": ["effective_price", "price", "unit_price"],
+        "our_regular_price": ["regular_price", "list_price"],
+        "our_sale_price": ["sale_price"],
+        "our_discount_pct": ["discount_pct", "discount_percent"],
+        "our_has_promo": ["has_promo"],
+        "our_quantity_on_hand": ["quantity_on_hand", "qty_on_hand", "quantity", "on_hand"],
+    }
+    for target, source_cols in aliases.items():
+        if target not in out.columns:
+            for source in source_cols:
+                if source in out.columns:
+                    out[target] = out[source]
+                    break
+    defaults = {
+        "our_category": "Unspecified",
+        "our_subcategory": "Unspecified",
+        "our_brand": "",
+        "our_product_name": "",
+        "our_package_size_label": "",
+        "our_effective_price": 0.0,
+        "our_regular_price": 0.0,
+        "our_sale_price": 0.0,
+        "our_discount_pct": 0.0,
+        "our_has_promo": False,
+        "our_quantity_on_hand": 0.0,
+    }
+    for col, value in defaults.items():
+        if col not in out.columns:
+            out[col] = value
+    for col in ["our_effective_price", "our_regular_price", "our_sale_price", "our_discount_pct", "our_quantity_on_hand"]:
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+    out["our_has_promo"] = out["our_has_promo"].fillna(False).astype(bool)
+    return out
+
+
 
 
 def _build_comparison_tables() -> None:
     comp = st.session_state.get("competitor_menu_snapshots_df")
     our = st.session_state.get("competitor_our_inventory_df")
-    if not isinstance(comp, pd.DataFrame) or comp.empty or not isinstance(our, pd.DataFrame) or our.empty:
+    if not isinstance(comp, pd.DataFrame) or comp.empty:
         for k in ["competitor_category_gap_df","competitor_subcategory_gap_df","competitor_brand_overlap_df","competitor_package_size_gap_df","competitor_price_gap_df","competitor_opportunity_risk_df","competitor_comparison_summary_df"]:
             st.session_state[k]=pd.DataFrame()
         return
-    cdf = comp.copy(); odf = our.copy()
+    cdf = _prepare_competitor_comparison_df(comp)
+    odf = _prepare_our_inventory_comparison_df(our)
     cdf["effective_price"] = _safe_numeric_series(cdf, "effective_price")
     odf["our_effective_price"] = _safe_numeric_series(odf, "our_effective_price")
 
@@ -332,6 +417,14 @@ def render_competitor_intelligence_center() -> None:
 
     with tabs[3]:
         st.subheader("Our Menu / Inventory Comparison")
+        data_quality_notes = []
+        comp_snapshot = st.session_state.get("competitor_menu_snapshots_df")
+        if isinstance(comp_snapshot, pd.DataFrame) and not comp_snapshot.empty and "has_promo" not in comp_snapshot.columns:
+            data_quality_notes.append("has_promo was derived from discount_pct, sale_price, regular_price, and promo_text.")
+        if isinstance(comp_snapshot, pd.DataFrame) and not comp_snapshot.empty and (("promo_text" not in comp_snapshot.columns) or ("sale_price" not in comp_snapshot.columns)):
+            data_quality_notes.append("Promo detection is limited because promo_text/sale_price fields are missing.")
+        for note in data_quality_notes:
+            st.caption(note)
         if st.button("Use Current Buyer Dashboard Inventory"):
             source_df = st.session_state.get("inventory_df") or st.session_state.get("inv_raw_df")
             if isinstance(source_df, pd.DataFrame) and not source_df.empty:
@@ -346,8 +439,10 @@ def render_competitor_intelligence_center() -> None:
             st.session_state["competitor_our_inventory_uploaded_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
         if st.button("Clear Inventory Comparison File"):
             st.session_state["competitor_our_inventory_df"] = pd.DataFrame()
+        if not isinstance(comp_snapshot, pd.DataFrame) or comp_snapshot.empty:
+            st.info("Process competitor files before comparison.")
         if not isinstance(st.session_state.get("competitor_our_inventory_df"), pd.DataFrame) or st.session_state["competitor_our_inventory_df"].empty:
-            st.info("Upload your Buyer Dashboard inventory file to compare your menu against competitors.")
+            st.info("Upload or select our inventory to unlock comparison.")
         _build_comparison_tables()
         summary = st.session_state.get("competitor_comparison_summary_df")
         if isinstance(summary, pd.DataFrame) and not summary.empty:
