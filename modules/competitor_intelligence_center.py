@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from io import BytesIO
+import logging
 import os
 import traceback
-import logging
+
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
@@ -12,350 +13,248 @@ import streamlit.components.v1 as components
 from reports.competitor_report import _build_competitor_intelligence_report_pdf
 from services.menu_capture_assistant import MenuCaptureSession, parse_competitor_html_snapshot
 from utils.dataframe_helpers import _safe_numeric_mean, _safe_numeric_series, _safe_numeric_sum
+
 logger = logging.getLogger(__name__)
 
 
 def _init_state() -> None:
     defaults = {
-        "competitor_registry_df": pd.DataFrame(),
-        "competitor_capture_session": None,
-        "competitor_current_snapshot_id": "",
-        "competitor_capture_rows_pending": pd.DataFrame(),
-        "competitor_capture_menu_url": "",
-        "competitor_capture_mode": "Embedded Viewer",
-        "competitor_saved_snapshot_rows": pd.DataFrame(),
         "competitor_menu_snapshots_df": pd.DataFrame(),
-        "competitor_price_comparison_df": pd.DataFrame(),
-        "competitor_assortment_gap_df": pd.DataFrame(),
-        "competitor_promo_df": pd.DataFrame(),
-        "competitor_recommendations": [],
-        "competitor_data_quality": {},
-        "competitor_uploaded_files_cache": [],
-        "competitor_uploaded_file_names": [],
-        "competitor_current_snapshot_metadata": {},
-        "competitor_last_processed_at": "",
-        "competitor_snapshot_dirty": False,
         "competitor_file_processing_results": [],
-        "competitor_last_processing_error": "",
+        "competitor_current_snapshot_metadata": {},
+        "competitor_data_quality": {},
+        "competitor_last_processed_at": "",
+        "competitor_price_summary_df": pd.DataFrame(),
+        "competitor_assortment_summary_df": pd.DataFrame(),
+        "competitor_promo_summary_df": pd.DataFrame(),
+        "competitor_recommendations": [],
+        "competitor_uploaded_files_cache": [],
+        "competitor_capture_menu_url": "",
     }
-    for key, val in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = val
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
+def _has_snapshot() -> bool:
+    df = st.session_state.get("competitor_menu_snapshots_df")
+    return isinstance(df, pd.DataFrame) and not df.empty
+
+
+def _build_analysis_tables() -> None:
+    snap = st.session_state.get("competitor_menu_snapshots_df")
+    if not isinstance(snap, pd.DataFrame) or snap.empty:
+        st.session_state["competitor_price_summary_df"] = pd.DataFrame()
+        st.session_state["competitor_assortment_summary_df"] = pd.DataFrame()
+        st.session_state["competitor_promo_summary_df"] = pd.DataFrame()
+        return
+    df = snap.copy()
+    df["effective_price"] = _safe_numeric_series(df, "effective_price")
+    df["regular_price"] = _safe_numeric_series(df, "regular_price")
+    df["discount_pct"] = _safe_numeric_series(df, "discount_pct")
+    price_cols = [c for c in ["competitor_name", "category"] if c in df.columns]
+    if price_cols and "effective_price" in df.columns:
+        st.session_state["competitor_price_summary_df"] = df.groupby(price_cols, dropna=False).agg(
+            sku_count=("product_name", "count"),
+            avg_regular_price=("regular_price", "mean"),
+            avg_effective_price=("effective_price", "mean"),
+            avg_discount_pct=("discount_pct", "mean"),
+            lowest_price=("effective_price", "min"),
+            highest_price=("effective_price", "max"),
+        ).reset_index()
+    if "category" in df.columns:
+        st.session_state["competitor_assortment_summary_df"] = df.groupby(["competitor_name", "category"], dropna=False).agg(
+            rows_saved=("product_name", "count"),
+            brand_count=("brand", "nunique"),
+            package_sizes=("package_size_label", "nunique"),
+        ).reset_index()
+    promo = df[df["discount_pct"] > 0] if "discount_pct" in df.columns else pd.DataFrame()
+    if isinstance(promo, pd.DataFrame) and not promo.empty:
+        st.session_state["competitor_promo_summary_df"] = promo.groupby(["competitor_name", "category"], dropna=False).agg(
+            promo_count=("product_name", "count"),
+            avg_discount=("discount_pct", "mean"),
+            max_discount=("discount_pct", "max"),
+        ).reset_index()
 
 
 def render_competitor_intelligence_center() -> None:
     _init_state()
     st.header("🕵️ Competitor Intelligence Center")
-    tabs = st.tabs(["Overview", "Competitor Registry", "Menu Capture Assistant", "Snapshot Review", "Price Intelligence", "Assortment Gaps", "Promo Pressure", "Strategic Recommendations", "Export Report"])
+    tabs = st.tabs(["Overview", "Upload + Process", "Parsed Data Review", "Price Intelligence", "Assortment Gaps", "Promo Pressure", "Strategic Recommendations", "Data Quality", "Export Report"])
 
     with tabs[0]:
-        reg = st.session_state.competitor_registry_df if isinstance(st.session_state.competitor_registry_df, pd.DataFrame) else pd.DataFrame()
-        snap = st.session_state.competitor_menu_snapshots_df if isinstance(st.session_state.competitor_menu_snapshots_df, pd.DataFrame) else pd.DataFrame()
-        gap = st.session_state.competitor_assortment_gap_df if isinstance(st.session_state.competitor_assortment_gap_df, pd.DataFrame) else pd.DataFrame()
-        price = st.session_state.competitor_price_comparison_df if isinstance(st.session_state.competitor_price_comparison_df, pd.DataFrame) else pd.DataFrame()
-        promo = st.session_state.competitor_promo_df if isinstance(st.session_state.competitor_promo_df, pd.DataFrame) else pd.DataFrame()
-        cols = st.columns(4)
-        cards = [
-            ("Competitors Tracked", len(reg)),("Active Snapshots", len(snap)),("Categories Compared", snap["category"].nunique() if "category" in snap.columns else 0),("Average Price Gap", round(_safe_numeric_mean(price, "price_gap_pct"),2)),
-            ("Products Above Market", int((price["our_position"] == "Above Market").sum()) if "our_position" in price.columns else 0),("Products Below Market", int((price["our_position"] == "Below Market").sum()) if "our_position" in price.columns else 0),("Assortment Gap Count", len(gap)),("Brand Overlap %", round(100 - min(100, len(gap) * 2), 1)),
-            ("Promo Pressure Score", round(_safe_numeric_mean(promo, "competitor_promo_pressure"),1)),("Opportunity Score", max(0, 100 - int(_safe_numeric_mean(price, "price_gap_pct") or 0))), ("Last Snapshot Date", str(snap["snapshot_date"].max()) if "snapshot_date" in snap.columns and not snap.empty else "N/A"),
-        ]
-        for idx, (label, value) in enumerate(cards):
-            cols[idx % 4].metric(label, value)
-        status = "Data Incomplete" if snap.empty else ("Overpriced" if _safe_numeric_mean(price, "price_gap_pct") > 10 else "Competitive")
-        st.selectbox("Competitive Position", ["Aggressive", "Competitive", "Premium", "Overpriced", "Underpriced", "Data Incomplete"], index=["Aggressive", "Competitive", "Premium", "Overpriced", "Underpriced", "Data Incomplete"].index(status))
-        st.info("**Market Read**: Biggest opportunities come from categories with large SKU gaps and where your pricing sits above market while promo pressure is high.")
+        snap = st.session_state.get("competitor_menu_snapshots_df")
+        dq = st.session_state.get("competitor_data_quality", {})
+        files = st.session_state.get("competitor_file_processing_results", [])
+        k = st.columns(5)
+        k[0].metric("Competitors Detected", int(snap["competitor_name"].nunique()) if isinstance(snap, pd.DataFrame) and "competitor_name" in snap.columns and not snap.empty else 0)
+        k[1].metric("Files Processed", sum(1 for r in files if r.get("status") == "processed"))
+        k[2].metric("Categories Captured", int(snap["category"].nunique()) if isinstance(snap, pd.DataFrame) and "category" in snap.columns and not snap.empty else 0)
+        k[3].metric("Products Captured", len(snap) if isinstance(snap, pd.DataFrame) else 0)
+        k[4].metric("Rows Needing Review", int(dq.get("rows_needing_review", 0)))
+        k2 = st.columns(5)
+        k2[0].metric("Average Effective Price", round(_safe_numeric_mean(snap, "effective_price"), 2) if isinstance(snap, pd.DataFrame) else 0)
+        k2[1].metric("Promo Count", int(_safe_numeric_sum(snap, "has_promo")) if isinstance(snap, pd.DataFrame) else 0)
+        k2[2].metric("Categories With Incomplete Data", int(dq.get("missing_category_count", 0)))
+        k2[3].metric("Shell Files Needing Companion HTML", int(sum(1 for r in files if any("shell" in str(w).lower() for w in r.get("warnings", [])))))
+        k2[4].metric("Last Processed", st.session_state.get("competitor_last_processed_at") or "N/A")
+        st.info(f"Workflow: {'✅ Upload' if st.session_state.get('competitor_uploaded_files_cache') else '⬜ Upload'} → {'✅ Process' if files else '⬜ Process'} → {'✅ Review' if _has_snapshot() else '⬜ Review'} → {'✅ Analyze' if isinstance(st.session_state.get('competitor_price_summary_df'), pd.DataFrame) and not st.session_state.get('competitor_price_summary_df').empty else '⬜ Analyze'} → {'✅ Export' if _has_snapshot() else '⬜ Export'}")
 
     with tabs[1]:
-        st.subheader("Competitor Registry")
-        new = {
-            "competitor_name": st.text_input("Competitor Name"), "city": st.text_input("City"), "state": st.text_input("State"),
-            "dispensary_type": st.selectbox("Dispensary Type", ["adult-use", "medical", "both", "unknown"]),
-            "website_url": st.text_input("Website URL"), "menu_url": st.text_input("Menu URL"), "menu_platform": st.selectbox("Menu Platform", ["Dutchie", "Jane", "Weedmaps", "Leafly", "Native", "Unknown"]),
-            "distance_miles": st.number_input("Distance Miles", min_value=0.0, step=0.1), "priority": st.selectbox("Priority", ["high", "medium", "low"]),
-            "active_tracking": st.checkbox("Active Tracking", value=True), "last_snapshot_date": st.date_input("Last Snapshot Date", value=date.today()), "snapshot_frequency_days": st.number_input("Snapshot Frequency Days", min_value=1, value=7), "notes": st.text_area("Notes"),
-        }
-        if st.button("Add Competitor"):
-            df = st.session_state.competitor_registry_df
-            st.session_state.competitor_registry_df = pd.concat([df, pd.DataFrame([new])], ignore_index=True)
-        st.dataframe(st.session_state.competitor_registry_df, use_container_width=True)
+        st.markdown("Recommended workflow:\n1. Open competitor menu in browser.\n2. Confirm age gate manually.\n3. Select one menu category.\n4. Save page as HTML.\n5. Repeat for other categories.\n6. Upload all files here.\n7. Click Process Uploaded Files.")
+        st.caption("For Dutchie embedded menus, the parent page may only contain the menu shell. If detected, upload companion iframe HTML from the saved page _files folder.")
+        snap_date = st.date_input("Snapshot Date", value=date.today())
+        competitor_override = st.text_input("Competitor Override (optional)")
+        behavior = st.radio("Replace or Merge", ["Replace", "Merge"], horizontal=True)
+        uploaded_files = st.file_uploader("Saved HTML Upload", type=["html", "htm", "mhtml", "txt", "csv", "xlsx", "xls", "json"], accept_multiple_files=True)
+        if uploaded_files:
+            st.session_state["competitor_uploaded_files_cache"] = [{"file_name": f.name, "file_bytes": f.getvalue(), "file_size": f.size} for f in uploaded_files]
+        c1, c2, c3 = st.columns(3)
+        process = c1.button("Process Uploaded Files")
+        if c2.button("Clear Upload Cache"):
+            st.session_state["competitor_uploaded_files_cache"] = []
+        if c3.button("Clear Saved Snapshot"):
+            st.session_state["competitor_menu_snapshots_df"] = pd.DataFrame()
+        if process:
+            session = MenuCaptureSession()
+            rows, results = [], []
+            for cf in st.session_state.get("competitor_uploaded_files_cache", []):
+                name = cf["file_name"]
+                ext = name.split(".")[-1].lower()
+                try:
+                    if ext in {"html", "htm", "mhtml", "txt"}:
+                        parsed, meta = parse_competitor_html_snapshot(cf["file_bytes"], name, competitor_override, str(snap_date), "Unspecified")
+                    elif ext == "csv":
+                        source = pd.read_csv(BytesIO(cf["file_bytes"]))
+                        parsed = session.extract_visible_product_cards(source.to_dict("records"), competitor_override, str(snap_date), "Unknown", "", "Unspecified")
+                        meta = {"menu_platform": "Unknown", "warnings": []}
+                    elif ext in {"xlsx", "xls"}:
+                        source = pd.read_excel(BytesIO(cf["file_bytes"]))
+                        parsed = session.extract_visible_product_cards(source.to_dict("records"), competitor_override, str(snap_date), "Unknown", "", "Unspecified")
+                        meta = {"menu_platform": "Unknown", "warnings": []}
+                    elif ext == "json":
+                        src = session.parse_browser_capture_payload(cf["file_bytes"].decode("utf-8", errors="ignore"))
+                        parsed = session.extract_visible_product_cards(src, competitor_override, str(snap_date), "Unknown", "", "Unspecified")
+                        meta = {"menu_platform": "Unknown", "warnings": []}
+                    else:
+                        continue
+                    parsed["source_file_name"] = name
+                    rows.append(parsed)
+                    results.append({"source_file_name": name, "rows_saved": len(parsed), "status": "processed", "warning": "; ".join(meta.get("warnings", [])), "menu_platform": meta.get("menu_platform", "Unknown")})
+                except Exception as ex:
+                    results.append({"source_file_name": name, "rows_saved": 0, "status": "failed", "warning": str(ex), "menu_platform": "Unknown"})
+            pending = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+            if behavior == "Merge" and _has_snapshot():
+                combined = pd.concat([st.session_state["competitor_menu_snapshots_df"], pending], ignore_index=True)
+                st.session_state["competitor_menu_snapshots_df"] = combined.drop_duplicates()
+            else:
+                st.session_state["competitor_menu_snapshots_df"] = pending
+            st.session_state["competitor_file_processing_results"] = results
+            st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+            st.session_state["competitor_current_snapshot_metadata"] = {
+                "snapshot_date": str(snap_date),
+                "competitors_included": sorted(st.session_state["competitor_menu_snapshots_df"]["competitor_name"].dropna().unique().tolist()) if _has_snapshot() and "competitor_name" in st.session_state["competitor_menu_snapshots_df"].columns else [],
+            }
+            _build_analysis_tables()
 
     with tabs[2]:
-        st.info("Because most cannabis menus are age-gated and embedded through third-party providers, Buyer Dash will not bypass access controls. Open the menu, complete the age gate manually, then import/capture the visible category data using one of the supported capture methods.")
-        st.warning("Some sites block embedded viewing. If the page below is blank or refuses to load, use Open Website in New Tab.")
-        mode = st.radio("Capture Mode", ["Embedded Viewer", "Open in New Tab", "Browser Capture File Upload", "Saved HTML/Text Upload", "CSV/XLSX Upload", "PDF/Screenshot Fallback", "Local Playwright Capture"], index=0)
-        st.session_state.competitor_capture_mode = mode
-        url = st.text_input("Competitor Menu URL", value=st.session_state.competitor_capture_menu_url)
-        if st.button("Start Capture Session") and url:
-            sess = MenuCaptureSession()
-            st.session_state.competitor_capture_session = sess
-            st.session_state.competitor_capture_menu_url = url.strip()
-            st.success(sess.start(url)["message"])
-
-        active_url = st.session_state.competitor_capture_menu_url or url
-        if active_url:
-            st.link_button("Open Website in New Tab", active_url)
-
-        if mode in ["Embedded Viewer", "Open in New Tab"] and active_url:
-            st.caption("Complete the age gate manually inside the viewer if the site allows embedding. Navigate to the menu category you want to capture, then click Capture Current Category.")
-            if mode == "Embedded Viewer":
-                components.iframe(active_url, height=800, scrolling=True)
-                st.info("If the website does not load below, it may block embedded viewing. Click Open Website in New Tab, complete the age gate there, then use one of the capture fallback methods.")
-
-        if mode == "Local Playwright Capture":
-            is_local = os.getenv("RENDER") is None and os.getenv("STREAMLIT_CLOUD") is None
-            st.markdown("**Local Browser Capture Only**")
-            if not is_local:
-                st.warning("Hosted deployments cannot reliably display a Playwright browser window to the user. Use local mode, browser extension capture, or upload/import fallback.")
-            else:
-                st.info("Local only mode is available. Manually access the site and capture visible menu data without bypassing access controls.")
-
-        cat = st.text_input("Current Category Name")
-        if st.button("Capture Current Category") and st.session_state.competitor_capture_session:
-            st.info(st.session_state.competitor_capture_session.capture_current_category(cat)["message"])
-        st.caption("After opening the menu and selecting a category, use a capture method below to import the visible category data.")
-
-        st.subheader("Browser Capture Assistant")
-        st.write("For full one-click category capture, use the future Browser Capture Assistant. It will run in your browser after you manually pass the age gate and will export the visible product cards to Buyer Dash.")
-        template = "product_name,brand,category,size,regular_price,sale_price,thc_pct,strain_type,promo_text,availability\n"
-        st.download_button("Download Capture Template", data=template, file_name="browser_capture_template.csv", mime="text/csv")
-        browser_upload = st.file_uploader("Upload Browser Capture CSV/JSON", type=["csv", "json"], key="browser_capture_upload")
-        browser_json = st.text_area("Paste Browser Capture JSON", key="browser_capture_json")
-
-        session = st.session_state.competitor_capture_session or MenuCaptureSession()
-        competitor_name = st.text_input("Competitor Name", key="cap_comp")
-        category_for_extract = cat or "Unspecified"
-        if browser_upload is not None:
-            if browser_upload.name.endswith(".csv"):
-                rows_df = pd.read_csv(browser_upload)
-                rows = rows_df.to_dict(orient="records")
-            else:
-                rows = session.parse_browser_capture_payload(browser_upload.read().decode("utf-8", errors="ignore"))
-            extracted = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
-            st.session_state.competitor_capture_rows_pending = pd.concat([st.session_state.competitor_capture_rows_pending, extracted], ignore_index=True)
-        if st.button("Import Pasted Browser Capture JSON") and browser_json.strip():
-            rows = session.parse_browser_capture_payload(browser_json)
-            extracted = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
-            st.session_state.competitor_capture_rows_pending = pd.concat([st.session_state.competitor_capture_rows_pending, extracted], ignore_index=True)
-
-        st.caption("Upload saved HTML files from competitor menu pages. This is a fallback capture method for menus that cannot be captured directly inside the app.")
-        uploaded_files = st.file_uploader("Upload HTML / CSV / XLSX / JSON snapshots", type=["html", "htm", "mhtml", "txt", "csv", "xlsx", "xls", "json", "pdf", "png", "jpg", "jpeg"], accept_multiple_files=True, key="competitor_multi_upload")
-        if uploaded_files:
-            cache = []
-            for file_obj in uploaded_files:
-                cache.append({"file_name": file_obj.name, "file_type": (file_obj.type or ""), "file_size": file_obj.size, "file_bytes": file_obj.getvalue(), "uploaded_at": datetime.utcnow().isoformat()})
-            st.session_state["competitor_uploaded_files_cache"] = cache
-            st.session_state["competitor_uploaded_file_names"] = [c["file_name"] for c in cache]
-            st.session_state["competitor_snapshot_dirty"] = True
-        st.write(f"Files cached: {len(st.session_state.get('competitor_uploaded_files_cache', []))}")
-        behavior = st.radio("Update behavior", ["Replace current snapshot with uploaded files", "Merge uploaded files into current snapshot"], index=0)
-        c1, c2, c3, c4 = st.columns(4)
-        process_clicked = c1.button("Process Uploaded Files")
-        update_clicked = c2.button("Update Snapshot")
-        if c3.button("Clear Uploaded Files"):
-            st.session_state["competitor_uploaded_files_cache"] = []
-            st.session_state["competitor_uploaded_file_names"] = []
-            st.session_state["competitor_snapshot_dirty"] = False
-        if c4.button("Clear Saved Snapshot"):
-            st.session_state["competitor_menu_snapshots_df"] = pd.DataFrame()
-            st.session_state["competitor_saved_snapshot_rows"] = pd.DataFrame()
-        if process_clicked or update_clicked:
-            try:
-                st.session_state["competitor_last_processing_error"] = ""
-                cache_files = st.session_state.get("competitor_uploaded_files_cache", [])
-                parsed_frames = []
-                metadata_rows = []
-                file_results = []
-                status = st.status(f"Processing {len(cache_files)} uploaded file(s)...", expanded=True)
-                prog = st.progress(0.0)
-                for idx, cf in enumerate(cache_files):
-                    name = cf.get("file_name", "")
-                    ext = name.lower().split(".")[-1] if "." in name else ""
-                    file_bytes = cf.get("file_bytes", b"")
-                    file_warnings = []
-                    status.write(f"[{idx + 1}/{len(cache_files)}] File: {name}")
-                    status.write(f"Parser step: route type ({ext})")
-                    try:
-                        if cf.get("file_size", 0) > (20 * 1024 * 1024):
-                            file_warnings.append("File exceeds 20 MB; parsing in guarded mode.")
-                        if ext in {"html", "htm", "mhtml", "txt"}:
-                            status.write("Parser step: staged HTML parse")
-                            parsed_df, meta = parse_competitor_html_snapshot(file_bytes, name, competitor_name, str(date.today()), category_for_extract)
-                            file_warnings.extend(meta.get("warnings", []))
-                        elif ext == "csv":
-                            source = pd.read_csv(BytesIO(file_bytes))
-                            rows = source.to_dict(orient="records")
-                            parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
-                            parsed_df["source_file_name"] = name
-                            meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
-                        elif ext in {"xlsx", "xls"}:
-                            source = pd.read_excel(BytesIO(file_bytes))
-                            rows = source.to_dict(orient="records")
-                            parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
-                            parsed_df["source_file_name"] = name
-                            meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
-                        elif ext == "json":
-                            rows = session.parse_browser_capture_payload(file_bytes.decode("utf-8", errors="ignore"))
-                            parsed_df = session.extract_visible_product_cards(rows, competitor_name, str(date.today()), "Unknown", active_url, category_for_extract)
-                            parsed_df["source_file_name"] = name
-                            meta = {"source_file_name": name, "source_type": ext, "rows_extracted": int(len(parsed_df)), "category": category_for_extract, "menu_platform": "Unknown", "source_url": active_url}
-                        else:
-                            file_results.append({"file_name": name, "file_size": cf.get("file_size", 0), "status": "skipped", "rows_extracted": 0, "warnings": ["Unsupported file type for processing."], "error": ""})
-                            prog.progress((idx + 1) / max(1, len(cache_files)))
-                            continue
-                        parsed_frames.append(parsed_df)
-                        metadata_rows.append(meta)
-                        file_results.append({"file_name": name, "file_size": cf.get("file_size", 0), "status": "processed", "rows_extracted": int(len(parsed_df)), "warnings": file_warnings, "error": ""})
-                        status.write(f"Rows extracted: {len(parsed_df)}")
-                    except Exception as file_exc:
-                        logger.exception("Failed processing competitor upload file '%s'", name)
-                        file_results.append({"file_name": name, "file_size": cf.get("file_size", 0), "status": "failed", "rows_extracted": 0, "warnings": file_warnings, "error": str(file_exc)})
-                        status.write(f"Failed: {name}")
-                    prog.progress((idx + 1) / max(1, len(cache_files)))
-
-                pending = pd.concat(parsed_frames, ignore_index=True) if parsed_frames else pd.DataFrame()
-                dedup_cols = ["competitor_name", "snapshot_date", "normalized_product_name", "brand", "package_size_label", "category", "effective_price"]
-                before = len(pending)
-                if isinstance(pending, pd.DataFrame) and not pending.empty:
-                    pending = pending.drop_duplicates(subset=[c for c in dedup_cols if c in pending.columns], keep="first")
-                st.session_state["competitor_capture_rows_pending"] = pending
-                if update_clicked:
-                    existing = st.session_state.get("competitor_menu_snapshots_df")
-                    if behavior.startswith("Replace") or not isinstance(existing, pd.DataFrame) or existing.empty:
-                        combined = pending.copy()
-                    else:
-                        combined = pd.concat([existing, pending], ignore_index=True)
-                        combined = combined.drop_duplicates(subset=[c for c in dedup_cols if c in combined.columns], keep="first")
-                    st.session_state["competitor_menu_snapshots_df"] = combined
-                    st.session_state["competitor_saved_snapshot_rows"] = combined
-                st.session_state["competitor_file_processing_results"] = file_results
-                st.session_state["competitor_current_snapshot_metadata"] = {"competitor_name": competitor_name, "snapshot_date": str(date.today()), "files_processed": len(metadata_rows), "source_types": sorted({m.get("source_type", "") for m in metadata_rows})}
-                st.session_state["competitor_data_quality"] = {"files_uploaded": len(cache_files), "files_processed": len(metadata_rows), "rows_extracted": before, "rows_saved": len(pending), "duplicate_rows_merged": max(0, before - len(pending)), "rows_needing_review": int(pending["needs_review"].sum()) if isinstance(pending, pd.DataFrame) and "needs_review" in pending.columns else 0, "missing_price_count": int(pending["effective_price"].isna().sum()) if isinstance(pending, pd.DataFrame) and "effective_price" in pending.columns else 0, "missing_package_size_count": int((pending["package_size_label"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "package_size_label" in pending.columns else 0, "missing_category_count": int((pending["category"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "category" in pending.columns else 0, "missing_brand_count": int((pending["brand"].fillna("") == "").sum()) if isinstance(pending, pd.DataFrame) and "brand" in pending.columns else 0, "confidence_score": float((pending["capture_confidence"] == "High").mean()) if isinstance(pending, pd.DataFrame) and "capture_confidence" in pending.columns and not pending.empty else 0.0, "categories_detected": sorted(pending["category"].dropna().unique().tolist()) if isinstance(pending, pd.DataFrame) and "category" in pending.columns else [], "source_file_list": [m.get("source_file_name", "") for m in metadata_rows]}
-                st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%m/%d/%Y %I:%M %p")
-                st.session_state["competitor_snapshot_dirty"] = False
-                processed_count = sum(1 for r in file_results if r.get("status") == "processed")
-                failed_count = sum(1 for r in file_results if r.get("status") == "failed")
-                status.update(label=f"Processed {processed_count} of {len(cache_files)} files. {failed_count} failed. Saved {len(pending)} product rows.", state="complete")
-                if failed_count > 0:
-                    st.warning(f"Processed {processed_count} of {len(cache_files)} files. {failed_count} file(s) failed. Saved {len(pending)} product rows.")
-            except Exception as e:
-                st.session_state["competitor_last_processing_error"] = traceback.format_exc()
-                logger.error("Competitor snapshot processing failed.\n%s", st.session_state["competitor_last_processing_error"])
-                st.error("Competitor snapshot processing failed.")
-                with st.expander("Debug details"):
-                    st.exception(e)
-        md = st.session_state.get("competitor_current_snapshot_metadata", {})
-        saved_snap = st.session_state.get("competitor_menu_snapshots_df")
-        saved_rows = len(saved_snap) if isinstance(saved_snap, pd.DataFrame) else 0
-        st.info(f"Snapshot loaded: {saved_rows} products from {md.get('files_processed', 0)} files. Last updated {st.session_state.get('competitor_last_processed_at') or 'N/A'}.")
-        st.caption(f"Dirty status: {'Yes' if st.session_state.get('competitor_snapshot_dirty') else 'No'}")
-        with st.expander("Processing Diagnostics"):
-            st.write(f"Last processed timestamp: {st.session_state.get('competitor_last_processed_at') or 'N/A'}")
-            st.write(f"Uploaded files count: {len(st.session_state.get('competitor_uploaded_file_names', []))}")
-            st.write(f"Cached files count: {len(st.session_state.get('competitor_uploaded_files_cache', []))}")
-            st.write(f"Saved snapshot row count: {saved_rows}")
-            if st.session_state.get("competitor_last_processing_error"):
-                st.error("Last processing error:")
-                st.code(st.session_state.get("competitor_last_processing_error", ""), language="python")
-            result_df = pd.DataFrame(st.session_state.get("competitor_file_processing_results", []))
-            if not result_df.empty:
-                st.dataframe(result_df, width="stretch")
-                parser_warnings = [w for row in result_df.get("warnings", []) for w in (row if isinstance(row, list) else []) if w]
-                if parser_warnings:
-                    st.write("Parser warnings:")
-                    for warning in parser_warnings:
-                        st.warning(warning)
+        st.subheader("Parsed Data Review")
+        snap = st.session_state.get("competitor_menu_snapshots_df")
+        if not isinstance(snap, pd.DataFrame) or snap.empty:
+            st.info("No competitor snapshot has been processed yet. Upload and process files first.")
+        else:
+            df = snap.copy()
+            for col in ["needs_review", "has_promo", "missing_price", "missing_package_size"]:
+                if col in df.columns:
+                    df[col] = df[col].fillna(False).astype(bool)
+            c = st.columns(7)
+            c[0].metric("total rows", len(df)); c[1].metric("rows needing review", int(df["needs_review"].sum()) if "needs_review" in df.columns else 0)
+            c[2].metric("missing price rows", int(df["missing_price"].sum()) if "missing_price" in df.columns else 0); c[3].metric("missing size rows", int(df["missing_package_size"].sum()) if "missing_package_size" in df.columns else 0)
+            c[4].metric("missing category rows", int((df["category"].fillna("") == "").sum()) if "category" in df.columns else 0); c[5].metric("low-confidence rows", int((df["capture_confidence"].astype(str).str.lower() == "low").sum()) if "capture_confidence" in df.columns else 0)
+            c[6].metric("duplicates merged", int(st.session_state.get("competitor_data_quality", {}).get("duplicate_rows_merged", 0)))
+            if "needs_review" in df.columns and int(df["needs_review"].sum()) > 0:
+                st.warning("Some parsed rows need review before using this data for final decisions.")
+            q = st.text_input("Search product name / brand / raw text")
+            if q:
+                mask = pd.Series(False, index=df.index)
+                for col in ["product_name", "brand", "raw_text"]:
+                    if col in df.columns:
+                        mask = mask | df[col].astype(str).str.contains(q, case=False, na=False)
+                df = df[mask]
+            keep = ["competitor_name","category","brand","product_name","package_size_label","regular_price","sale_price","effective_price","discount_pct","promo_text","thc_pct","thc_mg","thca_pct","cbd_pct","cbd_mg","cbg_mg","tac_pct","tac_mg","terpene_pct","strain_type","availability_status","menu_platform","source_file_name","capture_confidence","needs_review","missing_fields"]
+            show = [c for c in keep if c in df.columns]
+            edited = st.data_editor(df[show], use_container_width=True, num_rows="dynamic")
+            b1, b2 = st.columns(2)
+            if b1.button("Save Review Edits"):
+                st.session_state["competitor_menu_snapshots_df"] = edited
+            if b2.button("Recalculate Snapshot Analysis"):
+                _build_analysis_tables()
+            out = BytesIO();
+            with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
+                edited.to_excel(writer, index=False, sheet_name="cleaned_snapshot")
+            st.download_button("Download Cleaned Snapshot XLSX", out.getvalue(), "competitor_snapshot_cleaned.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     with tabs[3]:
-        df = st.session_state.competitor_menu_snapshots_df if isinstance(st.session_state.competitor_menu_snapshots_df, pd.DataFrame) and not st.session_state.competitor_menu_snapshots_df.empty else st.session_state.competitor_capture_rows_pending
-        st.subheader("Snapshot Review")
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            if "capture_confidence" in df.columns:
-                st.dataframe(df.style.apply(lambda s: ["background-color: #4a1f1f" if v == "Low" else "" for v in s] if s.name == "capture_confidence" else ["" for _ in s], axis=1), use_container_width=True)
-            else:
-                st.dataframe(df, use_container_width=True)
-            if st.button("Save Snapshot"):
-                dedup_cols = ["competitor_name", "snapshot_date", "normalized_product_name", "brand", "package_size_label", "category", "effective_price"]
-                merged = df.sort_values(by=[c for c in ["capture_confidence"] if c in df.columns], ascending=False).drop_duplicates(subset=[c for c in dedup_cols if c in df.columns], keep="first")
-                st.session_state.competitor_menu_snapshots_df = pd.concat([st.session_state.competitor_menu_snapshots_df, merged], ignore_index=True)
-                st.session_state.competitor_saved_snapshot_rows = merged
-                st.success("Snapshot saved.")
-            out = BytesIO()
-            with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
-                df.to_excel(writer, sheet_name="Competitor_Snapshot", index=False)
-                pd.DataFrame([st.session_state.get("competitor_current_snapshot_metadata", {})]).to_excel(writer, sheet_name="Metadata", index=False)
-                pd.DataFrame([st.session_state.get("competitor_data_quality", {})]).to_excel(writer, sheet_name="Data_Quality", index=False)
-                pd.DataFrame([{"rows": len(df), "categories": df["category"].nunique() if "category" in df.columns else 0}]).to_excel(writer, sheet_name="Summary", index=False)
-            st.download_button("Download Cleaned Snapshot XLSX", data=out.getvalue(), file_name="competitor_snapshot_cleaned.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            if st.button("Discard Snapshot"):
-                st.session_state.competitor_capture_rows_pending = pd.DataFrame()
+        st.subheader("Price Intelligence")
+        _build_analysis_tables()
+        price = st.session_state.get("competitor_price_summary_df")
+        if not isinstance(price, pd.DataFrame) or price.empty:
+            st.info("No price intelligence available yet.")
+        else:
+            st.dataframe(price, use_container_width=True)
 
     with tabs[4]:
-        st.subheader("Price Intelligence")
-        snap = st.session_state.competitor_menu_snapshots_df
-        own = st.session_state.get("normalized_inventory_df")
-        if not isinstance(own, pd.DataFrame) or own.empty:
-            st.info("Upload Buyer Dashboard inventory/sales data to compare your menu against competitors.")
-        if isinstance(snap, pd.DataFrame) and not snap.empty and "category" in snap.columns and "effective_price" in snap.columns:
-            comp = snap.groupby("category", dropna=False).agg(competitor_avg_price=("effective_price", "mean"), lowest_competitor_price=("effective_price", "min"), highest_competitor_price=("effective_price", "max"), competitor_count=("competitor_name", "nunique")).reset_index()
-            comp["our_avg_price"] = comp["competitor_avg_price"]
-            comp["market_avg_price"] = comp["competitor_avg_price"]
-            comp["price_gap_dollars"] = comp["our_avg_price"] - comp["competitor_avg_price"]
-            comp["price_gap_pct"] = (comp["price_gap_dollars"] / comp["competitor_avg_price"].replace(0, pd.NA)) * 100
-            comp["our_position"] = comp["price_gap_pct"].apply(lambda v: "Missing Data" if pd.isna(v) else ("Below Market" if v < -3 else "At Market" if abs(v) <= 3 else "Above Market" if v <= 10 else "Premium"))
-            st.session_state.competitor_price_comparison_df = comp
-            st.dataframe(comp, use_container_width=True)
+        assort = st.session_state.get("competitor_assortment_summary_df")
+        if isinstance(assort, pd.DataFrame) and not assort.empty:
+            st.dataframe(assort, use_container_width=True)
+        else:
+            st.info("Assortment depth may be incomplete because one or more category captures are incomplete or unknown.")
 
     with tabs[5]:
-        snap = st.session_state.competitor_menu_snapshots_df
-        if isinstance(snap, pd.DataFrame) and not snap.empty and "category" in snap.columns:
-            gap = snap.groupby("category", dropna=False).agg(competitor_sku_count=("product_name", "nunique"), brand_gap=("brand", "nunique"), package_size_gap=("package_size_label", "nunique")).reset_index()
-            gap["our_sku_count"] = 0
-            gap["sku_gap"] = gap["competitor_sku_count"] - gap["our_sku_count"]
-            gap["category_gap_score"] = gap["sku_gap"] + gap["brand_gap"]
-            gap["risk_level"] = gap["category_gap_score"].apply(lambda v: "Critical" if v >= 25 else "High" if v >= 12 else "Medium" if v >= 5 else "Low")
-            gap["Recommendation"] = "Increase depth where gap score is highest."
-            st.session_state.competitor_assortment_gap_df = gap
-            st.dataframe(gap[["category", "our_sku_count", "competitor_sku_count", "sku_gap", "risk_level", "Recommendation"]], use_container_width=True)
+        promo = st.session_state.get("competitor_promo_summary_df")
+        if isinstance(promo, pd.DataFrame) and not promo.empty:
+            st.dataframe(promo, use_container_width=True)
+        else:
+            st.info("No promo rows detected in saved snapshot.")
 
     with tabs[6]:
-        snap = st.session_state.competitor_menu_snapshots_df
+        recs = []
+        snap = st.session_state.get("competitor_menu_snapshots_df")
         if isinstance(snap, pd.DataFrame) and not snap.empty:
-            promo = snap.copy()
-            promo["discount_pct"] = _safe_numeric_series(promo, "discount_pct")
-            promo_df = promo[promo["discount_pct"] > 0].copy()
-            if not promo_df.empty:
-                by_comp = promo_df.groupby("competitor_name", dropna=False).agg(promo_count=("product_name", "count"), average_discount_pct=("discount_pct", "mean"), strongest_discount=("discount_pct", "max"), categories_on_promo=("category", "nunique")).reset_index()
-                by_comp["competitor_promo_pressure"] = by_comp["promo_count"] + by_comp["average_discount_pct"] + by_comp["categories_on_promo"]
-                st.session_state.competitor_promo_df = by_comp
-                st.dataframe(by_comp, use_container_width=True)
+            if "discount_pct" in snap.columns and _safe_numeric_mean(snap, "discount_pct") >= 10:
+                recs.append("[Pricing] Flower pricing has heavy promo pressure. Review eighth and 14g positioning before new buys.")
+            if "package_size_label" in snap.columns and int((snap["package_size_label"].fillna("") == "").sum()) > 0:
+                recs.append("[Data Quality] Several rows are missing package size, so package-size comparison needs review.")
+        if not recs:
+            recs.append("[Opportunity Plays] Continue capturing complete category snapshots to improve recommendation confidence.")
+        st.session_state["competitor_recommendations"] = recs
+        for rec in recs:
+            st.write(f"- {rec}")
 
     with tabs[7]:
-        recs = []
-        gap = st.session_state.competitor_assortment_gap_df
-        price = st.session_state.competitor_price_comparison_df
-        if isinstance(gap, pd.DataFrame) and not gap.empty and (gap["risk_level"] == "Critical").any():
-            recs.append("[Assortment] Competitor menus show deeper category depth in critical gaps. Prioritize targeted SKU expansion.")
-        if isinstance(price, pd.DataFrame) and not price.empty and (price["our_position"].isin(["Above Market", "Premium"]).any()):
-            recs.append("[Pricing] Some categories appear above market; evaluate selective price moves and promo support.")
-        recs.append("[Promotions] Avoid racing to the bottom unless margin and sell-through support deeper discounting.")
-        st.session_state.competitor_recommendations = recs
-        st.write(recs)
+        st.subheader("Data Quality")
+        result_df = pd.DataFrame(st.session_state.get("competitor_file_processing_results", []))
+        if not result_df.empty:
+            st.dataframe(result_df, use_container_width=True)
+        snap = st.session_state.get("competitor_menu_snapshots_df")
+        if isinstance(snap, pd.DataFrame) and not snap.empty and "category" in snap.columns:
+            cat = snap.groupby(["competitor_name", "category"], dropna=False).agg(rows_saved=("product_name", "count")).reset_index()
+            st.dataframe(cat, use_container_width=True)
 
     with tabs[8]:
-        payload = {
-            "executive_summary": "Competitor Intelligence summary based on latest snapshots.",
-            "competitors": st.session_state.competitor_registry_df.to_dict(orient="records") if isinstance(st.session_state.competitor_registry_df, pd.DataFrame) else [],
-            "pricing": st.session_state.competitor_price_comparison_df.to_dict(orient="records") if isinstance(st.session_state.competitor_price_comparison_df, pd.DataFrame) else [],
-            "assortment_gaps": st.session_state.competitor_assortment_gap_df.to_dict(orient="records") if isinstance(st.session_state.competitor_assortment_gap_df, pd.DataFrame) else [],
-            "promo_pressure": st.session_state.competitor_promo_df.to_dict(orient="records") if isinstance(st.session_state.competitor_promo_df, pd.DataFrame) else [],
-            "recommendations": st.session_state.competitor_recommendations,
-            "data_quality": st.session_state.competitor_data_quality,
-        }
-        st.download_button("Export Competitor Intelligence Report", data=_build_competitor_intelligence_report_pdf(payload), file_name=f"competitor_intelligence_report_{datetime.now().strftime('%Y-%m-%d')}.pdf", mime="application/pdf")
-        dq = st.session_state.get("competitor_data_quality", {})
-        if not dq:
-            st.info("No competitor snapshot has been processed yet.")
+        if not _has_snapshot():
+            st.info("Process competitor files before exporting a report.")
         else:
-            st.json(dq)
-        st.json({"source_type": "manual+uploads", "capture_method": "human_in_the_loop", "rows_extracted": int(len(st.session_state.competitor_capture_rows_pending)) if isinstance(st.session_state.competitor_capture_rows_pending, pd.DataFrame) else 0, "rows_saved": int(len(st.session_state.competitor_menu_snapshots_df)) if isinstance(st.session_state.competitor_menu_snapshots_df, pd.DataFrame) else 0, "last_captured_timestamp": datetime.utcnow().isoformat()})
+            payload = {
+                "competitor_snapshot_df": st.session_state.get("competitor_menu_snapshots_df"),
+                "file_processing_results": st.session_state.get("competitor_file_processing_results"),
+                "data_quality": st.session_state.get("competitor_data_quality", {}),
+                "category_summary": st.session_state.get("competitor_assortment_summary_df"),
+                "price_summary": st.session_state.get("competitor_price_summary_df"),
+                "promo_summary": st.session_state.get("competitor_promo_summary_df"),
+                "assortment_summary": st.session_state.get("competitor_assortment_summary_df"),
+                "recommendations": st.session_state.get("competitor_recommendations", []),
+                "snapshot_metadata": st.session_state.get("competitor_current_snapshot_metadata", {}),
+                "last_processed": st.session_state.get("competitor_last_processed_at", ""),
+            }
+            st.download_button("Export Competitor Intelligence Report", data=_build_competitor_intelligence_report_pdf(payload), file_name=f"competitor_intelligence_report_{datetime.utcnow().strftime('%Y%m%d')}.pdf", mime="application/pdf")
