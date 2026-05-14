@@ -30,6 +30,7 @@ def normalize_competitor_category(product_name: str = "", raw_text: str = "", pa
     text = _norm(f"{product_name} {raw_text}")
     page = _canon_category(page_category)
     existing = _canon_category(existing_category)
+    flower_context = page == "Flower" and _has_any(text, ["buds", "flower", "smalls", "small buds", "shake", "ground", "lb-product-weight", "oz", "g"])
 
     vape_terms = ["cart", "cartridge", "vape", "disposable", "all-in-one", "aio", "pod", "vape pen"]
     preroll_terms = ["pre-roll", "preroll", "joint", "blunt", "cannagar", "cigarillo", "dogwalker", "mini pre-roll", "mini joint"]
@@ -103,7 +104,10 @@ def normalize_competitor_category(product_name: str = "", raw_text: str = "", pa
         ("Resin", ["cured resin", "resin"]),
         ("Rosin", ["rosin"]),
     ]
+    strong_concentrate_terms = ["live rosin", "rosin", "shatter", "concentrate", "extract", "badder", "batter", "budder", "live resin", "rso", "distillate"]
     for sub, terms in conc_map:
+        if flower_context and sub == "Wax" and not _has_any(text, strong_concentrate_terms):
+            continue
         if _has_any(text, terms):
             return finish("Concentrates", sub)
 
