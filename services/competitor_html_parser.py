@@ -195,12 +195,90 @@ def parse_dutchie_iframe_saved_html(html: str, meta: dict[str, Any]) -> tuple[li
     return rows, candidates
 
 
+def _is_dutchie_shell_file(html: str, file_name: str) -> bool:
+    lowered = f"{html or ''} {file_name or ''}".lower()
+    return bool(
+        ("dutchie--embed__container" in lowered or "dutchie--iframe" in lowered or "dtche%5bcategory%5d" in lowered)
+        and "iframe" in lowered
+    )
+
+
+def _folder_hints_from_text(value: str) -> list[str]:
+    s = str(value or "").lower()
+    matches = re.findall(r"([a-z0-9-]+)_files", s)
+    return list(dict.fromkeys(matches))
+
+
+def _build_parent_context_map(files: list[dict[str, Any]], snapshot_date: str | None, competitor_override: str | None) -> list[dict[str, Any]]:
+    contexts: list[dict[str, Any]] = []
+    for cf in files:
+        html = unescape((cf.get("file_bytes", b"") or b"").decode("utf-8", errors="ignore"))
+        fname = str(cf.get("file_name") or "")
+        if not _is_dutchie_shell_file(html, fname):
+            continue
+        source_url = _detect_source_url(html)
+        contexts.append(
+            {
+                "competitor_name": detect_competitor(html, fname, source_url, competitor_override),
+                "category": detect_category(html, fname, source_url, "dutchie_embedded"),
+                "source_url": source_url,
+                "parent_file_name": fname,
+                "snapshot_date": snapshot_date,
+                "hints": list(
+                    dict.fromkeys(
+                        _folder_hints_from_text(fname)
+                        + _folder_hints_from_text(source_url)
+                        + _folder_hints_from_text(html[:12000])
+                    )
+                ),
+            }
+        )
+    return contexts
+
+
+def _closest_parent_context(file_name: str, html: str, parent_contexts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not parent_contexts:
+        return None
+    combined = f"{file_name} {html[:12000]}"
+    hints = set(_folder_hints_from_text(combined))
+    if hints:
+        for ctx in parent_contexts:
+            if hints.intersection(set(ctx.get("hints", []))):
+                return ctx
+    f_norm = _norm(file_name)
+    scored = []
+    for idx, ctx in enumerate(parent_contexts):
+        score = 0
+        parent_hint = re.sub(r"\.html?$", "", _norm(ctx.get("parent_file_name", "")))
+        if parent_hint and parent_hint in f_norm:
+            score += 2
+        if str(ctx.get("category") or "").lower() in combined.lower():
+            score += 1
+        if str(ctx.get("source_url") or "").lower() and str(ctx.get("source_url")).lower() in combined.lower():
+            score += 1
+        scored.append((score, idx, ctx))
+    best = max(scored, key=lambda x: x[0]) if scored else None
+    if best and best[0] > 0:
+        return best[2]
+    return parent_contexts[0] if len(parent_contexts) == 1 else None
+
+
 def parse_competitor_file(file_bytes, file_name, snapshot_date=None, competitor_override=None, batch_context=None):
     html = unescape((file_bytes or b"").decode("utf-8", errors="ignore"))
     source_url = _detect_source_url(html)
     platform = detect_menu_platform(html, file_name, source_url, batch_context)
     competitor = detect_competitor(html, file_name, source_url, competitor_override)
     category = detect_category(html, file_name, source_url, platform)
+    parent_ctx = (batch_context or {}).get("parent_context_by_file", {}).get(file_name)
+    matched_parent = _closest_parent_context(file_name, html, (batch_context or {}).get("parent_contexts", []))
+    inherit_ctx = parent_ctx or matched_parent
+    if inherit_ctx and platform == "dutchie_iframe_saved":
+        if competitor == "Unknown":
+            competitor = str(inherit_ctx.get("competitor_name") or competitor)
+        if category == "Unspecified":
+            category = str(inherit_ctx.get("category") or category)
+        if not source_url:
+            source_url = str(inherit_ctx.get("source_url") or "")
     meta = {"competitor_name": competitor, "snapshot_date": snapshot_date, "menu_platform": platform.replace("_", " ").title(), "source_file_name": file_name, "source_url": source_url, "category": category}
     warnings, parsed_rows, rejected = [], [], []
     status = "processed"
@@ -212,7 +290,13 @@ def parse_competitor_file(file_bytes, file_name, snapshot_date=None, competitor_
         if dutchie_status == "needs_companion_iframe_file":
             status = dutchie_status
             warnings.append({"source_file_name": file_name, "warning_type": dutchie_status, "warning_message": "Upload companion iframe HTML from saved _files folder"})
-    elif platform == "dutchie_iframe_saved": parsed_rows, rejected = parse_dutchie_iframe_saved_html(html, meta)
+    elif platform == "dutchie_iframe_saved":
+        parsed_rows, rejected = parse_dutchie_iframe_saved_html(html, meta)
+        if not inherit_ctx:
+            for r in parsed_rows:
+                r["needs_review"] = True
+                r["capture_confidence"] = "Low"
+            warnings.append({"source_file_name": file_name, "warning_type": "unmatched_companion_file", "warning_message": "Companion file could not be matched to a parent shell. Marked for review."})
 
     parsed_rows = [_apply_category_normalization(r, category) for r in parsed_rows]
     cleaned = _finalize(parsed_rows)
@@ -227,9 +311,19 @@ def parse_competitor_file(file_bytes, file_name, snapshot_date=None, competitor_
 
 def process_competitor_files_batch(files: list[dict[str, Any]], snapshot_date: str | None = None, competitor_override: str | None = None) -> dict[str, Any]:
     cleaned_parts, raw_parts, cand_parts, file_results, warning_rows = [], [], [], [], []
-    batch_context = {"uploaded_file_count": len(files), "has_dutchie_shell": any("dutchie--embed__container" in (f.get("file_bytes", b"").decode("utf-8", errors="ignore").lower()) for f in files)}
+    parent_contexts = _build_parent_context_map(files, snapshot_date, competitor_override)
+    batch_context = {
+        "uploaded_file_count": len(files),
+        "has_dutchie_shell": len(parent_contexts) > 0,
+        "parent_contexts": parent_contexts,
+        "parent_context_by_file": {},
+    }
     for cf in files:
         cleaned_df, candidates_df, raw_df, file_result, parser_warnings = parse_competitor_file(cf["file_bytes"], cf["file_name"], snapshot_date=snapshot_date, competitor_override=competitor_override, batch_context=batch_context)
+        # Never create junk rows from Dutchie parent shell files.
+        if file_result.get("status") == "needs_companion_iframe_file":
+            cleaned_df = cleaned_df.iloc[0:0]
+            file_result["rows_saved"] = 0
         cleaned_parts.append(cleaned_df); raw_parts.append(raw_df); file_results.append(file_result); warning_rows.extend(parser_warnings)
         if not candidates_df.empty: cand_parts.append(candidates_df)
     cleaned = _finalize(pd.concat(cleaned_parts, ignore_index=True).drop_duplicates(subset=["competitor_name", "category", "product_name", "package_size_label", "effective_price"]).to_dict("records") if cleaned_parts else [])
