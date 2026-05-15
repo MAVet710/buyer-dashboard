@@ -17,6 +17,7 @@ from reports.competitor_report import _build_competitor_intelligence_report_pdf
 from services.menu_capture_assistant import MenuCaptureSession
 from services.competitor_html_parser import NORMALIZED_SCHEMA, process_competitor_files_batch
 from services.inventory_normalizer import load_inventory_file, normalize_inventory_for_competitor_comparison
+from services.inventory_state import get_active_inventory_df
 from services.competitor_report_narrative import (
     build_assortment_narrative,
     build_data_quality_narrative,
@@ -767,12 +768,15 @@ def render_competitor_intelligence_center() -> None:
             data_quality_notes.append("Promo detection is limited because promo_text/sale_price fields are missing.")
         for note in data_quality_notes:
             st.caption(note)
-        if st.button("Use Current Buyer Dashboard Inventory"):
-            source_df = st.session_state.get("inventory_df") or st.session_state.get("inv_raw_df")
+        if st.button("Use Active Buyer Inventory"):
+            source_df, source_meta = get_active_inventory_df()
             if isinstance(source_df, pd.DataFrame) and not source_df.empty:
                 st.session_state["competitor_our_inventory_df"] = normalize_inventory_for_competitor_comparison(source_df)
-                st.session_state["competitor_our_inventory_source_name"] = "Buyer Dashboard Session"
+                st.session_state["competitor_our_inventory_source_name"] = source_meta.get("source_name") or "Buyer Dashboard Session"
                 st.session_state["competitor_our_inventory_uploaded_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+                st.success(f"Using active inventory: {st.session_state['competitor_our_inventory_source_name']}")
+            else:
+                st.warning("No active buyer inventory found. Upload inventory in Buyer Dashboard Inventory Upload first.")
         inv_upload = st.file_uploader("Upload Inventory File", type=["xlsx","csv"], key="competitor_inventory_upload")
         if inv_upload is not None:
             raw_inv = load_inventory_file(inv_upload)
