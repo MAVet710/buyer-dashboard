@@ -1075,6 +1075,28 @@ def detect_column(columns, aliases):
     return None
 
 
+def _get_active_buyer_inventory_df() -> tuple[pd.DataFrame, str | None]:
+    candidate_keys = [
+        "inv_raw_df",
+        "buyer_inventory_df",
+        "normalized_inventory_df",
+        "inventory_df",
+        "uploaded_inventory_df",
+        "current_inventory_df",
+        "inventory_report_df",
+        "raw_inventory_df",
+        "df_inventory",
+        "inventory_data",
+    ]
+    for key in candidate_keys:
+        candidate_df = st.session_state.get(key)
+        if isinstance(candidate_df, pd.DataFrame) and not candidate_df.empty:
+            st.session_state["hob_inventory_source_key"] = key
+            return candidate_df.copy(), key
+    st.session_state["hob_inventory_source_key"] = None
+    return pd.DataFrame(), None
+
+
 def parse_currency_to_float(series: "pd.Series") -> "pd.Series":
     """
     Parse a pandas Series that may contain currency strings like ``"$45.00"``
@@ -10577,9 +10599,9 @@ elif section == "🔌 Integrations":
 # ============================================================
 elif section == "🏷️ Brand Mix & HOB Coverage":
     st.subheader("🏷️ Brand Mix & HOB Coverage")
-    inv_raw = st.session_state.get("inv_raw_df")
-    if inv_raw is None:
-        st.warning("Upload inventory data first in Inventory Dashboard.")
+    hob_df, source_key = _get_active_buyer_inventory_df()
+    if hob_df.empty:
+        st.warning("Upload an inventory file in the Buyer Dashboard first to run HOB coverage.")
         st.stop()
     settings = load_house_brands()
     st.markdown("### Brand Classification Settings")
@@ -10594,24 +10616,44 @@ elif section == "🏷️ Brand Mix & HOB Coverage":
             settings = save_house_brands(DEFAULT_HOUSE_BRANDS)
             st.success("Reset to defaults.")
 
-    df = inv_raw.copy(); df.columns = [str(c).strip() for c in df.columns]
-    qty_col = detect_quantity_column(list(df.columns))
-    brand_col = detect_brand_column(list(df.columns))
-    cat_col = detect_column([c.lower() for c in df.columns], [normalize_col(a) for a in INV_CAT_ALIASES])
-    name_col = detect_column([c.lower() for c in df.columns], [normalize_col(a) for a in INV_NAME_ALIASES])
-    if not qty_col:
-        qty_options = list(df.columns)
-        qty_col = st.selectbox("Quantity column mapping", options=qty_options, index=0 if qty_options else None)
-        st.warning("No quantity column was detected. HOB unit calculations will default to 0 until mapped.")
-    if not brand_col:
-        st.warning("No brand/vendor column found. HOB analysis cannot run until brand data is mapped.")
-    if not cat_col:
-        cat_col = st.selectbox("Category column mapping", options=list(df.columns))
+    df = hob_df.copy(); df.columns = [str(c).strip() for c in df.columns]
+    columns = list(df.columns)
+    detected_qty_col = detect_quantity_column(columns)
+    detected_brand_col = detect_brand_column(columns)
+    detected_cat_col = detect_column(columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+    name_col = detect_column(columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+
+    brand_default_idx = columns.index(detected_brand_col) if detected_brand_col in columns else 0
+    qty_default_idx = columns.index(detected_qty_col) if detected_qty_col in columns else 0
+    cat_default_idx = columns.index(detected_cat_col) if detected_cat_col in columns else 0
+
+    brand_col = st.selectbox("Brand column mapping", options=columns, index=brand_default_idx, key="hob_brand_col_mapping")
+    qty_col = st.selectbox("Quantity column mapping", options=columns, index=qty_default_idx, key="hob_qty_col_mapping")
+    cat_col = st.selectbox("Category column mapping", options=columns, index=cat_default_idx, key="hob_cat_col_mapping")
+
+    st.markdown("### HOB Inventory Mapping Status")
+    st.caption(
+        f"Inventory source: `{source_key or 'None'}` | Rows loaded: `{len(df):,}` | "
+        f"Brand column: `{brand_col or 'Unmapped'}` | Quantity column: `{qty_col or 'Unmapped'}` | "
+        f"Category column: `{cat_col or 'Unmapped'}`"
+    )
+    if not detected_qty_col:
+        st.warning("No quantity column was auto-detected. Please map quantity manually; if invalid, HOB units will default to 0.")
+    if not detected_brand_col:
+        st.warning("No brand/vendor column was auto-detected. Please map brand column manually for proper HOB grouping.")
 
     classified = classify_inventory(df, settings.get("house_brands", []), qty_col=qty_col, brand_col=brand_col)
     if "_hob_warning" in classified.columns:
-        st.warning("Buyer HOB could not detect a quantity/available column. Brand grouping still works, but unit share and coverage calculations are defaulting to 0.")
+        st.warning("Buyer HOB could not detect a valid quantity column. Brand grouping still works, but unit share and coverage calculations are defaulting to 0.")
     summary = build_summary(classified, qty_col)
+    resolved_qty_col = str(classified["_hob_qty_col_used"].iloc[0]) if "_hob_qty_col_used" in classified.columns and not classified.empty else qty_col
+
+    st.session_state["hob_classified_inventory_df"] = classified.copy()
+    st.session_state["hob_summary"] = dict(summary)
+    st.session_state["hob_inventory_source_key"] = source_key
+    st.session_state["hob_qty_col_used"] = resolved_qty_col
+    st.session_state["hob_brand_col_used"] = brand_col
+    st.session_state["hob_category_col_used"] = cat_col
 
     k1,k2,k3,k4 = st.columns(4)
     k1.metric("Total Inventory Units", f"{summary['total_units']:,.0f}")
@@ -10625,6 +10667,7 @@ elif section == "🏷️ Brand Mix & HOB Coverage":
     k8.metric("Third Party SKU Count", f"{summary['third_sku_count']:,}")
 
     category_cov = build_category_coverage(classified, qty_col=qty_col, category_col=cat_col) if cat_col in classified.columns else pd.DataFrame()
+    st.session_state["hob_category_coverage_df"] = category_cov.copy()
     st.markdown("### Category-Level HOB Coverage")
     st.dataframe(category_cov, use_container_width=True)
 

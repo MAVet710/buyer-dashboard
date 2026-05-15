@@ -95,7 +95,7 @@ def _resolve_qty_column(df: pd.DataFrame, qty_col: str | None) -> tuple[pd.DataF
     return out, resolved
 
 
-def classify_inventory(df: pd.DataFrame, house_brands: list[str], qty_col: str, brand_col: str | None) -> pd.DataFrame:
+def classify_inventory(df: pd.DataFrame, house_brands: list[str], qty_col: str | None, brand_col: str | None) -> pd.DataFrame:
     out = df.copy()
     out, qty_col = _resolve_qty_column(out, qty_col)
     normalized_hob = {normalize_brand_name(b) for b in house_brands if normalize_brand_name(b)}
