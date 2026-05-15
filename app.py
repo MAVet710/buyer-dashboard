@@ -55,7 +55,7 @@ from modules.competitor_intelligence_center import render_competitor_intelligenc
 from utils.constants import *
 from services.buyer_hob import (
     DEFAULT_HOUSE_BRANDS, load_house_brands, save_house_brands, normalize_brand_name,
-    detect_brand_column, classify_inventory, build_summary, build_category_coverage,
+    detect_brand_column, detect_quantity_column, classify_inventory, build_summary, build_category_coverage,
     analyze_deals, export_workbook,
 )
 from utils.product_parsing import (
@@ -10595,19 +10595,22 @@ elif section == "🏷️ Brand Mix & HOB Coverage":
             st.success("Reset to defaults.")
 
     df = inv_raw.copy(); df.columns = [str(c).strip() for c in df.columns]
-    qty_col = detect_column([c.lower() for c in df.columns], [normalize_col(a) for a in INV_QTY_ALIASES])
+    qty_col = detect_quantity_column(list(df.columns))
     brand_col = detect_brand_column(list(df.columns))
     cat_col = detect_column([c.lower() for c in df.columns], [normalize_col(a) for a in INV_CAT_ALIASES])
     name_col = detect_column([c.lower() for c in df.columns], [normalize_col(a) for a in INV_NAME_ALIASES])
     if not qty_col:
-        st.error("Quantity column missing. Please upload an inventory file with on-hand quantity.")
-        st.stop()
+        qty_options = list(df.columns)
+        qty_col = st.selectbox("Quantity column mapping", options=qty_options, index=0 if qty_options else None)
+        st.warning("No quantity column was detected. HOB unit calculations will default to 0 until mapped.")
     if not brand_col:
         st.warning("No brand/vendor column found. HOB analysis cannot run until brand data is mapped.")
     if not cat_col:
         cat_col = st.selectbox("Category column mapping", options=list(df.columns))
 
     classified = classify_inventory(df, settings.get("house_brands", []), qty_col=qty_col, brand_col=brand_col)
+    if "_hob_warning" in classified.columns:
+        st.warning("Buyer HOB could not detect a quantity/available column. Brand grouping still works, but unit share and coverage calculations are defaulting to 0.")
     summary = build_summary(classified, qty_col)
 
     k1,k2,k3,k4 = st.columns(4)
