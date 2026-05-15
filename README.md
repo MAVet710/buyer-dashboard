@@ -339,3 +339,11 @@ The buyer view works without these columns but unlocks additional features when 
 | `expiration date` / `expiry` / `best by` | Enables Expiring tab and Days-to-Expire column |
 
 Missing columns are reported as an info message above the filter bar.
+
+## Brand Mix & HOB Coverage
+
+Use the **🏷️ Brand Mix & HOB Coverage** section to configure your House of Brands list and run HOB vs third-party coverage analysis.
+
+- House brands are persisted in `data/house_brands.json`.
+- You can edit, save, and reset the brand list in-app.
+- Exports available: summary CSV, category coverage CSV, promo support CSV, and full workbook.

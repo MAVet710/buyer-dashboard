@@ -53,6 +53,11 @@ from global_integrations_store import GlobalIntegrationsStore
 from views.retail_ops_command_center import render_retail_ops_command_center
 from modules.competitor_intelligence_center import render_competitor_intelligence_center
 from utils.constants import *
+from services.buyer_hob import (
+    DEFAULT_HOUSE_BRANDS, load_house_brands, save_house_brands, normalize_brand_name,
+    detect_brand_column, classify_inventory, build_summary, build_category_coverage,
+    analyze_deals, export_workbook,
+)
 from utils.product_parsing import (
     free_strain_lookup, ai_lookup_strain_type,
     get_strain_database_size, get_strain_lookup_cache_size, clear_strain_lookup_cache,
@@ -8681,6 +8686,7 @@ section_options = [
     "🧭 Compliance Q&A",
     "🧠 Buyer Intelligence",
     "💰 Purchasing Budget",
+    "🏷️ Brand Mix & HOB Coverage",
 ]
 if _feature_enabled("admin_exports", default_enabled=True):
     section_options.append("🛠️ Admin Tools")
@@ -10565,6 +10571,87 @@ elif section == "🔌 Integrations":
 # ============================================================
 # PAGE 2 – TRENDS
 # ============================================================
+
+# ============================================================
+# PAGE – BRAND MIX & HOB COVERAGE
+# ============================================================
+elif section == "🏷️ Brand Mix & HOB Coverage":
+    st.subheader("🏷️ Brand Mix & HOB Coverage")
+    inv_raw = st.session_state.get("inv_raw_df")
+    if inv_raw is None:
+        st.warning("Upload inventory data first in Inventory Dashboard.")
+        st.stop()
+    settings = load_house_brands()
+    st.markdown("### Brand Classification Settings")
+    brand_text = st.text_area("House of Brands (one per line)", value="\n".join(settings.get("house_brands", DEFAULT_HOUSE_BRANDS)), height=180)
+    c1,c2=st.columns(2)
+    with c1:
+        if st.button("Save House Brands"):
+            settings = save_house_brands([x.strip() for x in brand_text.splitlines() if x.strip()])
+            st.success("Saved house brand settings.")
+    with c2:
+        if st.button("Reset to Default"):
+            settings = save_house_brands(DEFAULT_HOUSE_BRANDS)
+            st.success("Reset to defaults.")
+
+    df = inv_raw.copy(); df.columns = [str(c).strip() for c in df.columns]
+    qty_col = detect_column([c.lower() for c in df.columns], [normalize_col(a) for a in INV_QTY_ALIASES])
+    brand_col = detect_brand_column(list(df.columns))
+    cat_col = detect_column([c.lower() for c in df.columns], [normalize_col(a) for a in INV_CAT_ALIASES])
+    name_col = detect_column([c.lower() for c in df.columns], [normalize_col(a) for a in INV_NAME_ALIASES])
+    if not qty_col:
+        st.error("Quantity column missing. Please upload an inventory file with on-hand quantity.")
+        st.stop()
+    if not brand_col:
+        st.warning("No brand/vendor column found. HOB analysis cannot run until brand data is mapped.")
+    if not cat_col:
+        cat_col = st.selectbox("Category column mapping", options=list(df.columns))
+
+    classified = classify_inventory(df, settings.get("house_brands", []), qty_col=qty_col, brand_col=brand_col)
+    summary = build_summary(classified, qty_col)
+
+    k1,k2,k3,k4 = st.columns(4)
+    k1.metric("Total Inventory Units", f"{summary['total_units']:,.0f}")
+    k2.metric("HOB Units", f"{summary['hob_units']:,.0f}")
+    k3.metric("Third Party Units", f"{summary['third_units']:,.0f}")
+    k4.metric("Unknown Units", f"{summary['unknown_units']:,.0f}")
+    k5,k6,k7,k8 = st.columns(4)
+    k5.metric("HOB Inventory %", f"{summary['hob_pct']:.1%}")
+    k6.metric("Third Party Inventory %", f"{summary['third_pct']:.1%}")
+    k7.metric("HOB SKU Count", f"{summary['hob_sku_count']:,}")
+    k8.metric("Third Party SKU Count", f"{summary['third_sku_count']:,}")
+
+    category_cov = build_category_coverage(classified, qty_col=qty_col, category_col=cat_col) if cat_col in classified.columns else pd.DataFrame()
+    st.markdown("### Category-Level HOB Coverage")
+    st.dataframe(category_cov, use_container_width=True)
+
+    st.markdown("### Promo Support")
+    with st.form("deal_form"):
+        deal_name = st.text_input("Deal name")
+        deal_category = st.text_input("Category filter")
+        deal_brands = st.text_input("Brand filter (comma separated)")
+        price_threshold = st.number_input("Price threshold (optional)", min_value=0.0, value=0.0)
+        keyword = st.text_input("Potency/size keyword")
+        start_date = st.date_input("Start date", value=datetime.now().date())
+        end_date = st.date_input("End date", value=datetime.now().date())
+        submitted = st.form_submit_button("Run Deal Analysis")
+    deals=[]
+    if submitted:
+        deals=[{"name": deal_name or "Deal", "category": deal_category or None, "brands": [b.strip() for b in deal_brands.split(",") if b.strip()] or None, "price_threshold": price_threshold if price_threshold>0 else None, "keyword": keyword or None, "start_date": start_date, "end_date": end_date}]
+    promo_df = analyze_deals(classified, deals, qty_col=qty_col, category_col=cat_col, brand_col=brand_col, price_col=detect_column([c.lower() for c in df.columns],[normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES]), name_col=name_col) if deals else pd.DataFrame()
+    if not promo_df.empty:
+        st.dataframe(promo_df, use_container_width=True)
+
+    st.markdown("### Buyer Insight Generator")
+    if not category_cov.empty:
+        worst = category_cov.sort_values("HOB %", ascending=True).iloc[0]
+        st.info(f"Overall HOB is {summary['hob_pct']:.1%}. Largest gap is {worst['Category']} at {worst['HOB %']:.1%} HOB. Recommended action: Increase HOB ordering in low-coverage categories and prioritize active promo-supporting HOB SKUs.")
+
+    st.download_button("Export HOB Coverage Summary to CSV", pd.DataFrame([summary]).to_csv(index=False), "hob_summary.csv", "text/csv")
+    st.download_button("Export Category Coverage to CSV", category_cov.to_csv(index=False), "hob_category_coverage.csv", "text/csv")
+    st.download_button("Export Promo Support Analysis to CSV", promo_df.to_csv(index=False) if not promo_df.empty else "", "promo_support.csv", "text/csv")
+    st.download_button("Export full Excel workbook", export_workbook(summary, category_cov, promo_df, settings, classified), "hob_brand_mix_workbook.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 elif section == "📈 Trends":
     st.subheader("📈 Trends")
 
