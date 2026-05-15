@@ -58,6 +58,7 @@ from services.buyer_hob import (
     detect_brand_column, detect_quantity_column, classify_inventory, build_summary, build_category_coverage,
     analyze_deals, export_workbook,
 )
+from services.inventory_state import get_active_inventory_df, get_active_sales_df, clear_active_inventory, clear_active_sales
 from utils.product_parsing import (
     free_strain_lookup, ai_lookup_strain_type,
     get_strain_database_size, get_strain_lookup_cache_size, clear_strain_lookup_cache,
@@ -812,6 +813,14 @@ if "detail_cached_df" not in st.session_state:
     st.session_state.detail_cached_df = None
 if "detail_product_cached_df" not in st.session_state:
     st.session_state.detail_product_cached_df = None
+if "active_inventory_df" not in st.session_state:
+    st.session_state.active_inventory_df = pd.DataFrame()
+if "active_inventory_meta" not in st.session_state:
+    st.session_state.active_inventory_meta = {}
+if "active_sales_df" not in st.session_state:
+    st.session_state.active_sales_df = pd.DataFrame()
+if "active_sales_meta" not in st.session_state:
+    st.session_state.active_sales_meta = {}
 if "theme" not in st.session_state:
     st.session_state.theme = "Dark"  # Dark by default
 if "strain_lookup_enabled" not in st.session_state:
@@ -1076,25 +1085,10 @@ def detect_column(columns, aliases):
 
 
 def _get_active_buyer_inventory_df() -> tuple[pd.DataFrame, str | None]:
-    candidate_keys = [
-        "inv_raw_df",
-        "buyer_inventory_df",
-        "normalized_inventory_df",
-        "inventory_df",
-        "uploaded_inventory_df",
-        "current_inventory_df",
-        "inventory_report_df",
-        "raw_inventory_df",
-        "df_inventory",
-        "inventory_data",
-    ]
-    for key in candidate_keys:
-        candidate_df = st.session_state.get(key)
-        if isinstance(candidate_df, pd.DataFrame) and not candidate_df.empty:
-            st.session_state["hob_inventory_source_key"] = key
-            return candidate_df.copy(), key
-    st.session_state["hob_inventory_source_key"] = None
-    return pd.DataFrame(), None
+    df, meta = get_active_inventory_df()
+    source_key = meta.get("source_key") if isinstance(meta, dict) else None
+    st.session_state["hob_inventory_source_key"] = source_key
+    return df, source_key
 
 
 def parse_currency_to_float(series: "pd.Series") -> "pd.Series":
@@ -10603,6 +10597,8 @@ elif section == "🏷️ Brand Mix & HOB Coverage":
     if hob_df.empty:
         st.warning("Upload an inventory file in the Buyer Dashboard first to run HOB coverage.")
         st.stop()
+    active_inventory_meta = st.session_state.get("active_inventory_meta", {})
+    st.caption(f"Using active inventory: {active_inventory_meta.get('source_name') or source_key or 'Session Inventory'}")
     settings = load_house_brands()
     st.markdown("### Brand Classification Settings")
     brand_text = st.text_area("House of Brands (one per line)", value="\n".join(settings.get("house_brands", DEFAULT_HOUSE_BRANDS)), height=180)

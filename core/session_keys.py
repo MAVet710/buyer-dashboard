@@ -3,3 +3,8 @@ SALES_RAW = "sales_raw_df"
 BUYER_READY = "detail_product_cached_df"
 EXTRACTION_RUNS = "ecc_run_log"
 EXTRACTION_JOBS = "ecc_job_log"
+
+ACTIVE_INVENTORY_DF = "active_inventory_df"
+ACTIVE_INVENTORY_META = "active_inventory_meta"
+ACTIVE_SALES_DF = "active_sales_df"
+ACTIVE_SALES_META = "active_sales_meta"
