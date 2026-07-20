@@ -21,6 +21,7 @@ def _hash(password: str) -> str:
 
 def test_admin_can_create_durable_user_without_plaintext_password():
     store = _store()
+    assert store.health_check() is True
     user = store.create_user(
         username="production.user",
         password_hash=_hash("temporary-password"),

@@ -82,6 +82,17 @@ class AppUserStore:
     def configured(self) -> bool:
         return self._session_factory is not None
 
+    def health_check(self) -> bool:
+        """Return whether the configured database can answer a minimal query."""
+        if not self._session_factory:
+            return False
+        try:
+            with self._session_factory() as session:
+                session.execute(select(1))
+            return True
+        except SQLAlchemyError:
+            return False
+
     def get_user(self, username: str) -> AppUserRecord | None:
         if not self._session_factory:
             return None
