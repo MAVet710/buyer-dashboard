@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engine
-from modules.coman.models import AppUser, AppUserFacilityRole, Facility
+from modules.coman.models import AppUser, AppUserFacilityRole, Facility, Organization
 
 
 VALID_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"}
@@ -44,6 +44,24 @@ class AppUserRecord:
     @property
     def is_dev(self) -> bool:
         return self.role == "dev"
+
+
+@dataclass(frozen=True)
+class OrganizationRecord:
+    id: str
+    name: str
+    slug: str
+    active: bool
+
+
+@dataclass(frozen=True)
+class FacilityRecord:
+    id: str
+    organization_id: str
+    name: str
+    code: str
+    timezone_name: str
+    active: bool
 
 
 class AppUserStore:
@@ -91,6 +109,93 @@ class AppUserStore:
                 return [self._record(user) for user in users]
         except SQLAlchemyError:
             return []
+
+    def list_organizations(self, *, active_only: bool = True) -> list[OrganizationRecord]:
+        if not self._session_factory:
+            return []
+        try:
+            with self._session_factory() as session:
+                statement = select(Organization)
+                if active_only:
+                    statement = statement.where(Organization.active.is_(True))
+                organizations = session.scalars(statement.order_by(Organization.name)).all()
+                return [self._organization_record(item) for item in organizations]
+        except SQLAlchemyError:
+            return []
+
+    def list_facilities(
+        self,
+        organization_id: str,
+        *,
+        user_id: str | None = None,
+        active_only: bool = True,
+    ) -> list[FacilityRecord]:
+        if not self._session_factory or not organization_id:
+            return []
+        try:
+            with self._session_factory() as session:
+                statement = select(Facility).where(Facility.organization_id == organization_id)
+                if user_id:
+                    statement = statement.join(
+                        AppUserFacilityRole,
+                        AppUserFacilityRole.facility_id == Facility.id,
+                    ).where(AppUserFacilityRole.user_id == user_id)
+                if active_only:
+                    statement = statement.where(Facility.active.is_(True))
+                facilities = session.scalars(statement.order_by(Facility.name)).all()
+                return [self._facility_record(item) for item in facilities]
+        except SQLAlchemyError:
+            return []
+
+    def create_organization(self, *, name: str, slug: str) -> OrganizationRecord:
+        if not self._session_factory:
+            raise RuntimeError("The application user database is not configured.")
+        clean_name = str(name or "").strip()
+        clean_slug = re.sub(r"[^a-z0-9-]+", "-", str(slug or "").strip().casefold()).strip("-")
+        if not clean_name or not clean_slug:
+            raise ValueError("Organization name and slug are required.")
+        organization = Organization(name=clean_name, slug=clean_slug, active=True)
+        with self._session_factory.begin() as session:
+            existing = session.scalar(select(Organization.id).where(Organization.slug == clean_slug))
+            if existing:
+                raise ValueError("That organization slug already exists.")
+            session.add(organization)
+        return self._organization_record(organization)
+
+    def create_facility(
+        self,
+        *,
+        organization_id: str,
+        name: str,
+        code: str,
+        timezone_name: str = "America/New_York",
+    ) -> FacilityRecord:
+        if not self._session_factory:
+            raise RuntimeError("The application user database is not configured.")
+        clean_name = str(name or "").strip()
+        clean_code = str(code or "").strip().upper()
+        if not organization_id or not clean_name or not clean_code:
+            raise ValueError("Organization, facility name, and code are required.")
+        facility = Facility(
+            organization_id=organization_id,
+            name=clean_name,
+            code=clean_code,
+            timezone_name=str(timezone_name or "America/New_York").strip(),
+            active=True,
+        )
+        with self._session_factory.begin() as session:
+            if not session.get(Organization, organization_id):
+                raise ValueError("Organization was not found.")
+            existing = session.scalar(
+                select(Facility.id).where(
+                    Facility.organization_id == organization_id,
+                    Facility.code == clean_code,
+                )
+            )
+            if existing:
+                raise ValueError("That facility code already exists in the organization.")
+            session.add(facility)
+        return self._facility_record(facility)
 
     def create_user(
         self,
@@ -255,4 +360,24 @@ class AppUserStore:
             must_change_password=bool(user.must_change_password),
             last_login_at=user.last_login_at,
             created_at=user.created_at,
+        )
+
+    @staticmethod
+    def _organization_record(organization: Organization) -> OrganizationRecord:
+        return OrganizationRecord(
+            id=organization.id,
+            name=organization.name,
+            slug=organization.slug,
+            active=bool(organization.active),
+        )
+
+    @staticmethod
+    def _facility_record(facility: Facility) -> FacilityRecord:
+        return FacilityRecord(
+            id=facility.id,
+            organization_id=facility.organization_id,
+            name=facility.name,
+            code=facility.code,
+            timezone_name=facility.timezone_name,
+            active=bool(facility.active),
         )
