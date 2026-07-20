@@ -104,3 +104,32 @@ def test_dev_cannot_be_scoped_to_one_organization():
             organization_id="not-allowed",
             created_by="system",
         )
+
+
+def test_dev_can_create_and_list_organization_facility_context():
+    store = _store()
+    organization = store.create_organization(name="Doobie Logic", slug="doobie-logic")
+    facility = store.create_facility(
+        organization_id=organization.id,
+        name="Main Production",
+        code="MAIN",
+    )
+    assert store.list_organizations() == [organization]
+    assert store.list_facilities(organization.id) == [facility]
+
+
+def test_facility_assignment_limits_user_context():
+    store = _store()
+    organization = store.create_organization(name="Operator Company", slug="operator-company")
+    assigned = store.create_facility(organization_id=organization.id, name="Assigned", code="A")
+    store.create_facility(organization_id=organization.id, name="Hidden", code="B")
+    user = store.create_user(
+        username="assigned.operator",
+        password_hash=_hash("temporary-password"),
+        role="operator",
+        organization_id=organization.id,
+        facility_ids=[assigned.id],
+        created_by="admin",
+    )
+    facilities = store.list_facilities(organization.id, user_id=user.id)
+    assert [item.id for item in facilities] == [assigned.id]

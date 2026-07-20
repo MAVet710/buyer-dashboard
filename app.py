@@ -1109,6 +1109,10 @@ if "auth_user_role" not in st.session_state:
     st.session_state.auth_user_role = None
 if "auth_organization_id" not in st.session_state:
     st.session_state.auth_organization_id = None
+if "active_organization_id" not in st.session_state:
+    st.session_state.active_organization_id = None
+if "active_facility_id" not in st.session_state:
+    st.session_state.active_facility_id = None
 if "auth_must_change_password" not in st.session_state:
     st.session_state.auth_must_change_password = False
 if "trial_start" not in st.session_state:
@@ -3384,6 +3388,7 @@ def _render_admin_user_management() -> None:
     current_admin = str(st.session_state.get("admin_user") or "admin")
     current_role = str(st.session_state.get("auth_user_role") or "admin")
     is_dev = current_role == "dev"
+    current_organization_id = st.session_state.get("auth_organization_id")
     legacy_hash = DEV_USERS.get(current_admin) or ADMIN_USERS.get(current_admin, "")
     if legacy_hash.startswith(("$2a$", "$2b$", "$2y$")):
         APP_USER_STORE.ensure_legacy_user(
@@ -3392,9 +3397,19 @@ def _render_admin_user_management() -> None:
             role="dev" if current_admin in DEV_USERS else "admin",
         )
 
-    users = APP_USER_STORE.list_users()
-    if not is_dev:
-        users = [user for user in users if not user.is_dev]
+    if is_dev:
+        users = APP_USER_STORE.list_users()
+    elif current_organization_id:
+        users = [
+            user
+            for user in APP_USER_STORE.list_users(current_organization_id)
+            if not user.is_dev
+        ]
+    else:
+        st.warning(
+            "This admin account is not assigned to an organization. Level DEV must assign it before it can manage users."
+        )
+        return
     if users:
         user_rows = [
             {
@@ -3414,8 +3429,58 @@ def _render_admin_user_management() -> None:
     else:
         st.info("No durable users exist yet. Create the first account below.")
 
+    if is_dev:
+        organizations = APP_USER_STORE.list_organizations()
+        with st.expander("Platform Organizations & Facilities", expanded=not organizations):
+            st.caption("Level DEV creates the company and facility records that scope every other account.")
+            org_tab, facility_tab = st.tabs(["Add Organization", "Add Facility"])
+            with org_tab:
+                with st.form("dev_create_organization", clear_on_submit=True):
+                    organization_name = st.text_input("Organization name")
+                    organization_slug = st.text_input("Organization slug", help="For example: acme-cannabis")
+                    add_organization = st.form_submit_button("Add Organization", type="primary")
+                if add_organization:
+                    try:
+                        APP_USER_STORE.create_organization(name=organization_name, slug=organization_slug)
+                        st.success("Organization created.")
+                        _safe_rerun()
+                    except Exception as exc:
+                        st.error(f"Unable to create organization: {exc}")
+            with facility_tab:
+                if not organizations:
+                    st.info("Create an organization first.")
+                else:
+                    organizations_by_name = {item.name: item for item in organizations}
+                    with st.form("dev_create_facility", clear_on_submit=True):
+                        facility_org_name = st.selectbox("Organization", sorted(organizations_by_name))
+                        facility_name = st.text_input("Facility name")
+                        facility_code = st.text_input("Facility code", help="Short unique code such as MAIN or MA01.")
+                        facility_timezone = st.text_input("Timezone", value="America/New_York")
+                        add_facility = st.form_submit_button("Add Facility", type="primary")
+                    if add_facility:
+                        try:
+                            APP_USER_STORE.create_facility(
+                                organization_id=organizations_by_name[facility_org_name].id,
+                                name=facility_name,
+                                code=facility_code,
+                                timezone_name=facility_timezone,
+                            )
+                            st.success("Facility created.")
+                            _safe_rerun()
+                        except Exception as exc:
+                            st.error(f"Unable to create facility: {exc}")
+
     create_tab, manage_tab = st.tabs(["Create User", "Manage Existing"])
     with create_tab:
+        organization_options = {"Unassigned": None}
+        if is_dev:
+            organization_options.update(
+                {item.name: item.id for item in APP_USER_STORE.list_organizations()}
+            )
+        elif st.session_state.get("auth_organization_id"):
+            organization_options = {
+                "Assigned organization": st.session_state.get("auth_organization_id")
+            }
         with st.form("admin_create_durable_user", clear_on_submit=True):
             c1, c2 = st.columns(2)
             username = c1.text_input("Username", help="Letters, numbers, periods, underscores, and hyphens.")
@@ -3425,6 +3490,7 @@ def _render_admin_user_management() -> None:
             if is_dev:
                 available_roles.append("dev")
             role = c2.selectbox("Role", available_roles)
+            organization_label = c1.selectbox("Organization", list(organization_options))
             password = c1.text_input("Temporary password", type="password")
             password_confirm = c2.text_input("Confirm temporary password", type="password")
             must_change = st.checkbox("Require password change", value=True)
@@ -3443,6 +3509,9 @@ def _render_admin_user_management() -> None:
                         username=username,
                         password_hash=hash_password(password),
                         role=role,
+                        organization_id=(
+                            None if role == "dev" else organization_options[organization_label]
+                        ),
                         display_name=display_name,
                         email=email,
                         created_by=current_admin,
@@ -3613,6 +3682,8 @@ else:
         st.session_state.auth_user_id = None
         st.session_state.auth_user_role = None
         st.session_state.auth_organization_id = None
+        st.session_state.active_organization_id = None
+        st.session_state.active_facility_id = None
         st.session_state.auth_must_change_password = False
         st.session_state._db_hydrated_username = ""
         _safe_rerun()
@@ -3667,6 +3738,8 @@ elif (not st.session_state.is_admin) and st.session_state.user_authenticated:
         st.session_state.auth_user_id = None
         st.session_state.auth_user_role = None
         st.session_state.auth_organization_id = None
+        st.session_state.active_organization_id = None
+        st.session_state.active_facility_id = None
         st.session_state.auth_must_change_password = False
         st.session_state._db_hydrated_username = ""
         _safe_rerun()
@@ -3731,11 +3804,68 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             mins_left = int((remaining.total_seconds() % 3600) // 60)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
 
-if st.session_state.get("auth_user_role") == "dev":
+def _render_access_context() -> None:
+    role = str(st.session_state.get("auth_user_role") or "trial")
+    user_id = st.session_state.get("auth_user_id")
+    assigned_org_id = st.session_state.get("auth_organization_id")
     st.sidebar.markdown("---")
-    st.sidebar.success("LEVEL DEV · Platform-wide access")
-    st.sidebar.caption("Viewing all organizations and facilities")
-    st.info("LEVEL DEV — Platform-wide access is active.")
+    st.sidebar.markdown("### Access Context")
+    st.sidebar.caption(f"Role: {role.upper().replace('_', ' ')}")
+
+    if role == "dev":
+        st.sidebar.success("LEVEL DEV · Platform-wide access")
+        organizations = APP_USER_STORE.list_organizations()
+        if not organizations:
+            st.sidebar.warning("No organizations exist yet. Add one in Admin Tools.")
+            st.session_state.active_organization_id = None
+            st.session_state.active_facility_id = None
+            return
+        organizations_by_label = {f"{item.name} ({item.slug})": item for item in organizations}
+        labels = list(organizations_by_label)
+        current_org = st.session_state.get("active_organization_id")
+        current_index = next(
+            (index for index, label in enumerate(labels) if organizations_by_label[label].id == current_org),
+            0,
+        )
+        org_label = st.sidebar.selectbox("Organization", labels, index=current_index, key="dev_org_context")
+        selected_org = organizations_by_label[org_label]
+        st.session_state.active_organization_id = selected_org.id
+        facilities = APP_USER_STORE.list_facilities(selected_org.id)
+    else:
+        st.session_state.active_organization_id = assigned_org_id
+        if not assigned_org_id:
+            st.sidebar.warning("This account is not assigned to an organization.")
+            st.session_state.active_facility_id = None
+            return
+        organizations = {item.id: item for item in APP_USER_STORE.list_organizations(active_only=False)}
+        assigned_org = organizations.get(assigned_org_id)
+        st.sidebar.info(assigned_org.name if assigned_org else "Assigned organization")
+        facilities = APP_USER_STORE.list_facilities(
+            assigned_org_id,
+            user_id=user_id if role != "admin" else None,
+        )
+
+    if not facilities:
+        st.sidebar.caption("No accessible facilities")
+        st.session_state.active_facility_id = None
+        return
+    facilities_by_label = {f"{item.name} ({item.code})": item for item in facilities}
+    facility_labels = list(facilities_by_label)
+    current_facility = st.session_state.get("active_facility_id")
+    facility_index = next(
+        (index for index, label in enumerate(facility_labels) if facilities_by_label[label].id == current_facility),
+        0,
+    )
+    facility_label = st.sidebar.selectbox("Facility", facility_labels, index=facility_index, key="facility_context")
+    selected_facility = facilities_by_label[facility_label]
+    st.session_state.active_facility_id = selected_facility.id
+    st.sidebar.caption(f"Timezone: {selected_facility.timezone_name}")
+
+
+if st.session_state.is_admin or st.session_state.user_authenticated:
+    _render_access_context()
+    if st.session_state.get("auth_user_role") == "dev":
+        st.info("LEVEL DEV — Platform-wide access is active. Select the company and facility you want to inspect.")
 
 # Hydrate per-user persistent integrations after auth succeeds.
 _hydrate_persistent_user_integrations()
