@@ -694,6 +694,7 @@ def _load_auth_secrets():
     Each dict maps username -> bcrypt_hash (or plaintext if
     st.secrets["auth"]["use_plaintext"] is explicitly True).
     """
+    devs: dict = {}
     admins: dict = {}
     users: dict = {}
     trial_value: str = ""
@@ -704,6 +705,15 @@ def _load_auth_secrets():
         auth = {}
 
     use_plaintext = bool(auth.get("use_plaintext", False)) if isinstance(auth, Mapping) else False
+
+    # --- platform developers/owners ---
+    raw_devs = auth.get("devs", {}) if isinstance(auth, Mapping) else {}
+    if isinstance(raw_devs, Mapping):
+        for k, v in raw_devs.items():
+            try:
+                devs[str(k)] = str(v)
+            except Exception:
+                pass
 
     # --- admins ---
     raw_admins = auth.get("admins", {}) if isinstance(auth, Mapping) else {}
@@ -740,10 +750,10 @@ def _load_auth_secrets():
     if env_trial and not trial_value:
         trial_value = env_trial
 
-    return admins, users, trial_value, use_plaintext
+    return devs, admins, users, trial_value, use_plaintext
 
 
-ADMIN_USERS, USER_USERS, _TRIAL_VALUE, _AUTH_PLAINTEXT = _load_auth_secrets()
+DEV_USERS, ADMIN_USERS, USER_USERS, _TRIAL_VALUE, _AUTH_PLAINTEXT = _load_auth_secrets()
 
 if not BCRYPT_AVAILABLE and not st.session_state.get("_bcrypt_warning_shown"):
     st.warning(
@@ -788,7 +798,7 @@ def _authenticate_account(username: str, password: str, require_admin: bool) -> 
         # password does not match.
         return False, ""
 
-    legacy_users = ADMIN_USERS if require_admin else USER_USERS
+    legacy_users = ({**ADMIN_USERS, **DEV_USERS} if require_admin else USER_USERS)
     stored_value = legacy_users.get(clean_username)
     if stored_value and _check_password(password, stored_value):
         durable_hash = stored_value
@@ -798,7 +808,7 @@ def _authenticate_account(username: str, password: str, require_admin: bool) -> 
             durable_user = APP_USER_STORE.ensure_legacy_user(
                 username=clean_username,
                 password_hash=durable_hash,
-                role="admin" if require_admin else "buyer",
+                role=("dev" if clean_username in DEV_USERS else "admin") if require_admin else "buyer",
             )
             if durable_user:
                 st.session_state.auth_user_id = durable_user.id
@@ -831,11 +841,13 @@ def _validate_auth_config() -> list:
         issues.append(("error", "No admin users loaded. Check that [auth.admins] is present in Streamlit secrets."))
     else:
         issues.append(("ok", f"{len(ADMIN_USERS)} admin user(s) loaded: {', '.join(sorted(ADMIN_USERS.keys()))}"))
+    if DEV_USERS:
+        issues.append(("ok", f"{len(DEV_USERS)} DEV user(s) loaded: {', '.join(sorted(DEV_USERS.keys()))}"))
     if not USER_USERS:
         issues.append(("warn", "No standard users loaded. Check that [auth.users] is present in Streamlit secrets if user login is expected."))
     else:
         issues.append(("ok", f"{len(USER_USERS)} standard user(s) loaded: {', '.join(sorted(USER_USERS.keys()))}"))
-    for uname, stored_hash in ADMIN_USERS.items():
+    for uname, stored_hash in {**ADMIN_USERS, **DEV_USERS}.items():
         if not stored_hash.startswith(("$2a$", "$2b$", "$2y$")):
             issues.append(("warn", f"Admin '{uname}': stored value does not look like a bcrypt hash (should start with $2a$, $2b$, or $2y$)."))
     for uname, stored_hash in USER_USERS.items():
@@ -3370,15 +3382,19 @@ def _render_admin_user_management() -> None:
         return
 
     current_admin = str(st.session_state.get("admin_user") or "admin")
-    legacy_hash = ADMIN_USERS.get(current_admin, "")
+    current_role = str(st.session_state.get("auth_user_role") or "admin")
+    is_dev = current_role == "dev"
+    legacy_hash = DEV_USERS.get(current_admin) or ADMIN_USERS.get(current_admin, "")
     if legacy_hash.startswith(("$2a$", "$2b$", "$2y$")):
         APP_USER_STORE.ensure_legacy_user(
             username=current_admin,
             password_hash=legacy_hash,
-            role="admin",
+            role="dev" if current_admin in DEV_USERS else "admin",
         )
 
     users = APP_USER_STORE.list_users()
+    if not is_dev:
+        users = [user for user in users if not user.is_dev]
     if users:
         user_rows = [
             {
@@ -3405,10 +3421,10 @@ def _render_admin_user_management() -> None:
             username = c1.text_input("Username", help="Letters, numbers, periods, underscores, and hyphens.")
             display_name = c2.text_input("Display name")
             email = c1.text_input("Email (optional)")
-            role = c2.selectbox(
-                "Role",
-                ["buyer", "planner", "supervisor", "operator", "qa", "read_only", "admin"],
-            )
+            available_roles = ["buyer", "planner", "supervisor", "operator", "qa", "read_only", "admin"]
+            if is_dev:
+                available_roles.append("dev")
+            role = c2.selectbox("Role", available_roles)
             password = c1.text_input("Temporary password", type="password")
             password_confirm = c2.text_input("Confirm temporary password", type="password")
             must_change = st.checkbox("Require password change", value=True)
@@ -3444,6 +3460,9 @@ def _render_admin_user_management() -> None:
             users_by_name = {user.username: user for user in users}
             selected_username = st.selectbox("User", sorted(users_by_name), key="admin_manage_user")
             selected_user = users_by_name[selected_username]
+            if selected_user.is_dev and not is_dev:
+                st.error("Only Level DEV can manage a DEV account.")
+                return
             desired_active = st.checkbox(
                 "Account active",
                 value=selected_user.active,
@@ -3711,6 +3730,12 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             hours_left = int(remaining.total_seconds() // 3600)
             mins_left = int((remaining.total_seconds() % 3600) // 60)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
+
+if st.session_state.get("auth_user_role") == "dev":
+    st.sidebar.markdown("---")
+    st.sidebar.success("LEVEL DEV · Platform-wide access")
+    st.sidebar.caption("Viewing all organizations and facilities")
+    st.info("LEVEL DEV — Platform-wide access is active.")
 
 # Hydrate per-user persistent integrations after auth succeeds.
 _hydrate_persistent_user_integrations()
