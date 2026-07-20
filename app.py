@@ -3635,10 +3635,10 @@ if theme_choice != st.session_state.theme:
     st.session_state.theme = theme_choice
     _safe_rerun()
 
-if APP_USER_STORE.health_check():
-    st.sidebar.caption("☁️ Supabase storage connected")
+if APP_USER_STORE.configured:
+    st.sidebar.caption("☁️ Supabase storage configured")
 else:
-    st.sidebar.warning("Supabase storage unavailable")
+    st.sidebar.warning("Supabase storage is not configured")
 
 st.sidebar.markdown("### 👑 Admin Login")
 
