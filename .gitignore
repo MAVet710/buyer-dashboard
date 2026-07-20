@@ -39,6 +39,14 @@ Thumbs.db
 # Streamlit
 .streamlit/
 
+# Local secrets and databases
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+
 # Testing
 .pytest_cache/
 .coverage

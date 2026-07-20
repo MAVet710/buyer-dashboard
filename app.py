@@ -50,24 +50,13 @@ from ui_polish import (
 )
 from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
-from views.retail_ops_command_center import render_retail_ops_command_center
-from modules.competitor_intelligence_center import render_competitor_intelligence_center
-from utils.constants import *
-from services.buyer_hob import (
-    DEFAULT_HOUSE_BRANDS, load_house_brands, save_house_brands, normalize_brand_name,
-    detect_brand_column, detect_quantity_column, classify_inventory, build_summary, build_category_coverage,
-    analyze_deals, export_workbook,
-)
-from services.inventory_state import get_active_inventory_df, get_active_sales_df, clear_active_inventory, clear_active_sales
-from utils.product_parsing import (
-    free_strain_lookup, ai_lookup_strain_type,
-    get_strain_database_size, get_strain_lookup_cache_size, clear_strain_lookup_cache,
-)
+from services.app_user_store import AppUserStore
 
 load_dotenv()
 
 USER_INTEGRATIONS_STORE = UserIntegrationsStore()
 GLOBAL_INTEGRATIONS_STORE = GlobalIntegrationsStore()
+APP_USER_STORE = AppUserStore()
 
 # Owner mark (non-functional, intentional signature fragment).
 # __  ______             __ ____________
@@ -363,6 +352,159 @@ def _render_sidebar_nav_mockup(app_mode: str, section: str | None = None) -> Non
     )
 
 
+# Common alias sets (used repeatedly)
+INV_NAME_ALIASES = [
+    "product", "productname", "item", "itemname", "name", "skuname",
+    "skuid", "product name", "product_name", "product title", "title"
+]
+INV_CAT_ALIASES = [
+    "category", "subcategory", "productcategory", "department",
+    "mastercategory", "product category", "cannabis", "product_category",
+    "ecomm category", "ecommcategory",
+]
+INV_QTY_ALIASES = [
+    "available", "onhand", "onhandunits", "quantity", "qty",
+    "quantityonhand", "instock", "currentquantity", "current quantity",
+    "inventoryavailable", "inventory available", "available quantity",
+    "med total", "medtotal",
+    "med sellable", "medsellable",
+]
+INV_SKU_ALIASES = ["sku", "skuid", "productid", "product_id", "itemid", "item_id"]
+INV_BATCH_ALIASES = [
+    "batch", "batchnumber", "batch number", "lot", "lotnumber", "lot number",
+    "batchid", "batch id", "lotid", "lot id", "inventorybatch", "inventory batch",
+    "packageid", "package id",
+]
+
+SALES_NAME_ALIASES = [
+    "product", "productname", "product title", "producttitle",
+    "productid", "name", "item", "itemname", "skuname",
+    "sku", "description", "product name", "product_name"
+]
+SALES_QTY_ALIASES = [
+    "quantitysold", "quantity sold",
+    "qtysold", "qty sold",
+    "itemsold", "item sold", "items sold",
+    "unitssold", "units sold", "unit sold", "unitsold", "units",
+    "totalunits", "total units",
+    "totalinventorysold", "total inventory sold",
+    "quantity", "qty",
+]
+SALES_CAT_ALIASES = [
+    "mastercategory", "category", "master_category",
+    "productcategory", "product category",
+    "department", "dept", "subcategory", "productcategoryname",
+    "product category name"
+]
+SALES_SKU_ALIASES = ["sku", "skuid", "productid", "product_id"]
+SALES_REV_ALIASES = [
+    "netsales", "net sales", "sales", "totalsales", "total sales",
+    "revenue", "grosssales", "gross sales"
+]
+SALES_BATCH_ALIASES = [
+    "batchid", "batch id", "batch", "batchnumber", "batch number",
+    "lotid", "lot id", "lot", "lotnumber", "lot number",
+]
+SALES_PACKAGE_ALIASES = [
+    "packageid", "package id", "packagenumber", "package number",
+]
+SALES_ORDER_ID_ALIASES = ["orderid", "order id", "ordernumber", "order number", "order"]
+SALES_ORDER_TIME_ALIASES = ["ordertime", "order time", "orderdate", "order date", "datetime"]
+
+# Constants for slow movers analysis
+UNKNOWN_DAYS_OF_SUPPLY = 999
+DEFAULT_SALES_PERIOD_DAYS = 30  # Default assumption when date range cannot be determined
+SLOW_MOVER_VELOCITY_WINDOWS = [28, 56, 84]  # Available velocity window choices (days)
+SLOW_MOVER_DEFAULT_DOH_THRESHOLD = 60  # Default Days-on-Hand threshold to flag a slow mover
+SLOW_MOVER_TOP_N_OPTIONS = [25, 50, 100, 0]  # 0 = All
+SLOW_MOVER_SORT_OPTIONS = [
+    "Days of Supply ↓",
+    "Weeks of Supply ↓",
+    "$ On-Hand ↓",
+    "Days Since Last Sale ↓",
+]
+
+# Aliases for optional inventory columns used in Slow Movers
+INV_COST_ALIASES = [
+    "cost", "unitcost", "unit cost", "cogs", "costprice", "cost price",
+    "wholesale", "wholesaleprice", "wholesale price",
+    "currentprice", "current price",
+]
+INV_RETAIL_PRICE_ALIASES = [
+    "medprice", "med price", "retail", "retailprice", "retail price", "msrp",
+]
+INV_STRAIN_TYPE_ALIASES = [
+    "straintype", "strain type", "strain", "ecommstraintype", "ecomm strain type",
+    "producttype", "product type",
+]
+INV_BRAND_ALIASES = [
+    "brand", "brandname", "brand name", "vendor", "vendorname", "vendor name",
+    "manufacturer", "producer", "supplier",
+]
+INV_SKU_COL_ALIASES = INV_SKU_ALIASES  # reuse existing list
+
+# Expiration date aliases for inventory
+INV_EXPIRY_ALIASES = [
+    "expirationdate", "expiration date", "expiry", "expirydate", "expiry date",
+    "bestby", "best by", "bestbydate", "best by date", "usebydate", "use by date",
+    "expires", "exp", "expdate", "exp date",
+]
+
+# Fraction of retail price used to derive unit_cost when no explicit cost column is present
+INV_COST_RETAIL_RATIO = 0.5
+
+# Recognized strain type values from explicit column (prefer these over inferred extraction)
+VALID_STRAIN_TYPES = frozenset([
+    "indica", "sativa", "hybrid", "cbd",
+    "indica dominant hybrid", "sativa dominant hybrid",
+])
+
+# Inventory Dashboard – Buyer View constants
+# Sort options for buyer-focused inventory view
+INVENTORY_SORT_OPTIONS = [
+    "$ on hand ↓",
+    "DOH (high→low) ↓",
+    "DOH (low→high) ↑",
+    "Expiring soonest",
+    "Avg weekly sales ↓",
+]
+# DOH ≤ this value → flagged as Reorder (configurable)
+INVENTORY_REORDER_DOH_THRESHOLD = 21
+# DOH ≥ this value → flagged as Overstock (configurable)
+INVENTORY_OVERSTOCK_DOH_THRESHOLD = 90
+# Days until expiry ≤ this → flagged as Expiring (configurable)
+INVENTORY_EXPIRING_SOON_DAYS = 60
+
+# Constants for PDF generation
+MAX_SKU_LENGTH_PDF = 10
+MAX_DESCRIPTION_LENGTH_PDF = 20
+MAX_STRAIN_LENGTH_PDF = 10
+MAX_SIZE_LENGTH_PDF = 8
+
+# Maximum allowed upload size per file (50 MB)
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+# Maximum rows to display in product-level detail table (performance guard)
+PRODUCT_TABLE_DISPLAY_LIMIT = 2000
+
+# Minimum on-hand units threshold for flagging a PO line for review
+PO_REVIEW_THRESHOLD = 15
+
+# Optional external market references for buyer workflows.
+# These links are informational only; buyer recommendations should still be grounded
+# in uploaded operational data and/or retrieved internal context.
+BUYER_MARKET_REFERENCES = [
+    {
+        "name": "Headset Brand Marketplace",
+        "url": "https://www.headset.io/brands",
+        "notes": "Live, frequently updated brand-level market visibility across U.S. cannabis markets.",
+    },
+]
+
+# Local app URL for self-hosted deployment links
+LOCAL_APP_URL = os.environ.get("LOCAL_APP_URL", "http://localhost:8501")
+
+
 class _DoobieTextResponse:
     def __init__(self, text: str) -> None:
         self.text = text
@@ -392,6 +534,137 @@ def _doobie_ai_status() -> str:
 
     client = _get_doobie_ai_client()
     return "connected" if client.enabled else "unavailable"
+
+
+# =========================
+# FREE STRAIN LOOKUP DATABASE
+# =========================
+# Comprehensive database of cannabis strains and their types (completely free, no API needed)
+STRAIN_DATABASE = {
+    # Popular Indica Strains
+    "granddaddy purple": "indica", "gdp": "indica", "purple kush": "indica",
+    "northern lights": "indica", "afghani": "indica", "blueberry": "indica",
+    "bubba kush": "indica", "master kush": "indica", "og kush": "indica",
+    "skywalker og": "indica", "kosher kush": "indica", "la confidential": "indica",
+    "purple punch": "indica", "ice cream cake": "indica", "wedding cake": "indica",
+    "do si dos": "indica", "dosidos": "indica", "zkittlez": "indica",
+    "gelato": "indica", "sherbet": "indica", "sunset sherbet": "indica",
+    "purple urkle": "indica", "grape ape": "indica", "blackberry kush": "indica",
+    "death star": "indica", "romulan": "indica", "critical kush": "indica",
+    "chocolate og": "indica", "motorbreath": "indica", "slurricane": "indica",
+    "sundae driver": "indica", "candy rain": "indica", "cherry pie": "indica",
+    
+    # Popular Sativa Strains
+    "sour diesel": "sativa", "jack herer": "sativa", "durban poison": "sativa",
+    "green crack": "sativa", "super lemon haze": "sativa", "tangie": "sativa",
+    "strawberry cough": "sativa", "trainwreck": "sativa", "maui wowie": "sativa",
+    "acapulco gold": "sativa", "panama red": "sativa", "super silver haze": "sativa",
+    "amnesia haze": "sativa", "ghost train haze": "sativa", "candyland": "sativa",
+    "lemon skunk": "sativa", "chemdog": "sativa", "chem dawg": "sativa",
+    "cherry ak": "sativa", "j1": "sativa", "lamb's bread": "sativa",
+    "red congolese": "sativa", "thai": "sativa", "colombian gold": "sativa",
+    "malawi": "sativa", "super sour diesel": "sativa", "clementine": "sativa",
+    
+    # Popular Hybrid Strains
+    "blue dream": "hybrid", "girl scout cookies": "hybrid", "gsc": "hybrid",
+    "gorilla glue": "hybrid", "gg4": "hybrid", "white widow": "hybrid",
+    "pineapple express": "hybrid", "ak-47": "hybrid", "sour og": "hybrid",
+    "golden goat": "hybrid", "headband": "hybrid", "chernobyl": "hybrid",
+    "bruce banner": "hybrid", "fire og": "hybrid", "gmo cookies": "hybrid",
+    "mac": "hybrid", "miracle alien cookies": "hybrid", "wedding crasher": "hybrid",
+    "mimosa": "hybrid", "runtz": "hybrid", "biscotti": "hybrid",
+    "cookies and cream": "hybrid", "animal cookies": "hybrid", "platinum cookies": "hybrid",
+    "thin mint": "hybrid", "thin mint cookies": "hybrid", "scooby snacks": "hybrid",
+    "london pound cake": "hybrid", "apples and bananas": "hybrid",
+    "cereal milk": "hybrid", "rainbow belts": "hybrid", "jealousy": "hybrid",
+    "grape gasoline": "hybrid", "oreoz": "hybrid", "gary payton": "hybrid",
+    "obama kush": "hybrid", "tahoe og": "hybrid", "sfv og": "hybrid",
+    "larry og": "hybrid", "triple og": "hybrid", "wifi og": "hybrid",
+    
+    # Generic strain-related terms (with word boundaries to avoid false positives)
+    # These match only when appearing as standalone words
+    "kush": "indica", "haze": "sativa", "cookies": "hybrid",
+    "diesel": "sativa", "skunk": "sativa", "cheese": "hybrid", "punch": "indica",
+    "cake": "indica", "pie": "indica", "breath": "hybrid", "sherb": "indica",
+}
+
+# Pre-compile regex patterns for performance
+SIZE_PATTERN = re.compile(r'\b\d+\.?\d*\s*(g|mg|oz|ml|ct|count|pk|pack)\b')
+PRODUCT_TYPE_PATTERN = re.compile(r'\b(flower|pre[-\s]?roll|joint|blunt|eighth|quarter|half|ounce)\b')
+
+# Pre-sort strain names by length (longest first) for matching priority
+SORTED_STRAIN_NAMES = sorted(STRAIN_DATABASE.keys(), key=len, reverse=True)
+
+# Pre-compile strain matching patterns for performance
+STRAIN_PATTERNS = {
+    strain: re.compile(r'\b' + re.escape(strain) + r'\b')
+    for strain in STRAIN_DATABASE.keys()
+}
+
+# Cache for strain lookups
+strain_lookup_cache = {}
+
+
+def free_strain_lookup(product_name, category):
+    """
+    Free strain type lookup using a comprehensive strain database and pattern matching.
+    No API calls, completely free and works offline.
+    
+    Args:
+        product_name: The product name to analyze
+        category: The product category (e.g., "flower", "pre rolls")
+    
+    Returns:
+        str: The detected strain type (indica, sativa, hybrid) or "unspecified"
+    """
+    if not product_name:
+        return "unspecified"
+    
+    # Check cache first
+    cache_key = f"{product_name.lower().strip()}|{category.lower().strip()}"
+    if cache_key in strain_lookup_cache:
+        return strain_lookup_cache[cache_key]
+    
+    # Normalize the product name for matching
+    name_lower = product_name.lower().strip()
+    
+    # Remove common size indicators and product types to focus on strain name
+    # Uses pre-compiled regex patterns for better performance
+    clean_name = SIZE_PATTERN.sub('', name_lower)
+    clean_name = PRODUCT_TYPE_PATTERN.sub('', clean_name)
+    clean_name = clean_name.strip()
+    
+    # Try exact match first (most accurate)
+    if clean_name in STRAIN_DATABASE:
+        result = STRAIN_DATABASE[clean_name]
+        strain_lookup_cache[cache_key] = result
+        return result
+    
+    # Try partial matching - uses pre-compiled patterns and pre-sorted list
+    # Longer strain names are checked first to prefer specific over generic matches
+    for strain_name in SORTED_STRAIN_NAMES:
+        # Use pre-compiled word boundary pattern to avoid false matches
+        # e.g., "og" should match "OG Kush" but not "dOGfood"
+        if STRAIN_PATTERNS[strain_name].search(clean_name):
+            result = STRAIN_DATABASE[strain_name]
+            strain_lookup_cache[cache_key] = result
+            return result
+    
+    # No match found
+    strain_lookup_cache[cache_key] = "unspecified"
+    return "unspecified"
+
+
+def ai_lookup_strain_type(product_name, category):
+    """
+    DEPRECATED (v2.0): Use free_strain_lookup() instead for cost-free strain detection.
+    
+    This function is kept for backward compatibility but now redirects to the free lookup.
+    Will be removed in v3.0 (planned for Q2 2026).
+    
+    Migration: Replace `ai_lookup_strain_type(name, cat)` with `free_strain_lookup(name, cat)`
+    """
+    return free_strain_lookup(product_name, category)
 
 
 # =========================
@@ -472,25 +745,6 @@ def _load_auth_secrets():
 
 ADMIN_USERS, USER_USERS, _TRIAL_VALUE, _AUTH_PLAINTEXT = _load_auth_secrets()
 
-
-def _db_user_record(username: str):
-    if not USER_INTEGRATIONS_STORE.available:
-        return None
-    return USER_INTEGRATIONS_STORE.get_user(username)
-
-
-def _is_disabled_user(username: str) -> bool:
-    record = _db_user_record(username)
-    return bool(record and str(getattr(record, "user_status", "active")) == "disabled")
-
-
-def _resolve_user_password_hash(username: str) -> str:
-    record = _db_user_record(username)
-    db_hash = str(getattr(record, "password_hash", "") or "")
-    if db_hash:
-        return db_hash
-    return str(USER_USERS.get(username) or "")
-
 if not BCRYPT_AVAILABLE and not st.session_state.get("_bcrypt_warning_shown"):
     st.warning(
         "⚠️ bcrypt is not installed. Password verification is disabled. "
@@ -511,6 +765,48 @@ def _check_password(plain: str, stored: str) -> bool:
         return verify_password(plain, stored)
     # Plaintext fallback (legacy / dev only)
     return plain == stored
+
+
+def _authenticate_account(username: str, password: str, require_admin: bool) -> tuple[bool, str]:
+    """Authenticate against durable users first, then bootstrap legacy secrets."""
+    clean_username = str(username or "").strip()
+    if not clean_username or not password:
+        return False, ""
+
+    database_user = APP_USER_STORE.get_user(clean_username)
+    if database_user is not None:
+        role_allowed = database_user.is_admin if require_admin else not database_user.is_admin
+        if database_user.active and role_allowed and verify_password(password, database_user.password_hash):
+            APP_USER_STORE.record_login(database_user.id)
+            st.session_state.auth_user_id = database_user.id
+            st.session_state.auth_user_role = database_user.role
+            st.session_state.auth_organization_id = database_user.organization_id
+            st.session_state.auth_must_change_password = database_user.must_change_password
+            return True, database_user.username
+        # A durable username is authoritative. Never fall through to a legacy
+        # secret when the database record is disabled, has another role, or the
+        # password does not match.
+        return False, ""
+
+    legacy_users = ADMIN_USERS if require_admin else USER_USERS
+    stored_value = legacy_users.get(clean_username)
+    if stored_value and _check_password(password, stored_value):
+        durable_hash = stored_value
+        if not str(durable_hash).startswith(("$2a$", "$2b$", "$2y$")) and BCRYPT_AVAILABLE:
+            durable_hash = hash_password(password)
+        if str(durable_hash).startswith(("$2a$", "$2b$", "$2y$")):
+            durable_user = APP_USER_STORE.ensure_legacy_user(
+                username=clean_username,
+                password_hash=durable_hash,
+                role="admin" if require_admin else "buyer",
+            )
+            if durable_user:
+                st.session_state.auth_user_id = durable_user.id
+                st.session_state.auth_user_role = durable_user.role
+                st.session_state.auth_organization_id = durable_user.organization_id
+                st.session_state.auth_must_change_password = durable_user.must_change_password
+        return True, clean_username
+    return False, ""
 
 
 def _check_trial_key(plain: str) -> bool:
@@ -795,6 +1091,14 @@ if "user_authenticated" not in st.session_state:
     st.session_state.user_authenticated = False
 if "user_user" not in st.session_state:
     st.session_state.user_user = None
+if "auth_user_id" not in st.session_state:
+    st.session_state.auth_user_id = None
+if "auth_user_role" not in st.session_state:
+    st.session_state.auth_user_role = None
+if "auth_organization_id" not in st.session_state:
+    st.session_state.auth_organization_id = None
+if "auth_must_change_password" not in st.session_state:
+    st.session_state.auth_must_change_password = False
 if "trial_start" not in st.session_state:
     st.session_state.trial_start = None
 if "metric_filter" not in st.session_state:
@@ -813,14 +1117,6 @@ if "detail_cached_df" not in st.session_state:
     st.session_state.detail_cached_df = None
 if "detail_product_cached_df" not in st.session_state:
     st.session_state.detail_product_cached_df = None
-if "active_inventory_df" not in st.session_state:
-    st.session_state.active_inventory_df = pd.DataFrame()
-if "active_inventory_meta" not in st.session_state:
-    st.session_state.active_inventory_meta = {}
-if "active_sales_df" not in st.session_state:
-    st.session_state.active_sales_df = pd.DataFrame()
-if "active_sales_meta" not in st.session_state:
-    st.session_state.active_sales_meta = {}
 if "theme" not in st.session_state:
     st.session_state.theme = "Dark"  # Dark by default
 if "strain_lookup_enabled" not in st.session_state:
@@ -1082,13 +1378,6 @@ def detect_column(columns, aliases):
         if alias in norm_map:
             return norm_map[alias]
     return None
-
-
-def _get_active_buyer_inventory_df() -> tuple[pd.DataFrame, str | None]:
-    df, meta = get_active_inventory_df()
-    source_key = meta.get("source_key") if isinstance(meta, dict) else None
-    st.session_state["hob_inventory_source_key"] = source_key
-    return df, source_key
 
 
 def parse_currency_to_float(series: "pd.Series") -> "pd.Series":
@@ -3007,45 +3296,6 @@ def _render_admin_integrations_page() -> None:
             f"Last validated: **{st.session_state.get('global_metrc_last_validated') or 'never'}**"
         )
 
-
-def _render_admin_portal_page() -> None:
-    if not st.session_state.get("is_admin", False):
-        st.error("Admin access is required.")
-        return
-    st.subheader("🛡️ Admin Portal")
-    if not USER_INTEGRATIONS_STORE.available:
-        st.warning("Persistent user management requires database storage.")
-        return
-    users = USER_INTEGRATIONS_STORE.list_users() if hasattr(USER_INTEGRATIONS_STORE, "list_users") else []
-    tabs = st.tabs(["Users", "Create User", "Trial Keys", "Licenses", "Audit Log"])
-    with tabs[0]:
-        st.dataframe(pd.DataFrame(users), use_container_width=True)
-    with tabs[1]:
-        with st.form("create_user_form"):
-            username = st.text_input("username").strip()
-            email = st.text_input("email (optional)").strip()
-            display_name = st.text_input("display_name (optional)").strip()
-            temp_password = st.text_input("temporary_password", type="password")
-            role = st.selectbox("role", ["user", "admin"])
-            status = st.selectbox("status", ["active", "disabled", "trial_expired", "pending"])
-            plan_type = st.selectbox("plan_type", ["trial", "standard", "premium", "enterprise"])
-            notes = st.text_area("notes (optional)")
-            submitted = st.form_submit_button("Create User", type="primary")
-            if submitted and username and temp_password:
-                password_hash = hash_password(temp_password)
-                USER_INTEGRATIONS_STORE.save_user_integrations(
-                    username=username,
-                    is_admin=(role == "admin"),
-                    values={"password_hash": password_hash, "email": email, "display_name": display_name, "notes": notes, "user_status": status, "doobie_plan_type": plan_type},
-                )
-                st.success("User created.")
-    with tabs[2]:
-        st.info("Configure Doobie Admin API in Integrations to generate trial keys.")
-    with tabs[3]:
-        st.caption("License management tools are available for DB-backed users.")
-    with tabs[4]:
-        st.caption("Audit log support can be added in persistent storage.")
-
         m_test, m_save, m_clear = st.columns(3)
         if m_test.button("Test Connection", key="admin_global_metrc_test_btn"):
             state = str(st.session_state.get("admin_global_metrc_state_input") or "").strip()
@@ -3107,6 +3357,122 @@ def _render_admin_portal_page() -> None:
             else:
                 st.error("Unable to clear METRC global settings.")
 
+
+def _render_admin_user_management() -> None:
+    st.markdown("### User Management")
+    st.caption("Create and manage durable app accounts stored in PostgreSQL. Passwords are bcrypt-hashed before saving.")
+
+    if not APP_USER_STORE.configured:
+        st.warning(
+            "Durable user storage is not configured for this deployment. Set COMAN_DATABASE_URL "
+            "to the Supabase Session pooler connection string. Existing secrets-based login remains available."
+        )
+        return
+
+    current_admin = str(st.session_state.get("admin_user") or "admin")
+    legacy_hash = ADMIN_USERS.get(current_admin, "")
+    if legacy_hash.startswith(("$2a$", "$2b$", "$2y$")):
+        APP_USER_STORE.ensure_legacy_user(
+            username=current_admin,
+            password_hash=legacy_hash,
+            role="admin",
+        )
+
+    users = APP_USER_STORE.list_users()
+    if users:
+        user_rows = [
+            {
+                "Username": user.username,
+                "Display Name": user.display_name,
+                "Email": user.email,
+                "Role": user.role,
+                "Active": user.active,
+                "Organization ID": user.organization_id or "Unassigned",
+                "Must Change Password": user.must_change_password,
+                "Last Login": user.last_login_at,
+                "Created": user.created_at,
+            }
+            for user in users
+        ]
+        st.dataframe(pd.DataFrame(user_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("No durable users exist yet. Create the first account below.")
+
+    create_tab, manage_tab = st.tabs(["Create User", "Manage Existing"])
+    with create_tab:
+        with st.form("admin_create_durable_user", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            username = c1.text_input("Username", help="Letters, numbers, periods, underscores, and hyphens.")
+            display_name = c2.text_input("Display name")
+            email = c1.text_input("Email (optional)")
+            role = c2.selectbox(
+                "Role",
+                ["buyer", "planner", "supervisor", "operator", "qa", "read_only", "admin"],
+            )
+            password = c1.text_input("Temporary password", type="password")
+            password_confirm = c2.text_input("Confirm temporary password", type="password")
+            must_change = st.checkbox("Require password change", value=True)
+            create_user = st.form_submit_button("Create User", type="primary")
+
+        if create_user:
+            if len(password) < 12:
+                st.error("Temporary passwords must contain at least 12 characters.")
+            elif password != password_confirm:
+                st.error("The password confirmation does not match.")
+            elif not BCRYPT_AVAILABLE:
+                st.error("bcrypt is required before users can be created.")
+            else:
+                try:
+                    APP_USER_STORE.create_user(
+                        username=username,
+                        password_hash=hash_password(password),
+                        role=role,
+                        display_name=display_name,
+                        email=email,
+                        created_by=current_admin,
+                        must_change_password=must_change,
+                    )
+                    st.success(f"User '{username}' created and stored securely.")
+                    _safe_rerun()
+                except Exception as exc:
+                    st.error(f"Unable to create user: {exc}")
+
+    with manage_tab:
+        if not users:
+            st.caption("Create a user before using account management actions.")
+        else:
+            users_by_name = {user.username: user for user in users}
+            selected_username = st.selectbox("User", sorted(users_by_name), key="admin_manage_user")
+            selected_user = users_by_name[selected_username]
+            desired_active = st.checkbox(
+                "Account active",
+                value=selected_user.active,
+                key=f"admin_user_active_{selected_user.id}",
+            )
+            if st.button("Save account status", key="admin_save_user_status"):
+                if selected_user.username == current_admin and not desired_active:
+                    st.error("You cannot deactivate the account currently signed in.")
+                elif APP_USER_STORE.set_active(selected_user.id, desired_active, current_admin):
+                    st.success("Account status updated.")
+                    _safe_rerun()
+                else:
+                    st.error("Unable to update the account status.")
+
+            st.markdown("#### Reset Password")
+            reset_password = st.text_input("New temporary password", type="password", key="admin_reset_password")
+            reset_confirm = st.text_input("Confirm new password", type="password", key="admin_reset_confirm")
+            if st.button("Reset password", key="admin_reset_password_btn"):
+                if len(reset_password) < 12:
+                    st.error("Temporary passwords must contain at least 12 characters.")
+                elif reset_password != reset_confirm:
+                    st.error("The password confirmation does not match.")
+                elif APP_USER_STORE.reset_password(
+                    selected_user.id, hash_password(reset_password), current_admin
+                ):
+                    st.success("Password reset. The user will be required to change it.")
+                else:
+                    st.error("Unable to reset the password.")
+
 # =========================
 # INIT DOOBIE CONNECTION + SHOW DEBUG (admin-only)
 # =========================
@@ -3162,11 +3528,11 @@ with st.sidebar.expander("🌿 Strain Lookup Settings", expanded=False):
     if strain_enabled != st.session_state.strain_lookup_enabled:
         st.session_state.strain_lookup_enabled = strain_enabled
         # Clear the cache when toggling
-        clear_strain_lookup_cache()
+        strain_lookup_cache.clear()
         st.success("Setting updated! Refresh your data to apply changes.")
     
-    st.info(f"📊 Database contains {get_strain_database_size()} strain entries")
-    st.info(f"💾 Cache has {get_strain_lookup_cache_size()} lookups")
+    st.info(f"📊 Database contains {len(STRAIN_DATABASE)} strain entries")
+    st.info(f"💾 Cache has {len(strain_lookup_cache)} lookups")
 
 # =========================
 # 🔐 THEME TOGGLE + ADMIN + TRIAL GATE
@@ -3198,9 +3564,12 @@ if not st.session_state.is_admin:
         admin_user = st.sidebar.text_input("Username", key="admin_user_input")
         admin_pass = st.sidebar.text_input("Password", type="password", key="admin_pass_input")
         if st.sidebar.button("Login as Admin"):
-            if admin_user in ADMIN_USERS and _check_password(admin_pass, ADMIN_USERS[admin_user]):
+            admin_authenticated, authenticated_admin = _authenticate_account(
+                admin_user, admin_pass, require_admin=True
+            )
+            if admin_authenticated:
                 st.session_state.is_admin = True
-                st.session_state.admin_user = admin_user
+                st.session_state.admin_user = authenticated_admin
                 st.session_state._db_hydrated_username = ""
                 st.session_state._admin_fail_count = 0
                 st.session_state._admin_lockout_until = None
@@ -3222,6 +3591,10 @@ else:
     if st.sidebar.button("Logout Admin"):
         st.session_state.is_admin = False
         st.session_state.admin_user = None
+        st.session_state.auth_user_id = None
+        st.session_state.auth_user_role = None
+        st.session_state.auth_organization_id = None
+        st.session_state.auth_must_change_password = False
         st.session_state._db_hydrated_username = ""
         _safe_rerun()
 
@@ -3245,22 +3618,15 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
         u_user = st.sidebar.text_input("Username", key="user_user_input")
         u_pass = st.sidebar.text_input("Password", type="password", key="user_pass_input")
         if st.sidebar.button("Login", key="login_user_btn"):
-            stored_hash = _resolve_user_password_hash(u_user)
-            if stored_hash and _check_password(u_pass, stored_hash):
-                if _is_disabled_user(u_user):
-                    st.sidebar.error("Your account is disabled. Please contact an administrator.")
-                    st.stop()
+            user_authenticated, authenticated_user = _authenticate_account(
+                u_user, u_pass, require_admin=False
+            )
+            if user_authenticated:
                 st.session_state.user_authenticated = True
-                st.session_state.user_user = u_user
+                st.session_state.user_user = authenticated_user
                 st.session_state._db_hydrated_username = ""
                 st.session_state._user_fail_count = 0
                 st.session_state._user_lockout_until = None
-                if USER_INTEGRATIONS_STORE.available:
-                    USER_INTEGRATIONS_STORE.save_user_integrations(
-                        username=u_user,
-                        is_admin=False,
-                        values={"last_login": datetime.now(timezone.utc).isoformat()},
-                    )
                 st.sidebar.success("✅ User access enabled.")
             else:
                 st.session_state._user_fail_count += 1
@@ -3279,8 +3645,38 @@ elif (not st.session_state.is_admin) and st.session_state.user_authenticated:
     if st.sidebar.button("Logout", key="logout_user_btn"):
         st.session_state.user_authenticated = False
         st.session_state.user_user = None
+        st.session_state.auth_user_id = None
+        st.session_state.auth_user_role = None
+        st.session_state.auth_organization_id = None
+        st.session_state.auth_must_change_password = False
         st.session_state._db_hydrated_username = ""
         _safe_rerun()
+
+if (
+    (st.session_state.is_admin or st.session_state.user_authenticated)
+    and st.session_state.auth_must_change_password
+):
+    st.warning("Your administrator issued a temporary password. Create a private password to continue.")
+    with st.form("required_password_change_form", clear_on_submit=True):
+        new_password = st.text_input("New password", type="password")
+        confirm_password = st.text_input("Confirm new password", type="password")
+        change_submitted = st.form_submit_button("Save new password", type="primary")
+    if change_submitted:
+        if len(new_password) < 12:
+            st.error("Use at least 12 characters.")
+        elif new_password != confirm_password:
+            st.error("The passwords do not match.")
+        elif not st.session_state.auth_user_id:
+            st.error("This account is not connected to the user database.")
+        elif APP_USER_STORE.change_password(
+            st.session_state.auth_user_id, hash_password(new_password)
+        ):
+            st.session_state.auth_must_change_password = False
+            st.success("Password updated.")
+            _safe_rerun()
+        else:
+            st.error("The password could not be updated. Ask an administrator to verify the account.")
+    st.stop()
 
 trial_now = datetime.now()
 
@@ -3364,8 +3760,36 @@ def _to_report_df(value):
 
 
 def _safe_report_df(value, empty_message="No data available") -> pd.DataFrame:
-    from utils.dataframe_helpers import _safe_report_df as _impl
-    return _impl(value, empty_message)
+    if isinstance(value, pd.DataFrame):
+        return value.copy()
+
+    if value is None:
+        return pd.DataFrame([{"Message": empty_message}])
+
+    if isinstance(value, list):
+        if not value:
+            return pd.DataFrame([{"Message": empty_message}])
+        try:
+            df = pd.DataFrame(value)
+            return df if not df.empty else pd.DataFrame([{"Message": empty_message}])
+        except Exception:
+            return pd.DataFrame([{"Message": empty_message}])
+
+    if isinstance(value, dict):
+        if not value:
+            return pd.DataFrame([{"Message": empty_message}])
+        try:
+            if all(not isinstance(v, (dict, list, tuple, set, pd.Series, pd.DataFrame)) for v in value.values()):
+                return pd.DataFrame(
+                    [{"Metric": str(k), "Value": "" if v is None else str(v)} for k, v in value.items()]
+                )
+            return pd.DataFrame(
+                [{"Metric": str(k), "Value": "" if v is None else str(v)} for k, v in value.items()]
+            )
+        except Exception:
+            return pd.DataFrame([{"Message": empty_message}])
+
+    return pd.DataFrame([{"Value": str(value)}])
 
 
 def _draw_pdf_report_background(c, page_w, page_h, dark=True):
@@ -3400,8 +3824,13 @@ def _draw_pdf_report_background(c, page_w, page_h, dark=True):
 
 
 def _safe_numeric_series(df, column_name, default=0.0) -> pd.Series:
-    from utils.dataframe_helpers import _safe_numeric_series as _impl
-    return _impl(df, column_name, default)
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.Series(dtype="float64")
+
+    if column_name in df.columns:
+        return pd.to_numeric(df[column_name], errors="coerce").fillna(default)
+
+    return pd.Series([default] * len(df), index=df.index, dtype="float64")
 
 
 def _safe_series_mean(series: pd.Series, default=0.0) -> float:
@@ -3412,13 +3841,15 @@ def _safe_series_mean(series: pd.Series, default=0.0) -> float:
 
 
 def _safe_numeric_sum(df, column_name, default=0.0) -> float:
-    from utils.dataframe_helpers import _safe_numeric_sum as _impl
-    return _impl(df, column_name, default)
+    series = _safe_numeric_series(df, column_name, default=0.0)
+    if series.empty:
+        return float(default)
+    total = series.sum()
+    return float(total) if pd.notna(total) else float(default)
 
 
 def _safe_numeric_mean(df, column_name, default=0.0) -> float:
-    from utils.dataframe_helpers import _safe_numeric_mean as _impl
-    return _impl(df, column_name, default)
+    return _safe_series_mean(_safe_numeric_series(df, column_name, default=0.0), default=default)
 
 def _build_buyer_executive_report_bytes(payload: dict) -> bytes:
     payload = payload or {}
@@ -4317,9 +4748,6 @@ if _feature_enabled("buyer_module", default_enabled=True):
     workspace_options.append("🏷️ White Label / Repack")
 if _feature_enabled("extraction_module", default_enabled=True):
     workspace_options.append("🧪 Extraction Command Center")
-if _feature_enabled("retail_ops_module", default_enabled=True):
-    workspace_options.append("🏪 Retail Ops Command Center")
-workspace_options.append("🕵️ Competitor Intelligence Center")
 _active_workspace = st.session_state.get("workspace_mode", workspace_options[0] if workspace_options else "🛒 Buyer Operations")
 _ecc_runs = _safe_report_df(st.session_state.get("ecc_run_log"))
 _extraction_profitability = _safe_report_df(st.session_state.get("ecc_run_value_snapshot", _ecc_runs))
@@ -8655,24 +9083,6 @@ if app_mode == "🏷️ White Label / Repack":
     if white_payload:
         st.session_state["white_label_export_payload"] = white_payload
     st.stop()
-if app_mode == "🏪 Retail Ops Command Center":
-    render_hero(
-        "Retail Ops Command Center",
-        "Evaluate labor efficiency, schedule health, and retention risk.",
-        _display_user,
-        "Retail • Operations",
-    )
-    render_retail_ops_command_center()
-    st.stop()
-if app_mode == "🕵️ Competitor Intelligence Center":
-    render_hero(
-        "Competitor Intelligence Center",
-        "Human-in-the-loop competitor menu intelligence for pricing, assortment, and promo strategy.",
-        _display_user,
-        "Buyer • Competitive Intelligence",
-    )
-    render_competitor_intelligence_center()
-    st.stop()
 
 # =========================
 # GLOBAL DATA MODE SELECTOR (BUYER OPERATIONS ONLY)
@@ -8702,13 +9112,11 @@ section_options = [
     "🧭 Compliance Q&A",
     "🧠 Buyer Intelligence",
     "💰 Purchasing Budget",
-    "🏷️ Brand Mix & HOB Coverage",
 ]
 if _feature_enabled("admin_exports", default_enabled=True):
     section_options.append("🛠️ Admin Tools")
 if st.session_state.get("is_admin", False):
     section_options.append("🔌 Integrations")
-    section_options.append("🛡️ Admin Portal")
 
 section = st.sidebar.radio(
     "App Section",
@@ -8722,10 +9130,6 @@ if _feature_enabled("ai_support", default_enabled=True):
     render_main_ai_copilot(app_mode, section)
 else:
     st.caption("AI support is unavailable for your current plan.")
-
-if section == "🛡️ Admin Portal":
-    _render_admin_portal_page()
-    st.stop()
 
 # ============================================================
 # PAGE 1 – INVENTORY DASHBOARD
@@ -10478,6 +10882,9 @@ elif section == "🛠️ Admin Tools":
 
     st.caption("Doobie diagnostics, compliance source QA, and operational admin utilities.")
 
+    _render_admin_user_management()
+    st.markdown("---")
+
     a1, a2 = st.columns(2)
     with a1:
         st.markdown("### Doobie AI Diagnostics")
@@ -10587,113 +10994,6 @@ elif section == "🔌 Integrations":
 # ============================================================
 # PAGE 2 – TRENDS
 # ============================================================
-
-# ============================================================
-# PAGE – BRAND MIX & HOB COVERAGE
-# ============================================================
-elif section == "🏷️ Brand Mix & HOB Coverage":
-    st.subheader("🏷️ Brand Mix & HOB Coverage")
-    hob_df, source_key = _get_active_buyer_inventory_df()
-    if hob_df.empty:
-        st.warning("Upload an inventory file in the Buyer Dashboard first to run HOB coverage.")
-        st.stop()
-    active_inventory_meta = st.session_state.get("active_inventory_meta", {})
-    st.caption(f"Using active inventory: {active_inventory_meta.get('source_name') or source_key or 'Session Inventory'}")
-    settings = load_house_brands()
-    st.markdown("### Brand Classification Settings")
-    brand_text = st.text_area("House of Brands (one per line)", value="\n".join(settings.get("house_brands", DEFAULT_HOUSE_BRANDS)), height=180)
-    c1,c2=st.columns(2)
-    with c1:
-        if st.button("Save House Brands"):
-            settings = save_house_brands([x.strip() for x in brand_text.splitlines() if x.strip()])
-            st.success("Saved house brand settings.")
-    with c2:
-        if st.button("Reset to Default"):
-            settings = save_house_brands(DEFAULT_HOUSE_BRANDS)
-            st.success("Reset to defaults.")
-
-    df = hob_df.copy(); df.columns = [str(c).strip() for c in df.columns]
-    columns = list(df.columns)
-    detected_qty_col = detect_quantity_column(columns)
-    detected_brand_col = detect_brand_column(columns)
-    detected_cat_col = detect_column(columns, [normalize_col(a) for a in INV_CAT_ALIASES])
-    name_col = detect_column(columns, [normalize_col(a) for a in INV_NAME_ALIASES])
-
-    brand_default_idx = columns.index(detected_brand_col) if detected_brand_col in columns else 0
-    qty_default_idx = columns.index(detected_qty_col) if detected_qty_col in columns else 0
-    cat_default_idx = columns.index(detected_cat_col) if detected_cat_col in columns else 0
-
-    brand_col = st.selectbox("Brand column mapping", options=columns, index=brand_default_idx, key="hob_brand_col_mapping")
-    qty_col = st.selectbox("Quantity column mapping", options=columns, index=qty_default_idx, key="hob_qty_col_mapping")
-    cat_col = st.selectbox("Category column mapping", options=columns, index=cat_default_idx, key="hob_cat_col_mapping")
-
-    st.markdown("### HOB Inventory Mapping Status")
-    st.caption(
-        f"Inventory source: `{source_key or 'None'}` | Rows loaded: `{len(df):,}` | "
-        f"Brand column: `{brand_col or 'Unmapped'}` | Quantity column: `{qty_col or 'Unmapped'}` | "
-        f"Category column: `{cat_col or 'Unmapped'}`"
-    )
-    if not detected_qty_col:
-        st.warning("No quantity column was auto-detected. Please map quantity manually; if invalid, HOB units will default to 0.")
-    if not detected_brand_col:
-        st.warning("No brand/vendor column was auto-detected. Please map brand column manually for proper HOB grouping.")
-
-    classified = classify_inventory(df, settings.get("house_brands", []), qty_col=qty_col, brand_col=brand_col)
-    if "_hob_warning" in classified.columns:
-        st.warning("Buyer HOB could not detect a valid quantity column. Brand grouping still works, but unit share and coverage calculations are defaulting to 0.")
-    summary = build_summary(classified, qty_col)
-    resolved_qty_col = str(classified["_hob_qty_col_used"].iloc[0]) if "_hob_qty_col_used" in classified.columns and not classified.empty else qty_col
-
-    st.session_state["hob_classified_inventory_df"] = classified.copy()
-    st.session_state["hob_summary"] = dict(summary)
-    st.session_state["hob_inventory_source_key"] = source_key
-    st.session_state["hob_qty_col_used"] = resolved_qty_col
-    st.session_state["hob_brand_col_used"] = brand_col
-    st.session_state["hob_category_col_used"] = cat_col
-
-    k1,k2,k3,k4 = st.columns(4)
-    k1.metric("Total Inventory Units", f"{summary['total_units']:,.0f}")
-    k2.metric("HOB Units", f"{summary['hob_units']:,.0f}")
-    k3.metric("Third Party Units", f"{summary['third_units']:,.0f}")
-    k4.metric("Unknown Units", f"{summary['unknown_units']:,.0f}")
-    k5,k6,k7,k8 = st.columns(4)
-    k5.metric("HOB Inventory %", f"{summary['hob_pct']:.1%}")
-    k6.metric("Third Party Inventory %", f"{summary['third_pct']:.1%}")
-    k7.metric("HOB SKU Count", f"{summary['hob_sku_count']:,}")
-    k8.metric("Third Party SKU Count", f"{summary['third_sku_count']:,}")
-
-    category_cov = build_category_coverage(classified, qty_col=qty_col, category_col=cat_col) if cat_col in classified.columns else pd.DataFrame()
-    st.session_state["hob_category_coverage_df"] = category_cov.copy()
-    st.markdown("### Category-Level HOB Coverage")
-    st.dataframe(category_cov, use_container_width=True)
-
-    st.markdown("### Promo Support")
-    with st.form("deal_form"):
-        deal_name = st.text_input("Deal name")
-        deal_category = st.text_input("Category filter")
-        deal_brands = st.text_input("Brand filter (comma separated)")
-        price_threshold = st.number_input("Price threshold (optional)", min_value=0.0, value=0.0)
-        keyword = st.text_input("Potency/size keyword")
-        start_date = st.date_input("Start date", value=datetime.now().date())
-        end_date = st.date_input("End date", value=datetime.now().date())
-        submitted = st.form_submit_button("Run Deal Analysis")
-    deals=[]
-    if submitted:
-        deals=[{"name": deal_name or "Deal", "category": deal_category or None, "brands": [b.strip() for b in deal_brands.split(",") if b.strip()] or None, "price_threshold": price_threshold if price_threshold>0 else None, "keyword": keyword or None, "start_date": start_date, "end_date": end_date}]
-    promo_df = analyze_deals(classified, deals, qty_col=qty_col, category_col=cat_col, brand_col=brand_col, price_col=detect_column([c.lower() for c in df.columns],[normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES]), name_col=name_col) if deals else pd.DataFrame()
-    if not promo_df.empty:
-        st.dataframe(promo_df, use_container_width=True)
-
-    st.markdown("### Buyer Insight Generator")
-    if not category_cov.empty:
-        worst = category_cov.sort_values("HOB %", ascending=True).iloc[0]
-        st.info(f"Overall HOB is {summary['hob_pct']:.1%}. Largest gap is {worst['Category']} at {worst['HOB %']:.1%} HOB. Recommended action: Increase HOB ordering in low-coverage categories and prioritize active promo-supporting HOB SKUs.")
-
-    st.download_button("Export HOB Coverage Summary to CSV", pd.DataFrame([summary]).to_csv(index=False), "hob_summary.csv", "text/csv")
-    st.download_button("Export Category Coverage to CSV", category_cov.to_csv(index=False), "hob_category_coverage.csv", "text/csv")
-    st.download_button("Export Promo Support Analysis to CSV", promo_df.to_csv(index=False) if not promo_df.empty else "", "promo_support.csv", "text/csv")
-    st.download_button("Export full Excel workbook", export_workbook(summary, category_cov, promo_df, settings, classified), "hob_brand_mix_workbook.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
 elif section == "📈 Trends":
     st.subheader("📈 Trends")
 
