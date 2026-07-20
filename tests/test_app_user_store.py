@@ -79,3 +79,28 @@ def test_active_user_can_complete_required_password_change():
     loaded = store.get_user("new.operator")
     assert loaded.password_hash == replacement
     assert loaded.must_change_password is False
+
+
+def test_dev_is_platform_wide_and_has_admin_access():
+    store = _store()
+    user = store.create_user(
+        username="God",
+        password_hash=_hash("platform-owner-password"),
+        role="dev",
+        created_by="system",
+    )
+    assert user.is_dev is True
+    assert user.is_admin is True
+    assert user.organization_id is None
+
+
+def test_dev_cannot_be_scoped_to_one_organization():
+    store = _store()
+    with pytest.raises(ValueError, match="platform-wide"):
+        store.create_user(
+            username="scoped.dev",
+            password_hash=_hash("platform-owner-password"),
+            role="dev",
+            organization_id="not-allowed",
+            created_by="system",
+        )

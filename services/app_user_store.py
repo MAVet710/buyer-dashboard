@@ -14,7 +14,7 @@ from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engin
 from modules.coman.models import AppUser, AppUserFacilityRole, Facility
 
 
-VALID_ROLES = {"admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"}
+VALID_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"}
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,120}$")
 
 
@@ -39,7 +39,11 @@ class AppUserRecord:
 
     @property
     def is_admin(self) -> bool:
-        return self.role == "admin"
+        return self.role in {"dev", "admin"}
+
+    @property
+    def is_dev(self) -> bool:
+        return self.role == "dev"
 
 
 class AppUserStore:
@@ -110,6 +114,8 @@ class AppUserStore:
             raise ValueError("Username must be 3-120 characters using letters, numbers, ., _, or -.")
         if clean_role not in VALID_ROLES:
             raise ValueError("Invalid user role.")
+        if clean_role == "dev" and organization_id:
+            raise ValueError("DEV accounts must remain platform-wide and cannot belong to one organization.")
         if not str(password_hash).startswith(("$2a$", "$2b$", "$2y$")):
             raise ValueError("A bcrypt password hash is required.")
         if facility_ids and not organization_id:

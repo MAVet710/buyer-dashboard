@@ -191,7 +191,7 @@ class AppUser(TimestampMixin, Base):
     __tablename__ = "app_users"
     __table_args__ = (
         CheckConstraint(
-            "role in ('admin', 'buyer', 'planner', 'supervisor', 'operator', 'qa', 'read_only')",
+            "role in ('dev', 'admin', 'buyer', 'planner', 'supervisor', 'operator', 'qa', 'read_only')",
             name="ck_app_users_role",
         ),
         Index("ix_app_users_org_active", "organization_id", "active"),
@@ -220,7 +220,7 @@ class AppUserFacilityRole(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("user_id", "facility_id", name="uq_app_user_facility"),
         CheckConstraint(
-            "role in ('admin', 'buyer', 'planner', 'supervisor', 'operator', 'qa', 'read_only')",
+            "role in ('dev', 'admin', 'buyer', 'planner', 'supervisor', 'operator', 'qa', 'read_only')",
             name="ck_app_user_facility_role",
         ),
     )
