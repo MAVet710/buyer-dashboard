@@ -15,6 +15,7 @@ from .models import (
     Customer,
     Facility,
     FacilityMachine,
+    HandLaborArea,
     MachineModel,
     Organization,
     ProductionOrder,
@@ -151,6 +152,32 @@ class ComanRepository:
             if active_only:
                 statement = statement.where(FacilityMachine.active.is_(True))
             return list(session.scalars(statement.order_by(FacilityMachine.display_name)))
+
+    def ensure_primary_hand_labor_area(self, organization_id: str, facility_id: str) -> HandLaborArea:
+        with self._session_factory.begin() as session:
+            facility = session.get(Facility, facility_id)
+            if not facility or facility.organization_id != organization_id:
+                raise ValueError("Facility does not belong to the organization.")
+            area = session.scalar(select(HandLaborArea).where(HandLaborArea.organization_id == organization_id, HandLaborArea.facility_id == facility_id, HandLaborArea.name == "Primary Hand Labor Area"))
+            if area is None:
+                area = HandLaborArea(organization_id=organization_id, facility_id=facility_id, name="Primary Hand Labor Area")
+                session.add(area)
+                session.flush()
+            return area
+
+    def update_hand_labor_area(self, area_id: str, *, organization_id: str, facility_id: str, default_crew_size: int, sticker_units_per_person_hour: float, case_pack_units_per_person_hour: float, final_cases_per_person_hour: float, setup_minutes: int, cleanup_minutes: int, actor: str) -> HandLaborArea:
+        rates = [float(sticker_units_per_person_hour), float(case_pack_units_per_person_hour), float(final_cases_per_person_hour)]
+        if any(rate <= 0 for rate in rates):
+            raise ValueError("All hand-labor rates must be greater than zero.")
+        with self._session_factory.begin() as session:
+            area = session.get(HandLaborArea, area_id)
+            if not area or area.organization_id != organization_id or area.facility_id != facility_id:
+                raise ValueError("Hand labor area was not found in this facility.")
+            area.default_crew_size = max(1, int(default_crew_size))
+            area.sticker_units_per_person_hour, area.case_pack_units_per_person_hour, area.final_cases_per_person_hour = rates
+            area.setup_minutes, area.cleanup_minutes = max(0, int(setup_minutes)), max(0, int(cleanup_minutes))
+            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="hand_labor_area", entity_id=area.id, action="rates_updated", actor=actor, changes_json=json.dumps({"crew": area.default_crew_size, "rates": rates})))
+            return area
 
     def create_production_order(
         self,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import create_engine, func, select
 
 from modules.coman.models import AuditEvent, Base, MachineModel
-from modules.coman.planning import estimate_machine_job
+from modules.coman.planning import estimate_hand_labor_job, estimate_machine_job
 from modules.coman.repository import ComanRepository
 
 
@@ -128,3 +128,20 @@ def test_facility_machine_is_scoped_and_capacity_is_calculated():
     assert [item.id for item in repository.list_facility_machines(organization.id, facility.id)] == [machine.id]
     estimate = estimate_machine_job(4000, 500, 3, 30, 30, 8)
     assert estimate == {"run_hours": 8.0, "elapsed_hours": 9.0, "labor_hours": 27.0, "shifts": 2}
+
+
+def test_required_hand_labor_area_and_downstream_estimate():
+    repository, _ = _repository()
+    organization = repository.create_organization("DoobieLogic")
+    facility = repository.create_facility(organization.id, "Main Production", "MAIN")
+    area = repository.ensure_primary_hand_labor_area(organization.id, facility.id)
+    updated = repository.update_hand_labor_area(area.id, organization_id=organization.id, facility_id=facility.id, default_crew_size=4, sticker_units_per_person_hour=100, case_pack_units_per_person_hour=200, final_cases_per_person_hour=10, setup_minutes=30, cleanup_minutes=30, actor="admin")
+    assert updated.name == "Primary Hand Labor Area"
+    estimate = estimate_hand_labor_job(4000, 4, 100, 200, 10, 100, 30, 30)
+    assert estimate["cases"] == 40
+    assert estimate["sticker_hours"] == 10
+    assert estimate["case_pack_hours"] == 5
+    assert estimate["final_case_hours"] == 1
+    assert estimate["elapsed_hours"] == 17
+    assert estimate["labor_hours"] == 68
+    assert estimate["bottleneck"] == "Stickering"

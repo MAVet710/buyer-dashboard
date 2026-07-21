@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from .db import ComanDatabaseConfigurationError, create_coman_engine
-from .planning import estimate_machine_job
+from .planning import estimate_hand_labor_job, estimate_machine_job
 from .repository import ComanRepository
 
 
@@ -71,6 +71,7 @@ def render_coman_workspace() -> None:
         orders = repository.list_production_orders(organization_id, facility_id)
         machine_models = repository.list_machine_models()
         facility_machines = repository.list_facility_machines(organization_id, facility_id)
+        hand_area = repository.ensure_primary_hand_labor_area(organization_id, facility_id)
     except ComanDatabaseConfigurationError:
         st.error("Co-Man storage is not configured. Add COMAN_DATABASE_URL to Streamlit secrets.")
         return
@@ -88,8 +89,8 @@ def render_coman_workspace() -> None:
     metrics[2].metric("External Jobs", len(external_orders))
     metrics[3].metric("Customers", len(customers))
 
-    overview_tab, orders_tab, customers_tab, machines_tab, planning_tab = st.tabs(
-        ["Overview", "Production Orders", "Customers", "Machines", "Capacity Planning"]
+    overview_tab, orders_tab, customers_tab, machines_tab, hand_labor_tab, planning_tab = st.tabs(
+        ["Overview", "Production Orders", "Customers", "Machines", "Hand Labor", "Capacity Planning"]
     )
 
     with overview_tab:
@@ -271,6 +272,26 @@ def render_coman_workspace() -> None:
                 hide_index=True,
             )
 
+    with hand_labor_tab:
+        st.markdown("#### Required hand-labor area")
+        st.caption("Stickering, case packing, and final case packing are included for every facility. Enter repeatable per-person rates from your operation.")
+        with st.form("coman_hand_labor_form"):
+            col1, col2, col3 = st.columns(3)
+            hand_crew = col1.number_input("Default hand-labor crew", min_value=1, value=max(1, hand_area.default_crew_size), step=1)
+            sticker_rate = col1.number_input("Stickering units/person/hour*", min_value=0.0, value=float(hand_area.sticker_units_per_person_hour), step=10.0)
+            case_rate = col2.number_input("Case-pack units/person/hour*", min_value=0.0, value=float(hand_area.case_pack_units_per_person_hour), step=10.0)
+            final_case_rate = col3.number_input("Final cases/person/hour*", min_value=0.0, value=float(hand_area.final_cases_per_person_hour), step=1.0)
+            hand_setup = col2.number_input("Area setup minutes", min_value=0, value=hand_area.setup_minutes, step=5)
+            hand_cleanup = col3.number_input("Area cleanup minutes", min_value=0, value=hand_area.cleanup_minutes, step=5)
+            save_hand_area = st.form_submit_button("Save hand-labor rates", type="primary")
+        if save_hand_area:
+            try:
+                repository.update_hand_labor_area(hand_area.id, organization_id=organization_id, facility_id=facility_id, default_crew_size=int(hand_crew), sticker_units_per_person_hour=float(sticker_rate), case_pack_units_per_person_hour=float(case_rate), final_cases_per_person_hour=float(final_case_rate), setup_minutes=int(hand_setup), cleanup_minutes=int(hand_cleanup), actor=_actor())
+                st.success("Hand-labor rates were saved.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Hand-labor rates could not be saved: {exc}")
+
     with planning_tab:
         st.markdown("#### Machine capacity estimate")
         if not open_orders or not facility_machines:
@@ -305,3 +326,17 @@ def render_coman_workspace() -> None:
                 "This is a single-machine estimate using your observed rate. Labor routing for breakdown, "
                 "weighing, tubing, stickering, casing, packing, QA, and sanitation comes next."
             )
+            st.markdown("#### Required downstream hand labor")
+            units_per_case = st.number_input("Finished units per final case", min_value=1, value=100, step=1)
+            rates_ready = all([hand_area.sticker_units_per_person_hour > 0, hand_area.case_pack_units_per_person_hour > 0, hand_area.final_cases_per_person_hour > 0])
+            if not rates_ready:
+                st.warning("Configure all three observed rates in Hand Labor to include downstream completion time.")
+            else:
+                hand_estimate = estimate_hand_labor_job(planning_order.requested_units, hand_area.default_crew_size, hand_area.sticker_units_per_person_hour, hand_area.case_pack_units_per_person_hour, hand_area.final_cases_per_person_hour, int(units_per_case), hand_area.setup_minutes, hand_area.cleanup_minutes)
+                hand_metrics = st.columns(4)
+                hand_metrics[0].metric("Hand-Labor Elapsed", f"{hand_estimate['elapsed_hours']:.1f} hr")
+                hand_metrics[1].metric("Hand Labor Required", f"{hand_estimate['labor_hours']:.1f} labor hr")
+                hand_metrics[2].metric("Final Cases", int(hand_estimate["cases"]))
+                hand_metrics[3].metric("Hand-Labor Bottleneck", str(hand_estimate["bottleneck"]))
+                total_elapsed = float(estimate["elapsed_hours"]) + float(hand_estimate["elapsed_hours"])
+                st.success(f"Estimated end-to-end completion time: {total_elapsed:.1f} hours, including the machine and required hand-labor stages.")
