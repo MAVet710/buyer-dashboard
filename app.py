@@ -51,6 +51,7 @@ from ui_polish import (
 from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
 from services.app_user_store import AppUserStore
+from services.auth_identity import resolve_legacy_identity
 
 load_dotenv()
 
@@ -798,24 +799,36 @@ def _authenticate_account(username: str, password: str, require_admin: bool) -> 
         # password does not match.
         return False, ""
 
-    legacy_users = ({**ADMIN_USERS, **DEV_USERS} if require_admin else USER_USERS)
-    stored_value = legacy_users.get(clean_username)
+    legacy_identity = resolve_legacy_identity(
+        clean_username,
+        dev_users=DEV_USERS,
+        admin_users=ADMIN_USERS,
+        standard_users=USER_USERS,
+        require_admin=require_admin,
+    )
+    stored_value = legacy_identity.stored_value if legacy_identity else ""
     if stored_value and _check_password(password, stored_value):
+        # Authentication must establish a complete authorization context even
+        # when Supabase is temporarily unavailable during legacy bootstrap.
+        st.session_state.auth_user_id = None
+        st.session_state.auth_user_role = legacy_identity.role
+        st.session_state.auth_organization_id = None
+        st.session_state.auth_must_change_password = False
         durable_hash = stored_value
         if not str(durable_hash).startswith(("$2a$", "$2b$", "$2y$")) and BCRYPT_AVAILABLE:
             durable_hash = hash_password(password)
         if str(durable_hash).startswith(("$2a$", "$2b$", "$2y$")):
             durable_user = APP_USER_STORE.ensure_legacy_user(
-                username=clean_username,
+                username=legacy_identity.username,
                 password_hash=durable_hash,
-                role=("dev" if clean_username in DEV_USERS else "admin") if require_admin else "buyer",
+                role=legacy_identity.role,
             )
             if durable_user:
                 st.session_state.auth_user_id = durable_user.id
                 st.session_state.auth_user_role = durable_user.role
                 st.session_state.auth_organization_id = durable_user.organization_id
                 st.session_state.auth_must_change_password = durable_user.must_change_password
-        return True, clean_username
+        return True, legacy_identity.username
     return False, ""
 
 
