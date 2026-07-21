@@ -189,6 +189,28 @@ class ProductionOrder(TimestampMixin, Base):
     updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
+class ProductionActual(TimestampMixin, Base):
+    __tablename__ = "coman_production_actuals"
+    __table_args__ = (
+        UniqueConstraint("production_order_id", name="uq_coman_actual_order"),
+        CheckConstraint("actual_units >= 0", name="ck_coman_actual_units"),
+        CheckConstraint("scrap_units >= 0", name="ck_coman_actual_scrap"),
+        CheckConstraint("rework_units >= 0", name="ck_coman_actual_rework"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    production_order_id: Mapped[str] = mapped_column(ForeignKey("coman_production_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    actual_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scrap_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rework_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actual_machine_hours: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    actual_labor_hours: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    recorded_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
 class AuditEvent(Base):
     __tablename__ = "coman_audit_events"
     __table_args__ = (Index("ix_coman_audit_entity", "organization_id", "entity_type", "entity_id"),)
