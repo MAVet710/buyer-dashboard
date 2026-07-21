@@ -3096,6 +3096,10 @@ def _doobie_ai_access_enabled() -> bool:
 
 
 def _render_doobie_ai_panel() -> None:
+    # Admins configure and diagnose Doobie from the dedicated Integrations and
+    # Admin Tools pages. Keeping the full form in their sidebar duplicates UI.
+    if st.session_state.get("is_admin", False):
+        return
     with st.sidebar.expander("⚙️ Connect Doobie", expanded=False):
         resolved = resolve_doobie_config()
         is_admin = bool(st.session_state.get("is_admin", False))
@@ -3582,44 +3586,41 @@ _refresh_doobie_connection_state()
 # Diagnostics are platform-owner tools; ordinary company admins do not need
 # them in their day-to-day sidebar.
 if st.session_state.get("auth_user_role") == "dev":
-    with st.sidebar.expander("🔍 AI Debug Info", expanded=False):
-        status = _doobie_ai_status()
-        resolved_cfg = resolve_doobie_config()
-        st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
-        st.write(f"AI Status: {status}")
-        st.write(f"Doobie config source: {resolved_cfg.get('source')}")
-        st.write(f"Doobie base URL configured: {bool(str(resolved_cfg.get('base_url') or '').strip())}")
-        st.write(f"Doobie API key configured: {bool(str(resolved_cfg.get('api_key') or '').strip())}")
-
-    with st.sidebar.expander("🔐 Auth Debug Info", expanded=False):
-        _auth_admins_section = False
-        _auth_users_section = False
-        try:
-            _auth_admins_section = "auth" in st.secrets and "admins" in st.secrets["auth"]
-            _auth_users_section = "auth" in st.secrets and "users" in st.secrets["auth"]
-        except Exception:
-            pass
-        st.write(f"auth.admins section exists: {_auth_admins_section}")
-        st.write(f"auth.users section exists: {_auth_users_section}")
-        st.write(f"Admin usernames loaded: {len(ADMIN_USERS)}")
-        st.write(f"Standard usernames loaded: {len(USER_USERS)}")
-        st.write(f"bcrypt available: {BCRYPT_AVAILABLE}")
-        if ADMIN_USERS:
-            st.write(f"Admin keys: {', '.join(sorted(ADMIN_USERS.keys()))}")
-        if USER_USERS:
-            st.write(f"User keys: {', '.join(sorted(USER_USERS.keys()))}")
-        for severity, msg in _validate_auth_config():
-            if severity == "ok":
-                st.success(msg)
-            elif severity == "warn":
-                st.warning(msg)
-            else:
-                st.error(msg)
+    with st.sidebar.expander("🛠 Developer Diagnostics", expanded=False):
+        ai_debug_tab, auth_debug_tab = st.tabs(["AI", "Authentication"])
+        with ai_debug_tab:
+            status = _doobie_ai_status()
+            resolved_cfg = resolve_doobie_config()
+            st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
+            st.write(f"AI Status: {status}")
+            st.write(f"Doobie config source: {resolved_cfg.get('source')}")
+            st.write(f"Doobie base URL configured: {bool(str(resolved_cfg.get('base_url') or '').strip())}")
+            st.write(f"Doobie API key configured: {bool(str(resolved_cfg.get('api_key') or '').strip())}")
+        with auth_debug_tab:
+            _auth_admins_section = False
+            _auth_users_section = False
+            try:
+                _auth_admins_section = "auth" in st.secrets and "admins" in st.secrets["auth"]
+                _auth_users_section = "auth" in st.secrets and "users" in st.secrets["auth"]
+            except Exception:
+                pass
+            st.write(f"auth.admins section exists: {_auth_admins_section}")
+            st.write(f"auth.users section exists: {_auth_users_section}")
+            st.write(f"Admin usernames loaded: {len(ADMIN_USERS)}")
+            st.write(f"Standard usernames loaded: {len(USER_USERS)}")
+            st.write(f"bcrypt available: {BCRYPT_AVAILABLE}")
+            for severity, msg in _validate_auth_config():
+                if severity == "ok":
+                    st.success(msg)
+                elif severity == "warn":
+                    st.warning(msg)
+                else:
+                    st.error(msg)
 
 # =========================
 # STRAIN LOOKUP TOGGLE
 # =========================
-with st.sidebar.expander("🌿 Strain Lookup Settings", expanded=False):
+with st.sidebar.expander("⚙️ Preferences", expanded=False):
     st.markdown("**Free Strain Database Lookup**")
     st.write("Uses a comprehensive database of cannabis strains to automatically classify products.")
     strain_enabled = st.checkbox(
@@ -3636,19 +3637,20 @@ with st.sidebar.expander("🌿 Strain Lookup Settings", expanded=False):
     st.info(f"📊 Database contains {len(STRAIN_DATABASE)} strain entries")
     st.info(f"💾 Cache has {len(strain_lookup_cache)} lookups")
 
-# =========================
-# 🔐 THEME TOGGLE + ADMIN + TRIAL GATE
-# =========================
-st.sidebar.markdown("### 🎨 Theme")
-theme_choice = st.sidebar.radio(
-    "Mode",
-    ["Dark", "Light"],
-    index=0 if st.session_state.theme == "Dark" else 1,
-)
-if theme_choice != st.session_state.theme:
-    st.session_state.theme = theme_choice
-    _safe_rerun()
+    st.markdown("**Appearance**")
+    theme_choice = st.radio(
+        "Theme",
+        ["Dark", "Light"],
+        index=0 if st.session_state.theme == "Dark" else 1,
+        horizontal=True,
+    )
+    if theme_choice != st.session_state.theme:
+        st.session_state.theme = theme_choice
+        _safe_rerun()
 
+# =========================
+# 🔐 ACCOUNT + TRIAL GATE
+# =========================
 if APP_USER_STORE.configured:
     st.sidebar.caption("☁️ Supabase storage configured")
 else:
@@ -5044,10 +5046,6 @@ else:
     st.markdown("⚠️ AI buyer-assist is **OFF** (Doobie AI unavailable).")
 st.markdown("---")
 
-with st.sidebar.expander("🔗 Local App Link", expanded=False):
-    st.write(f"Local URL: {LOCAL_APP_URL}")
-    st.markdown(f"[Open local app]({LOCAL_APP_URL})")
-
 if not PLOTLY_AVAILABLE:
     st.warning(
         "⚠️ Plotly is not installed in this environment. Charts will be disabled.\n\n"
@@ -5076,7 +5074,7 @@ if st.session_state.is_admin:
         r for r in st.session_state.upload_log if r["upload_id"] not in expired_ids
     ]
 
-    with st.sidebar.expander("🗂️ Upload Viewer (Admin)", expanded=False):
+    with st.sidebar.expander("🗂️ Admin Uploads", expanded=False):
         st.warning(
             "⚠️ This panel displays sensitive user-uploaded data. "
             "Handle with care and do not share outside authorized personnel."
@@ -9244,8 +9242,6 @@ app_mode = st.radio(
     key="workspace_mode",
 )
 
-_render_sidebar_nav_mockup(app_mode, None)
-
 if app_mode == "🧪 Extraction Command Center":
     render_hero(
         f"{_time_greeting()}, Extraction Team",
@@ -9310,8 +9306,6 @@ section = st.sidebar.radio(
     section_options,
     index=0,
 )
-
-_render_sidebar_nav_mockup(app_mode, section)
 
 if _feature_enabled("ai_support", default_enabled=True):
     render_main_ai_copilot(app_mode, section)
