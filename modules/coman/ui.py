@@ -19,10 +19,10 @@ from .repository import ComanRepository
 
 
 PRODUCT_FORMATS = [
-    "Pouched flower - 3.5 g",
-    "Pouched flower - 7 g",
-    "Pouched flower - 14 g",
-    "Pouched flower - 1 oz (28 g)",
+    "Pouched flower — 3.5 g",
+    "Pouched flower — 7 g",
+    "Pouched flower — 14 g",
+    "Pouched flower — 1 oz (28 g)",
     "Jarred flower",
     "Pre-roll",
     "Pre-roll pack",
@@ -32,10 +32,10 @@ PRODUCT_FORMATS = [
 ]
 
 DEFAULT_OPTIMIZER_PRODUCTS = [
-    {"eligible": True, "product": "3.5 g flower pouch", "format": "Pouched flower - 3.5 g", "unit_size_g": 3.5, "revenue_per_unit": 18.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.75, "other_cost_per_unit": 0.10, "machine_units_per_hour": 900.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 50, "max_allocation_pct": 100.0},
-    {"eligible": True, "product": "7 g flower pouch", "format": "Pouched flower - 7 g", "unit_size_g": 7.0, "revenue_per_unit": 32.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.85, "other_cost_per_unit": 0.12, "machine_units_per_hour": 750.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 30, "max_allocation_pct": 100.0},
-    {"eligible": True, "product": "14 g flower pouch", "format": "Pouched flower - 14 g", "unit_size_g": 14.0, "revenue_per_unit": 58.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.95, "other_cost_per_unit": 0.15, "machine_units_per_hour": 600.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 20, "max_allocation_pct": 100.0},
-    {"eligible": True, "product": "1 oz flower pouch", "format": "Pouched flower - 1 oz (28 g)", "unit_size_g": 28.0, "revenue_per_unit": 105.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 1.10, "other_cost_per_unit": 0.18, "machine_units_per_hour": 450.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 12, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "3.5 g flower pouch", "format": "Pouched flower — 3.5 g", "unit_size_g": 3.5, "revenue_per_unit": 18.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.75, "other_cost_per_unit": 0.10, "machine_units_per_hour": 900.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 50, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "7 g flower pouch", "format": "Pouched flower — 7 g", "unit_size_g": 7.0, "revenue_per_unit": 32.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.85, "other_cost_per_unit": 0.12, "machine_units_per_hour": 750.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 30, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "14 g flower pouch", "format": "Pouched flower — 14 g", "unit_size_g": 14.0, "revenue_per_unit": 58.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.95, "other_cost_per_unit": 0.15, "machine_units_per_hour": 600.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 20, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "1 oz flower pouch", "format": "Pouched flower — 1 oz (28 g)", "unit_size_g": 28.0, "revenue_per_unit": 105.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 1.10, "other_cost_per_unit": 0.18, "machine_units_per_hour": 450.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 12, "max_allocation_pct": 100.0},
     {"eligible": True, "product": "3.5 g flower jar", "format": "Jarred flower", "unit_size_g": 3.5, "revenue_per_unit": 20.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 1.15, "other_cost_per_unit": 0.10, "machine_units_per_hour": 500.0, "machine_crew": 4, "machine_cost_per_hour": 25.0, "units_per_case": 48, "max_allocation_pct": 100.0},
     {"eligible": True, "product": "1 g pre-roll", "format": "Pre-roll", "unit_size_g": 1.0, "revenue_per_unit": 6.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.35, "other_cost_per_unit": 0.08, "machine_units_per_hour": 1200.0, "machine_crew": 4, "machine_cost_per_hour": 45.0, "units_per_case": 100, "max_allocation_pct": 100.0},
     {"eligible": True, "product": "5-pack pre-roll", "format": "Pre-roll pack", "unit_size_g": 2.5, "revenue_per_unit": 16.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.90, "other_cost_per_unit": 0.12, "machine_units_per_hour": 350.0, "machine_crew": 5, "machine_cost_per_hour": 45.0, "units_per_case": 40, "max_allocation_pct": 100.0},
@@ -93,6 +93,10 @@ def render_coman_workspace() -> None:
         hand_area = repository.ensure_primary_hand_labor_area(organization_id, facility_id)
         actuals = repository.list_production_actuals(organization_id, facility_id)
         crew_availability = repository.list_crew_availability(organization_id, facility_id, date.today())
+        products = repository.list_products(organization_id)
+        inventory_lots = repository.list_inventory_lots(organization_id, facility_id)
+        inventory_transactions = repository.list_inventory_transactions(organization_id, facility_id)
+        material_reservations = repository.list_material_reservations(organization_id, facility_id)
     except ComanDatabaseConfigurationError:
         st.error("Co-Man storage is not configured. Add COMAN_DATABASE_URL to Streamlit secrets.")
         return
@@ -110,8 +114,8 @@ def render_coman_workspace() -> None:
     metrics[2].metric("External Jobs", len(external_orders))
     metrics[3].metric("Customers", len(customers))
 
-    overview_tab, orders_tab, planning_tab, resources_tab, customers_tab, performance_tab = st.tabs(
-        ["Dashboard", "New Job", "Schedule", "Resources", "Customers", "Performance"]
+    overview_tab, orders_tab, planning_tab, resources_tab, inventory_tab, customers_tab, performance_tab = st.tabs(
+        ["Dashboard", "New Job", "Schedule", "Resources", "Inventory & BOM", "Customers", "Performance"]
     )
 
     with overview_tab:
@@ -137,7 +141,7 @@ def render_coman_workspace() -> None:
         else:
             st.dataframe(frame, width="stretch", hide_index=True)
             st.markdown("#### Queue actions")
-            order_actions = {f"{order.order_number} â€” {order.product_name}": order for order in orders}
+            order_actions = {f"{order.order_number} — {order.product_name}": order for order in orders}
             action_col1, action_col2 = st.columns(2)
             selected_action_order = order_actions[action_col1.selectbox("Order", list(order_actions), key="coman_action_order")]
             status_label = action_col2.selectbox("New status", ["Draft", "Scheduled", "In Progress", "On Hold", "Complete", "Cancelled"])
@@ -370,7 +374,7 @@ def render_coman_workspace() -> None:
             st.warning("No machine benchmark models are loaded yet.")
         else:
             model_options = {
-                f"{model.manufacturer} â€” {model.model} ({model.category})": model
+                f"{model.manufacturer} — {model.model} ({model.category})": model
                 for model in machine_models
             }
             with st.form("coman_facility_machine_form", clear_on_submit=True):
@@ -454,6 +458,247 @@ def render_coman_workspace() -> None:
             except Exception as exc:
                 st.error(f"Hand-labor rates could not be saved: {exc}")
 
+    with inventory_tab:
+        st.markdown("#### Product and material control")
+        st.caption(
+            "Track cannabis, packaging, work-in-process, and finished goods by lot. "
+            "Balances come from an append-only transaction ledger so production history remains auditable."
+        )
+
+        product_panel, lot_panel = st.columns(2)
+        with product_panel:
+            with st.expander("Add a product or material", expanded=not products):
+                with st.form("coman_product_form", clear_on_submit=True):
+                    product_sku = st.text_input("SKU / item code*")
+                    product_name = st.text_input("Product or material name*")
+                    product_type = st.selectbox(
+                        "Item type",
+                        ["cannabis", "packaging", "wip", "finished_good"],
+                        format_func=lambda value: value.replace("_", " ").title(),
+                    )
+                    product_unit = st.selectbox("Base unit", ["g", "lb", "each", "case", "mL"])
+                    product_cost = st.number_input("Standard cost per base unit", min_value=0.0, value=0.0, step=0.01)
+                    save_product = st.form_submit_button("Save product", type="primary")
+                if save_product:
+                    if not product_sku.strip() or not product_name.strip():
+                        st.error("SKU and product name are required.")
+                    else:
+                        try:
+                            repository.create_product(
+                                organization_id,
+                                sku=product_sku,
+                                name=product_name,
+                                item_type=product_type,
+                                base_unit=product_unit,
+                                unit_cost=float(product_cost),
+                                actor=_actor(),
+                            )
+                            st.success("Product saved.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Product could not be saved: {exc}")
+
+        product_options = {f"{product.sku} — {product.name}": product for product in products}
+        with lot_panel:
+            with st.expander("Receive a lot", expanded=bool(products) and not inventory_lots):
+                if not products:
+                    st.info("Add a product before receiving inventory.")
+                else:
+                    with st.form("coman_lot_form", clear_on_submit=True):
+                        lot_product_label = st.selectbox("Product", list(product_options), key="coman_lot_product")
+                        lot_code = st.text_input("Lot / batch code*")
+                        package_id = st.text_input("Compliance package ID", help="Optional until a state traceability integration is connected.")
+                        location_code = st.text_input("Storage location", value="UNASSIGNED")
+                        opening_quantity = st.number_input("Quantity received", min_value=0.0, value=0.0, step=1.0)
+                        save_lot = st.form_submit_button("Receive lot", type="primary")
+                    if save_lot:
+                        try:
+                            selected_product = product_options[lot_product_label]
+                            repository.create_inventory_lot(
+                                organization_id,
+                                facility_id,
+                                product_id=selected_product.id,
+                                lot_code=lot_code,
+                                actor=_actor(),
+                                opening_quantity=float(opening_quantity),
+                                location_code=location_code,
+                                compliance_package_id=package_id,
+                                unit=selected_product.base_unit,
+                            )
+                            st.success("Lot received and opening ledger entry posted.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Lot could not be received: {exc}")
+
+        products_by_id = {product.id: product for product in products}
+        lots_by_id = {lot.id: lot for lot in inventory_lots}
+        lot_options = {
+            f"{lot.lot_code} — {getattr(products_by_id.get(lot.product_id), 'name', 'Unknown product')}": lot
+            for lot in inventory_lots
+        }
+        reservation_totals: dict[str, float] = {}
+        for reservation in material_reservations:
+            if reservation.status == "reserved":
+                reservation_totals[reservation.lot_id] = reservation_totals.get(reservation.lot_id, 0.0) + reservation.quantity
+
+        st.markdown("#### On-hand inventory")
+        if not inventory_lots:
+            st.info("No inventory lots yet. Add a product and receive the first lot above.")
+        else:
+            inventory_rows = []
+            for lot in inventory_lots:
+                product = products_by_id.get(lot.product_id)
+                on_hand = repository.inventory_balance(organization_id, lot.id)
+                reserved = reservation_totals.get(lot.id, 0.0)
+                inventory_rows.append(
+                    {
+                        "Lot": lot.lot_code,
+                        "Product": getattr(product, "name", "Unknown"),
+                        "SKU": getattr(product, "sku", ""),
+                        "Location": lot.location_code,
+                        "On Hand": on_hand,
+                        "Reserved": reserved,
+                        "Available": on_hand - reserved,
+                        "Unit": getattr(product, "base_unit", ""),
+                        "Status": lot.status.title(),
+                        "Package ID": lot.compliance_package_id,
+                    }
+                )
+            st.dataframe(pd.DataFrame(inventory_rows), width="stretch", hide_index=True)
+
+        transaction_panel, reservation_panel = st.columns(2)
+        with transaction_panel:
+            st.markdown("##### Post inventory movement")
+            if not inventory_lots:
+                st.caption("Receive a lot to post movements.")
+            else:
+                with st.form("coman_inventory_transaction_form", clear_on_submit=True):
+                    transaction_lot_label = st.selectbox("Lot", list(lot_options), key="coman_tx_lot")
+                    transaction_type = st.selectbox(
+                        "Movement",
+                        ["receipt", "adjustment_in", "adjustment_out", "production_consume", "production_output", "waste", "shipment", "return"],
+                        format_func=lambda value: value.replace("_", " ").title(),
+                    )
+                    transaction_quantity = st.number_input("Quantity", min_value=0.01, value=1.0, step=1.0)
+                    transaction_reason = st.text_input("Reason / reference*")
+                    save_transaction = st.form_submit_button("Post movement", type="primary")
+                if save_transaction:
+                    try:
+                        selected_lot = lot_options[transaction_lot_label]
+                        selected_product = products_by_id[selected_lot.product_id]
+                        outbound_types = {"adjustment_out", "production_consume", "waste", "shipment"}
+                        ledger_type = "adjustment" if transaction_type.startswith("adjustment_") else transaction_type
+                        signed_quantity = -float(transaction_quantity) if transaction_type in outbound_types else float(transaction_quantity)
+                        repository.post_inventory_transaction(
+                            organization_id,
+                            facility_id,
+                            lot_id=selected_lot.id,
+                            transaction_type=ledger_type,
+                            quantity_delta=signed_quantity,
+                            unit=selected_product.base_unit,
+                            actor=_actor(),
+                            reason=transaction_reason,
+                        )
+                        st.success("Inventory movement posted.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Movement could not be posted: {exc}")
+
+        with reservation_panel:
+            st.markdown("##### Reserve material for a job")
+            if not open_orders or not inventory_lots:
+                st.caption("An open production order and an available lot are required.")
+            else:
+                reservation_orders = {f"{order.order_number} — {order.product_name}": order for order in open_orders}
+                with st.form("coman_reservation_form", clear_on_submit=True):
+                    reservation_order_label = st.selectbox("Production order", list(reservation_orders), key="coman_res_order")
+                    reservation_lot_label = st.selectbox("Material lot", list(lot_options), key="coman_res_lot")
+                    reservation_quantity = st.number_input("Quantity to reserve", min_value=0.01, value=1.0, step=1.0)
+                    save_reservation = st.form_submit_button("Reserve material", type="primary")
+                if save_reservation:
+                    try:
+                        selected_order = reservation_orders[reservation_order_label]
+                        selected_lot = lot_options[reservation_lot_label]
+                        selected_product = products_by_id[selected_lot.product_id]
+                        repository.reserve_material(
+                            organization_id,
+                            facility_id,
+                            production_order_id=selected_order.id,
+                            lot_id=selected_lot.id,
+                            quantity=float(reservation_quantity),
+                            unit=selected_product.base_unit,
+                            actor=_actor(),
+                        )
+                        st.success("Material reserved for the job.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Material could not be reserved: {exc}")
+
+        st.markdown("#### Bill of materials")
+        finished_products = [product for product in products if product.item_type in {"wip", "finished_good"}]
+        component_products = [product for product in products if product.item_type in {"cannabis", "packaging", "wip"}]
+        if not finished_products or not component_products:
+            st.info("Add at least one finished-good or WIP product and one cannabis, packaging, or WIP component to build a BOM.")
+        else:
+            finished_options = {f"{product.sku} — {product.name}": product for product in finished_products}
+            component_options = {f"{product.sku} — {product.name}": product for product in component_products}
+            bom_col1, bom_col2, bom_col3 = st.columns(3)
+            bom_output_label = bom_col1.selectbox("Finished product", list(finished_options), key="coman_bom_output")
+            bom_output_quantity = bom_col2.number_input("Finished quantity", min_value=0.01, value=1.0, step=1.0, key="coman_bom_output_qty")
+            bom_loss = bom_col3.number_input("Expected process loss %", min_value=0.0, value=0.0, step=0.5, key="coman_bom_loss")
+            selected_component_labels = st.multiselect("Components", list(component_options), key="coman_bom_components")
+            component_rows = []
+            if selected_component_labels:
+                component_columns = st.columns(min(3, len(selected_component_labels)))
+                for index, label in enumerate(selected_component_labels):
+                    component = component_options[label]
+                    quantity = component_columns[index % len(component_columns)].number_input(
+                        f"{component.sku} quantity ({component.base_unit})",
+                        min_value=0.0001,
+                        value=1.0,
+                        step=0.1,
+                        key=f"coman_bom_qty_{component.id}",
+                    )
+                    component_rows.append({"input_product_id": component.id, "quantity": float(quantity), "unit": component.base_unit})
+            if st.button("Create BOM version", type="primary", disabled=not component_rows):
+                try:
+                    repository.create_bom(
+                        organization_id,
+                        output_product_id=finished_options[bom_output_label].id,
+                        output_quantity=float(bom_output_quantity),
+                        expected_loss_pct=float(bom_loss),
+                        components=component_rows,
+                        actor=_actor(),
+                    )
+                    st.success("BOM version created.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"BOM could not be created: {exc}")
+
+        with st.expander("Inventory ledger", expanded=False):
+            if not inventory_transactions:
+                st.caption("No ledger entries yet.")
+            else:
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Time": entry.occurred_at,
+                                "Lot": getattr(lots_by_id.get(entry.lot_id), "lot_code", entry.lot_id),
+                                "Movement": entry.transaction_type.replace("_", " ").title(),
+                                "Quantity": entry.quantity_delta,
+                                "Unit": entry.unit,
+                                "Reason": entry.reason,
+                                "Reference": entry.reference,
+                                "Actor": entry.actor,
+                            }
+                            for entry in inventory_transactions
+                        ]
+                    ),
+                    width="stretch",
+                    hide_index=True,
+                )
+
     with planning_tab:
         st.markdown("#### Crew availability")
         with st.form("coman_crew_availability_form", clear_on_submit=True):
@@ -479,11 +724,11 @@ def render_coman_workspace() -> None:
             st.info("Add at least one production order and one facility machine to calculate capacity.")
         else:
             order_options = {
-                f"{order.order_number} â€” {order.product_name} ({order.requested_units:,} units)": order
+                f"{order.order_number} — {order.product_name} ({order.requested_units:,} units)": order
                 for order in open_orders
             }
             machine_options = {
-                f"{machine.asset_code} â€” {machine.display_name}": machine
+                f"{machine.asset_code} — {machine.display_name}": machine
                 for machine in facility_machines
             }
             col1, col2, col3 = st.columns(3)
@@ -538,7 +783,7 @@ def render_coman_workspace() -> None:
         if not orders:
             st.info("Create a production order before recording performance.")
         else:
-            performance_orders = {f"{order.order_number} â€” {order.product_name}": order for order in orders}
+            performance_orders = {f"{order.order_number} — {order.product_name}": order for order in orders}
             with st.form("coman_actuals_form", clear_on_submit=True):
                 actual_order_label = st.selectbox("Production order", list(performance_orders))
                 actual_order = performance_orders[actual_order_label]
@@ -574,17 +819,29 @@ def render_coman_workspace() -> None:
             summary[3].metric("Actual Labor-Hours", f"{performance_df['Labor Hours'].sum():,.1f}")
 
             st.markdown("#### Performance visuals")
-            st.caption("Output, attainment, and hours use the app's orange, green, and blue accents.")
+            st.caption("Output, attainment, and hours use the same orange, green, and blue accents as the rest of the app.")
             chart_source = performance_df.copy()
-            chart_source["Job"] = chart_source["Order"].astype(str) + " - " + chart_source["Product"].astype(str)
-            output_long = chart_source.melt(id_vars=["Job"], value_vars=["Planned Units", "Actual Units"], var_name="Measure", value_name="Units")
+            chart_source["Job"] = chart_source["Order"].astype(str) + " — " + chart_source["Product"].astype(str)
+            output_long = chart_source.melt(
+                id_vars=["Job"],
+                value_vars=["Planned Units", "Actual Units"],
+                var_name="Measure",
+                value_name="Units",
+            )
             output_chart = (
                 alt.Chart(output_long)
                 .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
                 .encode(
                     x=alt.X("Job:N", sort=None, title=None, axis=alt.Axis(labelAngle=-25)),
                     y=alt.Y("Units:Q", title="Finished units"),
-                    color=alt.Color("Measure:N", scale=alt.Scale(domain=["Planned Units", "Actual Units"], range=["#ff9a3c", "#4cd388"]), legend=alt.Legend(orient="top", title=None)),
+                    color=alt.Color(
+                        "Measure:N",
+                        scale=alt.Scale(
+                            domain=["Planned Units", "Actual Units"],
+                            range=["#ff9a3c", "#4cd388"],
+                        ),
+                        legend=alt.Legend(orient="top", title=None),
+                    ),
                     xOffset="Measure:N",
                     tooltip=["Job:N", "Measure:N", alt.Tooltip("Units:Q", format=",")],
                 )
@@ -592,29 +849,38 @@ def render_coman_workspace() -> None:
             )
             attainment_chart = (
                 alt.Chart(chart_source)
-                .mark_bar(cornerRadiusEnd=5)
+                .mark_bar(color="#ff9a3c", cornerRadiusEnd=5)
                 .encode(
                     y=alt.Y("Job:N", sort="-x", title=None),
-                    x=alt.X("Attainment %:Q", title="Attainment %"),
+                    x=alt.X("Attainment %:Q", title="Attainment %", scale=alt.Scale(domain=[0, max(110, float(chart_source['Attainment %'].max()) + 10)])),
                     color=alt.condition("datum['Attainment %'] >= 100", alt.value("#4cd388"), alt.value("#ff9a3c")),
                     tooltip=["Job:N", alt.Tooltip("Attainment %:Q", format=".1f")],
                 )
                 .properties(height=max(220, len(chart_source) * 38), title="Job attainment")
             )
-            hours_long = chart_source.melt(id_vars=["Job"], value_vars=["Machine Hours", "Labor Hours"], var_name="Hour Type", value_name="Hours")
+            hours_long = chart_source.melt(
+                id_vars=["Job"],
+                value_vars=["Machine Hours", "Labor Hours"],
+                var_name="Hour Type",
+                value_name="Hours",
+            )
             hours_chart = (
                 alt.Chart(hours_long)
                 .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
                 .encode(
                     x=alt.X("Job:N", sort=None, title=None, axis=alt.Axis(labelAngle=-25)),
                     y=alt.Y("Hours:Q", title="Hours"),
-                    color=alt.Color("Hour Type:N", scale=alt.Scale(domain=["Machine Hours", "Labor Hours"], range=["#5aa8ff", "#4cd388"]), legend=alt.Legend(orient="top", title=None)),
+                    color=alt.Color(
+                        "Hour Type:N",
+                        scale=alt.Scale(domain=["Machine Hours", "Labor Hours"], range=["#5aa8ff", "#4cd388"]),
+                        legend=alt.Legend(orient="top", title=None),
+                    ),
                     xOffset="Hour Type:N",
                     tooltip=["Job:N", "Hour Type:N", alt.Tooltip("Hours:Q", format=".1f")],
                 )
                 .properties(height=310, title="Machine and labor hours")
             )
-            chart_theme = {
+            app_chart_config = {
                 "background": "transparent",
                 "axis": {"labelColor": "#b8b8b8", "titleColor": "#ffffff", "gridColor": "#343434"},
                 "legend": {"labelColor": "#b8b8b8", "titleColor": "#ffffff"},
@@ -622,7 +888,6 @@ def render_coman_workspace() -> None:
                 "view": {"stroke": "transparent"},
             }
             visual1, visual2 = st.columns(2)
-            visual1.altair_chart(output_chart.configure(**chart_theme), width="stretch")
-            visual2.altair_chart(attainment_chart.configure(**chart_theme), width="stretch")
-            st.altair_chart(hours_chart.configure(**chart_theme), width="stretch")
-
+            visual1.altair_chart(output_chart.configure(**app_chart_config), width="stretch")
+            visual2.altair_chart(attainment_chart.configure(**app_chart_config), width="stretch")
+            st.altair_chart(hours_chart.configure(**app_chart_config), width="stretch")

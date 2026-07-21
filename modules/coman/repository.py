@@ -8,6 +8,7 @@ from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import Engine, select
+from sqlalchemy import func
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import (
@@ -18,6 +19,12 @@ from .models import (
     FacilityMachine,
     HandLaborArea,
     MachineModel,
+    Product,
+    ProductBom,
+    BomComponent,
+    InventoryLot,
+    InventoryTransaction,
+    MaterialReservation,
     Organization,
     ProductionOrder,
     ProductionActual,
@@ -79,6 +86,146 @@ class ComanRepository:
             if active_only:
                 statement = statement.where(Customer.active.is_(True))
             return list(session.scalars(statement.order_by(Customer.name)))
+
+    def create_product(self, organization_id: str, *, sku: str, name: str, item_type: str, base_unit: str, unit_cost: float = 0, actor: str) -> Product:
+        if item_type not in {"cannabis", "packaging", "wip", "finished_good"}:
+            raise ValueError("Unsupported product item_type.")
+        if float(unit_cost) < 0:
+            raise ValueError("unit_cost cannot be negative.")
+        product = Product(organization_id=organization_id, sku=str(sku).strip().upper(), name=str(name).strip(), item_type=item_type, base_unit=str(base_unit).strip(), unit_cost=float(unit_cost))
+        with self._session_factory.begin() as session:
+            self._require_organization(session, organization_id)
+            session.add(product); session.flush()
+            session.add(AuditEvent(organization_id=organization_id, entity_type="product", entity_id=product.id, action="created", actor=actor, changes_json=json.dumps({"sku": product.sku, "item_type": item_type})))
+        return product
+
+    def list_products(self, organization_id: str, active_only: bool = True) -> list[Product]:
+        with self._session_factory() as session:
+            statement = select(Product).where(Product.organization_id == organization_id)
+            if active_only: statement = statement.where(Product.active.is_(True))
+            return list(session.scalars(statement.order_by(Product.name)))
+
+    def create_bom(self, organization_id: str, *, output_product_id: str, output_quantity: float, expected_loss_pct: float, components: list[dict[str, Any]], actor: str, notes: str = "") -> ProductBom:
+        if float(output_quantity) <= 0 or not components:
+            raise ValueError("A BOM requires positive output and at least one component.")
+        with self._session_factory.begin() as session:
+            output = session.get(Product, output_product_id)
+            if not output or output.organization_id != organization_id: raise ValueError("Output product was not found.")
+            latest_version = int(
+                session.scalar(
+                    select(func.coalesce(func.max(ProductBom.version), 0)).where(
+                        ProductBom.organization_id == organization_id,
+                        ProductBom.output_product_id == output_product_id,
+                    )
+                )
+                or 0
+            )
+            bom = ProductBom(
+                organization_id=organization_id,
+                output_product_id=output_product_id,
+                version=latest_version + 1,
+                output_quantity=float(output_quantity),
+                expected_loss_pct=max(0.0, float(expected_loss_pct)),
+                notes=str(notes or ""),
+            )
+            session.add(bom); session.flush()
+            for row in components:
+                item = session.get(Product, row["input_product_id"])
+                if not item or item.organization_id != organization_id: raise ValueError("BOM component was not found.")
+                quantity = float(row["quantity"])
+                if quantity <= 0: raise ValueError("BOM component quantity must be positive.")
+                session.add(BomComponent(organization_id=organization_id, bom_id=bom.id, input_product_id=item.id, quantity=quantity, unit=str(row.get("unit") or item.base_unit), scrap_pct=max(0.0, float(row.get("scrap_pct") or 0))))
+            session.add(AuditEvent(organization_id=organization_id, entity_type="product_bom", entity_id=bom.id, action="created", actor=actor, changes_json=json.dumps({"output_product_id": output_product_id, "components": len(components)})))
+        return bom
+
+    def create_inventory_lot(self, organization_id: str, facility_id: str, *, product_id: str, lot_code: str, actor: str, opening_quantity: float = 0, location_code: str = "UNASSIGNED", compliance_package_id: str = "", unit: str | None = None) -> InventoryLot:
+        if float(opening_quantity) < 0: raise ValueError("opening_quantity cannot be negative.")
+        lot = InventoryLot(organization_id=organization_id, facility_id=facility_id, product_id=product_id, lot_code=str(lot_code).strip(), location_code=str(location_code).strip().upper(), compliance_package_id=str(compliance_package_id or ""), received_at=utc_now())
+        with self._session_factory.begin() as session:
+            facility, product = session.get(Facility, facility_id), session.get(Product, product_id)
+            if not facility or facility.organization_id != organization_id: raise ValueError("Facility does not belong to the organization.")
+            if not product or product.organization_id != organization_id: raise ValueError("Product does not belong to the organization.")
+            session.add(lot); session.flush()
+            if opening_quantity:
+                session.add(InventoryTransaction(organization_id=organization_id, facility_id=facility_id, lot_id=lot.id, transaction_type="receipt", quantity_delta=float(opening_quantity), unit=unit or product.base_unit, actor=actor, reason="Opening receipt"))
+            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="inventory_lot", entity_id=lot.id, action="created", actor=actor, changes_json=json.dumps({"lot_code": lot.lot_code, "opening_quantity": opening_quantity})))
+        return lot
+
+    def inventory_balance(self, organization_id: str, lot_id: str) -> float:
+        with self._session_factory() as session:
+            lot = session.get(InventoryLot, lot_id)
+            if not lot or lot.organization_id != organization_id: raise ValueError("Inventory lot was not found.")
+            return float(session.scalar(select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(InventoryTransaction.lot_id == lot_id)) or 0.0)
+
+    def list_inventory_lots(self, organization_id: str, facility_id: str) -> list[InventoryLot]:
+        with self._session_factory() as session:
+            statement = (
+                select(InventoryLot)
+                .where(
+                    InventoryLot.organization_id == organization_id,
+                    InventoryLot.facility_id == facility_id,
+                )
+                .order_by(InventoryLot.received_at.desc(), InventoryLot.lot_code)
+            )
+            return list(session.scalars(statement))
+
+    def list_inventory_transactions(
+        self, organization_id: str, facility_id: str, *, limit: int = 250
+    ) -> list[InventoryTransaction]:
+        with self._session_factory() as session:
+            statement = (
+                select(InventoryTransaction)
+                .where(
+                    InventoryTransaction.organization_id == organization_id,
+                    InventoryTransaction.facility_id == facility_id,
+                )
+                .order_by(InventoryTransaction.occurred_at.desc())
+                .limit(max(1, min(int(limit), 1000)))
+            )
+            return list(session.scalars(statement))
+
+    def list_material_reservations(
+        self, organization_id: str, facility_id: str
+    ) -> list[MaterialReservation]:
+        with self._session_factory() as session:
+            statement = (
+                select(MaterialReservation)
+                .where(
+                    MaterialReservation.organization_id == organization_id,
+                    MaterialReservation.facility_id == facility_id,
+                )
+                .order_by(MaterialReservation.created_at.desc())
+            )
+            return list(session.scalars(statement))
+
+    def post_inventory_transaction(self, organization_id: str, facility_id: str, *, lot_id: str, transaction_type: str, quantity_delta: float, unit: str, actor: str, production_order_id: str | None = None, reason: str = "", reference: str = "") -> InventoryTransaction:
+        allowed = {"receipt", "adjustment", "transfer_in", "transfer_out", "production_consume", "production_output", "waste", "quarantine", "release", "destruction", "shipment", "return"}
+        if transaction_type not in allowed or float(quantity_delta) == 0: raise ValueError("A valid non-zero inventory transaction is required.")
+        transaction = InventoryTransaction(organization_id=organization_id, facility_id=facility_id, lot_id=lot_id, transaction_type=transaction_type, quantity_delta=float(quantity_delta), unit=unit, production_order_id=production_order_id, reason=str(reason or ""), reference=str(reference or ""), actor=actor)
+        with self._session_factory.begin() as session:
+            lot = session.get(InventoryLot, lot_id)
+            if not lot or lot.organization_id != organization_id or lot.facility_id != facility_id: raise ValueError("Inventory lot was not found in this facility.")
+            if production_order_id:
+                order = session.get(ProductionOrder, production_order_id)
+                if not order or order.organization_id != organization_id or order.facility_id != facility_id: raise ValueError("Production order was not found in this facility.")
+            balance = float(session.scalar(select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(InventoryTransaction.lot_id == lot_id)) or 0.0)
+            if balance + float(quantity_delta) < -1e-9: raise ValueError("Inventory transaction would create a negative lot balance.")
+            session.add(transaction)
+        return transaction
+
+    def reserve_material(self, organization_id: str, facility_id: str, *, production_order_id: str, lot_id: str, quantity: float, unit: str, actor: str) -> MaterialReservation:
+        if float(quantity) <= 0: raise ValueError("Reservation quantity must be positive.")
+        with self._session_factory.begin() as session:
+            order, lot = session.get(ProductionOrder, production_order_id), session.get(InventoryLot, lot_id)
+            if not order or order.organization_id != organization_id or order.facility_id != facility_id: raise ValueError("Production order was not found in this facility.")
+            if not lot or lot.organization_id != organization_id or lot.facility_id != facility_id or lot.status != "available": raise ValueError("An available inventory lot is required.")
+            balance = float(session.scalar(select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(InventoryTransaction.lot_id == lot_id)) or 0.0)
+            reserved = float(session.scalar(select(func.coalesce(func.sum(MaterialReservation.quantity), 0.0)).where(MaterialReservation.lot_id == lot_id, MaterialReservation.status == "reserved")) or 0.0)
+            if reserved + float(quantity) > balance + 1e-9: raise ValueError("Reservation exceeds available lot inventory.")
+            record = MaterialReservation(organization_id=organization_id, facility_id=facility_id, production_order_id=production_order_id, lot_id=lot_id, quantity=float(quantity), unit=unit, reserved_by=actor)
+            session.add(record); session.flush()
+            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="material_reservation", entity_id=record.id, action="reserved", actor=actor, changes_json=json.dumps({"lot_id": lot_id, "quantity": quantity, "unit": unit})))
+            return record
 
     def list_machine_models(self, category: str | None = None) -> list[MachineModel]:
         with self._session_factory() as session:
