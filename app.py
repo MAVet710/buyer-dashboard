@@ -52,6 +52,13 @@ from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
 from services.app_user_store import AppUserStore
 from services.auth_identity import resolve_legacy_identity
+from services.workspace_navigation import (
+    COMAN_WORKSPACE,
+    EXTRACTION_WORKSPACE,
+    WHITE_LABEL_WORKSPACE,
+    buyer_section_options,
+    workspace_options as build_workspace_options,
+)
 from modules.coman.ui import render_coman_workspace
 
 load_dotenv()
@@ -4878,13 +4885,7 @@ def _time_greeting() -> str:
 render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
-workspace_options = []
-if _feature_enabled("buyer_module", default_enabled=True):
-    workspace_options.append("🛒 Buyer Operations")
-    workspace_options.append("🏷️ White Label / Repack")
-    workspace_options.append("🏭 Co-Man Production")
-if _feature_enabled("extraction_module", default_enabled=True):
-    workspace_options.append("🧪 Extraction Command Center")
+workspace_options = build_workspace_options(_feature_enabled)
 _active_workspace = st.session_state.get("workspace_mode", workspace_options[0] if workspace_options else "🛒 Buyer Operations")
 _ecc_runs = _safe_report_df(st.session_state.get("ecc_run_log"))
 _extraction_profitability = _safe_report_df(st.session_state.get("ecc_run_value_snapshot", _ecc_runs))
@@ -9189,7 +9190,7 @@ app_mode = st.selectbox(
     key="workspace_mode",
 )
 
-if app_mode == "🧪 Extraction Command Center":
+if app_mode == EXTRACTION_WORKSPACE:
     render_hero(
         f"{_time_greeting()}, Extraction Team",
         "Command center KPIs, process signals, and inventory risk in one view.",
@@ -9202,7 +9203,7 @@ if app_mode == "🧪 Extraction Command Center":
         st.info("AI support is not enabled for this license plan.")
     render_extraction_command_center()
     st.stop()
-if app_mode == "🏷️ White Label / Repack":
+if app_mode == WHITE_LABEL_WORKSPACE:
     render_hero(
         "White Label / Repack",
         "Model private-label repack economics and compliance readiness.",
@@ -9213,7 +9214,7 @@ if app_mode == "🏷️ White Label / Repack":
     if white_payload:
         st.session_state["white_label_export_payload"] = white_payload
     st.stop()
-if app_mode == "🏭 Co-Man Production":
+if app_mode == COMAN_WORKSPACE:
     render_hero(
         "Co-Man Production",
         "Track internal production and customer-owned contract packaging in one durable queue.",
@@ -9242,20 +9243,10 @@ st.sidebar.markdown("---")
 # =========================
 # PAGE SWITCH (BUYER OPERATIONS)
 # =========================
-section_options = [
-    "📊 Inventory Dashboard",
-    "📈 Trends",
-    "🚚 Delivery Impact",
-    "🐢 Slow Movers",
-    "🧾 PO Builder",
-    "🧭 Compliance Q&A",
-    "🧠 Buyer Intelligence",
-    "💰 Purchasing Budget",
-]
-if st.session_state.get("is_admin", False) and _feature_enabled("admin_exports", default_enabled=True):
-    section_options.append("🛠️ Admin Tools")
-if st.session_state.get("is_admin", False):
-    section_options.append("🔌 Integrations")
+section_options = buyer_section_options(
+    is_admin=st.session_state.get("is_admin", False),
+    admin_exports_enabled=_feature_enabled("admin_exports", default_enabled=True),
+)
 
 section = st.sidebar.radio(
     "App Section",
