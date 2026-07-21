@@ -37,7 +37,7 @@ def load_polished_theme(background_url: str) -> str:
 
     .stApp {{
         background:
-            linear-gradient(rgba(18,16,14,0.80), rgba(10,10,10,0.90)),
+            linear-gradient(rgba(12,11,10,0.91), rgba(7,7,7,0.96)),
             url('{background_url}');
         background-size: cover;
         background-position: center;
@@ -45,7 +45,7 @@ def load_polished_theme(background_url: str) -> str:
     }}
 
     .block-container {{
-        background: rgba(8,8,8,0.44) !important;
+        background: rgba(8,8,8,0.72) !important;
         border: 1px solid rgba(255,255,255,0.06);
         border-radius: 18px;
         box-shadow: 0 18px 60px rgba(0,0,0,0.30);
