@@ -52,6 +52,7 @@ from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
 from services.app_user_store import AppUserStore
 from services.auth_identity import resolve_legacy_identity
+from modules.coman.ui import render_coman_workspace
 
 load_dotenv()
 
@@ -4935,6 +4936,7 @@ workspace_options = []
 if _feature_enabled("buyer_module", default_enabled=True):
     workspace_options.append("🛒 Buyer Operations")
     workspace_options.append("🏷️ White Label / Repack")
+    workspace_options.append("🏭 Co-Man Production")
 if _feature_enabled("extraction_module", default_enabled=True):
     workspace_options.append("🧪 Extraction Command Center")
 _active_workspace = st.session_state.get("workspace_mode", workspace_options[0] if workspace_options else "🛒 Buyer Operations")
@@ -9238,7 +9240,7 @@ app_mode = st.radio(
     workspace_options,
     index=0,
     horizontal=True,
-    help="Switch between the purchasing dashboard and the extraction workspace.",
+    help="Switch between purchasing, production, and extraction workspaces.",
     key="workspace_mode",
 )
 
@@ -9265,6 +9267,15 @@ if app_mode == "🏷️ White Label / Repack":
     white_payload = render_white_label_repack_workspace()
     if white_payload:
         st.session_state["white_label_export_payload"] = white_payload
+    st.stop()
+if app_mode == "🏭 Co-Man Production":
+    render_hero(
+        "Co-Man Production",
+        "Track internal production and customer-owned contract packaging in one durable queue.",
+        _display_user,
+        "Production Operations",
+    )
+    render_coman_workspace()
     st.stop()
 
 # =========================
