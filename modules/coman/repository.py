@@ -19,6 +19,8 @@ from .models import (
     MachineModel,
     Organization,
     ProductionOrder,
+    ProductionActual,
+    utc_now,
 )
 
 
@@ -278,6 +280,35 @@ class ComanRepository:
             values = {"customer_id": source.customer_id, "due_at": source.due_at, "sku": source.sku, "priority": source.priority, "source_lot_reference": source.source_lot_reference, "material_owner": source.material_owner, "packaging_owner": source.packaging_owner, "notes": source.notes}
             work_type, product_name, product_format, requested_units = source.work_type, source.product_name, source.product_format, source.requested_units
         return self.create_production_order(organization_id=organization_id, facility_id=facility_id, order_number=new_order_number, work_type=work_type, product_name=product_name, product_format=product_format, requested_units=requested_units, actor=actor, **values)
+
+    def record_production_actual(self, order_id: str, *, organization_id: str, facility_id: str, actual_units: int, scrap_units: int, rework_units: int, actual_machine_hours: float, actual_labor_hours: float, actor: str, completed_at: datetime | None = None, notes: str = "") -> ProductionActual:
+        numeric = [int(actual_units), int(scrap_units), int(rework_units)]
+        if any(value < 0 for value in numeric) or float(actual_machine_hours) < 0 or float(actual_labor_hours) < 0:
+            raise ValueError("Actual production values cannot be negative.")
+        with self._session_factory.begin() as session:
+            order = session.get(ProductionOrder, order_id)
+            if not order or order.organization_id != organization_id or order.facility_id != facility_id:
+                raise ValueError("Production order was not found in this facility.")
+            actual = session.scalar(select(ProductionActual).where(ProductionActual.production_order_id == order_id))
+            if actual is None:
+                actual = ProductionActual(organization_id=organization_id, facility_id=facility_id, production_order_id=order_id, recorded_by=actor)
+                session.add(actual)
+            actual.actual_units, actual.scrap_units, actual.rework_units = numeric
+            actual.actual_machine_hours = float(actual_machine_hours)
+            actual.actual_labor_hours = float(actual_labor_hours)
+            actual.completed_at = completed_at or utc_now()
+            actual.notes = str(notes or "")
+            actual.recorded_by = actor
+            order.status = "complete"
+            order.updated_by = actor
+            session.flush()
+            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="production_actual", entity_id=actual.id, action="recorded", actor=actor, changes_json=json.dumps({"actual_units": actual.actual_units, "scrap_units": actual.scrap_units, "rework_units": actual.rework_units, "machine_hours": actual.actual_machine_hours, "labor_hours": actual.actual_labor_hours})))
+            return actual
+
+    def list_production_actuals(self, organization_id: str, facility_id: str) -> list[ProductionActual]:
+        with self._session_factory() as session:
+            statement = select(ProductionActual).where(ProductionActual.organization_id == organization_id, ProductionActual.facility_id == facility_id)
+            return list(session.scalars(statement.order_by(ProductionActual.completed_at.desc())))
 
     @staticmethod
     def _require_organization(session: Session, organization_id: str) -> Organization:

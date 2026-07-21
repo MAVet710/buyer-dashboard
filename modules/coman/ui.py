@@ -72,6 +72,7 @@ def render_coman_workspace() -> None:
         machine_models = repository.list_machine_models()
         facility_machines = repository.list_facility_machines(organization_id, facility_id)
         hand_area = repository.ensure_primary_hand_labor_area(organization_id, facility_id)
+        actuals = repository.list_production_actuals(organization_id, facility_id)
     except ComanDatabaseConfigurationError:
         st.error("Co-Man storage is not configured. Add COMAN_DATABASE_URL to Streamlit secrets.")
         return
@@ -89,8 +90,8 @@ def render_coman_workspace() -> None:
     metrics[2].metric("External Jobs", len(external_orders))
     metrics[3].metric("Customers", len(customers))
 
-    overview_tab, orders_tab, planning_tab, resources_tab, customers_tab = st.tabs(
-        ["Dashboard", "New Job", "Schedule", "Resources", "Customers"]
+    overview_tab, orders_tab, planning_tab, resources_tab, customers_tab, performance_tab = st.tabs(
+        ["Dashboard", "New Job", "Schedule", "Resources", "Customers", "Performance"]
     )
 
     with overview_tab:
@@ -105,7 +106,12 @@ def render_coman_workspace() -> None:
         )
         st.dataframe(readiness, width="stretch", hide_index=True)
         st.markdown("#### Current production queue")
-        frame = _orders_frame(orders, customers_by_id)
+        filter1, filter2, filter3 = st.columns(3)
+        status_filter = filter1.selectbox("Status filter", ["All"] + sorted({order.status.title().replace("_", " ") for order in orders}))
+        priority_filter = filter2.selectbox("Priority filter", ["All"] + sorted({order.priority.title() for order in orders}))
+        format_filter = filter3.selectbox("Format filter", ["All"] + sorted({order.product_format.title() for order in orders}))
+        filtered_orders = [order for order in orders if (status_filter == "All" or order.status.replace("_", " ").title() == status_filter) and (priority_filter == "All" or order.priority.title() == priority_filter) and (format_filter == "All" or order.product_format.title() == format_filter)]
+        frame = _orders_frame(filtered_orders, customers_by_id)
         if frame.empty:
             st.info("No production orders yet. Add the first job in Production Orders.")
         else:
@@ -373,3 +379,43 @@ def render_coman_workspace() -> None:
                 hand_metrics[3].metric("Hand-Labor Bottleneck", str(hand_estimate["bottleneck"]))
                 total_elapsed = float(estimate["elapsed_hours"]) + float(hand_estimate["elapsed_hours"])
                 st.success(f"Estimated end-to-end completion time: {total_elapsed:.1f} hours, including the machine and required hand-labor stages.")
+
+    with performance_tab:
+        st.markdown("#### Record completed-job actuals")
+        if not orders:
+            st.info("Create a production order before recording performance.")
+        else:
+            performance_orders = {f"{order.order_number} — {order.product_name}": order for order in orders}
+            with st.form("coman_actuals_form", clear_on_submit=True):
+                actual_order_label = st.selectbox("Production order", list(performance_orders))
+                actual_order = performance_orders[actual_order_label]
+                col1, col2, col3 = st.columns(3)
+                actual_units = col1.number_input("Good finished units", min_value=0, value=actual_order.requested_units, step=100)
+                scrap_units = col2.number_input("Scrap units", min_value=0, value=0, step=1)
+                rework_units = col3.number_input("Rework units", min_value=0, value=0, step=1)
+                machine_hours = col1.number_input("Actual machine hours", min_value=0.0, value=0.0, step=0.25)
+                labor_hours = col2.number_input("Actual labor-hours", min_value=0.0, value=0.0, step=0.25)
+                actual_notes = st.text_area("Completion notes")
+                save_actual = st.form_submit_button("Complete job and save actuals", type="primary")
+            if save_actual:
+                try:
+                    repository.record_production_actual(actual_order.id, organization_id=organization_id, facility_id=facility_id, actual_units=int(actual_units), scrap_units=int(scrap_units), rework_units=int(rework_units), actual_machine_hours=float(machine_hours), actual_labor_hours=float(labor_hours), actor=_actor(), notes=actual_notes)
+                    st.success("Actual performance saved and order marked complete.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Actual performance could not be saved: {exc}")
+        if actuals:
+            orders_by_id = {order.id: order for order in orders}
+            performance_rows = []
+            for actual in actuals:
+                order = orders_by_id.get(actual.production_order_id)
+                planned = order.requested_units if order else 0
+                yield_pct = (actual.actual_units / planned * 100) if planned else 0
+                performance_rows.append({"Order": order.order_number if order else actual.production_order_id, "Product": order.product_name if order else "Unknown", "Planned Units": planned, "Actual Units": actual.actual_units, "Attainment %": round(yield_pct, 1), "Scrap": actual.scrap_units, "Rework": actual.rework_units, "Machine Hours": actual.actual_machine_hours, "Labor Hours": actual.actual_labor_hours, "Completed": actual.completed_at})
+            performance_df = pd.DataFrame(performance_rows)
+            st.dataframe(performance_df, width="stretch", hide_index=True)
+            summary = st.columns(4)
+            summary[0].metric("Completed Jobs", len(performance_df))
+            summary[1].metric("Average Attainment", f"{performance_df['Attainment %'].mean():.1f}%")
+            summary[2].metric("Total Scrap", f"{performance_df['Scrap'].sum():,.0f}")
+            summary[3].metric("Actual Labor-Hours", f"{performance_df['Labor Hours'].sum():,.1f}")

@@ -157,3 +157,16 @@ def test_order_status_and_duplicate_are_persisted():
     assert updated.status == "scheduled"
     assert duplicate.order_number == "COM-2"
     assert duplicate.requested_units == 1000
+
+
+def test_actuals_complete_order_and_can_be_updated():
+    repository, _ = _repository()
+    organization = repository.create_organization("DoobieLogic")
+    facility = repository.create_facility(organization.id, "Main Production", "MAIN")
+    order = repository.create_production_order(organization_id=organization.id, facility_id=facility.id, order_number="COM-A", work_type="internal", product_name="Flower", product_format="pouched flower", requested_units=1000, actor="admin")
+    repository.record_production_actual(order.id, organization_id=organization.id, facility_id=facility.id, actual_units=950, scrap_units=25, rework_units=25, actual_machine_hours=4.5, actual_labor_hours=18, actor="supervisor")
+    repository.record_production_actual(order.id, organization_id=organization.id, facility_id=facility.id, actual_units=960, scrap_units=20, rework_units=20, actual_machine_hours=4.25, actual_labor_hours=17, actor="supervisor")
+    actuals = repository.list_production_actuals(organization.id, facility.id)
+    assert len(actuals) == 1
+    assert actuals[0].actual_units == 960
+    assert repository.list_production_orders(organization.id, facility.id)[0].status == "complete"
