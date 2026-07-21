@@ -145,3 +145,15 @@ def test_required_hand_labor_area_and_downstream_estimate():
     assert estimate["elapsed_hours"] == 17
     assert estimate["labor_hours"] == 68
     assert estimate["bottleneck"] == "Stickering"
+
+
+def test_order_status_and_duplicate_are_persisted():
+    repository, _ = _repository()
+    organization = repository.create_organization("DoobieLogic")
+    facility = repository.create_facility(organization.id, "Main Production", "MAIN")
+    order = repository.create_production_order(organization_id=organization.id, facility_id=facility.id, order_number="COM-1", work_type="internal", product_name="House Pre-roll", product_format="pre-roll", requested_units=1000, actor="admin")
+    updated = repository.update_production_order_status(order.id, organization_id=organization.id, facility_id=facility.id, status="scheduled", actor="planner")
+    duplicate = repository.duplicate_production_order(order.id, organization_id=organization.id, facility_id=facility.id, new_order_number="COM-2", actor="planner")
+    assert updated.status == "scheduled"
+    assert duplicate.order_number == "COM-2"
+    assert duplicate.requested_units == 1000

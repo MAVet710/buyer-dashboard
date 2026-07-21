@@ -3657,106 +3657,53 @@ if APP_USER_STORE.configured:
 else:
     st.sidebar.warning("Supabase storage is not configured")
 
-st.sidebar.markdown("### 🔐 Account Access")
+st.sidebar.markdown("### Account")
 
-if not st.session_state.is_admin:
-    now = datetime.now()
-    admin_locked = (
-        st.session_state._admin_lockout_until is not None
-        and now < st.session_state._admin_lockout_until
+_signed_in = st.session_state.is_admin or st.session_state.user_authenticated
+if not _signed_in:
+    _locked_until = max(
+        [value for value in [st.session_state._admin_lockout_until, st.session_state._user_lockout_until] if value],
+        default=None,
     )
-    if admin_locked:
-        remaining_s = int((st.session_state._admin_lockout_until - now).total_seconds())
-        st.sidebar.error(
-            f"⛔ Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s."
-        )
+    if _locked_until and datetime.now() < _locked_until:
+        remaining_s = int((_locked_until - datetime.now()).total_seconds())
+        st.sidebar.error(f"Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s.")
     else:
-        admin_user = st.sidebar.text_input("Username", key="admin_user_input")
-        admin_pass = st.sidebar.text_input("Password", type="password", key="admin_pass_input")
-        if st.sidebar.button("Login as Admin"):
-            admin_authenticated, authenticated_admin = _authenticate_account(
-                admin_user, admin_pass, require_admin=True
-            )
-            if admin_authenticated:
-                st.session_state.is_admin = True
-                st.session_state.admin_user = authenticated_admin
+        login_user = st.sidebar.text_input("Username", key="unified_login_username")
+        login_pass = st.sidebar.text_input("Password", type="password", key="unified_login_password")
+        if st.sidebar.button("Sign in", type="primary", key="unified_login_btn", width="stretch"):
+            authenticated, account_name = _authenticate_account(login_user, login_pass, require_admin=True)
+            is_admin_account = authenticated
+            if not authenticated:
+                authenticated, account_name = _authenticate_account(login_user, login_pass, require_admin=False)
+            if authenticated:
+                st.session_state.is_admin = is_admin_account
+                st.session_state.admin_user = account_name if is_admin_account else None
+                st.session_state.user_authenticated = not is_admin_account
+                st.session_state.user_user = account_name if not is_admin_account else None
                 st.session_state._db_hydrated_username = ""
                 st.session_state._admin_fail_count = 0
-                st.session_state._admin_lockout_until = None
-                _safe_rerun()
-            else:
-                st.session_state._admin_fail_count += 1
-                remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._admin_fail_count
-                if st.session_state._admin_fail_count >= _LOCKOUT_MAX_ATTEMPTS:
-                    st.session_state._admin_lockout_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
-                    st.sidebar.error(
-                        f"⛔ Too many failed attempts. Login locked for {_LOCKOUT_MINUTES} minutes."
-                    )
-                else:
-                    st.sidebar.error(
-                        f"❌ Invalid admin credentials. {remaining_attempts} attempt(s) remaining."
-                    )
-else:
-    signed_in_role = str(st.session_state.get("auth_user_role") or "admin").upper()
-    st.sidebar.success(f"✅ {st.session_state.admin_user} · {signed_in_role}")
-    if st.sidebar.button("Sign out", key="logout_admin_btn"):
-        st.session_state.is_admin = False
-        st.session_state.admin_user = None
-        st.session_state.auth_user_id = None
-        st.session_state.auth_user_role = None
-        st.session_state.auth_organization_id = None
-        st.session_state.active_organization_id = None
-        st.session_state.active_facility_id = None
-        st.session_state.auth_must_change_password = False
-        st.session_state._db_hydrated_username = ""
-        _safe_rerun()
-
-# -------------------------
-# 👤 STANDARD USER LOGIN (non-admin)
-# -------------------------
-if not st.session_state.is_admin:
-    st.sidebar.markdown("#### Standard User")
-
-if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
-    now = datetime.now()
-    user_locked = (
-        st.session_state._user_lockout_until is not None
-        and now < st.session_state._user_lockout_until
-    )
-    if user_locked:
-        remaining_s = int((st.session_state._user_lockout_until - now).total_seconds())
-        st.sidebar.error(
-            f"⛔ Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s."
-        )
-    else:
-        u_user = st.sidebar.text_input("Username", key="user_user_input")
-        u_pass = st.sidebar.text_input("Password", type="password", key="user_pass_input")
-        if st.sidebar.button("Login", key="login_user_btn"):
-            user_authenticated, authenticated_user = _authenticate_account(
-                u_user, u_pass, require_admin=False
-            )
-            if user_authenticated:
-                st.session_state.user_authenticated = True
-                st.session_state.user_user = authenticated_user
-                st.session_state._db_hydrated_username = ""
                 st.session_state._user_fail_count = 0
+                st.session_state._admin_lockout_until = None
                 st.session_state._user_lockout_until = None
                 _safe_rerun()
             else:
                 st.session_state._user_fail_count += 1
                 remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._user_fail_count
-                if st.session_state._user_fail_count >= _LOCKOUT_MAX_ATTEMPTS:
-                    st.session_state._user_lockout_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
-                    st.sidebar.error(
-                        f"⛔ Too many failed attempts. Login locked for {_LOCKOUT_MINUTES} minutes."
-                    )
+                if remaining_attempts <= 0:
+                    lock_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
+                    st.session_state._admin_lockout_until = lock_until
+                    st.session_state._user_lockout_until = lock_until
+                    st.sidebar.error(f"Login locked for {_LOCKOUT_MINUTES} minutes.")
                 else:
-                    st.sidebar.error(
-                        f"❌ Invalid user credentials. {remaining_attempts} attempt(s) remaining."
-                    )
-elif (not st.session_state.is_admin) and st.session_state.user_authenticated:
-    st.sidebar.success(f"👤 User: {st.session_state.user_user}")
-    if st.sidebar.button("Logout", key="logout_user_btn"):
+                    st.sidebar.error(f"Invalid username or password. {remaining_attempts} attempt(s) remaining.")
+else:
+    account_name = st.session_state.admin_user if st.session_state.is_admin else st.session_state.user_user
+    account_role = str(st.session_state.get("auth_user_role") or "trial").upper().replace("_", " ")
+    st.sidebar.success(f"{account_name} · {account_role}")
+    if st.sidebar.button("Sign out", key="unified_logout_btn", width="stretch"):
+        st.session_state.is_admin = False
+        st.session_state.admin_user = None
         st.session_state.user_authenticated = False
         st.session_state.user_user = None
         st.session_state.auth_user_id = None
@@ -9235,11 +9182,10 @@ def render_white_label_repack_workspace():
 if not workspace_options:
     st.error("Your license does not include any enabled workspace modules.")
     st.stop()
-app_mode = st.radio(
+app_mode = st.selectbox(
     "Workspace",
     workspace_options,
-    index=0,
-    horizontal=True,
+    index=workspace_options.index(st.session_state.get("workspace_mode")) if st.session_state.get("workspace_mode") in workspace_options else 0,
     help="Switch between purchasing, production, and extraction workspaces.",
     key="workspace_mode",
 )

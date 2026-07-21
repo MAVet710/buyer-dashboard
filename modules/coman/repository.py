@@ -255,6 +255,30 @@ class ComanRepository:
                 statement = statement.where(ProductionOrder.facility_id == facility_id)
             return list(session.scalars(statement.order_by(ProductionOrder.created_at.desc())))
 
+    def update_production_order_status(self, order_id: str, *, organization_id: str, facility_id: str, status: str, actor: str) -> ProductionOrder:
+        allowed = {"draft", "scheduled", "in_progress", "on_hold", "complete", "cancelled"}
+        normalized = str(status).strip().lower()
+        if normalized not in allowed:
+            raise ValueError("Unsupported production-order status.")
+        with self._session_factory.begin() as session:
+            order = session.get(ProductionOrder, order_id)
+            if not order or order.organization_id != organization_id or order.facility_id != facility_id:
+                raise ValueError("Production order was not found in this facility.")
+            previous = order.status
+            order.status = normalized
+            order.updated_by = actor
+            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="production_order", entity_id=order.id, action="status_changed", actor=actor, changes_json=json.dumps({"from": previous, "to": normalized})))
+            return order
+
+    def duplicate_production_order(self, order_id: str, *, organization_id: str, facility_id: str, new_order_number: str, actor: str) -> ProductionOrder:
+        with self._session_factory() as session:
+            source = session.get(ProductionOrder, order_id)
+            if not source or source.organization_id != organization_id or source.facility_id != facility_id:
+                raise ValueError("Production order was not found in this facility.")
+            values = {"customer_id": source.customer_id, "due_at": source.due_at, "sku": source.sku, "priority": source.priority, "source_lot_reference": source.source_lot_reference, "material_owner": source.material_owner, "packaging_owner": source.packaging_owner, "notes": source.notes}
+            work_type, product_name, product_format, requested_units = source.work_type, source.product_name, source.product_format, source.requested_units
+        return self.create_production_order(organization_id=organization_id, facility_id=facility_id, order_number=new_order_number, work_type=work_type, product_name=product_name, product_format=product_format, requested_units=requested_units, actor=actor, **values)
+
     @staticmethod
     def _require_organization(session: Session, organization_id: str) -> Organization:
         organization = session.get(Organization, organization_id)
