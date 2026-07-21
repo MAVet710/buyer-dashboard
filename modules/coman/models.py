@@ -130,6 +130,27 @@ class FacilityMachine(TimestampMixin, Base):
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
+class HandLaborArea(TimestampMixin, Base):
+    __tablename__ = "coman_hand_labor_areas"
+    __table_args__ = (
+        UniqueConstraint("facility_id", "name", name="uq_coman_hand_labor_area_name"),
+        CheckConstraint("sticker_units_per_person_hour >= 0", name="ck_coman_hand_sticker_rate"),
+        CheckConstraint("case_pack_units_per_person_hour >= 0", name="ck_coman_hand_case_rate"),
+        CheckConstraint("final_cases_per_person_hour >= 0", name="ck_coman_hand_final_case_rate"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Primary Hand Labor Area")
+    default_crew_size: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    sticker_units_per_person_hour: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    case_pack_units_per_person_hour: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    final_cases_per_person_hour: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    setup_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cleanup_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
 class ProductionOrder(TimestampMixin, Base):
     __tablename__ = "coman_production_orders"
     __table_args__ = (
