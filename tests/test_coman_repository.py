@@ -58,6 +58,19 @@ def test_external_order_requires_customer():
         raise AssertionError("External orders without customers must be rejected.")
 
 
+def test_customers_are_listed_only_for_their_organization():
+    repository, _ = _repository()
+    first = repository.create_organization("First Company")
+    second = repository.create_organization("Second Company")
+    repository.create_customer(first.id, "Zeta Farms")
+    repository.create_customer(first.id, "Alpha Growers")
+    repository.create_customer(second.id, "Hidden Customer")
+
+    customers = repository.list_customers(first.id)
+
+    assert [customer.name for customer in customers] == ["Alpha Growers", "Zeta Farms"]
+
+
 def test_external_order_cannot_use_another_organizations_customer():
     repository, _ = _repository()
     first = repository.create_organization("First Company")

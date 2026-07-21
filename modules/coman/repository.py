@@ -61,6 +61,13 @@ class ComanRepository:
             session.add(customer)
         return customer
 
+    def list_customers(self, organization_id: str, active_only: bool = True) -> list[Customer]:
+        with self._session_factory() as session:
+            statement = select(Customer).where(Customer.organization_id == organization_id)
+            if active_only:
+                statement = statement.where(Customer.active.is_(True))
+            return list(session.scalars(statement.order_by(Customer.name)))
+
     def list_machine_models(self, category: str | None = None) -> list[MachineModel]:
         with self._session_factory() as session:
             statement = select(MachineModel).where(MachineModel.active.is_(True))
