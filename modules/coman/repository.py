@@ -10,7 +10,15 @@ from typing import Any
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import AuditEvent, Customer, Facility, MachineModel, Organization, ProductionOrder
+from .models import (
+    AuditEvent,
+    Customer,
+    Facility,
+    FacilityMachine,
+    MachineModel,
+    Organization,
+    ProductionOrder,
+)
 
 
 def _slugify(value: str) -> str:
@@ -74,6 +82,75 @@ class ComanRepository:
             if category:
                 statement = statement.where(MachineModel.category == category)
             return list(session.scalars(statement.order_by(MachineModel.manufacturer, MachineModel.model)))
+
+    def create_facility_machine(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        machine_model_id: str,
+        asset_code: str,
+        display_name: str,
+        effective_rate: float,
+        preferred_crew_size: int,
+        setup_minutes: int = 0,
+        cleanup_minutes: int = 0,
+        actor: str,
+    ) -> FacilityMachine:
+        if float(effective_rate) <= 0:
+            raise ValueError("effective_rate must be greater than zero.")
+        if int(preferred_crew_size) < 1:
+            raise ValueError("preferred_crew_size must be at least one.")
+        machine = FacilityMachine(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            machine_model_id=machine_model_id,
+            asset_code=str(asset_code).strip().upper(),
+            display_name=str(display_name).strip(),
+            effective_rate=float(effective_rate),
+            rate_unit="units/hour",
+            preferred_crew_size=int(preferred_crew_size),
+            setup_minutes=max(0, int(setup_minutes)),
+            cleanup_minutes=max(0, int(cleanup_minutes)),
+        )
+        with self._session_factory.begin() as session:
+            facility = session.get(Facility, facility_id)
+            if not facility or facility.organization_id != organization_id:
+                raise ValueError("Facility does not belong to the organization.")
+            if not session.get(MachineModel, machine_model_id):
+                raise ValueError("Machine model was not found.")
+            session.add(machine)
+            session.flush()
+            session.add(
+                AuditEvent(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    entity_type="facility_machine",
+                    entity_id=machine.id,
+                    action="created",
+                    actor=actor,
+                    changes_json=json.dumps(
+                        {
+                            "effective_rate": machine.effective_rate,
+                            "rate_unit": machine.rate_unit,
+                            "preferred_crew_size": machine.preferred_crew_size,
+                        }
+                    ),
+                )
+            )
+        return machine
+
+    def list_facility_machines(
+        self, organization_id: str, facility_id: str, active_only: bool = True
+    ) -> list[FacilityMachine]:
+        with self._session_factory() as session:
+            statement = select(FacilityMachine).where(
+                FacilityMachine.organization_id == organization_id,
+                FacilityMachine.facility_id == facility_id,
+            )
+            if active_only:
+                statement = statement.where(FacilityMachine.active.is_(True))
+            return list(session.scalars(statement.order_by(FacilityMachine.display_name)))
 
     def create_production_order(
         self,
