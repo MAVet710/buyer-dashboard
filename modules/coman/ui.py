@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 import pandas as pd
 import streamlit as st
@@ -73,6 +73,7 @@ def render_coman_workspace() -> None:
         facility_machines = repository.list_facility_machines(organization_id, facility_id)
         hand_area = repository.ensure_primary_hand_labor_area(organization_id, facility_id)
         actuals = repository.list_production_actuals(organization_id, facility_id)
+        crew_availability = repository.list_crew_availability(organization_id, facility_id, date.today())
     except ComanDatabaseConfigurationError:
         st.error("Co-Man storage is not configured. Add COMAN_DATABASE_URL to Streamlit secrets.")
         return
@@ -332,6 +333,25 @@ def render_coman_workspace() -> None:
                 st.error(f"Hand-labor rates could not be saved: {exc}")
 
     with planning_tab:
+        st.markdown("#### Crew availability")
+        with st.form("coman_crew_availability_form", clear_on_submit=True):
+            crew1, crew2, crew3, crew4 = st.columns(4)
+            crew_date = crew1.date_input("Work date", value=date.today())
+            crew_shift = crew2.selectbox("Shift", ["Day", "Evening", "Night", "Weekend"])
+            available_people = crew3.number_input("People available", min_value=0, value=1, step=1)
+            crew_shift_hours = crew4.number_input("Shift hours", min_value=1.0, value=8.0, step=0.5)
+            crew_notes = st.text_input("Crew notes", placeholder="Callouts, training, restricted assignments")
+            save_crew = st.form_submit_button("Save crew capacity", type="primary")
+        if save_crew:
+            try:
+                repository.set_crew_availability(organization_id=organization_id, facility_id=facility_id, work_date=crew_date, shift_name=crew_shift, available_people=int(available_people), shift_hours=float(crew_shift_hours), actor=_actor(), notes=crew_notes)
+                st.success("Crew availability saved.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Crew availability could not be saved: {exc}")
+        if crew_availability:
+            st.dataframe(pd.DataFrame([{"Date": record.work_date, "Shift": record.shift_name, "People": record.available_people, "Hours": record.shift_hours, "Available Labor-Hours": record.available_people * record.shift_hours, "Notes": record.notes} for record in crew_availability]), width="stretch", hide_index=True)
+
         st.markdown("#### Machine capacity estimate")
         if not open_orders or not facility_machines:
             st.info("Add at least one production order and one facility machine to calculate capacity.")
@@ -379,6 +399,17 @@ def render_coman_workspace() -> None:
                 hand_metrics[3].metric("Hand-Labor Bottleneck", str(hand_estimate["bottleneck"]))
                 total_elapsed = float(estimate["elapsed_hours"]) + float(hand_estimate["elapsed_hours"])
                 st.success(f"Estimated end-to-end completion time: {total_elapsed:.1f} hours, including the machine and required hand-labor stages.")
+                if crew_availability:
+                    selected_capacity = crew_availability[0]
+                    available_labor_hours = selected_capacity.available_people * selected_capacity.shift_hours
+                    required_labor_hours = float(estimate["labor_hours"]) + float(hand_estimate["labor_hours"])
+                    delta = available_labor_hours - required_labor_hours
+                    if delta >= 0:
+                        st.success(f"Crew capacity check: {available_labor_hours:.1f} labor-hours available; {required_labor_hours:.1f} required.")
+                    else:
+                        st.warning(f"Crew shortage: {required_labor_hours:.1f} labor-hours required versus {available_labor_hours:.1f} available ({abs(delta):.1f} short).")
+                else:
+                    st.warning("Add crew availability above to check whether the scheduled shift can support this job.")
 
     with performance_tab:
         st.markdown("#### Record completed-job actuals")

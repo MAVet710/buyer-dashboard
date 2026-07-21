@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import create_engine, func, select
 
 from modules.coman.models import AuditEvent, Base, MachineModel
@@ -170,3 +172,16 @@ def test_actuals_complete_order_and_can_be_updated():
     assert len(actuals) == 1
     assert actuals[0].actual_units == 960
     assert repository.list_production_orders(organization.id, facility.id)[0].status == "complete"
+
+
+def test_crew_availability_is_upserted_by_date_and_shift():
+    repository, _ = _repository()
+    organization = repository.create_organization("DoobieLogic")
+    facility = repository.create_facility(organization.id, "Main Production", "MAIN")
+    work_day = date(2026, 7, 21)
+    repository.set_crew_availability(organization_id=organization.id, facility_id=facility.id, work_date=work_day, shift_name="Day", available_people=8, shift_hours=8, actor="planner")
+    repository.set_crew_availability(organization_id=organization.id, facility_id=facility.id, work_date=work_day, shift_name="Day", available_people=7, shift_hours=10, actor="planner")
+    records = repository.list_crew_availability(organization.id, facility.id, work_day)
+    assert len(records) == 1
+    assert records[0].available_people == 7
+    assert records[0].shift_hours == 10
