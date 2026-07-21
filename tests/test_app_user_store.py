@@ -119,6 +119,17 @@ def test_dev_can_create_and_list_organization_facility_context():
     assert store.list_facilities(organization.id) == [facility]
 
 
+def test_dev_sandbox_is_created_once_with_a_facility():
+    store = _store()
+    first_org, first_facility = store.ensure_dev_sandbox()
+    second_org, second_facility = store.ensure_dev_sandbox()
+    assert first_org.id == second_org.id
+    assert first_org.slug == "dev-sandbox"
+    assert first_facility.id == second_facility.id
+    assert first_facility.code == "SANDBOX"
+    assert first_facility.organization_id == first_org.id
+
+
 def test_facility_assignment_limits_user_context():
     store = _store()
     organization = store.create_organization(name="Operator Company", slug="operator-company")
