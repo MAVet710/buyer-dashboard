@@ -8,7 +8,12 @@ import pandas as pd
 import streamlit as st
 
 from .db import ComanDatabaseConfigurationError, create_coman_engine
-from .planning import estimate_hand_labor_job, estimate_machine_job
+from .planning import (
+    estimate_hand_labor_job,
+    estimate_machine_job,
+    recommend_weight_allocation,
+    weight_to_grams,
+)
 from .repository import ComanRepository
 
 
@@ -20,6 +25,13 @@ PRODUCT_FORMATS = [
     "Infused pre-roll",
     "Infused pre-roll pack",
     "Other",
+]
+
+DEFAULT_OPTIMIZER_PRODUCTS = [
+    {"eligible": True, "product": "3.5 g flower pouch", "format": "Pouched flower", "unit_size_g": 3.5, "revenue_per_unit": 18.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.75, "other_cost_per_unit": 0.10, "machine_units_per_hour": 900.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 50, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "3.5 g flower jar", "format": "Jarred flower", "unit_size_g": 3.5, "revenue_per_unit": 20.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 1.15, "other_cost_per_unit": 0.10, "machine_units_per_hour": 500.0, "machine_crew": 4, "machine_cost_per_hour": 25.0, "units_per_case": 48, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "1 g pre-roll", "format": "Pre-roll", "unit_size_g": 1.0, "revenue_per_unit": 6.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.35, "other_cost_per_unit": 0.08, "machine_units_per_hour": 1200.0, "machine_crew": 4, "machine_cost_per_hour": 45.0, "units_per_case": 100, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "5-pack pre-roll", "format": "Pre-roll pack", "unit_size_g": 2.5, "revenue_per_unit": 16.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.90, "other_cost_per_unit": 0.12, "machine_units_per_hour": 350.0, "machine_crew": 5, "machine_cost_per_hour": 45.0, "units_per_case": 40, "max_allocation_pct": 100.0},
 ]
 
 
@@ -118,7 +130,7 @@ def render_coman_workspace() -> None:
         else:
             st.dataframe(frame, width="stretch", hide_index=True)
             st.markdown("#### Queue actions")
-            order_actions = {f"{order.order_number} — {order.product_name}": order for order in orders}
+            order_actions = {f"{order.order_number} â€” {order.product_name}": order for order in orders}
             action_col1, action_col2 = st.columns(2)
             selected_action_order = order_actions[action_col1.selectbox("Order", list(order_actions), key="coman_action_order")]
             status_label = action_col2.selectbox("New status", ["Draft", "Scheduled", "In Progress", "On Hold", "Complete", "Cancelled"])
@@ -141,7 +153,110 @@ def render_coman_workspace() -> None:
                         st.error(f"Order could not be duplicated: {exc}")
 
     with orders_tab:
-        st.markdown("#### Add production order")
+        st.markdown("#### Weight-based production recommendation")
+        st.caption(
+            "Enter the bulk available, then compare finished-product uses by contribution profit. "
+            "Recommendations are advisory until you create a committed production order below."
+        )
+        weight1, weight2, weight3, weight4 = st.columns(4)
+        bulk_weight = weight1.number_input("Available bulk weight", min_value=0.0, value=10.0, step=1.0)
+        bulk_unit = weight2.selectbox("Weight unit", ["Pounds", "Grams", "Kilograms"])
+        expected_loss_pct = weight3.number_input("Expected process loss %", min_value=0.0, max_value=50.0, value=5.0, step=0.5)
+        optimization_goal = weight4.selectbox("Optimization goal", ["Maximum total profit", "Maximum profit per labor hour"])
+        econ1, econ2, econ3 = st.columns(3)
+        optimizer_work_type = econ1.selectbox("Economics", ["Internal / owned product", "External co-man service"])
+        labor_rate = econ2.number_input("Loaded labor cost $/hour", min_value=0.0, value=22.0, step=1.0)
+        usable_weight_g = weight_to_grams(float(bulk_weight), bulk_unit) * (1 - float(expected_loss_pct) / 100)
+        econ3.metric("Usable weight after loss", f"{usable_weight_g:,.1f} g")
+        if optimizer_work_type.startswith("External"):
+            st.info("For customer-owned bulk, set Bulk Cost $/g to $0 and enter your packaging/service fee as Revenue/Unit.")
+        else:
+            st.info("For owned product, Revenue/Unit is expected wholesale or transfer revenue and Bulk Cost $/g is your cannabis cost basis.")
+
+        optimizer_products = st.data_editor(
+            pd.DataFrame(DEFAULT_OPTIMIZER_PRODUCTS),
+            key="coman_optimizer_products",
+            width="stretch",
+            hide_index=True,
+            num_rows="dynamic",
+            column_config={
+                "eligible": st.column_config.CheckboxColumn("Use"),
+                "product": st.column_config.TextColumn("Product / SKU", required=True),
+                "format": st.column_config.SelectboxColumn("Format", options=PRODUCT_FORMATS, required=True),
+                "unit_size_g": st.column_config.NumberColumn("Grams/Unit", min_value=0.01, format="%.2f"),
+                "revenue_per_unit": st.column_config.NumberColumn("Revenue/Unit", min_value=0.0, format="$%.2f"),
+                "bulk_cost_per_g": st.column_config.NumberColumn("Bulk Cost $/g", min_value=0.0, format="$%.2f"),
+                "packaging_cost_per_unit": st.column_config.NumberColumn("Packaging/Unit", min_value=0.0, format="$%.2f"),
+                "other_cost_per_unit": st.column_config.NumberColumn("Other Cost/Unit", min_value=0.0, format="$%.2f"),
+                "machine_units_per_hour": st.column_config.NumberColumn("Machine Units/Hr", min_value=0.0, format="%.0f"),
+                "machine_crew": st.column_config.NumberColumn("Machine Crew", min_value=0, step=1),
+                "machine_cost_per_hour": st.column_config.NumberColumn("Machine $/Hr", min_value=0.0, format="$%.2f"),
+                "units_per_case": st.column_config.NumberColumn("Units/Case", min_value=1, step=1),
+                "max_allocation_pct": st.column_config.NumberColumn("Max Allocation %", min_value=0.0, max_value=100.0, format="%.0f%%"),
+            },
+        )
+        rates_ready_for_optimizer = all(
+            [
+                hand_area.sticker_units_per_person_hour > 0,
+                hand_area.case_pack_units_per_person_hour > 0,
+                hand_area.final_cases_per_person_hour > 0,
+            ]
+        )
+        if not rates_ready_for_optimizer:
+            st.warning("Set all hand-labor rates in Resources for a complete profit recommendation. Missing rates currently contribute zero labor time.")
+        recommendations = recommend_weight_allocation(
+            weight_to_grams(float(bulk_weight), bulk_unit),
+            optimizer_products.to_dict("records"),
+            loss_pct=float(expected_loss_pct),
+            labor_rate=float(labor_rate),
+            sticker_units_per_person_hour=float(hand_area.sticker_units_per_person_hour),
+            case_pack_units_per_person_hour=float(hand_area.case_pack_units_per_person_hour),
+            final_cases_per_person_hour=float(hand_area.final_cases_per_person_hour),
+            optimization_goal=optimization_goal,
+        )
+        if not recommendations:
+            st.info("Enter bulk weight and at least one eligible product with a valid grams-per-unit value.")
+        else:
+            total_profit = sum(row["profit"] for row in recommendations)
+            total_revenue = sum(row["revenue"] for row in recommendations)
+            total_labor = sum(row["total_labor_hours"] for row in recommendations)
+            allocated_g = sum(row["allocated_g"] for row in recommendations)
+            result_metrics = st.columns(4)
+            result_metrics[0].metric("Recommended Profit", f"${total_profit:,.2f}")
+            result_metrics[1].metric("Contribution Margin", f"{(total_profit / total_revenue * 100) if total_revenue else 0:.1f}%")
+            result_metrics[2].metric("Labor Required", f"{total_labor:,.1f} hr")
+            result_metrics[3].metric("Bulk Allocated", f"{allocated_g:,.1f} g")
+            recommendation_frame = pd.DataFrame(
+                [
+                    {
+                        "Rank": index,
+                        "Product": row["product"],
+                        "Format": row["format"],
+                        "Units": row["units"],
+                        "Bulk Grams": round(row["allocated_g"], 1),
+                        "Cases": row["cases"],
+                        "Revenue": round(row["revenue"], 2),
+                        "Total Cost": round(row["total_cost"], 2),
+                        "Profit": round(row["profit"], 2),
+                        "Margin %": round(row["margin_pct"], 1),
+                        "Profit/Input Lb": round(row["profit_per_input_lb"], 2),
+                        "Profit/Labor Hr": round(row["profit_per_labor_hour"], 2),
+                        "Machine Hours": round(row["machine_hours"], 1),
+                        "Hand Labor Hours": round(row["hand_labor_hours"], 1),
+                    }
+                    for index, row in enumerate(recommendations, start=1)
+                ]
+            )
+            st.dataframe(recommendation_frame, width="stretch", hide_index=True)
+            remaining_g = max(0.0, usable_weight_g - allocated_g)
+            st.caption(
+                f"Remaining usable bulk: {remaining_g:,.1f} g. Use Max Allocation % to reserve demand or split bulk across products. "
+                "Final case pack, case pack, and stickering are included from the facility's Resources rates."
+            )
+
+        st.divider()
+        st.markdown("#### Committed production order")
+        st.caption("Use this path when a customer or internal plan already requires a specific finished-unit quantity.")
         with st.form("coman_production_order_form", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
             order_number = col1.text_input("Order number*", placeholder="COM-000001")
@@ -248,7 +363,7 @@ def render_coman_workspace() -> None:
             st.warning("No machine benchmark models are loaded yet.")
         else:
             model_options = {
-                f"{model.manufacturer} — {model.model} ({model.category})": model
+                f"{model.manufacturer} â€” {model.model} ({model.category})": model
                 for model in machine_models
             }
             with st.form("coman_facility_machine_form", clear_on_submit=True):
@@ -357,11 +472,11 @@ def render_coman_workspace() -> None:
             st.info("Add at least one production order and one facility machine to calculate capacity.")
         else:
             order_options = {
-                f"{order.order_number} — {order.product_name} ({order.requested_units:,} units)": order
+                f"{order.order_number} â€” {order.product_name} ({order.requested_units:,} units)": order
                 for order in open_orders
             }
             machine_options = {
-                f"{machine.asset_code} — {machine.display_name}": machine
+                f"{machine.asset_code} â€” {machine.display_name}": machine
                 for machine in facility_machines
             }
             col1, col2, col3 = st.columns(3)
@@ -416,7 +531,7 @@ def render_coman_workspace() -> None:
         if not orders:
             st.info("Create a production order before recording performance.")
         else:
-            performance_orders = {f"{order.order_number} — {order.product_name}": order for order in orders}
+            performance_orders = {f"{order.order_number} â€” {order.product_name}": order for order in orders}
             with st.form("coman_actuals_form", clear_on_submit=True):
                 actual_order_label = st.selectbox("Production order", list(performance_orders))
                 actual_order = performance_orders[actual_order_label]
@@ -450,3 +565,4 @@ def render_coman_workspace() -> None:
             summary[1].metric("Average Attainment", f"{performance_df['Attainment %'].mean():.1f}%")
             summary[2].metric("Total Scrap", f"{performance_df['Scrap'].sum():,.0f}")
             summary[3].metric("Actual Labor-Hours", f"{performance_df['Labor Hours'].sum():,.1f}")
+
