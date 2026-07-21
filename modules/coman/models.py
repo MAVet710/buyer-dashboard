@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Date,
     Float,
     ForeignKey,
     Index,
@@ -149,6 +150,24 @@ class HandLaborArea(TimestampMixin, Base):
     setup_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cleanup_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class CrewAvailability(TimestampMixin, Base):
+    __tablename__ = "coman_crew_availability"
+    __table_args__ = (
+        UniqueConstraint("facility_id", "work_date", "shift_name", name="uq_coman_crew_facility_date_shift"),
+        CheckConstraint("available_people >= 0", name="ck_coman_crew_people"),
+        CheckConstraint("shift_hours > 0", name="ck_coman_crew_shift_hours"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    work_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    shift_name: Mapped[str] = mapped_column(String(120), nullable=False, default="Day")
+    available_people: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    shift_hours: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
 class ProductionOrder(TimestampMixin, Base):

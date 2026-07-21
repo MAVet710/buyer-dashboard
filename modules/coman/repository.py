@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import Engine, select
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from .models import (
     AuditEvent,
     Customer,
+    CrewAvailability,
     Facility,
     FacilityMachine,
     HandLaborArea,
@@ -309,6 +310,33 @@ class ComanRepository:
         with self._session_factory() as session:
             statement = select(ProductionActual).where(ProductionActual.organization_id == organization_id, ProductionActual.facility_id == facility_id)
             return list(session.scalars(statement.order_by(ProductionActual.completed_at.desc())))
+
+    def set_crew_availability(self, *, organization_id: str, facility_id: str, work_date: date, shift_name: str, available_people: int, shift_hours: float, actor: str, notes: str = "") -> CrewAvailability:
+        if int(available_people) < 0 or float(shift_hours) <= 0:
+            raise ValueError("Crew and shift hours must be valid non-negative capacity values.")
+        clean_shift = str(shift_name).strip() or "Day"
+        with self._session_factory.begin() as session:
+            facility = session.get(Facility, facility_id)
+            if not facility or facility.organization_id != organization_id:
+                raise ValueError("Facility does not belong to the organization.")
+            record = session.scalar(select(CrewAvailability).where(CrewAvailability.facility_id == facility_id, CrewAvailability.work_date == work_date, CrewAvailability.shift_name == clean_shift))
+            if record is None:
+                record = CrewAvailability(organization_id=organization_id, facility_id=facility_id, work_date=work_date, shift_name=clean_shift, updated_by=actor)
+                session.add(record)
+            record.available_people = int(available_people)
+            record.shift_hours = float(shift_hours)
+            record.notes = str(notes or "")
+            record.updated_by = actor
+            session.flush()
+            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="crew_availability", entity_id=record.id, action="capacity_set", actor=actor, changes_json=json.dumps({"work_date": work_date.isoformat(), "shift": clean_shift, "people": record.available_people, "shift_hours": record.shift_hours})))
+            return record
+
+    def list_crew_availability(self, organization_id: str, facility_id: str, start_date: date | None = None) -> list[CrewAvailability]:
+        with self._session_factory() as session:
+            statement = select(CrewAvailability).where(CrewAvailability.organization_id == organization_id, CrewAvailability.facility_id == facility_id)
+            if start_date:
+                statement = statement.where(CrewAvailability.work_date >= start_date)
+            return list(session.scalars(statement.order_by(CrewAvailability.work_date, CrewAvailability.shift_name)))
 
     @staticmethod
     def _require_organization(session: Session, organization_id: str) -> Organization:
