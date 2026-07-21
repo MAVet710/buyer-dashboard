@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import create_engine, func, select
 
-from modules.coman.models import AuditEvent, Base
+from modules.coman.models import AuditEvent, Base, MachineModel
+from modules.coman.planning import estimate_machine_job
 from modules.coman.repository import ComanRepository
 
 
@@ -94,3 +95,36 @@ def test_external_order_cannot_use_another_organizations_customer():
         assert "Customer does not belong" in str(exc)
     else:
         raise AssertionError("Cross-organization customer access must be rejected.")
+
+
+def test_facility_machine_is_scoped_and_capacity_is_calculated():
+    repository, engine = _repository()
+    organization = repository.create_organization("DoobieLogic")
+    facility = repository.create_facility(organization.id, "Main Production", "MAIN")
+    with engine.begin() as connection:
+        connection.execute(
+            MachineModel.__table__.insert(),
+            {
+                "manufacturer": "Test Make",
+                "model": "Test Model",
+                "category": "pre-roll",
+                "published_max_rate": 100,
+            },
+        )
+    model = repository.list_machine_models()[0]
+    machine = repository.create_facility_machine(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        machine_model_id=model.id,
+        asset_code="PR-01",
+        display_name="Pre-roll Line 1",
+        effective_rate=500,
+        preferred_crew_size=3,
+        setup_minutes=30,
+        cleanup_minutes=30,
+        actor="admin",
+    )
+
+    assert [item.id for item in repository.list_facility_machines(organization.id, facility.id)] == [machine.id]
+    estimate = estimate_machine_job(4000, 500, 3, 30, 30, 8)
+    assert estimate == {"run_hours": 8.0, "elapsed_hours": 9.0, "labor_hours": 27.0, "shifts": 2}

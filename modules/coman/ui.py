@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from .db import ComanDatabaseConfigurationError, create_coman_engine
+from .planning import estimate_machine_job
 from .repository import ComanRepository
 
 
@@ -68,6 +69,8 @@ def render_coman_workspace() -> None:
         repository = _repository()
         customers = repository.list_customers(organization_id)
         orders = repository.list_production_orders(organization_id, facility_id)
+        machine_models = repository.list_machine_models()
+        facility_machines = repository.list_facility_machines(organization_id, facility_id)
     except ComanDatabaseConfigurationError:
         st.error("Co-Man storage is not configured. Add COMAN_DATABASE_URL to Streamlit secrets.")
         return
@@ -85,8 +88,8 @@ def render_coman_workspace() -> None:
     metrics[2].metric("External Jobs", len(external_orders))
     metrics[3].metric("Customers", len(customers))
 
-    overview_tab, orders_tab, customers_tab, planning_tab = st.tabs(
-        ["Overview", "Production Orders", "Customers", "Capacity Planning"]
+    overview_tab, orders_tab, customers_tab, machines_tab, planning_tab = st.tabs(
+        ["Overview", "Production Orders", "Customers", "Machines", "Capacity Planning"]
     )
 
     with overview_tab:
@@ -195,8 +198,110 @@ def render_coman_workspace() -> None:
                 hide_index=True,
             )
 
-    with planning_tab:
-        st.info(
-            "Machine rates, staffing, routing steps, and schedule optimization are the next Co-Man milestone. "
-            "Orders entered here are already stored in the durable structure that planning will use."
+    with machines_tab:
+        st.markdown("#### Facility equipment and observed rates")
+        st.caption(
+            "Published specifications are a starting reference. Effective rate should be what this facility "
+            "can repeatedly achieve with its product, operators, setup, and quality requirements."
         )
+        if not machine_models:
+            st.warning("No machine benchmark models are loaded yet.")
+        else:
+            model_options = {
+                f"{model.manufacturer} — {model.model} ({model.category})": model
+                for model in machine_models
+            }
+            with st.form("coman_facility_machine_form", clear_on_submit=True):
+                model_label = st.selectbox("Machine model*", list(model_options))
+                selected_model = model_options[model_label]
+                st.caption(
+                    f"Published maximum: {selected_model.published_max_rate:g} "
+                    f"{selected_model.rate_unit}; planning reference utilization: "
+                    f"{selected_model.planning_utilization_pct:g}%"
+                )
+                col1, col2, col3 = st.columns(3)
+                asset_code = col1.text_input("Asset code*", placeholder="PR-01")
+                display_name = col2.text_input("Facility name*", value=selected_model.model)
+                effective_rate = col3.number_input(
+                    "Observed effective rate (units/hour)*", min_value=0.1, value=100.0, step=10.0
+                )
+                crew_size = col1.number_input("Preferred crew", min_value=1, value=1, step=1)
+                setup_minutes = col2.number_input("Setup minutes", min_value=0, value=30, step=5)
+                cleanup_minutes = col3.number_input("Cleanup minutes", min_value=0, value=30, step=5)
+                save_machine = st.form_submit_button("Add facility machine", type="primary")
+            if save_machine:
+                if not asset_code.strip() or not display_name.strip():
+                    st.error("Asset code and facility name are required.")
+                else:
+                    try:
+                        repository.create_facility_machine(
+                            organization_id=organization_id,
+                            facility_id=facility_id,
+                            machine_model_id=selected_model.id,
+                            asset_code=asset_code,
+                            display_name=display_name,
+                            effective_rate=float(effective_rate),
+                            preferred_crew_size=int(crew_size),
+                            setup_minutes=int(setup_minutes),
+                            cleanup_minutes=int(cleanup_minutes),
+                            actor=_actor(),
+                        )
+                        st.success(f"{display_name.strip()} was added to this facility.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Machine could not be saved: {exc}")
+        if facility_machines:
+            models_by_id = {model.id: model for model in machine_models}
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Asset": machine.asset_code,
+                            "Machine": machine.display_name,
+                            "Model": getattr(models_by_id.get(machine.machine_model_id), "model", "Unknown"),
+                            "Observed Units/Hour": machine.effective_rate,
+                            "Crew": machine.preferred_crew_size,
+                            "Setup Min": machine.setup_minutes,
+                            "Cleanup Min": machine.cleanup_minutes,
+                        }
+                        for machine in facility_machines
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+    with planning_tab:
+        st.markdown("#### Machine capacity estimate")
+        if not open_orders or not facility_machines:
+            st.info("Add at least one production order and one facility machine to calculate capacity.")
+        else:
+            order_options = {
+                f"{order.order_number} — {order.product_name} ({order.requested_units:,} units)": order
+                for order in open_orders
+            }
+            machine_options = {
+                f"{machine.asset_code} — {machine.display_name}": machine
+                for machine in facility_machines
+            }
+            col1, col2, col3 = st.columns(3)
+            planning_order = order_options[col1.selectbox("Production order", list(order_options))]
+            planning_machine = machine_options[col2.selectbox("Facility machine", list(machine_options))]
+            shift_hours = col3.number_input("Shift length (hours)", min_value=1.0, value=8.0, step=0.5)
+            estimate = estimate_machine_job(
+                planning_order.requested_units,
+                planning_machine.effective_rate,
+                planning_machine.preferred_crew_size,
+                planning_machine.setup_minutes,
+                planning_machine.cleanup_minutes,
+                shift_hours,
+            )
+            results = st.columns(4)
+            results[0].metric("Machine Run", f"{estimate['run_hours']:.1f} hr")
+            results[1].metric("Elapsed Time", f"{estimate['elapsed_hours']:.1f} hr")
+            results[2].metric("Labor Required", f"{estimate['labor_hours']:.1f} labor hr")
+            results[3].metric("Shifts Required", int(estimate["shifts"]))
+            st.caption(
+                "This is a single-machine estimate using your observed rate. Labor routing for breakdown, "
+                "weighing, tubing, stickering, casing, packing, QA, and sanitation comes next."
+            )
