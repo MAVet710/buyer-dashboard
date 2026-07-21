@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -18,7 +19,10 @@ from .repository import ComanRepository
 
 
 PRODUCT_FORMATS = [
-    "Pouched flower",
+    "Pouched flower â€” 3.5 g",
+    "Pouched flower â€” 7 g",
+    "Pouched flower â€” 14 g",
+    "Pouched flower â€” 1 oz (28 g)",
     "Jarred flower",
     "Pre-roll",
     "Pre-roll pack",
@@ -28,7 +32,10 @@ PRODUCT_FORMATS = [
 ]
 
 DEFAULT_OPTIMIZER_PRODUCTS = [
-    {"eligible": True, "product": "3.5 g flower pouch", "format": "Pouched flower", "unit_size_g": 3.5, "revenue_per_unit": 18.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.75, "other_cost_per_unit": 0.10, "machine_units_per_hour": 900.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 50, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "3.5 g flower pouch", "format": "Pouched flower â€” 3.5 g", "unit_size_g": 3.5, "revenue_per_unit": 18.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.75, "other_cost_per_unit": 0.10, "machine_units_per_hour": 900.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 50, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "7 g flower pouch", "format": "Pouched flower â€” 7 g", "unit_size_g": 7.0, "revenue_per_unit": 32.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.85, "other_cost_per_unit": 0.12, "machine_units_per_hour": 750.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 30, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "14 g flower pouch", "format": "Pouched flower â€” 14 g", "unit_size_g": 14.0, "revenue_per_unit": 58.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.95, "other_cost_per_unit": 0.15, "machine_units_per_hour": 600.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 20, "max_allocation_pct": 100.0},
+    {"eligible": True, "product": "1 oz flower pouch", "format": "Pouched flower â€” 1 oz (28 g)", "unit_size_g": 28.0, "revenue_per_unit": 105.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 1.10, "other_cost_per_unit": 0.18, "machine_units_per_hour": 450.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 12, "max_allocation_pct": 100.0},
     {"eligible": True, "product": "3.5 g flower jar", "format": "Jarred flower", "unit_size_g": 3.5, "revenue_per_unit": 20.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 1.15, "other_cost_per_unit": 0.10, "machine_units_per_hour": 500.0, "machine_crew": 4, "machine_cost_per_hour": 25.0, "units_per_case": 48, "max_allocation_pct": 100.0},
     {"eligible": True, "product": "1 g pre-roll", "format": "Pre-roll", "unit_size_g": 1.0, "revenue_per_unit": 6.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.35, "other_cost_per_unit": 0.08, "machine_units_per_hour": 1200.0, "machine_crew": 4, "machine_cost_per_hour": 45.0, "units_per_case": 100, "max_allocation_pct": 100.0},
     {"eligible": True, "product": "5-pack pre-roll", "format": "Pre-roll pack", "unit_size_g": 2.5, "revenue_per_unit": 16.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.90, "other_cost_per_unit": 0.12, "machine_units_per_hour": 350.0, "machine_crew": 5, "machine_cost_per_hour": 45.0, "units_per_case": 40, "max_allocation_pct": 100.0},
@@ -308,27 +315,7 @@ def render_coman_workspace() -> None:
                     st.success(f"Production order {order_number.strip()} was saved.")
                     st.rerun()
                 except Exception as exc:
-                    st.error(f"Order could not be saved: {exc}")
-
-    with customers_tab:
-        st.markdown("#### Co-Man customers")
-        st.caption("Customers are only required when your facility packages product for another company.")
-        with st.form("coman_customer_form", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            customer_name = col1.text_input("Company name*")
-            license_number = col2.text_input("License / registration")
-            contact_name = col1.text_input("Contact name")
-            contact_email = col2.text_input("Contact email")
-            add_customer = st.form_submit_button("Add customer", type="primary")
-        if add_customer:
-            if not customer_name.strip():
-                st.error("Company name is required.")
-            else:
-                try:
-                    repository.create_customer(
-                        organization_id,
-                        customer_name,
-                        license_or_registration=license_number,
+                    st.error(f"Order could not b…239 tokens truncated…_registration=license_number,
                         contact_name=contact_name,
                         contact_email=contact_email,
                     )
@@ -565,4 +552,78 @@ def render_coman_workspace() -> None:
             summary[1].metric("Average Attainment", f"{performance_df['Attainment %'].mean():.1f}%")
             summary[2].metric("Total Scrap", f"{performance_df['Scrap'].sum():,.0f}")
             summary[3].metric("Actual Labor-Hours", f"{performance_df['Labor Hours'].sum():,.1f}")
+
+            st.markdown("#### Performance visuals")
+            st.caption("Output, attainment, and hours use the same orange, green, and blue accents as the rest of the app.")
+            chart_source = performance_df.copy()
+            chart_source["Job"] = chart_source["Order"].astype(str) + " â€” " + chart_source["Product"].astype(str)
+            output_long = chart_source.melt(
+                id_vars=["Job"],
+                value_vars=["Planned Units", "Actual Units"],
+                var_name="Measure",
+                value_name="Units",
+            )
+            output_chart = (
+                alt.Chart(output_long)
+                .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                .encode(
+                    x=alt.X("Job:N", sort=None, title=None, axis=alt.Axis(labelAngle=-25)),
+                    y=alt.Y("Units:Q", title="Finished units"),
+                    color=alt.Color(
+                        "Measure:N",
+                        scale=alt.Scale(
+                            domain=["Planned Units", "Actual Units"],
+                            range=["#ff9a3c", "#4cd388"],
+                        ),
+                        legend=alt.Legend(orient="top", title=None),
+                    ),
+                    xOffset="Measure:N",
+                    tooltip=["Job:N", "Measure:N", alt.Tooltip("Units:Q", format=",")],
+                )
+                .properties(height=310, title="Planned vs. actual output")
+            )
+            attainment_chart = (
+                alt.Chart(chart_source)
+                .mark_bar(color="#ff9a3c", cornerRadiusEnd=5)
+                .encode(
+                    y=alt.Y("Job:N", sort="-x", title=None),
+                    x=alt.X("Attainment %:Q", title="Attainment %", scale=alt.Scale(domain=[0, max(110, float(chart_source['Attainment %'].max()) + 10)])),
+                    color=alt.condition("datum['Attainment %'] >= 100", alt.value("#4cd388"), alt.value("#ff9a3c")),
+                    tooltip=["Job:N", alt.Tooltip("Attainment %:Q", format=".1f")],
+                )
+                .properties(height=max(220, len(chart_source) * 38), title="Job attainment")
+            )
+            hours_long = chart_source.melt(
+                id_vars=["Job"],
+                value_vars=["Machine Hours", "Labor Hours"],
+                var_name="Hour Type",
+                value_name="Hours",
+            )
+            hours_chart = (
+                alt.Chart(hours_long)
+                .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                .encode(
+                    x=alt.X("Job:N", sort=None, title=None, axis=alt.Axis(labelAngle=-25)),
+                    y=alt.Y("Hours:Q", title="Hours"),
+                    color=alt.Color(
+                        "Hour Type:N",
+                        scale=alt.Scale(domain=["Machine Hours", "Labor Hours"], range=["#5aa8ff", "#4cd388"]),
+                        legend=alt.Legend(orient="top", title=None),
+                    ),
+                    xOffset="Hour Type:N",
+                    tooltip=["Job:N", "Hour Type:N", alt.Tooltip("Hours:Q", format=".1f")],
+                )
+                .properties(height=310, title="Machine and labor hours")
+            )
+            app_chart_config = {
+                "background": "transparent",
+                "axis": {"labelColor": "#b8b8b8", "titleColor": "#ffffff", "gridColor": "#343434"},
+                "legend": {"labelColor": "#b8b8b8", "titleColor": "#ffffff"},
+                "title": {"color": "#ffffff", "fontSize": 16, "anchor": "start"},
+                "view": {"stroke": "transparent"},
+            }
+            visual1, visual2 = st.columns(2)
+            visual1.altair_chart(output_chart.configure(**app_chart_config), width="stretch")
+            visual2.altair_chart(attainment_chart.configure(**app_chart_config), width="stretch")
+            st.altair_chart(hours_chart.configure(**app_chart_config), width="stretch")
 
