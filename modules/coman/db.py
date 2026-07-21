@@ -54,4 +54,5 @@ def create_coman_engine(database_url: str | None = None) -> Engine:
         options["connect_args"] = {"check_same_thread": False}
     else:
         options["pool_recycle"] = 300
+        options["connect_args"] = {"connect_timeout": 5}
     return create_engine(resolved, **options)

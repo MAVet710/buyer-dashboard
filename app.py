@@ -51,6 +51,20 @@ from ui_polish import (
 from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
 from services.app_user_store import AppUserStore
+from services.auth_identity import resolve_legacy_identity
+from services.auth_workflow import (
+    apply_authenticated_session,
+    authenticate_any_role,
+    clear_authenticated_session,
+)
+from services.workspace_navigation import (
+    COMAN_WORKSPACE,
+    EXTRACTION_WORKSPACE,
+    WHITE_LABEL_WORKSPACE,
+    buyer_section_options,
+    workspace_options as build_workspace_options,
+)
+from modules.coman.ui import render_coman_workspace
 
 load_dotenv()
 
@@ -694,6 +708,7 @@ def _load_auth_secrets():
     Each dict maps username -> bcrypt_hash (or plaintext if
     st.secrets["auth"]["use_plaintext"] is explicitly True).
     """
+    devs: dict = {}
     admins: dict = {}
     users: dict = {}
     trial_value: str = ""
@@ -704,6 +719,15 @@ def _load_auth_secrets():
         auth = {}
 
     use_plaintext = bool(auth.get("use_plaintext", False)) if isinstance(auth, Mapping) else False
+
+    # --- platform developers/owners ---
+    raw_devs = auth.get("devs", {}) if isinstance(auth, Mapping) else {}
+    if isinstance(raw_devs, Mapping):
+        for k, v in raw_devs.items():
+            try:
+                devs[str(k)] = str(v)
+            except Exception:
+                pass
 
     # --- admins ---
     raw_admins = auth.get("admins", {}) if isinstance(auth, Mapping) else {}
@@ -740,10 +764,10 @@ def _load_auth_secrets():
     if env_trial and not trial_value:
         trial_value = env_trial
 
-    return admins, users, trial_value, use_plaintext
+    return devs, admins, users, trial_value, use_plaintext
 
 
-ADMIN_USERS, USER_USERS, _TRIAL_VALUE, _AUTH_PLAINTEXT = _load_auth_secrets()
+DEV_USERS, ADMIN_USERS, USER_USERS, _TRIAL_VALUE, _AUTH_PLAINTEXT = _load_auth_secrets()
 
 if not BCRYPT_AVAILABLE and not st.session_state.get("_bcrypt_warning_shown"):
     st.warning(
@@ -788,24 +812,36 @@ def _authenticate_account(username: str, password: str, require_admin: bool) -> 
         # password does not match.
         return False, ""
 
-    legacy_users = ADMIN_USERS if require_admin else USER_USERS
-    stored_value = legacy_users.get(clean_username)
+    legacy_identity = resolve_legacy_identity(
+        clean_username,
+        dev_users=DEV_USERS,
+        admin_users=ADMIN_USERS,
+        standard_users=USER_USERS,
+        require_admin=require_admin,
+    )
+    stored_value = legacy_identity.stored_value if legacy_identity else ""
     if stored_value and _check_password(password, stored_value):
+        # Authentication must establish a complete authorization context even
+        # when Supabase is temporarily unavailable during legacy bootstrap.
+        st.session_state.auth_user_id = None
+        st.session_state.auth_user_role = legacy_identity.role
+        st.session_state.auth_organization_id = None
+        st.session_state.auth_must_change_password = False
         durable_hash = stored_value
         if not str(durable_hash).startswith(("$2a$", "$2b$", "$2y$")) and BCRYPT_AVAILABLE:
             durable_hash = hash_password(password)
         if str(durable_hash).startswith(("$2a$", "$2b$", "$2y$")):
             durable_user = APP_USER_STORE.ensure_legacy_user(
-                username=clean_username,
+                username=legacy_identity.username,
                 password_hash=durable_hash,
-                role="admin" if require_admin else "buyer",
+                role=legacy_identity.role,
             )
             if durable_user:
                 st.session_state.auth_user_id = durable_user.id
                 st.session_state.auth_user_role = durable_user.role
                 st.session_state.auth_organization_id = durable_user.organization_id
                 st.session_state.auth_must_change_password = durable_user.must_change_password
-        return True, clean_username
+        return True, legacy_identity.username
     return False, ""
 
 
@@ -831,11 +867,13 @@ def _validate_auth_config() -> list:
         issues.append(("error", "No admin users loaded. Check that [auth.admins] is present in Streamlit secrets."))
     else:
         issues.append(("ok", f"{len(ADMIN_USERS)} admin user(s) loaded: {', '.join(sorted(ADMIN_USERS.keys()))}"))
+    if DEV_USERS:
+        issues.append(("ok", f"{len(DEV_USERS)} DEV user(s) loaded: {', '.join(sorted(DEV_USERS.keys()))}"))
     if not USER_USERS:
         issues.append(("warn", "No standard users loaded. Check that [auth.users] is present in Streamlit secrets if user login is expected."))
     else:
         issues.append(("ok", f"{len(USER_USERS)} standard user(s) loaded: {', '.join(sorted(USER_USERS.keys()))}"))
-    for uname, stored_hash in ADMIN_USERS.items():
+    for uname, stored_hash in {**ADMIN_USERS, **DEV_USERS}.items():
         if not stored_hash.startswith(("$2a$", "$2b$", "$2y$")):
             issues.append(("warn", f"Admin '{uname}': stored value does not look like a bcrypt hash (should start with $2a$, $2b$, or $2y$)."))
     for uname, stored_hash in USER_USERS.items():
@@ -1097,6 +1135,10 @@ if "auth_user_role" not in st.session_state:
     st.session_state.auth_user_role = None
 if "auth_organization_id" not in st.session_state:
     st.session_state.auth_organization_id = None
+if "active_organization_id" not in st.session_state:
+    st.session_state.active_organization_id = None
+if "active_facility_id" not in st.session_state:
+    st.session_state.active_facility_id = None
 if "auth_must_change_password" not in st.session_state:
     st.session_state.auth_must_change_password = False
 if "trial_start" not in st.session_state:
@@ -3067,6 +3109,10 @@ def _doobie_ai_access_enabled() -> bool:
 
 
 def _render_doobie_ai_panel() -> None:
+    # Admins configure and diagnose Doobie from the dedicated Integrations and
+    # Admin Tools pages. Keeping the full form in their sidebar duplicates UI.
+    if st.session_state.get("is_admin", False):
+        return
     with st.sidebar.expander("⚙️ Connect Doobie", expanded=False):
         resolved = resolve_doobie_config()
         is_admin = bool(st.session_state.get("is_admin", False))
@@ -3370,15 +3416,30 @@ def _render_admin_user_management() -> None:
         return
 
     current_admin = str(st.session_state.get("admin_user") or "admin")
-    legacy_hash = ADMIN_USERS.get(current_admin, "")
+    current_role = str(st.session_state.get("auth_user_role") or "admin")
+    is_dev = current_role == "dev"
+    current_organization_id = st.session_state.get("auth_organization_id")
+    legacy_hash = DEV_USERS.get(current_admin) or ADMIN_USERS.get(current_admin, "")
     if legacy_hash.startswith(("$2a$", "$2b$", "$2y$")):
         APP_USER_STORE.ensure_legacy_user(
             username=current_admin,
             password_hash=legacy_hash,
-            role="admin",
+            role="dev" if current_admin in DEV_USERS else "admin",
         )
 
-    users = APP_USER_STORE.list_users()
+    if is_dev:
+        users = APP_USER_STORE.list_users()
+    elif current_organization_id:
+        users = [
+            user
+            for user in APP_USER_STORE.list_users(current_organization_id)
+            if not user.is_dev
+        ]
+    else:
+        st.warning(
+            "This admin account is not assigned to an organization. Level DEV must assign it before it can manage users."
+        )
+        return
     if users:
         user_rows = [
             {
@@ -3394,21 +3455,72 @@ def _render_admin_user_management() -> None:
             }
             for user in users
         ]
-        st.dataframe(pd.DataFrame(user_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(user_rows), width="stretch", hide_index=True)
     else:
         st.info("No durable users exist yet. Create the first account below.")
 
+    if is_dev:
+        organizations = APP_USER_STORE.list_organizations()
+        with st.expander("Platform Organizations & Facilities", expanded=not organizations):
+            st.caption("Level DEV creates the company and facility records that scope every other account.")
+            org_tab, facility_tab = st.tabs(["Add Organization", "Add Facility"])
+            with org_tab:
+                with st.form("dev_create_organization", clear_on_submit=True):
+                    organization_name = st.text_input("Organization name")
+                    organization_slug = st.text_input("Organization slug", help="For example: acme-cannabis")
+                    add_organization = st.form_submit_button("Add Organization", type="primary")
+                if add_organization:
+                    try:
+                        APP_USER_STORE.create_organization(name=organization_name, slug=organization_slug)
+                        st.success("Organization created.")
+                        _safe_rerun()
+                    except Exception as exc:
+                        st.error(f"Unable to create organization: {exc}")
+            with facility_tab:
+                if not organizations:
+                    st.info("Create an organization first.")
+                else:
+                    organizations_by_name = {item.name: item for item in organizations}
+                    with st.form("dev_create_facility", clear_on_submit=True):
+                        facility_org_name = st.selectbox("Organization", sorted(organizations_by_name))
+                        facility_name = st.text_input("Facility name")
+                        facility_code = st.text_input("Facility code", help="Short unique code such as MAIN or MA01.")
+                        facility_timezone = st.text_input("Timezone", value="America/New_York")
+                        add_facility = st.form_submit_button("Add Facility", type="primary")
+                    if add_facility:
+                        try:
+                            APP_USER_STORE.create_facility(
+                                organization_id=organizations_by_name[facility_org_name].id,
+                                name=facility_name,
+                                code=facility_code,
+                                timezone_name=facility_timezone,
+                            )
+                            st.success("Facility created.")
+                            _safe_rerun()
+                        except Exception as exc:
+                            st.error(f"Unable to create facility: {exc}")
+
     create_tab, manage_tab = st.tabs(["Create User", "Manage Existing"])
     with create_tab:
+        organization_options = {"Unassigned": None}
+        if is_dev:
+            organization_options.update(
+                {item.name: item.id for item in APP_USER_STORE.list_organizations()}
+            )
+        elif st.session_state.get("auth_organization_id"):
+            organization_options = {
+                "Assigned organization": st.session_state.get("auth_organization_id")
+            }
         with st.form("admin_create_durable_user", clear_on_submit=True):
             c1, c2 = st.columns(2)
             username = c1.text_input("Username", help="Letters, numbers, periods, underscores, and hyphens.")
             display_name = c2.text_input("Display name")
             email = c1.text_input("Email (optional)")
-            role = c2.selectbox(
-                "Role",
-                ["buyer", "planner", "supervisor", "operator", "qa", "read_only", "admin"],
-            )
+            available_roles = ["buyer", "planner", "supervisor", "operator", "qa", "read_only", "admin"]
+            if is_dev:
+                available_roles.append("dev")
+            role = c2.selectbox("Role", available_roles)
+            organization_label = c1.selectbox("Organization", list(organization_options))
             password = c1.text_input("Temporary password", type="password")
             password_confirm = c2.text_input("Confirm temporary password", type="password")
             must_change = st.checkbox("Require password change", value=True)
@@ -3427,6 +3539,9 @@ def _render_admin_user_management() -> None:
                         username=username,
                         password_hash=hash_password(password),
                         role=role,
+                        organization_id=(
+                            None if role == "dev" else organization_options[organization_label]
+                        ),
                         display_name=display_name,
                         email=email,
                         created_by=current_admin,
@@ -3444,6 +3559,9 @@ def _render_admin_user_management() -> None:
             users_by_name = {user.username: user for user in users}
             selected_username = st.selectbox("User", sorted(users_by_name), key="admin_manage_user")
             selected_user = users_by_name[selected_username]
+            if selected_user.is_dev and not is_dev:
+                st.error("Only Level DEV can manage a DEV account.")
+                return
             desired_active = st.checkbox(
                 "Account active",
                 value=selected_user.active,
@@ -3478,46 +3596,44 @@ def _render_admin_user_management() -> None:
 # =========================
 _refresh_doobie_connection_state()
 
-# Debug panel is gated behind admin access to avoid exposing internals.
-if st.session_state.get("is_admin", False):
-    with st.sidebar.expander("🔍 AI Debug Info", expanded=False):
-        status = _doobie_ai_status()
-        resolved_cfg = resolve_doobie_config()
-        st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
-        st.write(f"AI Status: {status}")
-        st.write(f"Doobie config source: {resolved_cfg.get('source')}")
-        st.write(f"Doobie base URL configured: {bool(str(resolved_cfg.get('base_url') or '').strip())}")
-        st.write(f"Doobie API key configured: {bool(str(resolved_cfg.get('api_key') or '').strip())}")
-
-    with st.sidebar.expander("🔐 Auth Debug Info", expanded=False):
-        _auth_admins_section = False
-        _auth_users_section = False
-        try:
-            _auth_admins_section = "auth" in st.secrets and "admins" in st.secrets["auth"]
-            _auth_users_section = "auth" in st.secrets and "users" in st.secrets["auth"]
-        except Exception:
-            pass
-        st.write(f"auth.admins section exists: {_auth_admins_section}")
-        st.write(f"auth.users section exists: {_auth_users_section}")
-        st.write(f"Admin usernames loaded: {len(ADMIN_USERS)}")
-        st.write(f"Standard usernames loaded: {len(USER_USERS)}")
-        st.write(f"bcrypt available: {BCRYPT_AVAILABLE}")
-        if ADMIN_USERS:
-            st.write(f"Admin keys: {', '.join(sorted(ADMIN_USERS.keys()))}")
-        if USER_USERS:
-            st.write(f"User keys: {', '.join(sorted(USER_USERS.keys()))}")
-        for severity, msg in _validate_auth_config():
-            if severity == "ok":
-                st.success(msg)
-            elif severity == "warn":
-                st.warning(msg)
-            else:
-                st.error(msg)
+# Diagnostics are platform-owner tools; ordinary company admins do not need
+# them in their day-to-day sidebar.
+if st.session_state.get("auth_user_role") == "dev":
+    with st.sidebar.expander("🛠 Developer Diagnostics", expanded=False):
+        ai_debug_tab, auth_debug_tab = st.tabs(["AI", "Authentication"])
+        with ai_debug_tab:
+            status = _doobie_ai_status()
+            resolved_cfg = resolve_doobie_config()
+            st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
+            st.write(f"AI Status: {status}")
+            st.write(f"Doobie config source: {resolved_cfg.get('source')}")
+            st.write(f"Doobie base URL configured: {bool(str(resolved_cfg.get('base_url') or '').strip())}")
+            st.write(f"Doobie API key configured: {bool(str(resolved_cfg.get('api_key') or '').strip())}")
+        with auth_debug_tab:
+            _auth_admins_section = False
+            _auth_users_section = False
+            try:
+                _auth_admins_section = "auth" in st.secrets and "admins" in st.secrets["auth"]
+                _auth_users_section = "auth" in st.secrets and "users" in st.secrets["auth"]
+            except Exception:
+                pass
+            st.write(f"auth.admins section exists: {_auth_admins_section}")
+            st.write(f"auth.users section exists: {_auth_users_section}")
+            st.write(f"Admin usernames loaded: {len(ADMIN_USERS)}")
+            st.write(f"Standard usernames loaded: {len(USER_USERS)}")
+            st.write(f"bcrypt available: {BCRYPT_AVAILABLE}")
+            for severity, msg in _validate_auth_config():
+                if severity == "ok":
+                    st.success(msg)
+                elif severity == "warn":
+                    st.warning(msg)
+                else:
+                    st.error(msg)
 
 # =========================
 # STRAIN LOOKUP TOGGLE
 # =========================
-with st.sidebar.expander("🌿 Strain Lookup Settings", expanded=False):
+with st.sidebar.expander("⚙️ Preferences", expanded=False):
     st.markdown("**Free Strain Database Lookup**")
     st.write("Uses a comprehensive database of cannabis strains to automatically classify products.")
     strain_enabled = st.checkbox(
@@ -3534,122 +3650,66 @@ with st.sidebar.expander("🌿 Strain Lookup Settings", expanded=False):
     st.info(f"📊 Database contains {len(STRAIN_DATABASE)} strain entries")
     st.info(f"💾 Cache has {len(strain_lookup_cache)} lookups")
 
-# =========================
-# 🔐 THEME TOGGLE + ADMIN + TRIAL GATE
-# =========================
-st.sidebar.markdown("### 🎨 Theme")
-theme_choice = st.sidebar.radio(
-    "Mode",
-    ["Dark", "Light"],
-    index=0 if st.session_state.theme == "Dark" else 1,
-)
-if theme_choice != st.session_state.theme:
-    st.session_state.theme = theme_choice
-    _safe_rerun()
-
-st.sidebar.markdown("### 👑 Admin Login")
-
-if not st.session_state.is_admin:
-    now = datetime.now()
-    admin_locked = (
-        st.session_state._admin_lockout_until is not None
-        and now < st.session_state._admin_lockout_until
+    st.markdown("**Appearance**")
+    theme_choice = st.radio(
+        "Theme",
+        ["Dark", "Light"],
+        index=0 if st.session_state.theme == "Dark" else 1,
+        horizontal=True,
     )
-    if admin_locked:
-        remaining_s = int((st.session_state._admin_lockout_until - now).total_seconds())
-        st.sidebar.error(
-            f"⛔ Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s."
-        )
-    else:
-        admin_user = st.sidebar.text_input("Username", key="admin_user_input")
-        admin_pass = st.sidebar.text_input("Password", type="password", key="admin_pass_input")
-        if st.sidebar.button("Login as Admin"):
-            admin_authenticated, authenticated_admin = _authenticate_account(
-                admin_user, admin_pass, require_admin=True
-            )
-            if admin_authenticated:
-                st.session_state.is_admin = True
-                st.session_state.admin_user = authenticated_admin
-                st.session_state._db_hydrated_username = ""
-                st.session_state._admin_fail_count = 0
-                st.session_state._admin_lockout_until = None
-                st.sidebar.success("✅ Admin mode enabled.")
-            else:
-                st.session_state._admin_fail_count += 1
-                remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._admin_fail_count
-                if st.session_state._admin_fail_count >= _LOCKOUT_MAX_ATTEMPTS:
-                    st.session_state._admin_lockout_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
-                    st.sidebar.error(
-                        f"⛔ Too many failed attempts. Login locked for {_LOCKOUT_MINUTES} minutes."
-                    )
-                else:
-                    st.sidebar.error(
-                        f"❌ Invalid admin credentials. {remaining_attempts} attempt(s) remaining."
-                    )
-else:
-    st.sidebar.success(f"👑 Admin mode: {st.session_state.admin_user}")
-    if st.sidebar.button("Logout Admin"):
-        st.session_state.is_admin = False
-        st.session_state.admin_user = None
-        st.session_state.auth_user_id = None
-        st.session_state.auth_user_role = None
-        st.session_state.auth_organization_id = None
-        st.session_state.auth_must_change_password = False
-        st.session_state._db_hydrated_username = ""
+    if theme_choice != st.session_state.theme:
+        st.session_state.theme = theme_choice
         _safe_rerun()
 
-# -------------------------
-# 👤 STANDARD USER LOGIN (non-admin)
-# -------------------------
-st.sidebar.markdown("### 👤 User Login")
+# =========================
+# 🔐 ACCOUNT + TRIAL GATE
+# =========================
+if APP_USER_STORE.configured:
+    st.sidebar.caption("☁️ Supabase storage configured")
+else:
+    st.sidebar.warning("Supabase storage is not configured")
 
-if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
-    now = datetime.now()
-    user_locked = (
-        st.session_state._user_lockout_until is not None
-        and now < st.session_state._user_lockout_until
+st.sidebar.markdown("### Account")
+
+_signed_in = st.session_state.is_admin or st.session_state.user_authenticated
+if not _signed_in:
+    _locked_until = max(
+        [value for value in [st.session_state._admin_lockout_until, st.session_state._user_lockout_until] if value],
+        default=None,
     )
-    if user_locked:
-        remaining_s = int((st.session_state._user_lockout_until - now).total_seconds())
-        st.sidebar.error(
-            f"⛔ Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s."
-        )
+    if _locked_until and datetime.now() < _locked_until:
+        remaining_s = int((_locked_until - datetime.now()).total_seconds())
+        st.sidebar.error(f"Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s.")
     else:
-        u_user = st.sidebar.text_input("Username", key="user_user_input")
-        u_pass = st.sidebar.text_input("Password", type="password", key="user_pass_input")
-        if st.sidebar.button("Login", key="login_user_btn"):
-            user_authenticated, authenticated_user = _authenticate_account(
-                u_user, u_pass, require_admin=False
+        login_user = st.sidebar.text_input("Username", key="unified_login_username")
+        login_pass = st.sidebar.text_input("Password", type="password", key="unified_login_password")
+        if st.sidebar.button("Sign in", type="primary", key="unified_login_btn", width="stretch"):
+            authenticated, account_name, is_admin_account = authenticate_any_role(
+                lambda username, password, require_admin: _authenticate_account(
+                    username, password, require_admin=require_admin
+                ),
+                login_user,
+                login_pass,
             )
-            if user_authenticated:
-                st.session_state.user_authenticated = True
-                st.session_state.user_user = authenticated_user
-                st.session_state._db_hydrated_username = ""
-                st.session_state._user_fail_count = 0
-                st.session_state._user_lockout_until = None
-                st.sidebar.success("✅ User access enabled.")
+            if authenticated:
+                apply_authenticated_session(st.session_state, account_name, is_admin_account)
+                _safe_rerun()
             else:
                 st.session_state._user_fail_count += 1
                 remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._user_fail_count
-                if st.session_state._user_fail_count >= _LOCKOUT_MAX_ATTEMPTS:
-                    st.session_state._user_lockout_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
-                    st.sidebar.error(
-                        f"⛔ Too many failed attempts. Login locked for {_LOCKOUT_MINUTES} minutes."
-                    )
+                if remaining_attempts <= 0:
+                    lock_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
+                    st.session_state._admin_lockout_until = lock_until
+                    st.session_state._user_lockout_until = lock_until
+                    st.sidebar.error(f"Login locked for {_LOCKOUT_MINUTES} minutes.")
                 else:
-                    st.sidebar.error(
-                        f"❌ Invalid user credentials. {remaining_attempts} attempt(s) remaining."
-                    )
-elif (not st.session_state.is_admin) and st.session_state.user_authenticated:
-    st.sidebar.success(f"👤 User: {st.session_state.user_user}")
-    if st.sidebar.button("Logout", key="logout_user_btn"):
-        st.session_state.user_authenticated = False
-        st.session_state.user_user = None
-        st.session_state.auth_user_id = None
-        st.session_state.auth_user_role = None
-        st.session_state.auth_organization_id = None
-        st.session_state.auth_must_change_password = False
-        st.session_state._db_hydrated_username = ""
+                    st.sidebar.error(f"Invalid username or password. {remaining_attempts} attempt(s) remaining.")
+else:
+    account_name = st.session_state.admin_user if st.session_state.is_admin else st.session_state.user_user
+    account_role = str(st.session_state.get("auth_user_role") or "trial").upper().replace("_", " ")
+    st.sidebar.success(f"{account_name} · {account_role}")
+    if st.sidebar.button("Sign out", key="unified_logout_btn", width="stretch"):
+        clear_authenticated_session(st.session_state)
         _safe_rerun()
 
 if (
@@ -3681,17 +3741,16 @@ if (
 trial_now = datetime.now()
 
 if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
-    st.sidebar.markdown("### 🔐 Trial Access")
-
     if st.session_state.trial_start is None:
-        trial_key_input = st.sidebar.text_input("Enter trial key", type="password", key="trial_key_input")
-        if st.sidebar.button("Activate Trial", key="activate_trial"):
-            if _check_trial_key(trial_key_input.strip()):
-                st.session_state.trial_start = trial_now.isoformat()
-                st.sidebar.success("✅ Trial activated. You have 24 hours of access.")
-            else:
-                st.sidebar.error("❌ Invalid trial key.")
-        st.warning("This is a trial build. Enter a valid key to unlock the app.")
+        with st.sidebar.expander("Trial access", expanded=False):
+            trial_key_input = st.text_input("Trial key", type="password", key="trial_key_input")
+            if st.button("Activate trial", key="activate_trial", width="stretch"):
+                if _check_trial_key(trial_key_input.strip()):
+                    st.session_state.trial_start = trial_now.isoformat()
+                    st.success("Trial activated for 24 hours.")
+                else:
+                    st.error("Invalid trial key.")
+        st.info("Sign in with your account, or expand Trial access if you were issued a trial key.")
         st.stop()
     else:
         try:
@@ -3711,6 +3770,84 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             hours_left = int(remaining.total_seconds() // 3600)
             mins_left = int((remaining.total_seconds() % 3600) // 60)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
+
+def _render_access_context() -> None:
+    role = str(st.session_state.get("auth_user_role") or "trial")
+    user_id = st.session_state.get("auth_user_id")
+    assigned_org_id = st.session_state.get("auth_organization_id")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Access Context")
+    st.sidebar.caption(f"Role: {role.upper().replace('_', ' ')}")
+
+    if role == "dev":
+        st.sidebar.success("LEVEL DEV · Platform-wide access")
+        organizations = APP_USER_STORE.list_organizations()
+        sandbox_exists = any(item.slug == "dev-sandbox" for item in organizations)
+        if not sandbox_exists:
+            st.sidebar.caption("No DEV Sandbox exists yet.")
+            if st.sidebar.button("Create DEV Sandbox", key="create_dev_sandbox", width="stretch"):
+                try:
+                    APP_USER_STORE.ensure_dev_sandbox()
+                    st.sidebar.success("DEV Sandbox created.")
+                    _safe_rerun()
+                except Exception:
+                    st.sidebar.error(
+                        "DEV Sandbox could not connect to Supabase. Check the database secret, then try once."
+                    )
+        if not organizations:
+            st.sidebar.warning("No organizations are available. Check the Supabase connection.")
+            st.session_state.active_organization_id = None
+            st.session_state.active_facility_id = None
+            return
+        organizations_by_label = {
+            ("DEV Sandbox" if item.slug == "dev-sandbox" else f"{item.name} ({item.slug})"): item
+            for item in organizations
+        }
+        labels = list(organizations_by_label)
+        current_org = st.session_state.get("active_organization_id")
+        current_index = next(
+            (index for index, label in enumerate(labels) if organizations_by_label[label].id == current_org),
+            0,
+        )
+        org_label = st.sidebar.selectbox("Organization", labels, index=current_index, key="dev_org_context")
+        selected_org = organizations_by_label[org_label]
+        st.session_state.active_organization_id = selected_org.id
+        facilities = APP_USER_STORE.list_facilities(selected_org.id)
+    else:
+        st.session_state.active_organization_id = assigned_org_id
+        if not assigned_org_id:
+            st.sidebar.warning("This account is not assigned to an organization.")
+            st.session_state.active_facility_id = None
+            return
+        organizations = {item.id: item for item in APP_USER_STORE.list_organizations(active_only=False)}
+        assigned_org = organizations.get(assigned_org_id)
+        st.sidebar.info(assigned_org.name if assigned_org else "Assigned organization")
+        facilities = APP_USER_STORE.list_facilities(
+            assigned_org_id,
+            user_id=user_id if role != "admin" else None,
+        )
+
+    if not facilities:
+        st.sidebar.caption("No accessible facilities")
+        st.session_state.active_facility_id = None
+        return
+    facilities_by_label = {f"{item.name} ({item.code})": item for item in facilities}
+    facility_labels = list(facilities_by_label)
+    current_facility = st.session_state.get("active_facility_id")
+    facility_index = next(
+        (index for index, label in enumerate(facility_labels) if facilities_by_label[label].id == current_facility),
+        0,
+    )
+    facility_label = st.sidebar.selectbox("Facility", facility_labels, index=facility_index, key="facility_context")
+    selected_facility = facilities_by_label[facility_label]
+    st.session_state.active_facility_id = selected_facility.id
+    st.sidebar.caption(f"Timezone: {selected_facility.timezone_name}")
+
+
+if st.session_state.is_admin or st.session_state.user_authenticated:
+    _render_access_context()
+    if st.session_state.get("auth_user_role") == "dev":
+        st.info("LEVEL DEV — Platform-wide access is active. Select the company and facility you want to inspect.")
 
 # Hydrate per-user persistent integrations after auth succeeds.
 _hydrate_persistent_user_integrations()
@@ -4739,15 +4876,21 @@ _display_user = (
     st.session_state.admin_user if st.session_state.get("is_admin")
     else st.session_state.get("user_user") or "Buyer"
 )
+
+
+def _time_greeting() -> str:
+    hour = datetime.now().hour
+    if hour < 12:
+        return "Good Morning"
+    if hour < 17:
+        return "Good Afternoon"
+    return "Good Evening"
+
+
 render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
-workspace_options = []
-if _feature_enabled("buyer_module", default_enabled=True):
-    workspace_options.append("🛒 Buyer Operations")
-    workspace_options.append("🏷️ White Label / Repack")
-if _feature_enabled("extraction_module", default_enabled=True):
-    workspace_options.append("🧪 Extraction Command Center")
+workspace_options = build_workspace_options(_feature_enabled)
 _active_workspace = st.session_state.get("workspace_mode", workspace_options[0] if workspace_options else "🛒 Buyer Operations")
 _ecc_runs = _safe_report_df(st.session_state.get("ecc_run_log"))
 _extraction_profitability = _safe_report_df(st.session_state.get("ecc_run_value_snapshot", _ecc_runs))
@@ -4857,10 +5000,6 @@ else:
     st.markdown("⚠️ AI buyer-assist is **OFF** (Doobie AI unavailable).")
 st.markdown("---")
 
-with st.sidebar.expander("🔗 Local App Link", expanded=False):
-    st.write(f"Local URL: {LOCAL_APP_URL}")
-    st.markdown(f"[Open local app]({LOCAL_APP_URL})")
-
 if not PLOTLY_AVAILABLE:
     st.warning(
         "⚠️ Plotly is not installed in this environment. Charts will be disabled.\n\n"
@@ -4889,7 +5028,7 @@ if st.session_state.is_admin:
         r for r in st.session_state.upload_log if r["upload_id"] not in expired_ids
     ]
 
-    with st.sidebar.expander("🗂️ Upload Viewer (Admin)", expanded=False):
+    with st.sidebar.expander("🗂️ Admin Uploads", expanded=False):
         st.warning(
             "⚠️ This panel displays sensitive user-uploaded data. "
             "Handle with care and do not share outside authorized personnel."
@@ -4903,7 +5042,7 @@ if st.session_state.is_admin:
             st.write("No uploads logged yet.")
         else:
             log_df = pd.DataFrame(st.session_state.upload_log)
-            st.dataframe(log_df, use_container_width=True)
+            st.dataframe(log_df, width="stretch")
             st.markdown("#### Download an uploaded file")
             upload_ids = [r["upload_id"] for r in st.session_state.upload_log]
             selected = st.selectbox("Select upload", upload_ids)
@@ -6533,7 +6672,7 @@ def render_extraction_command_center():
                         color_discrete_sequence=["#f5a524"],
                     )
                     fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 else:
                     st.bar_chart(method_summary.set_index("method")["finished_output_g"])
             chart_card_end()
@@ -6551,7 +6690,7 @@ def render_extraction_command_center():
                     color_discrete_sequence=["#f5a524"],
                 )
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.line_chart(trend_df.set_index("run_date_parsed")["yield_pct"])
             chart_card_end()
@@ -6572,7 +6711,7 @@ def render_extraction_command_center():
                 fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["estimated_revenue_usd"], mode="lines+markers", name="Revenue", line=dict(color="#f5a524")))
                 fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["total_cogs_usd"], mode="lines+markers", name="COGS", line=dict(color="#ff6161")))
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.line_chart(revenue_df.set_index("run_day")[["estimated_revenue_usd", "total_cogs_usd"]])
             chart_card_end()
@@ -6589,7 +6728,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.pie(status_df, values="count", names="status")
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(status_df.set_index("status")["count"])
             chart_card_end()
@@ -6607,7 +6746,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.bar(qa_df, x="qa_risk_bucket", y="count", color="qa_risk_bucket")
                 fig.update_layout(height=340, template="plotly_dark", showlegend=False, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(qa_df.set_index("qa_risk_bucket")["count"])
             chart_card_end()
@@ -6623,7 +6762,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.bar(prod_df, x="product_bucket", y="finished_output_g", color_discrete_sequence=["#f5a524"])
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(prod_df.set_index("product_bucket")["finished_output_g"])
             chart_card_end()
@@ -6641,7 +6780,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.bar(eff_df, x="method", y="post_process_efficiency_pct", color_discrete_sequence=["#f5a524"])
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(eff_df.set_index("method")["post_process_efficiency_pct"])
             chart_card_end()
@@ -6666,7 +6805,7 @@ def render_extraction_command_center():
                         paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)",
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 else:
                     st.bar_chart(inv_press.set_index("intended_method")[["available_weight_g", "estimated_output_g"]])
                 st.caption(
@@ -6691,7 +6830,7 @@ def render_extraction_command_center():
             )
             at_risk_df = at_risk_df.sort_values(["risk_score", "yield_pct"], ascending=[False, True]).head(12)
             cols = ["batch_id_internal", "method", "yield_pct", "coa_status", "qa_hold", "status", "margin_per_gram", "output_mapping_warning"]
-            st.dataframe(at_risk_df[[c for c in cols if c in at_risk_df.columns]], use_container_width=True, hide_index=True)
+            st.dataframe(at_risk_df[[c for c in cols if c in at_risk_df.columns]], width="stretch", hide_index=True)
             chart_card_end()
         with row5_r:
             chart_card_start("Top Aging Material Lots", "Oldest lots requiring run allocation priority.")
@@ -6700,7 +6839,7 @@ def render_extraction_command_center():
                 st.caption("No inventory lots available.")
             else:
                 aging_df = inventory_master_df.sort_values(["age_days", "available_weight_g"], ascending=[False, False]).head(12)
-                st.dataframe(aging_df[[c for c in aging_cols if c in aging_df.columns]], use_container_width=True, hide_index=True)
+                st.dataframe(aging_df[[c for c in aging_cols if c in aging_df.columns]], width="stretch", hide_index=True)
             chart_card_end()
 
         row6_l, row6_r = st.columns(2)
@@ -6772,7 +6911,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.bar(profit_method_df, x="method", y="total_profit_usd", color="total_profit_usd", color_continuous_scale=["#ff6161", "#f5a524", "#4cd388"])
                 fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(profit_method_df.set_index("method")["total_profit_usd"])
             chart_card_end()
@@ -6790,7 +6929,7 @@ def render_extraction_command_center():
                 fig.add_trace(go.Bar(x=method_cost_val_df["method"], y=method_cost_val_df["cost_per_gram"], name="Avg Cost/g", marker_color="#ff6161"))
                 fig.add_trace(go.Bar(x=method_cost_val_df["method"], y=method_cost_val_df["market_price_per_gram"], name="Avg Value/g", marker_color="#4cd388"))
                 fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(method_cost_val_df.set_index("method")[["cost_per_gram", "market_price_per_gram"]])
             chart_card_end()
@@ -6814,7 +6953,7 @@ def render_extraction_command_center():
                     color_continuous_scale=["#ff6161", "#f5a524", "#4cd388"],
                 )
                 fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(margin_product_df.set_index("product_bucket")["margin_per_gram"])
             chart_card_end()
@@ -6824,9 +6963,9 @@ def render_extraction_command_center():
             top_runs = display_df.sort_values("total_profit_usd", ascending=False).head(8)
             worst_runs = display_df.sort_values("total_profit_usd", ascending=True).head(8)
             st.markdown("**Top Profitable Runs**")
-            st.dataframe(top_runs[[c for c in top_cols if c in top_runs.columns]], use_container_width=True, hide_index=True)
+            st.dataframe(top_runs[[c for c in top_cols if c in top_runs.columns]], width="stretch", hide_index=True)
             st.markdown("**Worst Performing Runs**")
-            st.dataframe(worst_runs[[c for c in top_cols if c in worst_runs.columns]], use_container_width=True, hide_index=True)
+            st.dataframe(worst_runs[[c for c in top_cols if c in worst_runs.columns]], width="stretch", hide_index=True)
             chart_card_end()
 
         st.markdown("### Post-Production Financials")
@@ -6845,7 +6984,7 @@ def render_extraction_command_center():
                 fig.add_trace(go.Bar(x=product_revenue_df["product_bucket"], y=product_revenue_df["packaged_estimated_revenue_usd"], name="Packaged Revenue", marker_color="#4cd388"))
                 fig.add_trace(go.Bar(x=product_revenue_df["product_bucket"], y=product_revenue_df["bulk_estimated_value_usd"], name="Bulk Value", marker_color="#5aa8ff"))
                 fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(product_revenue_df.set_index("product_bucket")[["packaged_estimated_revenue_usd", "bulk_estimated_value_usd"]])
             chart_card_end()
@@ -6861,7 +7000,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.bar(units_df, x="product_bucket", y="units_per_batch", color_discrete_sequence=["#f5a524"])
                 fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(units_df.set_index("product_bucket")["units_per_batch"])
             chart_card_end()
@@ -6881,7 +7020,7 @@ def render_extraction_command_center():
                 fig.add_trace(go.Bar(x=cvr_df["method"], y=cvr_df["total_cogs_usd"], name="COGs", marker_color="#ff6161"))
                 fig.add_trace(go.Bar(x=cvr_df["method"], y=cvr_df["estimated_revenue_usd"], name="Revenue", marker_color="#4cd388"))
                 fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(cvr_df.set_index("method")[["total_cogs_usd", "estimated_revenue_usd"]])
             chart_card_end()
@@ -6906,7 +7045,7 @@ def render_extraction_command_center():
             else:
                 st.dataframe(
                     sensitivity_df.sort_values(["product_type", "pack_size_g", "estimated_units"], ascending=[True, True, False]).head(40),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
             chart_card_end()
@@ -6916,7 +7055,7 @@ def render_extraction_command_center():
         run_explorer_df = run_df.copy()
         if "output_mapping_warning" in run_explorer_df.columns:
             run_explorer_df["output_mapping_warning"] = run_explorer_df["output_mapping_warning"].fillna("")
-        st.dataframe(run_explorer_df, use_container_width=True, hide_index=True)
+        st.dataframe(run_explorer_df, width="stretch", hide_index=True)
         with st.expander("Add Run Record", expanded=False):
             r1, r2, r3 = st.columns(3)
             with r1:
@@ -7880,7 +8019,7 @@ def render_extraction_command_center():
             _snapshot_df = _compute_mass_balance(st.session_state.ecc_run_log.copy())
             st.dataframe(
                 _snapshot_df[[c for c in _process_view_cols if c in _snapshot_df.columns]],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -7963,7 +8102,7 @@ def render_extraction_command_center():
 
                 if auto_matches >= 3:
                     auto_preview = _ecc_finalize_inventory_frame(auto_normalized)
-                    st.dataframe(auto_preview.head(100), use_container_width=True, hide_index=True)
+                    st.dataframe(auto_preview.head(100), width="stretch", hide_index=True)
                     if st.button("Append Auto-Mapped Inventory", key="ecc_inventory_append_auto", type="primary"):
                         st.session_state.ecc_inventory_log = _ecc_append_inventory_rows(st.session_state.ecc_inventory_log, auto_preview)
                         st.success(f"Added {len(auto_preview)} row(s) into extraction inventory log.")
@@ -8031,7 +8170,7 @@ def render_extraction_command_center():
                         mapped_df = _ecc_finalize_inventory_frame(mapped_df)
                         st.session_state.ecc_inventory_log = _ecc_append_inventory_rows(st.session_state.ecc_inventory_log, mapped_df)
                         st.success(f"Converted and appended {len(mapped_df)} row(s).")
-                        st.dataframe(mapped_df.head(100), use_container_width=True, hide_index=True)
+                        st.dataframe(mapped_df.head(100), width="stretch", hide_index=True)
             except Exception as exc:
                 st.error(f"Could not load extraction inventory file: {exc}")
 
@@ -8183,7 +8322,7 @@ def render_extraction_command_center():
                 "intended_method",
             ]
             chart_card_start("Extraction Inventory Table", "Material Name, Type, Batch, Available, Age, Priority, Method.")
-            st.dataframe(filtered_inv[[c for c in table_cols if c in filtered_inv.columns]], use_container_width=True, hide_index=True)
+            st.dataframe(filtered_inv[[c for c in table_cols if c in filtered_inv.columns]], width="stretch", hide_index=True)
             chart_card_end()
 
             st.markdown("### Inventory → Workflow Allocation")
@@ -8657,7 +8796,7 @@ def render_extraction_command_center():
 
     with toll_tab:
         st.subheader("Toll Processing Command View")
-        st.dataframe(job_df, use_container_width=True, hide_index=True)
+        st.dataframe(job_df, width="stretch", hide_index=True)
         with st.expander("Add Toll Processing Job", expanded=False):
             t1, t2, t3 = st.columns(3)
             with t1:
@@ -8734,7 +8873,7 @@ def render_extraction_command_center():
             ],
             columns=["Field", "Purpose"],
         )
-        st.dataframe(required_fields, use_container_width=True, hide_index=True)
+        st.dataframe(required_fields, width="stretch", hide_index=True)
 
     with inputs_tab:
         chart_card_start("Data Input + Mapping", "Upload extraction data, preview parsed rows, map fields, and convert to run log.")
@@ -8927,11 +9066,11 @@ def render_white_label_repack_workspace():
         )
         simple_mode = st.toggle("Simple Mode", value=st.session_state.get("wl_simple_mode", True), key="wl_simple_mode")
         primary_cols = ["enabled", "package_size_g", "allocation_pct", "target_retail_price_per_unit", "total_packaging_cost_per_unit"]
-        edited = st.data_editor(plan_df[primary_cols], use_container_width=True, num_rows="dynamic", key="wl_package_editor")
+        edited = st.data_editor(plan_df[primary_cols], width="stretch", num_rows="dynamic", key="wl_package_editor")
         detail_cols = ["enabled", "package_size_g", "bag_or_container_cost_per_unit", "label_cost_per_unit", "tamper_seal_cost_per_unit", "humidity_pack_cost_per_unit", "compliance_sticker_cost_per_unit", "other_packaging_cost_per_unit"]
         if not simple_mode:
             with st.expander("Packaging Cost Details", expanded=False):
-                details_edited = st.data_editor(plan_df[detail_cols], use_container_width=True, num_rows="dynamic", key="wl_packaging_detail_editor")
+                details_edited = st.data_editor(plan_df[detail_cols], width="stretch", num_rows="dynamic", key="wl_packaging_detail_editor")
         else:
             details_edited = plan_df[detail_cols]
         merged = edited.merge(details_edited, on=["enabled", "package_size_g"], how="left", suffixes=("", "_detail"))
@@ -9019,7 +9158,7 @@ def render_white_label_repack_workspace():
             if readiness["incomplete_rows"] > 0:
                 st.warning("Some margins are incomplete because required inputs are missing.")
         display_df = results_df.replace({np.nan: "N/A"})
-        st.dataframe(display_df, use_container_width=True)
+        st.dataframe(display_df, width="stretch")
         if not results_df.empty:
             st.bar_chart(results_df.set_index("Package Size")["Revenue"])
             st.bar_chart(results_df.set_index("Package Size")["Gross Profit"])
@@ -9041,27 +9180,24 @@ def render_white_label_repack_workspace():
             ("Label Review Completed", "Ready" if st.session_state.get("wl_label_review_status", "Needs Review") == "Ready" else "Needs Review"),
         ]
         cdf = pd.DataFrame(checklist, columns=["Requirement", "Status"])
-        st.dataframe(cdf, use_container_width=True)
+        st.dataframe(cdf, width="stretch")
 
     return {"scenario_name": scenario_name or "Current Session", "summary": {"strain_name": st.session_state.get("wl_strain_name", ""), "source_metrc_package_id": st.session_state.get("wl_source_metrc_package_id", ""), "landed_cost_usd": landed_cost_usd, "total_revenue_usd": total_revenue, "gross_profit_usd": gross_profit, "gross_margin_pct": gross_margin, "coa_link": st.session_state.get("wl_coa_link", "")}, "bulk_lot_details": {k:v for k,v in st.session_state.items() if k.startswith("wl_")}, "package_plan": st.session_state.get("white_label_package_plan", default_plan), "package_output_summary": results_df, "margin_readiness": margin_readiness, "cost_breakdown": pd.DataFrame([{"Cost Type":"Landed Cost","Total Cost":landed_cost_usd,"Cost per Gram":effective_cost_per_gram,"Cost per Unit":(total_all_in/max(1,total_units))},{"Cost Type":"Packaging+Label","Total Cost":total_packaging,"Cost per Gram":(total_packaging/max(1,usable_weight_g)),"Cost per Unit":(total_packaging/max(1,total_units))},{"Cost Type":"Labor","Total Cost":st.session_state.get("wl_labor_cost_total_usd",0.0),"Cost per Gram":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,usable_weight_g)),"Cost per Unit":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,total_units))}]), "compliance_checklist": cdf}
 
 if not workspace_options:
     st.error("Your license does not include any enabled workspace modules.")
     st.stop()
-app_mode = st.radio(
+app_mode = st.selectbox(
     "Workspace",
     workspace_options,
-    index=0,
-    horizontal=True,
-    help="Switch between the purchasing dashboard and the extraction workspace.",
+    index=workspace_options.index(st.session_state.get("workspace_mode")) if st.session_state.get("workspace_mode") in workspace_options else 0,
+    help="Switch between purchasing, production, and extraction workspaces.",
     key="workspace_mode",
 )
 
-_render_sidebar_nav_mockup(app_mode, None)
-
-if app_mode == "🧪 Extraction Command Center":
+if app_mode == EXTRACTION_WORKSPACE:
     render_hero(
-        "Good Morning, Extraction Team",
+        f"{_time_greeting()}, Extraction Team",
         "Command center KPIs, process signals, and inventory risk in one view.",
         _display_user,
         "Operations",
@@ -9072,7 +9208,7 @@ if app_mode == "🧪 Extraction Command Center":
         st.info("AI support is not enabled for this license plan.")
     render_extraction_command_center()
     st.stop()
-if app_mode == "🏷️ White Label / Repack":
+if app_mode == WHITE_LABEL_WORKSPACE:
     render_hero(
         "White Label / Repack",
         "Model private-label repack economics and compliance readiness.",
@@ -9082,6 +9218,15 @@ if app_mode == "🏷️ White Label / Repack":
     white_payload = render_white_label_repack_workspace()
     if white_payload:
         st.session_state["white_label_export_payload"] = white_payload
+    st.stop()
+if app_mode == COMAN_WORKSPACE:
+    render_hero(
+        "Co-Man Production",
+        "Track internal production and customer-owned contract packaging in one durable queue.",
+        _display_user,
+        "Production Operations",
+    )
+    render_coman_workspace()
     st.stop()
 
 # =========================
@@ -9103,28 +9248,16 @@ st.sidebar.markdown("---")
 # =========================
 # PAGE SWITCH (BUYER OPERATIONS)
 # =========================
-section_options = [
-    "📊 Inventory Dashboard",
-    "📈 Trends",
-    "🚚 Delivery Impact",
-    "🐢 Slow Movers",
-    "🧾 PO Builder",
-    "🧭 Compliance Q&A",
-    "🧠 Buyer Intelligence",
-    "💰 Purchasing Budget",
-]
-if _feature_enabled("admin_exports", default_enabled=True):
-    section_options.append("🛠️ Admin Tools")
-if st.session_state.get("is_admin", False):
-    section_options.append("🔌 Integrations")
+section_options = buyer_section_options(
+    is_admin=st.session_state.get("is_admin", False),
+    admin_exports_enabled=_feature_enabled("admin_exports", default_enabled=True),
+)
 
 section = st.sidebar.radio(
     "App Section",
     section_options,
     index=0,
 )
-
-_render_sidebar_nav_mockup(app_mode, section)
 
 if _feature_enabled("ai_support", default_enabled=True):
     render_main_ai_copilot(app_mode, section)
@@ -9136,7 +9269,7 @@ else:
 # ============================================================
 if section == "📊 Inventory Dashboard":
     render_hero(
-        f"Good Morning, {_display_user}",
+        f"{_time_greeting()}, {_display_user}",
         "Here's what's happening with your portfolio today.",
         str(_display_user),
         "Buyer • Operations",
@@ -9790,7 +9923,7 @@ if section == "📊 Inventory Dashboard":
                             height=280,
                             font={"color": "rgba(255,255,255,0.88)"},
                         )
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                     else:
                         st.line_chart(_trend_plot.set_index("_date")["_metric"])
             chart_card_end()
@@ -9819,7 +9952,7 @@ if section == "📊 Inventory Dashboard":
                     font={"color": "rgba(255,255,255,0.88)"},
                     height=280,
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(_cat_df.set_index("mastercategory")[_cat_metric])
             chart_card_end()
@@ -9833,14 +9966,14 @@ if section == "📊 Inventory Dashboard":
                 st.info("No slow mover rows available yet.")
             else:
                 _slow = _slow.sort_values("daysonhand", ascending=False).head(12)
-                st.dataframe(_slow[_slow_cols], use_container_width=True, hide_index=True)
+                st.dataframe(_slow[_slow_cols], width="stretch", hide_index=True)
             chart_card_end()
         with _health_col:
             chart_card_start("Inventory Health", "Composite score from low-stock and OOS pressure.")
             if PLOTLY_AVAILABLE:
                 fig = go.Figure(go.Indicator(mode="gauge+number", value=_health_score, gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#ff9a3c"}}))
                 fig.update_layout(height=260, margin={"l": 10, "r": 10, "t": 20, "b": 0}, paper_bgcolor="rgba(0,0,0,0)", font={"color": "rgba(255,255,255,0.88)"})
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.progress(max(0, min(100, _health_score)) / 100.0, text=f"Health score: {_health_score}/100")
             chart_card_end()
@@ -9952,7 +10085,7 @@ if section == "📊 Inventory Dashboard":
                 cat_quick[_cat_q_cols].sort_values(
                     ["reorder_lines", "category_dos"], ascending=[False, True]
                 ),
-                use_container_width=True,
+                width="stretch",
             )
         except Exception:
             pass
@@ -10112,7 +10245,7 @@ if section == "📊 Inventory Dashboard":
                 g = group[display_cols].copy()
                 st.dataframe(
                     g.style.map(red_low, subset=["daysonhand"]),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
                 flagged = group[group["reorderpriority"] == "1 – Reorder ASAP"].copy()
@@ -10132,10 +10265,10 @@ if section == "📊 Inventory Dashboard":
                             if sku_df_out.empty:
                                 st.info("No matching SKU-level sales rows found for this slice.")
                             else:
-                                st.dataframe(sku_df_out, use_container_width=True)
+                                st.dataframe(sku_df_out, width="stretch")
                             if not batch_df_out.empty:
                                 st.markdown("##### 🧬 Batch / Lot Breakdown (On-Hand)")
-                                st.dataframe(batch_df_out, use_container_width=True)
+                                st.dataframe(batch_df_out, width="stretch")
 
         # ========= Product-Level Detail Table (toggle) =========
         if show_product_rows and not detail_product.empty:
@@ -10153,7 +10286,7 @@ if section == "📊 Inventory Dashboard":
                 "onhandunits", "unitssold", "avgunitsperday", "daysonhand",
             ]
             prod_display_cols = [c for c in prod_display_cols if c in dpv.columns]
-            st.dataframe(dpv[prod_display_cols], use_container_width=True)
+            st.dataframe(dpv[prod_display_cols], width="stretch")
             st.download_button(
                 "📥 Download Product-Level Table (Excel)",
                 data=build_forecast_export_bytes(dpv[prod_display_cols]),
@@ -10621,13 +10754,13 @@ if section == "📊 Inventory Dashboard":
                         f"(velocity window: {_b_vel_win} days)"
                     )
                     st.markdown('<div class="sm-table-wrap">', unsafe_allow_html=True)
-                    st.dataframe(_disp, use_container_width=True, hide_index=True)
+                    st.dataframe(_disp, width="stretch", hide_index=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     with st.expander("🔎 Show all columns"):
                         st.dataframe(
                             df.replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan),
-                            use_container_width=True,
+                            width="stretch",
                             hide_index=True,
                         )
 
@@ -10773,7 +10906,7 @@ elif section == "🧭 Compliance Q&A":
             source_df = pd.read_csv(source_file)
             repo = _load_compliance_sources_from_df(source_df)
             st.success(f"Loaded {len(source_df)} compliance source row(s).")
-            st.dataframe(source_df.head(100), use_container_width=True)
+            st.dataframe(source_df.head(100), width="stretch")
         except Exception as exc:
             st.error(f"Could not load compliance sources: {exc}")
 
@@ -10849,12 +10982,12 @@ elif section == "🧠 Buyer Intelligence":
         c1, c2 = st.columns([1, 1.4])
         with c1:
             st.markdown("#### Top Categories")
-            st.dataframe(by_category.head(20), use_container_width=True, hide_index=True)
+            st.dataframe(by_category.head(20), width="stretch", hide_index=True)
         with c2:
             st.markdown("#### SKU Risk Table")
             st.dataframe(
                 by_product.head(200),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -10963,7 +11096,7 @@ elif section == "🛠️ Admin Tools":
         try:
             qa_df = pd.read_csv(qa_upload)
             report = _audit_compliance_source_df(qa_df)
-            st.dataframe(qa_df.head(100), use_container_width=True)
+            st.dataframe(qa_df.head(100), width="stretch")
 
             c1, c2, c3, c4 = st.columns(4)
             with c1:
@@ -11051,12 +11184,12 @@ elif section == "📈 Trends":
     cat_units["unit_share"] = np.where(total_units > 0, cat_units["unitssold"] / total_units, 0.0)
 
     st.markdown("### Category Mix (Units)")
-    st.dataframe(cat_units.sort_values("unitssold", ascending=False), use_container_width=True)
+    st.dataframe(cat_units.sort_values("unitssold", ascending=False), width="stretch")
 
     size_units = sales.groupby("packagesize", dropna=False)["unitssold"].sum().reset_index()
     size_units["units_per_day"] = (size_units["unitssold"] / max(int(trend_days), 1)) * float(run_rate_multiplier)
     st.markdown("### Package Size Mix (Units)")
-    st.dataframe(size_units.sort_values("unitssold", ascending=False), use_container_width=True)
+    st.dataframe(size_units.sort_values("unitssold", ascending=False), width="stretch")
 
     st.markdown("### Top Movers (SKU-level)")
     sku_cols = ["product_name", "mastercategory", "strain_type", "packagesize", "unitssold"]
@@ -11068,7 +11201,7 @@ elif section == "📈 Trends":
     if "revenue" in sku_view.columns:
         sku_view["avg_price"] = np.where(sku_view["unitssold"] > 0, sku_view["revenue"] / sku_view["unitssold"], 0.0)
 
-    st.dataframe(sku_view.sort_values("units_per_day", ascending=False).head(50), use_container_width=True)
+    st.dataframe(sku_view.sort_values("units_per_day", ascending=False).head(50), width="stretch")
 
     st.markdown("### Best Sellers by Category")
     top_n = int(st.number_input("Top N per category", 1, 50, 10, key="trend_top_n"))
@@ -11079,7 +11212,7 @@ elif section == "📈 Trends":
         for cat in cat_list:
             with st.expander(f"{str(cat).title()} — Top {int(top_n)}", expanded=False):
                 cat_df = sku_view[sku_view["mastercategory"] == cat].copy()
-                st.dataframe(cat_df.sort_values("units_per_day", ascending=False).head(int(top_n)), use_container_width=True)
+                st.dataframe(cat_df.sort_values("units_per_day", ascending=False).head(int(top_n)), width="stretch")
 
     # If inventory is available, show "fast movers low stock"
     if inv_df_raw is not None:
@@ -11104,7 +11237,7 @@ elif section == "📈 Trends":
 
             merged["risk_score"] = merged["units_per_day"] / np.maximum(merged["onhandunits"], 1)
             st.markdown("### Fast Movers + Low Stock (SKU-level)")
-            st.dataframe(merged.sort_values("risk_score", ascending=False).head(50), use_container_width=True)
+            st.dataframe(merged.sort_values("risk_score", ascending=False).head(50), width="stretch")
 
 # ============================================================
 # PAGE – DELIVERY IMPACT
@@ -11442,7 +11575,7 @@ elif section == "🚚 Delivery Impact":
 
                 if _kpi_rows:
                     _kpi_df = pd.DataFrame(_kpi_rows)
-                    st.dataframe(_kpi_df, use_container_width=True)
+                    st.dataframe(_kpi_df, width="stretch")
 
                 # ── Summary metrics ──────────────────────────────────────────
                 # Compute combined KPIs from all active manifests (hardened numeric aggregation)
@@ -11759,11 +11892,11 @@ elif section == "🚚 Delivery Impact":
                             margin={"t": 40, "b": 40},
                         )
 
-                        st.plotly_chart(_fig, use_container_width=True)
+                        st.plotly_chart(_fig, width="stretch")
                     else:
                         st.warning("⚠️ Plotly is not installed – chart unavailable. Install `plotly` to enable charts.")
                         if not _wow_mode and _ts_frames:
-                            st.dataframe(_ts_frames[0], use_container_width=True)
+                            st.dataframe(_ts_frames[0], width="stretch")
                 else:
                     st.info(
                         "ℹ️ No sales data found in the analysis windows. "
@@ -11817,7 +11950,7 @@ elif section == "🚚 Delivery Impact":
                                 "net_sales_before": "Net Sales Before ($)",
                                 "net_sales_after": "Net Sales After ($)",
                             }),
-                            use_container_width=True,
+                            width="stretch",
                         )
 
                 # ── Unmatched items ──────────────────────────────────────────
@@ -11829,7 +11962,7 @@ elif section == "🚚 Delivery Impact":
                         "in the sales report. Their sales are not included in the delivered-items metrics."
                     )
                     _unmatched_df = pd.DataFrame({"Manifest Item (unmatched)": _all_unmatched})
-                    st.dataframe(_unmatched_df, use_container_width=True)
+                    st.dataframe(_unmatched_df, width="stretch")
 
                 if _all_matched:
                     with st.expander("🔍 View item matching results", expanded=False):
@@ -11837,7 +11970,7 @@ elif section == "🚚 Delivery Impact":
                             {"Manifest Item": k, "Matched Sales Product": v}
                             for k, v in _all_matched.items()
                         ]
-                        st.dataframe(pd.DataFrame(_match_rows), use_container_width=True)
+                        st.dataframe(pd.DataFrame(_match_rows), width="stretch")
 
                 # ── Debug PDF text dumps ─────────────────────────────────────
                 for _fname, _dtext in _all_debug_texts.items():
@@ -12349,7 +12482,7 @@ elif section == "🐢 Slow Movers":
             )
 
             st.markdown('<div class="sm-table-wrap">', unsafe_allow_html=True)
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            st.dataframe(display_df, width="stretch", hide_index=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
             # -------------------------------------------------------
@@ -12358,7 +12491,7 @@ elif section == "🐢 Slow Movers":
             with st.expander("🔎 Show full detail / all columns"):
                 st.dataframe(
                     working_df.replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
 
@@ -12376,7 +12509,7 @@ elif section == "🐢 Slow Movers":
                     "total_units": "Total Units",
                 })
             )
-            st.dataframe(tier_summary, use_container_width=True, hide_index=True)
+            st.dataframe(tier_summary, width="stretch", hide_index=True)
 
             # -------------------------------------------------------
             # EXPORT (preserves existing functionality + adds detail sheet)
@@ -12462,11 +12595,11 @@ elif section == "💰 Purchasing Budget":
             cat_df["Budget Status"] = np.where(cat_df["Recommended Budget"] > 0, "Buy", np.where(cat_df["Recommended Budget"] < 0, "Overstocked", "Hold"))
             cat_df["Notes"] = np.where(cat_df["Budget Status"]=="Buy", "Allocate purchasing budget", np.where(cat_df["Budget Status"]=="Overstocked", "Reduce buys and sell-through", "Near target"))
             st.markdown("### Category-Level Recommended Budget")
-            st.dataframe(cat_df, use_container_width=True)
+            st.dataframe(cat_df, width="stretch")
             if PLOTLY_AVAILABLE and not cat_df.empty:
-                st.plotly_chart(px.bar(cat_df, x="Category", y="Recommended Budget", title="Recommended Budget by Category"), use_container_width=True)
+                st.plotly_chart(px.bar(cat_df, x="Category", y="Recommended Budget", title="Recommended Budget by Category"), width="stretch")
                 melt_df = cat_df[["Category","Current Inventory at Cost","Target Inventory at Cost"]].melt(id_vars="Category", var_name="Metric", value_name="Value")
-                st.plotly_chart(px.bar(melt_df, x="Category", y="Value", color="Metric", barmode="group", title="Current vs Target Inventory by Category"), use_container_width=True)
+                st.plotly_chart(px.bar(melt_df, x="Category", y="Value", color="Metric", barmode="group", title="Current vs Target Inventory by Category"), width="stretch")
 
         scenario_rows=[]
         for name,dos,ss,gr in [("Conservative",30,0.05,0.0),("Balanced",float(target_dos),float(safety_stock),float(growth_adj)),("Aggressive",60,0.15,0.10)]:
@@ -12474,7 +12607,7 @@ elif section == "💰 Purchasing Budget":
             rb=t-active_inventory_cost-on_order_cost
             scenario_rows.append({"Scenario":name,"Target Inventory":t,"Current Active Inventory":active_inventory_cost,"On Order":on_order_cost,"Recommended Budget":rb,"Status":"Available to Buy" if rb>=0 else "Overbought"})
         st.markdown("### Budget Scenario Table")
-        st.dataframe(pd.DataFrame(scenario_rows), use_container_width=True)
+        st.dataframe(pd.DataFrame(scenario_rows), width="stretch")
         if "po_items" in st.session_state:
             proposed_po_total = float(sum(float(i.get("Total",0) or 0) for i in st.session_state.po_items))
             remaining_budget_after_po = recommended_budget - proposed_po_total
@@ -12536,7 +12669,7 @@ elif section == "🧾 PO Builder":
                 if "top_products" in reorder_rows.columns:
                     _xref_cols.append("top_products")
                 _xref_cols = [c for c in _xref_cols if c in reorder_rows.columns]
-                st.dataframe(reorder_rows[_xref_cols].reset_index(drop=True), use_container_width=True)
+                st.dataframe(reorder_rows[_xref_cols].reset_index(drop=True), width="stretch")
 
                 if st.button("➕ Add All Reorder ASAP Lines to PO", key="po_xref_add_all"):
                     _added = 0
@@ -12670,7 +12803,7 @@ elif section == "🧾 PO Builder":
                 "Review flagged items before purchasing."
             )
 
-        st.dataframe(items_df, use_container_width=True)
+        st.dataframe(items_df, width="stretch")
         
         # Subtotal
         subtotal = sum(item['Total'] for item in st.session_state.po_items)

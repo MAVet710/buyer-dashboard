@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Date,
     Float,
     ForeignKey,
     Index,
@@ -81,6 +82,98 @@ class Customer(TimestampMixin, Base):
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
+class Product(TimestampMixin, Base):
+    """Organization product master for cannabis, packaging, WIP, and finished goods."""
+
+    __tablename__ = "coman_products"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "sku", name="uq_coman_product_org_sku"),
+        CheckConstraint("item_type in ('cannabis', 'packaging', 'wip', 'finished_good')", name="ck_coman_product_type"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    sku: Mapped[str] = mapped_column(String(120), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    item_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    base_unit: Mapped[str] = mapped_column(String(32), nullable=False, default="unit")
+    unit_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ProductBom(TimestampMixin, Base):
+    __tablename__ = "coman_product_boms"
+    __table_args__ = (UniqueConstraint("organization_id", "output_product_id", "version", name="uq_coman_bom_product_version"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    output_product_id: Mapped[str] = mapped_column(ForeignKey("coman_products.id", ondelete="RESTRICT"), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    output_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    expected_loss_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class BomComponent(TimestampMixin, Base):
+    __tablename__ = "coman_bom_components"
+    __table_args__ = (UniqueConstraint("bom_id", "input_product_id", name="uq_coman_bom_component"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    bom_id: Mapped[str] = mapped_column(ForeignKey("coman_product_boms.id", ondelete="CASCADE"), nullable=False, index=True)
+    input_product_id: Mapped[str] = mapped_column(ForeignKey("coman_products.id", ondelete="RESTRICT"), nullable=False, index=True)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    scrap_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+
+class InventoryLot(TimestampMixin, Base):
+    __tablename__ = "coman_inventory_lots"
+    __table_args__ = (UniqueConstraint("facility_id", "lot_code", name="uq_coman_lot_facility_code"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
+    product_id: Mapped[str] = mapped_column(ForeignKey("coman_products.id", ondelete="RESTRICT"), nullable=False, index=True)
+    lot_code: Mapped[str] = mapped_column(String(255), nullable=False)
+    compliance_package_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    location_code: Mapped[str] = mapped_column(String(120), nullable=False, default="UNASSIGNED")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="available")
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expiration_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class InventoryTransaction(Base):
+    """Append-only inventory ledger; balances are derived from signed quantities."""
+
+    __tablename__ = "coman_inventory_transactions"
+    __table_args__ = (Index("ix_coman_inventory_tx_lot_time", "lot_id", "occurred_at"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
+    lot_id: Mapped[str] = mapped_column(ForeignKey("coman_inventory_lots.id", ondelete="RESTRICT"), nullable=False, index=True)
+    transaction_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    quantity_delta: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    production_order_id: Mapped[str | None] = mapped_column(ForeignKey("coman_production_orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    reference: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class MaterialReservation(TimestampMixin, Base):
+    __tablename__ = "coman_material_reservations"
+    __table_args__ = (UniqueConstraint("production_order_id", "lot_id", name="uq_coman_reservation_order_lot"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
+    production_order_id: Mapped[str] = mapped_column(ForeignKey("coman_production_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    lot_id: Mapped[str] = mapped_column(ForeignKey("coman_inventory_lots.id", ondelete="RESTRICT"), nullable=False, index=True)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
+    reserved_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
 class MachineModel(TimestampMixin, Base):
     __tablename__ = "coman_machine_models"
     __table_args__ = (
@@ -130,6 +223,45 @@ class FacilityMachine(TimestampMixin, Base):
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
+class HandLaborArea(TimestampMixin, Base):
+    __tablename__ = "coman_hand_labor_areas"
+    __table_args__ = (
+        UniqueConstraint("facility_id", "name", name="uq_coman_hand_labor_area_name"),
+        CheckConstraint("sticker_units_per_person_hour >= 0", name="ck_coman_hand_sticker_rate"),
+        CheckConstraint("case_pack_units_per_person_hour >= 0", name="ck_coman_hand_case_rate"),
+        CheckConstraint("final_cases_per_person_hour >= 0", name="ck_coman_hand_final_case_rate"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Primary Hand Labor Area")
+    default_crew_size: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    sticker_units_per_person_hour: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    case_pack_units_per_person_hour: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    final_cases_per_person_hour: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    setup_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cleanup_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class CrewAvailability(TimestampMixin, Base):
+    __tablename__ = "coman_crew_availability"
+    __table_args__ = (
+        UniqueConstraint("facility_id", "work_date", "shift_name", name="uq_coman_crew_facility_date_shift"),
+        CheckConstraint("available_people >= 0", name="ck_coman_crew_people"),
+        CheckConstraint("shift_hours > 0", name="ck_coman_crew_shift_hours"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    work_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    shift_name: Mapped[str] = mapped_column(String(120), nullable=False, default="Day")
+    available_people: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    shift_hours: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
 class ProductionOrder(TimestampMixin, Base):
     __tablename__ = "coman_production_orders"
     __table_args__ = (
@@ -168,6 +300,28 @@ class ProductionOrder(TimestampMixin, Base):
     updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
+class ProductionActual(TimestampMixin, Base):
+    __tablename__ = "coman_production_actuals"
+    __table_args__ = (
+        UniqueConstraint("production_order_id", name="uq_coman_actual_order"),
+        CheckConstraint("actual_units >= 0", name="ck_coman_actual_units"),
+        CheckConstraint("scrap_units >= 0", name="ck_coman_actual_scrap"),
+        CheckConstraint("rework_units >= 0", name="ck_coman_actual_rework"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    production_order_id: Mapped[str] = mapped_column(ForeignKey("coman_production_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    actual_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scrap_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rework_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actual_machine_hours: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    actual_labor_hours: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    recorded_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
 class AuditEvent(Base):
     __tablename__ = "coman_audit_events"
     __table_args__ = (Index("ix_coman_audit_entity", "organization_id", "entity_type", "entity_id"),)
@@ -191,7 +345,7 @@ class AppUser(TimestampMixin, Base):
     __tablename__ = "app_users"
     __table_args__ = (
         CheckConstraint(
-            "role in ('admin', 'buyer', 'planner', 'supervisor', 'operator', 'qa', 'read_only')",
+            "role in ('dev', 'admin', 'buyer', 'planner', 'supervisor', 'operator', 'qa', 'read_only')",
             name="ck_app_users_role",
         ),
         Index("ix_app_users_org_active", "organization_id", "active"),
@@ -220,7 +374,7 @@ class AppUserFacilityRole(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("user_id", "facility_id", name="uq_app_user_facility"),
         CheckConstraint(
-            "role in ('admin', 'buyer', 'planner', 'supervisor', 'operator', 'qa', 'read_only')",
+            "role in ('dev', 'admin', 'buyer', 'planner', 'supervisor', 'operator', 'qa', 'read_only')",
             name="ck_app_user_facility_role",
         ),
     )

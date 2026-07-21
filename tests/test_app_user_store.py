@@ -21,6 +21,7 @@ def _hash(password: str) -> str:
 
 def test_admin_can_create_durable_user_without_plaintext_password():
     store = _store()
+    assert store.health_check() is True
     user = store.create_user(
         username="production.user",
         password_hash=_hash("temporary-password"),
@@ -79,3 +80,68 @@ def test_active_user_can_complete_required_password_change():
     loaded = store.get_user("new.operator")
     assert loaded.password_hash == replacement
     assert loaded.must_change_password is False
+
+
+def test_dev_is_platform_wide_and_has_admin_access():
+    store = _store()
+    user = store.create_user(
+        username="God",
+        password_hash=_hash("platform-owner-password"),
+        role="dev",
+        created_by="system",
+    )
+    assert user.is_dev is True
+    assert user.is_admin is True
+    assert user.organization_id is None
+
+
+def test_dev_cannot_be_scoped_to_one_organization():
+    store = _store()
+    with pytest.raises(ValueError, match="platform-wide"):
+        store.create_user(
+            username="scoped.dev",
+            password_hash=_hash("platform-owner-password"),
+            role="dev",
+            organization_id="not-allowed",
+            created_by="system",
+        )
+
+
+def test_dev_can_create_and_list_organization_facility_context():
+    store = _store()
+    organization = store.create_organization(name="Doobie Logic", slug="doobie-logic")
+    facility = store.create_facility(
+        organization_id=organization.id,
+        name="Main Production",
+        code="MAIN",
+    )
+    assert store.list_organizations() == [organization]
+    assert store.list_facilities(organization.id) == [facility]
+
+
+def test_dev_sandbox_is_created_once_with_a_facility():
+    store = _store()
+    first_org, first_facility = store.ensure_dev_sandbox()
+    second_org, second_facility = store.ensure_dev_sandbox()
+    assert first_org.id == second_org.id
+    assert first_org.slug == "dev-sandbox"
+    assert first_facility.id == second_facility.id
+    assert first_facility.code == "SANDBOX"
+    assert first_facility.organization_id == first_org.id
+
+
+def test_facility_assignment_limits_user_context():
+    store = _store()
+    organization = store.create_organization(name="Operator Company", slug="operator-company")
+    assigned = store.create_facility(organization_id=organization.id, name="Assigned", code="A")
+    store.create_facility(organization_id=organization.id, name="Hidden", code="B")
+    user = store.create_user(
+        username="assigned.operator",
+        password_hash=_hash("temporary-password"),
+        role="operator",
+        organization_id=organization.id,
+        facility_ids=[assigned.id],
+        created_by="admin",
+    )
+    facilities = store.list_facilities(organization.id, user_id=user.id)
+    assert [item.id for item in facilities] == [assigned.id]
