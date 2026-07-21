@@ -3781,11 +3781,19 @@ def _render_access_context() -> None:
 
     if role == "dev":
         st.sidebar.success("LEVEL DEV · Platform-wide access")
-        try:
-            APP_USER_STORE.ensure_dev_sandbox()
-        except Exception as exc:
-            st.sidebar.error(f"DEV Sandbox is unavailable: {exc}")
         organizations = APP_USER_STORE.list_organizations()
+        sandbox_exists = any(item.slug == "dev-sandbox" for item in organizations)
+        if not sandbox_exists:
+            st.sidebar.caption("No DEV Sandbox exists yet.")
+            if st.sidebar.button("Create DEV Sandbox", key="create_dev_sandbox", width="stretch"):
+                try:
+                    APP_USER_STORE.ensure_dev_sandbox()
+                    st.sidebar.success("DEV Sandbox created.")
+                    _safe_rerun()
+                except Exception:
+                    st.sidebar.error(
+                        "DEV Sandbox could not connect to Supabase. Check the database secret, then try once."
+                    )
         if not organizations:
             st.sidebar.warning("No organizations are available. Check the Supabase connection.")
             st.session_state.active_organization_id = None
