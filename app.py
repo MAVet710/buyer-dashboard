@@ -3744,17 +3744,16 @@ if (
 trial_now = datetime.now()
 
 if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
-    st.sidebar.markdown("### 🔐 Trial Access")
-
     if st.session_state.trial_start is None:
-        trial_key_input = st.sidebar.text_input("Enter trial key", type="password", key="trial_key_input")
-        if st.sidebar.button("Activate Trial", key="activate_trial"):
-            if _check_trial_key(trial_key_input.strip()):
-                st.session_state.trial_start = trial_now.isoformat()
-                st.sidebar.success("✅ Trial activated. You have 24 hours of access.")
-            else:
-                st.sidebar.error("❌ Invalid trial key.")
-        st.warning("This is a trial build. Enter a valid key to unlock the app.")
+        with st.sidebar.expander("Trial access", expanded=False):
+            trial_key_input = st.text_input("Trial key", type="password", key="trial_key_input")
+            if st.button("Activate trial", key="activate_trial", width="stretch"):
+                if _check_trial_key(trial_key_input.strip()):
+                    st.session_state.trial_start = trial_now.isoformat()
+                    st.success("Trial activated for 24 hours.")
+                else:
+                    st.error("Invalid trial key.")
+        st.info("Sign in with your account, or expand Trial access if you were issued a trial key.")
         st.stop()
     else:
         try:
