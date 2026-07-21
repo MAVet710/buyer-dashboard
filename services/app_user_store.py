@@ -208,6 +208,36 @@ class AppUserStore:
             session.add(facility)
         return self._facility_record(facility)
 
+    def ensure_dev_sandbox(self) -> tuple[OrganizationRecord, FacilityRecord]:
+        """Return the isolated platform sandbox, creating it once when needed."""
+        if not self._session_factory:
+            raise RuntimeError("The application user database is not configured.")
+        with self._session_factory.begin() as session:
+            organization = session.scalar(
+                select(Organization).where(Organization.slug == "dev-sandbox")
+            )
+            if organization is None:
+                organization = Organization(name="DEV Sandbox", slug="dev-sandbox", active=True)
+                session.add(organization)
+                session.flush()
+            facility = session.scalar(
+                select(Facility).where(
+                    Facility.organization_id == organization.id,
+                    Facility.code == "SANDBOX",
+                )
+            )
+            if facility is None:
+                facility = Facility(
+                    organization_id=organization.id,
+                    name="Sandbox Facility",
+                    code="SANDBOX",
+                    timezone_name="America/New_York",
+                    active=True,
+                )
+                session.add(facility)
+                session.flush()
+        return self._organization_record(organization), self._facility_record(facility)
+
     def create_user(
         self,
         *,

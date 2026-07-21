@@ -52,6 +52,11 @@ from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
 from services.app_user_store import AppUserStore
 from services.auth_identity import resolve_legacy_identity
+from services.auth_workflow import (
+    apply_authenticated_session,
+    authenticate_any_role,
+    clear_authenticated_session,
+)
 from services.workspace_navigation import (
     COMAN_WORKSPACE,
     EXTRACTION_WORKSPACE,
@@ -3679,20 +3684,15 @@ if not _signed_in:
         login_user = st.sidebar.text_input("Username", key="unified_login_username")
         login_pass = st.sidebar.text_input("Password", type="password", key="unified_login_password")
         if st.sidebar.button("Sign in", type="primary", key="unified_login_btn", width="stretch"):
-            authenticated, account_name = _authenticate_account(login_user, login_pass, require_admin=True)
-            is_admin_account = authenticated
-            if not authenticated:
-                authenticated, account_name = _authenticate_account(login_user, login_pass, require_admin=False)
+            authenticated, account_name, is_admin_account = authenticate_any_role(
+                lambda username, password, require_admin: _authenticate_account(
+                    username, password, require_admin=require_admin
+                ),
+                login_user,
+                login_pass,
+            )
             if authenticated:
-                st.session_state.is_admin = is_admin_account
-                st.session_state.admin_user = account_name if is_admin_account else None
-                st.session_state.user_authenticated = not is_admin_account
-                st.session_state.user_user = account_name if not is_admin_account else None
-                st.session_state._db_hydrated_username = ""
-                st.session_state._admin_fail_count = 0
-                st.session_state._user_fail_count = 0
-                st.session_state._admin_lockout_until = None
-                st.session_state._user_lockout_until = None
+                apply_authenticated_session(st.session_state, account_name, is_admin_account)
                 _safe_rerun()
             else:
                 st.session_state._user_fail_count += 1
@@ -3709,17 +3709,7 @@ else:
     account_role = str(st.session_state.get("auth_user_role") or "trial").upper().replace("_", " ")
     st.sidebar.success(f"{account_name} · {account_role}")
     if st.sidebar.button("Sign out", key="unified_logout_btn", width="stretch"):
-        st.session_state.is_admin = False
-        st.session_state.admin_user = None
-        st.session_state.user_authenticated = False
-        st.session_state.user_user = None
-        st.session_state.auth_user_id = None
-        st.session_state.auth_user_role = None
-        st.session_state.auth_organization_id = None
-        st.session_state.active_organization_id = None
-        st.session_state.active_facility_id = None
-        st.session_state.auth_must_change_password = False
-        st.session_state._db_hydrated_username = ""
+        clear_authenticated_session(st.session_state)
         _safe_rerun()
 
 if (
@@ -3791,13 +3781,20 @@ def _render_access_context() -> None:
 
     if role == "dev":
         st.sidebar.success("LEVEL DEV · Platform-wide access")
+        try:
+            APP_USER_STORE.ensure_dev_sandbox()
+        except Exception as exc:
+            st.sidebar.error(f"DEV Sandbox is unavailable: {exc}")
         organizations = APP_USER_STORE.list_organizations()
         if not organizations:
-            st.sidebar.warning("No organizations exist yet. Add one in Admin Tools.")
+            st.sidebar.warning("No organizations are available. Check the Supabase connection.")
             st.session_state.active_organization_id = None
             st.session_state.active_facility_id = None
             return
-        organizations_by_label = {f"{item.name} ({item.slug})": item for item in organizations}
+        organizations_by_label = {
+            ("DEV Sandbox" if item.slug == "dev-sandbox" else f"{item.name} ({item.slug})"): item
+            for item in organizations
+        }
         labels = list(organizations_by_label)
         current_org = st.session_state.get("active_organization_id")
         current_index = next(
