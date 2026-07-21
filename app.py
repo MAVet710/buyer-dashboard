@@ -3438,7 +3438,7 @@ def _render_admin_user_management() -> None:
             }
             for user in users
         ]
-        st.dataframe(pd.DataFrame(user_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(user_rows), width="stretch", hide_index=True)
     else:
         st.info("No durable users exist yet. Create the first account below.")
 
@@ -3579,8 +3579,9 @@ def _render_admin_user_management() -> None:
 # =========================
 _refresh_doobie_connection_state()
 
-# Debug panel is gated behind admin access to avoid exposing internals.
-if st.session_state.get("is_admin", False):
+# Diagnostics are platform-owner tools; ordinary company admins do not need
+# them in their day-to-day sidebar.
+if st.session_state.get("auth_user_role") == "dev":
     with st.sidebar.expander("🔍 AI Debug Info", expanded=False):
         status = _doobie_ai_status()
         resolved_cfg = resolve_doobie_config()
@@ -3653,7 +3654,7 @@ if APP_USER_STORE.configured:
 else:
     st.sidebar.warning("Supabase storage is not configured")
 
-st.sidebar.markdown("### 👑 Admin Login")
+st.sidebar.markdown("### 🔐 Account Access")
 
 if not st.session_state.is_admin:
     now = datetime.now()
@@ -3679,7 +3680,7 @@ if not st.session_state.is_admin:
                 st.session_state._db_hydrated_username = ""
                 st.session_state._admin_fail_count = 0
                 st.session_state._admin_lockout_until = None
-                st.sidebar.success("✅ Admin mode enabled.")
+                _safe_rerun()
             else:
                 st.session_state._admin_fail_count += 1
                 remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._admin_fail_count
@@ -3693,8 +3694,9 @@ if not st.session_state.is_admin:
                         f"❌ Invalid admin credentials. {remaining_attempts} attempt(s) remaining."
                     )
 else:
-    st.sidebar.success(f"👑 Admin mode: {st.session_state.admin_user}")
-    if st.sidebar.button("Logout Admin"):
+    signed_in_role = str(st.session_state.get("auth_user_role") or "admin").upper()
+    st.sidebar.success(f"✅ {st.session_state.admin_user} · {signed_in_role}")
+    if st.sidebar.button("Sign out", key="logout_admin_btn"):
         st.session_state.is_admin = False
         st.session_state.admin_user = None
         st.session_state.auth_user_id = None
@@ -3709,7 +3711,8 @@ else:
 # -------------------------
 # 👤 STANDARD USER LOGIN (non-admin)
 # -------------------------
-st.sidebar.markdown("### 👤 User Login")
+if not st.session_state.is_admin:
+    st.sidebar.markdown("#### Standard User")
 
 if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
     now = datetime.now()
@@ -3735,7 +3738,7 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
                 st.session_state._db_hydrated_username = ""
                 st.session_state._user_fail_count = 0
                 st.session_state._user_lockout_until = None
-                st.sidebar.success("✅ User access enabled.")
+                _safe_rerun()
             else:
                 st.session_state._user_fail_count += 1
                 remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._user_fail_count
@@ -4912,6 +4915,17 @@ _display_user = (
     st.session_state.admin_user if st.session_state.get("is_admin")
     else st.session_state.get("user_user") or "Buyer"
 )
+
+
+def _time_greeting() -> str:
+    hour = datetime.now().hour
+    if hour < 12:
+        return "Good Morning"
+    if hour < 17:
+        return "Good Afternoon"
+    return "Good Evening"
+
+
 render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
@@ -5076,7 +5090,7 @@ if st.session_state.is_admin:
             st.write("No uploads logged yet.")
         else:
             log_df = pd.DataFrame(st.session_state.upload_log)
-            st.dataframe(log_df, use_container_width=True)
+            st.dataframe(log_df, width="stretch")
             st.markdown("#### Download an uploaded file")
             upload_ids = [r["upload_id"] for r in st.session_state.upload_log]
             selected = st.selectbox("Select upload", upload_ids)
@@ -6706,7 +6720,7 @@ def render_extraction_command_center():
                         color_discrete_sequence=["#f5a524"],
                     )
                     fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 else:
                     st.bar_chart(method_summary.set_index("method")["finished_output_g"])
             chart_card_end()
@@ -6724,7 +6738,7 @@ def render_extraction_command_center():
                     color_discrete_sequence=["#f5a524"],
                 )
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.line_chart(trend_df.set_index("run_date_parsed")["yield_pct"])
             chart_card_end()
@@ -6745,7 +6759,7 @@ def render_extraction_command_center():
                 fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["estimated_revenue_usd"], mode="lines+markers", name="Revenue", line=dict(color="#f5a524")))
                 fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["total_cogs_usd"], mode="lines+markers", name="COGS", line=dict(color="#ff6161")))
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.line_chart(revenue_df.set_index("run_day")[["estimated_revenue_usd", "total_cogs_usd"]])
             chart_card_end()
@@ -6762,7 +6776,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.pie(status_df, values="count", names="status")
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(status_df.set_index("status")["count"])
             chart_card_end()
@@ -6780,7 +6794,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.bar(qa_df, x="qa_risk_bucket", y="count", color="qa_risk_bucket")
                 fig.update_layout(height=340, template="plotly_dark", showlegend=False, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(qa_df.set_index("qa_risk_bucket")["count"])
             chart_card_end()
@@ -6796,7 +6810,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.bar(prod_df, x="product_bucket", y="finished_output_g", color_discrete_sequence=["#f5a524"])
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(prod_df.set_index("product_bucket")["finished_output_g"])
             chart_card_end()
@@ -6814,7 +6828,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.bar(eff_df, x="method", y="post_process_efficiency_pct", color_discrete_sequence=["#f5a524"])
                 fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(eff_df.set_index("method")["post_process_efficiency_pct"])
             chart_card_end()
@@ -6839,7 +6853,7 @@ def render_extraction_command_center():
                         paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(0,0,0,0)",
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 else:
                     st.bar_chart(inv_press.set_index("intended_method")[["available_weight_g", "estimated_output_g"]])
                 st.caption(
@@ -6864,7 +6878,7 @@ def render_extraction_command_center():
             )
             at_risk_df = at_risk_df.sort_values(["risk_score", "yield_pct"], ascending=[False, True]).head(12)
             cols = ["batch_id_internal", "method", "yield_pct", "coa_status", "qa_hold", "status", "margin_per_gram", "output_mapping_warning"]
-            st.dataframe(at_risk_df[[c for c in cols if c in at_risk_df.columns]], use_container_width=True, hide_index=True)
+            st.dataframe(at_risk_df[[c for c in cols if c in at_risk_df.columns]], width="stretch", hide_index=True)
             chart_card_end()
         with row5_r:
             chart_card_start("Top Aging Material Lots", "Oldest lots requiring run allocation priority.")
@@ -6873,7 +6887,7 @@ def render_extraction_command_center():
                 st.caption("No inventory lots available.")
             else:
                 aging_df = inventory_master_df.sort_values(["age_days", "available_weight_g"], ascending=[False, False]).head(12)
-                st.dataframe(aging_df[[c for c in aging_cols if c in aging_df.columns]], use_container_width=True, hide_index=True)
+                st.dataframe(aging_df[[c for c in aging_cols if c in aging_df.columns]], width="stretch", hide_index=True)
             chart_card_end()
 
         row6_l, row6_r = st.columns(2)
@@ -6945,7 +6959,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.bar(profit_method_df, x="method", y="total_profit_usd", color="total_profit_usd", color_continuous_scale=["#ff6161", "#f5a524", "#4cd388"])
                 fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(profit_method_df.set_index("method")["total_profit_usd"])
             chart_card_end()
@@ -6963,7 +6977,7 @@ def render_extraction_command_center():
                 fig.add_trace(go.Bar(x=method_cost_val_df["method"], y=method_cost_val_df["cost_per_gram"], name="Avg Cost/g", marker_color="#ff6161"))
                 fig.add_trace(go.Bar(x=method_cost_val_df["method"], y=method_cost_val_df["market_price_per_gram"], name="Avg Value/g", marker_color="#4cd388"))
                 fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(method_cost_val_df.set_index("method")[["cost_per_gram", "market_price_per_gram"]])
             chart_card_end()
@@ -6987,7 +7001,7 @@ def render_extraction_command_center():
                     color_continuous_scale=["#ff6161", "#f5a524", "#4cd388"],
                 )
                 fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(margin_product_df.set_index("product_bucket")["margin_per_gram"])
             chart_card_end()
@@ -6997,9 +7011,9 @@ def render_extraction_command_center():
             top_runs = display_df.sort_values("total_profit_usd", ascending=False).head(8)
             worst_runs = display_df.sort_values("total_profit_usd", ascending=True).head(8)
             st.markdown("**Top Profitable Runs**")
-            st.dataframe(top_runs[[c for c in top_cols if c in top_runs.columns]], use_container_width=True, hide_index=True)
+            st.dataframe(top_runs[[c for c in top_cols if c in top_runs.columns]], width="stretch", hide_index=True)
             st.markdown("**Worst Performing Runs**")
-            st.dataframe(worst_runs[[c for c in top_cols if c in worst_runs.columns]], use_container_width=True, hide_index=True)
+            st.dataframe(worst_runs[[c for c in top_cols if c in worst_runs.columns]], width="stretch", hide_index=True)
             chart_card_end()
 
         st.markdown("### Post-Production Financials")
@@ -7018,7 +7032,7 @@ def render_extraction_command_center():
                 fig.add_trace(go.Bar(x=product_revenue_df["product_bucket"], y=product_revenue_df["packaged_estimated_revenue_usd"], name="Packaged Revenue", marker_color="#4cd388"))
                 fig.add_trace(go.Bar(x=product_revenue_df["product_bucket"], y=product_revenue_df["bulk_estimated_value_usd"], name="Bulk Value", marker_color="#5aa8ff"))
                 fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(product_revenue_df.set_index("product_bucket")[["packaged_estimated_revenue_usd", "bulk_estimated_value_usd"]])
             chart_card_end()
@@ -7034,7 +7048,7 @@ def render_extraction_command_center():
             elif PLOTLY_AVAILABLE:
                 fig = px.bar(units_df, x="product_bucket", y="units_per_batch", color_discrete_sequence=["#f5a524"])
                 fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(units_df.set_index("product_bucket")["units_per_batch"])
             chart_card_end()
@@ -7054,7 +7068,7 @@ def render_extraction_command_center():
                 fig.add_trace(go.Bar(x=cvr_df["method"], y=cvr_df["total_cogs_usd"], name="COGs", marker_color="#ff6161"))
                 fig.add_trace(go.Bar(x=cvr_df["method"], y=cvr_df["estimated_revenue_usd"], name="Revenue", marker_color="#4cd388"))
                 fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(cvr_df.set_index("method")[["total_cogs_usd", "estimated_revenue_usd"]])
             chart_card_end()
@@ -7079,7 +7093,7 @@ def render_extraction_command_center():
             else:
                 st.dataframe(
                     sensitivity_df.sort_values(["product_type", "pack_size_g", "estimated_units"], ascending=[True, True, False]).head(40),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
             chart_card_end()
@@ -7089,7 +7103,7 @@ def render_extraction_command_center():
         run_explorer_df = run_df.copy()
         if "output_mapping_warning" in run_explorer_df.columns:
             run_explorer_df["output_mapping_warning"] = run_explorer_df["output_mapping_warning"].fillna("")
-        st.dataframe(run_explorer_df, use_container_width=True, hide_index=True)
+        st.dataframe(run_explorer_df, width="stretch", hide_index=True)
         with st.expander("Add Run Record", expanded=False):
             r1, r2, r3 = st.columns(3)
             with r1:
@@ -8053,7 +8067,7 @@ def render_extraction_command_center():
             _snapshot_df = _compute_mass_balance(st.session_state.ecc_run_log.copy())
             st.dataframe(
                 _snapshot_df[[c for c in _process_view_cols if c in _snapshot_df.columns]],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -8136,7 +8150,7 @@ def render_extraction_command_center():
 
                 if auto_matches >= 3:
                     auto_preview = _ecc_finalize_inventory_frame(auto_normalized)
-                    st.dataframe(auto_preview.head(100), use_container_width=True, hide_index=True)
+                    st.dataframe(auto_preview.head(100), width="stretch", hide_index=True)
                     if st.button("Append Auto-Mapped Inventory", key="ecc_inventory_append_auto", type="primary"):
                         st.session_state.ecc_inventory_log = _ecc_append_inventory_rows(st.session_state.ecc_inventory_log, auto_preview)
                         st.success(f"Added {len(auto_preview)} row(s) into extraction inventory log.")
@@ -8204,7 +8218,7 @@ def render_extraction_command_center():
                         mapped_df = _ecc_finalize_inventory_frame(mapped_df)
                         st.session_state.ecc_inventory_log = _ecc_append_inventory_rows(st.session_state.ecc_inventory_log, mapped_df)
                         st.success(f"Converted and appended {len(mapped_df)} row(s).")
-                        st.dataframe(mapped_df.head(100), use_container_width=True, hide_index=True)
+                        st.dataframe(mapped_df.head(100), width="stretch", hide_index=True)
             except Exception as exc:
                 st.error(f"Could not load extraction inventory file: {exc}")
 
@@ -8356,7 +8370,7 @@ def render_extraction_command_center():
                 "intended_method",
             ]
             chart_card_start("Extraction Inventory Table", "Material Name, Type, Batch, Available, Age, Priority, Method.")
-            st.dataframe(filtered_inv[[c for c in table_cols if c in filtered_inv.columns]], use_container_width=True, hide_index=True)
+            st.dataframe(filtered_inv[[c for c in table_cols if c in filtered_inv.columns]], width="stretch", hide_index=True)
             chart_card_end()
 
             st.markdown("### Inventory → Workflow Allocation")
@@ -8830,7 +8844,7 @@ def render_extraction_command_center():
 
     with toll_tab:
         st.subheader("Toll Processing Command View")
-        st.dataframe(job_df, use_container_width=True, hide_index=True)
+        st.dataframe(job_df, width="stretch", hide_index=True)
         with st.expander("Add Toll Processing Job", expanded=False):
             t1, t2, t3 = st.columns(3)
             with t1:
@@ -8907,7 +8921,7 @@ def render_extraction_command_center():
             ],
             columns=["Field", "Purpose"],
         )
-        st.dataframe(required_fields, use_container_width=True, hide_index=True)
+        st.dataframe(required_fields, width="stretch", hide_index=True)
 
     with inputs_tab:
         chart_card_start("Data Input + Mapping", "Upload extraction data, preview parsed rows, map fields, and convert to run log.")
@@ -9100,11 +9114,11 @@ def render_white_label_repack_workspace():
         )
         simple_mode = st.toggle("Simple Mode", value=st.session_state.get("wl_simple_mode", True), key="wl_simple_mode")
         primary_cols = ["enabled", "package_size_g", "allocation_pct", "target_retail_price_per_unit", "total_packaging_cost_per_unit"]
-        edited = st.data_editor(plan_df[primary_cols], use_container_width=True, num_rows="dynamic", key="wl_package_editor")
+        edited = st.data_editor(plan_df[primary_cols], width="stretch", num_rows="dynamic", key="wl_package_editor")
         detail_cols = ["enabled", "package_size_g", "bag_or_container_cost_per_unit", "label_cost_per_unit", "tamper_seal_cost_per_unit", "humidity_pack_cost_per_unit", "compliance_sticker_cost_per_unit", "other_packaging_cost_per_unit"]
         if not simple_mode:
             with st.expander("Packaging Cost Details", expanded=False):
-                details_edited = st.data_editor(plan_df[detail_cols], use_container_width=True, num_rows="dynamic", key="wl_packaging_detail_editor")
+                details_edited = st.data_editor(plan_df[detail_cols], width="stretch", num_rows="dynamic", key="wl_packaging_detail_editor")
         else:
             details_edited = plan_df[detail_cols]
         merged = edited.merge(details_edited, on=["enabled", "package_size_g"], how="left", suffixes=("", "_detail"))
@@ -9192,7 +9206,7 @@ def render_white_label_repack_workspace():
             if readiness["incomplete_rows"] > 0:
                 st.warning("Some margins are incomplete because required inputs are missing.")
         display_df = results_df.replace({np.nan: "N/A"})
-        st.dataframe(display_df, use_container_width=True)
+        st.dataframe(display_df, width="stretch")
         if not results_df.empty:
             st.bar_chart(results_df.set_index("Package Size")["Revenue"])
             st.bar_chart(results_df.set_index("Package Size")["Gross Profit"])
@@ -9214,7 +9228,7 @@ def render_white_label_repack_workspace():
             ("Label Review Completed", "Ready" if st.session_state.get("wl_label_review_status", "Needs Review") == "Ready" else "Needs Review"),
         ]
         cdf = pd.DataFrame(checklist, columns=["Requirement", "Status"])
-        st.dataframe(cdf, use_container_width=True)
+        st.dataframe(cdf, width="stretch")
 
     return {"scenario_name": scenario_name or "Current Session", "summary": {"strain_name": st.session_state.get("wl_strain_name", ""), "source_metrc_package_id": st.session_state.get("wl_source_metrc_package_id", ""), "landed_cost_usd": landed_cost_usd, "total_revenue_usd": total_revenue, "gross_profit_usd": gross_profit, "gross_margin_pct": gross_margin, "coa_link": st.session_state.get("wl_coa_link", "")}, "bulk_lot_details": {k:v for k,v in st.session_state.items() if k.startswith("wl_")}, "package_plan": st.session_state.get("white_label_package_plan", default_plan), "package_output_summary": results_df, "margin_readiness": margin_readiness, "cost_breakdown": pd.DataFrame([{"Cost Type":"Landed Cost","Total Cost":landed_cost_usd,"Cost per Gram":effective_cost_per_gram,"Cost per Unit":(total_all_in/max(1,total_units))},{"Cost Type":"Packaging+Label","Total Cost":total_packaging,"Cost per Gram":(total_packaging/max(1,usable_weight_g)),"Cost per Unit":(total_packaging/max(1,total_units))},{"Cost Type":"Labor","Total Cost":st.session_state.get("wl_labor_cost_total_usd",0.0),"Cost per Gram":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,usable_weight_g)),"Cost per Unit":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,total_units))}]), "compliance_checklist": cdf}
 
@@ -9234,7 +9248,7 @@ _render_sidebar_nav_mockup(app_mode, None)
 
 if app_mode == "🧪 Extraction Command Center":
     render_hero(
-        "Good Morning, Extraction Team",
+        f"{_time_greeting()}, Extraction Team",
         "Command center KPIs, process signals, and inventory risk in one view.",
         _display_user,
         "Operations",
@@ -9286,7 +9300,7 @@ section_options = [
     "🧠 Buyer Intelligence",
     "💰 Purchasing Budget",
 ]
-if _feature_enabled("admin_exports", default_enabled=True):
+if st.session_state.get("is_admin", False) and _feature_enabled("admin_exports", default_enabled=True):
     section_options.append("🛠️ Admin Tools")
 if st.session_state.get("is_admin", False):
     section_options.append("🔌 Integrations")
@@ -9309,7 +9323,7 @@ else:
 # ============================================================
 if section == "📊 Inventory Dashboard":
     render_hero(
-        f"Good Morning, {_display_user}",
+        f"{_time_greeting()}, {_display_user}",
         "Here's what's happening with your portfolio today.",
         str(_display_user),
         "Buyer • Operations",
@@ -9963,7 +9977,7 @@ if section == "📊 Inventory Dashboard":
                             height=280,
                             font={"color": "rgba(255,255,255,0.88)"},
                         )
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                     else:
                         st.line_chart(_trend_plot.set_index("_date")["_metric"])
             chart_card_end()
@@ -9992,7 +10006,7 @@ if section == "📊 Inventory Dashboard":
                     font={"color": "rgba(255,255,255,0.88)"},
                     height=280,
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.bar_chart(_cat_df.set_index("mastercategory")[_cat_metric])
             chart_card_end()
@@ -10006,14 +10020,14 @@ if section == "📊 Inventory Dashboard":
                 st.info("No slow mover rows available yet.")
             else:
                 _slow = _slow.sort_values("daysonhand", ascending=False).head(12)
-                st.dataframe(_slow[_slow_cols], use_container_width=True, hide_index=True)
+                st.dataframe(_slow[_slow_cols], width="stretch", hide_index=True)
             chart_card_end()
         with _health_col:
             chart_card_start("Inventory Health", "Composite score from low-stock and OOS pressure.")
             if PLOTLY_AVAILABLE:
                 fig = go.Figure(go.Indicator(mode="gauge+number", value=_health_score, gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#ff9a3c"}}))
                 fig.update_layout(height=260, margin={"l": 10, "r": 10, "t": 20, "b": 0}, paper_bgcolor="rgba(0,0,0,0)", font={"color": "rgba(255,255,255,0.88)"})
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.progress(max(0, min(100, _health_score)) / 100.0, text=f"Health score: {_health_score}/100")
             chart_card_end()
@@ -10125,7 +10139,7 @@ if section == "📊 Inventory Dashboard":
                 cat_quick[_cat_q_cols].sort_values(
                     ["reorder_lines", "category_dos"], ascending=[False, True]
                 ),
-                use_container_width=True,
+                width="stretch",
             )
         except Exception:
             pass
@@ -10285,7 +10299,7 @@ if section == "📊 Inventory Dashboard":
                 g = group[display_cols].copy()
                 st.dataframe(
                     g.style.map(red_low, subset=["daysonhand"]),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
                 flagged = group[group["reorderpriority"] == "1 – Reorder ASAP"].copy()
@@ -10305,10 +10319,10 @@ if section == "📊 Inventory Dashboard":
                             if sku_df_out.empty:
                                 st.info("No matching SKU-level sales rows found for this slice.")
                             else:
-                                st.dataframe(sku_df_out, use_container_width=True)
+                                st.dataframe(sku_df_out, width="stretch")
                             if not batch_df_out.empty:
                                 st.markdown("##### 🧬 Batch / Lot Breakdown (On-Hand)")
-                                st.dataframe(batch_df_out, use_container_width=True)
+                                st.dataframe(batch_df_out, width="stretch")
 
         # ========= Product-Level Detail Table (toggle) =========
         if show_product_rows and not detail_product.empty:
@@ -10326,7 +10340,7 @@ if section == "📊 Inventory Dashboard":
                 "onhandunits", "unitssold", "avgunitsperday", "daysonhand",
             ]
             prod_display_cols = [c for c in prod_display_cols if c in dpv.columns]
-            st.dataframe(dpv[prod_display_cols], use_container_width=True)
+            st.dataframe(dpv[prod_display_cols], width="stretch")
             st.download_button(
                 "📥 Download Product-Level Table (Excel)",
                 data=build_forecast_export_bytes(dpv[prod_display_cols]),
@@ -10794,13 +10808,13 @@ if section == "📊 Inventory Dashboard":
                         f"(velocity window: {_b_vel_win} days)"
                     )
                     st.markdown('<div class="sm-table-wrap">', unsafe_allow_html=True)
-                    st.dataframe(_disp, use_container_width=True, hide_index=True)
+                    st.dataframe(_disp, width="stretch", hide_index=True)
                     st.markdown('</div>', unsafe_allow_html=True)
 
                     with st.expander("🔎 Show all columns"):
                         st.dataframe(
                             df.replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan),
-                            use_container_width=True,
+                            width="stretch",
                             hide_index=True,
                         )
 
@@ -10946,7 +10960,7 @@ elif section == "🧭 Compliance Q&A":
             source_df = pd.read_csv(source_file)
             repo = _load_compliance_sources_from_df(source_df)
             st.success(f"Loaded {len(source_df)} compliance source row(s).")
-            st.dataframe(source_df.head(100), use_container_width=True)
+            st.dataframe(source_df.head(100), width="stretch")
         except Exception as exc:
             st.error(f"Could not load compliance sources: {exc}")
 
@@ -11022,12 +11036,12 @@ elif section == "🧠 Buyer Intelligence":
         c1, c2 = st.columns([1, 1.4])
         with c1:
             st.markdown("#### Top Categories")
-            st.dataframe(by_category.head(20), use_container_width=True, hide_index=True)
+            st.dataframe(by_category.head(20), width="stretch", hide_index=True)
         with c2:
             st.markdown("#### SKU Risk Table")
             st.dataframe(
                 by_product.head(200),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -11136,7 +11150,7 @@ elif section == "🛠️ Admin Tools":
         try:
             qa_df = pd.read_csv(qa_upload)
             report = _audit_compliance_source_df(qa_df)
-            st.dataframe(qa_df.head(100), use_container_width=True)
+            st.dataframe(qa_df.head(100), width="stretch")
 
             c1, c2, c3, c4 = st.columns(4)
             with c1:
@@ -11224,12 +11238,12 @@ elif section == "📈 Trends":
     cat_units["unit_share"] = np.where(total_units > 0, cat_units["unitssold"] / total_units, 0.0)
 
     st.markdown("### Category Mix (Units)")
-    st.dataframe(cat_units.sort_values("unitssold", ascending=False), use_container_width=True)
+    st.dataframe(cat_units.sort_values("unitssold", ascending=False), width="stretch")
 
     size_units = sales.groupby("packagesize", dropna=False)["unitssold"].sum().reset_index()
     size_units["units_per_day"] = (size_units["unitssold"] / max(int(trend_days), 1)) * float(run_rate_multiplier)
     st.markdown("### Package Size Mix (Units)")
-    st.dataframe(size_units.sort_values("unitssold", ascending=False), use_container_width=True)
+    st.dataframe(size_units.sort_values("unitssold", ascending=False), width="stretch")
 
     st.markdown("### Top Movers (SKU-level)")
     sku_cols = ["product_name", "mastercategory", "strain_type", "packagesize", "unitssold"]
@@ -11241,7 +11255,7 @@ elif section == "📈 Trends":
     if "revenue" in sku_view.columns:
         sku_view["avg_price"] = np.where(sku_view["unitssold"] > 0, sku_view["revenue"] / sku_view["unitssold"], 0.0)
 
-    st.dataframe(sku_view.sort_values("units_per_day", ascending=False).head(50), use_container_width=True)
+    st.dataframe(sku_view.sort_values("units_per_day", ascending=False).head(50), width="stretch")
 
     st.markdown("### Best Sellers by Category")
     top_n = int(st.number_input("Top N per category", 1, 50, 10, key="trend_top_n"))
@@ -11252,7 +11266,7 @@ elif section == "📈 Trends":
         for cat in cat_list:
             with st.expander(f"{str(cat).title()} — Top {int(top_n)}", expanded=False):
                 cat_df = sku_view[sku_view["mastercategory"] == cat].copy()
-                st.dataframe(cat_df.sort_values("units_per_day", ascending=False).head(int(top_n)), use_container_width=True)
+                st.dataframe(cat_df.sort_values("units_per_day", ascending=False).head(int(top_n)), width="stretch")
 
     # If inventory is available, show "fast movers low stock"
     if inv_df_raw is not None:
@@ -11277,7 +11291,7 @@ elif section == "📈 Trends":
 
             merged["risk_score"] = merged["units_per_day"] / np.maximum(merged["onhandunits"], 1)
             st.markdown("### Fast Movers + Low Stock (SKU-level)")
-            st.dataframe(merged.sort_values("risk_score", ascending=False).head(50), use_container_width=True)
+            st.dataframe(merged.sort_values("risk_score", ascending=False).head(50), width="stretch")
 
 # ============================================================
 # PAGE – DELIVERY IMPACT
@@ -11615,7 +11629,7 @@ elif section == "🚚 Delivery Impact":
 
                 if _kpi_rows:
                     _kpi_df = pd.DataFrame(_kpi_rows)
-                    st.dataframe(_kpi_df, use_container_width=True)
+                    st.dataframe(_kpi_df, width="stretch")
 
                 # ── Summary metrics ──────────────────────────────────────────
                 # Compute combined KPIs from all active manifests (hardened numeric aggregation)
@@ -11932,11 +11946,11 @@ elif section == "🚚 Delivery Impact":
                             margin={"t": 40, "b": 40},
                         )
 
-                        st.plotly_chart(_fig, use_container_width=True)
+                        st.plotly_chart(_fig, width="stretch")
                     else:
                         st.warning("⚠️ Plotly is not installed – chart unavailable. Install `plotly` to enable charts.")
                         if not _wow_mode and _ts_frames:
-                            st.dataframe(_ts_frames[0], use_container_width=True)
+                            st.dataframe(_ts_frames[0], width="stretch")
                 else:
                     st.info(
                         "ℹ️ No sales data found in the analysis windows. "
@@ -11990,7 +12004,7 @@ elif section == "🚚 Delivery Impact":
                                 "net_sales_before": "Net Sales Before ($)",
                                 "net_sales_after": "Net Sales After ($)",
                             }),
-                            use_container_width=True,
+                            width="stretch",
                         )
 
                 # ── Unmatched items ──────────────────────────────────────────
@@ -12002,7 +12016,7 @@ elif section == "🚚 Delivery Impact":
                         "in the sales report. Their sales are not included in the delivered-items metrics."
                     )
                     _unmatched_df = pd.DataFrame({"Manifest Item (unmatched)": _all_unmatched})
-                    st.dataframe(_unmatched_df, use_container_width=True)
+                    st.dataframe(_unmatched_df, width="stretch")
 
                 if _all_matched:
                     with st.expander("🔍 View item matching results", expanded=False):
@@ -12010,7 +12024,7 @@ elif section == "🚚 Delivery Impact":
                             {"Manifest Item": k, "Matched Sales Product": v}
                             for k, v in _all_matched.items()
                         ]
-                        st.dataframe(pd.DataFrame(_match_rows), use_container_width=True)
+                        st.dataframe(pd.DataFrame(_match_rows), width="stretch")
 
                 # ── Debug PDF text dumps ─────────────────────────────────────
                 for _fname, _dtext in _all_debug_texts.items():
@@ -12522,7 +12536,7 @@ elif section == "🐢 Slow Movers":
             )
 
             st.markdown('<div class="sm-table-wrap">', unsafe_allow_html=True)
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            st.dataframe(display_df, width="stretch", hide_index=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
             # -------------------------------------------------------
@@ -12531,7 +12545,7 @@ elif section == "🐢 Slow Movers":
             with st.expander("🔎 Show full detail / all columns"):
                 st.dataframe(
                     working_df.replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
 
@@ -12549,7 +12563,7 @@ elif section == "🐢 Slow Movers":
                     "total_units": "Total Units",
                 })
             )
-            st.dataframe(tier_summary, use_container_width=True, hide_index=True)
+            st.dataframe(tier_summary, width="stretch", hide_index=True)
 
             # -------------------------------------------------------
             # EXPORT (preserves existing functionality + adds detail sheet)
@@ -12635,11 +12649,11 @@ elif section == "💰 Purchasing Budget":
             cat_df["Budget Status"] = np.where(cat_df["Recommended Budget"] > 0, "Buy", np.where(cat_df["Recommended Budget"] < 0, "Overstocked", "Hold"))
             cat_df["Notes"] = np.where(cat_df["Budget Status"]=="Buy", "Allocate purchasing budget", np.where(cat_df["Budget Status"]=="Overstocked", "Reduce buys and sell-through", "Near target"))
             st.markdown("### Category-Level Recommended Budget")
-            st.dataframe(cat_df, use_container_width=True)
+            st.dataframe(cat_df, width="stretch")
             if PLOTLY_AVAILABLE and not cat_df.empty:
-                st.plotly_chart(px.bar(cat_df, x="Category", y="Recommended Budget", title="Recommended Budget by Category"), use_container_width=True)
+                st.plotly_chart(px.bar(cat_df, x="Category", y="Recommended Budget", title="Recommended Budget by Category"), width="stretch")
                 melt_df = cat_df[["Category","Current Inventory at Cost","Target Inventory at Cost"]].melt(id_vars="Category", var_name="Metric", value_name="Value")
-                st.plotly_chart(px.bar(melt_df, x="Category", y="Value", color="Metric", barmode="group", title="Current vs Target Inventory by Category"), use_container_width=True)
+                st.plotly_chart(px.bar(melt_df, x="Category", y="Value", color="Metric", barmode="group", title="Current vs Target Inventory by Category"), width="stretch")
 
         scenario_rows=[]
         for name,dos,ss,gr in [("Conservative",30,0.05,0.0),("Balanced",float(target_dos),float(safety_stock),float(growth_adj)),("Aggressive",60,0.15,0.10)]:
@@ -12647,7 +12661,7 @@ elif section == "💰 Purchasing Budget":
             rb=t-active_inventory_cost-on_order_cost
             scenario_rows.append({"Scenario":name,"Target Inventory":t,"Current Active Inventory":active_inventory_cost,"On Order":on_order_cost,"Recommended Budget":rb,"Status":"Available to Buy" if rb>=0 else "Overbought"})
         st.markdown("### Budget Scenario Table")
-        st.dataframe(pd.DataFrame(scenario_rows), use_container_width=True)
+        st.dataframe(pd.DataFrame(scenario_rows), width="stretch")
         if "po_items" in st.session_state:
             proposed_po_total = float(sum(float(i.get("Total",0) or 0) for i in st.session_state.po_items))
             remaining_budget_after_po = recommended_budget - proposed_po_total
@@ -12709,7 +12723,7 @@ elif section == "🧾 PO Builder":
                 if "top_products" in reorder_rows.columns:
                     _xref_cols.append("top_products")
                 _xref_cols = [c for c in _xref_cols if c in reorder_rows.columns]
-                st.dataframe(reorder_rows[_xref_cols].reset_index(drop=True), use_container_width=True)
+                st.dataframe(reorder_rows[_xref_cols].reset_index(drop=True), width="stretch")
 
                 if st.button("➕ Add All Reorder ASAP Lines to PO", key="po_xref_add_all"):
                     _added = 0
@@ -12843,7 +12857,7 @@ elif section == "🧾 PO Builder":
                 "Review flagged items before purchasing."
             )
 
-        st.dataframe(items_df, use_container_width=True)
+        st.dataframe(items_df, width="stretch")
         
         # Subtotal
         subtotal = sum(item['Total'] for item in st.session_state.po_items)
