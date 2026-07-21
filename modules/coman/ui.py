@@ -89,17 +89,49 @@ def render_coman_workspace() -> None:
     metrics[2].metric("External Jobs", len(external_orders))
     metrics[3].metric("Customers", len(customers))
 
-    overview_tab, orders_tab, customers_tab, machines_tab, hand_labor_tab, planning_tab = st.tabs(
-        ["Overview", "Production Orders", "Customers", "Machines", "Hand Labor", "Capacity Planning"]
+    overview_tab, orders_tab, planning_tab, resources_tab, customers_tab = st.tabs(
+        ["Dashboard", "New Job", "Schedule", "Resources", "Customers"]
     )
 
     with overview_tab:
+        st.markdown("#### Setup readiness")
+        readiness = pd.DataFrame(
+            [
+                {"Requirement": "Facility selected", "Status": "Ready"},
+                {"Requirement": "Hand-labor rates", "Status": "Ready" if all([hand_area.sticker_units_per_person_hour > 0, hand_area.case_pack_units_per_person_hour > 0, hand_area.final_cases_per_person_hour > 0]) else "Needs setup"},
+                {"Requirement": "Facility machine", "Status": "Ready" if facility_machines else "Needs setup"},
+                {"Requirement": "Production queue", "Status": "Ready" if orders else "No jobs yet"},
+            ]
+        )
+        st.dataframe(readiness, width="stretch", hide_index=True)
         st.markdown("#### Current production queue")
         frame = _orders_frame(orders, customers_by_id)
         if frame.empty:
             st.info("No production orders yet. Add the first job in Production Orders.")
         else:
             st.dataframe(frame, width="stretch", hide_index=True)
+            st.markdown("#### Queue actions")
+            order_actions = {f"{order.order_number} — {order.product_name}": order for order in orders}
+            action_col1, action_col2 = st.columns(2)
+            selected_action_order = order_actions[action_col1.selectbox("Order", list(order_actions), key="coman_action_order")]
+            status_label = action_col2.selectbox("New status", ["Draft", "Scheduled", "In Progress", "On Hold", "Complete", "Cancelled"])
+            action_btn1, action_btn2 = st.columns(2)
+            if action_btn1.button("Update status", type="primary", width="stretch"):
+                try:
+                    repository.update_production_order_status(selected_action_order.id, organization_id=organization_id, facility_id=facility_id, status=status_label.lower().replace(" ", "_"), actor=_actor())
+                    st.success("Order status updated.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Status could not be updated: {exc}")
+            with action_btn2.popover("Duplicate recurring job", width="stretch"):
+                duplicate_number = st.text_input("New order number", key="coman_duplicate_number")
+                if st.button("Create duplicate", key="coman_duplicate_btn"):
+                    try:
+                        repository.duplicate_production_order(selected_action_order.id, organization_id=organization_id, facility_id=facility_id, new_order_number=duplicate_number, actor=_actor())
+                        st.success("Recurring job duplicated.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Order could not be duplicated: {exc}")
 
     with orders_tab:
         st.markdown("#### Add production order")
@@ -199,7 +231,7 @@ def render_coman_workspace() -> None:
                 hide_index=True,
             )
 
-    with machines_tab:
+    with resources_tab:
         st.markdown("#### Facility equipment and observed rates")
         st.caption(
             "Published specifications are a starting reference. Effective rate should be what this facility "
@@ -272,7 +304,8 @@ def render_coman_workspace() -> None:
                 hide_index=True,
             )
 
-    with hand_labor_tab:
+    with resources_tab:
+        st.divider()
         st.markdown("#### Required hand-labor area")
         st.caption("Stickering, case packing, and final case packing are included for every facility. Enter repeatable per-person rates from your operation.")
         with st.form("coman_hand_labor_form"):
