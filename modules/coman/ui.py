@@ -42,8 +42,14 @@ DEFAULT_OPTIMIZER_PRODUCTS = [
 ]
 
 
+_REPOSITORY_CACHE_VERSION = "inventory-bom-v1"
+
+
 @st.cache_resource
-def _repository() -> ComanRepository:
+def _repository(cache_version: str) -> ComanRepository:
+    # The explicit version prevents Streamlit Cloud from reusing a repository
+    # instance created from an older class definition during a hot deployment.
+    del cache_version
     return ComanRepository(create_coman_engine())
 
 
@@ -85,7 +91,7 @@ def render_coman_workspace() -> None:
         return
 
     try:
-        repository = _repository()
+        repository = _repository(_REPOSITORY_CACHE_VERSION)
         customers = repository.list_customers(organization_id)
         orders = repository.list_production_orders(organization_id, facility_id)
         machine_models = repository.list_machine_models()
