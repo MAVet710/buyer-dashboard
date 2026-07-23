@@ -55,4 +55,3 @@ def downgrade() -> None:
     # These records may be referenced by facility assets. A repair migration
     # should not destructively remove shared reference data on downgrade.
     pass
-
