@@ -1,9 +1,7 @@
 """Framework-light authentication session workflow helpers."""
-
 from __future__ import annotations
 
 from collections.abc import Callable, MutableMapping
-
 
 Authenticator = Callable[[str, str, bool], tuple[bool, str]]
 
@@ -22,14 +20,29 @@ def apply_authenticated_session(state: MutableMapping, account_name: str, is_adm
     state["admin_user"] = account_name if is_admin else None
     state["user_authenticated"] = not is_admin
     state["user_user"] = account_name if not is_admin else None
+    if is_admin and not state.get("auth_user_role"):
+        state["auth_user_role"] = "admin"
     state["_db_hydrated_username"] = ""
     state["_admin_fail_count"] = 0
     state["_user_fail_count"] = 0
     state["_admin_lockout_until"] = None
     state["_user_lockout_until"] = None
+    try:
+        from services.demo_data import ensure_full_app_demo_session
+
+        ensure_full_app_demo_session(state, actor=account_name)
+    except Exception:
+        # Authentication must never fail merely because optional demo data could not seed.
+        pass
 
 
 def clear_authenticated_session(state: MutableMapping) -> None:
+    try:
+        from services.demo_data import reset_demo_session
+
+        reset_demo_session(state, preserve_auth=False)
+    except Exception:
+        pass
     for key, value in {
         "is_admin": False,
         "admin_user": None,
@@ -42,5 +55,6 @@ def clear_authenticated_session(state: MutableMapping) -> None:
         "active_facility_id": None,
         "auth_must_change_password": False,
         "_db_hydrated_username": "",
+        "demo_mode_enabled": False,
     }.items():
         state[key] = value

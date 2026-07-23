@@ -4560,7 +4560,14 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
         return str(v)
 
     def _draw_report_header_footer(page_title: str, dark: bool = True):
-        _draw_pdf_report_background(c, page_w, page_h, dark=dark)
+        background = globals().get("_draw_pdf_report_background")
+        if callable(background):
+            background(c, page_w, page_h, dark=dark)
+        else:
+            c.setFillColor(
+                pdf_colors["BACKGROUND_DARK"] if dark else pdf_colors["APPENDIX_BG"]
+            )
+            c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
         c.setFillColor(pdf_colors["CARD_BG"])
         c.rect(0, page_h - 46, page_w, 46, stroke=0, fill=1)
         c.setFillColor(pdf_colors["ACCENT_ORANGE"])
@@ -5488,6 +5495,19 @@ EXTRACTION_OUTPUT_ALIAS_LOOKUP = {
 # modeling only. These are not live market feeds.
 # TODO: replace MARKET_PRICE_MAP with admin-configurable pricing or live pricing feed
 MARKET_PRICE_MAP = {
+    # Stable normalized aliases retained for calculation callers and tests.
+    "bho": 12,
+    "live_resin": 20,
+    "badder": 16,
+    "shatter": 11,
+    "rosin": 32,
+    "rosin_jam": 42,
+    "distillate": 9,
+    "rso": 8,
+    "co2_oil": 10,
+    "vape": 14,
+    "bulk_oil": 10,
+    "concentrate": 12,
     "BHO": 12,
     "Live Resin": 20,
     "Badder": 16,

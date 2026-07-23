@@ -388,10 +388,10 @@ def parse_competitor_file(file_bytes, file_name, snapshot_date=None, competitor_
     matched_parent = _closest_parent_context(file_name, html, (batch_context or {}).get("parent_contexts", []))
     inherit_ctx = parent_ctx or matched_parent
     if inherit_ctx and platform == "dutchie_iframe_saved":
-        if competitor == "Unknown":
-            competitor = str(inherit_ctx.get("competitor_name") or competitor)
-        if category == "Unspecified":
-            category = str(inherit_ctx.get("category") or category)
+        # Saved Dutchie resource files are commonly named with a numeric ID.
+        # The matched parent shell is the authoritative identity and category.
+        competitor = str(inherit_ctx.get("competitor_name") or competitor)
+        category = str(inherit_ctx.get("category") or category)
         if not source_url:
             source_url = str(inherit_ctx.get("source_url") or "")
     platform_labels = {

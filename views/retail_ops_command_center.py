@@ -106,7 +106,7 @@ def _read_sales_upload(uploaded_file):
     sales["avg_items_sold"] = pd.to_numeric(table.get("Total Inventory Sold"), errors="coerce").fillna(0.0)
     sales["avg_delivery_orders"] = pd.to_numeric(table.get("Total Delivery Orders"), errors="coerce").fillna(0.0)
     sales["source_type"] = "pos_hour_totals"
-    sales["analysis_granularity"] = "weekday_hour_average"
+    sales["analysis_granularity"] = "weekday_hour"
     # compatibility aliases
     sales["transactions"] = sales["avg_transactions"]
     sales["gross_sales"] = sales["avg_sales"]
@@ -119,10 +119,10 @@ def _read_sales_upload(uploaded_file):
     sales["average_ticket"] = sales["average_ticket"].fillna(0.0)
     sales["items_per_transaction"] = sales["items_per_transaction"].fillna(0.0)
     grouped = sales.groupby(["day_of_week", "hour"], dropna=False).agg(
-        avg_transactions=("avg_transactions", "mean"),
-        avg_sales=("avg_sales", "mean"),
-        avg_items_sold=("avg_items_sold", "mean"),
-        avg_delivery_orders=("avg_delivery_orders", "mean"),
+        avg_transactions=("avg_transactions", "sum"),
+        avg_sales=("avg_sales", "sum"),
+        avg_items_sold=("avg_items_sold", "sum"),
+        avg_delivery_orders=("avg_delivery_orders", "sum"),
     ).reset_index()
     # compatibility aliases
     grouped["transactions"] = grouped["avg_transactions"]
@@ -135,7 +135,7 @@ def _read_sales_upload(uploaded_file):
     grouped["average_ticket"] = grouped["average_ticket"].fillna(0.0)
     grouped["items_per_transaction"] = grouped["items_per_transaction"].fillna(0.0)
     grouped["source_type"] = "pos_hour_totals"
-    grouped["analysis_granularity"] = "weekday_hour_average"
+    grouped["analysis_granularity"] = "weekday_hour"
 
     metadata = _parse_pos_metadata(df_raw, header_row)
     metadata["rows_processed"] = int(len(grouped))
@@ -308,6 +308,7 @@ def _normalize_data(employees, schedule, sales, thresholds):
         sales["hour"] = _safe_numeric_series(sales, _first_existing_column(sales, ["hour", "sale_hour"]) or "hour", -1)
         sales["total_sales"] = _safe_numeric_series(sales, "total_sales", 0)
         sales["transactions"] = _safe_numeric_series(sales, "transactions", 0)
+        sales["units_sold"] = _safe_numeric_series(sales, "units_sold", 0)
         if "day_of_week" not in sales.columns or sales["day_of_week"].isna().all():
             sales["day_of_week"] = sales["date"].dt.day_name()
 

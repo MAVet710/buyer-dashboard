@@ -1,7 +1,9 @@
-"""Canonical Streamlit entrypoint.
+"""Canonical Streamlit entrypoint with the living demo runtime installed first."""
 
-This wrapper ensures deployments that default to `streamlit_app.py`
-load the current `app.py` implementation.
-"""
+import streamlit as st
 
-import app  # noqa: F401
+from services.demo_data import install_demo_runtime
+
+install_demo_runtime(st)
+
+import app  # noqa: E402,F401
