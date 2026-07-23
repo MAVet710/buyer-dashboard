@@ -271,6 +271,7 @@ try:
         parse_manifest_pdf_bytes,
         parse_manifest_csv_xlsx_bytes,
         parse_sales_report_bytes as _parse_sales_report_bytes,
+        normalize_sales_report_dataframe as _normalize_sales_report_dataframe,
         match_manifest_to_sales,
         compute_delivery_kpis,
         compute_weekday_wow_kpis,
@@ -1470,7 +1471,10 @@ def calculate_active_inventory_cost(inventory_df: pd.DataFrame, cogs_pct: float,
         return pd.DataFrame(), 0.0
     idf = inventory_df.copy()
     idf.columns = idf.columns.astype(str).str.strip().str.lower()
-    qty_col = detect_column(idf.columns, [normalize_col(x) for x in ["on hand", "qty", "quantity", "onhandunits", "quantity on hand"]])
+    qty_col = detect_column(idf.columns, [normalize_col(x) for x in [
+        "on hand", "qty", "quantity", "onhandunits", "quantity on hand",
+        "available", "available quantity", "inventory available", "med total", "med sellable",
+    ]])
     cat_col = detect_column(idf.columns, [normalize_col(x) for x in ["mastercategory", "subcategory", "category", "product category"]])
     total_cost_col = detect_column(idf.columns, [normalize_col(x) for x in ["total cost", "inventory cost", "cost total", "extended cost"]])
     unit_cost_col = detect_column(idf.columns, [normalize_col(x) for x in ["unit_cost", "cost", "cost/unit", "unit cost", "wholesale price"]])
@@ -8992,7 +8996,7 @@ def render_white_label_repack_workspace():
     st.session_state.setdefault("white_label_active_scenario_name", "Current Session")
     st.session_state.setdefault("white_label_package_plan", default_plan)
 
-    scenario_name = st.text_input("scenario_name", value=st.session_state.get("white_label_active_scenario_name", "Current Session"))
+    scenario_name = st.text_input("Scenario Name", value=st.session_state.get("white_label_active_scenario_name", "Current Session"))
     s1, s2, s3, s4 = st.columns(4)
     with s1:
         if st.button("Save Scenario", key="wl_save"):
@@ -9025,43 +9029,43 @@ def render_white_label_repack_workspace():
     tabs = st.tabs(["Step 1: Bulk Lot", "Step 2: Costs", "Step 3: Package Plan", "Step 4: Results", "Step 5: Compliance"])
     with tabs[0]:
         st.info("Start with the bulk flower lot you are considering buying or repacking.")
-        strain_name = st.text_input("strain_name (required)", key="wl_strain_name")
-        strain_type = st.selectbox("strain_type (required)", ["indica", "sativa", "hybrid", "cbd", "mixed", "unknown"], key="wl_strain_type")
-        cultivator_name = st.text_input("cultivator_name (required)", key="wl_cultivator_name")
-        vendor_name = st.text_input("vendor_name (required)", key="wl_vendor_name")
+        strain_name = st.text_input("Strain Name *", key="wl_strain_name")
+        strain_type = st.selectbox("Strain Type *", ["Indica", "Sativa", "Hybrid", "CBD", "Mixed", "Unknown"], key="wl_strain_type")
+        cultivator_name = st.text_input("Cultivator Name *", key="wl_cultivator_name")
+        vendor_name = st.text_input("Vendor Name *", key="wl_vendor_name")
         c1, c2 = st.columns(2)
-        bulk_weight_value = c1.number_input("bulk_weight_value (required)", min_value=0.0, value=0.0, key="wl_bulk_weight_value")
-        bulk_weight_unit = c2.selectbox("bulk_weight_unit (required)", ["g", "oz", "lb"], key="wl_bulk_weight_unit")
-        bulk_total_cost_usd = st.number_input("bulk_total_cost_usd (required)", min_value=0.0, value=0.0, key="wl_bulk_total_cost_usd")
-        coa_link = st.text_input("coa_link (required)", key="wl_coa_link")
-        thca_pct = st.number_input("thca_pct (required)", min_value=0.0, max_value=100.0, value=0.0, key="wl_thca_pct")
-        terpene_pct = st.number_input("terpene_pct (required)", min_value=0.0, max_value=100.0, value=0.0, key="wl_terpene_pct")
+        bulk_weight_value = c1.number_input("Bulk Weight *", min_value=0.0, value=0.0, key="wl_bulk_weight_value")
+        bulk_weight_unit = c2.selectbox("Weight Unit *", ["g", "oz", "lb"], key="wl_bulk_weight_unit")
+        bulk_total_cost_usd = st.number_input("Total Bulk Cost ($) *", min_value=0.0, value=0.0, key="wl_bulk_total_cost_usd")
+        coa_link = st.text_input("Certificate of Analysis (COA) Link *", key="wl_coa_link")
+        thca_pct = st.number_input("THCA (%) *", min_value=0.0, max_value=100.0, value=0.0, key="wl_thca_pct")
+        terpene_pct = st.number_input("Terpenes (%) *", min_value=0.0, max_value=100.0, value=0.0, key="wl_terpene_pct")
         with st.expander("Advanced Lot Details"):
-            cultivator_license_number = st.text_input("cultivator_license_number", key="wl_cultivator_license_number")
-            source_metrc_package_id = st.text_input("source_metrc_package_id", key="wl_source_metrc_package_id")
-            batch_or_lot_number = st.text_input("batch_or_lot_number", key="wl_batch_or_lot_number")
-            harvest_date = st.date_input("harvest_date", value=datetime.now().date(), key="wl_harvest_date")
-            testing_date = st.date_input("testing_date", value=datetime.now().date(), key="wl_testing_date")
-            received_date = st.date_input("received_date", value=datetime.now().date(), key="wl_received_date")
-            total_thc_pct = st.number_input("total_thc_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_total_thc_pct")
-            moisture_pct = st.number_input("moisture_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_moisture_pct")
-            testing_notes = st.text_area("testing_notes", key="wl_testing_notes")
-            buyer_notes = st.text_area("buyer_notes", key="wl_buyer_notes")
-            compliance_notes = st.text_area("compliance_notes", key="wl_compliance_notes")
+            cultivator_license_number = st.text_input("Cultivator License Number", key="wl_cultivator_license_number")
+            source_metrc_package_id = st.text_input("Source METRC Package ID", key="wl_source_metrc_package_id")
+            batch_or_lot_number = st.text_input("Batch or Lot Number", key="wl_batch_or_lot_number")
+            harvest_date = st.date_input("Harvest Date", value=datetime.now().date(), key="wl_harvest_date")
+            testing_date = st.date_input("Testing Date", value=datetime.now().date(), key="wl_testing_date")
+            received_date = st.date_input("Received Date", value=datetime.now().date(), key="wl_received_date")
+            total_thc_pct = st.number_input("Total THC (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_total_thc_pct")
+            moisture_pct = st.number_input("Moisture (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_moisture_pct")
+            testing_notes = st.text_area("Testing Notes", key="wl_testing_notes")
+            buyer_notes = st.text_area("Buyer Notes", key="wl_buyer_notes")
+            compliance_notes = st.text_area("Compliance Notes", key="wl_compliance_notes")
 
     with tabs[1]:
         st.info("Add the costs that change the true landed cost of the flower.")
-        discount_pct = st.number_input("discount_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_discount_pct")
-        shrink_loss_pct = st.number_input("shrink_loss_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_shrink_loss_pct")
-        labor_cost_total_usd = st.number_input("labor_cost_total_usd", min_value=0.0, value=0.0, key="wl_labor_cost_total_usd")
-        other_costs_usd = st.number_input("other_costs_usd", min_value=0.0, value=0.0, key="wl_other_costs_usd")
+        discount_pct = st.number_input("Purchase Discount (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_discount_pct")
+        shrink_loss_pct = st.number_input("Expected Shrink Loss (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_shrink_loss_pct")
+        labor_cost_total_usd = st.number_input("Total Labor Cost ($)", min_value=0.0, value=0.0, key="wl_labor_cost_total_usd")
+        other_costs_usd = st.number_input("Other Costs ($)", min_value=0.0, value=0.0, key="wl_other_costs_usd")
         with st.expander("Advanced Costs"):
-            freight_or_delivery_cost_usd = st.number_input("freight_or_delivery_cost_usd", min_value=0.0, value=0.0, key="wl_freight_or_delivery_cost_usd")
-            sample_or_testing_cost_usd = st.number_input("sample_or_testing_cost_usd", min_value=0.0, value=0.0, key="wl_sample_or_testing_cost_usd")
-            compliance_admin_cost_usd = st.number_input("compliance_admin_cost_usd", min_value=0.0, value=0.0, key="wl_compliance_admin_cost_usd")
-            qa_hold_loss_pct = st.number_input("QA_hold_loss_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_qa_hold_loss_pct")
-            trim_loss_pct = st.number_input("trim_loss_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_trim_loss_pct")
-            moisture_loss_pct = st.number_input("moisture_loss_pct", min_value=0.0, max_value=100.0, value=0.0, key="wl_moisture_loss_pct")
+            freight_or_delivery_cost_usd = st.number_input("Freight or Delivery Cost ($)", min_value=0.0, value=0.0, key="wl_freight_or_delivery_cost_usd")
+            sample_or_testing_cost_usd = st.number_input("Sampling or Testing Cost ($)", min_value=0.0, value=0.0, key="wl_sample_or_testing_cost_usd")
+            compliance_admin_cost_usd = st.number_input("Compliance Administration Cost ($)", min_value=0.0, value=0.0, key="wl_compliance_admin_cost_usd")
+            qa_hold_loss_pct = st.number_input("QA Hold Loss (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_qa_hold_loss_pct")
+            trim_loss_pct = st.number_input("Trim Loss (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_trim_loss_pct")
+            moisture_loss_pct = st.number_input("Moisture Loss (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_moisture_loss_pct")
 
     total_g = _grams_from_unit(st.session_state.get("wl_bulk_weight_value", 0.0), st.session_state.get("wl_bulk_weight_unit", "g"))
     landed_cost_usd = max(0.0, st.session_state.get("wl_bulk_total_cost_usd", 0.0) * (1 - st.session_state.get("wl_discount_pct", 0.0) / 100.0) + st.session_state.get("wl_freight_or_delivery_cost_usd", 0.0) + st.session_state.get("wl_sample_or_testing_cost_usd", 0.0))
@@ -11328,8 +11332,18 @@ elif section == "🚚 Delivery Impact":
 
         with _di_col2:
             st.markdown("#### 📊 Sales Report")
+            _cached_sales_raw = st.session_state.get("sales_raw_df")
+            _has_cached_sales = isinstance(_cached_sales_raw, pd.DataFrame) and not _cached_sales_raw.empty
+            _reuse_cached_sales = False
+            if _has_cached_sales:
+                _reuse_cached_sales = st.toggle(
+                    "Use sales data already loaded in Buyer Dashboard",
+                    value=True,
+                    key="di_reuse_cached_sales",
+                    help=f"Reuse {_cached_sales_raw.shape[0]:,} loaded rows instead of uploading the same report again.",
+                )
             _sales_file = st.file_uploader(
-                "Upload sales report (CSV or XLSX)",
+                "Upload a different sales report (CSV or XLSX)",
                 type=["csv", "xlsx"],
                 key="di_sales_upload",
                 help=(
@@ -11339,21 +11353,24 @@ elif section == "🚚 Delivery Impact":
                 ),
             )
 
-        if _manifest_files and _sales_file:
+        if _manifest_files and (_sales_file or _reuse_cached_sales):
             try:
-                # ── Enforce upload limits ────────────────────────────────────
-                _sales_file.seek(0)
-                _sales_bytes = _sales_file.read()
-                _sales_file.seek(0)
-                if len(_sales_bytes) > MAX_UPLOAD_BYTES:
-                    st.error(
-                        f"❌ Sales file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit."
-                    )
-                    st.stop()
-
                 # ── Parse sales report ───────────────────────────────────────
                 with st.spinner("Parsing sales report…"):
-                    _sales_df = _parse_sales_report_bytes(_sales_bytes, _sales_file.name)
+                    if _sales_file is not None:
+                        _sales_file.seek(0)
+                        _sales_bytes = _sales_file.read()
+                        _sales_file.seek(0)
+                        if len(_sales_bytes) > MAX_UPLOAD_BYTES:
+                            st.error(
+                                f"❌ Sales file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit."
+                            )
+                            st.stop()
+                        _sales_df = _parse_sales_report_bytes(_sales_bytes, _sales_file.name)
+                        _sales_source_label = _sales_file.name
+                    else:
+                        _sales_df = _normalize_sales_report_dataframe(_cached_sales_raw)
+                        _sales_source_label = "Buyer Dashboard sales data"
 
                 if _sales_df.empty:
                     st.error(
@@ -11364,7 +11381,7 @@ elif section == "🚚 Delivery Impact":
 
                 _sales_products = sorted(_sales_df["product_name"].dropna().unique().tolist())
                 st.success(
-                    f"✅ Sales report parsed: **{len(_sales_df):,}** line items · "
+                    f"✅ {_sales_source_label} ready: **{len(_sales_df):,}** line items · "
                     f"**{_sales_df['order_time'].dt.date.nunique()}** unique days · "
                     f"**{len(_sales_products):,}** unique products"
                 )
