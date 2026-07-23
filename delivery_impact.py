@@ -255,6 +255,22 @@ def parse_sales_report_bytes(
     else:
         df = pd.read_csv(BytesIO(raw_bytes), skiprows=header_row)
 
+    return normalize_sales_report_dataframe(df)
+
+
+def normalize_sales_report_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize an already-loaded sales report to Delivery Impact columns.
+
+    This is intentionally shared with the upload parser so data already loaded
+    elsewhere in Buyer Dashboard can be reused without asking the operator to
+    upload the same report twice.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(
+            columns=["order_id", "order_time", "product_name", "category", "units_sold", "net_sales"]
+        )
+    df = df.copy()
+
     # Normalise column names: lower, strip, remove spaces/underscores
     df.columns = (
         df.columns.astype(str)
