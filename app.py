@@ -9253,7 +9253,7 @@ if app_mode == COMAN_WORKSPACE:
 # GLOBAL DATA MODE SELECTOR (BUYER OPERATIONS ONLY)
 # =========================
 st.sidebar.markdown("---")
-data_mode = st.sidebar.radio(
+data_mode = st.sidebar.selectbox(
     "🔌 Data Input Mode",
     ["📁 Uploads", "🔴 Dutchie Live"],
     key="data_mode",
@@ -9273,10 +9273,11 @@ section_options = buyer_section_options(
     admin_exports_enabled=_feature_enabled("admin_exports", default_enabled=True),
 )
 
-section = st.sidebar.radio(
-    "App Section",
+section = st.sidebar.selectbox(
+    "Page",
     section_options,
-    index=0,
+    key="buyer_section",
+    help="Choose a Buyer Operations page. This compact menu keeps the sidebar usable on phones.",
 )
 
 if _feature_enabled("ai_support", default_enabled=True):
