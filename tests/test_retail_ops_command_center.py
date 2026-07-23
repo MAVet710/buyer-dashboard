@@ -19,9 +19,12 @@ def test_normalize_data_computes_analysis():
         "target_sales_per_labor_hour": 250, "target_transactions_per_labor_hour": 8,
         "minimum_staffing_floor": 1, "maximum_staffing_cap": 60,
     }
-    _s, _d, analysis = _normalize_data(employees, schedule, sales, thresholds)
+    _s, _d, analysis, data_quality = _normalize_data(
+        employees, schedule, sales, thresholds
+    )
     assert not analysis.empty
     assert "schedule_status" in analysis.columns
+    assert data_quality["analysis_granularity"] == "daily"
 
 
 def test_pdf_builder_returns_bytes():
