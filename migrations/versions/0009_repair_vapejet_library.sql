@@ -15,4 +15,3 @@ published_max_operators=excluded.published_max_operators,
 planning_utilization_pct=excluded.planning_utilization_pct,
 source_url=excluded.source_url, source_checked_at=excluded.source_checked_at,
 active=true, updated_at=excluded.updated_at;
-
