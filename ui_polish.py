@@ -21,9 +21,14 @@ def load_polished_theme(background_url: str) -> str:
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     :root {{
         --accent: {ACCENT};
+        --accent-bright: #ffb66e;
+        --accent-deep: #c96116;
         --card-bg: {CARD_BG};
         --card-border: {CARD_BORDER};
         --text-secondary: {TEXT_SECONDARY};
+        --surface-1: rgba(12,12,12,.86);
+        --surface-2: rgba(22,20,18,.82);
+        --focus-ring: rgba(255,154,60,.24);
         --green: #4cd388;
         --blue: #5aa8ff;
         --yellow: #f3c74c;
@@ -33,7 +38,12 @@ def load_polished_theme(background_url: str) -> str:
 
     html, body, [class*="css"] {{
         font-family: 'Inter', sans-serif;
+        letter-spacing: -.008em;
     }}
+
+    html {{ scroll-behavior: smooth; }}
+
+    ::selection {{ background: rgba(255,154,60,.32); color: #fff; }}
 
     .stApp {{
         background:
@@ -45,14 +55,20 @@ def load_polished_theme(background_url: str) -> str:
     }}
 
     .block-container {{
-        background: rgba(8,8,8,0.72) !important;
+        background: linear-gradient(145deg, rgba(12,12,12,.80), rgba(7,7,7,.76)) !important;
         border: 1px solid rgba(255,255,255,0.06);
         border-radius: 18px;
-        box-shadow: 0 18px 60px rgba(0,0,0,0.30);
+        box-shadow: 0 24px 80px rgba(0,0,0,.40), inset 0 1px rgba(255,255,255,.025);
+        padding-top: 1.65rem !important;
+        padding-bottom: 3rem !important;
     }}
 
+    h1, h2, h3 {{ letter-spacing: -.035em; text-wrap: balance; }}
+    h1 {{ font-weight: 800 !important; }}
+    p, [data-testid="stCaptionContainer"] {{ line-height: 1.55; }}
+
     .tile-card, .chart-card, .section-header-card {{
-        background: var(--card-bg);
+        background: linear-gradient(145deg, rgba(26,24,22,.78), rgba(11,11,11,.84));
         border: 1px solid {CARD_BORDER};
         border-radius: 20px;
         backdrop-filter: blur(16px);
@@ -112,8 +128,21 @@ def load_polished_theme(background_url: str) -> str:
     }}
 
     .section-header-card {{
-        padding: 1rem 1.15rem;
+        position: relative;
+        overflow: hidden;
+        padding: 1.2rem 1.35rem;
         margin: 0 0 1rem 0;
+    }}
+
+    .section-header-card::after {{
+        content: "";
+        position: absolute;
+        width: 180px;
+        height: 180px;
+        right: -70px;
+        top: -100px;
+        background: radial-gradient(circle, rgba(255,154,60,.20), transparent 68%);
+        pointer-events: none;
     }}
 
     .section-kicker {{
@@ -127,7 +156,7 @@ def load_polished_theme(background_url: str) -> str:
 
     .section-title {{
         color: white;
-        font-size: 1.45rem;
+        font-size: clamp(1.35rem, 2.4vw, 1.8rem);
         font-weight: 800;
         line-height: 1.05;
         margin-bottom: .2rem;
@@ -300,6 +329,63 @@ def load_polished_theme(background_url: str) -> str:
         .kpi-mini-grid {{ grid-template-columns: repeat(2, minmax(0,1fr)); }}
     }}
 
+    /* Consistent product-grade controls across every workspace. */
+    .stButton > button, .stDownloadButton > button,
+    [data-testid="stFormSubmitButton"] > button {{
+        border-radius: 12px !important;
+        border: 1px solid rgba(255,255,255,.12) !important;
+        font-weight: 700 !important;
+        transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease !important;
+    }}
+    .stButton > button:hover, .stDownloadButton > button:hover,
+    [data-testid="stFormSubmitButton"] > button:hover {{
+        transform: translateY(-1px);
+        border-color: rgba(255,154,60,.55) !important;
+        box-shadow: 0 8px 24px rgba(0,0,0,.28), 0 0 0 3px var(--focus-ring);
+    }}
+
+    [data-baseweb="input"] > div, [data-baseweb="select"] > div,
+    [data-baseweb="textarea"] > div, [data-testid="stNumberInput"] > div > div {{
+        background: rgba(8,8,8,.74) !important;
+        border-color: rgba(255,255,255,.12) !important;
+        border-radius: 12px !important;
+    }}
+    [data-baseweb="input"] > div:focus-within, [data-baseweb="select"] > div:focus-within,
+    [data-baseweb="textarea"] > div:focus-within {{
+        border-color: rgba(255,154,60,.72) !important;
+        box-shadow: 0 0 0 3px var(--focus-ring) !important;
+    }}
+
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {{
+        gap: .25rem;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+    }}
+    [data-testid="stTabs"] [data-baseweb="tab"] {{
+        border-radius: 10px 10px 0 0;
+        font-weight: 650;
+    }}
+    [data-testid="stTabs"] [aria-selected="true"] {{
+        background: linear-gradient(180deg, rgba(255,154,60,.14), transparent);
+    }}
+
+    [data-testid="stAlert"] {{
+        border-radius: 14px !important;
+        border-width: 1px !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,.18);
+    }}
+    [data-testid="stExpander"] {{
+        background: rgba(12,12,12,.52);
+        border-color: rgba(255,255,255,.09) !important;
+        border-radius: 14px !important;
+        overflow: hidden;
+    }}
+    [data-testid="stDataFrame"], [data-testid="stDataEditor"] {{
+        border: 1px solid rgba(255,255,255,.09);
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 12px 32px rgba(0,0,0,.2);
+    }}
+
     /* Phone and small-tablet usability. Keep the desktop visual language while
        making navigation, forms, tabs, and operational tables touch friendly. */
     @media (max-width: 768px) {{
@@ -311,7 +397,7 @@ def load_polished_theme(background_url: str) -> str:
         .block-container {{
             width: 100%;
             max-width: 100%;
-            padding: 1rem .75rem 2.5rem !important;
+            padding: 1.15rem .75rem 5.25rem !important;
             border-radius: 0;
             border-left: 0;
             border-right: 0;
@@ -319,6 +405,12 @@ def load_polished_theme(background_url: str) -> str:
 
         [data-testid="stSidebar"] {{
             width: min(88vw, 330px) !important;
+            padding-bottom: 4rem;
+        }}
+
+        [data-testid="stSidebarUserContent"] {{ padding-bottom: 5rem !important; }}
+        [data-testid="stStatusWidget"], [data-testid="manage-app-button"] {{
+            max-width: calc(100vw - 1rem);
         }}
 
         .hero {{
@@ -381,6 +473,7 @@ def load_polished_theme(background_url: str) -> str:
         .kpi-mini-grid {{ grid-template-columns: 1fr; }}
         .topbar {{ gap: 7px; }}
         .search-shell {{ min-height: 42px; }}
+        [data-testid="stCaptionContainer"] {{ overflow-wrap: anywhere; }}
     }}
     </style>
     """
