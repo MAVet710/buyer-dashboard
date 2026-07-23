@@ -299,6 +299,89 @@ def load_polished_theme(background_url: str) -> str:
         .topbar {{ grid-template-columns: 1fr; }}
         .kpi-mini-grid {{ grid-template-columns: repeat(2, minmax(0,1fr)); }}
     }}
+
+    /* Phone and small-tablet usability. Keep the desktop visual language while
+       making navigation, forms, tabs, and operational tables touch friendly. */
+    @media (max-width: 768px) {{
+        .stApp {{
+            background-attachment: scroll;
+            background-position: center top;
+        }}
+
+        .block-container {{
+            width: 100%;
+            max-width: 100%;
+            padding: 1rem .75rem 2.5rem !important;
+            border-radius: 0;
+            border-left: 0;
+            border-right: 0;
+        }}
+
+        [data-testid="stSidebar"] {{
+            width: min(88vw, 330px) !important;
+        }}
+
+        .hero {{
+            align-items: flex-start;
+            flex-direction: column;
+            gap: .75rem;
+            padding: .9rem;
+        }}
+
+        .hero h3 {{ font-size: 1.15rem; }}
+        .hero-user {{ text-align: left; }}
+        .section-header-card {{ padding: .85rem .9rem; }}
+        .section-title {{ font-size: 1.2rem; }}
+        .metric-value {{ font-size: 1.55rem; }}
+        .metric-tile {{ min-height: 104px; padding: .85rem; }}
+        .kpi-mini-grid {{ grid-template-columns: 1fr 1fr; }}
+
+        /* Streamlit tabs remain one line, but can be swiped instead of crushing
+           seven workspace labels into the phone width. */
+        [data-testid="stTabs"] [data-baseweb="tab-list"] {{
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: thin;
+            justify-content: flex-start;
+            -webkit-overflow-scrolling: touch;
+        }}
+        [data-testid="stTabs"] [data-baseweb="tab"] {{
+            flex: 0 0 auto;
+            min-height: 44px;
+            padding-left: .85rem;
+            padding-right: .85rem;
+        }}
+
+        /* A 44px target is comfortable on phones and prevents accidental taps
+           during a client demo. */
+        .stButton > button,
+        .stDownloadButton > button,
+        [data-testid="stFormSubmitButton"] > button,
+        [data-testid="stPopover"] button {{
+            min-height: 44px;
+        }}
+
+        [data-testid="stDataFrame"],
+        [data-testid="stDataEditor"] {{
+            max-width: calc(100vw - 1.5rem);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }}
+
+        [data-testid="stMetric"] {{
+            min-height: 96px;
+            padding: .7rem .8rem;
+        }}
+
+        .ai-brief {{ padding: .85rem .9rem; }}
+        .pill-badge {{ white-space: nowrap; }}
+    }}
+
+    @media (max-width: 430px) {{
+        .kpi-mini-grid {{ grid-template-columns: 1fr; }}
+        .topbar {{ gap: 7px; }}
+        .search-shell {{ min-height: 42px; }}
+    }}
     </style>
     """
 
@@ -411,6 +494,21 @@ def render_sidebar_nav_css() -> None:
         [data-testid="stSidebar"] * {
             color: rgba(255,255,255,0.90) !important;
         }
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+            gap: .55rem;
+        }
+        [data-testid="stSidebar"] hr {
+            margin: .35rem 0;
+            border-color: rgba(255,255,255,0.08);
+        }
+        [data-testid="stSidebar"] [data-baseweb="select"] > div {
+            min-height: 42px;
+            border-radius: 10px;
+        }
+        [data-testid="stSidebar"] [data-testid="stExpander"] {
+            border-color: rgba(255,255,255,0.08);
+            border-radius: 12px;
+        }
         .sidebar-brand {
             display:flex;
             align-items:center;
@@ -441,6 +539,11 @@ def render_sidebar_nav_css() -> None:
             background: linear-gradient(135deg, rgba(255,154,60,.95), rgba(255,187,119,.92));
             color: #1d1508 !important;
             font-weight: 800;
+        }
+        @media (max-width: 768px) {
+            [data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+                padding-top: .75rem;
+            }
         }
         </style>
         """,
