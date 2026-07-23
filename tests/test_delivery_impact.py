@@ -24,6 +24,7 @@ from delivery_impact import (
     match_manifest_to_sales,
     normalize_product_name,
     parse_sales_report_bytes,
+    normalize_sales_report_dataframe,
     parse_manifest_csv_xlsx_bytes,
     _rows_to_items_df,
     _parse_items_from_text,
@@ -31,6 +32,24 @@ from delivery_impact import (
     _parse_datetime_string,
     _extract_received_dt_from_rows,
 )
+
+
+def test_normalize_loaded_sales_dataframe_reuses_buyer_dashboard_columns():
+    raw = pd.DataFrame({
+        "Order ID": ["1001"],
+        "Order Time": ["2026-07-20 10:30"],
+        "Product Name": ["Blue Dream 3.5g"],
+        "Quantity Sold": [2],
+        "Net Sales": [70.0],
+    })
+
+    result = normalize_sales_report_dataframe(raw)
+
+    assert list(result.columns) == [
+        "order_id", "order_time", "product_name", "category", "units_sold", "net_sales"
+    ]
+    assert result.loc[0, "units_sold"] == 2
+    assert result.loc[0, "net_sales"] == 70.0
 
 
 # ===========================================================================
