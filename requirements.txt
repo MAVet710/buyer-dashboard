@@ -14,6 +14,7 @@ xlsxwriter>=3.1.0
 altair>=5.0.0
 bcrypt>=4.0.0
 requests>=2.31.0
+beautifulsoup4>=4.12.0
 chromadb>=0.5.5
 sqlalchemy>=2.0.0
 alembic>=1.13.0
