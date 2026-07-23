@@ -413,6 +413,11 @@ def _apply_living_transition(
     budget = payload.get("budget")
     if isinstance(budget, pd.DataFrame) and not budget.empty:
         budget = budget.copy()
+        # Budget currency is decimal; Pandas 3 rejects fractional assignment
+        # into an integer column unless it is normalized first.
+        budget["Actual"] = pd.to_numeric(
+            budget.get("Actual"), errors="coerce"
+        ).fillna(0.0).astype(float)
         purchase_spend = (
             float(
                 (
