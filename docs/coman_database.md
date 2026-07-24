@@ -22,6 +22,11 @@ $env:COMAN_DATABASE_URL = "<secret connection string>"
 alembic upgrade head
 ```
 
+Migration `0010_catalog_nomenclature_mapper` adds the organization-scoped
+Dutchie catalog and confirmed METRC nomenclature mapping tables. These tables
+use the same durable Supabase/PostgreSQL connection and organization boundary
+as the rest of the operations platform.
+
 The first migration creates tenant-scoped organizations, facilities,
 customers, machine models, facility machines, production orders, and audit
 events. It seeds verified reference entries for the IMA C-1 FILLER, IMA C-1

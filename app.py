@@ -65,6 +65,7 @@ from services.workspace_navigation import (
     workspace_options as build_workspace_options,
 )
 from modules.coman.ui import render_coman_workspace
+from modules.nomenclature_ui import render_nomenclature_mapper
 
 load_dotenv()
 
@@ -11029,8 +11030,11 @@ elif section == "🧠 Buyer Intelligence":
         st.error(f"Could not build buyer intelligence view: {exc}")
 
 # ============================================================
-# PAGE 2C – ADMIN TOOLS
+# PAGE 2C – NOMENCLATURE MAPPER / ADMIN TOOLS
 # ============================================================
+elif section == "🏷️ Nomenclature Mapper":
+    render_nomenclature_mapper()
+
 elif section == "🛠️ Admin Tools":
     st.subheader("🛠️ Admin Tools")
 

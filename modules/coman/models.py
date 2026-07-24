@@ -341,6 +341,68 @@ class AuditEvent(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class CatalogNomenclatureItem(TimestampMixin, Base):
+    """One organization's Dutchie catalog as its approved naming source."""
+
+    __tablename__ = "catalog_nomenclature_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "source_system",
+            "normalized_name",
+            name="uq_catalog_nomenclature_org_source_name",
+        ),
+        Index("ix_catalog_nomenclature_org_active", "organization_id", "active"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_system: Mapped[str] = mapped_column(String(32), nullable=False, default="dutchie")
+    canonical_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    sku: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    category: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    brand: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    imported_by: Mapped[str] = mapped_column(String(255), nullable=False, default="system")
+
+
+class CatalogNomenclatureMapping(TimestampMixin, Base):
+    """A confirmed METRC source name to organization catalog-name mapping."""
+
+    __tablename__ = "catalog_nomenclature_mappings"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "source_system",
+            "source_normalized_name",
+            name="uq_catalog_mapping_org_source_name",
+        ),
+        CheckConstraint(
+            "status in ('confirmed', 'retired')",
+            name="ck_catalog_mapping_status",
+        ),
+        Index("ix_catalog_mapping_org_status", "organization_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    catalog_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("catalog_nomenclature_items.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    source_system: Mapped[str] = mapped_column(String(32), nullable=False, default="metrc")
+    source_item_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    source_normalized_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    correct_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="confirmed")
+    confirmed_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class AppUser(TimestampMixin, Base):
     __tablename__ = "app_users"
     __table_args__ = (

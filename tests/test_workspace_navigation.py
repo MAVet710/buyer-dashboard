@@ -20,3 +20,9 @@ def test_admin_sections_are_role_aware():
     assert "🔌 Integrations" not in standard
     assert "🛠️ Admin Tools" in admin
     assert "🔌 Integrations" in admin
+
+
+def test_nomenclature_mapper_is_available_to_buyer_operations_users():
+    standard = buyer_section_options(is_admin=False)
+
+    assert "🏷️ Nomenclature Mapper" in standard
