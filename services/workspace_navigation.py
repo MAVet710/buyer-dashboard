@@ -29,6 +29,7 @@ def buyer_section_options(*, is_admin: bool, admin_exports_enabled: bool = True)
         "🧾 PO Builder",
         "🧭 Compliance Q&A",
         "🧠 Buyer Intelligence",
+        "🏷️ Nomenclature Mapper",
         "💰 Purchasing Budget",
     ]
     if is_admin and admin_exports_enabled:
