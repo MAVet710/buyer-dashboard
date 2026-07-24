@@ -40,7 +40,6 @@ from ui_polish import (
     render_metric_tiles,
     chart_card_start,
     chart_card_end,
-    render_topbar,
     render_hero,
     render_ai_brief,
     render_sidebar_nav_css,
@@ -48,6 +47,7 @@ from ui_polish import (
     render_extraction_kpi,
     render_inventory_table_css,
 )
+from ui_premium import load_premium_shell, render_commandbar, render_sidebar_identity
 from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
 from services.app_user_store import AppUserStore
@@ -1287,9 +1287,9 @@ st.markdown(
         color: {main_text} !important;
     }}
 
-    /* Force almost all text in main area to theme text, but keep input text default */
+    /* Inherit shell text color while allowing semantic status/accent colors. */
     .block-container *:not(input):not(textarea):not(select) {{
-        color: {main_text} !important;
+        color: inherit;
     }}
 
     /* Keep tables readable on dark background */
@@ -1403,6 +1403,8 @@ st.markdown(
 st.markdown(load_polished_theme(background_url), unsafe_allow_html=True)
 render_sidebar_nav_css()
 render_inventory_table_css()
+st.markdown(load_premium_shell(st.session_state.theme), unsafe_allow_html=True)
+render_sidebar_identity(background_url)
 
 # =========================
 # HELPER FUNCTIONS
@@ -4899,7 +4901,11 @@ def _time_greeting() -> str:
     return "Good Evening"
 
 
-render_topbar("Search SKUs, Vendors, Reports...", datetime.now().strftime("%b %d, %Y"))
+render_commandbar(
+    user_name=str(_display_user),
+    role=str(st.session_state.get("auth_user_role") or "trial"),
+    storage_connected=bool(APP_USER_STORE.configured),
+)
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
 workspace_options = build_workspace_options(_feature_enabled)
