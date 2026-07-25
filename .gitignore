@@ -36,8 +36,9 @@ env/
 .DS_Store
 Thumbs.db
 
-# Streamlit
-.streamlit/
+# Streamlit (publish visual configuration, never local secrets)
+.streamlit/*
+!.streamlit/config.toml
 
 # Local secrets and databases
 .env
