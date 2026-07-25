@@ -51,3 +51,4 @@ def test_nomenclature_mapper_is_available_to_buyer_operations_users():
     standard = buyer_section_options(is_admin=False)
 
     assert "🏷️ Nomenclature Mapper" in standard
+
