@@ -62,8 +62,6 @@ from services.workspace_navigation import (
     EXTRACTION_WORKSPACE,
     WHITE_LABEL_WORKSPACE,
     buyer_section_options,
-    workspace_group,
-    workspace_groups as build_workspace_groups,
     workspace_options as build_workspace_options,
 )
 from modules.coman.ui import render_coman_workspace
@@ -4911,10 +4909,30 @@ render_commandbar(
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
 workspace_options = build_workspace_options(_feature_enabled)
-workspace_groups = build_workspace_groups(_feature_enabled)
+RETAIL_OPS = "🛍️ Retail Ops"
+PRODUCTION_OPS = "🏭 Production Ops"
+workspace_groups = {
+    RETAIL_OPS: [
+        workspace
+        for workspace in workspace_options
+        if workspace not in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
+    ],
+    PRODUCTION_OPS: [
+        workspace
+        for workspace in workspace_options
+        if workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
+    ],
+}
+workspace_groups = {
+    group: options for group, options in workspace_groups.items() if options
+}
 operation_groups = list(workspace_groups)
 saved_workspace = st.session_state.get("workspace_mode")
-saved_group = workspace_group(str(saved_workspace or ""))
+saved_group = (
+    PRODUCTION_OPS
+    if saved_workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
+    else RETAIL_OPS
+)
 if operation_groups and st.session_state.get("operations_group") not in operation_groups:
     st.session_state["operations_group"] = (
         saved_group if saved_group in operation_groups else operation_groups[0]
