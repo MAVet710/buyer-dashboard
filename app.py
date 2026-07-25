@@ -62,6 +62,8 @@ from services.workspace_navigation import (
     EXTRACTION_WORKSPACE,
     WHITE_LABEL_WORKSPACE,
     buyer_section_options,
+    workspace_group,
+    workspace_groups as build_workspace_groups,
     workspace_options as build_workspace_options,
 )
 from modules.coman.ui import render_coman_workspace
@@ -4909,7 +4911,28 @@ render_commandbar(
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
 workspace_options = build_workspace_options(_feature_enabled)
+workspace_groups = build_workspace_groups(_feature_enabled)
+operation_groups = list(workspace_groups)
+saved_workspace = st.session_state.get("workspace_mode")
+saved_group = workspace_group(str(saved_workspace or ""))
+if operation_groups and st.session_state.get("operations_group") not in operation_groups:
+    st.session_state["operations_group"] = (
+        saved_group if saved_group in operation_groups else operation_groups[0]
+    )
+if operation_groups:
+    group_workspace_options = workspace_groups[st.session_state["operations_group"]]
+    if st.session_state.get("workspace_mode") not in group_workspace_options:
+        st.session_state["workspace_mode"] = group_workspace_options[0]
 _active_workspace = st.session_state.get("workspace_mode", workspace_options[0] if workspace_options else "🛒 Buyer Operations")
+
+
+def _sync_workspace_to_operations_group() -> None:
+    selected_group = st.session_state.get("operations_group")
+    selected_group_options = workspace_groups.get(selected_group, [])
+    if selected_group_options and st.session_state.get("workspace_mode") not in selected_group_options:
+        st.session_state["workspace_mode"] = selected_group_options[0]
+
+
 _ecc_runs = _safe_report_df(st.session_state.get("ecc_run_log"))
 _extraction_profitability = _safe_report_df(st.session_state.get("ecc_run_value_snapshot", _ecc_runs))
 _extraction_payload = {
@@ -9218,13 +9241,26 @@ def render_white_label_repack_workspace():
 if not workspace_options:
     st.error("Your license does not include any enabled workspace modules.")
     st.stop()
-app_mode = st.selectbox(
-    "Workspace",
-    workspace_options,
-    index=workspace_options.index(st.session_state.get("workspace_mode")) if st.session_state.get("workspace_mode") in workspace_options else 0,
-    help="Switch between purchasing, production, and extraction workspaces.",
-    key="workspace_mode",
-)
+
+_group_col, _workspace_col = st.columns([1, 1.65])
+with _group_col:
+    operation_group = st.selectbox(
+        "Operations Area",
+        operation_groups,
+        help="Retail Ops contains buying and repack tools. Production Ops contains Co-Man and extraction tools.",
+        key="operations_group",
+        on_change=_sync_workspace_to_operations_group,
+    )
+
+group_workspace_options = workspace_groups[operation_group]
+
+with _workspace_col:
+    app_mode = st.selectbox(
+        "Workspace",
+        group_workspace_options,
+        help=f"Choose a workspace inside {operation_group}.",
+        key="workspace_mode",
+    )
 
 if app_mode == EXTRACTION_WORKSPACE:
     render_hero(
