@@ -2633,7 +2633,7 @@ def _generate_ai_with_quota_fallback(system_prompt, user_prompt, max_tokens=700)
             "system_prompt": str(system_prompt or "").strip(),
             "max_tokens": int(max_tokens),
         },
-        persona="main",
+        persona=None,
     )
     if str(result.get("mode", "")).lower() == "fallback":
         raise RuntimeError("Doobie AI is currently unavailable.")
@@ -2801,33 +2801,20 @@ def _run_main_ai_copilot(question, app_mode, section):
         return "Doobie AI is currently unavailable."
 
     context = _build_copilot_context(app_mode, section)
-    prompt = f"""
-You are the primary AI copilot for this private cannabis operations platform.
-Help with buying intelligence, extraction support, and compliance workflow guidance.
-
-Rules:
-- Keep answers actionable and concise.
-- Never invent regulations from memory.
-- If compliance is asked, require structured source evidence and cite missing fields.
-- Preserve current app workflows when suggesting operational changes.
-
-Workspace context:
-{context}
-
-User question:
-{question}
-"""
-
     try:
-        resp = _generate_ai_with_quota_fallback(
-            system_prompt=(
-                "You are the main cannabis operations copilot for this app. "
-                "Ground recommendations in supplied context."
-            ),
-            user_prompt=prompt,
-            max_tokens=700,
+        client = _get_doobie_ai_client()
+        result = client.copilot(
+            question=str(question or "").strip(),
+            data={
+                "workspace_context": context,
+                "app_mode": app_mode,
+                "section": section,
+            },
+            persona=None,
         )
-        return resp.text
+        if str(result.get("mode", "")).lower() == "fallback":
+            raise RuntimeError("Doobie AI is currently unavailable.")
+        return str(result.get("answer") or "Doobie AI is currently unavailable.")
     except Exception as exc:
         return f"AI copilot failed: {exc}"
 

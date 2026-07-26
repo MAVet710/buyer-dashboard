@@ -12,7 +12,7 @@ from io import BytesIO
 
 def _load_function_source(name: str) -> str:
     app_path = Path(__file__).resolve().parents[1] / "app.py"
-    source = app_path.read_text()
+    source = app_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == name:

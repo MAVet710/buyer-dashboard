@@ -11,12 +11,8 @@ def _client() -> DoobieClient:
 
 def buyer_intelligence(question: str, state: str, inventory_payload: dict):
     client = _client()
-    payload = {
-        "question": question,
-        "state": state,
-        "inventory": inventory_payload.get("inventory", inventory_payload),
-    }
-    response = client.buyer_brief(payload, state=state)
+    payload = inventory_payload.get("inventory", inventory_payload)
+    response = client.buyer_brief(payload, state=state, question=question)
     if response.get("mode") == "fallback":
         return response, response.get("error", "Doobie is currently unavailable.")
     return response, None
@@ -24,12 +20,8 @@ def buyer_intelligence(question: str, state: str, inventory_payload: dict):
 
 def extraction_intelligence(question: str, state: str, run_payload: dict):
     client = _client()
-    payload = {
-        "question": question,
-        "state": state,
-        "runs": run_payload.get("runs", run_payload),
-    }
-    response = client.extraction_brief(payload, state=state)
+    payload = run_payload.get("runs", run_payload)
+    response = client.extraction_brief(payload, state=state, question=question)
     if response.get("mode") == "fallback":
         return response, response.get("error", "Doobie is currently unavailable.")
     return response, None

@@ -1,80 +1,79 @@
 # DoobieLogic Integration
 
-## Required environment variables / secrets
+Buyer Dashboard uses DoobieLogic as its cannabis-intelligence, support, and
+license authority. Buyer Dashboard remains the source of truth for uploaded
+data, KPI calculations, workflows, and UI.
 
-Add these to Streamlit secrets or environment variables:
+## Required configuration
+
+Configure these values as environment variables or Streamlit secrets:
 
 ```toml
-DOOBIE_BASE_URL = "https://your-doobielogic-service-url" # preferred
-DOOBIE_API_KEY = "your-secure-api-key" # preferred
-
-# legacy aliases still supported:
-# DOOBIELOGIC_URL = "https://your-doobielogic-service-url"
-# DOOBIELOGIC_API_KEY = "your-secure-api-key"
+DOOBIE_BASE_URL = "https://your-doobielogic-api.example.com"
+DOOBIE_API_KEY = "the-shared-service-key"
 ```
 
-## Dashboard client
+Legacy `DOOBIELOGIC_URL` and `DOOBIELOGIC_API_KEY` names remain supported.
 
-The repo now includes `doobielogic_client.py` with two call helpers:
+## API contract
+
+The canonical dashboard client is `services/doobie_client.py`. It sends both
+`x-api-key` and `Authorization: Bearer` headers and calls:
+
+- `GET /api/v1/auth/check`
+- `POST /api/v1/support/buyer_brief`
+- `POST /api/v1/support/inventory_check`
+- `POST /api/v1/support/extraction_brief`
+- `POST /api/v1/support/ops_brief`
+- `POST /api/v1/support/copilot`
+- `POST /api/v1/license/validate`
+
+Every support request contains:
+
+```json
+{
+  "question": "What should the buyer prioritize?",
+  "state": "MA",
+  "data": {},
+  "mode": "buyer"
+}
+```
+
+The client converts legacy `prompt` values embedded inside `data` into the
+required top-level `question`. Hyphenated support routes remain server-side
+aliases for older dashboard deployments.
+
+## Existing integration points
+
+Buyer briefs, inventory checks, extraction briefs, the general copilot,
+connection diagnostics, and license validation already route through
+`services.doobie_client.DoobieClient`. New features should reuse that client
+instead of introducing another HTTP wrapper.
+
+Compatibility helpers remain in `doobielogic_client.py`:
+
 - `buyer_intelligence(question, state, inventory_payload)`
 - `extraction_intelligence(question, state, run_payload)`
 
-## Intended insertion points in `app.py`
+## Running DoobieLogic
 
-### Buyer Intelligence section
-Replace the current AI brief button path in the `🧠 Buyer Intelligence` section with:
-
-```python
-from doobielogic_client import buyer_intelligence
-
-if st.button("Generate AI Buyer Brief", key="buyer_intel_ai_brief"):
-    with st.spinner("Generating buyer brief..."):
-        payload = by_product.to_dict(orient="list")
-        response, err = buyer_intelligence(
-            question="What should I reorder, watch, and markdown based on this buyer dataset?",
-            state="MA",
-            inventory_payload=payload,
-        )
-    if err:
-        st.error(err)
-    elif response:
-        st.markdown(response["answer"])
-        if response.get("recommendations"):
-            st.markdown("#### Recommended Actions")
-            for rec in response["recommendations"]:
-                st.write(f"- {rec}")
-```
-
-### Extraction Command Center
-Replace the current extraction AI brief button path in `render_extraction_command_center()` with:
-
-```python
-from doobielogic_client import extraction_intelligence
-
-if st.button("Generate AI Extraction Brief", key="ecc_ai_ops_brief"):
-    with st.spinner("Analyzing extraction operations..."):
-        run_payload = run_df.to_dict(orient="list")
-        response, err = extraction_intelligence(
-            question="What process, chemistry, QA, and release issues matter most in these extraction runs?",
-            state="MA",
-            run_payload=run_payload,
-        )
-    if err:
-        st.error(err)
-    elif response:
-        st.markdown(response["answer"])
-        if response.get("recommendations"):
-            st.markdown("#### Recommended Actions")
-            for rec in response["recommendations"]:
-                st.write(f"- {rec}")
-```
-
-## API backend
-
-In the DoobieLogic repo, use `doobielogic/api_v2.py` and run it with FastAPI/Uvicorn.
-
-Example:
+Run the v4 FastAPI application:
 
 ```bash
-uvicorn doobielogic.api_v2:app --host 0.0.0.0 --port 8000
+uvicorn doobielogic.api_v4:app --host 0.0.0.0 --port 8000
 ```
+
+Production requires persistent PostgreSQL storage and the same service key on
+both applications:
+
+```text
+DoobieLogic:      DOOBIE_API_KEY, DATABASE_URL, DOOBIE_BACKEND_MODE=postgres
+Buyer Dashboard: DOOBIE_BASE_URL, DOOBIE_API_KEY
+```
+
+Before releasing, confirm:
+
+1. `GET <DOOBIE_BASE_URL>/health` reports `source_of_truth=postgres_shared`.
+2. `GET /api/v1/auth/check` accepts the configured service key.
+3. A generated license validates through Buyer Dashboard.
+4. The support health check returns a non-fallback response.

@@ -50,7 +50,7 @@ def render_doobie_copilot(app_mode: str, section: str, buyer_payload=None, extra
                     "buyer": buyer_payload if isinstance(buyer_payload, dict) else {},
                     "extraction": extraction_payload if isinstance(extraction_payload, dict) else {},
                 }
-                result = client.copilot(question=question.strip(), data=context_data, persona="support")
+                result = client.copilot(question=question.strip(), data=context_data, persona=app_mode, state=state)
             st.session_state[chat_key].append({"role": "user", "text": question.strip()})
             st.session_state[chat_key].append({"role": "assistant", "text": result.get("answer", "Doobie is currently unavailable.")})
             st.rerun()
