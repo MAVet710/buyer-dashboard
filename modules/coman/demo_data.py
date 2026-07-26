@@ -13,6 +13,8 @@ from modules.coman.db import create_coman_engine
 from modules.coman.models import (
     AuditEvent,
     BomComponent,
+    CommercialOrder,
+    CommercialOrderLine,
     CrewAvailability,
     Customer,
     Facility,
@@ -23,14 +25,17 @@ from modules.coman.models import (
     MachineModel,
     MaterialReservation,
     Organization,
+    OrderLotAllocation,
     Product,
     ProductBom,
     ProductionActual,
     ProductionOrder,
+    TradePartner,
 )
 
 DEMO_ORGANIZATION_SLUG = "doobielogic-demo-simulation"
 DEMO_FACILITY_CODE = "DEMO-SOUTHCOAST"
+DEMO_DATA_VERSION = "full-app-simulation-v3"
 
 
 def _frame(payload: dict[str, Any], key: str) -> pd.DataFrame:
@@ -46,6 +51,10 @@ def _clear_demo_children(session: Any, organization_id: str, facility_id: str) -
     for model in (
         AuditEvent,
         InventoryTransaction,
+        OrderLotAllocation,
+        CommercialOrderLine,
+        CommercialOrder,
+        TradePartner,
         MaterialReservation,
         ProductionActual,
         ProductionOrder,
@@ -122,7 +131,25 @@ def ensure_coman_demo_dataset(
         existing_count = session.scalar(
             select(Product.id).where(Product.organization_id == organization.id).limit(1)
         )
-        if existing_count and not force:
+        existing_seed_event = session.scalar(
+            select(AuditEvent)
+            .where(
+                AuditEvent.organization_id == organization.id,
+                AuditEvent.entity_type == "demo_dataset",
+                AuditEvent.action == "seeded",
+            )
+            .order_by(AuditEvent.occurred_at.desc())
+        )
+        existing_version = ""
+        if existing_seed_event is not None:
+            try:
+                existing_version = str(
+                    json.loads(existing_seed_event.changes_json or "{}").get("version")
+                    or ""
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                existing_version = ""
+        if existing_count and not force and existing_version == DEMO_DATA_VERSION:
             state["active_organization_id"] = organization.id
             state["active_facility_id"] = facility.id
             return {
@@ -131,7 +158,7 @@ def ensure_coman_demo_dataset(
                 "organization_id": organization.id,
                 "facility_id": facility.id,
             }
-        if force:
+        if existing_count:
             _clear_demo_children(session, organization.id, facility.id)
             session.flush()
 
@@ -206,6 +233,7 @@ def ensure_coman_demo_dataset(
             raw_lots.append(lot)
 
         finished_products: dict[str, Product] = {}
+        catalog_by_sku: dict[str, dict[str, Any]] = {}
         product_limit = {"small": 12, "medium": 42, "enterprise": 120}.get(str(payload.get("scale")), 42)
         for idx, row in catalog.head(product_limit).reset_index(drop=True).iterrows():
             sku = str(row.get("sku") or f"DEMO-FG-{idx + 1:04d}").upper()
@@ -221,6 +249,7 @@ def ensure_coman_demo_dataset(
             session.add(product)
             session.flush()
             finished_products[sku] = product
+            catalog_by_sku[sku] = row.to_dict()
             component = raw_products[idx % len(raw_products)] if raw_products else package_product
             unit_size = max(float(row.get("unit_size_g") or 1.0), 0.1)
             bom = ProductBom(
@@ -260,6 +289,7 @@ def ensure_coman_demo_dataset(
             for _, group in catalog.head(product_limit).groupby("source_production_order", sort=True):
                 order_rows.append(group.iloc[0].to_dict())
         statuses = ["complete", "scheduled", "in_progress", "on_hold", "draft"]
+        finished_lots: dict[str, InventoryLot] = {}
         problems = set(payload.get("problems") or [])
         for idx, row in enumerate(order_rows):
             sku = str(row.get("sku") or "").upper()
@@ -348,6 +378,7 @@ def ensure_coman_demo_dataset(
                 )
                 session.add(output_lot)
                 session.flush()
+                finished_lots[product.id] = output_lot
                 session.add(
                     InventoryTransaction(
                         organization_id=organization.id,
@@ -363,9 +394,232 @@ def ensure_coman_demo_dataset(
                     )
                 )
 
+        trade_partners: list[TradePartner] = []
+        partner_specs = [
+            ("Harbor Wellness", "customer", "MR281101", "Maya Chen", "Net 30"),
+            ("Cape Select", "customer", "MR281102", "Luis Pereira", "Net 15"),
+            ("Berkshire Brands", "customer", "MR281103", "Jordan Reed", "Net 30"),
+            ("Atlantic Cultivation", "vendor", "MC281201", "Avery Brooks", "Net 30"),
+            ("Pioneer Valley Packaging", "vendor", "SUP-281202", "Sam Rivera", "Net 45"),
+        ]
+        for idx, (name, partner_type, license_number, contact, terms) in enumerate(
+            partner_specs,
+            start=1,
+        ):
+            partner = TradePartner(
+                organization_id=organization.id,
+                name=name,
+                partner_type=partner_type,
+                license_or_registration=license_number,
+                contact_name=contact,
+                contact_email=f"commercial{idx}@example.invalid",
+                contact_phone=f"508-555-{1200 + idx:04d}",
+                payment_terms=terms,
+                active=True,
+            )
+            session.add(partner)
+            trade_partners.append(partner)
+        session.flush()
+
+        sales_customers = [
+            partner for partner in trade_partners if partner.partner_type == "customer"
+        ]
+        vendors = [
+            partner for partner in trade_partners if partner.partner_type == "vendor"
+        ]
+        sellable = [
+            (product, finished_lots.get(product.id))
+            for product in finished_products.values()
+            if finished_lots.get(product.id) is not None
+        ]
+        commercial_order_count = 0
+        commercial_transaction_count = 0
+        sales_statuses = [
+            ("confirmed", "sent", 0.0),
+            ("allocated", "sent", 0.0),
+            ("partially_fulfilled", "partial", 0.5),
+            ("fulfilled", "paid", 1.0),
+        ]
+        for idx, (status, payment_status, fulfillment_ratio) in enumerate(
+            sales_statuses
+        ):
+            if not sellable:
+                break
+            product, lot = sellable[idx % len(sellable)]
+            catalog_row = catalog_by_sku.get(product.sku, {})
+            unit_cost = float(product.unit_cost or 0.0)
+            wholesale_price = float(catalog_row.get("wholesale_price") or 0.0)
+            unit_price = round(max(unit_cost * 1.60, wholesale_price), 2)
+            quantity = float(12 + idx * 3)
+            due_date = as_of + timedelta(days=idx - 1)
+            order = CommercialOrder(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                partner_id=sales_customers[idx % len(sales_customers)].id,
+                order_number=f"SO-DEMO-{idx + 1:04d}",
+                order_type="sales",
+                order_date=as_of - timedelta(days=idx + 2),
+                due_at=datetime.combine(
+                    due_date,
+                    datetime.min.time(),
+                    tzinfo=timezone.utc,
+                ),
+                status=status,
+                payment_status=payment_status,
+                currency="USD",
+                external_reference=f"CUSTOMER-PO-{7100 + idx}",
+                notes=json.dumps(
+                    {
+                        "synthetic_demo": True,
+                        "unit_cost": unit_cost,
+                        "gross_margin_pct": round(
+                            (unit_price - unit_cost) / unit_price * 100.0,
+                            2,
+                        )
+                        if unit_price
+                        else 0.0,
+                    }
+                ),
+                created_by=actor,
+                updated_by=actor,
+            )
+            session.add(order)
+            session.flush()
+            fulfilled_quantity = round(quantity * fulfillment_ratio, 2)
+            line = CommercialOrderLine(
+                organization_id=organization.id,
+                commercial_order_id=order.id,
+                product_id=product.id,
+                position=1,
+                description=product.name,
+                sku_snapshot=product.sku,
+                quantity=quantity,
+                unit="unit",
+                unit_price=unit_price,
+                fulfilled_quantity=fulfilled_quantity,
+                notes="Profitable synthetic wholesale line.",
+            )
+            session.add(line)
+            session.flush()
+            if status in {"allocated", "partially_fulfilled", "fulfilled"}:
+                allocation = OrderLotAllocation(
+                    organization_id=organization.id,
+                    facility_id=facility.id,
+                    commercial_order_id=order.id,
+                    commercial_order_line_id=line.id,
+                    lot_id=lot.id,
+                    quantity=quantity,
+                    fulfilled_quantity=fulfilled_quantity,
+                    status=(
+                        "fulfilled"
+                        if status == "fulfilled"
+                        else ("partial" if status == "partially_fulfilled" else "reserved")
+                    ),
+                    reserved_by=actor,
+                )
+                session.add(allocation)
+            if fulfilled_quantity > 0:
+                session.add(
+                    InventoryTransaction(
+                        organization_id=organization.id,
+                        facility_id=facility.id,
+                        lot_id=lot.id,
+                        transaction_type="shipment",
+                        quantity_delta=-fulfilled_quantity,
+                        unit="unit",
+                        commercial_order_id=order.id,
+                        commercial_order_line_id=line.id,
+                        actor=actor,
+                        reason="Living demo sales fulfillment",
+                        reference=order.order_number,
+                    )
+                )
+                commercial_transaction_count += 1
+            commercial_order_count += 1
+
+        packaging_receipt_lot: InventoryLot | None = None
+        for idx, vendor in enumerate(vendors):
+            status = "confirmed" if idx == 0 else "partially_fulfilled"
+            received_quantity = 0.0 if idx == 0 else 600.0
+            order = CommercialOrder(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                partner_id=vendor.id,
+                order_number=f"PO-DEMO-{idx + 1:04d}",
+                order_type="purchase",
+                order_date=as_of - timedelta(days=4 + idx),
+                due_at=datetime.combine(
+                    as_of + timedelta(days=2 + idx),
+                    datetime.min.time(),
+                    tzinfo=timezone.utc,
+                ),
+                status=status,
+                payment_status="sent",
+                currency="USD",
+                external_reference=f"VENDOR-ACK-{8200 + idx}",
+                notes="Synthetic packaging replenishment with complete landed-cost fields.",
+                created_by=actor,
+                updated_by=actor,
+            )
+            session.add(order)
+            session.flush()
+            line = CommercialOrderLine(
+                organization_id=organization.id,
+                commercial_order_id=order.id,
+                product_id=package_product.id,
+                position=1,
+                description=package_product.name,
+                sku_snapshot=package_product.sku,
+                quantity=2400.0,
+                unit="unit",
+                unit_price=float(package_product.unit_cost or 0.0),
+                fulfilled_quantity=received_quantity,
+                notes="Pouch, label, seal, and compliance-sticker kit.",
+            )
+            session.add(line)
+            session.flush()
+            if received_quantity > 0:
+                packaging_receipt_lot = InventoryLot(
+                    organization_id=organization.id,
+                    facility_id=facility.id,
+                    product_id=package_product.id,
+                    lot_code=f"PKG-RECEIPT-{idx + 1:04d}",
+                    compliance_package_id="",
+                    location_code="PACKAGING-CAGE",
+                    status="available",
+                    received_at=datetime.combine(
+                        as_of - timedelta(days=1),
+                        datetime.min.time(),
+                        tzinfo=timezone.utc,
+                    ),
+                    expiration_at=None,
+                    notes="Synthetic commercial purchase receipt.",
+                )
+                session.add(packaging_receipt_lot)
+                session.flush()
+                session.add(
+                    InventoryTransaction(
+                        organization_id=organization.id,
+                        facility_id=facility.id,
+                        lot_id=packaging_receipt_lot.id,
+                        transaction_type="receipt",
+                        quantity_delta=received_quantity,
+                        unit="unit",
+                        commercial_order_id=order.id,
+                        commercial_order_line_id=line.id,
+                        actor=actor,
+                        reason="Living demo purchase receipt",
+                        reference=order.order_number,
+                    )
+                )
+                commercial_transaction_count += 1
+            commercial_order_count += 1
+
         machine_specs = [
-            ("DemoWorks", "PouchPro 900", "Packaging", 900.0, 3, "PKG-01", "Pouch Line 1"),
-            ("DemoWorks", "RollMaster 1200", "Pre-Roll", 1200.0, 4, "PR-01", "Pre-Roll Line 1"),
+            ("IMA", "Pre-roll line facility benchmark", "Pre-Roll", 720.0, 4, "PR-IMA-01", "IMA Pre-Roll Line"),
+            ("Massman", "Flower pouch facility benchmark", "Packaging", 650.0, 3, "PKG-MASS-01", "Massman Flower Pouch Line"),
+            ("Ishida", "Multihead weigh-pack benchmark", "Secondary Packaging", 900.0, 3, "PKG-ISH-01", "Ishida Pre-Roll Pack Line"),
+            ("Vape-Jet", "Cartridge filling benchmark", "Vape Filling", 540.0, 2, "VAPE-JET-01", "Vape-Jet Filling Line"),
         ]
         for manufacturer, model_name, category, rate, crew, asset, display in machine_specs:
             model = session.scalar(
@@ -397,12 +651,12 @@ def ensure_coman_demo_dataset(
                     machine_model_id=model.id,
                     asset_code=asset,
                     display_name=display,
-                    effective_rate=rate * (0.35 if "machine_downtime" in problems and asset == "PKG-01" else 0.72),
+                    effective_rate=rate * (0.35 if "machine_downtime" in problems and asset == "PKG-MASS-01" else 0.72),
                     rate_unit="units/hour",
                     preferred_crew_size=crew,
                     setup_minutes=30,
                     cleanup_minutes=25,
-                    active=not ("machine_downtime" in problems and asset == "PKG-01"),
+                    active=not ("machine_downtime" in problems and asset == "PKG-MASS-01"),
                 )
             )
 
@@ -443,7 +697,7 @@ def ensure_coman_demo_dataset(
                 actor=actor,
                 changes_json=json.dumps(
                     {
-                        "version": "full-app-simulation-v2",
+                        "version": DEMO_DATA_VERSION,
                         "scale": payload.get("scale"),
                         "as_of_date": as_of.isoformat(),
                         "problems": sorted(problems),
@@ -462,6 +716,9 @@ def ensure_coman_demo_dataset(
         "products": len(finished_products) + len(raw_products) + 1,
         "orders": len(order_rows),
         "customers": len(customers),
+        "trade_partners": len(trade_partners),
+        "commercial_orders": commercial_order_count,
+        "commercial_transactions": commercial_transaction_count,
     }
 
 

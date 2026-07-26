@@ -62,6 +62,12 @@ def build_operations_demo(today: date, *, catalog: Any = None, scale: str = "med
         operational_cost = round(rng.uniform(240, 1150), 2)
         cogs = round(input_g * cost_per_g + operational_cost, 2)
         revenue = round(output_g * output_value_per_g, 2)
+        # Healthy sandbox scenarios model a viable operator. Market pricing is
+        # floored at a 32% run-level gross margin so every method demonstrates
+        # profitable planning without hiding the true material and labor cost.
+        if "negative_margin" not in problems and output_g > 0:
+            revenue = round(max(revenue, cogs / 0.68), 2)
+            output_value_per_g = round(revenue / output_g, 2)
         qa_hold = "qa_hold" in problems and idx % 5 == 0
         coa_status = "Failed" if "failed_coa" in problems and idx % 7 == 0 else ("Pending" if qa_hold or idx % 6 == 0 else "Passed")
         if "negative_margin" in problems and idx % 8 == 0:

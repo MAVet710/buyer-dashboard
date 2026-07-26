@@ -6,6 +6,7 @@ win. Co-Man receives a separate durable demo organization when a database is ava
 from __future__ import annotations
 
 import io
+import hashlib
 import math
 import os
 import random
@@ -19,7 +20,7 @@ import pandas as pd
 from services.demo_data_buyer import build_buyer_demo
 from services.demo_data_operations import build_operations_demo
 
-DEMO_DATA_VERSION = "full-app-simulation-v2"
+DEMO_DATA_VERSION = "full-app-simulation-v3"
 PRIVILEGED_DEMO_ROLES = {"dev", "admin"}
 DATASET_SCALES = ("small", "medium", "enterprise")
 PERSONAS = (
@@ -61,6 +62,16 @@ DEMO_SESSION_KEYS = {
     "demo_company_profile",
     "demo_catalog_df",
     "demo_budget_df",
+    "demo_commercial_partners_df",
+    "demo_commercial_orders_df",
+    "demo_commercial_order_lines_df",
+    "demo_commercial_ledger_df",
+    "demo_production_orders_df",
+    "demo_production_machines_df",
+    "demo_production_crew_df",
+    "demo_nomenclature_catalog_df",
+    "demo_nomenclature_manifest_df",
+    "data_hub_import_history",
     "demo_dataset_scale",
     "demo_company_seed",
     "demo_catalog_seed",
@@ -185,7 +196,237 @@ def _csv(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False).encode("utf-8")
 
 
-def _build_uploads(buyer: dict[str, Any], operations: dict[str, Any]) -> dict[str, tuple[str, bytes, str]]:
+def _build_cross_workspace_demo(
+    as_of: date,
+    buyer: dict[str, Any],
+    operations: dict[str, Any],
+) -> dict[str, pd.DataFrame]:
+    """Build linked, export-ready datasets for the remaining workspaces."""
+
+    catalog = buyer["catalog"].copy()
+    approved_catalog = catalog.rename(
+        columns={
+            "product_name": "Product Name",
+            "sku": "SKU",
+            "category": "Category",
+            "brand": "Brand",
+            "size_label": "Package Size",
+            "retail_price": "Retail Price",
+            "wholesale_price": "Wholesale Price",
+            "unit_cost": "Unit Cost",
+            "retail_gross_margin_pct": "Retail Gross Margin %",
+        }
+    )[
+        [
+            "Product Name",
+            "SKU",
+            "Category",
+            "Brand",
+            "Package Size",
+            "Retail Price",
+            "Wholesale Price",
+            "Unit Cost",
+            "Retail Gross Margin %",
+            "package_id",
+            "coa_id",
+        ]
+    ].rename(columns={"package_id": "METRC Package ID", "coa_id": "COA ID"})
+
+    nomenclature_manifest = approved_catalog[
+        ["Product Name", "SKU", "METRC Package ID", "COA ID"]
+    ].copy()
+    nomenclature_manifest["Item Name"] = (
+        nomenclature_manifest["Product Name"]
+        .str.replace(" ", " - ", n=2, regex=False)
+        .str.upper()
+    )
+    nomenclature_manifest["Manifest Number"] = "MAN-DEMO-NOM-001"
+    nomenclature_manifest = nomenclature_manifest[
+        ["Manifest Number", "METRC Package ID", "Item Name", "SKU", "COA ID"]
+    ]
+
+    partners = pd.DataFrame(
+        [
+            {
+                "Partner": "Harbor Wellness",
+                "Type": "Customer",
+                "License": "MR281101",
+                "Payment Terms": "Net 30",
+                "Contact": "Maya Chen",
+                "Email": "maya.chen@example.invalid",
+            },
+            {
+                "Partner": "Cape Select",
+                "Type": "Customer",
+                "License": "MR281102",
+                "Payment Terms": "Net 15",
+                "Contact": "Luis Pereira",
+                "Email": "luis.pereira@example.invalid",
+            },
+            {
+                "Partner": "Berkshire Brands",
+                "Type": "Customer",
+                "License": "MR281103",
+                "Payment Terms": "Net 30",
+                "Contact": "Jordan Reed",
+                "Email": "jordan.reed@example.invalid",
+            },
+            {
+                "Partner": "Atlantic Cultivation",
+                "Type": "Vendor",
+                "License": "MC281201",
+                "Payment Terms": "Net 30",
+                "Contact": "Avery Brooks",
+                "Email": "avery.brooks@example.invalid",
+            },
+            {
+                "Partner": "Pioneer Valley Packaging",
+                "Type": "Vendor",
+                "License": "SUP-281202",
+                "Payment Terms": "Net 45",
+                "Contact": "Sam Rivera",
+                "Email": "sam.rivera@example.invalid",
+            },
+        ]
+    )
+
+    commercial_rows: list[dict[str, Any]] = []
+    commercial_line_rows: list[dict[str, Any]] = []
+    sample = catalog.head(min(len(catalog), 12)).reset_index(drop=True)
+    statuses = ["Confirmed", "Allocated", "Partially Fulfilled", "Fulfilled", "Draft"]
+    payments = ["Sent", "Partial", "Paid", "Paid", "Draft"]
+    for idx, row in sample.iterrows():
+        order_type = "Sales" if idx % 4 != 3 else "Purchase"
+        order_number = f"{'SO' if order_type == 'Sales' else 'PO'}-DEMO-{idx + 1:04d}"
+        quantity = float(72 + (idx % 5) * 24)
+        unit_price = float(
+            row["wholesale_price"] if order_type == "Sales" else row["unit_cost"]
+        )
+        order_value = round(quantity * unit_price, 2)
+        fulfilled = (
+            quantity
+            if statuses[idx % len(statuses)] == "Fulfilled"
+            else (round(quantity * 0.5, 2) if statuses[idx % len(statuses)] == "Partially Fulfilled" else 0.0)
+        )
+        commercial_rows.append(
+            {
+                "Order Number": order_number,
+                "Order Type": order_type,
+                "Partner": (
+                    ["Harbor Wellness", "Cape Select", "Berkshire Brands"][idx % 3]
+                    if order_type == "Sales"
+                    else ["Atlantic Cultivation", "Pioneer Valley Packaging"][idx % 2]
+                ),
+                "Order Date": (as_of - timedelta(days=idx % 12)).isoformat(),
+                "Due Date": (as_of + timedelta(days=(idx % 8) - 2)).isoformat(),
+                "Status": statuses[idx % len(statuses)],
+                "Payment Status": payments[idx % len(payments)],
+                "Order Value": order_value,
+                "Currency": "USD",
+                "External Reference": f"EXT-DEMO-{idx + 1001}",
+            }
+        )
+        commercial_line_rows.append(
+            {
+                "Order Number": order_number,
+                "Line": 1,
+                "SKU": row["sku"],
+                "Product": row["product_name"],
+                "Quantity": quantity,
+                "Fulfilled Quantity": fulfilled,
+                "Unit": "unit",
+                "Unit Price": round(unit_price, 2),
+                "Unit Cost": round(float(row["unit_cost"]), 2),
+                "Gross Profit": round(
+                    max(0.0, (unit_price - float(row["unit_cost"])) * quantity)
+                    if order_type == "Sales"
+                    else 0.0,
+                    2,
+                ),
+            }
+        )
+
+    production_orders = (
+        catalog.groupby("source_production_order", as_index=False)
+        .agg(
+            Product=("product_name", "first"),
+            SKU=("sku", "first"),
+            Format=("category", "first"),
+            Source_Batch=("source_extraction_batch", "first"),
+            Total_Weight_g=("unit_size_g", lambda values: round(float(values.sum()) * 250.0, 2)),
+            Planned_Revenue=("wholesale_price", lambda values: round(float(values.sum()) * 250.0, 2)),
+            Planned_Cost=("unit_cost", lambda values: round(float(values.sum()) * 250.0, 2)),
+        )
+        .rename(columns={"source_production_order": "Production Order"})
+    )
+    production_orders["Planned Gross Profit"] = (
+        production_orders["Planned_Revenue"] - production_orders["Planned_Cost"]
+    ).round(2)
+    production_orders["Planned Gross Margin %"] = (
+        production_orders["Planned Gross Profit"]
+        / production_orders["Planned_Revenue"].replace(0, pd.NA)
+        * 100.0
+    ).fillna(0.0).round(2)
+    production_orders["Due Date"] = [
+        (as_of + timedelta(days=(idx % 10) + 1)).isoformat()
+        for idx in range(len(production_orders))
+    ]
+
+    machines = pd.DataFrame(
+        [
+            {"Asset": "PR-IMA-01", "Manufacturer": "IMA", "Model": "Pre-roll line", "Operation": "Pre-roll production", "Effective Units / Hour": 720, "Crew": 4, "Utilization %": 72, "Status": "Available"},
+            {"Asset": "PKG-MASS-01", "Manufacturer": "Massman", "Model": "Flower pouch line", "Operation": "Flower weigh / fill / seal", "Effective Units / Hour": 650, "Crew": 3, "Utilization %": 74, "Status": "Available"},
+            {"Asset": "PKG-ISH-01", "Manufacturer": "Ishida", "Model": "Multihead weigher", "Operation": "Pre-roll pack secondary packaging", "Effective Units / Hour": 900, "Crew": 3, "Utilization %": 70, "Status": "Available"},
+            {"Asset": "VAPE-JET-01", "Manufacturer": "Vape-Jet", "Model": "Cartridge filler", "Operation": "Vape cartridge filling", "Effective Units / Hour": 540, "Crew": 2, "Utilization %": 76, "Status": "Available"},
+            {"Asset": "HAND-01", "Manufacturer": "Internal", "Model": "Hand Labor Area", "Operation": "Sticker / case pack / final case pack", "Effective Units / Hour": 600, "Crew": 5, "Utilization %": 80, "Status": "Available"},
+        ]
+    )
+    crew = pd.DataFrame(
+        [
+            {
+                "Date": (as_of + timedelta(days=offset)).isoformat(),
+                "Shift": shift,
+                "Available People": people,
+                "Shift Hours": 8.0,
+                "Fully Loaded Labor Cost / Hour": 26.5,
+            }
+            for offset in range(14)
+            for shift, people in (("Day", 8 if offset % 5 else 7), ("Swing", 5))
+        ]
+    )
+    ledger = pd.DataFrame(
+        [
+            {
+                "Transaction Date": row["Order Date"],
+                "Order Number": row["Order Number"],
+                "Transaction": "Shipment" if row["Order Type"] == "Sales" else "Receipt",
+                "Partner": row["Partner"],
+                "Value": row["Order Value"],
+                "Status": row["Status"],
+                "Reference": row["External Reference"],
+            }
+            for row in commercial_rows
+            if row["Status"] in {"Partially Fulfilled", "Fulfilled"}
+        ]
+    )
+    return {
+        "nomenclature_catalog": approved_catalog,
+        "nomenclature_manifest": nomenclature_manifest,
+        "commercial_partners": partners,
+        "commercial_orders": pd.DataFrame(commercial_rows),
+        "commercial_order_lines": pd.DataFrame(commercial_line_rows),
+        "commercial_ledger": ledger,
+        "production_orders_export": production_orders,
+        "production_machines_export": machines,
+        "production_crew_export": crew,
+    }
+
+
+def _build_uploads(
+    buyer: dict[str, Any],
+    operations: dict[str, Any],
+    cross_workspace: dict[str, pd.DataFrame],
+) -> dict[str, tuple[str, bytes, str]]:
     return {
         "buyer_inventory": ("demo_inventory.csv", _csv(buyer["inventory"]), "text/csv"),
         "buyer_sales": ("demo_product_sales.csv", _csv(buyer["sales"]), "text/csv"),
@@ -201,6 +442,56 @@ def _build_uploads(buyer: dict[str, Any], operations: dict[str, Any]) -> dict[st
         ),
         "extraction_runs": ("demo_extraction_runs.csv", _csv(operations["extraction_runs"]), "text/csv"),
         "extraction_jobs": ("demo_extraction_jobs.csv", _csv(operations["extraction_jobs"]), "text/csv"),
+        "nomenclature_catalog": (
+            "demo_dutchie_catalog.csv",
+            _csv(cross_workspace["nomenclature_catalog"]),
+            "text/csv",
+        ),
+        "nomenclature_manifest": (
+            "demo_metrc_manifest.csv",
+            _csv(cross_workspace["nomenclature_manifest"]),
+            "text/csv",
+        ),
+        "commercial_partners": (
+            "demo_commercial_partners.csv",
+            _csv(cross_workspace["commercial_partners"]),
+            "text/csv",
+        ),
+        "commercial_orders": (
+            "demo_commercial_orders.csv",
+            _csv(cross_workspace["commercial_orders"]),
+            "text/csv",
+        ),
+        "commercial_order_lines": (
+            "demo_commercial_order_lines.csv",
+            _csv(cross_workspace["commercial_order_lines"]),
+            "text/csv",
+        ),
+        "commercial_ledger": (
+            "demo_commercial_ledger.csv",
+            _csv(cross_workspace["commercial_ledger"]),
+            "text/csv",
+        ),
+        "production_orders": (
+            "demo_production_orders.csv",
+            _csv(cross_workspace["production_orders_export"]),
+            "text/csv",
+        ),
+        "production_machines": (
+            "demo_production_machines.csv",
+            _csv(cross_workspace["production_machines_export"]),
+            "text/csv",
+        ),
+        "production_crew": (
+            "demo_production_crew.csv",
+            _csv(cross_workspace["production_crew_export"]),
+            "text/csv",
+        ),
+        "purchasing_budget": (
+            "demo_purchasing_budget.csv",
+            _csv(buyer["budget"]),
+            "text/csv",
+        ),
     }
 
 
@@ -233,10 +524,12 @@ def build_demo_payload(
         company=buyer["company_profile"],
         problems=problem_set,
     )
+    cross_workspace = _build_cross_workspace_demo(as_of, buyer, operations)
     return {
         **buyer,
         **operations,
-        "uploads": _build_uploads(buyer, operations),
+        **cross_workspace,
+        "uploads": _build_uploads(buyer, operations, cross_workspace),
         "as_of_date": as_of,
         "scale": normalized_scale,
         "problems": sorted(problem_set),
@@ -437,7 +730,7 @@ def _apply_living_transition(
             float(budget.loc[budget.index[0], "Actual"]) + purchase_spend
         )
         payload["budget"] = budget
-    payload["uploads"] = _build_uploads(payload, payload)
+    payload["uploads"] = _build_uploads(payload, payload, payload)
     return payload
 
 
@@ -466,8 +759,34 @@ def _install_payload(
     state["demo_company_profile"] = dict(payload["company_profile"])
     state["demo_catalog_df"] = payload["catalog"].copy()
     state["demo_budget_df"] = payload["budget"].copy()
+    for state_key, payload_key in {
+        "demo_commercial_partners_df": "commercial_partners",
+        "demo_commercial_orders_df": "commercial_orders",
+        "demo_commercial_order_lines_df": "commercial_order_lines",
+        "demo_commercial_ledger_df": "commercial_ledger",
+        "demo_production_orders_df": "production_orders_export",
+        "demo_production_machines_df": "production_machines_export",
+        "demo_production_crew_df": "production_crew_export",
+        "demo_nomenclature_catalog_df": "nomenclature_catalog",
+        "demo_nomenclature_manifest_df": "nomenclature_manifest",
+    }.items():
+        state[state_key] = payload[payload_key].copy()
     state["demo_as_of_date"] = payload["as_of_date"]
     state["demo_problem_set"] = list(payload["problems"])
+    state["data_hub_import_history"] = [
+        {
+            "Dataset": source.replace("_", " ").title(),
+            "File": name,
+            "Size": len(content),
+            "Status": "Demo Ready",
+            "Imported At": datetime.combine(
+                payload["as_of_date"],
+                datetime.min.time(),
+            ).isoformat(),
+            "Fingerprint": hashlib.sha256(content).hexdigest(),
+        }
+        for source, (name, content, _mime) in payload["uploads"].items()
+    ]
 
     frames = {
         "inv_raw_df": "inventory",
@@ -535,11 +854,15 @@ def _install_payload(
         "PO Builder",
         "Compliance Q&A",
         "Buyer Intelligence",
+        "Nomenclature Mapper",
         "Purchasing Budget",
         "Admin Tools",
         "White Label / Repack",
         "Co-Man Production",
         "Extraction Command Center",
+        "Orders & Fulfillment",
+        "Data Hub",
+        "METRC Integrations",
     )
     state["_full_app_demo_version"] = DEMO_DATA_VERSION
     state["_full_app_demo_sections"] = sections
@@ -878,6 +1201,30 @@ def run_demo_roleplay(
 
 def _match_demo_upload(label: str, key: str) -> str | None:
     text = f"{label} {key}".casefold()
+    if "nomenclature" in text and "catalog" in text:
+        return "nomenclature_catalog"
+    if "nomenclature" in text and "manifest" in text:
+        return "nomenclature_manifest"
+    if "dutchie catalog" in text:
+        return "nomenclature_catalog"
+    if "metrc manifest" in text:
+        return "nomenclature_manifest"
+    if "commercial" in text and "partner" in text:
+        return "commercial_partners"
+    if "commercial" in text and "ledger" in text:
+        return "commercial_ledger"
+    if "commercial" in text and "line" in text:
+        return "commercial_order_lines"
+    if "commercial" in text and "order" in text:
+        return "commercial_orders"
+    if "production" in text and "machine" in text:
+        return "production_machines"
+    if "production" in text and "crew" in text:
+        return "production_crew"
+    if "production" in text and ("order" in text or "schedule" in text):
+        return "production_orders"
+    if "budget" in text:
+        return "purchasing_budget"
     if "quarantine" in text:
         return "buyer_quarantine"
     if "compliance" in text and ("source" in text or "qa" in text):

@@ -149,6 +149,44 @@ def build_data_hub_status(state: MutableMapping[str, Any]) -> list[dict[str, Any
             "Updated": "",
         }
     )
+    for operations, label, state_key, source in (
+        (
+            "Commercial Ops",
+            "Orders & Fulfillment",
+            "demo_commercial_orders_df",
+            "Durable sandbox order ledger",
+        ),
+        (
+            "Retail Ops",
+            "Nomenclature Catalog",
+            "demo_nomenclature_catalog_df",
+            "Organization Dutchie catalog",
+        ),
+        (
+            "Production Ops",
+            "Production Capacity",
+            "demo_production_machines_df",
+            "Machines, hand labor, and crew plan",
+        ),
+        (
+            "Retail Ops",
+            "Compliance Sources",
+            "compliance_sources_df",
+            "Reviewed structured source library",
+        ),
+    ):
+        frame = state.get(state_key)
+        count = len(frame) if isinstance(frame, pd.DataFrame) else 0
+        rows.append(
+            {
+                "Operations": operations,
+                "Dataset": label,
+                "Status": "Ready" if count else "Not loaded",
+                "Source": source if count else "",
+                "Rows": count,
+                "Updated": "",
+            }
+        )
     return rows
 
 

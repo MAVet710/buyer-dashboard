@@ -75,6 +75,9 @@ def _catalog(product_count: int, rng: random.Random, profile: dict[str, Any]) ->
         else:
             on_hand, expected_daily = rng.randint(40, 160), rng.uniform(0.0, 0.08)
         product_name = f"{brand} {strain} {kind} {size_label}"
+        retail_price = round(retail * rng.uniform(0.92, 1.10), 2)
+        unit_cost = round(retail_price * rng.uniform(0.34, 0.48), 2)
+        wholesale_price = round(max(unit_cost * 1.55, retail_price * 0.62), 2)
         rows.append({
             "sku": sku,
             "product_name": product_name,
@@ -90,8 +93,17 @@ def _catalog(product_count: int, rng: random.Random, profile: dict[str, Any]) ->
             "coa_id": coa_id,
             "source_extraction_batch": extraction_run,
             "source_production_order": production_order,
-            "retail_price": round(retail * rng.uniform(0.92, 1.10), 2),
-            "unit_cost": round(retail * rng.uniform(0.34, 0.48), 2),
+            "retail_price": retail_price,
+            "wholesale_price": wholesale_price,
+            "unit_cost": unit_cost,
+            "retail_gross_profit": round(retail_price - unit_cost, 2),
+            "retail_gross_margin_pct": round(
+                (retail_price - unit_cost) / retail_price * 100.0, 2
+            ),
+            "wholesale_gross_profit": round(wholesale_price - unit_cost, 2),
+            "wholesale_gross_margin_pct": round(
+                (wholesale_price - unit_cost) / wholesale_price * 100.0, 2
+            ),
             "on_hand": on_hand,
             "expected_daily": expected_daily,
             "velocity_class": velocity_class,
@@ -111,6 +123,11 @@ def _inventory(catalog: list[dict[str, Any]], today: date, problems: set[str]) -
             "Product Name": p["product_name"], "Category": p["category"], "Available": p["on_hand"],
             "Batch": p["batch"], "Room": p["room"], "SKU": p["sku"], "Cost": p["unit_cost"],
             "Med Price": p["retail_price"], "Brand": p["brand"],
+            "Vendor": p["vendor"], "Package Size": p["size_label"],
+            "Unit Gross Profit": p["retail_gross_profit"],
+            "Gross Margin %": p["retail_gross_margin_pct"],
+            "Inventory Cost": round(p["on_hand"] * p["unit_cost"], 2),
+            "Retail Value": round(p["on_hand"] * p["retail_price"], 2),
             "Expiration Date": (today + timedelta(days=expiry_days)).isoformat(),
             "EComm Strain Type": p["strain_type"], "Package ID": p["package_id"],
             "Source Production Order": p["source_production_order"],
@@ -137,12 +154,22 @@ def _sales(catalog: list[dict[str, Any]], today: date, count: int, days: int,
             qty += rng.choice([0, 1, 1, 2])
         discount = rng.uniform(0.78, 1.0)
         order_time = datetime.combine(sold_date, time(rng.randint(9, 20), rng.randrange(0, 60)))
+        gross_sales = round(p["retail_price"] * qty, 2)
+        net_sales = round(gross_sales * discount, 2)
+        cogs = round(p["unit_cost"] * qty, 2)
+        gross_profit = round(net_sales - cogs, 2)
         rows.append({
             "Product Name": p["product_name"], "Master Category": p["category"],
-            "Quantity Sold": qty, "Net Sales": round(p["retail_price"] * qty * discount, 2),
+            "Quantity Sold": qty, "Gross Sales": gross_sales, "Discount": round(gross_sales - net_sales, 2),
+            "Net Sales": net_sales, "Unit Cost": p["unit_cost"], "COGS": cogs,
+            "Gross Profit": gross_profit,
+            "Gross Margin %": round(gross_profit / net_sales * 100.0, 2) if net_sales else 0.0,
             "Order ID": f"ORD-{idx // rng.choice([1, 1, 2, 3]) + 100000:07d}",
             "Order Time": order_time.isoformat(sep=" "), "SKU": p["sku"], "Batch ID": p["batch"],
             "Package ID": p["package_id"], "Brand": p["brand"],
+            "Store": "New Bedford Flagship",
+            "Customer Type": rng.choice(["Adult Use", "Adult Use", "Medical"]),
+            "Payment Type": rng.choice(["Cash", "Debit", "Cashless ATM"]),
             "Source Production Order": p["source_production_order"],
             "Source Extraction Batch": p["source_extraction_batch"], "COA ID": p["coa_id"],
         })
@@ -194,6 +221,10 @@ def _manifest(catalog: list[dict[str, Any]], today: date, rng: random.Random, pr
             "Vendor": p["vendor"], "Product": p["product_name"], "Received Qty": qty,
             "Package ID": p["package_id"], "Batch": p["batch"], "License Number": "MP281999",
             "Location": "Vault", "SKU": p["sku"], "COA ID": p["coa_id"],
+            "Unit Cost": p["unit_cost"], "Extended Cost": round(qty * p["unit_cost"], 2),
+            "Expected Retail Value": round(qty * p["retail_price"], 2),
+            "Expected Gross Profit": round(qty * (p["retail_price"] - p["unit_cost"]), 2),
+            "Expected Gross Margin %": p["retail_gross_margin_pct"],
         })
     return pd.DataFrame(rows)
 
@@ -217,9 +248,10 @@ def _compliance(today: date) -> pd.DataFrame:
 def _white_label(catalog: list[dict[str, Any]], today: date, profile: dict[str, Any]) -> dict[str, Any]:
     flower = next(p for p in catalog if p["category"] == "flower")
     plan = [
-        {"enabled": True, "package_size_g": 3.5, "allocation_pct": 50.0, "bag_or_container_cost_per_unit": 0.18, "label_cost_per_unit": 0.06, "tamper_seal_cost_per_unit": 0.03, "humidity_pack_cost_per_unit": 0.07, "compliance_sticker_cost_per_unit": 0.04, "other_packaging_cost_per_unit": 0.02, "target_retail_price_per_unit": 32.0},
+        {"enabled": True, "package_size_g": 3.5, "allocation_pct": 45.0, "bag_or_container_cost_per_unit": 0.18, "label_cost_per_unit": 0.06, "tamper_seal_cost_per_unit": 0.03, "humidity_pack_cost_per_unit": 0.07, "compliance_sticker_cost_per_unit": 0.04, "other_packaging_cost_per_unit": 0.02, "target_retail_price_per_unit": 32.0},
         {"enabled": True, "package_size_g": 7.0, "allocation_pct": 30.0, "bag_or_container_cost_per_unit": 0.25, "label_cost_per_unit": 0.06, "tamper_seal_cost_per_unit": 0.03, "humidity_pack_cost_per_unit": 0.09, "compliance_sticker_cost_per_unit": 0.04, "other_packaging_cost_per_unit": 0.02, "target_retail_price_per_unit": 56.0},
-        {"enabled": True, "package_size_g": 14.0, "allocation_pct": 20.0, "bag_or_container_cost_per_unit": 0.34, "label_cost_per_unit": 0.06, "tamper_seal_cost_per_unit": 0.03, "humidity_pack_cost_per_unit": 0.12, "compliance_sticker_cost_per_unit": 0.04, "other_packaging_cost_per_unit": 0.02, "target_retail_price_per_unit": 96.0},
+        {"enabled": True, "package_size_g": 14.0, "allocation_pct": 15.0, "bag_or_container_cost_per_unit": 0.34, "label_cost_per_unit": 0.06, "tamper_seal_cost_per_unit": 0.03, "humidity_pack_cost_per_unit": 0.12, "compliance_sticker_cost_per_unit": 0.04, "other_packaging_cost_per_unit": 0.02, "target_retail_price_per_unit": 96.0},
+        {"enabled": True, "package_size_g": 28.0, "allocation_pct": 10.0, "bag_or_container_cost_per_unit": 0.46, "label_cost_per_unit": 0.07, "tamper_seal_cost_per_unit": 0.04, "humidity_pack_cost_per_unit": 0.16, "compliance_sticker_cost_per_unit": 0.04, "other_packaging_cost_per_unit": 0.03, "target_retail_price_per_unit": 176.0},
     ]
     return {
         "wl_strain_name": flower["strain"], "wl_strain_type": flower["strain_type"],
@@ -256,11 +288,13 @@ def build_buyer_demo(today: date, *, scale: str = "medium", seed: int = 710,
         quarantine_products += [p["product_name"] for i, p in enumerate(catalog) if i % 19 == 0]
     quarantine = pd.DataFrame({"Product": sorted(set(quarantine_products))})
     budget = pd.DataFrame([
-        {"Budget Category": "Core replenishment", "Budget": 42000, "Committed": 31500, "Actual": 28400},
-        {"Budget Category": "New products", "Budget": 14000, "Committed": 9200, "Actual": 7600},
-        {"Budget Category": "Promotions", "Budget": 9000, "Committed": 6700, "Actual": 5300},
-        {"Budget Category": "Emergency buys", "Budget": 10000, "Committed": 2200, "Actual": 880},
+        {"Budget Category": "Core replenishment", "Budget": 42000.0, "Committed": 31500.0, "Actual": 28400.0},
+        {"Budget Category": "New products", "Budget": 14000.0, "Committed": 9200.0, "Actual": 7600.0},
+        {"Budget Category": "Promotions", "Budget": 9000.0, "Committed": 6700.0, "Actual": 5300.0},
+        {"Budget Category": "Emergency buys", "Budget": 10000.0, "Committed": 2200.0, "Actual": 880.0},
     ])
+    budget["Remaining"] = budget["Budget"] - budget["Actual"]
+    budget["Utilization %"] = (budget["Actual"] / budget["Budget"] * 100.0).round(2)
     return {
         "company_profile": profile, "catalog": pd.DataFrame(catalog), "inventory": inventory,
         "sales": sales, "manifest": manifest, "quarantine": quarantine, "compliance": _compliance(today),

@@ -39,12 +39,42 @@ def test_demo_payload_is_deterministic_and_complete():
     assert {
         "buyer_inventory",
         "buyer_sales",
+        "buyer_extra_sales",
+        "buyer_quarantine",
         "delivery_manifest",
+        "delivery_sales",
         "compliance_sources",
         "extraction_inventory",
         "extraction_runs",
         "extraction_jobs",
+        "nomenclature_catalog",
+        "nomenclature_manifest",
+        "commercial_partners",
+        "commercial_orders",
+        "commercial_order_lines",
+        "commercial_ledger",
+        "production_orders",
+        "production_machines",
+        "production_crew",
+        "purchasing_budget",
     }.issubset(first["uploads"])
+    assert set(first["white_label"]["white_label_package_plan"][index]["package_size_g"] for index in range(4)) == {
+        3.5,
+        7.0,
+        14.0,
+        28.0,
+    }
+    assert (first["catalog"]["retail_price"] > first["catalog"]["unit_cost"]).all()
+    assert (first["sales"]["Gross Profit"] > 0).all()
+    assert (first["extraction_runs"]["gross_profit_usd"] > 0).all()
+    assert (first["extraction_runs"]["gross_margin_pct"] >= 31.9).all()
+    assert (first["commercial_order_lines"]["Gross Profit"] >= 0).all()
+    assert (
+        first["commercial_order_lines"]
+        .loc[first["commercial_order_lines"]["Gross Profit"] > 0, "Gross Profit"]
+        .gt(0)
+        .all()
+    )
 
 
 def test_session_seed_preserves_real_upload_and_supports_reset(monkeypatch):
@@ -62,6 +92,7 @@ def test_session_seed_preserves_real_upload_and_supports_reset(monkeypatch):
     assert result.coman_seeded is True
     assert state["inv_raw_df"].equals(uploaded)
     assert not state["sales_raw_df"].empty
+    assert len(state["data_hub_import_history"]) == 20
     assert state["_full_app_demo_version"] == demo_data.DEMO_DATA_VERSION
 
     demo_data.reset_demo_session(state, preserve_auth=True)
