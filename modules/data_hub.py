@@ -297,4 +297,3 @@ def render_data_hub_workspace() -> None:
                     lambda value: f"{float(value) / 1024:,.0f} KB"
                 )
             st.dataframe(history_frame, width="stretch", hide_index=True)
-
