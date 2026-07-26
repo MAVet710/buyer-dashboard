@@ -9,9 +9,11 @@ BUYER_WORKSPACE = "🛒 Buyer Operations"
 WHITE_LABEL_WORKSPACE = "🏷️ White Label / Repack"
 COMAN_WORKSPACE = "🏭 Co-Man Production"
 EXTRACTION_WORKSPACE = "🧪 Extraction Command Center"
+COMMERCIAL_WORKSPACE = "📦 Orders & Fulfillment"
 DATA_HUB_WORKSPACE = "📥 Data Hub"
 RETAIL_OPS = "🛍️ Retail Ops"
 PRODUCTION_OPS = "🏭 Production Ops"
+COMMERCIAL_OPS = "🤝 Commercial Ops"
 DATA_OPERATIONS = "🗂️ Data & Integrations"
 
 
@@ -20,13 +22,17 @@ def workspace_groups(feature_enabled: Callable[..., bool]) -> dict[str, list[str
     groups = {
         RETAIL_OPS: [],
         PRODUCTION_OPS: [],
+        COMMERCIAL_OPS: [],
         DATA_OPERATIONS: [],
     }
     if feature_enabled("buyer_module", default_enabled=True):
         groups[RETAIL_OPS].extend([BUYER_WORKSPACE, WHITE_LABEL_WORKSPACE])
         groups[PRODUCTION_OPS].append(COMAN_WORKSPACE)
+        groups[COMMERCIAL_OPS].append(COMMERCIAL_WORKSPACE)
     if feature_enabled("extraction_module", default_enabled=True):
         groups[PRODUCTION_OPS].append(EXTRACTION_WORKSPACE)
+        if COMMERCIAL_WORKSPACE not in groups[COMMERCIAL_OPS]:
+            groups[COMMERCIAL_OPS].append(COMMERCIAL_WORKSPACE)
     if groups[RETAIL_OPS] or groups[PRODUCTION_OPS]:
         groups[DATA_OPERATIONS].append(DATA_HUB_WORKSPACE)
     return {group: options for group, options in groups.items() if options}
@@ -47,6 +53,8 @@ def workspace_group(workspace: str) -> str | None:
         return RETAIL_OPS
     if workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}:
         return PRODUCTION_OPS
+    if workspace == COMMERCIAL_WORKSPACE:
+        return COMMERCIAL_OPS
     if workspace == DATA_HUB_WORKSPACE:
         return DATA_OPERATIONS
     return None

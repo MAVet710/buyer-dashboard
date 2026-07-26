@@ -154,6 +154,12 @@ class InventoryTransaction(Base):
     quantity_delta: Mapped[float] = mapped_column(Float, nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     production_order_id: Mapped[str | None] = mapped_column(ForeignKey("coman_production_orders.id", ondelete="SET NULL"), nullable=True, index=True)
+    commercial_order_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
+    commercial_order_line_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
     reason: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     reference: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -170,6 +176,146 @@ class MaterialReservation(TimestampMixin, Base):
     lot_id: Mapped[str] = mapped_column(ForeignKey("coman_inventory_lots.id", ondelete="RESTRICT"), nullable=False, index=True)
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
+    reserved_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
+class TradePartner(TimestampMixin, Base):
+    """Organization-scoped customer/vendor master for commercial workflows."""
+
+    __tablename__ = "commercial_trade_partners"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name", name="uq_commercial_partner_org_name"),
+        CheckConstraint(
+            "partner_type in ('customer', 'vendor', 'both')",
+            name="ck_commercial_partner_type",
+        ),
+        Index("ix_commercial_partner_org_active", "organization_id", "active"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    partner_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    license_or_registration: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    contact_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    contact_email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    contact_phone: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    payment_terms: Mapped[str] = mapped_column(String(64), nullable=False, default="Net 30")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class CommercialOrder(TimestampMixin, Base):
+    """Sales and purchase orders sharing one durable lifecycle."""
+
+    __tablename__ = "commercial_orders"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "order_number", name="uq_commercial_order_org_number"),
+        CheckConstraint(
+            "order_type in ('sales', 'purchase')",
+            name="ck_commercial_order_type",
+        ),
+        CheckConstraint(
+            "status in ('draft', 'confirmed', 'allocated', 'partially_fulfilled', 'fulfilled', 'cancelled')",
+            name="ck_commercial_order_status",
+        ),
+        CheckConstraint(
+            "payment_status in ('not_invoiced', 'draft', 'sent', 'partial', 'paid', 'overdue')",
+            name="ck_commercial_order_payment_status",
+        ),
+        Index("ix_commercial_orders_facility_status_due", "facility_id", "status", "due_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    facility_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    partner_id: Mapped[str] = mapped_column(
+        ForeignKey("commercial_trade_partners.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    order_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    order_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    order_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    payment_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_invoiced")
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
+    external_reference: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
+class CommercialOrderLine(TimestampMixin, Base):
+    __tablename__ = "commercial_order_lines"
+    __table_args__ = (
+        UniqueConstraint("commercial_order_id", "position", name="uq_commercial_order_line_position"),
+        CheckConstraint("quantity > 0", name="ck_commercial_order_line_quantity"),
+        CheckConstraint("unit_price >= 0", name="ck_commercial_order_line_price"),
+        CheckConstraint("fulfilled_quantity >= 0", name="ck_commercial_order_line_fulfilled"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    commercial_order_id: Mapped[str] = mapped_column(
+        ForeignKey("commercial_orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    product_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_products.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str] = mapped_column(String(512), nullable=False)
+    sku_snapshot: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    unit_price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    fulfilled_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class OrderLotAllocation(TimestampMixin, Base):
+    """Lot-level promise connecting sales demand to available inventory."""
+
+    __tablename__ = "commercial_order_lot_allocations"
+    __table_args__ = (
+        UniqueConstraint(
+            "commercial_order_line_id",
+            "lot_id",
+            name="uq_commercial_order_line_lot",
+        ),
+        CheckConstraint("quantity > 0", name="ck_commercial_allocation_quantity"),
+        CheckConstraint("fulfilled_quantity >= 0", name="ck_commercial_allocation_fulfilled"),
+        CheckConstraint(
+            "status in ('reserved', 'partial', 'fulfilled', 'released')",
+            name="ck_commercial_allocation_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    facility_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    commercial_order_id: Mapped[str] = mapped_column(
+        ForeignKey("commercial_orders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    commercial_order_line_id: Mapped[str] = mapped_column(
+        ForeignKey("commercial_order_lines.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    lot_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_inventory_lots.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    fulfilled_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
     reserved_by: Mapped[str] = mapped_column(String(255), nullable=False)
 

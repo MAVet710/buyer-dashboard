@@ -281,6 +281,20 @@ def load_premium_shell(theme: str = "Dark") -> str:
         line-height: 1.15;
     }}
 
+    .premium-sidebar-brand__release {{
+        display: inline-flex;
+        margin-top: .35rem;
+        padding: .16rem .42rem;
+        color: var(--dl-copper-bright) !important;
+        background: rgba(231, 152, 78, .10);
+        border: 1px solid rgba(231, 152, 78, .22);
+        border-radius: 999px;
+        font-size: .56rem;
+        font-weight: 800;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+    }}
+
     [data-testid="stSidebar"] h3 {{
         margin: .75rem 0 .2rem !important;
         color: var(--dl-text-soft) !important;
@@ -634,6 +648,7 @@ def render_sidebar_identity(brand_image_url: str) -> None:
             <div>
                 <div class="premium-sidebar-brand__kicker">DOOBIELOGIC</div>
                 <div class="premium-sidebar-brand__name">Operations Intelligence</div>
+                <div class="premium-sidebar-brand__release">Commercial Ops · Jul 2026</div>
             </div>
         </div>
         """,

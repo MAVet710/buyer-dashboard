@@ -8,6 +8,7 @@ def test_premium_shell_exposes_shared_design_tokens():
     assert "--dl-surface" in css
     assert ".premium-commandbar" in css
     assert ".premium-sidebar-brand" in css
+    assert ".premium-sidebar-brand__release" in css
 
 
 def test_premium_shell_supports_light_and_dark_palettes():
