@@ -69,4 +69,3 @@ def buyer_section_options(*, is_admin: bool, admin_exports_enabled: bool = True)
     if is_admin:
         options.append("🔌 Integrations")
     return options
-
