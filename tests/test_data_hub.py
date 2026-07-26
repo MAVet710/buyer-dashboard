@@ -70,4 +70,3 @@ def test_data_hub_status_reflects_retail_extraction_and_facility_state():
     assert by_name["Product Sales"]["Status"] == "Not loaded"
     assert by_name["Extraction Runs"]["Rows"] == 1
     assert by_name["Co-Man Master Data"]["Status"] == "Ready"
-
