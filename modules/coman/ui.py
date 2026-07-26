@@ -8,6 +8,8 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from reports.coman_report import _build_coman_executive_report_pdf
+
 from .db import ComanDatabaseConfigurationError, create_coman_engine
 from .planning import (
     estimate_hand_labor_job,
@@ -80,6 +82,77 @@ def _orders_frame(orders, customers_by_id: dict[str, object]) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def _actuals_frame(actuals, orders_by_id: dict[str, object]) -> pd.DataFrame:
+    rows = []
+    for actual in actuals:
+        order = orders_by_id.get(actual.production_order_id)
+        planned = order.requested_units if order else 0
+        rows.append(
+            {
+                "Order": order.order_number if order else actual.production_order_id,
+                "Product": order.product_name if order else "Unknown",
+                "Planned Units": planned,
+                "Actual Units": actual.actual_units,
+                "Attainment %": round((actual.actual_units / planned * 100) if planned else 0, 1),
+                "Scrap": actual.scrap_units,
+                "Rework": actual.rework_units,
+                "Machine Hours": actual.actual_machine_hours,
+                "Labor Hours": actual.actual_labor_hours,
+                "Completed": actual.completed_at,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _machines_frame(machines) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "Asset": machine.asset_code,
+                "Machine": machine.display_name,
+                "Effective Rate": machine.effective_rate,
+                "Rate Unit": machine.rate_unit,
+                "Preferred Crew": machine.preferred_crew_size,
+                "Setup Minutes": machine.setup_minutes,
+                "Cleanup Minutes": machine.cleanup_minutes,
+                "Active": machine.active,
+            }
+            for machine in machines
+        ]
+    )
+
+
+def _crew_frame(crew_availability) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "Date": record.work_date,
+                "Shift": record.shift_name,
+                "People": record.available_people,
+                "Shift Hours": record.shift_hours,
+                "Available Labor Hours": record.available_people * record.shift_hours,
+                "Notes": record.notes,
+            }
+            for record in crew_availability
+        ]
+    )
+
+
+def _customers_frame(customers) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "Customer": customer.name,
+                "License / Registration": customer.license_or_registration,
+                "Contact": customer.contact_name,
+                "Email": customer.contact_email,
+                "Active": customer.active,
+            }
+            for customer in customers
+        ]
+    )
 
 
 def render_coman_workspace() -> None:
@@ -808,15 +881,9 @@ def render_coman_workspace() -> None:
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Actual performance could not be saved: {exc}")
+        orders_by_id = {order.id: order for order in orders}
+        performance_df = _actuals_frame(actuals, orders_by_id)
         if actuals:
-            orders_by_id = {order.id: order for order in orders}
-            performance_rows = []
-            for actual in actuals:
-                order = orders_by_id.get(actual.production_order_id)
-                planned = order.requested_units if order else 0
-                yield_pct = (actual.actual_units / planned * 100) if planned else 0
-                performance_rows.append({"Order": order.order_number if order else actual.production_order_id, "Product": order.product_name if order else "Unknown", "Planned Units": planned, "Actual Units": actual.actual_units, "Attainment %": round(yield_pct, 1), "Scrap": actual.scrap_units, "Rework": actual.rework_units, "Machine Hours": actual.actual_machine_hours, "Labor Hours": actual.actual_labor_hours, "Completed": actual.completed_at})
-            performance_df = pd.DataFrame(performance_rows)
             st.dataframe(performance_df, width="stretch", hide_index=True)
             summary = st.columns(4)
             summary[0].metric("Completed Jobs", len(performance_df))
@@ -897,3 +964,28 @@ def render_coman_workspace() -> None:
             visual1.altair_chart(output_chart.configure(**app_chart_config), width="stretch")
             visual2.altair_chart(attainment_chart.configure(**app_chart_config), width="stretch")
             st.altair_chart(hours_chart.configure(**app_chart_config), width="stretch")
+
+        st.markdown("#### Production Ops executive report")
+        st.caption(
+            "Exports the current Co-Man queue, completed-job performance, machines, crew capacity, and customers "
+            "using the Production Ops report design."
+        )
+        coman_report_payload = {
+            "organization": st.session_state.get("active_organization_name") or str(organization_id),
+            "facility": st.session_state.get("active_facility_name") or str(facility_id),
+            "reporting_period": f"Queue snapshot {datetime.now().strftime('%Y-%m-%d')}",
+            "orders": _orders_frame(orders, customers_by_id),
+            "actuals": performance_df,
+            "machines": _machines_frame(facility_machines),
+            "crew": _crew_frame(crew_availability),
+            "customers": _customers_frame(customers),
+        }
+        coman_report_bytes = _build_coman_executive_report_pdf(coman_report_payload)
+        st.session_state["production_ops_coman_report_bytes"] = coman_report_bytes
+        st.download_button(
+            "Export Production Ops Report",
+            data=coman_report_bytes,
+            file_name=f"production_ops_coman_report_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+            mime="application/pdf",
+            key="coman_production_ops_report",
+        )

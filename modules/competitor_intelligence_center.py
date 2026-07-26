@@ -877,4 +877,6 @@ def render_competitor_intelligence_center() -> None:
                 "opportunity_risk_df": st.session_state.get("competitor_opportunity_risk_df"),
                 "market_read_text": st.session_state.get("competitor_market_read_text", ""),
             }
-            st.download_button("Export Executive Intelligence Report", data=_build_competitor_intelligence_report_pdf(payload), file_name=f"competitor_intelligence_report_{datetime.utcnow().strftime('%Y%m%d')}.pdf", mime="application/pdf")
+            competitor_report_bytes = _build_competitor_intelligence_report_pdf(payload)
+            st.session_state["retail_ops_competitor_report_bytes"] = competitor_report_bytes
+            st.download_button("Export Retail Ops Intelligence Report", data=competitor_report_bytes, file_name=f"retail_ops_competitor_intelligence_{datetime.utcnow().strftime('%Y%m%d')}.pdf", mime="application/pdf")

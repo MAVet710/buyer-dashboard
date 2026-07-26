@@ -352,6 +352,10 @@ def _normalize_data(employees, schedule, sales, thresholds):
 
 
 def _build_retail_ops_executive_report_pdf(payload: dict) -> bytes:
+    from reports.retail_ops_report import _build_retail_ops_executive_report_pdf as build_report
+
+    return build_report(payload)
+
     out = BytesIO()
     c = canvas.Canvas(out, pagesize=letter)
     w, h = letter
@@ -528,6 +532,32 @@ def render_retail_ops_command_center():
         st.session_state["retail_ops_recommendations"] = recs
 
     with tabs[7]:
-        payload = {"summary_lines": [f"Labor cost % of sales: {labor_pct:.1f}%", f"Sales per labor hour: ${sales_per_hour:,.1f}", f"Transactions per labor hour: {tx_per_hour:,.1f}", f"Labor health status: {status}"], "recommendations": st.session_state.get("retail_ops_recommendations", [])}
+        payload = {
+            "organization": st.session_state.get("active_organization_name") or "Current retail operation",
+            "facility": st.session_state.get("active_facility_name") or "Retail location",
+            "reporting_period": st.session_state.get("retail_ops_reporting_period") or "Current session",
+            "summary_lines": [
+                f"Labor cost % of sales: {labor_pct:.1f}%",
+                f"Sales per labor hour: ${sales_per_hour:,.1f}",
+                f"Transactions per labor hour: {tx_per_hour:,.1f}",
+                f"Labor health status: {status}",
+            ],
+            "recommendations": st.session_state.get("retail_ops_recommendations", []),
+            "metrics": {
+                "total_labor_cost": total_labor_cost,
+                "total_labor_hours": total_labor_hours,
+                "labor_pct_of_sales": labor_pct,
+                "sales_per_labor_hour": sales_per_hour,
+                "transactions_per_labor_hour": tx_per_hour,
+                "total_sales": total_sales,
+                "labor_health_status": status,
+                "heavy_hours": int((analysis.get("schedule_status", pd.Series(dtype=str)) == "Heavy").sum()),
+                "lean_hours": int((analysis.get("schedule_status", pd.Series(dtype=str)) == "Lean").sum()),
+            },
+            "analysis": analysis,
+            "demand": sales,
+            "staffing": schedule,
+        }
         pdf_bytes = _build_retail_ops_executive_report_pdf(payload)
-        st.download_button("Export Retail Ops Report", data=pdf_bytes, file_name=f"retail_ops_executive_report_{datetime.utcnow().strftime('%Y-%m-%d')}.pdf", mime="application/pdf")
+        st.session_state["retail_ops_labor_report_bytes"] = pdf_bytes
+        st.download_button("Export Retail Ops Report", data=pdf_bytes, file_name=f"retail_ops_labor_report_{datetime.utcnow().strftime('%Y-%m-%d')}.pdf", mime="application/pdf")

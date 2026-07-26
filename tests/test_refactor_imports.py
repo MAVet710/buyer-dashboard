@@ -9,10 +9,14 @@ def test_refactor_module_imports():
         "utils.dataframe_helpers",
         "utils.formatting",
         "reports.report_style",
+        "reports.executive_system",
+        "reports.report_helpers",
         "reports.buyer_report",
         "reports.extraction_report",
         "reports.white_label_report",
         "reports.retail_ops_report",
+        "reports.competitor_report",
+        "reports.coman_report",
         "views.retail_ops_command_center",
     ]
     for name in modules:
