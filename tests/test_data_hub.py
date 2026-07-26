@@ -61,6 +61,10 @@ def test_data_hub_status_reflects_retail_extraction_and_facility_state():
         "active_organization_id": "org-1",
         "active_facility_id": "facility-1",
         "active_facility_name": "Main Production",
+        "demo_commercial_orders_df": pd.DataFrame([{"order": "SO-1"}]),
+        "demo_nomenclature_catalog_df": pd.DataFrame([{"sku": "SKU-1"}]),
+        "demo_production_machines_df": pd.DataFrame([{"asset": "IMA-1"}]),
+        "compliance_sources_df": pd.DataFrame([{"topic": "packaging"}]),
     }
 
     rows = build_data_hub_status(state)
@@ -70,3 +74,7 @@ def test_data_hub_status_reflects_retail_extraction_and_facility_state():
     assert by_name["Product Sales"]["Status"] == "Not loaded"
     assert by_name["Extraction Runs"]["Rows"] == 1
     assert by_name["Co-Man Master Data"]["Status"] == "Ready"
+    assert by_name["Orders & Fulfillment"]["Status"] == "Ready"
+    assert by_name["Nomenclature Catalog"]["Rows"] == 1
+    assert by_name["Production Capacity"]["Rows"] == 1
+    assert by_name["Compliance Sources"]["Status"] == "Ready"
