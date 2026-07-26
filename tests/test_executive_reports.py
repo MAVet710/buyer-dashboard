@@ -1,0 +1,154 @@
+from io import BytesIO
+
+import pandas as pd
+from PyPDF2 import PdfReader
+
+from reports.buyer_report import _build_buyer_executive_report_pdf
+from reports.coman_report import _build_coman_executive_report_pdf
+from reports.competitor_report import _build_competitor_intelligence_report_pdf
+from reports.executive_system import combine_report_pdfs
+from reports.extraction_report import _build_extraction_executive_report_pdf
+from reports.retail_ops_report import _build_retail_ops_executive_report_pdf
+from reports.white_label_report import _build_white_label_repack_report_pdf
+
+
+def _reader(pdf: bytes) -> PdfReader:
+    assert pdf.startswith(b"%PDF")
+    reader = PdfReader(BytesIO(pdf))
+    assert reader.pages
+    assert all(float(page.mediabox.width) > float(page.mediabox.height) for page in reader.pages)
+    assert all((page.extract_text() or "").strip() for page in reader.pages)
+    return reader
+
+
+def _all_text(reader: PdfReader) -> str:
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+
+def test_retail_report_family_uses_retail_branding_and_expected_sections():
+    buyer = _build_buyer_executive_report_pdf(
+        {
+            "store_name": "Test Store",
+            "detail_view": pd.DataFrame(
+                [
+                    {
+                        "item": "Flower A",
+                        "category": "Flower",
+                        "onhand": 20,
+                        "unitssold": 12,
+                        "avgunitsperday": 2,
+                        "daysonhand": 10,
+                        "reorderqty": 8,
+                    }
+                ]
+            ),
+            "inv_df": pd.DataFrame([{"onhandunits": 20, "inventoryvalue": 400}]),
+            "sales_df": pd.DataFrame([{"unitssold": 12}]),
+        }
+    )
+    white_label = _build_white_label_repack_report_pdf(
+        {
+            "package_output_summary": pd.DataFrame(
+                [
+                    {
+                        "Package Size": 3.5,
+                        "Allocation %": 100,
+                        "Grams Allocated": 350,
+                        "Units": 100,
+                        "Revenue": 3500,
+                        "Gross Profit": 1400,
+                        "Gross Margin %": 40,
+                        "Status": "Ready",
+                    }
+                ]
+            )
+        }
+    )
+    retail_labor = _build_retail_ops_executive_report_pdf(
+        {
+            "metrics": {"total_labor_cost": 1000, "labor_health_status": "Balanced"},
+            "analysis": pd.DataFrame([{"schedule_status": "Balanced", "total_sales": 5000}]),
+        }
+    )
+    competitor = _build_competitor_intelligence_report_pdf(
+        {
+            "competitor_snapshot_df": pd.DataFrame(
+                [
+                    {
+                        "competitor_name": "Market A",
+                        "category": "Flower",
+                        "effective_price": 35,
+                        "discount_pct": 10,
+                    }
+                ]
+            )
+        }
+    )
+    for pdf, title in [
+        (buyer, "Buyer Operations Executive Report"),
+        (white_label, "White Label / Repack Executive Report"),
+        (retail_labor, "Retail Labor Operations Executive Report"),
+        (competitor, "Competitor Intelligence Executive Report"),
+    ]:
+        text = _all_text(_reader(pdf))
+        assert "RETAIL OPS" in text
+        assert title in text
+        assert "CONFIDENTIAL - INTERNAL OPERATIONS" in text
+        assert "â" not in text
+
+
+def test_production_report_family_uses_production_branding():
+    extraction = _build_extraction_executive_report_pdf(
+        {
+            "kpis": {"total_runs": 1, "avg_yield_pct": 7.5},
+            "run_performance": pd.DataFrame(
+                [
+                    {
+                        "run id": "RUN-1",
+                        "method": "Hydrocarbon",
+                        "input weight g": 1000,
+                        "finished output g": 75,
+                        "yield pct": 7.5,
+                    }
+                ]
+            ),
+        }
+    )
+    coman = _build_coman_executive_report_pdf(
+        {
+            "orders": pd.DataFrame(
+                [
+                    {
+                        "Order": "WO-1",
+                        "Type": "External",
+                        "Product": "3.5 g Flower",
+                        "Units": 1000,
+                        "Status": "Scheduled",
+                    }
+                ]
+            )
+        }
+    )
+    for pdf, title in [
+        (extraction, "Extraction Operations Executive Report"),
+        (coman, "Co-Man Production Executive Report"),
+    ]:
+        text = _all_text(_reader(pdf))
+        assert "PRODUCTION OPS" in text
+        assert title in text
+        assert "CONFIDENTIAL - INTERNAL OPERATIONS" in text
+        assert "â" not in text
+
+
+def test_combined_report_pack_preserves_all_reports():
+    retail = _build_retail_ops_executive_report_pdf({})
+    production = _build_coman_executive_report_pdf({})
+    combined = combine_report_pdfs(
+        [retail, production],
+        title="DoobieLogic Company Executive Pack",
+        division="All Operations",
+    )
+    reader = _reader(combined)
+    text = _all_text(reader)
+    assert "Retail Labor Operations Executive Report" in text
+    assert "Co-Man Production Executive Report" in text

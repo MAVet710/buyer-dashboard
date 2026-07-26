@@ -4022,6 +4022,10 @@ def _build_buyer_executive_report_bytes(payload: dict) -> bytes:
 
 
 def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
+    from reports.buyer_report import _build_buyer_executive_report_pdf as build_report
+
+    return build_report(payload)
+
     payload = payload or {}
     out = BytesIO()
     page_w, page_h = letter[1], letter[0]
@@ -4507,6 +4511,10 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     return out.read()
 
 def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
+    from reports.extraction_report import _build_extraction_executive_report_pdf as build_report
+
+    return build_report(payload)
+
     payload = payload or {}
     out = BytesIO()
     page_w, page_h = letter[1], letter[0]
@@ -4733,6 +4741,10 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
 
 
 def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
+    from reports.white_label_report import _build_white_label_repack_report_pdf as build_report
+
+    return build_report(payload)
+
     payload = payload or {}
     out = BytesIO()
     c = canvas.Canvas(out, pagesize=landscape(letter))
@@ -4998,40 +5010,120 @@ st.markdown(
     unsafe_allow_html=True,
 )
 _export_left, _export_right = st.columns([6, 1.4])
+_retail_report_parts: list[tuple[str, bytes]] = []
+_production_report_parts: list[tuple[str, bytes]] = []
+_buyer_report_bytes = None
+_white_report_bytes = None
+_extraction_report_bytes = _build_extraction_executive_report_pdf(_extraction_payload)
+if _buyer_export_payload is not None:
+    _buyer_report_bytes = _build_buyer_executive_report_pdf(_buyer_export_payload)
+    _retail_report_parts.append(("Buyer Operations", _buyer_report_bytes))
+_white_pack_payload = st.session_state.get("white_label_export_payload")
+if _white_pack_payload is not None:
+    _white_report_bytes = _build_white_label_repack_report_pdf(_white_pack_payload)
+    _retail_report_parts.append(("White Label / Repack", _white_report_bytes))
+for _report_name, _report_state_key in [
+    ("Retail Labor Operations", "retail_ops_labor_report_bytes"),
+    ("Competitor Intelligence", "retail_ops_competitor_report_bytes"),
+]:
+    _report_bytes = st.session_state.get(_report_state_key)
+    if isinstance(_report_bytes, bytes) and _report_bytes.startswith(b"%PDF"):
+        _retail_report_parts.append((_report_name, _report_bytes))
+if not _ecc_runs.empty:
+    _production_report_parts.append(("Extraction Operations", _extraction_report_bytes))
+_coman_report_bytes = st.session_state.get("production_ops_coman_report_bytes")
+if isinstance(_coman_report_bytes, bytes) and _coman_report_bytes.startswith(b"%PDF"):
+    _production_report_parts.append(("Co-Man Production", _coman_report_bytes))
+
+with _export_left:
+    with st.popover("Executive Report Packs"):
+        from reports.executive_system import combine_report_pdfs
+
+        st.caption("Reports are separated into Retail Ops and Production Ops. Packs include currently available reports.")
+        _pack_col1, _pack_col2 = st.columns(2)
+        with _pack_col1:
+            st.markdown("**Retail Ops**")
+            st.caption(", ".join(name for name, _ in _retail_report_parts) or "No reports ready")
+            if _retail_report_parts:
+                st.download_button(
+                    "Download Retail Ops Pack",
+                    data=combine_report_pdfs(
+                        [report for _, report in _retail_report_parts],
+                        title="DoobieLogic Retail Ops Executive Pack",
+                        division="Retail Ops",
+                    ),
+                    file_name=f"retail_ops_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+                    mime="application/pdf",
+                    key="retail_ops_report_pack",
+                    width="stretch",
+                )
+        with _pack_col2:
+            st.markdown("**Production Ops**")
+            st.caption(", ".join(name for name, _ in _production_report_parts) or "No reports ready")
+            if _production_report_parts:
+                st.download_button(
+                    "Download Production Ops Pack",
+                    data=combine_report_pdfs(
+                        [report for _, report in _production_report_parts],
+                        title="DoobieLogic Production Ops Executive Pack",
+                        division="Production Ops",
+                    ),
+                    file_name=f"production_ops_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+                    mime="application/pdf",
+                    key="production_ops_report_pack",
+                    width="stretch",
+                )
+        if _retail_report_parts and _production_report_parts:
+            st.download_button(
+                "Download Company Executive Pack",
+                data=combine_report_pdfs(
+                    [report for _, report in _retail_report_parts + _production_report_parts],
+                    title="DoobieLogic Company Executive Pack",
+                    division="All Operations",
+                ),
+                file_name=f"company_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+                mime="application/pdf",
+                key="company_report_pack",
+                width="stretch",
+            )
 with _export_right:
-    if _active_workspace == "🧪 Extraction Command Center":
+    if _active_workspace == EXTRACTION_WORKSPACE:
         st.download_button(
-            "Export Report",
-            data=_build_extraction_executive_report_pdf(_extraction_payload),
+            "Export Production Ops Report",
+            data=_extraction_report_bytes,
             file_name=_extraction_report_file,
             mime="application/pdf",
             key="extraction_export_report_btn",
         )
+        st.caption("Production Ops executive PDF")
+    elif _active_workspace == COMAN_WORKSPACE:
+        st.caption("Production Ops report is available under Co-Man Performance.")
+    elif _active_workspace == WHITE_LABEL_WORKSPACE:
+        white_payload = st.session_state.get("white_label_export_payload")
+        if white_payload is None:
+            if st.button("Export Retail Ops Report", key="white_label_export_report_btn_disabled"):
+                st.warning("Run a white label scenario first, then export.")
+        else:
+            st.download_button(
+                "Export Retail Ops Report",
+                data=_white_report_bytes,
+                file_name=f"retail_ops_repack_report_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+                mime="application/pdf",
+                key="white_label_export_report_btn",
+            )
+            st.caption("Retail Ops executive PDF")
     elif _buyer_export_payload is None:
-        if _active_workspace == "🏷️ White Label / Repack":
-            white_payload = st.session_state.get("white_label_export_payload")
-            if white_payload is None:
-                if st.button("Export White Label Report", key="white_label_export_report_btn_disabled"):
-                    st.warning("Run a white label scenario first, then export.")
-            else:
-                st.download_button(
-                    "Export White Label Report",
-                    data=_build_white_label_repack_report_pdf(white_payload),
-                    file_name=f"white_label_repack_report_{datetime.now().strftime('%Y-%m-%d')}.pdf",
-                    mime="application/pdf",
-                    key="white_label_export_report_btn",
-                )
-        elif st.button("Export Report", key="buyer_export_report_btn_disabled"):
+        if st.button("Export Retail Ops Report", key="buyer_export_report_btn_disabled"):
             st.warning("Upload inventory and sales data before exporting a buyer report.")
     else:
         st.download_button(
-            "Export Report",
-            data=_build_buyer_executive_report_pdf(_buyer_export_payload),
+            "Export Retail Ops Report",
+            data=_buyer_report_bytes,
             file_name=_buyer_report_file_pdf,
             mime="application/pdf",
             key="buyer_export_report_btn",
         )
-        st.caption("Export format: PDF executive summary")
+        st.caption("Retail Ops executive PDF")
 render_section_header(
     "BUYER DASHBOARD",
     subtitle="Compliance and operations intelligence for buyer and extraction teams.",
