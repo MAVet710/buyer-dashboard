@@ -58,16 +58,19 @@ from services.auth_workflow import (
     clear_authenticated_session,
 )
 from services.workspace_navigation import (
+    AI_INTEGRATIONS_SECTION,
     COMAN_WORKSPACE,
     COMMERCIAL_OPS,
     COMMERCIAL_WORKSPACE,
     DATA_HUB_WORKSPACE,
     DATA_OPERATIONS,
     EXTRACTION_WORKSPACE,
+    METRC_INTEGRATIONS_SECTION,
     PRODUCTION_OPS,
     RETAIL_OPS,
     WHITE_LABEL_WORKSPACE,
     buyer_section_options,
+    can_manage_ai_integrations,
     workspace_options as build_workspace_options,
 )
 from modules.commercial.ui import render_commercial_workspace
@@ -3116,6 +3119,11 @@ def _doobie_ai_access_enabled() -> bool:
 
 
 def _render_doobie_ai_panel() -> None:
+    # AI connection controls are platform infrastructure. Company admins,
+    # buyers, planners, operators, QA, and read-only users must never receive
+    # credential fields or a prompt to connect Doobie.
+    if not can_manage_ai_integrations(st.session_state.get("auth_user_role")):
+        return
     # Admins configure and diagnose Doobie from the dedicated Integrations and
     # Admin Tools pages. Keeping the full form in their sidebar duplicates UI.
     if st.session_state.get("is_admin", False):
@@ -3221,13 +3229,166 @@ def _render_doobie_ai_panel() -> None:
             _safe_rerun()
 
 
-def _render_admin_integrations_page() -> None:
-    if not st.session_state.get("is_admin", False):
-        st.error("Admin access is required.")
+def _resolve_metrc_integrator_key() -> str:
+    configured = get_default_metrc_integrator_key()
+    integrator_key = str(configured.get("api_key") or "").strip()
+    if integrator_key:
+        return integrator_key
+    try:
+        return str(
+            st.secrets.get("METRC_INTEGRATOR_API_KEY")
+            or st.secrets.get("METRC_SOFTWARE_API_KEY")
+            or ""
+        ).strip()
+    except Exception:
+        return ""
+
+
+def _render_user_metrc_integrations_page() -> None:
+    """Render account-scoped METRC settings without exposing AI controls."""
+
+    username, _ = _current_authenticated_identity()
+    if not username:
+        st.error("Sign in to manage your METRC integration.")
         return
 
-    st.subheader("🔌 Integrations")
-    st.caption("Admin-only shared service credentials and connection settings.")
+    st.subheader("🔗 METRC Integrations")
+    st.caption(
+        "Connect the METRC account and licensed facility used by your workflows. "
+        "These settings are stored for your app account only."
+    )
+
+    if not USER_INTEGRATIONS_STORE.available:
+        st.warning(
+            "Durable integration storage is unavailable. Settings will remain in this "
+            "session but may need to be entered again later."
+        )
+
+    integrator_key = _resolve_metrc_integrator_key()
+    with st.container(border=True):
+        st.markdown("### METRC")
+        st.caption(
+            "The app performs a read-only facility check. Your METRC user key is "
+            "masked after it is saved."
+        )
+        st.text_input(
+            "METRC User API Key",
+            value="",
+            key="user_metrc_api_key_input",
+            type="password",
+            help="Leave blank to keep the currently saved key.",
+        )
+        st.text_input(
+            "METRC State",
+            value=str(st.session_state.get("metrc_state") or ""),
+            key="user_metrc_state_input",
+            placeholder="e.g., CA, MA, MI, or https://api-ca.metrc.com",
+        )
+        st.text_input(
+            "METRC License / Facility",
+            value=str(st.session_state.get("metrc_license") or ""),
+            key="user_metrc_license_input",
+            help="The license number the app should verify in METRC facilities.",
+        )
+        st.caption(
+            f"Saved user key: "
+            f"{mask_api_key(str(st.session_state.get('metrc_api_key') or '')) or '(not set)'}"
+        )
+        st.caption(
+            f"Integrator key: "
+            f"{'configured' if integrator_key else 'not configured by the DEV team'}"
+        )
+        st.caption(
+            f"Status: **{st.session_state.get('user_metrc_status') or 'not_connected'}**"
+        )
+        st.caption(
+            f"Last validated: "
+            f"**{st.session_state.get('user_metrc_last_validated') or 'never'}**"
+        )
+
+        test_col, save_col, clear_col = st.columns(3)
+        if test_col.button("Test Connection", key="user_metrc_test_btn"):
+            state = str(st.session_state.get("user_metrc_state_input") or "").strip()
+            license_name = str(
+                st.session_state.get("user_metrc_license_input") or ""
+            ).strip()
+            api_key = str(
+                st.session_state.get("user_metrc_api_key_input")
+                or st.session_state.get("metrc_api_key")
+                or ""
+            ).strip()
+            result = test_metrc_connection(
+                state=state,
+                user_api_key=api_key,
+                integrator_api_key=integrator_key,
+                license_number=license_name,
+            )
+            st.session_state.user_metrc_status = str(
+                result.get("status") or "failed"
+            )
+            if result.get("ok"):
+                st.session_state.user_metrc_last_validated = (
+                    datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                )
+                st.success(
+                    str(result.get("message") or "METRC connection succeeded.")
+                )
+                st.caption(
+                    f"Facilities visible: {result.get('facility_count', 0)}"
+                )
+                if result.get("license_found") is False:
+                    st.warning(
+                        "The connection works, but this license was not found "
+                        "for the supplied METRC user key."
+                    )
+            else:
+                st.warning(
+                    str(result.get("message") or "METRC connection test failed.")
+                )
+
+        if save_col.button(
+            "Save",
+            key="user_metrc_save_btn",
+            type="primary",
+        ):
+            candidate_key = str(
+                st.session_state.get("user_metrc_api_key_input") or ""
+            ).strip()
+            if candidate_key:
+                st.session_state.metrc_api_key = candidate_key
+            st.session_state.metrc_state = str(
+                st.session_state.get("user_metrc_state_input") or ""
+            ).strip()
+            st.session_state.metrc_license = str(
+                st.session_state.get("user_metrc_license_input") or ""
+            ).strip()
+            _save_persistent_user_integrations()
+            st.success("Your METRC settings were saved.")
+
+        if clear_col.button("Clear / Reset", key="user_metrc_clear_btn"):
+            st.session_state.metrc_api_key = ""
+            st.session_state.metrc_state = ""
+            st.session_state.metrc_license = ""
+            st.session_state.user_metrc_status = "not_connected"
+            st.session_state.user_metrc_last_validated = None
+            st.session_state.user_metrc_api_key_input = ""
+            st.session_state.user_metrc_state_input = ""
+            st.session_state.user_metrc_license_input = ""
+            _save_persistent_user_integrations()
+            st.success("Your METRC settings were cleared.")
+            _safe_rerun()
+
+
+def _render_admin_integrations_page() -> None:
+    if not can_manage_ai_integrations(st.session_state.get("auth_user_role")):
+        _render_user_metrc_integrations_page()
+        return
+    if not st.session_state.get("is_admin", False):
+        st.error("Level DEV access is required.")
+        return
+
+    st.subheader("🧠 AI & METRC Integrations")
+    st.caption("Level DEV platform credentials and connection settings.")
 
     if not st.session_state.get("_global_integrations_store_available"):
         st.warning("Global integrations persistence is unavailable in this environment.")
@@ -5144,27 +5305,37 @@ render_section_header(
     "BUYER DASHBOARD",
     subtitle="Compliance and operations intelligence for buyer and extraction teams.",
 )
-_doobie_header_status = _doobie_ai_status()
-if _doobie_header_status == "connected":
-    st.caption("🟢 Doobie Connected")
-elif _doobie_header_status in {"invalid", "revoked", "expired", "invalid_license"}:
-    st.caption("🔴 Doobie Invalid / Revoked")
-elif _doobie_header_status == "unavailable":
-    st.caption("🟠 Doobie Unavailable")
-else:
-    st.caption("🟡 Doobie Not Connected")
+_is_dev_session = can_manage_ai_integrations(
+    st.session_state.get("auth_user_role")
+)
+if _is_dev_session:
+    _doobie_header_status = _doobie_ai_status()
+    if _doobie_header_status == "connected":
+        st.caption("🟢 Doobie Connected")
+    elif _doobie_header_status in {
+        "invalid",
+        "revoked",
+        "expired",
+        "invalid_license",
+    }:
+        st.caption("🔴 Doobie Invalid / Revoked")
+    elif _doobie_header_status == "unavailable":
+        st.caption("🟠 Doobie Unavailable")
+    else:
+        st.caption("🟡 Doobie Not Connected")
 if st.session_state.get("_daily_restore_msg"):
     st.info(
         "📂 Your uploads from earlier today have been restored automatically. "
         "You can re-upload files at any time to refresh them."
     )
     st.session_state._daily_restore_msg = False
-if _doobie_ai_status() == "connected":
-    st.markdown("✅ AI buyer-assist is **ON** for this session.")
-elif not _doobie_ai_access_enabled():
-    st.markdown("🟡 AI buyer-assist is **OFF** until Doobie AI is connected.")
-else:
-    st.markdown("⚠️ AI buyer-assist is **OFF** (Doobie AI unavailable).")
+if _is_dev_session:
+    if _doobie_ai_status() == "connected":
+        st.markdown("✅ AI buyer-assist is **ON** for this session.")
+    elif not _doobie_ai_access_enabled():
+        st.markdown("🟡 AI buyer-assist is **OFF** until Doobie AI is connected.")
+    else:
+        st.markdown("⚠️ AI buyer-assist is **OFF** (Doobie AI unavailable).")
 st.markdown("---")
 
 if not PLOTLY_AVAILABLE:
@@ -9688,6 +9859,7 @@ st.sidebar.markdown("---")
 # =========================
 section_options = buyer_section_options(
     is_admin=st.session_state.get("is_admin", False),
+    user_role=str(st.session_state.get("auth_user_role") or "trial"),
     admin_exports_enabled=_feature_enabled("admin_exports", default_enabled=True),
 )
 
@@ -11558,12 +11730,9 @@ elif section == "🛠️ Admin Tools":
             st.error(f"Could not audit file: {exc}")
 
 # ============================================================
-# PAGE 2D – INTEGRATIONS (ADMIN ONLY)
+# PAGE 2D – ROLE-SAFE INTEGRATIONS
 # ============================================================
-elif section == "🔌 Integrations":
-    if not st.session_state.get("is_admin", False):
-        st.warning("Admin access is required for this section.")
-        st.stop()
+elif section in {AI_INTEGRATIONS_SECTION, METRC_INTEGRATIONS_SECTION}:
     _render_admin_integrations_page()
 
 # ============================================================
