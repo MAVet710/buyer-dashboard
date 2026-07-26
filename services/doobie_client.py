@@ -13,6 +13,28 @@ FALLBACK_RESPONSE: dict[str, Any] = {
     "confidence": "low",
     "sources": [],
     "mode": "fallback",
+    "risk_flags": [],
+    "inefficiencies": [],
+}
+
+MODE_ALIASES = {
+    "buyer_assistant": "buyer",
+    "support": "copilot",
+    "main": "copilot",
+    "operations": "ops",
+}
+VALID_MODES = {
+    "buyer",
+    "inventory",
+    "extraction",
+    "ops",
+    "copilot",
+    "compliance",
+    "executive",
+    "retail_ops",
+    "cultivation",
+    "kitchen",
+    "packaging",
 }
 
 
@@ -32,6 +54,7 @@ class DoobieClient:
 
     def _headers(self) -> dict[str, str]:
         return {
+            "x-api-key": self.api_key,
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
@@ -59,8 +82,23 @@ class DoobieClient:
         out.update({k: v for k, v in payload.items() if v is not None})
         out["recommendations"] = out["recommendations"] if isinstance(out.get("recommendations"), list) else []
         out["sources"] = out["sources"] if isinstance(out.get("sources"), list) else []
+        out["risk_flags"] = out["risk_flags"] if isinstance(out.get("risk_flags"), list) else []
+        out["inefficiencies"] = out["inefficiencies"] if isinstance(out.get("inefficiencies"), list) else []
         out["mode"] = str(out.get("mode") or "live")
         return out
+
+    @staticmethod
+    def _brief_payload(
+        data: dict[str, Any],
+        *,
+        state: str | None,
+        question: str | None,
+        default_question: str,
+    ) -> dict[str, Any]:
+        context = dict(data or {})
+        embedded_question = context.pop("question", None) or context.pop("prompt", None)
+        final_question = str(question or embedded_question or default_question).strip()
+        return {"question": final_question, "state": state, "data": context}
 
     def call_endpoint(self, endpoint: str, payload: dict[str, Any], license_context: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.enabled:
@@ -91,34 +129,96 @@ class DoobieClient:
         except Exception:
             return self._fallback("unexpected_error")
 
-    def buyer_brief(self, data: dict[str, Any], state: str | None = None) -> dict[str, Any]:
+    def buyer_brief(
+        self,
+        data: dict[str, Any],
+        state: str | None = None,
+        question: str | None = None,
+    ) -> dict[str, Any]:
         return self.call_endpoint(
-            "/api/v1/support/buyer-brief",
-            {"state": state, "data": data},
+            "/api/v1/support/buyer_brief",
+            self._brief_payload(
+                data,
+                state=state,
+                question=question,
+                default_question="What should the buyer prioritize from this dataset?",
+            ),
         )
 
-    def inventory_check(self, data: dict[str, Any], state: str | None = None) -> dict[str, Any]:
+    def inventory_check(
+        self,
+        data: dict[str, Any],
+        state: str | None = None,
+        question: str | None = None,
+    ) -> dict[str, Any]:
         return self.call_endpoint(
-            "/api/v1/support/inventory-check",
-            {"state": state, "data": data},
+            "/api/v1/support/inventory_check",
+            self._brief_payload(
+                data,
+                state=state,
+                question=question,
+                default_question="Which inventory risks need immediate attention?",
+            ),
         )
 
-    def extraction_brief(self, data: dict[str, Any], state: str | None = None) -> dict[str, Any]:
+    def extraction_brief(
+        self,
+        data: dict[str, Any],
+        state: str | None = None,
+        question: str | None = None,
+    ) -> dict[str, Any]:
         return self.call_endpoint(
-            "/api/v1/support/extraction-brief",
-            {"state": state, "data": data},
+            "/api/v1/support/extraction_brief",
+            self._brief_payload(
+                data,
+                state=state,
+                question=question,
+                default_question="Which extraction risks and process opportunities matter most?",
+            ),
         )
 
-    def ops_brief(self, data: dict[str, Any], state: str | None = None) -> dict[str, Any]:
+    def ops_brief(
+        self,
+        data: dict[str, Any],
+        state: str | None = None,
+        question: str | None = None,
+        department: str | None = None,
+    ) -> dict[str, Any]:
+        payload = self._brief_payload(
+            data,
+            state=state,
+            question=question,
+            default_question="Which operational bottlenecks should we address first?",
+        )
+        if department:
+            payload["department"] = department
         return self.call_endpoint(
-            "/api/v1/support/ops-brief",
-            {"state": state, "data": data},
+            "/api/v1/support/ops_brief",
+            payload,
         )
 
-    def copilot(self, question: str, data: dict[str, Any], persona: str | None = None) -> dict[str, Any]:
+    def copilot(
+        self,
+        question: str,
+        data: dict[str, Any],
+        persona: str | None = None,
+        state: str | None = None,
+        department: str | None = None,
+    ) -> dict[str, Any]:
+        requested_mode = str(persona or "copilot").strip().lower()
+        mode = MODE_ALIASES.get(requested_mode, requested_mode)
+        if mode not in VALID_MODES:
+            mode = "copilot"
         return self.call_endpoint(
             "/api/v1/support/copilot",
-            {"question": question, "persona": persona, "data": data},
+            {
+                "question": question,
+                "mode": mode,
+                "persona": mode,
+                "state": state,
+                "department": department,
+                "data": data,
+            },
         )
 
     def support_copilot_health_check(self) -> dict[str, Any]:
