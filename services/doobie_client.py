@@ -204,11 +204,12 @@ class DoobieClient:
         persona: str | None = None,
         state: str | None = None,
         department: str | None = None,
+        history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
-        requested_mode = str(persona or "copilot").strip().lower()
+        requested_mode = str(persona or "auto").strip().lower()
         mode = MODE_ALIASES.get(requested_mode, requested_mode)
-        if mode not in VALID_MODES:
-            mode = "copilot"
+        if mode not in VALID_MODES | {"auto"}:
+            mode = "auto"
         return self.call_endpoint(
             "/api/v1/support/copilot",
             {
@@ -218,6 +219,7 @@ class DoobieClient:
                 "state": state,
                 "department": department,
                 "data": data,
+                "history": history or [],
             },
         )
 
