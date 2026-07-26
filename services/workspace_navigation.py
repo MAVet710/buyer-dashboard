@@ -15,6 +15,13 @@ RETAIL_OPS = "🛍️ Retail Ops"
 PRODUCTION_OPS = "🏭 Production Ops"
 COMMERCIAL_OPS = "🤝 Commercial Ops"
 DATA_OPERATIONS = "🗂️ Data & Integrations"
+AI_INTEGRATIONS_SECTION = "🧠 AI & METRC Integrations"
+METRC_INTEGRATIONS_SECTION = "🔗 METRC Integrations"
+
+
+def can_manage_ai_integrations(user_role: str | None) -> bool:
+    """Return whether a role may view or change platform AI credentials."""
+    return str(user_role or "").strip().lower() == "dev"
 
 
 def workspace_groups(feature_enabled: Callable[..., bool]) -> dict[str, list[str]]:
@@ -60,7 +67,17 @@ def workspace_group(workspace: str) -> str | None:
     return None
 
 
-def buyer_section_options(*, is_admin: bool, admin_exports_enabled: bool = True) -> list[str]:
+def buyer_section_options(
+    *,
+    is_admin: bool,
+    user_role: str | None = None,
+    admin_exports_enabled: bool = True,
+) -> list[str]:
+    """Return role-safe Buyer Operations pages.
+
+    AI configuration is platform infrastructure and is therefore visible only
+    to Level DEV. Every other durable account receives a METRC-only page.
+    """
     options = [
         "📊 Inventory Dashboard",
         "📈 Trends",
@@ -74,6 +91,10 @@ def buyer_section_options(*, is_admin: bool, admin_exports_enabled: bool = True)
     ]
     if is_admin and admin_exports_enabled:
         options.append("🛠️ Admin Tools")
-    if is_admin:
-        options.append("🔌 Integrations")
+    normalized_role = str(user_role or ("admin" if is_admin else "buyer")).strip().lower()
+    options.append(
+        AI_INTEGRATIONS_SECTION
+        if can_manage_ai_integrations(normalized_role)
+        else METRC_INTEGRATIONS_SECTION
+    )
     return options
