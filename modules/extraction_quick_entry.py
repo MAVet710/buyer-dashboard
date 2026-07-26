@@ -131,4 +131,3 @@ def quick_stage_weight_updates(stage: str, output_weight_g: float) -> dict[str, 
         "extraction_output_g": weight,
         "intermediate_output_g": weight,
     }
-
