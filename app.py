@@ -59,12 +59,22 @@ from services.auth_workflow import (
 )
 from services.workspace_navigation import (
     COMAN_WORKSPACE,
+    DATA_HUB_WORKSPACE,
+    DATA_OPERATIONS,
     EXTRACTION_WORKSPACE,
+    PRODUCTION_OPS,
+    RETAIL_OPS,
     WHITE_LABEL_WORKSPACE,
     buyer_section_options,
     workspace_options as build_workspace_options,
 )
 from modules.coman.ui import render_coman_workspace
+from modules.data_hub import render_data_hub_workspace
+from modules.extraction_quick_entry import (
+    build_quick_run_record,
+    quick_stage_weight_updates,
+    stage_completion_flags,
+)
 from modules.nomenclature_ui import render_nomenclature_mapper
 
 load_dotenv()
@@ -4921,18 +4931,21 @@ render_commandbar(
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
 workspace_options = build_workspace_options(_feature_enabled)
-RETAIL_OPS = "🛍️ Retail Ops"
-PRODUCTION_OPS = "🏭 Production Ops"
 workspace_groups = {
     RETAIL_OPS: [
         workspace
         for workspace in workspace_options
-        if workspace not in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
+        if workspace not in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE, DATA_HUB_WORKSPACE}
     ],
     PRODUCTION_OPS: [
         workspace
         for workspace in workspace_options
         if workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
+    ],
+    DATA_OPERATIONS: [
+        workspace
+        for workspace in workspace_options
+        if workspace == DATA_HUB_WORKSPACE
     ],
 }
 workspace_groups = {
@@ -4943,6 +4956,8 @@ saved_workspace = st.session_state.get("workspace_mode")
 saved_group = (
     PRODUCTION_OPS
     if saved_workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
+    else DATA_OPERATIONS
+    if saved_workspace == DATA_HUB_WORKSPACE
     else RETAIL_OPS
 )
 if operation_groups and st.session_state.get("operations_group") not in operation_groups:
@@ -5087,7 +5102,9 @@ with _export_left:
                 width="stretch",
             )
 with _export_right:
-    if _active_workspace == EXTRACTION_WORKSPACE:
+    if _active_workspace == DATA_HUB_WORKSPACE:
+        st.caption("Data Hub manages operational sources; reports remain in their destination workspaces.")
+    elif _active_workspace == EXTRACTION_WORKSPACE:
         st.download_button(
             "Export Production Ops Report",
             data=_extraction_report_bytes,
@@ -7220,7 +7237,105 @@ def render_extraction_command_center():
         if "output_mapping_warning" in run_explorer_df.columns:
             run_explorer_df["output_mapping_warning"] = run_explorer_df["output_mapping_warning"].fillna("")
         st.dataframe(run_explorer_df, width="stretch", hide_index=True)
-        with st.expander("Add Run Record", expanded=False):
+
+        st.markdown("#### Quick add a run")
+        st.caption(
+            "Capture the intake essentials now. Stage weights, economics, packaging, and detailed "
+            "traceability can be added only when they become relevant."
+        )
+        with st.form("ecc_quick_run_form", clear_on_submit=True):
+            quick1, quick2, quick3 = st.columns(3)
+            quick_run_date = quick1.date_input("Run date", value=datetime.today())
+            quick_state_default = str(st.session_state.get("ecc_selected_state", "MA"))
+            if quick_state_default not in ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"]:
+                quick_state_default = "MA"
+            quick_state_options = ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"]
+            quick_state = quick2.selectbox(
+                "State",
+                quick_state_options,
+                index=quick_state_options.index(quick_state_default),
+            )
+            quick_method = quick3.selectbox("Method", EXTRACTION_METHOD_OPTIONS)
+
+            quick_client = quick1.text_input("Client", value="In House")
+            quick_batch = quick2.text_input(
+                "Internal batch ID*",
+                placeholder="RUN-2026-0001",
+            )
+            quick_input_weight = quick3.number_input(
+                "Input weight (g)*",
+                min_value=0.0,
+                step=1.0,
+            )
+
+            quick_material = quick1.selectbox(
+                "Input material",
+                ["Fresh Frozen", "Cured Biomass", "Hash", "Flower", "Trim", "Other"],
+            )
+            quick_product = quick2.selectbox(
+                "Planned finished product",
+                EXTRACTION_PRODUCT_TYPE_OPTIONS,
+            )
+            quick_metrc_input = quick3.text_input("METRC input package (optional)")
+
+            quick_operator = quick1.text_input("Operator (optional)")
+            quick_machine = quick2.text_input("Machine / line (optional)")
+            quick_toll = quick3.checkbox("Customer-owned / toll job")
+            quick_submit = st.form_submit_button(
+                "Create run and continue tracking",
+                type="primary",
+            )
+
+        if quick_submit:
+            quick_batch_clean = quick_batch.strip()
+            existing_batches = set(
+                st.session_state.ecc_run_log.get(
+                    "batch_id_internal",
+                    pd.Series(dtype=str),
+                )
+                .fillna("")
+                .astype(str)
+                .str.strip()
+            )
+            if not quick_batch_clean:
+                st.error("Internal batch ID is required.")
+            elif float(quick_input_weight or 0.0) <= 0:
+                st.error("Input weight must be greater than zero.")
+            elif quick_batch_clean in existing_batches:
+                st.error("That internal batch ID already exists. Open Process Tracker to update it.")
+            else:
+                quick_workflow_template = _ecc_get_method_family(quick_method)
+                quick_product_normalized = (
+                    normalize_extraction_output_label(quick_product) or quick_product
+                )
+                quick_record = build_quick_run_record(
+                    run_date=quick_run_date,
+                    state=quick_state,
+                    client_name=quick_client,
+                    batch_id_internal=quick_batch_clean,
+                    method=quick_method,
+                    workflow_template=quick_workflow_template,
+                    product_type=quick_product_normalized,
+                    input_material_type=quick_material,
+                    input_weight_g=float(quick_input_weight),
+                    operator=quick_operator,
+                    machine_line=quick_machine,
+                    metrc_input_package_id=quick_metrc_input,
+                    toll_processing=quick_toll,
+                )
+                st.session_state.ecc_run_log = pd.concat(
+                    [st.session_state.ecc_run_log, pd.DataFrame([quick_record])],
+                    ignore_index=True,
+                )
+                st.session_state.ecc_run_log = _ecc_ensure_run_schema(
+                    _ensure_mass_balance_cols(st.session_state.ecc_run_log)
+                )
+                st.success(
+                    f"{quick_batch_clean} created at Intake. Continue in Process Tracker."
+                )
+                st.rerun()
+
+        with st.expander("Advanced run entry — all fields", expanded=False):
             r1, r2, r3 = st.columns(3)
             with r1:
                 run_date = st.date_input("Run Date", value=datetime.today(), key="ecc_run_date")
@@ -7625,6 +7740,138 @@ def render_extraction_command_center():
                     ]
                 )
             )
+
+            with st.expander("Quick stage update", expanded=True):
+                st.caption(
+                    "Move the selected run forward with one observed output. "
+                    "Use the full editor below only for exceptions or detailed economics."
+                )
+                selected_method_value = str(selected_row.get("method", "BHO") or "BHO")
+                selected_template_value = str(
+                    selected_row.get("workflow_template", "")
+                    or _ecc_get_method_family(selected_method_value)
+                )
+                quick_stage_options = _ecc_get_workflow_stages(
+                    selected_method_value,
+                    selected_template_value,
+                )
+                current_stage_value = str(selected_row.get("process_stage", "Intake"))
+                current_stage_index = (
+                    quick_stage_options.index(current_stage_value)
+                    if current_stage_value in quick_stage_options
+                    else 0
+                )
+                suggested_stage_index = min(
+                    current_stage_index + 1,
+                    len(quick_stage_options) - 1,
+                )
+                with st.form(
+                    f"ecc_quick_stage_form_{int(selected_idx)}",
+                    clear_on_submit=True,
+                ):
+                    stage1, stage2, stage3 = st.columns(3)
+                    quick_new_stage = stage1.selectbox(
+                        "New stage",
+                        quick_stage_options,
+                        index=suggested_stage_index,
+                    )
+                    quick_stage_output = stage2.number_input(
+                        "Observed output (g)",
+                        min_value=0.0,
+                        step=0.1,
+                        help="Enter the measured output leaving this stage. Leave zero for a status-only update.",
+                    )
+                    quick_stage_status = stage3.selectbox(
+                        "Run status",
+                        ["Queued", "Processing", "On Hold", "Complete", "Failed"],
+                        index=1,
+                    )
+                    quick_stage_metrc_output = stage1.text_input(
+                        "Stage output package ID (optional)"
+                    )
+                    quick_stage_operator = stage2.text_input(
+                        "Operator (optional)",
+                        value=str(selected_row.get("operator", "") or ""),
+                    )
+                    quick_stage_note = stage3.text_input(
+                        "Shift note (optional)",
+                        placeholder="Yield, downtime, QA, or handoff note",
+                    )
+                    quick_stage_submit = st.form_submit_button(
+                        "Save stage update",
+                        type="primary",
+                    )
+
+                if quick_stage_submit:
+                    st.session_state.ecc_run_log.loc[
+                        selected_idx,
+                        "process_stage",
+                    ] = quick_new_stage
+                    st.session_state.ecc_run_log.loc[
+                        selected_idx,
+                        "status",
+                    ] = quick_stage_status
+                    st.session_state.ecc_run_log.loc[
+                        selected_idx,
+                        "operator",
+                    ] = quick_stage_operator
+                    completion_updates = stage_completion_flags(
+                        quick_stage_options,
+                        quick_new_stage,
+                    )
+                    for field_name, field_value in completion_updates.items():
+                        st.session_state.ecc_run_log.loc[
+                            selected_idx,
+                            field_name,
+                        ] = field_value
+                    if float(quick_stage_output or 0.0) > 0:
+                        for field_name, field_value in quick_stage_weight_updates(
+                            quick_new_stage,
+                            float(quick_stage_output),
+                        ).items():
+                            st.session_state.ecc_run_log.loc[
+                                selected_idx,
+                                field_name,
+                            ] = field_value
+                    if quick_stage_metrc_output.strip():
+                        st.session_state.ecc_run_log.loc[
+                            selected_idx,
+                            "metrc_stage_output_id",
+                        ] = quick_stage_metrc_output.strip()
+                        if quick_new_stage == "Final Output":
+                            st.session_state.ecc_run_log.loc[
+                                selected_idx,
+                                "metrc_final_package_id",
+                            ] = quick_stage_metrc_output.strip()
+                    if quick_stage_note.strip():
+                        existing_notes = str(
+                            st.session_state.ecc_run_log.loc[selected_idx].get(
+                                "notes",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+                        timestamped_note = (
+                            f"{datetime.now().strftime('%Y-%m-%d %H:%M')} — "
+                            f"{quick_stage_note.strip()}"
+                        )
+                        st.session_state.ecc_run_log.loc[
+                            selected_idx,
+                            "notes",
+                        ] = "\n".join(
+                            value
+                            for value in [existing_notes, timestamped_note]
+                            if value
+                        )
+                    st.session_state.ecc_run_log = _ecc_ensure_run_schema(
+                        _ensure_mass_balance_cols(
+                            st.session_state.ecc_run_log
+                        )
+                    )
+                    st.success(
+                        f"{selected_row.get('batch_id_internal', 'Run')} moved to {quick_new_stage}."
+                    )
+                    st.rerun()
 
             st.markdown("#### Linked Inventory & Value Context")
             source_batches = _ecc_parse_list_field(selected_row.get("source_inventory_batch_ids", "[]"))
@@ -9357,7 +9604,10 @@ with _group_col:
     operation_group = st.selectbox(
         "Operations Area",
         operation_groups,
-        help="Retail Ops contains buying and repack tools. Production Ops contains Co-Man and extraction tools.",
+        help=(
+            "Retail Ops contains buying and repack tools. Production Ops contains Co-Man "
+            "and extraction tools. Data & Integrations loads shared operational sources."
+        ),
         key="operations_group",
         on_change=_sync_workspace_to_operations_group,
     )
@@ -9372,6 +9622,15 @@ with _workspace_col:
         key="workspace_mode",
     )
 
+if app_mode == DATA_HUB_WORKSPACE:
+    render_hero(
+        "Data Hub",
+        "Connect, upload, review, and reuse operational data across every workspace.",
+        _display_user,
+        "Data Operations",
+    )
+    render_data_hub_workspace()
+    st.stop()
 if app_mode == EXTRACTION_WORKSPACE:
     render_hero(
         f"{_time_greeting()}, Extraction Team",

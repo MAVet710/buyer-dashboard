@@ -11,6 +11,7 @@ import streamlit as st
 from reports.coman_report import _build_coman_executive_report_pdf
 
 from .db import ComanDatabaseConfigurationError, create_coman_engine
+from .order_prefill import build_recommended_order_prefill
 from .planning import (
     estimate_hand_labor_job,
     estimate_machine_job,
@@ -32,6 +33,21 @@ PRODUCT_FORMATS = [
     "Infused pre-roll pack",
     "Other",
 ]
+
+ORDER_WIDGET_KEYS = {
+    "order_number": "coman_order_number_input",
+    "work_type": "coman_order_work_type_input",
+    "requested_units": "coman_order_units_input",
+    "product_name": "coman_order_product_name_input",
+    "product_format": "coman_order_product_format_input",
+    "sku": "coman_order_sku_input",
+    "due_date": "coman_order_due_date_input",
+    "priority": "coman_order_priority_input",
+    "source_lot": "coman_order_source_lot_input",
+    "material_owner": "coman_order_material_owner_input",
+    "packaging_owner": "coman_order_packaging_owner_input",
+    "notes": "coman_order_notes_input",
+}
 
 DEFAULT_OPTIMIZER_PRODUCTS = [
     {"eligible": True, "product": "3.5 g flower pouch", "format": "Pouched flower — 3.5 g", "unit_size_g": 3.5, "revenue_per_unit": 18.0, "bulk_cost_per_g": 1.5, "packaging_cost_per_unit": 0.75, "other_cost_per_unit": 0.10, "machine_units_per_hour": 900.0, "machine_crew": 3, "machine_cost_per_hour": 35.0, "units_per_case": 50, "max_allocation_pct": 100.0},
@@ -343,30 +359,125 @@ def render_coman_workspace() -> None:
                 f"Remaining usable bulk: {remaining_g:,.1f} g. Use Max Allocation % to reserve demand or split bulk across products. "
                 "Final case pack, case pack, and stickering are included from the facility's Resources rates."
             )
+            recommendation_options = {
+                f"#{index} · {row['product']} · {int(row['units']):,} units · ${row['profit']:,.0f} profit": row
+                for index, row in enumerate(recommendations, start=1)
+            }
+            action_col1, action_col2 = st.columns([3, 1])
+            selected_recommendation_label = action_col1.selectbox(
+                "Recommendation to turn into a job",
+                list(recommendation_options),
+                key="coman_recommendation_for_order",
+            )
+            if action_col2.button(
+                "Build production order",
+                type="primary",
+                width="stretch",
+                key="coman_build_recommended_order",
+            ):
+                prefill = build_recommended_order_prefill(
+                    recommendation_options[selected_recommendation_label],
+                    optimizer_work_type,
+                )
+                st.session_state["coman_order_prefill"] = prefill
+                for field, widget_key in ORDER_WIDGET_KEYS.items():
+                    st.session_state[widget_key] = prefill[field]
+                st.rerun()
 
         st.divider()
         st.markdown("#### Committed production order")
-        st.caption("Use this path when a customer or internal plan already requires a specific finished-unit quantity.")
+        prefill = st.session_state.get("coman_order_prefill")
+        if prefill:
+            prefill_col1, prefill_col2 = st.columns([4, 1])
+            prefill_col1.info(
+                "Optimizer recommendation loaded. Review the editable order details, select a customer for external work, then save."
+            )
+            if prefill_col2.button("Clear prefill", width="stretch", key="coman_clear_order_prefill"):
+                st.session_state.pop("coman_order_prefill", None)
+                for widget_key in ORDER_WIDGET_KEYS.values():
+                    st.session_state.pop(widget_key, None)
+                st.rerun()
+        else:
+            st.caption("Use this path when a customer or internal plan already requires a specific finished-unit quantity.")
+
+        initial_order_values = {
+            "order_number": "",
+            "work_type": "Internal",
+            "requested_units": 1,
+            "product_name": "",
+            "product_format": PRODUCT_FORMATS[0],
+            "sku": "",
+            "due_date": date.today(),
+            "priority": "Normal",
+            "source_lot": "",
+            "material_owner": "Internal",
+            "packaging_owner": "Internal",
+            "notes": "",
+        }
+        for field, widget_key in ORDER_WIDGET_KEYS.items():
+            if widget_key not in st.session_state:
+                st.session_state[widget_key] = initial_order_values[field]
+
         with st.form("coman_production_order_form", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
-            order_number = col1.text_input("Order number*", placeholder="COM-000001")
-            work_label = col2.selectbox("Work type*", ["Internal", "External"])
-            requested_units = col3.number_input("Requested units*", min_value=1, step=100)
-            product_name = col1.text_input("Product name*", placeholder="House Flower 3.5g")
-            product_format = col2.selectbox("Product format*", PRODUCT_FORMATS)
-            sku = col3.text_input("SKU")
+            order_number = col1.text_input(
+                "Order number*",
+                placeholder="COM-000001",
+                key=ORDER_WIDGET_KEYS["order_number"],
+            )
+            work_label = col2.selectbox(
+                "Work type*",
+                ["Internal", "External"],
+                key=ORDER_WIDGET_KEYS["work_type"],
+            )
+            requested_units = col3.number_input(
+                "Requested units*",
+                min_value=1,
+                step=100,
+                key=ORDER_WIDGET_KEYS["requested_units"],
+            )
+            product_name = col1.text_input(
+                "Product name*",
+                placeholder="House Flower 3.5g",
+                key=ORDER_WIDGET_KEYS["product_name"],
+            )
+            product_format = col2.selectbox(
+                "Product format*",
+                PRODUCT_FORMATS,
+                key=ORDER_WIDGET_KEYS["product_format"],
+            )
+            sku = col3.text_input("SKU", key=ORDER_WIDGET_KEYS["sku"])
             customer_options = {customer.name: customer.id for customer in customers}
             customer_label = col1.selectbox(
                 "Customer* (external work)",
                 ["Select customer"] + list(customer_options),
                 disabled=work_label == "Internal",
             )
-            due_date = col2.date_input("Due date")
-            priority = col3.selectbox("Priority", ["Normal", "High", "Rush", "Low"])
-            source_lot = col1.text_input("Source lot / METRC package")
-            material_owner = col2.selectbox("Bulk material owner", ["Internal", "Customer"])
-            packaging_owner = col3.selectbox("Packaging owner", ["Internal", "Customer"])
-            notes = st.text_area("Production notes", placeholder="Breakdown, weighing, tubing, stickering, casing, or special instructions")
+            due_date = col2.date_input("Due date", key=ORDER_WIDGET_KEYS["due_date"])
+            priority = col3.selectbox(
+                "Priority",
+                ["Normal", "High", "Rush", "Low"],
+                key=ORDER_WIDGET_KEYS["priority"],
+            )
+            source_lot = col1.text_input(
+                "Source lot / METRC package",
+                key=ORDER_WIDGET_KEYS["source_lot"],
+            )
+            material_owner = col2.selectbox(
+                "Bulk material owner",
+                ["Internal", "Customer"],
+                key=ORDER_WIDGET_KEYS["material_owner"],
+            )
+            packaging_owner = col3.selectbox(
+                "Packaging owner",
+                ["Internal", "Customer"],
+                key=ORDER_WIDGET_KEYS["packaging_owner"],
+            )
+            notes = st.text_area(
+                "Production notes",
+                placeholder="Breakdown, weighing, tubing, stickering, casing, or special instructions",
+                key=ORDER_WIDGET_KEYS["notes"],
+            )
             submitted = st.form_submit_button("Create production order", type="primary")
 
         if submitted:
@@ -396,6 +507,7 @@ def render_coman_workspace() -> None:
                         notes=notes,
                     )
                     st.success(f"Production order {order_number.strip()} was saved.")
+                    st.session_state.pop("coman_order_prefill", None)
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Order could not be saved: {exc}")
