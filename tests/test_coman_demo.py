@@ -21,6 +21,11 @@ from modules.coman.models import (
     Product,
     ProductionActual,
     ProductionOrder,
+    TradePartner,
+    CommercialOrder,
+    CommercialOrderLine,
+    OrderLotAllocation,
+    InventoryTransaction,
 )
 from services.demo_data import build_demo_payload
 
@@ -54,6 +59,9 @@ def test_durable_demo_seed_is_complete_idempotent_and_force_refreshable():
     assert first["already_present"] is False
     assert first["products"] > 0
     assert first["orders"] > 0
+    assert first["trade_partners"] == 5
+    assert first["commercial_orders"] >= 6
+    assert first["commercial_transactions"] >= 1
     assert state["active_organization_id"] == first["organization_id"]
     assert state["active_facility_id"] == first["facility_id"]
 
@@ -67,6 +75,11 @@ def test_durable_demo_seed_is_complete_idempotent_and_force_refreshable():
         assert _count(session, ProductionOrder, organization.id) == first["orders"]
         assert _count(session, ProductionActual, organization.id) >= 1
         assert _count(session, InventoryLot, organization.id) >= 1
+        assert _count(session, TradePartner, organization.id) == first["trade_partners"]
+        assert _count(session, CommercialOrder, organization.id) == first["commercial_orders"]
+        assert _count(session, CommercialOrderLine, organization.id) == first["commercial_orders"]
+        assert _count(session, OrderLotAllocation, organization.id) >= 2
+        assert _count(session, InventoryTransaction, organization.id) > first["commercial_transactions"]
         assert _count(session, AuditEvent, organization.id) == 1
 
     second = ensure_coman_demo_dataset(
@@ -98,7 +111,7 @@ def test_durable_demo_seed_is_complete_idempotent_and_force_refreshable():
         packaging_line = session.scalar(
             select(FacilityMachine).where(
                 FacilityMachine.organization_id == refreshed["organization_id"],
-                FacilityMachine.asset_code == "PKG-01",
+                FacilityMachine.asset_code == "PKG-MASS-01",
             )
         )
         assert packaging_line is not None
@@ -139,6 +152,8 @@ def test_reset_removes_only_the_demo_tenant_and_is_idempotent():
         assert session.get(Facility, seeded["facility_id"]) is None
         assert _count(session, Product, seeded["organization_id"]) == 0
         assert _count(session, ProductionOrder, seeded["organization_id"]) == 0
+        assert _count(session, CommercialOrder, seeded["organization_id"]) == 0
+        assert _count(session, TradePartner, seeded["organization_id"]) == 0
         assert _count(session, AuditEvent, seeded["organization_id"]) == 0
 
     assert reset_coman_demo_dataset(engine=engine) == {
