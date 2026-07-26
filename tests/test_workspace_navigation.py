@@ -1,6 +1,8 @@
 from services.workspace_navigation import (
     BUYER_WORKSPACE,
     COMAN_WORKSPACE,
+    COMMERCIAL_OPS,
+    COMMERCIAL_WORKSPACE,
     DATA_HUB_WORKSPACE,
     DATA_OPERATIONS,
     EXTRACTION_WORKSPACE,
@@ -18,6 +20,7 @@ def test_workspace_options_follow_license_features():
     enabled = lambda name, default_enabled=True: name == "buyer_module"
     options = workspace_options(enabled)
     assert COMAN_WORKSPACE in options
+    assert COMMERCIAL_WORKSPACE in options
     assert DATA_HUB_WORKSPACE in options
     assert EXTRACTION_WORKSPACE not in options
 
@@ -32,6 +35,7 @@ def test_workspaces_are_grouped_by_operating_area():
 
     assert groups[RETAIL_OPS] == [BUYER_WORKSPACE, WHITE_LABEL_WORKSPACE]
     assert groups[PRODUCTION_OPS] == [COMAN_WORKSPACE, EXTRACTION_WORKSPACE]
+    assert groups[COMMERCIAL_OPS] == [COMMERCIAL_WORKSPACE]
     assert groups[DATA_OPERATIONS] == [DATA_HUB_WORKSPACE]
 
 
@@ -40,6 +44,7 @@ def test_saved_workspace_resolves_to_its_operations_group():
     assert workspace_group(WHITE_LABEL_WORKSPACE) == RETAIL_OPS
     assert workspace_group(COMAN_WORKSPACE) == PRODUCTION_OPS
     assert workspace_group(EXTRACTION_WORKSPACE) == PRODUCTION_OPS
+    assert workspace_group(COMMERCIAL_WORKSPACE) == COMMERCIAL_OPS
     assert workspace_group(DATA_HUB_WORKSPACE) == DATA_OPERATIONS
 
 

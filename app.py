@@ -59,6 +59,8 @@ from services.auth_workflow import (
 )
 from services.workspace_navigation import (
     COMAN_WORKSPACE,
+    COMMERCIAL_OPS,
+    COMMERCIAL_WORKSPACE,
     DATA_HUB_WORKSPACE,
     DATA_OPERATIONS,
     EXTRACTION_WORKSPACE,
@@ -68,6 +70,7 @@ from services.workspace_navigation import (
     buyer_section_options,
     workspace_options as build_workspace_options,
 )
+from modules.commercial.ui import render_commercial_workspace
 from modules.coman.ui import render_coman_workspace
 from modules.data_hub import render_data_hub_workspace
 from modules.extraction_quick_entry import (
@@ -4922,12 +4925,17 @@ workspace_groups = {
     RETAIL_OPS: [
         workspace
         for workspace in workspace_options
-        if workspace not in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE, DATA_HUB_WORKSPACE}
+        if workspace not in {COMAN_WORKSPACE, COMMERCIAL_WORKSPACE, EXTRACTION_WORKSPACE, DATA_HUB_WORKSPACE}
     ],
     PRODUCTION_OPS: [
         workspace
         for workspace in workspace_options
         if workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
+    ],
+    COMMERCIAL_OPS: [
+        workspace
+        for workspace in workspace_options
+        if workspace == COMMERCIAL_WORKSPACE
     ],
     DATA_OPERATIONS: [
         workspace
@@ -4943,6 +4951,8 @@ saved_workspace = st.session_state.get("workspace_mode")
 saved_group = (
     PRODUCTION_OPS
     if saved_workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
+    else COMMERCIAL_OPS
+    if saved_workspace == COMMERCIAL_WORKSPACE
     else DATA_OPERATIONS
     if saved_workspace == DATA_HUB_WORKSPACE
     else RETAIL_OPS
@@ -5091,6 +5101,8 @@ with _export_left:
 with _export_right:
     if _active_workspace == DATA_HUB_WORKSPACE:
         st.caption("Data Hub manages operational sources; reports remain in their destination workspaces.")
+    elif _active_workspace == COMMERCIAL_WORKSPACE:
+        st.caption("Commercial orders and fulfillment exports are available inside the workspace.")
     elif _active_workspace == EXTRACTION_WORKSPACE:
         st.download_button(
             "Export Production Ops Report",
@@ -9617,6 +9629,9 @@ if app_mode == DATA_HUB_WORKSPACE:
         "Data Operations",
     )
     render_data_hub_workspace()
+    st.stop()
+if app_mode == COMMERCIAL_WORKSPACE:
+    render_commercial_workspace()
     st.stop()
 if app_mode == EXTRACTION_WORKSPACE:
     render_hero(
