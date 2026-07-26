@@ -1,15 +1,18 @@
 from services.workspace_navigation import (
+    AI_INTEGRATIONS_SECTION,
     BUYER_WORKSPACE,
     COMAN_WORKSPACE,
     COMMERCIAL_OPS,
     COMMERCIAL_WORKSPACE,
     DATA_HUB_WORKSPACE,
     DATA_OPERATIONS,
+    METRC_INTEGRATIONS_SECTION,
     EXTRACTION_WORKSPACE,
     PRODUCTION_OPS,
     RETAIL_OPS,
     WHITE_LABEL_WORKSPACE,
     buyer_section_options,
+    can_manage_ai_integrations,
     workspace_group,
     workspace_groups,
     workspace_options,
@@ -49,12 +52,33 @@ def test_saved_workspace_resolves_to_its_operations_group():
 
 
 def test_admin_sections_are_role_aware():
-    standard = buyer_section_options(is_admin=False)
-    admin = buyer_section_options(is_admin=True)
+    standard = buyer_section_options(is_admin=False, user_role="buyer")
+    admin = buyer_section_options(is_admin=True, user_role="admin")
+    developer = buyer_section_options(is_admin=True, user_role="dev")
     assert "🛠️ Admin Tools" not in standard
-    assert "🔌 Integrations" not in standard
+    assert METRC_INTEGRATIONS_SECTION in standard
+    assert AI_INTEGRATIONS_SECTION not in standard
     assert "🛠️ Admin Tools" in admin
-    assert "🔌 Integrations" in admin
+    assert METRC_INTEGRATIONS_SECTION in admin
+    assert AI_INTEGRATIONS_SECTION not in admin
+    assert AI_INTEGRATIONS_SECTION in developer
+    assert METRC_INTEGRATIONS_SECTION not in developer
+
+
+def test_only_level_dev_can_manage_ai_integrations():
+    assert can_manage_ai_integrations("dev") is True
+    for role in [
+        "admin",
+        "buyer",
+        "planner",
+        "supervisor",
+        "operator",
+        "qa",
+        "read_only",
+        "trial",
+        None,
+    ]:
+        assert can_manage_ai_integrations(role) is False
 
 
 def test_nomenclature_mapper_is_available_to_buyer_operations_users():
