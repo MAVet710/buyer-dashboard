@@ -40,4 +40,3 @@ def test_optimizer_recommendation_prefills_external_ownership() -> None:
     assert prefill["work_type"] == "External"
     assert prefill["material_owner"] == "Customer"
     assert prefill["packaging_owner"] == "Internal"
-
