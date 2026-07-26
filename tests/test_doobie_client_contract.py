@@ -60,4 +60,25 @@ def test_copilot_normalizes_legacy_personas_to_supported_modes(monkeypatch):
     client.copilot("What changed?", {"x": 1}, persona="buyer_assistant", state="CA")
     assert captured["json"]["mode"] == "buyer"
     assert captured["json"]["persona"] == "buyer"
+
+
+def test_copilot_uses_server_side_auto_routing_and_forwards_history(monkeypatch):
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured.update(kwargs)
+        return _DummyResponse()
+
+    monkeypatch.setattr("services.doobie_client.requests.post", fake_post)
+    client = DoobieClient("https://doobie.example.com", "service-key")
+    client.copilot(
+        "How should I review room yield?",
+        {"room": ["A"]},
+        state="CA",
+        history=[{"role": "user", "content": "We are reviewing cultivation."}],
+    )
+
+    assert captured["json"]["mode"] == "auto"
+    assert captured["json"]["persona"] == "auto"
+    assert captured["json"]["history"][0]["role"] == "user"
     assert captured["json"]["state"] == "CA"
