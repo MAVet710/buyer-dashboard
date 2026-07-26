@@ -51,4 +51,3 @@ def test_quick_stage_weight_routes_to_mass_balance_fields():
         "final_output_g": 62.5,
         "finished_output_g": 62.5,
     }
-
