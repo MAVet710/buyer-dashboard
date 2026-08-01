@@ -5,6 +5,7 @@ import re
 import json
 import os
 import sys
+import importlib
 import hashlib
 import requests
 from collections.abc import Mapping
@@ -50,7 +51,7 @@ from ui_polish import (
 from ui_premium import load_premium_shell, render_commandbar, render_sidebar_identity
 from user_integrations_store import UserIntegrationsStore
 from global_integrations_store import GlobalIntegrationsStore
-from services.app_user_store import AppUserStore
+from services import app_user_store as app_user_store_module
 from services.auth_identity import resolve_legacy_identity
 from services.auth_workflow import (
     apply_authenticated_session,
@@ -84,6 +85,14 @@ from modules.extraction_quick_entry import (
 from modules.nomenclature_ui import render_nomenclature_mapper
 
 load_dotenv()
+
+# Streamlit can hot-reload app.py while retaining already-imported service
+# modules in the same Python process. Reload the user store only when the UI
+# expects a newer account-management API than the in-memory class provides.
+if not hasattr(app_user_store_module.AppUserStore, "update_user"):
+    importlib.invalidate_caches()
+    app_user_store_module = importlib.reload(app_user_store_module)
+AppUserStore = app_user_store_module.AppUserStore
 
 USER_INTEGRATIONS_STORE = UserIntegrationsStore()
 GLOBAL_INTEGRATIONS_STORE = GlobalIntegrationsStore()
