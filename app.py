@@ -14,6 +14,16 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from dotenv import load_dotenv
 
+if section == INVENTORY_COUNTS_SECTION:
+    render_hero(
+        "Retail Inventory Counts",
+        "Scan Dutchie labels, complete recounts, and reconcile store inventory with a durable audit trail.",
+        str(_display_user),
+        "Retail Operations",
+    )
+    render_inventory_audit_workspace("retail")
+    st.stop()
+
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
 from services.license_client import validate_license_key
@@ -89,7 +99,7 @@ from modules.inventory_audit.ui import render_inventory_audit_workspace
 load_dotenv()
 
 # Streamlit can hot-reload app.py while retaining already-imported service
-# modules in the same Python process.  Reload the user store only when the UI
+# modules in the same Python process. Reload the user store only when the UI
 # expects a newer account-management API than the in-memory class provides.
 if not hasattr(app_user_store_module.AppUserStore, "update_user"):
     importlib.invalidate_caches()
@@ -10058,16 +10068,6 @@ section = st.sidebar.selectbox(
     help="Choose a Buyer Operations page. This compact menu keeps the sidebar usable on phones.",
 )
 
-if section == INVENTORY_COUNTS_SECTION:
-    render_hero(
-        "Retail Inventory Counts",
-        "Scan Dutchie labels, complete recounts, and reconcile store inventory with a durable audit trail.",
-        str(_display_user),
-        "Retail Operations",
-    )
-    render_inventory_audit_workspace("retail")
-    st.stop()
-
 if _feature_enabled("ai_support", default_enabled=True):
     render_main_ai_copilot(app_mode, section)
 else:
@@ -13584,4 +13584,194 @@ elif section == "🧾 PO Builder":
             })
             _safe_rerun()
     
-    # Displa
+    # Display current items
+    if st.session_state.po_items:
+        st.markdown("#### Current Items")
+        items_df = pd.DataFrame(st.session_state.po_items)
+
+        # ---- Inventory cross-reference ----
+        _inv_xref = _build_inv_xref_table()
+        if _inv_xref is None:
+            st.caption(
+                "💡 Upload inventory on Inventory Dashboard to enable PO inventory cross-check."
+            )
+
+        on_hand_list = []
+        review_list = []
+        review_reason_list = []
+        for _item in st.session_state.po_items:
+            _on_hand = 0
+            if _inv_xref is not None:
+                _norm_desc = _normalize_for_match(_item.get("Description", ""))
+                _po_size_raw = str(_item.get("Size", "")).strip()
+                _size_present = bool(_po_size_raw)
+                _norm_size = _normalize_size_for_match(_po_size_raw)
+                _matches = _inv_xref[_inv_xref["norm_name"] == _norm_desc]
+                if _size_present:
+                    _matches = _matches[_matches["norm_size"] == _norm_size]
+                _on_hand = int(_matches["onhand_total"].sum())
+            on_hand_list.append(_on_hand)
+            _review = _inv_xref is not None and _on_hand >= PO_REVIEW_THRESHOLD
+            review_list.append(_review)
+            review_reason_list.append(f">={PO_REVIEW_THRESHOLD} on hand" if _review else "")
+
+        items_df["On Hand (Inv)"] = on_hand_list
+        items_df["Review?"] = review_list
+        items_df["Review Reason"] = review_reason_list
+
+        if any(review_list):
+            st.warning(
+                f"⚠️ One or more PO line items already have >={PO_REVIEW_THRESHOLD} units on hand. "
+                "Review flagged items before purchasing."
+            )
+
+        st.dataframe(items_df, width="stretch")
+        
+        # Subtotal
+        subtotal = sum(item['Total'] for item in st.session_state.po_items)
+        
+        # Calculations
+        st.markdown("### 💰 Totals")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            tax_rate = st.number_input("Tax Rate (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.1)
+        with col2:
+            discount = st.number_input("Discount ($)", min_value=0.0, value=0.0, step=1.0)
+        with col3:
+            shipping = st.number_input("Shipping ($)", min_value=0.0, value=0.0, step=1.0)
+        
+        tax_amount = subtotal * (tax_rate / 100)
+        total = subtotal + tax_amount - discount + shipping
+        st.session_state.proposed_po_total = float(total)
+        
+        # Display totals
+        st.markdown("---")
+        totals_col1, totals_col2 = st.columns([3, 1])
+        with totals_col2:
+            st.markdown(f"**Subtotal:** ${subtotal:,.2f}")
+            if tax_rate > 0:
+                st.markdown(f"**Tax ({tax_rate}%):** ${tax_amount:,.2f}")
+            if discount > 0:
+                st.markdown(f"**Discount:** -${discount:,.2f}")
+            if shipping > 0:
+                st.markdown(f"**Shipping:** ${shipping:,.2f}")
+            st.markdown(f"### **Total:** ${total:,.2f}")
+        
+        # Action buttons
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("🗑️ Clear All Items"):
+                st.session_state.po_items = []
+                _safe_rerun()
+        
+        with col2:
+            if st.button("📄 Generate PDF"):
+                # Generate PDF
+                pdf_buffer = BytesIO()
+                c = canvas.Canvas(pdf_buffer, pagesize=letter)
+                width, height = letter
+                
+                # Header
+                c.setFont("Helvetica-Bold", 20)
+                c.drawString(1*inch, height - 1*inch, "PURCHASE ORDER")
+                
+                # PO Info
+                c.setFont("Helvetica", 10)
+                c.drawString(1*inch, height - 1.3*inch, f"PO Number: {po_number}")
+                c.drawString(1*inch, height - 1.5*inch, f"Date: {po_date}")
+                
+                # Store info
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(1*inch, height - 2*inch, "FROM:")
+                c.setFont("Helvetica", 10)
+                y = height - 2.2*inch
+                c.drawString(1*inch, y, store_name)
+                for line in store_address.split('\n'):
+                    y -= 0.15*inch
+                    c.drawString(1*inch, y, line)
+                
+                # Vendor info
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(4*inch, height - 2*inch, "TO:")
+                c.setFont("Helvetica", 10)
+                y = height - 2.2*inch
+                c.drawString(4*inch, y, vendor_name)
+                for line in vendor_address.split('\n'):
+                    y -= 0.15*inch
+                    c.drawString(4*inch, y, line)
+                
+                # Items table
+                y = height - 3.5*inch
+                c.setFont("Helvetica-Bold", 10)
+                c.drawString(1*inch, y, "SKU")
+                c.drawString(2*inch, y, "Description")
+                c.drawString(4*inch, y, "Strain")
+                c.drawString(5*inch, y, "Size")
+                c.drawString(5.5*inch, y, "Qty")
+                c.drawString(6*inch, y, "Price")
+                c.drawString(6.7*inch, y, "Total")
+                
+                c.line(1*inch, y - 0.05*inch, 7.5*inch, y - 0.05*inch)
+                
+                y -= 0.25*inch
+                c.setFont("Helvetica", 9)
+                for item in st.session_state.po_items:
+                    c.drawString(1*inch, y, str(item['SKU'])[:MAX_SKU_LENGTH_PDF])
+                    c.drawString(2*inch, y, str(item['Description'])[:MAX_DESCRIPTION_LENGTH_PDF])
+                    c.drawString(4*inch, y, str(item['Strain'])[:MAX_STRAIN_LENGTH_PDF])
+                    c.drawString(5*inch, y, str(item['Size'])[:MAX_SIZE_LENGTH_PDF])
+                    c.drawString(5.5*inch, y, str(item['Quantity']))
+                    c.drawString(6*inch, y, f"${item['Price']:.2f}")
+                    c.drawString(6.7*inch, y, f"${item['Total']:.2f}")
+                    y -= 0.2*inch
+                    if y < 2*inch:  # New page if needed
+                        c.showPage()
+                        y = height - 1*inch
+                
+                # Totals
+                y -= 0.3*inch
+                c.line(5.5*inch, y, 7.5*inch, y)
+                y -= 0.25*inch
+                c.setFont("Helvetica", 10)
+                c.drawString(6*inch, y, "Subtotal:")
+                c.drawString(6.7*inch, y, f"${subtotal:,.2f}")
+                
+                if tax_rate > 0:
+                    y -= 0.2*inch
+                    c.drawString(6*inch, y, f"Tax ({tax_rate}%):")
+                    c.drawString(6.7*inch, y, f"${tax_amount:,.2f}")
+                
+                if discount > 0:
+                    y -= 0.2*inch
+                    c.drawString(6*inch, y, "Discount:")
+                    c.drawString(6.7*inch, y, f"-${discount:,.2f}")
+                
+                if shipping > 0:
+                    y -= 0.2*inch
+                    c.drawString(6*inch, y, "Shipping:")
+                    c.drawString(6.7*inch, y, f"${shipping:,.2f}")
+                
+                y -= 0.25*inch
+                c.line(6*inch, y, 7.5*inch, y)
+                y -= 0.25*inch
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(6*inch, y, "TOTAL:")
+                c.drawString(6.7*inch, y, f"${total:,.2f}")
+                
+                c.save()
+                pdf_buffer.seek(0)
+                
+                st.download_button(
+                    label="📥 Download PDF",
+                    data=pdf_buffer,
+                    file_name=f"PO_{po_number}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf"
+                )
+    else:
+        st.info("👆 Add items to your purchase order using the form above")
+
+# FOOTER
+st.markdown("---")
+year = datetime.now().year
+st.markdown(f'<div class="footer">{LICENSE_FOOTER} • © {year}</div>', unsafe_allow_html=True)
