@@ -362,7 +362,51 @@ def _new_order(
                         "product_id": product.id,
                         "quantity": row.get("Quantity"),
                         "unit_price": row.get("Unit Price"),
-                     ãÎm¢G§²ÚîÆ­yÒ_lines = [line for line in lines if line.commercial_order_id == order.id]
+                        "unit": product.base_unit,
+                        "notes": row.get("Notes") or "",
+                    }
+                )
+        try:
+            commercial.create_order(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                partner_id=partner.id,
+                order_number=order_number,
+                order_type=order_type.lower(),
+                order_date=order_date,
+                due_date=due_date,
+                lines=payload,
+                actor=_actor(),
+                external_reference=external_reference,
+                notes=notes,
+            )
+        except Exception as exc:
+            st.error(f"Order could not be created: {exc}")
+        else:
+            st.success(f"{order_number.strip().upper()} was created as a draft.")
+            st.rerun()
+
+
+def _execution(
+    commercial: CommercialRepository,
+    coman: ComanRepository,
+    organization_id: str,
+    facility_id: str,
+    orders,
+    lines,
+    products,
+    lots,
+) -> None:
+    open_orders = [order for order in orders if order.status in _OPEN_STATUSES]
+    if not open_orders:
+        st.info("There are no open orders to fulfill.")
+        return
+    order = st.selectbox(
+        "Open order",
+        open_orders,
+        format_func=lambda row: f"{row.order_number} Â· {row.order_type.title()} Â· {order_status_label(row.status)}",
+    )
+    order_lines = [line for line in lines if line.commercial_order_id == order.id]
     products_by_id = {product.id: product for product in products}
     st.dataframe(
         pd.DataFrame(
