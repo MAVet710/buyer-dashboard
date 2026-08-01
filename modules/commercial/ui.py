@@ -10,6 +10,8 @@ import streamlit as st
 
 from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engine
 from modules.coman.repository import ComanRepository
+from modules.inventory_audit.repository import InventoryAuditRepository
+from modules.inventory_audit.ui import render_inventory_audits
 
 from .analytics import (
     commercial_dashboard_metrics,
@@ -20,15 +22,17 @@ from .analytics import (
 from .repository import CommercialRepository
 
 
-_CACHE_VERSION = "commercial-orders-v1"
+_CACHE_VERSION = "commercial-orders-audits-v2"
 _OPEN_STATUSES = {"draft", "confirmed", "allocated", "partially_fulfilled"}
 
 
 @st.cache_resource
-def _repositories(cache_version: str) -> tuple[CommercialRepository, ComanRepository]:
+def _repositories(
+    cache_version: str,
+) -> tuple[CommercialRepository, ComanRepository, InventoryAuditRepository]:
     del cache_version
     engine = create_coman_engine()
-    return CommercialRepository(engine), ComanRepository(engine)
+    return CommercialRepository(engine), ComanRepository(engine), InventoryAuditRepository(engine)
 
 
 def _actor() -> str:
@@ -358,51 +362,7 @@ def _new_order(
                         "product_id": product.id,
                         "quantity": row.get("Quantity"),
                         "unit_price": row.get("Unit Price"),
-                        "unit": product.base_unit,
-                        "notes": row.get("Notes") or "",
-                    }
-                )
-        try:
-            commercial.create_order(
-                organization_id=organization_id,
-                facility_id=facility_id,
-                partner_id=partner.id,
-                order_number=order_number,
-                order_type=order_type.lower(),
-                order_date=order_date,
-                due_date=due_date,
-                lines=payload,
-                actor=_actor(),
-                external_reference=external_reference,
-                notes=notes,
-            )
-        except Exception as exc:
-            st.error(f"Order could not be created: {exc}")
-        else:
-            st.success(f"{order_number.strip().upper()} was created as a draft.")
-            st.rerun()
-
-
-def _execution(
-    commercial: CommercialRepository,
-    coman: ComanRepository,
-    organization_id: str,
-    facility_id: str,
-    orders,
-    lines,
-    products,
-    lots,
-) -> None:
-    open_orders = [order for order in orders if order.status in _OPEN_STATUSES]
-    if not open_orders:
-        st.info("There are no open orders to fulfill.")
-        return
-    order = st.selectbox(
-        "Open order",
-        open_orders,
-        format_func=lambda row: f"{row.order_number} Â· {row.order_type.title()} Â· {order_status_label(row.status)}",
-    )
-    order_lines = [line for line in lines if line.commercial_order_id == order.id]
+                     ãÎm¢G§²ÚîÆ­yÒ_lines = [line for line in lines if line.commercial_order_id == order.id]
     products_by_id = {product.id: product for product in products}
     st.dataframe(
         pd.DataFrame(
@@ -688,7 +648,7 @@ def render_commercial_workspace() -> None:
     )
 
     try:
-        commercial, coman = _repositories(_CACHE_VERSION)
+        commercial, coman, inventory_audits = _repositories(_CACHE_VERSION)
         partners = commercial.list_trade_partners(organization_id)
         orders = commercial.list_orders(organization_id, facility_id)
         lines = commercial.list_order_lines(organization_id)
@@ -699,7 +659,10 @@ def render_commercial_workspace() -> None:
         return
     except Exception as exc:
         message = str(exc)
-        if "commercial_trade_partners" in message or "commercial_orders" in message:
+        if "inventory_audits" in message or "inventory_audit_lines" in message:
+            st.error("Inventory Audits needs database migration 0012 before Commercial Ops can load.")
+            st.code("migrations/versions/0012_inventory_audits.sql")
+        elif "commercial_trade_partners" in message or "commercial_orders" in message:
             st.error("Commercial Ops needs database migration 0011 before it can load.")
             st.code("migrations/versions/0011_commercial_order_fulfillment.sql")
         else:
@@ -712,6 +675,7 @@ def render_commercial_workspace() -> None:
             "New Order",
             "Allocate & Fulfill",
             "Trade Partners",
+            "Inventory Audits",
             "Inventory Ledger",
         ]
     )
@@ -743,6 +707,14 @@ def render_commercial_workspace() -> None:
     with tabs[3]:
         _partners(commercial, organization_id, partners)
     with tabs[4]:
+        render_inventory_audits(
+            inventory_audits,
+            organization_id,
+            facility_id,
+            products,
+            lots,
+        )
+    with tabs[5]:
         _ledger(
             commercial,
             organization_id,

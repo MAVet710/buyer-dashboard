@@ -97,6 +97,9 @@ class Product(TimestampMixin, Base):
     item_type: Mapped[str] = mapped_column(String(32), nullable=False)
     base_unit: Mapped[str] = mapped_column(String(32), nullable=False, default="unit")
     unit_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    retail_price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    upc: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    external_product_id: Mapped[str] = mapped_column(String(120), nullable=False, default="", index=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -134,6 +137,8 @@ class InventoryLot(TimestampMixin, Base):
     product_id: Mapped[str] = mapped_column(ForeignKey("coman_products.id", ondelete="RESTRICT"), nullable=False, index=True)
     lot_code: Mapped[str] = mapped_column(String(255), nullable=False)
     compliance_package_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    external_inventory_id: Mapped[str] = mapped_column(String(120), nullable=False, default="", index=True)
+    barcode_value: Mapped[str] = mapped_column(String(512), nullable=False, default="", index=True)
     location_code: Mapped[str] = mapped_column(String(120), nullable=False, default="UNASSIGNED")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="available")
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -166,68 +171,22 @@ class InventoryTransaction(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
-class MaterialReservation(TimestampMixin, Base):
-    __tablename__ = "coman_material_reservations"
-    __table_args__ = (UniqueConstraint("production_order_id", "lot_id", name="uq_coman_reservation_order_lot"),)
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
-    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
-    production_order_id: Mapped[str] = mapped_column(ForeignKey("coman_production_orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    lot_id: Mapped[str] = mapped_column(ForeignKey("coman_inventory_lots.id", ondelete="RESTRICT"), nullable=False, index=True)
-    quantity: Mapped[float] = mapped_column(Float, nullable=False)
-    unit: Mapped[str] = mapped_column(String(32), nullable=False)
-    status: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
-    reserved_by: Mapped[str] = mapped_column(String(255), nullable=False)
+class InventoryAudit(TimestampMixin, Base):
+    """Durable physical-count session scoped to one organization facility."""
 
-
-class TradePartner(TimestampMixin, Base):
-    """Organization-scoped customer/vendor master for commercial workflows."""
-
-    __tablename__ = "commercial_trade_partners"
+    __tablename__ = "inventory_audits"
     __table_args__ = (
-        UniqueConstraint("organization_id", "name", name="uq_commercial_partner_org_name"),
+        UniqueConstraint("organization_id", "audit_number", name="uq_inventory_audit_org_number"),
         CheckConstraint(
-            "partner_type in ('customer', 'vendor', 'both')",
-            name="ck_commercial_partner_type",
+            "status in ('draft', 'in_progress', 'completed', 'cancelled')",
+            name="ck_inventory_audit_status",
         ),
-        Index("ix_commercial_partner_org_active", "organization_id", "active"),
+        CheckConstraint(
+            "operation_type in ('retail', 'production')",
+            name="ck_inventory_audit_operation_type",
+        ),
+        Index("ix_inventory_audits_facility_status", "facility_id", "status", "started_at"),
     )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    partner_type: Mapped[str] = mapped_column(String(24), nullable=False)
-    license_or_registration: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    contact_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    contact_email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
-    contact_phone: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    payment_terms: Mapped[str] = mapped_column(String(64), nullable=False, default="Net 30")
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
-class CommercialOrder(TimestampMixin, Base):
-    """Sales and purchase orders sharing one durable lifecycle."""
-
-    __tablename__ = "commercial_orders"
-    __table_args__ = (
-        UniqueConstraint("organization_id", "order_number", name="uq_commercial_order_org_number"),
-        CheckConstraint(
-            "order_type in ('sales', 'purchase')",
-            name="ck_commercial_order_type",
-        ),
-        CheckConstraint(
-            "status in ('draft', 'confirmed', 'allocated', 'partially_fulfilled', 'fulfilled', 'cancelled')",
-            name="ck_commercial_order_status",
-        ),
-        CheckConstraint(
-            "payment_status in ('not_invoiced', 'draft', 'sent', 'partial', 'paid', 'overdue')",
-            name="ck_commercial_order_payment_status",
-        ),
-        Index("ix_commercial_orders_facility_status_due", "facility_id", "status", "due_at"),
-    )
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
@@ -235,69 +194,32 @@ class CommercialOrder(TimestampMixin, Base):
     facility_id: Mapped[str] = mapped_column(
         ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    partner_id: Mapped[str] = mapped_column(
-        ForeignKey("commercial_trade_partners.id", ondelete="RESTRICT"), nullable=False, index=True
-    )
-    order_number: Mapped[str] = mapped_column(String(64), nullable=False)
-    order_type: Mapped[str] = mapped_column(String(16), nullable=False)
-    order_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
-    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
-    payment_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_invoiced")
-    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
-    external_reference: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    audit_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft")
+    operation_type: Mapped[str] = mapped_column(String(24), nullable=False, default="production")
+    blind_count: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    recount_tolerance: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    scope_label: Mapped[str] = mapped_column(String(255), nullable=False, default="Full facility")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str] = mapped_column(String(255), nullable=False)
-    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
-
-
-class CommercialOrderLine(TimestampMixin, Base):
-    __tablename__ = "commercial_order_lines"
-    __table_args__ = (
-        UniqueConstraint("commercial_order_id", "position", name="uq_commercial_order_line_position"),
-        CheckConstraint("quantity > 0", name="ck_commercial_order_line_quantity"),
-        CheckConstraint("unit_price >= 0", name="ck_commercial_order_line_price"),
-        CheckConstraint("fulfilled_quantity >= 0", name="ck_commercial_order_line_fulfilled"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    commercial_order_id: Mapped[str] = mapped_column(
-        ForeignKey("commercial_orders.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    product_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_products.id", ondelete="RESTRICT"), nullable=False, index=True
-    )
-    position: Mapped[int] = mapped_column(Integer, nullable=False)
-    description: Mapped[str] = mapped_column(String(512), nullable=False)
-    sku_snapshot: Mapped[str] = mapped_column(String(120), nullable=False, default="")
-    quantity: Mapped[float] = mapped_column(Float, nullable=False)
-    unit: Mapped[str] = mapped_column(String(32), nullable=False)
-    unit_price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    fulfilled_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    completed_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
-class OrderLotAllocation(TimestampMixin, Base):
-    """Lot-level promise connecting sales demand to available inventory."""
+class InventoryAuditLine(TimestampMixin, Base):
+    """Expected-versus-physical count for one lot in an inventory audit."""
 
-    __tablename__ = "commercial_order_lot_allocations"
+    __tablename__ = "inventory_audit_lines"
     __table_args__ = (
-        UniqueConstraint(
-            "commercial_order_line_id",
-            "lot_id",
-            name="uq_commercial_order_line_lot",
-        ),
-        CheckConstraint("quantity > 0", name="ck_commercial_allocation_quantity"),
-        CheckConstraint("fulfilled_quantity >= 0", name="ck_commercial_allocation_fulfilled"),
+        UniqueConstraint("audit_id", "lot_id", name="uq_inventory_audit_line_lot"),
+        CheckConstraint("expected_quantity >= 0", name="ck_inventory_audit_expected_nonnegative"),
         CheckConstraint(
-            "status in ('reserved', 'partial', 'fulfilled', 'released')",
-            name="ck_commercial_allocation_status",
+            "counted_quantity is null or counted_quantity >= 0",
+            name="ck_inventory_audit_counted_nonnegative",
         ),
+        Index("ix_inventory_audit_lines_audit_counted", "audit_id", "counted_at"),
     )
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
@@ -305,120 +227,43 @@ class OrderLotAllocation(TimestampMixin, Base):
     facility_id: Mapped[str] = mapped_column(
         ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    commercial_order_id: Mapped[str] = mapped_column(
-        ForeignKey("commercial_orders.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    commercial_order_line_id: Mapped[str] = mapped_column(
-        ForeignKey("commercial_order_lines.id", ondelete="CASCADE"), nullable=False, index=True
+    audit_id: Mapped[str] = mapped_column(
+        ForeignKey("inventory_audits.id", ondelete="CASCADE"), nullable=False, index=True
     )
     lot_id: Mapped[str] = mapped_column(
         ForeignKey("coman_inventory_lots.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    quantity: Mapped[float] = mapped_column(Float, nullable=False)
-    fulfilled_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    status: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
-    reserved_by: Mapped[str] = mapped_column(String(255), nullable=False)
-
-
-class MachineModel(TimestampMixin, Base):
-    __tablename__ = "coman_machine_models"
-    __table_args__ = (
-        UniqueConstraint("manufacturer", "model", name="uq_coman_machine_make_model"),
-        CheckConstraint("published_max_rate >= 0", name="ck_coman_machine_rate_nonnegative"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    manufacturer: Mapped[str] = mapped_column(String(255), nullable=False)
-    model: Mapped[str] = mapped_column(String(255), nullable=False)
-    category: Mapped[str] = mapped_column(String(120), nullable=False)
-    operations_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    published_max_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    rate_unit: Mapped[str] = mapped_column(String(64), nullable=False, default="units/hour")
-    published_min_operators: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    published_max_operators: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    planning_utilization_pct: Mapped[float] = mapped_column(Float, nullable=False, default=65.0)
-    source_url: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
-    source_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
-class FacilityMachine(TimestampMixin, Base):
-    __tablename__ = "coman_facility_machines"
-    __table_args__ = (
-        UniqueConstraint("facility_id", "asset_code", name="uq_coman_facility_machine_asset"),
-        CheckConstraint("effective_rate >= 0", name="ck_coman_facility_machine_rate_nonnegative"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    facility_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    machine_model_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_machine_models.id", ondelete="RESTRICT"), nullable=False
-    )
-    asset_code: Mapped[str] = mapped_column(String(120), nullable=False)
-    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    effective_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    rate_unit: Mapped[str] = mapped_column(String(64), nullable=False, default="units/hour")
-    preferred_crew_size: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    setup_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    cleanup_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
-class HandLaborArea(TimestampMixin, Base):
-    __tablename__ = "coman_hand_labor_areas"
-    __table_args__ = (
-        UniqueConstraint("facility_id", "name", name="uq_coman_hand_labor_area_name"),
-        CheckConstraint("sticker_units_per_person_hour >= 0", name="ck_coman_hand_sticker_rate"),
-        CheckConstraint("case_pack_units_per_person_hour >= 0", name="ck_coman_hand_case_rate"),
-        CheckConstraint("final_cases_per_person_hour >= 0", name="ck_coman_hand_final_case_rate"),
-    )
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
-    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Primary Hand Labor Area")
-    default_crew_size: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    sticker_units_per_person_hour: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    case_pack_units_per_person_hour: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    final_cases_per_person_hour: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    setup_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    cleanup_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-
-
-class CrewAvailability(TimestampMixin, Base):
-    __tablename__ = "coman_crew_availability"
-    __table_args__ = (
-        UniqueConstraint("facility_id", "work_date", "shift_name", name="uq_coman_crew_facility_date_shift"),
-        CheckConstraint("available_people >= 0", name="ck_coman_crew_people"),
-        CheckConstraint("shift_hours > 0", name="ck_coman_crew_shift_hours"),
-    )
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
-    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
-    work_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    shift_name: Mapped[str] = mapped_column(String(120), nullable=False, default="Day")
-    available_people: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    shift_hours: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
+    expected_quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    first_count_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    recount_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    counted_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    variance_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    recount_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
-
-
-class ProductionOrder(TimestampMixin, Base):
-    __tablename__ = "coman_production_orders"
-    __table_args__ = (
-        UniqueConstraint("organization_id", "order_number", name="uq_coman_order_org_number"),
-        CheckConstraint("requested_units >= 0", name="ck_coman_order_units_nonnegative"),
-        CheckConstraint(
-            "work_type in ('internal', 'external')", name="ck_coman_order_work_type"
-        ),
-        Index("ix_coman_orders_facility_status_due", "facility_id", "status", "due_at"),
+    counted_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    counted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    adjustment_transaction_id: Mapped[str | None] = mapped_column(
+        ForeignKey("coman_inventory_transactions.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+
+class InventoryAuditScan(Base):
+    """Immutable scan attempt, including unmatched and ambiguous label reads."""
+
+    __tablename__ = "inventory_audit_scans"
+    __table_args__ = (
+        CheckConstraint(
+            "match_status in ('matched', 'unmatched', 'ambiguous')",
+            name="ck_inventory_audit_scan_status",
+        ),
+        CheckConstraint(
+            "scan_stage in ('first_count', 'recount')",
+            name="ck_inventory_audit_scan_stage",
+        ),
+        Index("ix_inventory_audit_scans_audit_time", "audit_id", "scanned_at"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
@@ -426,175 +271,7 @@ class ProductionOrder(TimestampMixin, Base):
     facility_id: Mapped[str] = mapped_column(
         ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    customer_id: Mapped[str | None] = mapped_column(
-        ForeignKey("coman_customers.id", ondelete="RESTRICT"), nullable=True, index=True
+    audit_id: Mapped[str] = mapped_column(
+        ForeignKey("inventory_audits.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    order_number: Mapped[str] = mapped_column(String(64), nullable=False)
-    work_type: Mapped[str] = mapped_column(String(16), nullable=False)
-    product_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    sku: Mapped[str] = mapped_column(String(120), nullable=False, default="")
-    product_format: Mapped[str] = mapped_column(String(120), nullable=False)
-    requested_units: Mapped[int] = mapped_column(Integer, nullable=False)
-    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    priority: Mapped[str] = mapped_column(String(32), nullable=False, default="normal")
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
-    source_lot_reference: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    material_owner: Mapped[str] = mapped_column(String(255), nullable=False, default="internal")
-    packaging_owner: Mapped[str] = mapped_column(String(255), nullable=False, default="internal")
-    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
-    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
-
-
-class ProductionActual(TimestampMixin, Base):
-    __tablename__ = "coman_production_actuals"
-    __table_args__ = (
-        UniqueConstraint("production_order_id", name="uq_coman_actual_order"),
-        CheckConstraint("actual_units >= 0", name="ck_coman_actual_units"),
-        CheckConstraint("scrap_units >= 0", name="ck_coman_actual_scrap"),
-        CheckConstraint("rework_units >= 0", name="ck_coman_actual_rework"),
-    )
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
-    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
-    production_order_id: Mapped[str] = mapped_column(ForeignKey("coman_production_orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    actual_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    scrap_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    rework_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    actual_machine_hours: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    actual_labor_hours: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    recorded_by: Mapped[str] = mapped_column(String(255), nullable=False)
-
-
-class AuditEvent(Base):
-    __tablename__ = "coman_audit_events"
-    __table_args__ = (Index("ix_coman_audit_entity", "organization_id", "entity_type", "entity_id"),)
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    facility_id: Mapped[str | None] = mapped_column(
-        ForeignKey("coman_facilities.id", ondelete="SET NULL"), nullable=True
-    )
-    entity_type: Mapped[str] = mapped_column(String(120), nullable=False)
-    entity_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    action: Mapped[str] = mapped_column(String(120), nullable=False)
-    actor: Mapped[str] = mapped_column(String(255), nullable=False)
-    changes_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
-
-
-class CatalogNomenclatureItem(TimestampMixin, Base):
-    """One organization's Dutchie catalog as its approved naming source."""
-
-    __tablename__ = "catalog_nomenclature_items"
-    __table_args__ = (
-        UniqueConstraint(
-            "organization_id",
-            "source_system",
-            "normalized_name",
-            name="uq_catalog_nomenclature_org_source_name",
-        ),
-        Index("ix_catalog_nomenclature_org_active", "organization_id", "active"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    source_system: Mapped[str] = mapped_column(String(32), nullable=False, default="dutchie")
-    canonical_name: Mapped[str] = mapped_column(String(512), nullable=False)
-    normalized_name: Mapped[str] = mapped_column(String(512), nullable=False)
-    sku: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    category: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    brand: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    imported_by: Mapped[str] = mapped_column(String(255), nullable=False, default="system")
-
-
-class CatalogNomenclatureMapping(TimestampMixin, Base):
-    """A confirmed METRC source name to organization catalog-name mapping."""
-
-    __tablename__ = "catalog_nomenclature_mappings"
-    __table_args__ = (
-        UniqueConstraint(
-            "organization_id",
-            "source_system",
-            "source_normalized_name",
-            name="uq_catalog_mapping_org_source_name",
-        ),
-        CheckConstraint(
-            "status in ('confirmed', 'retired')",
-            name="ck_catalog_mapping_status",
-        ),
-        Index("ix_catalog_mapping_org_status", "organization_id", "status"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    catalog_item_id: Mapped[str | None] = mapped_column(
-        ForeignKey("catalog_nomenclature_items.id", ondelete="SET NULL"), nullable=True, index=True
-    )
-    source_system: Mapped[str] = mapped_column(String(32), nullable=False, default="metrc")
-    source_item_name: Mapped[str] = mapped_column(String(512), nullable=False)
-    source_normalized_name: Mapped[str] = mapped_column(String(512), nullable=False)
-    correct_name: Mapped[str] = mapped_column(String(512), nullable=False)
-    status: Mapped[str] = mapped_column(String(24), nullable=False, default="confirmed")
-    confirmed_by: Mapped[str] = mapped_column(String(255), nullable=False)
-    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
-
-
-class AppUser(TimestampMixin, Base):
-    __tablename__ = "app_users"
-    __table_args__ = (
-        CheckConstraint(
-            "role in ('dev', 'admin', 'buyer', 'planner', 'supervisor', 'operator', 'qa', 'read_only')",
-            name="ck_app_users_role",
-        ),
-        Index("ix_app_users_org_active", "organization_id", "active"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str | None] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="SET NULL"), nullable=True
-    )
-    username: Mapped[str] = mapped_column(String(120), nullable=False)
-    normalized_username: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
-    display_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(32), nullable=False, default="buyer")
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_by: Mapped[str] = mapped_column(String(255), nullable=False, default="system")
-    updated_by: Mapped[str] = mapped_column(String(255), nullable=False, default="system")
-
-
-class AppUserFacilityRole(TimestampMixin, Base):
-    __tablename__ = "app_user_facility_roles"
-    __table_args__ = (
-        UniqueConstraint("user_id", "facility_id", name="uq_app_user_facility"),
-        CheckConstraint(
-            "role in ('dev', 'admin', 'buyer', 'planner', 'supervisor', 'operator', 'qa', 'read_only')",
-            name="ck_app_user_facility_role",
-        ),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    user_id: Mapped[str] = mapped_column(
-        ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    facility_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    audit_line_id: Mapped[str | Noneßö¶‰žËkºwµçU‘m‰½½±t€ôµ…ÁÁ•‘}½±Õµ¸¡	½½±•…¸°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐõQÉÕ”¤4(4(4)±…ÍÌ…¥±¥Ñå5…¡¥¹”¡Q¥µ•ÍÑ…µÁ5¥á¥¸°	…Í”¤è4(€€€}}Ñ…‰±•¹…µ•}|€ô€‰½µ…¹}™…¥±¥Ñå}µ…¡¥¹•Ìˆ4(€€€}}Ñ…‰±•}…ÉÍ}|€ô€ 4(€€€€€€€U¹¥ÅÕ•½¹ÍÑÉ…¥¹Ð ‰™…¥±¥Ñå}¥ˆ°€‰…ÍÍ•Ñ}½‘”ˆ°¹…µ”ô‰ÕÅ}½µ…¹}™…¥±¥Ñå}µ…¡¥¹•}…ÍÍ•Ðˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð ‰•™™•Ñ¥Ù•}É…Ñ”€øô€Àˆ°¹…µ”ô‰­}½µ…¹}™…¥±¥Ñå}µ…¡¥¹•}É…Ñ•}¹½¹¹•…Ñ¥Ù”ˆ¤°4(€€€€¤4(4(€€€¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°ÁÉ¥µ…Éå}­•äõQÉÕ”°‘•™…Õ±Ðõ¹•Ý}¥¤4(€€€½É…¹¥é…Ñ¥½¹}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}½É…¹¥é…Ñ¥½¹Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”4(€€€€¤4(€€€™…¥±¥Ñå}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}™…¥±¥Ñ¥•Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”4(€€€€¤4(€€€µ…¡¥¹•}µ½‘•±}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}µ…¡¥¹•}µ½‘•±Ì¹¥ˆ°½¹‘•±•Ñ”ô‰IMQI%Pˆ¤°¹Õ±±…‰±”õ…±Í”4(€€€€¤4(€€€…ÍÍ•Ñ}½‘”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÄÈÀ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€‘¥ÍÁ±…å}¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€•™™•Ñ¥Ù•}É…Ñ”è5…ÁÁ•‘m™±½…Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡±½…Ð°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¸À¤4(€€€É…Ñ•}Õ¹¥Ðè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ØÐ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰Õ¹¥ÑÌ½¡½ÕÈˆ¤4(€€€ÁÉ•™•ÉÉ•‘}É•Ý}Í¥é”è5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÄ¤4(€€€Í•ÑÕÁ}µ¥¹ÕÑ•Ìè5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¤4(€€€±•…¹ÕÁ}µ¥¹ÕÑ•Ìè5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¤4(€€€…Ñ¥Ù”è5…ÁÁ•‘m‰½½±t€ôµ…ÁÁ•‘}½±Õµ¸¡	½½±•…¸°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐõQÉÕ”¤4(4(4)±…ÍÌ!…¹‘1…‰½ÉÉ•„¡Q¥µ•ÍÑ…µÁ5¥á¥¸°	…Í”¤è4(€€€}}Ñ…‰±•¹…µ•}|€ô€‰½µ…¹}¡…¹‘}±…‰½É}…É•…Ìˆ4(€€€}}Ñ…‰±•}…ÉÍ}|€ô€ 4(€€€€€€€U¹¥ÅÕ•½¹ÍÑÉ…¥¹Ð ‰™…¥±¥Ñå}¥ˆ°€‰¹…µ”ˆ°¹…µ”ô‰ÕÅ}½µ…¹}¡…¹‘}±…‰½É}…É•…}¹…µ”ˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð ‰ÍÑ¥­•É}Õ¹¥ÑÍ}Á•É}Á•ÉÍ½¹}¡½ÕÈ€øô€Àˆ°¹…µ”ô‰­}½µ…¹}¡…¹‘}ÍÑ¥­•É}É…Ñ”ˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð ‰…Í•}Á…­}Õ¹¥ÑÍ}Á•É}Á•ÉÍ½¹}¡½ÕÈ€øô€Àˆ°¹…µ”ô‰­}½µ…¹}¡…¹‘}…Í•}É…Ñ”ˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð ‰™¥¹…±}…Í•Í}Á•É}Á•ÉÍ½¹}¡½ÕÈ€øô€Àˆ°¹…µ”ô‰­}½µ…¹}¡…¹‘}™¥¹…±}…Í•}É…Ñ”ˆ¤°4(€€€€¤4(€€€¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°ÁÉ¥µ…Éå}­•äõQÉÕ”°‘•™…Õ±Ðõ¹•Ý}¥¤4(€€€½É…¹¥é…Ñ¥½¹}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡½É•¥¹-•ä ‰½µ…¹}½É…¹¥é…Ñ¥½¹Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”¤4(€€€™…¥±¥Ñå}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡½É•¥¹-•ä ‰½µ…¹}™…¥±¥Ñ¥•Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”¤4(€€€¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰AÉ¥µ…Éä!…¹1…‰½ÈÉ•„ˆ¤4(€€€‘•™…Õ±Ñ}É•Ý}Í¥é”è5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÄ¤4(€€€ÍÑ¥­•É}Õ¹¥ÑÍ}Á•É}Á•ÉÍ½¹}¡½ÕÈè5…ÁÁ•‘m™±½…Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡±½…Ð°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¸À¤4(€€€…Í•}Á…­}Õ¹¥ÑÍ}Á•É}Á•ÉÍ½¹}¡½ÕÈè5…ÁÁ•‘m™±½…Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡±½…Ð°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¸À¤4(€€€™¥¹…±}…Í•Í}Á•É}Á•ÉÍ½¹}¡½ÕÈè5…ÁÁ•‘m™±½…Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡±½…Ð°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¸À¤4(€€€Í•ÑÕÁ}µ¥¹ÕÑ•Ìè5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¤4(€€€±•…¹ÕÁ}µ¥¹ÕÑ•Ìè5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¤4(€€€…Ñ¥Ù”è5…ÁÁ•‘m‰½½±t€ôµ…ÁÁ•‘}½±Õµ¸¡	½½±•…¸°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐõQÉÕ”¤4(4(4)±…ÍÌÉ•ÝÙ…¥±…‰¥±¥Ñä¡Q¥µ•ÍÑ…µÁ5¥á¥¸°	…Í”¤è4(€€€}}Ñ…‰±•¹…µ•}|€ô€‰½µ…¹}É•Ý}…Ù…¥±…‰¥±¥Ñäˆ4(€€€}}Ñ…‰±•}…ÉÍ}|€ô€ 4(€€€€€€€U¹¥ÅÕ•½¹ÍÑÉ…¥¹Ð ‰™…¥±¥Ñå}¥ˆ°€‰Ý½É­}‘…Ñ”ˆ°€‰Í¡¥™Ñ}¹…µ”ˆ°¹…µ”ô‰ÕÅ}½µ…¹}É•Ý}™…¥±¥Ñå}‘…Ñ•}Í¡¥™Ðˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð ‰…Ù…¥±…‰±•}Á•½Á±”€øô€Àˆ°¹…µ”ô‰­}½µ…¹}É•Ý}Á•½Á±”ˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð ‰Í¡¥™Ñ}¡½ÕÉÌ€ø€Àˆ°¹…µ”ô‰­}½µ…¹}É•Ý}Í¡¥™Ñ}¡½ÕÉÌˆ¤°4(€€€€¤4(€€€¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°ÁÉ¥µ…Éå}­•äõQÉÕ”°‘•™…Õ±Ðõ¹•Ý}¥¤4(€€€½É…¹¥é…Ñ¥½¹}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡½É•¥¹-•ä ‰½µ…¹}½É…¹¥é…Ñ¥½¹Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”¤4(€€€™…¥±¥Ñå}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡½É•¥¹-•ä ‰½µ…¹}™…¥±¥Ñ¥•Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”¤4(€€€Ý½É­}‘…Ñ”è5…ÁÁ•‘m‘…Ñ•t€ôµ…ÁÁ•‘}½±Õµ¸¡…Ñ”°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”¤4(€€€Í¡¥™Ñ}¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÄÈÀ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰…äˆ¤4(€€€…Ù…¥±…‰±•}Á•½Á±”è5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¤4(€€€Í¡¥™Ñ}¡½ÕÉÌè5…ÁÁ•‘m™±½…Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡±½…Ð°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôà¸À¤4(€€€¹½Ñ•Ìè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡Q•áÐ°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôˆˆ¤4(€€€ÕÁ‘…Ñ•‘}‰äè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”¤4(4(4)±…ÍÌAÉ½‘ÕÑ¥½¹=É‘•È¡Q¥µ•ÍÑ…µÁ5¥á¥¸°	…Í”¤è4(€€€}}Ñ…‰±•¹…µ•}|€ô€‰½µ…¹}ÁÉ½‘ÕÑ¥½¹}½É‘•ÉÌˆ4(€€€}}Ñ…‰±•}…ÉÍ}|€ô€ 4(€€€€€€€U¹¥ÅÕ•½¹ÍÑÉ…¥¹Ð ‰½É…¹¥é…Ñ¥½¹}¥ˆ°€‰½É‘•É}¹Õµ‰•Èˆ°¹…µ”ô‰ÕÅ}½µ…¹}½É‘•É}½É}¹Õµ‰•Èˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð ‰É•ÅÕ•ÍÑ•‘}Õ¹¥ÑÌ€øô€Àˆ°¹…µ”ô‰­}½µ…¹}½É‘•É}Õ¹¥ÑÍ}¹½¹¹•…Ñ¥Ù”ˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð 4(€€€€€€€€€€€€‰Ý½É­}ÑåÁ”¥¸€ ¥¹Ñ•É¹…°œ°€•áÑ•É¹…°œ¤ˆ°¹…µ”ô‰­}½µ…¹}½É‘•É}Ý½É­}ÑåÁ”ˆ4(€€€€€€€€¤°4(€€€€€€€%¹‘•à ‰¥á}½µ…¹}½É‘•ÉÍ}™…¥±¥Ñå}ÍÑ…ÑÕÍ}‘Õ”ˆ°€‰™…¥±¥Ñå}¥ˆ°€‰ÍÑ…ÑÕÌˆ°€‰‘Õ•}…Ðˆ¤°4(€€€€¤4(4(€€€¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°ÁÉ¥µ…Éå}­•äõQÉÕ”°‘•™…Õ±Ðõ¹•Ý}¥¤4(€€€½É…¹¥é…Ñ¥½¹}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}½É…¹¥é…Ñ¥½¹Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”4(€€€€¤4(€€€™…¥±¥Ñå}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}™…¥±¥Ñ¥•Ì¹¥ˆ°½¹‘•±•Ñ”ô‰IMQI%Pˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”4(€€€€¤4(€€€ÕÍÑ½µ•É}¥è5…ÁÁ•‘mÍÑÈð9½¹•t€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}ÕÍÑ½µ•ÉÌ¹¥ˆ°½¹‘•±•Ñ”ô‰IMQI%Pˆ¤°¹Õ±±…‰±”õQÉÕ”°¥¹‘•àõQÉÕ”4(€€€€¤4(€€€½É‘•É}¹Õµ‰•Èè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ØÐ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€Ý½É­}ÑåÁ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÄØ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€ÁÉ½‘ÕÑ}¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€Í­Ôè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÄÈÀ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôˆˆ¤4(€€€ÁÉ½‘ÕÑ}™½Éµ…Ðè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÄÈÀ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€É•ÅÕ•ÍÑ•‘}Õ¹¥ÑÌè5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”¤4(€€€‘Õ•}…Ðè5…ÁÁ•‘m‘…Ñ•Ñ¥µ”ð9½¹•t€ôµ…ÁÁ•‘}½±Õµ¸¡…Ñ•Q¥µ”¡Ñ¥µ•é½¹”õQÉÕ”¤°¹Õ±±…‰±”õQÉÕ”¤4(€€€ÁÉ¥½É¥Ñäè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌÈ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰¹½Éµ…°ˆ¤4(€€€ÍÑ…ÑÕÌè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌÈ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰‘É…™Ðˆ¤4(€€€Í½ÕÉ•}±½Ñ}É•™•É•¹”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôˆˆ¤4(€€€µ…Ñ•É¥…±}½Ý¹•Èè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰¥¹Ñ•É¹…°ˆ¤4(€€€Á…­…¥¹}½Ý¹•Èè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰¥¹Ñ•É¹…°ˆ¤4(€€€¹½Ñ•Ìè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡Q•áÐ°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôˆˆ¤4(€€€É•…Ñ•‘}‰äè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€ÕÁ‘…Ñ•‘}‰äè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”¤4(4(4)±…ÍÌAÉ½‘ÕÑ¥½¹ÑÕ…°¡Q¥µ•ÍÑ…µÁ5¥á¥¸°	…Í”¤è4(€€€}}Ñ…‰±•¹…µ•}|€ô€‰½µ…¹}ÁÉ½‘ÕÑ¥½¹}…ÑÕ…±Ìˆ4(€€€}}Ñ…‰±•}…ÉÍ}|€ô€ 4(€€€€€€€U¹¥ÅÕ•½¹ÍÑÉ…¥¹Ð ‰ÁÉ½‘ÕÑ¥½¹}½É‘•É}¥ˆ°¹…µ”ô‰ÕÅ}½µ…¹}…ÑÕ…±}½É‘•Èˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð ‰…ÑÕ…±}Õ¹¥ÑÌ€øô€Àˆ°¹…µ”ô‰­}½µ…¹}…ÑÕ…±}Õ¹¥ÑÌˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð ‰ÍÉ…Á}Õ¹¥ÑÌ€øô€Àˆ°¹…µ”ô‰­}½µ…¹}…ÑÕ…±}ÍÉ…Àˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð ‰É•Ý½É­}Õ¹¥ÑÌ€øô€Àˆ°¹…µ”ô‰­}½µ…¹}…ÑÕ…±}É•Ý½É¬ˆ¤°4(€€€€¤4(€€€¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°ÁÉ¥µ…Éå}­•äõQÉÕ”°‘•™…Õ±Ðõ¹•Ý}¥¤4(€€€½É…¹¥é…Ñ¥½¹}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡½É•¥¹-•ä ‰½µ…¹}½É…¹¥é…Ñ¥½¹Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”¤4(€€€™…¥±¥Ñå}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡½É•¥¹-•ä ‰½µ…¹}™…¥±¥Ñ¥•Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”¤4(€€€ÁÉ½‘ÕÑ¥½¹}½É‘•É}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡½É•¥¹-•ä ‰½µ…¹}ÁÉ½‘ÕÑ¥½¹}½É‘•ÉÌ¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”¤4(€€€…ÑÕ…±}Õ¹¥ÑÌè5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¤4(€€€ÍÉ…Á}Õ¹¥ÑÌè5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¤4(€€€É•Ý½É­}Õ¹¥ÑÌè5…ÁÁ•‘m¥¹Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡%¹Ñ••È°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¤4(€€€…ÑÕ…±}µ…¡¥¹•}¡½ÕÉÌè5…ÁÁ•‘m™±½…Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡±½…Ð°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¸À¤4(€€€…ÑÕ…±}±…‰½É}¡½ÕÉÌè5…ÁÁ•‘m™±½…Ñt€ôµ…ÁÁ•‘}½±Õµ¸¡±½…Ð°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐôÀ¸À¤4(€€€½µÁ±•Ñ•‘}…Ðè5…ÁÁ•‘m‘…Ñ•Ñ¥µ”ð9½¹•t€ôµ…ÁÁ•‘}½±Õµ¸¡…Ñ•Q¥µ”¡Ñ¥µ•é½¹”õQÉÕ”¤°¹Õ±±…‰±”õQÉÕ”¤4(€€€¹½Ñ•Ìè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡Q•áÐ°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôˆˆ¤4(€€€É•½É‘•‘}‰äè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”¤4(4(4)±…ÍÌÕ‘¥ÑÙ•¹Ð¡	…Í”¤è(€€€}}Ñ…‰±•¹…µ•}|€ô€‰½µ…¹}…Õ‘¥Ñ}•Ù•¹ÑÌˆ4(€€€}}Ñ…‰±•}…ÉÍ}|€ô€¡%¹‘•à ‰¥á}½µ…¹}…Õ‘¥Ñ}•¹Ñ¥Ñäˆ°€‰½É…¹¥é…Ñ¥½¹}¥ˆ°€‰•¹Ñ¥Ñå}ÑåÁ”ˆ°€‰•¹Ñ¥Ñå}¥ˆ¤°¤4(4(€€€¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°ÁÉ¥µ…Éå}­•äõQÉÕ”°‘•™…Õ±Ðõ¹•Ý}¥¤4(€€€½É…¹¥é…Ñ¥½¹}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}½É…¹¥é…Ñ¥½¹Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”4(€€€€¤4(€€€™…¥±¥Ñå}¥è5…ÁÁ•‘mÍÑÈð9½¹•t€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}™…¥±¥Ñ¥•Ì¹¥ˆ°½¹‘•±•Ñ”ô‰MP9U10ˆ¤°¹Õ±±…‰±”õQÉÕ”4(€€€€¤4(€€€•¹Ñ¥Ñå}ÑåÁ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÄÈÀ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€•¹Ñ¥Ñå}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€…Ñ¥½¸è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÄÈÀ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€…Ñ½Èè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€¡…¹•Í}©Í½¸è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡Q•áÐ°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰íôˆ¤4(€€€½ÕÉÉ•‘}…Ðè5…ÁÁ•‘m‘…Ñ•Ñ¥µ•t€ôµ…ÁÁ•‘}½±Õµ¸¡…Ñ•Q¥µ”¡Ñ¥µ•é½¹”õQÉÕ”¤°‘•™…Õ±ÐõÕÑ}¹½Ü°¹Õ±±…‰±”õ…±Í”¤(()±…ÍÌ…Ñ…±½9½µ•¹±…ÑÕÉ•%Ñ•´¡Q¥µ•ÍÑ…µÁ5¥á¥¸°	…Í”¤è(€€€€ˆˆ‰=¹”½É…¹¥é…Ñ¥½¸ÌÕÑ¡¥”…Ñ…±½œ…Ì¥ÑÌ…ÁÁÉ½Ù•¹…µ¥¹œÍ½ÕÉ”¸ˆˆˆ((€€€}}Ñ…‰±•¹…µ•}|€ô€‰…Ñ…±½}¹½µ•¹±…ÑÕÉ•}¥Ñ•µÌˆ(€€€}}Ñ…‰±•}…ÉÍ}|€ô€ (€€€€€€€U¹¥ÅÕ•½¹ÍÑÉ…¥¹Ð (€€€€€€€€€€€€‰½É…¹¥é…Ñ¥½¹}¥ˆ°(€€€€€€€€€€€€‰Í½ÕÉ•}ÍåÍÑ•´ˆ°(€€€€€€€€€€€€‰¹½Éµ…±¥é•‘}¹…µ”ˆ°(€€€€€€€€€€€¹…µ”ô‰ÕÅ}…Ñ…±½}¹½µ•¹±…ÑÕÉ•}½É}Í½ÕÉ•}¹…µ”ˆ°(€€€€€€€€¤°(€€€€€€€%¹‘•à ‰¥á}…Ñ…±½}¹½µ•¹±…ÑÕÉ•}½É}…Ñ¥Ù”ˆ°€‰½É…¹¥é…Ñ¥½¹}¥ˆ°€‰…Ñ¥Ù”ˆ¤°(€€€€¤((€€€¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°ÁÉ¥µ…Éå}­•äõQÉÕ”°‘•™…Õ±Ðõ¹•Ý}¥¤(€€€½É…¹¥é…Ñ¥½¹}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ (€€€€€€€½É•¥¹-•ä ‰½µ…¹}½É…¹¥é…Ñ¥½¹Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”(€€€€¤(€€€Í½ÕÉ•}ÍåÍÑ•´è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌÈ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰‘ÕÑ¡¥”ˆ¤(€€€…¹½¹¥…±}¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÔÄÈ¤°¹Õ±±…‰±”õ…±Í”¤(€€€¹½Éµ…±¥é•‘}¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÔÄÈ¤°¹Õ±±…‰±”õ…±Í”¤(€€€Í­Ôè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôˆˆ¤(€€€…Ñ•½Éäè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôˆˆ¤(€€€‰É…¹è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôˆˆ¤(€€€…Ñ¥Ù”è5…ÁÁ•‘m‰½½±t€ôµ…ÁÁ•‘}½±Õµ¸¡	½½±•…¸°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐõQÉÕ”¤(€€€¥µÁ½ÉÑ•‘}‰äè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰ÍåÍÑ•´ˆ¤(()±…ÍÌ…Ñ…±½9½µ•¹±…ÑÕÉ•5…ÁÁ¥¹œ¡Q¥µ•ÍÑ…µÁ5¥á¥¸°	…Í”¤è(€€€€ˆˆ‰½¹™¥Éµ•5QIÍ½ÕÉ”¹…µ”Ñ¼½É…¹¥é…Ñ¥½¸…Ñ…±½œµ¹…µ”µ…ÁÁ¥¹œ¸ˆˆˆ((€€€}}Ñ…‰±•¹…µ•}|€ô€‰…Ñ…±½}¹½µ•¹±…ÑÕÉ•}µ…ÁÁ¥¹Ìˆ(€€€}}Ñ…‰±•}…ÉÍ}|€ô€ (€€€€€€€U¹¥ÅÕ•½¹ÍÑÉ…¥¹Ð (€€€€€€€€€€€€‰½É…¹¥é…Ñ¥½¹}¥ˆ°(€€€€€€€€€€€€‰Í½ÕÉ•}ÍåÍÑ•´ˆ°(€€€€€€€€€€€€‰Í½ÕÉ•}¹½Éµ…±¥é•‘}¹…µ”ˆ°(€€€€€€€€€€€¹…µ”ô‰ÕÅ}…Ñ…±½}µ…ÁÁ¥¹}½É}Í½ÕÉ•}¹…µ”ˆ°(€€€€€€€€¤°(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð (€€€€€€€€€€€€‰ÍÑ…ÑÕÌ¥¸€ ½¹™¥Éµ•œ°€É•Ñ¥É•œ¤ˆ°(€€€€€€€€€€€¹…µ”ô‰­}…Ñ…±½}µ…ÁÁ¥¹}ÍÑ…ÑÕÌˆ°(€€€€€€€€¤°(€€€€€€€%¹‘•à ‰¥á}…Ñ…±½}µ…ÁÁ¥¹}½É}ÍÑ…ÑÕÌˆ°€‰½É…¹¥é…Ñ¥½¹}¥ˆ°€‰ÍÑ…ÑÕÌˆ¤°(€€€€¤((€€€¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°ÁÉ¥µ…Éå}­•äõQÉÕ”°‘•™…Õ±Ðõ¹•Ý}¥¤(€€€½É…¹¥é…Ñ¥½¹}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ (€€€€€€€½É•¥¹-•ä ‰½µ…¹}½É…¹¥é…Ñ¥½¹Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”(€€€€¤(€€€…Ñ…±½}¥Ñ•µ}¥è5…ÁÁ•‘mÍÑÈð9½¹•t€ôµ…ÁÁ•‘}½±Õµ¸ (€€€€€€€½É•¥¹-•ä ‰…Ñ…±½}¹½µ•¹±…ÑÕÉ•}¥Ñ•µÌ¹¥ˆ°½¹‘•±•Ñ”ô‰MP9U10ˆ¤°¹Õ±±…‰±”õQÉÕ”°¥¹‘•àõQÉÕ”(€€€€¤(€€€Í½ÕÉ•}ÍåÍÑ•´è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌÈ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰µ•ÑÉŒˆ¤(€€€Í½ÕÉ•}¥Ñ•µ}¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÔÄÈ¤°¹Õ±±…‰±”õ…±Í”¤(€€€Í½ÕÉ•}¹½Éµ…±¥é•‘}¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÔÄÈ¤°¹Õ±±…‰±”õ…±Í”¤(€€€½ÉÉ•Ñ}¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÔÄÈ¤°¹Õ±±…‰±”õ…±Í”¤(€€€ÍÑ…ÑÕÌè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÐ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰½¹™¥Éµ•ˆ¤(€€€½¹™¥Éµ•‘}‰äè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”¤(€€€½¹™¥Éµ•‘}…Ðè5…ÁÁ•‘m‘…Ñ•Ñ¥µ•t€ôµ…ÁÁ•‘}½±Õµ¸¡…Ñ•Q¥µ”¡Ñ¥µ•é½¹”õQÉÕ”¤°‘•™…Õ±ÐõÕÑ}¹½Ü°¹Õ±±…‰±”õ…±Í”¤(()±…ÍÌÁÁUÍ•È¡Q¥µ•ÍÑ…µÁ5¥á¥¸°	…Í”¤è(€€€}}Ñ…‰±•¹…µ•}|€ô€‰…ÁÁ}ÕÍ•ÉÌˆ4(€€€}}Ñ…‰±•}…ÉÍ}|€ô€ 4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð 4(€€€€€€€€€€€€‰É½±”¥¸€ ‘•Øœ°€…‘µ¥¸œ°€‰Õå•Èœ°€Á±…¹¹•Èœ°€ÍÕÁ•ÉÙ¥Í½Èœ°€½Á•É…Ñ½Èœ°€Å„œ°€É•…‘}½¹±äœ¤ˆ°4(€€€€€€€€€€€¹…µ”ô‰­}…ÁÁ}ÕÍ•ÉÍ}É½±”ˆ°4(€€€€€€€€¤°4(€€€€€€€%¹‘•à ‰¥á}…ÁÁ}ÕÍ•ÉÍ}½É}…Ñ¥Ù”ˆ°€‰½É…¹¥é…Ñ¥½¹}¥ˆ°€‰…Ñ¥Ù”ˆ¤°4(€€€€¤4(4(€€€¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°ÁÉ¥µ…Éå}­•äõQÉÕ”°‘•™…Õ±Ðõ¹•Ý}¥¤4(€€€½É…¹¥é…Ñ¥½¹}¥è5…ÁÁ•‘mÍÑÈð9½¹•t€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}½É…¹¥é…Ñ¥½¹Ì¹¥ˆ°½¹‘•±•Ñ”ô‰MP9U10ˆ¤°¹Õ±±…‰±”õQÉÕ”4(€€€€¤4(€€€ÕÍ•É¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÄÈÀ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€¹½Éµ…±¥é•‘}ÕÍ•É¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÄÈÀ¤°¹Õ±±…‰±”õ…±Í”°Õ¹¥ÅÕ”õQÉÕ”¤4(€€€‘¥ÍÁ±…å}¹…µ”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôˆˆ¤4(€€€•µ…¥°è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌÈÀ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðôˆˆ¤4(€€€Á…ÍÍÝ½É‘}¡…Í è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”¤4(€€€É½±”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌÈ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰‰Õå•Èˆ¤4(€€€…Ñ¥Ù”è5…ÁÁ•‘m‰½½±t€ôµ…ÁÁ•‘}½±Õµ¸¡	½½±•…¸°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐõQÉÕ”¤4(€€€µÕÍÑ}¡…¹•}Á…ÍÍÝ½Éè5…ÁÁ•‘m‰½½±t€ôµ…ÁÁ•‘}½±Õµ¸¡	½½±•…¸°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±ÐõQÉÕ”¤4(€€€±…ÍÑ}±½¥¹}…Ðè5…ÁÁ•‘m‘…Ñ•Ñ¥µ”ð9½¹•t€ôµ…ÁÁ•‘}½±Õµ¸¡…Ñ•Q¥µ”¡Ñ¥µ•é½¹”õQÉÕ”¤°¹Õ±±…‰±”õQÉÕ”¤4(€€€Á…ÍÍÝ½É‘}¡…¹•‘}…Ðè5…ÁÁ•‘m‘…Ñ•Ñ¥µ”ð9½¹•t€ôµ…ÁÁ•‘}½±Õµ¸¡…Ñ•Q¥µ”¡Ñ¥µ•é½¹”õQÉÕ”¤°¹Õ±±…‰±”õQÉÕ”¤4(€€€É•…Ñ•‘}‰äè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰ÍåÍÑ•´ˆ¤4(€€€ÕÁ‘…Ñ•‘}‰äè5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÈÔÔ¤°¹Õ±±…‰±”õ…±Í”°‘•™…Õ±Ðô‰ÍåÍÑ•´ˆ¤4(4(4)±…ÍÌÁÁUÍ•É…¥±¥ÑåI½±”¡Q¥µ•ÍÑ…µÁ5¥á¥¸°	…Í”¤è4(€€€}}Ñ…‰±•¹…µ•}|€ô€‰…ÁÁ}ÕÍ•É}™…¥±¥Ñå}É½±•Ìˆ4(€€€}}Ñ…‰±•}…ÉÍ}|€ô€ 4(€€€€€€€U¹¥ÅÕ•½¹ÍÑÉ…¥¹Ð ‰ÕÍ•É}¥ˆ°€‰™…¥±¥Ñå}¥ˆ°¹…µ”ô‰ÕÅ}…ÁÁ}ÕÍ•É}™…¥±¥Ñäˆ¤°4(€€€€€€€¡•­½¹ÍÑÉ…¥¹Ð 4(€€€€€€€€€€€€‰É½±”¥¸€ ‘•Øœ°€…‘µ¥¸œ°€‰Õå•Èœ°€Á±…¹¹•Èœ°€ÍÕÁ•ÉÙ¥Í½Èœ°€½Á•É…Ñ½Èœ°€Å„œ°€É•…‘}½¹±äœ¤ˆ°4(€€€€€€€€€€€¹…µ”ô‰­}…ÁÁ}ÕÍ•É}™…¥±¥Ñå}É½±”ˆ°4(€€€€€€€€¤°4(€€€€¤4(4(€€€¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌØ¤°ÁÉ¥µ…Éå}­•äõQÉÕ”°‘•™…Õ±Ðõ¹•Ý}¥¤4(€€€ÕÍ•É}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰…ÁÁ}ÕÍ•ÉÌ¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”4(€€€€¤4(€€€½É…¹¥é…Ñ¥½¹}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}½É…¹¥é…Ñ¥½¹Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”4(€€€€¤4(€€€™…¥±¥Ñå}¥è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸ 4(€€€€€€€½É•¥¹-•ä ‰½µ…¹}™…¥±¥Ñ¥•Ì¹¥ˆ°½¹‘•±•Ñ”ô‰Mˆ¤°¹Õ±±…‰±”õ…±Í”°¥¹‘•àõQÉÕ”4(€€€€¤4(€€€É½±”è5…ÁÁ•‘mÍÑÉt€ôµ…ÁÁ•‘}½±Õµ¸¡MÑÉ¥¹œ ÌÈ¤°¹Õ±±…‰±”õ…±Í”¤4
