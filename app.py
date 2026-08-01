@@ -9999,17 +9999,7 @@ if app_mode == EXTRACTION_WORKSPACE:
         _display_user,
         "Operations",
     )
-    if section == INVENTORY_COUNTS_SECTION:
-    render_hero(
-        "Retail Inventory Counts",
-        "Scan Dutchie labels, complete recounts, and reconcile store inventory with a durable audit trail.",
-        str(_display_user),
-        "Retail Operations",
-    )
-    render_inventory_audit_workspace("retail")
-    st.stop()
-
-if _feature_enabled("ai_support", default_enabled=True):
+    if _feature_enabled("ai_support", default_enabled=True):
         render_main_ai_copilot(app_mode, "🧪 Extraction Command Center")
     else:
         st.info("AI support is not enabled for this license plan.")
@@ -10067,6 +10057,16 @@ section = st.sidebar.selectbox(
     key="buyer_section",
     help="Choose a Buyer Operations page. This compact menu keeps the sidebar usable on phones.",
 )
+
+if section == INVENTORY_COUNTS_SECTION:
+    render_hero(
+        "Retail Inventory Counts",
+        "Scan Dutchie labels, complete recounts, and reconcile store inventory with a durable audit trail.",
+        str(_display_user),
+        "Retail Operations",
+    )
+    render_inventory_audit_workspace("retail")
+    st.stop()
 
 if _feature_enabled("ai_support", default_enabled=True):
     render_main_ai_copilot(app_mode, section)
