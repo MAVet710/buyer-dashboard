@@ -252,10 +252,17 @@ def _count_form(
         "Use a phone camera or place the cursor in the code field and scan with a USB/Bluetooth scanner."
     )
     decoded = ""
-    with st.expander("Use phone camera", expanded=False):
+    with st.expander("Use phone or tablet camera", expanded=False):
+        st.caption(
+            "Allow camera access when prompted. On mobile devices, switch to the rear camera "
+            "for the clearest Dutchie, UPC, QR, or METRC label scan."
+        )
         photo = st.camera_input(
             "Photograph the Dutchie QR, UPC, or package label",
             key=f"audit_camera_{stage}_{audit.id}",
+            help="Hold the label flat, fill most of the frame, and avoid glare.",
+            resolution="720p",
+            width="stretch",
         )
         decoded, decode_error = _decode_camera_label(photo)
         if decoded:
