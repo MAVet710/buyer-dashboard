@@ -57,3 +57,13 @@ def test_delivery_impact_can_reuse_loaded_sales():
 
     assert '"Use sales data already loaded in Buyer Dashboard"' in source
     assert "_normalize_sales_report_dataframe(_cached_sales_raw)" in source
+
+
+def test_inventory_audits_support_phone_and_tablet_camera_scanning():
+    source = (ROOT / "modules" / "inventory_audit" / "ui.py").read_text(encoding="utf-8")
+
+    assert 'st.expander("Use phone or tablet camera"' in source
+    assert "st.camera_input(" in source
+    assert 'resolution="720p"' in source
+    assert 'width="stretch"' in source
+    assert "switch to the rear camera" in source
