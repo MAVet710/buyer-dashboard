@@ -25,6 +25,7 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
     output = display_frame(
         raw_output,
         [
+            ("Product Name", ["product name", "product_name", "product", "item name"]),
             ("Package Size", ["package size", "package_size_g", "package_size"]),
             ("Allocation %", ["allocation %", "allocation_pct"]),
             ("Grams Allocated", ["grams allocated", "grams_allocated"]),
@@ -41,6 +42,20 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
     compliance = frame(payload.get("compliance_checklist"))
     readiness = payload.get("margin_readiness") or {}
     bulk = payload.get("bulk_lot_details") or {}
+    if not output.empty and "Product Name" not in output:
+        base_name = str(
+            summary.get("product_name")
+            or summary.get("strain_name")
+            or bulk.get("wl_product_name")
+            or bulk.get("wl_strain_name")
+            or "Repack Product"
+        ).strip()
+        sizes = output.get("Package Size", pd.Series([""] * len(output), index=output.index))
+        derived_names = [
+            " ".join(part for part in (base_name, str(size).strip()) if part).strip()
+            for size in sizes
+        ]
+        output.insert(0, "Product Name", derived_names)
 
     revenue = float(summary.get("total_revenue_usd") or (_numeric(output, "Revenue").sum() if not output.empty else 0))
     landed_cost = float(summary.get("landed_cost_usd") or 0)

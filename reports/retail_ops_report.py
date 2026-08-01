@@ -7,7 +7,7 @@ from reports.executive_system import (
     ReportSection,
     build_executive_pdf,
 )
-from reports.report_helpers import first_present, frame
+from reports.report_helpers import first_present, frame, resolve_column
 
 
 def _build_retail_ops_executive_report_pdf(payload: dict) -> bytes:
@@ -16,6 +16,17 @@ def _build_retail_ops_executive_report_pdf(payload: dict) -> bytes:
     analysis = frame(payload.get("analysis"))
     demand = frame(payload.get("demand"))
     staffing = frame(payload.get("staffing"))
+    for product_frame in (analysis, demand):
+        if "Product Name" not in product_frame.columns:
+            product_column = resolve_column(
+                product_frame,
+                "product name",
+                "product_name",
+                "product",
+                "item name",
+            )
+            if product_column is not None:
+                product_frame.rename(columns={product_column: "Product Name"}, inplace=True)
 
     labor_cost = float(first_present(metrics, ["total_labor_cost"], 0))
     labor_hours = float(first_present(metrics, ["total_labor_hours"], 0))
