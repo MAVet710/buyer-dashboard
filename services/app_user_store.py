@@ -338,6 +338,87 @@ class AppUserStore:
         except SQLAlchemyError:
             return False
 
+    def update_user(
+        self,
+        user_id: str,
+        *,
+        username: str,
+        display_name: str,
+        email: str,
+        role: str,
+        organization_id: str | None,
+        facility_ids: list[str] | None,
+        active: bool,
+        must_change_password: bool,
+        updated_by: str,
+    ) -> AppUserRecord:
+        """Update account identity, access scope, and facility assignments atomically."""
+        if not self._session_factory:
+            raise RuntimeError("The application user database is not configured.")
+        clean_username = str(username or "").strip()
+        normalized = normalize_username(clean_username)
+        clean_role = str(role or "").strip().casefold()
+        clean_organization_id = str(organization_id or "").strip() or None
+        clean_facility_ids = sorted(set(str(item).strip() for item in (facility_ids or []) if str(item).strip()))
+
+        if not USERNAME_PATTERN.fullmatch(clean_username):
+            raise ValueError("Username must be 3-120 characters using letters, numbers, ., _, or -.")
+        if clean_role not in VALID_ROLES:
+            raise ValueError("Invalid user role.")
+        if clean_role == "dev":
+            clean_organization_id = None
+            clean_facility_ids = []
+        elif not clean_organization_id:
+            raise ValueError("Non-DEV accounts must be assigned to an organization.")
+
+        with self._session_factory.begin() as session:
+            user = session.get(AppUser, user_id)
+            if not user:
+                raise ValueError("The user account was not found.")
+            duplicate = session.scalar(
+                select(AppUser.id).where(
+                    AppUser.normalized_username == normalized,
+                    AppUser.id != user_id,
+                )
+            )
+            if duplicate:
+                raise ValueError("That username already exists.")
+            if clean_organization_id and not session.get(Organization, clean_organization_id):
+                raise ValueError("The selected organization was not found.")
+
+            facilities: list[Facility] = []
+            for facility_id in clean_facility_ids:
+                facility = session.get(Facility, facility_id)
+                if not facility or facility.organization_id != clean_organization_id:
+                    raise ValueError("A selected facility does not belong to the organization.")
+                facilities.append(facility)
+
+            user.username = clean_username
+            user.normalized_username = normalized
+            user.display_name = str(display_name or "").strip()
+            user.email = str(email or "").strip().casefold()
+            user.role = clean_role
+            user.organization_id = clean_organization_id
+            user.active = bool(active)
+            user.must_change_password = bool(must_change_password)
+            user.updated_by = str(updated_by or "system")
+
+            session.query(AppUserFacilityRole).filter(
+                AppUserFacilityRole.user_id == user_id
+            ).delete(synchronize_session=False)
+            for facility in facilities:
+                session.add(
+                    AppUserFacilityRole(
+                        user_id=user.id,
+                        organization_id=str(clean_organization_id),
+                        facility_id=facility.id,
+                        role=clean_role,
+                    )
+                )
+            session.flush()
+            result = self._record(user)
+        return result
+
     def reset_password(self, user_id: str, password_hash: str, updated_by: str) -> bool:
         if not self._session_factory:
             return False
@@ -422,3 +503,4 @@ class AppUserStore:
             timezone_name=facility.timezone_name,
             active=bool(facility.active),
         )
+
