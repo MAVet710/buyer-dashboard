@@ -14,16 +14,6 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from dotenv import load_dotenv
 
-if section == INVENTORY_COUNTS_SECTION:
-    render_hero(
-        "Retail Inventory Counts",
-        "Scan Dutchie labels, complete recounts, and reconcile store inventory with a durable audit trail.",
-        str(_display_user),
-        "Retail Operations",
-    )
-    render_inventory_audit_workspace("retail")
-    st.stop()
-
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
 from services.license_client import validate_license_key
@@ -10009,7 +9999,17 @@ if app_mode == EXTRACTION_WORKSPACE:
         _display_user,
         "Operations",
     )
-    if _feature_enabled("ai_support", default_enabled=True):
+    if section == INVENTORY_COUNTS_SECTION:
+    render_hero(
+        "Retail Inventory Counts",
+        "Scan Dutchie labels, complete recounts, and reconcile store inventory with a durable audit trail.",
+        str(_display_user),
+        "Retail Operations",
+    )
+    render_inventory_audit_workspace("retail")
+    st.stop()
+
+if _feature_enabled("ai_support", default_enabled=True):
         render_main_ai_copilot(app_mode, "🧪 Extraction Command Center")
     else:
         st.info("AI support is not enabled for this license plan.")
