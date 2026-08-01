@@ -1,4 +1,3 @@
-
 """Durable application users backed by the Co-Man PostgreSQL database."""
 
 from __future__ import annotations
