@@ -87,12 +87,37 @@ class ComanRepository:
                 statement = statement.where(Customer.active.is_(True))
             return list(session.scalars(statement.order_by(Customer.name)))
 
-    def create_product(self, organization_id: str, *, sku: str, name: str, item_type: str, base_unit: str, unit_cost: float = 0, actor: str) -> Product:
+    def create_product(
+        self,
+        organization_id: str,
+        *,
+        sku: str,
+        name: str,
+        item_type: str,
+        base_unit: str,
+        unit_cost: float = 0,
+        retail_price: float = 0,
+        upc: str = "",
+        external_product_id: str = "",
+        actor: str,
+    ) -> Product:
         if item_type not in {"cannabis", "packaging", "wip", "finished_good"}:
             raise ValueError("Unsupported product item_type.")
         if float(unit_cost) < 0:
             raise ValueError("unit_cost cannot be negative.")
-        product = Product(organization_id=organization_id, sku=str(sku).strip().upper(), name=str(name).strip(), item_type=item_type, base_unit=str(base_unit).strip(), unit_cost=float(unit_cost))
+        if float(retail_price) < 0:
+            raise ValueError("retail_price cannot be negative.")
+        product = Product(
+            organization_id=organization_id,
+            sku=str(sku).strip().upper(),
+            name=str(name).strip(),
+            item_type=item_type,
+            base_unit=str(base_unit).strip(),
+            unit_cost=float(unit_cost),
+            retail_price=float(retail_price),
+            upc=str(upc or "").strip(),
+            external_product_id=str(external_product_id or "").strip(),
+        )
         with self._session_factory.begin() as session:
             self._require_organization(session, organization_id)
             session.add(product); session.flush()
@@ -138,9 +163,33 @@ class ComanRepository:
             session.add(AuditEvent(organization_id=organization_id, entity_type="product_bom", entity_id=bom.id, action="created", actor=actor, changes_json=json.dumps({"output_product_id": output_product_id, "components": len(components)})))
         return bom
 
-    def create_inventory_lot(self, organization_id: str, facility_id: str, *, product_id: str, lot_code: str, actor: str, opening_quantity: float = 0, location_code: str = "UNASSIGNED", compliance_package_id: str = "", unit: str | None = None) -> InventoryLot:
+    def create_inventory_lot(
+        self,
+        organization_id: str,
+        facility_id: str,
+        *,
+        product_id: str,
+        lot_code: str,
+        actor: str,
+        opening_quantity: float = 0,
+        location_code: str = "UNASSIGNED",
+        compliance_package_id: str = "",
+        external_inventory_id: str = "",
+        barcode_value: str = "",
+        unit: str | None = None,
+    ) -> InventoryLot:
         if float(opening_quantity) < 0: raise ValueError("opening_quantity cannot be negative.")
-        lot = InventoryLot(organization_id=organization_id, facility_id=facility_id, product_id=product_id, lot_code=str(lot_code).strip(), location_code=str(location_code).strip().upper(), compliance_package_id=str(compliance_package_id or ""), received_at=utc_now())
+        lot = InventoryLot(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            product_id=product_id,
+            lot_code=str(lot_code).strip(),
+            location_code=str(location_code).strip().upper(),
+            compliance_package_id=str(compliance_package_id or ""),
+            external_inventory_id=str(external_inventory_id or "").strip(),
+            barcode_value=str(barcode_value or "").strip(),
+            received_at=utc_now(),
+        )
         with self._session_factory.begin() as session:
             facility, product = session.get(Facility, facility_id), session.get(Product, product_id)
             if not facility or facility.organization_id != organization_id: raise ValueError("Facility does not belong to the organization.")

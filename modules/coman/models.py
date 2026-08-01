@@ -97,6 +97,9 @@ class Product(TimestampMixin, Base):
     item_type: Mapped[str] = mapped_column(String(32), nullable=False)
     base_unit: Mapped[str] = mapped_column(String(32), nullable=False, default="unit")
     unit_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    retail_price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    upc: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    external_product_id: Mapped[str] = mapped_column(String(120), nullable=False, default="", index=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -134,6 +137,8 @@ class InventoryLot(TimestampMixin, Base):
     product_id: Mapped[str] = mapped_column(ForeignKey("coman_products.id", ondelete="RESTRICT"), nullable=False, index=True)
     lot_code: Mapped[str] = mapped_column(String(255), nullable=False)
     compliance_package_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    external_inventory_id: Mapped[str] = mapped_column(String(120), nullable=False, default="", index=True)
+    barcode_value: Mapped[str] = mapped_column(String(512), nullable=False, default="", index=True)
     location_code: Mapped[str] = mapped_column(String(120), nullable=False, default="UNASSIGNED")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="available")
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -164,6 +169,120 @@ class InventoryTransaction(Base):
     reference: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class InventoryAudit(TimestampMixin, Base):
+    """Durable physical-count session scoped to one organization facility."""
+
+    __tablename__ = "inventory_audits"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "audit_number", name="uq_inventory_audit_org_number"),
+        CheckConstraint(
+            "status in ('draft', 'in_progress', 'completed', 'cancelled')",
+            name="ck_inventory_audit_status",
+        ),
+        CheckConstraint(
+            "operation_type in ('retail', 'production')",
+            name="ck_inventory_audit_operation_type",
+        ),
+        Index("ix_inventory_audits_facility_status", "facility_id", "status", "started_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    facility_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    audit_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft")
+    operation_type: Mapped[str] = mapped_column(String(24), nullable=False, default="production")
+    blind_count: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    recount_tolerance: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    scope_label: Mapped[str] = mapped_column(String(255), nullable=False, default="Full facility")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    completed_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class InventoryAuditLine(TimestampMixin, Base):
+    """Expected-versus-physical count for one lot in an inventory audit."""
+
+    __tablename__ = "inventory_audit_lines"
+    __table_args__ = (
+        UniqueConstraint("audit_id", "lot_id", name="uq_inventory_audit_line_lot"),
+        CheckConstraint("expected_quantity >= 0", name="ck_inventory_audit_expected_nonnegative"),
+        CheckConstraint(
+            "counted_quantity is null or counted_quantity >= 0",
+            name="ck_inventory_audit_counted_nonnegative",
+        ),
+        Index("ix_inventory_audit_lines_audit_counted", "audit_id", "counted_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    facility_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    audit_id: Mapped[str] = mapped_column(
+        ForeignKey("inventory_audits.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    lot_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_inventory_lots.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    expected_quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    first_count_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    recount_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    counted_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    variance_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    recount_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    counted_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    counted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    adjustment_transaction_id: Mapped[str | None] = mapped_column(
+        ForeignKey("coman_inventory_transactions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
+
+class InventoryAuditScan(Base):
+    """Immutable scan attempt, including unmatched and ambiguous label reads."""
+
+    __tablename__ = "inventory_audit_scans"
+    __table_args__ = (
+        CheckConstraint(
+            "match_status in ('matched', 'unmatched', 'ambiguous')",
+            name="ck_inventory_audit_scan_status",
+        ),
+        CheckConstraint(
+            "scan_stage in ('first_count', 'recount')",
+            name="ck_inventory_audit_scan_stage",
+        ),
+        Index("ix_inventory_audit_scans_audit_time", "audit_id", "scanned_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    facility_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    audit_id: Mapped[str] = mapped_column(
+        ForeignKey("inventory_audits.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    audit_line_id: Mapped[str | None] = mapped_column(
+        ForeignKey("inventory_audit_lines.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    raw_code: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_code: Mapped[str] = mapped_column(String(512), nullable=False)
+    match_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    scan_stage: Mapped[str] = mapped_column(String(24), nullable=False)
+    scanned_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
 class MaterialReservation(TimestampMixin, Base):

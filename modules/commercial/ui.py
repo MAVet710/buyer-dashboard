@@ -10,6 +10,8 @@ import streamlit as st
 
 from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engine
 from modules.coman.repository import ComanRepository
+from modules.inventory_audit.repository import InventoryAuditRepository
+from modules.inventory_audit.ui import render_inventory_audits
 
 from .analytics import (
     commercial_dashboard_metrics,
@@ -20,15 +22,17 @@ from .analytics import (
 from .repository import CommercialRepository
 
 
-_CACHE_VERSION = "commercial-orders-v1"
+_CACHE_VERSION = "commercial-orders-audits-v2"
 _OPEN_STATUSES = {"draft", "confirmed", "allocated", "partially_fulfilled"}
 
 
 @st.cache_resource
-def _repositories(cache_version: str) -> tuple[CommercialRepository, ComanRepository]:
+def _repositories(
+    cache_version: str,
+) -> tuple[CommercialRepository, ComanRepository, InventoryAuditRepository]:
     del cache_version
     engine = create_coman_engine()
-    return CommercialRepository(engine), ComanRepository(engine)
+    return CommercialRepository(engine), ComanRepository(engine), InventoryAuditRepository(engine)
 
 
 def _actor() -> str:
@@ -688,7 +692,7 @@ def render_commercial_workspace() -> None:
     )
 
     try:
-        commercial, coman = _repositories(_CACHE_VERSION)
+        commercial, coman, inventory_audits = _repositories(_CACHE_VERSION)
         partners = commercial.list_trade_partners(organization_id)
         orders = commercial.list_orders(organization_id, facility_id)
         lines = commercial.list_order_lines(organization_id)
@@ -699,7 +703,10 @@ def render_commercial_workspace() -> None:
         return
     except Exception as exc:
         message = str(exc)
-        if "commercial_trade_partners" in message or "commercial_orders" in message:
+        if "inventory_audits" in message or "inventory_audit_lines" in message:
+            st.error("Inventory Audits needs database migration 0012 before Commercial Ops can load.")
+            st.code("migrations/versions/0012_inventory_audits.sql")
+        elif "commercial_trade_partners" in message or "commercial_orders" in message:
             st.error("Commercial Ops needs database migration 0011 before it can load.")
             st.code("migrations/versions/0011_commercial_order_fulfillment.sql")
         else:
@@ -712,6 +719,7 @@ def render_commercial_workspace() -> None:
             "New Order",
             "Allocate & Fulfill",
             "Trade Partners",
+            "Inventory Audits",
             "Inventory Ledger",
         ]
     )
@@ -743,6 +751,14 @@ def render_commercial_workspace() -> None:
     with tabs[3]:
         _partners(commercial, organization_id, partners)
     with tabs[4]:
+        render_inventory_audits(
+            inventory_audits,
+            organization_id,
+            facility_id,
+            products,
+            lots,
+        )
+    with tabs[5]:
         _ledger(
             commercial,
             organization_id,

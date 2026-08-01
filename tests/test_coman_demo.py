@@ -17,6 +17,9 @@ from modules.coman.models import (
     Facility,
     FacilityMachine,
     InventoryLot,
+    InventoryAudit,
+    InventoryAuditLine,
+    InventoryAuditScan,
     Organization,
     Product,
     ProductionActual,
@@ -62,6 +65,7 @@ def test_durable_demo_seed_is_complete_idempotent_and_force_refreshable():
     assert first["trade_partners"] == 5
     assert first["commercial_orders"] >= 6
     assert first["commercial_transactions"] >= 1
+    assert first["inventory_audits"] == 2
     assert state["active_organization_id"] == first["organization_id"]
     assert state["active_facility_id"] == first["facility_id"]
 
@@ -80,6 +84,9 @@ def test_durable_demo_seed_is_complete_idempotent_and_force_refreshable():
         assert _count(session, CommercialOrderLine, organization.id) == first["commercial_orders"]
         assert _count(session, OrderLotAllocation, organization.id) >= 2
         assert _count(session, InventoryTransaction, organization.id) > first["commercial_transactions"]
+        assert _count(session, InventoryAudit, organization.id) == first["inventory_audits"]
+        assert _count(session, InventoryAuditLine, organization.id) == first["inventory_audits"]
+        assert _count(session, InventoryAuditScan, organization.id) == 2
         assert _count(session, AuditEvent, organization.id) == 1
 
     second = ensure_coman_demo_dataset(

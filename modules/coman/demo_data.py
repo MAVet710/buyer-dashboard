@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import Engine, delete, select
+from sqlalchemy import Engine, delete, func, select
 from sqlalchemy.orm import sessionmaker
 
 from modules.coman.db import create_coman_engine
@@ -21,6 +21,9 @@ from modules.coman.models import (
     FacilityMachine,
     HandLaborArea,
     InventoryLot,
+    InventoryAudit,
+    InventoryAuditLine,
+    InventoryAuditScan,
     InventoryTransaction,
     MachineModel,
     MaterialReservation,
@@ -35,7 +38,7 @@ from modules.coman.models import (
 
 DEMO_ORGANIZATION_SLUG = "doobielogic-demo-simulation"
 DEMO_FACILITY_CODE = "DEMO-SOUTHCOAST"
-DEMO_DATA_VERSION = "full-app-simulation-v3"
+DEMO_DATA_VERSION = "full-app-simulation-v4-inventory-audits"
 
 
 def _frame(payload: dict[str, Any], key: str) -> pd.DataFrame:
@@ -50,6 +53,9 @@ def _engine(database_url: str | None = None, engine: Engine | None = None) -> En
 def _clear_demo_children(session: Any, organization_id: str, facility_id: str) -> None:
     for model in (
         AuditEvent,
+        InventoryAuditScan,
+        InventoryAuditLine,
+        InventoryAudit,
         InventoryTransaction,
         OrderLotAllocation,
         CommercialOrderLine,
@@ -209,6 +215,8 @@ def ensure_coman_demo_dataset(
                 product_id=raw.id,
                 lot_code=str(row.get("batch_id_internal") or f"MAT-{idx + 1:04d}"),
                 compliance_package_id=str(row.get("metrc_package_id") or ""),
+                external_inventory_id=f"DEMO-DUTCHIE-RAW-{idx + 1:05d}",
+                barcode_value=str(row.get("metrc_package_id") or f"DEMO-RAW-QR-{idx + 1:05d}"),
                 location_code=str(row.get("storage_location") or "DEMO-VAULT").upper(),
                 status="quarantine" if str(row.get("status") or "").casefold() == "quarantine" else "available",
                 received_at=datetime.combine(as_of - timedelta(days=10 + idx), datetime.min.time(), tzinfo=timezone.utc),
@@ -244,6 +252,16 @@ def ensure_coman_demo_dataset(
                 item_type="finished_good",
                 base_unit="unit",
                 unit_cost=float(row.get("unit_cost") or 0.0),
+                retail_price=round(
+                    max(
+                        float(row.get("unit_cost") or 0.0) * 2.8,
+                        float(row.get("wholesale_price") or 0.0) * 1.9,
+                        5.0,
+                    ),
+                    2,
+                ),
+                upc=f"8500710{idx + 1:05d}",
+                external_product_id=f"DEMO-DUTCHIE-PRODUCT-{idx + 1:05d}",
                 active=True,
             )
             session.add(product)
@@ -371,6 +389,8 @@ def ensure_coman_demo_dataset(
                     product_id=product.id,
                     lot_code=f"FG-{order.order_number}",
                     compliance_package_id=str(row.get("package_id") or ""),
+                    external_inventory_id=f"DEMO-DUTCHIE-INVENTORY-{idx + 1:05d}",
+                    barcode_value=str(row.get("package_id") or f"DEMO-FG-QR-{idx + 1:05d}"),
                     location_code="FINISHED-GOODS",
                     status="available",
                     received_at=datetime.combine(as_of - timedelta(days=idx + 1), datetime.min.time(), tzinfo=timezone.utc),
@@ -687,6 +707,119 @@ def ensure_coman_demo_dataset(
                     updated_by=actor,
                 )
             )
+
+        audit_count = 0
+        if sellable:
+            retail_product, retail_lot = sellable[0]
+            expected = float(
+                session.scalar(
+                    select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(
+                        InventoryTransaction.lot_id == retail_lot.id
+                    )
+                )
+                or 0.0
+            )
+            retail_audit = InventoryAudit(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                audit_number="RTL-DEMO-COMPLETE",
+                status="completed",
+                operation_type="retail",
+                blind_count=True,
+                recount_tolerance=0.0,
+                scope_label="Sales floor and secure backstock",
+                started_at=datetime.combine(as_of - timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc),
+                completed_at=datetime.combine(as_of - timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=2),
+                created_by="demo.retail.counter",
+                completed_by="demo.inventory.manager",
+                notes="Synthetic profitable retail count with a resolved first-pass variance.",
+            )
+            session.add(retail_audit)
+            session.flush()
+            retail_line = InventoryAuditLine(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                audit_id=retail_audit.id,
+                lot_id=retail_lot.id,
+                expected_quantity=expected,
+                first_count_quantity=max(0.0, expected - 1.0),
+                recount_quantity=expected,
+                counted_quantity=expected,
+                variance_quantity=0.0,
+                recount_required=False,
+                unit="unit",
+                reason="First count entry correction",
+                notes="Recount confirmed the ledger quantity.",
+                counted_by="demo.retail.recounter",
+                counted_at=retail_audit.completed_at,
+            )
+            session.add(retail_line)
+            session.flush()
+            scan_code = retail_lot.barcode_value or retail_lot.compliance_package_id or retail_product.upc
+            session.add_all(
+                [
+                    InventoryAuditScan(
+                        organization_id=organization.id,
+                        facility_id=facility.id,
+                        audit_id=retail_audit.id,
+                        audit_line_id=retail_line.id,
+                        raw_code=scan_code,
+                        normalized_code=scan_code.upper(),
+                        match_status="matched",
+                        scan_stage="first_count",
+                        scanned_by="demo.retail.counter",
+                        scanned_at=retail_audit.started_at + timedelta(minutes=12),
+                    ),
+                    InventoryAuditScan(
+                        organization_id=organization.id,
+                        facility_id=facility.id,
+                        audit_id=retail_audit.id,
+                        audit_line_id=retail_line.id,
+                        raw_code=scan_code,
+                        normalized_code=scan_code.upper(),
+                        match_status="matched",
+                        scan_stage="recount",
+                        scanned_by="demo.retail.recounter",
+                        scanned_at=retail_audit.completed_at - timedelta(minutes=18),
+                    ),
+                ]
+            )
+            audit_count += 1
+        if raw_lots:
+            production_lot = raw_lots[0]
+            production_expected = float(
+                session.scalar(
+                    select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(
+                        InventoryTransaction.lot_id == production_lot.id
+                    )
+                )
+                or 0.0
+            )
+            production_audit = InventoryAudit(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                audit_number="PROD-DEMO-ACTIVE",
+                status="in_progress",
+                operation_type="production",
+                blind_count=True,
+                recount_tolerance=0.5,
+                scope_label="Bulk vault cycle count",
+                created_by="demo.production.counter",
+                notes="Active synthetic bulk-weight count ready for phone scanning.",
+            )
+            session.add(production_audit)
+            session.flush()
+            session.add(
+                InventoryAuditLine(
+                    organization_id=organization.id,
+                    facility_id=facility.id,
+                    audit_id=production_audit.id,
+                    lot_id=production_lot.id,
+                    expected_quantity=max(0.0, production_expected),
+                    unit="g",
+                )
+            )
+            audit_count += 1
         session.add(
             AuditEvent(
                 organization_id=organization.id,
@@ -719,6 +852,7 @@ def ensure_coman_demo_dataset(
         "trade_partners": len(trade_partners),
         "commercial_orders": commercial_order_count,
         "commercial_transactions": commercial_transaction_count,
+        "inventory_audits": audit_count,
     }
 
 

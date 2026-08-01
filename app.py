@@ -66,6 +66,7 @@ from services.workspace_navigation import (
     DATA_HUB_WORKSPACE,
     DATA_OPERATIONS,
     EXTRACTION_WORKSPACE,
+    INVENTORY_COUNTS_SECTION,
     METRC_INTEGRATIONS_SECTION,
     PRODUCTION_OPS,
     RETAIL_OPS,
@@ -83,6 +84,7 @@ from modules.extraction_quick_entry import (
     stage_completion_flags,
 )
 from modules.nomenclature_ui import render_nomenclature_mapper
+from modules.inventory_audit.ui import render_inventory_audit_workspace
 
 load_dotenv()
 
@@ -10055,6 +10057,16 @@ section = st.sidebar.selectbox(
     key="buyer_section",
     help="Choose a Buyer Operations page. This compact menu keeps the sidebar usable on phones.",
 )
+
+if section == INVENTORY_COUNTS_SECTION:
+    render_hero(
+        "Retail Inventory Counts",
+        "Scan Dutchie labels, complete recounts, and reconcile store inventory with a durable audit trail.",
+        str(_display_user),
+        "Retail Operations",
+    )
+    render_inventory_audit_workspace("retail")
+    st.stop()
 
 if _feature_enabled("ai_support", default_enabled=True):
     render_main_ai_copilot(app_mode, section)

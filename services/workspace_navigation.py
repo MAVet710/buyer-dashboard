@@ -17,6 +17,7 @@ COMMERCIAL_OPS = "🤝 Commercial Ops"
 DATA_OPERATIONS = "🗂️ Data & Integrations"
 AI_INTEGRATIONS_SECTION = "🧠 AI & METRC Integrations"
 METRC_INTEGRATIONS_SECTION = "🔗 METRC Integrations"
+INVENTORY_COUNTS_SECTION = "📋 Inventory Counts"
 
 
 def can_manage_ai_integrations(user_role: str | None) -> bool:
@@ -88,6 +89,7 @@ def buyer_section_options(
         "🧠 Buyer Intelligence",
         "🏷️ Nomenclature Mapper",
         "💰 Purchasing Budget",
+        INVENTORY_COUNTS_SECTION,
     ]
     if is_admin and admin_exports_enabled:
         options.append("🛠️ Admin Tools")

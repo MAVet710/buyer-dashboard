@@ -8,6 +8,7 @@ from services.workspace_navigation import (
     DATA_OPERATIONS,
     METRC_INTEGRATIONS_SECTION,
     EXTRACTION_WORKSPACE,
+    INVENTORY_COUNTS_SECTION,
     PRODUCTION_OPS,
     RETAIL_OPS,
     WHITE_LABEL_WORKSPACE,
@@ -85,3 +86,9 @@ def test_nomenclature_mapper_is_available_to_buyer_operations_users():
     standard = buyer_section_options(is_admin=False)
 
     assert "🏷️ Nomenclature Mapper" in standard
+
+
+def test_inventory_counts_are_available_to_retail_users():
+    standard = buyer_section_options(is_admin=False, user_role="buyer")
+
+    assert INVENTORY_COUNTS_SECTION in standard
