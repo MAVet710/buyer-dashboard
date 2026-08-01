@@ -100,6 +100,69 @@ class NomenclatureStore:
                         session.add(CatalogNomenclatureItem(**row))
         return len(clean_rows)
 
+    def add_catalog_items(self, organization_id: str, rows: Iterable[dict], actor: str) -> int:
+        """Add approved new names without deactivating the imported Dutchie catalog."""
+        if not self._session_factory:
+            raise ComanDatabaseConfigurationError("Nomenclature storage is not configured.")
+        clean_rows = []
+        for row in rows:
+            canonical_name = str(row.get("canonical_name") or "").strip()
+            normalized_name = normalize_item_name(canonical_name)
+            if canonical_name and normalized_name:
+                clean_rows.append(
+                    {
+                        "organization_id": organization_id,
+                        "source_system": "dutchie",
+                        "canonical_name": canonical_name,
+                        "normalized_name": normalized_name,
+                        "sku": str(row.get("sku") or "").strip(),
+                        "category": str(row.get("category") or "").strip(),
+                        "brand": str(row.get("brand") or "").strip(),
+                        "active": True,
+                        "imported_by": actor,
+                        "updated_at": utc_now(),
+                    }
+                )
+        with self._session_factory.begin() as session:
+            for row in clean_rows:
+                if session.bind.dialect.name == "postgresql":
+                    statement = pg_insert(CatalogNomenclatureItem).values(**row)
+                    statement = statement.on_conflict_do_update(
+                        constraint="uq_catalog_nomenclature_org_source_name",
+                        set_={
+                            "canonical_name": statement.excluded.canonical_name,
+                            "sku": statement.excluded.sku,
+                            "category": statement.excluded.category,
+                            "brand": statement.excluded.brand,
+                            "active": True,
+                            "imported_by": actor,
+                            "updated_at": utc_now(),
+                        },
+                    )
+                    session.execute(statement)
+                else:
+                    existing = session.scalar(
+                        select(CatalogNomenclatureItem).where(
+                            CatalogNomenclatureItem.organization_id == organization_id,
+                            CatalogNomenclatureItem.source_system == "dutchie",
+                            CatalogNomenclatureItem.normalized_name == row["normalized_name"],
+                        )
+                    )
+                    if existing:
+                        for key in (
+                            "canonical_name",
+                            "sku",
+                            "category",
+                            "brand",
+                            "active",
+                            "imported_by",
+                            "updated_at",
+                        ):
+                            setattr(existing, key, row[key])
+                    else:
+                        session.add(CatalogNomenclatureItem(**row))
+        return len(clean_rows)
+
     def list_catalog(self, organization_id: str) -> list[CatalogItemRecord]:
         if not self._session_factory:
             return []

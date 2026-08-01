@@ -88,7 +88,7 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     detail_display = display_frame(
         detail,
         [
-            ("Item", ["item", "product", "product name"]),
+            ("Product Name", ["product name", "product_name", "product", "item name", "item"]),
             ("Category", ["category"]),
             ("On Hand", ["on hand", "onhand", "on hand units"]),
             ("Units Sold", ["units sold", "unitssold"]),

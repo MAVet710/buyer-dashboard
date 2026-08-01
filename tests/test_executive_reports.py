@@ -48,6 +48,7 @@ def test_retail_report_family_uses_retail_branding_and_expected_sections():
     )
     white_label = _build_white_label_repack_report_pdf(
         {
+            "summary": {"strain_name": "Blue Dream"},
             "package_output_summary": pd.DataFrame(
                 [
                     {
@@ -68,6 +69,9 @@ def test_retail_report_family_uses_retail_branding_and_expected_sections():
         {
             "metrics": {"total_labor_cost": 1000, "labor_health_status": "Balanced"},
             "analysis": pd.DataFrame([{"schedule_status": "Balanced", "total_sales": 5000}]),
+            "demand": pd.DataFrame(
+                [{"product_name": "Retail Flower A", "total_sales": 5000}]
+            ),
         }
     )
     competitor = _build_competitor_intelligence_report_pdf(
@@ -76,6 +80,7 @@ def test_retail_report_family_uses_retail_branding_and_expected_sections():
                 [
                     {
                         "competitor_name": "Market A",
+                        "product_name": "Market Flower A",
                         "category": "Flower",
                         "effective_price": 35,
                         "discount_pct": 10,
@@ -97,6 +102,16 @@ def test_retail_report_family_uses_retail_branding_and_expected_sections():
         assert "â" not in text
 
 
+    buyer_text = _all_text(_reader(buyer))
+    white_label_text = _all_text(_reader(white_label))
+    retail_labor_text = _all_text(_reader(retail_labor))
+    competitor_text = _all_text(_reader(competitor))
+    assert "product name" in buyer_text.lower() and "Flower A" in buyer_text
+    assert "product name" in white_label_text.lower() and "Blue Dream" in white_label_text
+    assert "product name" in retail_labor_text.lower() and "Retail Flower A" in retail_labor_text
+    assert "product name" in competitor_text.lower() and "Market Flower A" in competitor_text
+
+
 def test_production_report_family_uses_production_branding():
     extraction = _build_extraction_executive_report_pdf(
         {
@@ -105,6 +120,7 @@ def test_production_report_family_uses_production_branding():
                 [
                     {
                         "run id": "RUN-1",
+                        "product name": "Live Resin A",
                         "method": "Hydrocarbon",
                         "input weight g": 1000,
                         "finished output g": 75,
@@ -138,6 +154,12 @@ def test_production_report_family_uses_production_branding():
         assert title in text
         assert "CONFIDENTIAL - INTERNAL OPERATIONS" in text
         assert "â" not in text
+
+
+    extraction_text = _all_text(_reader(extraction))
+    coman_text = _all_text(_reader(coman))
+    assert "product name" in extraction_text.lower() and "Live Resin A" in extraction_text
+    assert "product name" in coman_text.lower() and "3.5 g Flower" in coman_text
 
 
 def test_combined_report_pack_preserves_all_reports():

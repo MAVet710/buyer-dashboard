@@ -640,7 +640,7 @@ def _ledger(commercial, organization_id, facility_id, orders, lines, products, l
                 "Occurred": transaction.occurred_at,
                 "Order": getattr(order, "order_number", transaction.reference),
                 "Type": transaction.transaction_type.title(),
-                "Product": getattr(product, "name", "Unknown"),
+                "Product Name": getattr(product, "name", "Unknown"),
                 "Lot": getattr(lot, "lot_code", transaction.lot_id),
                 "Quantity": transaction.quantity_delta,
                 "Unit": transaction.unit,

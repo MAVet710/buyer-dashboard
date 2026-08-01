@@ -213,6 +213,74 @@ def _product_family(name: str) -> str:
     return ""
 
 
+def propose_new_catalog_name(source_name: object, catalog: pd.DataFrame) -> str:
+    """Propose an editable Dutchie-style name for a genuinely new METRC item.
+
+    The proposal is deterministic and borrows the organization's dominant brand
+    and size/pack ordering.  It is intentionally a draft: the user must approve
+    it before it is added to the Dutchie naming source of truth.
+    """
+    source = _ITEM_CODE_PREFIX.sub("", str(source_name or "").strip())
+    if not source:
+        return ""
+
+    family = _product_family(source)
+    family_label = {
+        "pre-roll": "Pre-Roll",
+        "vape": "Vape",
+        "edible": "Edible",
+        "concentrate": "Concentrate",
+        "flower": "Flower",
+    }.get(family, "")
+    size_match = _SIZE_PATTERN.search(source)
+    size_label = ""
+    if size_match:
+        value = float(size_match.group(1))
+        unit = size_match.group(2).casefold()
+        unit_label = "oz" if unit.startswith("oz") or unit.startswith("ounce") else "g"
+        size_label = f"{value:g}{unit_label}"
+    pack_count = _pack_count(source)
+    pack_label = f"{pack_count}pk" if pack_count > 1 else ""
+
+    brand = ""
+    if isinstance(catalog, pd.DataFrame) and not catalog.empty and "brand" in catalog:
+        brands = catalog["brand"].fillna("").astype(str).str.strip()
+        brands = brands[brands != ""]
+        if not brands.empty:
+            brand = str(brands.mode().iloc[0]).strip()
+
+    remainder = source
+    remainder = re.sub(r"\bpre[ -]?rolls?\b", " ", remainder, flags=re.I)
+    remainder = re.sub(r"\b(?:flower|vape|cartridge|disposable|edibles?|gummies|gummy|concentrates?)\b", " ", remainder, flags=re.I)
+    remainder = _SIZE_PATTERN.sub(" ", remainder)
+    remainder = _PACK_PATTERN.sub(" ", remainder)
+    remainder = _CLASS_PATTERN.sub(" ", remainder)
+    remainder = re.sub(r"\b(?:indica|sativa|hybrid)\b", " ", remainder, flags=re.I)
+    if brand:
+        remainder = re.sub(rf"\b{re.escape(brand)}\b", " ", remainder, flags=re.I)
+    remainder = re.sub(r"[^A-Za-z0-9]+", " ", remainder)
+    remainder = re.sub(r"\s+", " ", remainder).strip().title()
+
+    size_before_pack = True
+    if pack_label and isinstance(catalog, pd.DataFrame) and not catalog.empty:
+        family_names = catalog["canonical_name"].fillna("").astype(str)
+        if family:
+            family_names = family_names[family_names.map(_product_family) == family]
+        order_votes = []
+        for name in family_names:
+            size = _SIZE_PATTERN.search(name)
+            pack = _PACK_PATTERN.search(name)
+            if size and pack:
+                order_votes.append(size.start() < pack.start())
+        if order_votes:
+            size_before_pack = sum(order_votes) >= (len(order_votes) / 2)
+
+    dimensions = [size_label, pack_label] if size_before_pack else [pack_label, size_label]
+    parts = [brand, family_label, *dimensions, remainder]
+    proposal = " ".join(part for part in parts if part).strip()
+    return proposal or source
+
+
 def _similarity(source: str, candidate: str) -> tuple[float, str]:
     source_norm, candidate_norm = normalize_item_name(source), normalize_item_name(candidate)
     if source_norm == candidate_norm:
@@ -286,6 +354,7 @@ def suggestions_frame(suggestions: Iterable[MatchSuggestion]) -> pd.DataFrame:
                 "Status": item.status,
                 "Match Basis": item.match_basis,
                 "Catalog Item ID": item.catalog_item_id or "",
+                "Create New Product": False,
             }
             for item in suggestions
         ]
@@ -296,12 +365,26 @@ def corrected_name_export(
     manifest: pd.DataFrame,
     item_column: str,
     review: pd.DataFrame,
+    *,
+    catalog_names: Iterable[object],
 ) -> pd.DataFrame:
-    """Return the intentionally minimal, row-aligned one-column deliverable."""
+    """Return approved Dutchie names as a row-aligned, one-column deliverable."""
+    allowed_names = {
+        str(value or "").strip()
+        for value in catalog_names
+        if str(value or "").strip()
+    }
+    if not allowed_names:
+        raise ValueError("The active Dutchie catalog does not contain any approved product names.")
     approved = {
         str(row["Original METRC Item"]).strip(): str(row["Correct Item Name"]).strip()
         for _, row in review.iterrows()
         if str(row.get("Correct Item Name") or "").strip()
     }
+    invalid_names = sorted(set(approved.values()) - allowed_names)
+    if invalid_names:
+        raise ValueError("Every corrected name must come from the active Dutchie catalog.")
     values = [approved.get(str(value or "").strip(), "") for value in manifest[item_column]]
+    if any(not value for value in values):
+        raise ValueError("Every METRC manifest item must have a confirmed Dutchie product name.")
     return pd.DataFrame({"Correct Item Name": values})

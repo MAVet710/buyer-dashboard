@@ -65,6 +65,19 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
         runs,
         [
             ("Run", ["run id", "batch id", "run number"]),
+            (
+                "Product Name",
+                [
+                    "product name",
+                    "product_name",
+                    "finished product",
+                    "finished_product",
+                    "final product type",
+                    "final_product_type",
+                    "downstream product",
+                    "product type",
+                ],
+            ),
             ("Method", ["method", "extraction method"]),
             ("Material", ["material", "input material", "strain"]),
             ("Input Weight g", ["input weight g", "input_weight_g"]),
@@ -79,6 +92,10 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
         profitability,
         [
             ("Run", ["run id", "batch id", "run number"]),
+            (
+                "Product Name",
+                ["product name", "product_name", "finished product", "finished_product", "product"],
+            ),
             ("Revenue", ["estimated revenue usd", "revenue"]),
             ("COGS", ["total cogs usd", "cogs"]),
             ("Gross Profit", ["gross profit usd", "gross profit"]),
@@ -90,6 +107,10 @@ def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
         inventory,
         [
             ("Lot", ["lot", "lot id", "package id"]),
+            (
+                "Product Name",
+                ["product name", "product_name", "source product", "source_product", "material name"],
+            ),
             ("Material", ["material", "material type"]),
             ("Strain", ["strain"]),
             ("Current Weight g", ["current weight g", "weight g", "current weight"]),

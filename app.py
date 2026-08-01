@@ -9702,7 +9702,9 @@ def render_white_label_repack_workspace():
         margin=((profit/revenue*100.0) if revenue and revenue>0 else np.nan) if not missing_inputs else np.nan
         break_even=(all_in/units) if units>0 and not missing_inputs else np.nan
         status = "Complete" if not missing_inputs else "Incomplete"
-        rows.append({"Package Size":f"{size:g}g","Allocation %":alloc_pct,"Grams Allocated":alloc_g,"Units Produced":units,"Retail Price":(price if price>0 else np.nan),"Total Packaging / Unit":total_packaging_unit,"Total Packaging Cost":total_packaging_cost,"All-In Cost / Unit":(all_in/units if units>0 else np.nan),"Break-even Price":break_even,"Revenue":revenue,"Gross Profit":profit,"Gross Margin %":margin,"Status":status,"Missing Inputs":", ".join(missing_inputs) if missing_inputs else ""})
+        strain_name = str(st.session_state.get("wl_strain_name") or "Repack Product").strip()
+        product_name = f"{strain_name} Flower {size:g}g"
+        rows.append({"Product Name":product_name,"Package Size":f"{size:g}g","Allocation %":alloc_pct,"Grams Allocated":alloc_g,"Units Produced":units,"Retail Price":(price if price>0 else np.nan),"Total Packaging / Unit":total_packaging_unit,"Total Packaging Cost":total_packaging_cost,"All-In Cost / Unit":(all_in/units if units>0 else np.nan),"Break-even Price":break_even,"Revenue":revenue,"Gross Profit":profit,"Gross Margin %":margin,"Status":status,"Missing Inputs":", ".join(missing_inputs) if missing_inputs else ""})
     results_df=pd.DataFrame(rows)
     total_units=int(results_df["Units Produced"].sum()) if not results_df.empty else 0
     total_revenue=float(results_df["Revenue"].fillna(0).sum()) if not results_df.empty else 0

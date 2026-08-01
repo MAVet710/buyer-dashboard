@@ -12,6 +12,7 @@ from services.nomenclature_mapper import (
     normalize_item_name,
     prepare_catalog,
     prepare_manifest,
+    propose_new_catalog_name,
     suggest_matches,
     suggestions_frame,
 )
@@ -61,6 +62,15 @@ def test_matcher_returns_only_names_from_the_uploaded_catalog():
     assert all(row.correct_name in set(_catalog()["canonical_name"]) for row in suggestions)
 
 
+def test_new_item_proposal_uses_the_organizations_catalog_style():
+    proposal = propose_new_catalog_name(
+        "M00009999999: Pre-Roll 5 Pack 0.5g - New Strain",
+        _catalog(),
+    )
+
+    assert proposal == "AMP Pre-Roll 0.5g 5pk New Strain"
+
+
 def test_confirmed_organization_mapping_wins_over_fuzzy_matching():
     learned = {
         normalize_item_name("Legacy Fire Dawg"): (
@@ -89,10 +99,66 @@ def test_final_export_has_one_column_and_preserves_manifest_row_order():
         }
     )
 
-    result = corrected_name_export(manifest, "Item", review)
+    result = corrected_name_export(
+        manifest,
+        "Item",
+        review,
+        catalog_names=["Correct A", "Correct B"],
+    )
 
     assert list(result.columns) == ["Correct Item Name"]
     assert result["Correct Item Name"].tolist() == ["Correct A", "Correct B", "Correct A"]
+
+
+def test_metrc_manifest_is_exported_as_approved_dutchie_names_only():
+    catalog = _catalog()
+    manifest = pd.DataFrame(
+        {
+            "Item": [
+                "M00001105432: Pre-Roll 1g - Fire Dawg",
+                "M00002560816: Pre-Roll 5 Pack 0.5g - Chem",
+                "M00001105432: Pre-Roll 1g - Fire Dawg",
+            ]
+        }
+    )
+    review = suggestions_frame(suggest_matches(manifest["Item"], catalog))
+
+    result = corrected_name_export(
+        manifest,
+        "Item",
+        review,
+        catalog_names=catalog["canonical_name"],
+    )
+
+    assert result.to_dict("list") == {
+        "Correct Item Name": [
+            "AMP Pre-Roll 1g (H) Fire Dawg",
+            "AMP Pre-Roll 0.5g 5pk (IH) Chem",
+            "AMP Pre-Roll 1g (H) Fire Dawg",
+        ]
+    }
+
+
+def test_export_rejects_a_name_not_in_the_active_dutchie_catalog():
+    manifest = pd.DataFrame({"Item": ["METRC Source Name"]})
+    review = pd.DataFrame(
+        {
+            "Original METRC Item": ["METRC Source Name"],
+            "Correct Item Name": ["Invented Product Name"],
+        }
+    )
+
+    try:
+        corrected_name_export(
+            manifest,
+            "Item",
+            review,
+            catalog_names=_catalog()["canonical_name"],
+        )
+    except ValueError as exc:
+        assert "active Dutchie catalog" in str(exc)
+    else:
+        raise AssertionError("A non-catalog product name should never be exported.")
 
 
 def test_upload_parsers_detect_dutchie_and_metrc_columns():
@@ -159,6 +225,35 @@ def test_store_keeps_catalogs_and_learned_mappings_tenant_scoped():
 
     assert normalize_item_name("Pre-Roll 1g - Fire Dawg") in store.learned_mappings("org-a")
     assert store.learned_mappings("org-b") == {}
+
+
+def test_adding_a_new_approved_name_preserves_the_imported_catalog():
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(Organization(id="org-a", name="Store A", slug="store-a"))
+        session.commit()
+    store = NomenclatureStore(engine=engine)
+    store.replace_catalog("org-a", _catalog().to_dict("records"), "tester")
+
+    saved = store.add_catalog_items(
+        "org-a",
+        [
+            {
+                "canonical_name": "AMP Pre-Roll 0.5g 5pk New Strain",
+                "sku": "NEW-5",
+                "category": "Pre-Rolls",
+                "brand": "AMP",
+            }
+        ],
+        "tester",
+    )
+
+    names = {row.canonical_name for row in store.list_catalog("org-a")}
+    assert saved == 1
+    assert names == set(_catalog()["canonical_name"]) | {
+        "AMP Pre-Roll 0.5g 5pk New Strain"
+    }
 
 
 def test_sql_migration_enables_rls_for_both_tenant_tables():

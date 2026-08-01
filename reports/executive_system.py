@@ -576,6 +576,20 @@ def _section_flowables(
     df = section.dataframe if isinstance(section.dataframe, pd.DataFrame) else pd.DataFrame()
     if df.empty:
         return []
+    # Keep product-bearing report tables consistent even when upstream modules
+    # use API-style or legacy labels.  Do not rename a generic ``Item`` column
+    # here because some report sections use it for checklist items rather than
+    # sellable products.
+    if "Product Name" not in df.columns:
+        normalized_columns = {
+            re.sub(r"[^a-z0-9]", "", str(column).strip().lower()): column
+            for column in df.columns
+        }
+        for alias in ("productname", "product", "itemname", "finishedproduct"):
+            source_column = normalized_columns.get(alias)
+            if source_column is not None:
+                df = df.rename(columns={source_column: "Product Name"})
+                break
     if section.columns:
         available_columns = [column for column in section.columns if column in df.columns]
         if available_columns:
