@@ -362,4 +362,517 @@ def ensure_coman_demo_dataset(
                         lot_id=lot.id,
                         quantity=min(float(requested), 500.0),
                         unit="g",
-                        status="reserved" if status not in {"complete", "cancelled"} else "consÛú¶‰Ëkºwµçqå}™Õ±™¥±±•ˆ•±Í”€‰É•Í•ÉÙ•ˆ¤(€€€€€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€€€€€É•Í•ÉÙ•‘}‰äõ…Ñ½È°(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡…±±½…Ñ¥½¸¤(€€€€€€€€€€€¥˜™Õ±™¥±±•‘}ÅÕ…¹Ñ¥Ñä€ø€Àè(€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘ (€€€€€€€€€€€€€€€€€€€%¹Ù•¹Ñ½ÉåQÉ…¹Í…Ñ¥½¸ (€€€€€€€€€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°(€€€€€€€€€€€€€€€€€€€€€€€±½Ñ}¥õ±½Ğ¹¥°(€€€€€€€€€€€€€€€€€€€€€€€ÑÉ…¹Í…Ñ¥½¹}ÑåÁ”ô‰Í¡¥Áµ•¹Ğˆ°(€€€€€€€€€€€€€€€€€€€€€€€ÅÕ…¹Ñ¥Ñå}‘•±Ñ„ôµ™Õ±™¥±±•‘}ÅÕ…¹Ñ¥Ñä°(€€€€€€€€€€€€€€€€€€€€€€€Õ¹¥Ğô‰Õ¹¥Ğˆ°(€€€€€€€€€€€€€€€€€€€€€€€½µµ•É¥…±}½É‘•É}¥õ½É‘•È¹¥°(€€€€€€€€€€€€€€€€€€€€€€€½µµ•É¥…±}½É‘•É}±¥¹•}¥õ±¥¹”¹¥°(€€€€€€€€€€€€€€€€€€€€€€€…Ñ½Èõ…Ñ½È°(€€€€€€€€€€€€€€€€€€€€€€€É•…Í½¸ô‰1¥Ù¥¹œ‘•µ¼Í…±•Ì™Õ±™¥±±µ•¹Ğˆ°(€€€€€€€€€€€€€€€€€€€€€€€É•™•É•¹”õ½É‘•È¹½É‘•É}¹Õµ‰•È°(€€€€€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€½µµ•É¥…±}ÑÉ…¹Í…Ñ¥½¹}½Õ¹Ğ€¬ô€Ä(€€€€€€€€€€€½µµ•É¥…±}½É‘•É}½Õ¹Ğ€¬ô€Ä((€€€€€€€Á…­…¥¹}É••¥ÁÑ}±½Ğè%¹Ù•¹Ñ½Éå1½Ğğ9½¹”€ô9½¹”(€€€€€€€™½È¥‘à°Ù•¹‘½È¥¸•¹Õµ•É…Ñ”¡Ù•¹‘½ÉÌ¤è(€€€€€€€€€€€ÍÑ…ÑÕÌ€ô€‰½¹™¥Éµ•ˆ¥˜¥‘à€ôô€À•±Í”€‰Á…ÉÑ¥…±±å}™Õ±™¥±±•ˆ(€€€€€€€€€€€É••¥Ù•‘}ÅÕ…¹Ñ¥Ñä€ô€À¸À¥˜¥‘à€ôô€À•±Í”€ØÀÀ¸À(€€€€€€€€€€€½É‘•È€ô½µµ•É¥…±=É‘•È (€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°(€€€€€€€€€€€€€€€Á…ÉÑ¹•É}¥õÙ•¹‘½È¹¥°(€€€€€€€€€€€€€€€½É‘•É}¹Õµ‰•Èõ˜‰A<µ5<µí¥‘à€¬€ÄèÀÑ‘ôˆ°(€€€€€€€€€€€€€€€½É‘•É}ÑåÁ”ô‰ÁÕÉ¡…Í”ˆ°(€€€€€€€€€€€€€€€½É‘•É}‘…Ñ”õ…Í}½˜€´Ñ¥µ•‘•±Ñ„¡‘…åÌôĞ€¬¥‘à¤°(€€€€€€€€€€€€€€€‘Õ•}…Ğõ‘…Ñ•Ñ¥µ”¹½µ‰¥¹” (€€€€€€€€€€€€€€€€€€€…Í}½˜€¬Ñ¥µ•‘•±Ñ„¡‘…åÌôÈ€¬¥‘à¤°(€€€€€€€€€€€€€€€€€€€‘…Ñ•Ñ¥µ”¹µ¥¸¹Ñ¥µ” ¤°(€€€€€€€€€€€€€€€€€€€Ñé¥¹™¼õÑ¥µ•é½¹”¹ÕÑŒ°(€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€ÍÑ…ÑÕÌõÍÑ…ÑÕÌ°(€€€€€€€€€€€€€€€Á…åµ•¹Ñ}ÍÑ…ÑÕÌô‰Í•¹Ğˆ°(€€€€€€€€€€€€€€€ÕÉÉ•¹äô‰UMˆ°(€€€€€€€€€€€€€€€•áÑ•É¹…±}É•™•É•¹”õ˜‰Y9=Hµ,µìàÈÀÀ€¬¥‘áôˆ°(€€€€€€€€€€€€€€€¹½Ñ•Ìô‰Må¹Ñ¡•Ñ¥ŒÁ…­…¥¹œÉ•Á±•¹¥Í¡µ•¹Ğİ¥Ñ ½µÁ±•Ñ”±…¹‘•µ½ÍĞ™¥•±‘Ì¸ˆ°(€€€€€€€€€€€€€€€É•…Ñ•‘}‰äõ…Ñ½È°(€€€€€€€€€€€€€€€ÕÁ‘…Ñ•‘}‰äõ…Ñ½È°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡½É‘•È¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹™±ÕÍ  ¤(€€€€€€€€€€€±¥¹”€ô½µµ•É¥…±=É‘•É1¥¹” (€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€½µµ•É¥…±}½É‘•É}¥õ½É‘•È¹¥°(€€€€€€€€€€€€€€€ÁÉ½‘ÕÑ}¥õÁ…­…•}ÁÉ½‘ÕĞ¹¥°(€€€€€€€€€€€€€€€Á½Í¥Ñ¥½¸ôÄ°(€€€€€€€€€€€€€€€‘•ÍÉ¥ÁÑ¥½¸õÁ…­…•}ÁÉ½‘ÕĞ¹¹…µ”°(€€€€€€€€€€€€€€€Í­Õ}Í¹…ÁÍ¡½ĞõÁ…­…•}ÁÉ½‘ÕĞ¹Í­Ô°(€€€€€€€€€€€€€€€ÅÕ…¹Ñ¥ÑäôÈĞÀÀ¸À°(€€€€€€€€€€€€€€€Õ¹¥Ğô‰Õ¹¥Ğˆ°(€€€€€€€€€€€€€€€Õ¹¥Ñ}ÁÉ¥”õ™±½…Ğ¡Á…­…•}ÁÉ½‘ÕĞ¹Õ¹¥Ñ}½ÍĞ½È€À¸À¤°(€€€€€€€€€€€€€€€™Õ±™¥±±•‘}ÅÕ…¹Ñ¥ÑäõÉ••¥Ù•‘}ÅÕ…¹Ñ¥Ñä°(€€€€€€€€€€€€€€€¹½Ñ•Ìô‰A½Õ °±…‰•°°Í•…°°…¹½µÁ±¥…¹”µÍÑ¥­•È­¥Ğ¸ˆ°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡±¥¹”¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹™±ÕÍ  ¤(€€€€€€€€€€€¥˜É••¥Ù•‘}ÅÕ…¹Ñ¥Ñä€ø€Àè(€€€€€€€€€€€€€€€Á…­…¥¹}É••¥ÁÑ}±½Ğ€ô%¹Ù•¹Ñ½Éå1½Ğ (€€€€€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°(€€€€€€€€€€€€€€€€€€€ÁÉ½‘ÕÑ}¥õÁ…­…•}ÁÉ½‘ÕĞ¹¥°(€€€€€€€€€€€€€€€€€€€±½Ñ}½‘”õ˜‰A-µI%APµí¥‘à€¬€ÄèÀÑ‘ôˆ°(€€€€€€€€€€€€€€€€€€€½µÁ±¥…¹•}Á…­…•}¥ôˆˆ°(€€€€€€€€€€€€€€€€€€€±½…Ñ¥½¹}½‘”ô‰A-%9µˆ°(€€€€€€€€€€€€€€€€€€€ÍÑ…ÑÕÌô‰…Ù…¥±…‰±”ˆ°(€€€€€€€€€€€€€€€€€€€É••¥Ù•‘}…Ğõ‘…Ñ•Ñ¥µ”¹½µ‰¥¹” (€€€€€€€€€€€€€€€€€€€€€€€…Í}½˜€´Ñ¥µ•‘•±Ñ„¡‘…åÌôÄ¤°(€€€€€€€€€€€€€€€€€€€€€€€‘…Ñ•Ñ¥µ”¹µ¥¸¹Ñ¥µ” ¤°(€€€€€€€€€€€€€€€€€€€€€€€Ñé¥¹™¼õÑ¥µ•é½¹”¹ÕÑŒ°(€€€€€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€€€€€•áÁ¥É…Ñ¥½¹}…Ğõ9½¹”°(€€€€€€€€€€€€€€€€€€€¹½Ñ•Ìô‰Må¹Ñ¡•Ñ¥Œ½µµ•É¥…°ÁÕÉ¡…Í”É••¥ÁĞ¸ˆ°(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡Á…­…¥¹}É••¥ÁÑ}±½Ğ¤(€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹™±ÕÍ  ¤(€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘ (€€€€€€€€€€€€€€€€€€€%¹Ù•¹Ñ½ÉåQÉ…¹Í…Ñ¥½¸ (€€€€€€€€€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°(€€€€€€€€€€€€€€€€€€€€€€€±½Ñ}¥õÁ…­…¥¹}É••¥ÁÑ}±½Ğ¹¥°(€€€€€€€€€€€€€€€€€€€€€€€ÑÉ…¹Í…Ñ¥½¹}ÑåÁ”ô‰É••¥ÁĞˆ°(€€€€€€€€€€€€€€€€€€€€€€€ÅÕ…¹Ñ¥Ñå}‘•±Ñ„õÉ••¥Ù•‘}ÅÕ…¹Ñ¥Ñä°(€€€€€€€€€€€€€€€€€€€€€€€Õ¹¥Ğô‰Õ¹¥Ğˆ°(€€€€€€€€€€€€€€€€€€€€€€€½µµ•É¥…±}½É‘•É}¥õ½É‘•È¹¥°(€€€€€€€€€€€€€€€€€€€€€€€½µµ•É¥…±}½É‘•É}±¥¹•}¥õ±¥¹”¹¥°(€€€€€€€€€€€€€€€€€€€€€€€…Ñ½Èõ…Ñ½È°(€€€€€€€€€€€€€€€€€€€€€€€É•…Í½¸ô‰1¥Ù¥¹œ‘•µ¼ÁÕÉ¡…Í”É••¥ÁĞˆ°(€€€€€€€€€€€€€€€€€€€€€€€É•™•É•¹”õ½É‘•È¹½É‘•É}¹Õµ‰•È°(€€€€€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€½µµ•É¥…±}ÑÉ…¹Í…Ñ¥½¹}½Õ¹Ğ€¬ô€Ä(€€€€€€€€€€€½µµ•É¥…±}½É‘•É}½Õ¹Ğ€¬ô€Ä(4(€€€€€€€µ…¡¥¹•}ÍÁ•Ì€ôl(€€€€€€€€€€€€ ‰%5ˆ°€‰AÉ”µÉ½±°±¥¹”™…¥±¥Ñä‰•¹¡µ…É¬ˆ°€‰AÉ”µI½±°ˆ°€ÜÈÀ¸À°€Ğ°€‰AHµ%5´ÀÄˆ°€‰%5AÉ”µI½±°1¥¹”ˆ¤°(€€€€€€€€€€€€ ‰5…ÍÍµ…¸ˆ°€‰±½İ•ÈÁ½Õ ™…¥±¥Ñä‰•¹¡µ…É¬ˆ°€‰A…­…¥¹œˆ°€ØÔÀ¸À°€Ì°€‰A-µ5ML´ÀÄˆ°€‰5…ÍÍµ…¸±½İ•ÈA½Õ 1¥¹”ˆ¤°(€€€€€€€€€€€€ ‰%Í¡¥‘„ˆ°€‰5Õ±Ñ¥¡•…İ•¥ µÁ…¬‰•¹¡µ…É¬ˆ°€‰M•½¹‘…ÉäA…­…¥¹œˆ°€äÀÀ¸À°€Ì°€‰A-µ%M ´ÀÄˆ°€‰%Í¡¥‘„AÉ”µI½±°A…¬1¥¹”ˆ¤°(€€€€€€€€€€€€ ‰Y…Á”µ)•Ğˆ°€‰…ÉÑÉ¥‘”™¥±±¥¹œ‰•¹¡µ…É¬ˆ°€‰Y…Á”¥±±¥¹œˆ°€ÔĞÀ¸À°€È°€‰YAµ)P´ÀÄˆ°€‰Y…Á”µ)•Ğ¥±±¥¹œ1¥¹”ˆ¤°(€€€€€€€t(€€€€€€€™½Èµ…¹Õ™…ÑÕÉ•È°µ½‘•±}¹…µ”°…Ñ•½Éä°É…Ñ”°É•Ü°…ÍÍ•Ğ°‘¥ÍÁ±…ä¥¸µ…¡¥¹•}ÍÁ•Ìè4(€€€€€€€€€€€µ½‘•°€ôÍ•ÍÍ¥½¸¹Í…±…È 4(€€€€€€€€€€€€€€€Í•±•Ğ¡5…¡¥¹•5½‘•°¤¹İ¡•É” 4(€€€€€€€€€€€€€€€€€€€5…¡¥¹•5½‘•°¹µ…¹Õ™…ÑÕÉ•È€ôôµ…¹Õ™…ÑÕÉ•È°4(€€€€€€€€€€€€€€€€€€€5…¡¥¹•5½‘•°¹µ½‘•°€ôôµ½‘•±}¹…µ”°4(€€€€€€€€€€€€€€€€¤4(€€€€€€€€€€€€¤4(€€€€€€€€€€€¥˜µ½‘•°¥Ì9½¹”è4(€€€€€€€€€€€€€€€µ½‘•°€ô5…¡¥¹•5½‘•° 4(€€€€€€€€€€€€€€€€€€€µ…¹Õ™…ÑÕÉ•Èõµ…¹Õ™…ÑÕÉ•È°4(€€€€€€€€€€€€€€€€€€€µ½‘•°õµ½‘•±}¹…µ”°4(€€€€€€€€€€€€€€€€€€€…Ñ•½Éäõ…Ñ•½Éä°4(€€€€€€€€€€€€€€€€€€€½Á•É…Ñ¥½¹Í}©Í½¸õ©Í½¸¹‘ÕµÁÌ¡m…Ñ•½Éåt¤°4(€€€€€€€€€€€€€€€€€€€ÁÕ‰±¥Í¡•‘}µ…á}É…Ñ”õÉ…Ñ”°4(€€€€€€€€€€€€€€€€€€€É…Ñ•}Õ¹¥Ğô‰Õ¹¥ÑÌ½¡½ÕÈˆ°4(€€€€€€€€€€€€€€€€€€€ÁÕ‰±¥Í¡•‘}µ¥¹}½Á•É…Ñ½ÉÌõÉ•Ü°4(€€€€€€€€€€€€€€€€€€€ÁÕ‰±¥Í¡•‘}µ…á}½Á•É…Ñ½ÉÌõÉ•Ü€¬€Ä°4(€€€€€€€€€€€€€€€€€€€Á±…¹¹¥¹}ÕÑ¥±¥é…Ñ¥½¹}ÁĞôÜÈ¸À°4(€€€€€€€€€€€€€€€€€€€Í½ÕÉ•}ÕÉ°ô‰¡ÑÑÁÌè¼½•á…µÁ±”¹¥¹Ù…±¥½‘•µ¼µµ…¡¥¹”ˆ°4(€€€€€€€€€€€€€€€€€€€…Ñ¥Ù”õQÉÕ”°4(€€€€€€€€€€€€€€€€¤4(€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡µ½‘•°¤4(€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹™±ÕÍ  ¤4(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘ 4(€€€€€€€€€€€€€€€…¥±¥Ñå5…¡¥¹” 4(€€€€€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°4(€€€€€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°4(€€€€€€€€€€€€€€€€€€€µ…¡¥¹•}µ½‘•±}¥õµ½‘•°¹¥°4(€€€€€€€€€€€€€€€€€€€…ÍÍ•Ñ}½‘”õ…ÍÍ•Ğ°4(€€€€€€€€€€€€€€€€€€€‘¥ÍÁ±…å}¹…µ”õ‘¥ÍÁ±…ä°4(€€€€€€€€€€€€€€€€€€€•™™•Ñ¥Ù•}É…Ñ”õÉ…Ñ”€¨€ À¸ÌÔ¥˜€‰µ…¡¥¹•}‘½İ¹Ñ¥µ”ˆ¥¸ÁÉ½‰±•µÌ…¹…ÍÍ•Ğ€ôô€‰A-µ5ML´ÀÄˆ•±Í”€À¸ÜÈ¤°(€€€€€€€€€€€€€€€€€€€É…Ñ•}Õ¹¥Ğô‰Õ¹¥ÑÌ½¡½ÕÈˆ°4(€€€€€€€€€€€€€€€€€€€ÁÉ•™•ÉÉ•‘}É•İ}Í¥é”õÉ•Ü°4(€€€€€€€€€€€€€€€€€€€Í•ÑÕÁ}µ¥¹ÕÑ•ÌôÌÀ°4(€€€€€€€€€€€€€€€€€€€±•…¹ÕÁ}µ¥¹ÕÑ•ÌôÈÔ°4(€€€€€€€€€€€€€€€€€€€…Ñ¥Ù”õ¹½Ğ€ ‰µ…¡¥¹•}‘½İ¹Ñ¥µ”ˆ¥¸ÁÉ½‰±•µÌ…¹…ÍÍ•Ğ€ôô€‰A-µ5ML´ÀÄˆ¤°(€€€€€€€€€€€€€€€€¤4(€€€€€€€€€€€€¤4(4(€€€€€€€Í•ÍÍ¥½¸¹…‘ 4(€€€€€€€€€€€!…¹‘1…‰½ÉÉ•„ 4(€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°4(€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°4(€€€€€€€€€€€€€€€¹…µ”ô‰AÉ¥µ…Éä!…¹1…‰½ÈÉ•„ˆ°4(€€€€€€€€€€€€€€€‘•™…Õ±Ñ}É•İ}Í¥é”ôÔ°4(€€€€€€€€€€€€€€€ÍÑ¥­•É}Õ¹¥ÑÍ}Á•É}Á•ÉÍ½¹}¡½ÕÈôÄàÀ¸À°4(€€€€€€€€€€€€€€€…Í•}Á…­}Õ¹¥ÑÍ}Á•É}Á•ÉÍ½¹}¡½ÕÈôÄÈÀ¸À°4(€€€€€€€€€€€€€€€™¥¹…±}…Í•Í}Á•É}Á•ÉÍ½¹}¡½ÕÈôÈĞ¸À°4(€€€€€€€€€€€€€€€Í•ÑÕÁ}µ¥¹ÕÑ•ÌôÈÀ°4(€€€€€€€€€€€€€€€±•…¹ÕÁ}µ¥¹ÕÑ•ÌôÄÔ°4(€€€€€€€€€€€€€€€…Ñ¥Ù”õQÉÕ”°4(€€€€€€€€€€€€¤4(€€€€€€€€¤4(€€€€€€€™½È‘…å}½™™Í•Ğ¥¸É…¹” ÄĞ¤è(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘ 4(€€€€€€€€€€€€€€€É•İÙ…¥±…‰¥±¥Ñä 4(€€€€€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°4(€€€€€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°4(€€€€€€€€€€€€€€€€€€€İ½É­}‘…Ñ”õ…Í}½˜€¬Ñ¥µ•‘•±Ñ„¡‘…åÌõ‘…å}½™™Í•Ğ¤°4(€€€€€€€€€€€€€€€€€€€Í¡¥™Ñ}¹…µ”ô‰…äˆ°4(€€€€€€€€€€€€€€€€€€€…Ù…¥±…‰±•}Á•½Á±”ôÌ¥˜€ ‰±…‰½É}Í¡½ÉÑ…”ˆ¥¸ÁÉ½‰±•µÌ…¹‘…å}½™™Í•Ğ€ğ€Ğ¤•±Í”€ Ì¥˜‘…å}½™™Í•Ğ€”€Ô€ôô€À•±Í”€Ô¤°4(€€€€€€€€€€€€€€€€€€€Í¡¥™Ñ}¡½ÕÉÌôà¸À°4(€€€€€€€€€€€€€€€€€€€¹½Ñ•Ìô‰Må¹Ñ¡•Ñ¥Œ‘•µ¼…Á…¥ÑäÁ±…¸ˆ°4(€€€€€€€€€€€€€€€€€€€ÕÁ‘…Ñ•‘}‰äõ…Ñ½È°4(€€€€€€€€€€€€€€€€¤4(€€€€€€€€€€€€¤((€€€€€€€…Õ‘¥Ñ}½Õ¹Ğ€ô€À(€€€€€€€¥˜Í•±±…‰±”è(€€€€€€€€€€€É•Ñ…¥±}ÁÉ½‘ÕĞ°É•Ñ…¥±}±½Ğ€ôÍ•±±…‰±•lÁt(€€€€€€€€€€€•áÁ•Ñ•€ô™±½…Ğ (€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€€€€€€€€€Í•±•Ğ¡™Õ¹Œ¹½…±•Í”¡™Õ¹Œ¹ÍÕ´¡%¹Ù•¹Ñ½ÉåQÉ…¹Í…Ñ¥½¸¹ÅÕ…¹Ñ¥Ñå}‘•±Ñ„¤°€À¸À¤¤¹İ¡•É” (€€€€€€€€€€€€€€€€€€€€€€€%¹Ù•¹Ñ½ÉåQÉ…¹Í…Ñ¥½¸¹±½Ñ}¥€ôôÉ•Ñ…¥±}±½Ğ¹¥(€€€€€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€½È€À¸À(€€€€€€€€€€€€¤(€€€€€€€€€€€É•Ñ…¥±}…Õ‘¥Ğ€ô%¹Ù•¹Ñ½ÉåÕ‘¥Ğ (€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°(€€€€€€€€€€€€€€€…Õ‘¥Ñ}¹Õµ‰•Èô‰IQ0µ5<µ=5A1Qˆ°(€€€€€€€€€€€€€€€ÍÑ…ÑÕÌô‰½µÁ±•Ñ•ˆ°(€€€€€€€€€€€€€€€½Á•É…Ñ¥½¹}ÑåÁ”ô‰É•Ñ…¥°ˆ°(€€€€€€€€€€€€€€€‰±¥¹‘}½Õ¹ĞõQÉÕ”°(€€€€€€€€€€€€€€€É•½Õ¹Ñ}Ñ½±•É…¹”ôÀ¸À°(€€€€€€€€€€€€€€€Í½Á•}±…‰•°ô‰M…±•Ì™±½½È…¹Í•ÕÉ”‰…­ÍÑ½¬ˆ°(€€€€€€€€€€€€€€€ÍÑ…ÉÑ•‘}…Ğõ‘…Ñ•Ñ¥µ”¹½µ‰¥¹”¡…Í}½˜€´Ñ¥µ•‘•±Ñ„¡‘…åÌôÄ¤°‘…Ñ•Ñ¥µ”¹µ¥¸¹Ñ¥µ” ¤°Ñé¥¹™¼õÑ¥µ•é½¹”¹ÕÑŒ¤°(€€€€€€€€€€€€€€€½µÁ±•Ñ•‘}…Ğõ‘…Ñ•Ñ¥µ”¹½µ‰¥¹”¡…Í}½˜€´Ñ¥µ•‘•±Ñ„¡‘…åÌôÄ¤°‘…Ñ•Ñ¥µ”¹µ¥¸¹Ñ¥µ” ¤°Ñé¥¹™¼õÑ¥µ•é½¹”¹ÕÑŒ¤€¬Ñ¥µ•‘•±Ñ„¡¡½ÕÉÌôÈ¤°(€€€€€€€€€€€€€€€É•…Ñ•‘}‰äô‰‘•µ¼¹É•Ñ…¥°¹½Õ¹Ñ•Èˆ°(€€€€€€€€€€€€€€€½µÁ±•Ñ•‘}‰äô‰‘•µ¼¹¥¹Ù•¹Ñ½Éä¹µ…¹…•Èˆ°(€€€€€€€€€€€€€€€¹½Ñ•Ìô‰Må¹Ñ¡•Ñ¥ŒÁÉ½™¥Ñ…‰±”É•Ñ…¥°½Õ¹Ğİ¥Ñ „É•Í½±Ù•™¥ÉÍĞµÁ…ÍÌÙ…É¥…¹”¸ˆ°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡É•Ñ…¥±}…Õ‘¥Ğ¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹™±ÕÍ  ¤(€€€€€€€€€€€É•Ñ…¥±}±¥¹”€ô%¹Ù•¹Ñ½ÉåÕ‘¥Ñ1¥¹” (€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°(€€€€€€€€€€€€€€€…Õ‘¥Ñ}¥õÉ•Ñ…¥±}…Õ‘¥Ğ¹¥°(€€€€€€€€€€€€€€€±½Ñ}¥õÉ•Ñ…¥±}±½Ğ¹¥°(€€€€€€€€€€€€€€€•áÁ•Ñ•‘}ÅÕ…¹Ñ¥Ñäõ•áÁ•Ñ•°(€€€€€€€€€€€€€€€™¥ÉÍÑ}½Õ¹Ñ}ÅÕ…¹Ñ¥Ñäõµ…à À¸À°•áÁ•Ñ•€´€Ä¸À¤°(€€€€€€€€€€€€€€€É•½Õ¹Ñ}ÅÕ…¹Ñ¥Ñäõ•áÁ•Ñ•°(€€€€€€€€€€€€€€€½Õ¹Ñ•‘}ÅÕ…¹Ñ¥Ñäõ•áÁ•Ñ•°(€€€€€€€€€€€€€€€Ù…É¥…¹•}ÅÕ…¹Ñ¥ÑäôÀ¸À°(€€€€€€€€€€€€€€€É•½Õ¹Ñ}É•ÅÕ¥É•õ…±Í”°(€€€€€€€€€€€€€€€Õ¹¥Ğô‰Õ¹¥Ğˆ°(€€€€€€€€€€€€€€€É•…Í½¸ô‰¥ÉÍĞ½Õ¹Ğ•¹ÑÉä½ÉÉ•Ñ¥½¸ˆ°(€€€€€€€€€€€€€€€¹½Ñ•Ìô‰I•½Õ¹Ğ½¹™¥Éµ•Ñ¡”±•‘•ÈÅÕ…¹Ñ¥Ñä¸ˆ°(€€€€€€€€€€€€€€€½Õ¹Ñ•‘}‰äô‰‘•µ¼¹É•Ñ…¥°¹É•½Õ¹Ñ•Èˆ°(€€€€€€€€€€€€€€€½Õ¹Ñ•‘}…ĞõÉ•Ñ…¥±}…Õ‘¥Ğ¹½µÁ±•Ñ•‘}…Ğ°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡É•Ñ…¥±}±¥¹”¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹™±ÕÍ  ¤(€€€€€€€€€€€Í…¹}½‘”€ôÉ•Ñ…¥±}±½Ğ¹‰…É½‘•}Ù…±Õ”½ÈÉ•Ñ…¥±}±½Ğ¹½µÁ±¥…¹•}Á…­…•}¥½ÈÉ•Ñ…¥±}ÁÉ½‘ÕĞ¹ÕÁŒ(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘‘}…±° (€€€€€€€€€€€€€€€l(€€€€€€€€€€€€€€€€€€€%¹Ù•¹Ñ½ÉåÕ‘¥ÑM…¸ (€€€€€€€€€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°(€€€€€€€€€€€€€€€€€€€€€€€…Õ‘¥Ñ}¥õÉ•Ñ…¥±}…Õ‘¥Ğ¹¥°(€€€€€€€€€€€€€€€€€€€€€€€…Õ‘¥Ñ}±¥¹•}¥õÉ•Ñ…¥±}±¥¹”¹¥°(€€€€€€€€€€€€€€€€€€€€€€€É…İ}½‘”õÍ…¹}½‘”°(€€€€€€€€€€€€€€€€€€€€€€€¹½Éµ…±¥é•‘}½‘”õÍ…¹}½‘”¹ÕÁÁ•È ¤°(€€€€€€€€€€€€€€€€€€€€€€€µ…Ñ¡}ÍÑ…ÑÕÌô‰µ…Ñ¡•ˆ°(€€€€€€€€€€€€€€€€€€€€€€€Í…¹}ÍÑ…”ô‰™¥ÉÍÑ}½Õ¹Ğˆ°(€€€€€€€€€€€€€€€€€€€€€€€Í…¹¹•‘}‰äô‰‘•µ¼¹É•Ñ…¥°¹½Õ¹Ñ•Èˆ°(€€€€€€€€€€€€€€€€€€€€€€€Í…¹¹•‘}…ĞõÉ•Ñ…¥±}…Õ‘¥Ğ¹ÍÑ…ÉÑ•‘}…Ğ€¬Ñ¥µ•‘•±Ñ„¡µ¥¹ÕÑ•ÌôÄÈ¤°(€€€€€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€€€€€%¹Ù•¹Ñ½ÉåÕ‘¥ÑM…¸ (€€€€€€€€€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°(€€€€€€€€€€€€€€€€€€€€€€€…Õ‘¥Ñ}¥õÉ•Ñ…¥±}…Õ‘¥Ğ¹¥°(€€€€€€€€€€€€€€€€€€€€€€€…Õ‘¥Ñ}±¥¹•}¥õÉ•Ñ…¥±}±¥¹”¹¥°(€€€€€€€€€€€€€€€€€€€€€€€É…İ}½‘”õÍ…¹}½‘”°(€€€€€€€€€€€€€€€€€€€€€€€¹½Éµ…±¥é•‘}½‘”õÍ…¹}½‘”¹ÕÁÁ•È ¤°(€€€€€€€€€€€€€€€€€€€€€€€µ…Ñ¡}ÍÑ…ÑÕÌô‰µ…Ñ¡•ˆ°(€€€€€€€€€€€€€€€€€€€€€€€Í…¹}ÍÑ…”ô‰É•½Õ¹Ğˆ°(€€€€€€€€€€€€€€€€€€€€€€€Í…¹¹•‘}‰äô‰‘•µ¼¹É•Ñ…¥°¹É•½Õ¹Ñ•Èˆ°(€€€€€€€€€€€€€€€€€€€€€€€Í…¹¹•‘}…ĞõÉ•Ñ…¥±}…Õ‘¥Ğ¹½µÁ±•Ñ•‘}…Ğ€´Ñ¥µ•‘•±Ñ„¡µ¥¹ÕÑ•ÌôÄà¤°(€€€€€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€€t(€€€€€€€€€€€€¤(€€€€€€€€€€€…Õ‘¥Ñ}½Õ¹Ğ€¬ô€Ä(€€€€€€€¥˜É…İ}±½ÑÌè(€€€€€€€€€€€ÁÉ½‘ÕÑ¥½¹}±½Ğ€ôÉ…İ}±½ÑÍlÁt(€€€€€€€€€€€ÁÉ½‘ÕÑ¥½¹}•áÁ•Ñ•€ô™±½…Ğ (€€€€€€€€€€€€€€€Í•ÍÍ¥½¸¹Í…±…È (€€€€€€€€€€€€€€€€€€€Í•±•Ğ¡™Õ¹Œ¹½…±•Í”¡™Õ¹Œ¹ÍÕ´¡%¹Ù•¹Ñ½ÉåQÉ…¹Í…Ñ¥½¸¹ÅÕ…¹Ñ¥Ñå}‘•±Ñ„¤°€À¸À¤¤¹İ¡•É” (€€€€€€€€€€€€€€€€€€€€€€€%¹Ù•¹Ñ½ÉåQÉ…¹Í…Ñ¥½¸¹±½Ñ}¥€ôôÁÉ½‘ÕÑ¥½¹}±½Ğ¹¥(€€€€€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€€€€½È€À¸À(€€€€€€€€€€€€¤(€€€€€€€€€€€ÁÉ½‘ÕÑ¥½¹}…Õ‘¥Ğ€ô%¹Ù•¹Ñ½ÉåÕ‘¥Ğ (€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°(€€€€€€€€€€€€€€€…Õ‘¥Ñ}¹Õµ‰•Èô‰AI=µ5<µQ%Yˆ°(€€€€€€€€€€€€€€€ÍÑ…ÑÕÌô‰¥¹}ÁÉ½É•ÍÌˆ°(€€€€€€€€€€€€€€€½Á•É…Ñ¥½¹}ÑåÁ”ô‰ÁÉ½‘ÕÑ¥½¸ˆ°(€€€€€€€€€€€€€€€‰±¥¹‘}½Õ¹ĞõQÉÕ”°(€€€€€€€€€€€€€€€É•½Õ¹Ñ}Ñ½±•É…¹”ôÀ¸Ô°(€€€€€€€€€€€€€€€Í½Á•}±…‰•°ô‰	Õ±¬Ù…Õ±Ğå±”½Õ¹Ğˆ°(€€€€€€€€€€€€€€€É•…Ñ•‘}‰äô‰‘•µ¼¹ÁÉ½‘ÕÑ¥½¸¹½Õ¹Ñ•Èˆ°(€€€€€€€€€€€€€€€¹½Ñ•Ìô‰Ñ¥Ù”Íå¹Ñ¡•Ñ¥Œ‰Õ±¬µİ•¥¡Ğ½Õ¹ĞÉ•…‘ä™½ÈÁ¡½¹”Í…¹¹¥¹œ¸ˆ°(€€€€€€€€€€€€¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘¡ÁÉ½‘ÕÑ¥½¹}…Õ‘¥Ğ¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹™±ÕÍ  ¤(€€€€€€€€€€€Í•ÍÍ¥½¸¹…‘ (€€€€€€€€€€€€€€€%¹Ù•¹Ñ½ÉåÕ‘¥Ñ1¥¹” (€€€€€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°(€€€€€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°(€€€€€€€€€€€€€€€€€€€…Õ‘¥Ñ}¥õÁÉ½‘ÕÑ¥½¹}…Õ‘¥Ğ¹¥°(€€€€€€€€€€€€€€€€€€€±½Ñ}¥õÁÉ½‘ÕÑ¥½¹}±½Ğ¹¥°(€€€€€€€€€€€€€€€€€€€•áÁ•Ñ•‘}ÅÕ…¹Ñ¥Ñäõµ…à À¸À°ÁÉ½‘ÕÑ¥½¹}•áÁ•Ñ•¤°(€€€€€€€€€€€€€€€€€€€Õ¹¥Ğô‰œˆ°(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€€¤(€€€€€€€€€€€…Õ‘¥Ñ}½Õ¹Ğ€¬ô€Ä(€€€€€€€Í•ÍÍ¥½¸¹…‘ (€€€€€€€€€€€Õ‘¥ÑÙ•¹Ğ 4(€€€€€€€€€€€€€€€½É…¹¥é…Ñ¥½¹}¥õ½É…¹¥é…Ñ¥½¸¹¥°4(€€€€€€€€€€€€€€€™…¥±¥Ñå}¥õ™…¥±¥Ñä¹¥°4(€€€€€€€€€€€€€€€•¹Ñ¥Ñå}ÑåÁ”ô‰‘•µ½}‘…Ñ…Í•Ğˆ°4(€€€€€€€€€€€€€€€•¹Ñ¥Ñå}¥õ½É…¹¥é…Ñ¥½¸¹¥°4(€€€€€€€€€€€€€€€…Ñ¥½¸ô‰Í••‘•ˆ°4(€€€€€€€€€€€€€€€…Ñ½Èõ…Ñ½È°4(€€€€€€€€€€€€€€€¡…¹•Í}©Í½¸õ©Í½¸¹‘ÕµÁÌ 4(€€€€€€€€€€€€€€€€€€€ì4(€€€€€€€€€€€€€€€€€€€€€€€€‰Ù•ÉÍ¥½¸ˆè5=}Q}YIM%=8°(€€€€€€€€€€€€€€€€€€€€€€€€‰Í…±”ˆèÁ…å±½…¹•Ğ ‰Í…±”ˆ¤°4(€€€€€€€€€€€€€€€€€€€€€€€€‰…Í}½™}‘…Ñ”ˆè…Í}½˜¹¥Í½™½Éµ…Ğ ¤°4(€€€€€€€€€€€€€€€€€€€€€€€€‰ÁÉ½‰±•µÌˆèÍ½ÉÑ•¡ÁÉ½‰±•µÌ¤°4(€€€€€€€€€€€€€€€€€€€ô4(€€€€€€€€€€€€€€€€¤°4(€€€€€€€€€€€€¤4(€€€€€€€€¤4(4(€€€ÍÑ…Ñ•l‰…Ñ¥Ù•}½É…¹¥é…Ñ¥½¹}¥‰t€ô½É…¹¥é…Ñ¥½¸¹¥4(€€€ÍÑ…Ñ•l‰…Ñ¥Ù•}™…¥±¥Ñå}¥‰t€ô™…¥±¥Ñä¹¥4(€€€É•ÑÕÉ¸ì4(€€€€€€€€‰Í••‘•ˆèQÉÕ”°4(€€€€€€€€‰…±É•…‘å}ÁÉ•Í•¹Ğˆè…±Í”°4(€€€€€€€€‰½É…¹¥é…Ñ¥½¹}¥ˆè½É…¹¥é…Ñ¥½¸¹¥°4(€€€€€€€€‰™…¥±¥Ñå}¥ˆè™…¥±¥Ñä¹¥°4(€€€€€€€€‰ÁÉ½‘ÕÑÌˆè±•¸¡™¥¹¥Í¡•‘}ÁÉ½‘ÕÑÌ¤€¬±•¸¡É…İ}ÁÉ½‘ÕÑÌ¤€¬€Ä°4(€€€€€€€€‰½É‘•ÉÌˆè±•¸¡½É‘•É}É½İÌ¤°4(€€€€€€€€‰ÕÍÑ½µ•ÉÌˆè±•¸¡ÕÍÑ½µ•ÉÌ¤°(€€€€€€€€‰ÑÉ…‘•}Á…ÉÑ¹•ÉÌˆè±•¸¡ÑÉ…‘•}Á…ÉÑ¹•ÉÌ¤°(€€€€€€€€‰½µµ•É¥…±}½É‘•ÉÌˆè½µµ•É¥…±}½É‘•É}½Õ¹Ğ°(€€€€€€€€‰½µµ•É¥…±}ÑÉ…¹Í…Ñ¥½¹Ìˆè½µµ•É¥…±}ÑÉ…¹Í…Ñ¥½¹}½Õ¹Ğ°(€€€€€€€€‰¥¹Ù•¹Ñ½Éå}…Õ‘¥ÑÌˆè…Õ‘¥Ñ}½Õ¹Ğ°(€€€ô(4(4)‘•˜É•Í•Ñ}½µ…¹}‘•µ½}‘…Ñ…Í•Ğ 4(€€€€¨°‘…Ñ…‰…Í•}ÕÉ°èÍÑÈğ9½¹”€ô9½¹”°•¹¥¹”è¹¥¹”ğ9½¹”€ô9½¹”4(¤€´ø‘¥ÑmÍÑÈ°¹åtè4(€€€‘‰}•¹¥¹”€ô}•¹¥¹”¡‘…Ñ…‰…Í•}ÕÉ°°•¹¥¹”¤4(€€€™…Ñ½Éä€ôÍ•ÍÍ¥½¹µ…­•È¡‰¥¹õ‘‰}•¹¥¹”°•áÁ¥É•}½¹}½µµ¥Ğõ…±Í”°™ÕÑÕÉ”õQÉÕ”¤4(€€€İ¥Ñ ™…Ñ½Éä¹‰•¥¸ ¤…ÌÍ•ÍÍ¥½¸è4(€€€€€€€½É…¹¥é…Ñ¥½¸€ôÍ•ÍÍ¥½¸¹Í…±…È¡Í•±•Ğ¡=É…¹¥é…Ñ¥½¸¤¹İ¡•É”¡=É…¹¥é…Ñ¥½¸¹Í±Õœ€ôô5=}=I9%iQ%=9}M1U¤¤4(€€€€€€€¥˜½É…¹¥é…Ñ¥½¸¥Ì9½¹”è4(€€€€€€€€€€€É•ÑÕÉ¸ì‰‘•±•Ñ•ˆè…±Í”°€‰É•…Í½¸ˆè€‰¹½Ñ}™½Õ¹‰ô4(€€€€€€€™…¥±¥Ñä€ôÍ•ÍÍ¥½¸¹Í…±…È 4(€€€€€€€€€€€Í•±•Ğ¡…¥±¥Ñä¤¹İ¡•É” 4(€€€€€€€€€€€€€€€…¥±¥Ñä¹½É…¹¥é…Ñ¥½¹}¥€ôô½É…¹¥é…Ñ¥½¸¹¥°4(€€€€€€€€€€€€€€€…¥±¥Ñä¹½‘”€ôô5=}%1%Qe}=°4(€€€€€€€€€€€€¤4(€€€€€€€€¤4(€€€€€€€¥˜™…¥±¥Ñä¥Ì¹½Ğ9½¹”è4(€€€€€€€€€€€}±•…É}‘•µ½}¡¥±‘É•¸¡Í•ÍÍ¥½¸°½É…¹¥é…Ñ¥½¸¹¥°™…¥±¥Ñä¹¥¤4(€€€€€€€€€€€Í•ÍÍ¥½¸¹‘•±•Ñ”¡™…¥±¥Ñä¤4(€€€€€€€Í•ÍÍ¥½¸¹‘•±•Ñ”¡½É…¹¥é…Ñ¥½¸¤4(€€€É•ÑÕÉ¸ì‰‘•±•Ñ•ˆèQÉÕ•ô4(
+                        status="reserved" if status not in {"complete", "cancelled"} else "consumed",
+                        reserved_by=actor,
+                    )
+                )
+            if status == "complete":
+                actual_units = int(requested * 0.97)
+                session.add(
+                    ProductionActual(
+                        organization_id=organization.id,
+                        facility_id=facility.id,
+                        production_order_id=order.id,
+                        actual_units=actual_units,
+                        scrap_units=max(1, int(requested * 0.018)),
+                        rework_units=max(0, int(requested * 0.008)),
+                        actual_machine_hours=round(requested / 720.0, 2),
+                        actual_labor_hours=round(requested / 180.0, 2),
+                        completed_at=datetime.combine(as_of - timedelta(days=idx + 1), datetime.min.time(), tzinfo=timezone.utc),
+                        notes="Synthetic demo production actual.",
+                        recorded_by=actor,
+                    )
+                )
+                output_lot = InventoryLot(
+                    organization_id=organization.id,
+                    facility_id=facility.id,
+                    product_id=product.id,
+                    lot_code=f"FG-{order.order_number}",
+                    compliance_package_id=str(row.get("package_id") or ""),
+                    external_inventory_id=f"DEMO-DUTCHIE-INVENTORY-{idx + 1:05d}",
+                    barcode_value=str(row.get("package_id") or f"DEMO-FG-QR-{idx + 1:05d}"),
+                    location_code="FINISHED-GOODS",
+                    status="available",
+                    received_at=datetime.combine(as_of - timedelta(days=idx + 1), datetime.min.time(), tzinfo=timezone.utc),
+                    notes=f"Output from {order.order_number}; COA {row.get('coa_id') or ''}",
+                )
+                session.add(output_lot)
+                session.flush()
+                finished_lots[product.id] = output_lot
+                session.add(
+                    InventoryTransaction(
+                        organization_id=organization.id,
+                        facility_id=facility.id,
+                        lot_id=output_lot.id,
+                        production_order_id=order.id,
+                        transaction_type="production_output",
+                        quantity_delta=actual_units,
+                        unit="unit",
+                        actor=actor,
+                        reason="Living demo production completion",
+                        reference=order.order_number,
+                    )
+                )
+
+        trade_partners: list[TradePartner] = []
+        partner_specs = [
+            ("Harbor Wellness", "customer", "MR281101", "Maya Chen", "Net 30"),
+            ("Cape Select", "customer", "MR281102", "Luis Pereira", "Net 15"),
+            ("Berkshire Brands", "customer", "MR281103", "Jordan Reed", "Net 30"),
+            ("Atlantic Cultivation", "vendor", "MC281201", "Avery Brooks", "Net 30"),
+            ("Pioneer Valley Packaging", "vendor", "SUP-281202", "Sam Rivera", "Net 45"),
+        ]
+        for idx, (name, partner_type, license_number, contact, terms) in enumerate(
+            partner_specs,
+            start=1,
+        ):
+            partner = TradePartner(
+                organization_id=organization.id,
+                name=name,
+                partner_type=partner_type,
+                license_or_registration=license_number,
+                contact_name=contact,
+                contact_email=f"commercial{idx}@example.invalid",
+                contact_phone=f"508-555-{1200 + idx:04d}",
+                payment_terms=terms,
+                active=True,
+            )
+            session.add(partner)
+            trade_partners.append(partner)
+        session.flush()
+
+        sales_customers = [
+            partner for partner in trade_partners if partner.partner_type == "customer"
+        ]
+        vendors = [
+            partner for partner in trade_partners if partner.partner_type == "vendor"
+        ]
+        sellable = [
+            (product, finished_lots.get(product.id))
+            for product in finished_products.values()
+            if finished_lots.get(product.id) is not None
+        ]
+        commercial_order_count = 0
+        commercial_transaction_count = 0
+        sales_statuses = [
+            ("confirmed", "sent", 0.0),
+            ("allocated", "sent", 0.0),
+            ("partially_fulfilled", "partial", 0.5),
+            ("fulfilled", "paid", 1.0),
+        ]
+        for idx, (status, payment_status, fulfillment_ratio) in enumerate(
+            sales_statuses
+        ):
+            if not sellable:
+                break
+            product, lot = sellable[idx % len(sellable)]
+            catalog_row = catalog_by_sku.get(product.sku, {})
+            unit_cost = float(product.unit_cost or 0.0)
+            wholesale_price = float(catalog_row.get("wholesale_price") or 0.0)
+            unit_price = round(max(unit_cost * 1.60, wholesale_price), 2)
+            quantity = float(12 + idx * 3)
+            due_date = as_of + timedelta(days=idx - 1)
+            order = CommercialOrder(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                partner_id=sales_customers[idx % len(sales_customers)].id,
+                order_number=f"SO-DEMO-{idx + 1:04d}",
+                order_type="sales",
+                order_date=as_of - timedelta(days=idx + 2),
+                due_at=datetime.combine(
+                    due_date,
+                    datetime.min.time(),
+                    tzinfo=timezone.utc,
+                ),
+                status=status,
+                payment_status=payment_status,
+                currency="USD",
+                external_reference=f"CUSTOMER-PO-{7100 + idx}",
+                notes=json.dumps(
+                    {
+                        "synthetic_demo": True,
+                        "unit_cost": unit_cost,
+                        "gross_margin_pct": round(
+                            (unit_price - unit_cost) / unit_price * 100.0,
+                            2,
+                        )
+                        if unit_price
+                        else 0.0,
+                    }
+                ),
+                created_by=actor,
+                updated_by=actor,
+            )
+            session.add(order)
+            session.flush()
+            fulfilled_quantity = round(quantity * fulfillment_ratio, 2)
+            line = CommercialOrderLine(
+                organization_id=organization.id,
+                commercial_order_id=order.id,
+                product_id=product.id,
+                position=1,
+                description=product.name,
+                sku_snapshot=product.sku,
+                quantity=quantity,
+                unit="unit",
+                unit_price=unit_price,
+                fulfilled_quantity=fulfilled_quantity,
+                notes="Profitable synthetic wholesale line.",
+            )
+            session.add(line)
+            session.flush()
+            if status in {"allocated", "partially_fulfilled", "fulfilled"}:
+                allocation = OrderLotAllocation(
+                    organization_id=organization.id,
+                    facility_id=facility.id,
+                    commercial_order_id=order.id,
+                    commercial_order_line_id=line.id,
+                    lot_id=lot.id,
+                    quantity=quantity,
+                    fulfilled_quantity=fulfilled_quantity,
+                    status=(
+                        "fulfilled"
+                        if status == "fulfilled"
+                        else ("partial" if status == "partially_fulfilled" else "reserved")
+                    ),
+                    reserved_by=actor,
+                )
+                session.add(allocation)
+            if fulfilled_quantity > 0:
+                session.add(
+                    InventoryTransaction(
+                        organization_id=organization.id,
+                        facility_id=facility.id,
+                        lot_id=lot.id,
+                        transaction_type="shipment",
+                        quantity_delta=-fulfilled_quantity,
+                        unit="unit",
+                        commercial_order_id=order.id,
+                        commercial_order_line_id=line.id,
+                        actor=actor,
+                        reason="Living demo sales fulfillment",
+                        reference=order.order_number,
+                    )
+                )
+                commercial_transaction_count += 1
+            commercial_order_count += 1
+
+        packaging_receipt_lot: InventoryLot | None = None
+        for idx, vendor in enumerate(vendors):
+            status = "confirmed" if idx == 0 else "partially_fulfilled"
+            received_quantity = 0.0 if idx == 0 else 600.0
+            order = CommercialOrder(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                partner_id=vendor.id,
+                order_number=f"PO-DEMO-{idx + 1:04d}",
+                order_type="purchase",
+                order_date=as_of - timedelta(days=4 + idx),
+                due_at=datetime.combine(
+                    as_of + timedelta(days=2 + idx),
+                    datetime.min.time(),
+                    tzinfo=timezone.utc,
+                ),
+                status=status,
+                payment_status="sent",
+                currency="USD",
+                external_reference=f"VENDOR-ACK-{8200 + idx}",
+                notes="Synthetic packaging replenishment with complete landed-cost fields.",
+                created_by=actor,
+                updated_by=actor,
+            )
+            session.add(order)
+            session.flush()
+            line = CommercialOrderLine(
+                organization_id=organization.id,
+                commercial_order_id=order.id,
+                product_id=package_product.id,
+                position=1,
+                description=package_product.name,
+                sku_snapshot=package_product.sku,
+                quantity=2400.0,
+                unit="unit",
+                unit_price=float(package_product.unit_cost or 0.0),
+                fulfilled_quantity=received_quantity,
+                notes="Pouch, label, seal, and compliance-sticker kit.",
+            )
+            session.add(line)
+            session.flush()
+            if received_quantity > 0:
+                packaging_receipt_lot = InventoryLot(
+                    organization_id=organization.id,
+                    facility_id=facility.id,
+                    product_id=package_product.id,
+                    lot_code=f"PKG-RECEIPT-{idx + 1:04d}",
+                    compliance_package_id="",
+                    location_code="PACKAGING-CAGE",
+                    status="available",
+                    received_at=datetime.combine(
+                        as_of - timedelta(days=1),
+                        datetime.min.time(),
+                        tzinfo=timezone.utc,
+                    ),
+                    expiration_at=None,
+                    notes="Synthetic commercial purchase receipt.",
+                )
+                session.add(packaging_receipt_lot)
+                session.flush()
+                session.add(
+                    InventoryTransaction(
+                        organization_id=organization.id,
+                        facility_id=facility.id,
+                        lot_id=packaging_receipt_lot.id,
+                        transaction_type="receipt",
+                        quantity_delta=received_quantity,
+                        unit="unit",
+                        commercial_order_id=order.id,
+                        commercial_order_line_id=line.id,
+                        actor=actor,
+                        reason="Living demo purchase receipt",
+                        reference=order.order_number,
+                    )
+                )
+                commercial_transaction_count += 1
+            commercial_order_count += 1
+
+        machine_specs = [
+            ("IMA", "Pre-roll line facility benchmark", "Pre-Roll", 720.0, 4, "PR-IMA-01", "IMA Pre-Roll Line"),
+            ("Massman", "Flower pouch facility benchmark", "Packaging", 650.0, 3, "PKG-MASS-01", "Massman Flower Pouch Line"),
+            ("Ishida", "Multihead weigh-pack benchmark", "Secondary Packaging", 900.0, 3, "PKG-ISH-01", "Ishida Pre-Roll Pack Line"),
+            ("Vape-Jet", "Cartridge filling benchmark", "Vape Filling", 540.0, 2, "VAPE-JET-01", "Vape-Jet Filling Line"),
+        ]
+        for manufacturer, model_name, category, rate, crew, asset, display in machine_specs:
+            model = session.scalar(
+                select(MachineModel).where(
+                    MachineModel.manufacturer == manufacturer,
+                    MachineModel.model == model_name,
+                )
+            )
+            if model is None:
+                model = MachineModel(
+                    manufacturer=manufacturer,
+                    model=model_name,
+                    category=category,
+                    operations_json=json.dumps([category]),
+                    published_max_rate=rate,
+                    rate_unit="units/hour",
+                    published_min_operators=crew,
+                    published_max_operators=crew + 1,
+                    planning_utilization_pct=72.0,
+                    source_url="https://example.invalid/demo-machine",
+                    active=True,
+                )
+                session.add(model)
+                session.flush()
+            session.add(
+                FacilityMachine(
+                    organization_id=organization.id,
+                    facility_id=facility.id,
+                    machine_model_id=model.id,
+                    asset_code=asset,
+                    display_name=display,
+                    effective_rate=rate * (0.35 if "machine_downtime" in problems and asset == "PKG-MASS-01" else 0.72),
+                    rate_unit="units/hour",
+                    preferred_crew_size=crew,
+                    setup_minutes=30,
+                    cleanup_minutes=25,
+                    active=not ("machine_downtime" in problems and asset == "PKG-MASS-01"),
+                )
+            )
+
+        session.add(
+            HandLaborArea(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                name="Primary Hand Labor Area",
+                default_crew_size=5,
+                sticker_units_per_person_hour=180.0,
+                case_pack_units_per_person_hour=120.0,
+                final_cases_per_person_hour=24.0,
+                setup_minutes=20,
+                cleanup_minutes=15,
+                active=True,
+            )
+        )
+        for day_offset in range(14):
+            session.add(
+                CrewAvailability(
+                    organization_id=organization.id,
+                    facility_id=facility.id,
+                    work_date=as_of + timedelta(days=day_offset),
+                    shift_name="Day",
+                    available_people=3 if ("labor_shortage" in problems and day_offset < 4) else (3 if day_offset % 5 == 0 else 5),
+                    shift_hours=8.0,
+                    notes="Synthetic demo capacity plan",
+                    updated_by=actor,
+                )
+            )
+
+        audit_count = 0
+        if sellable:
+            retail_product, retail_lot = sellable[0]
+            expected = float(
+                session.scalar(
+                    select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(
+                        InventoryTransaction.lot_id == retail_lot.id
+                    )
+                )
+                or 0.0
+            )
+            retail_audit = InventoryAudit(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                audit_number="RTL-DEMO-COMPLETE",
+                status="completed",
+                operation_type="retail",
+                blind_count=True,
+                recount_tolerance=0.0,
+                scope_label="Sales floor and secure backstock",
+                started_at=datetime.combine(as_of - timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc),
+                completed_at=datetime.combine(as_of - timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=2),
+                created_by="demo.retail.counter",
+                completed_by="demo.inventory.manager",
+                notes="Synthetic profitable retail count with a resolved first-pass variance.",
+            )
+            session.add(retail_audit)
+            session.flush()
+            retail_line = InventoryAuditLine(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                audit_id=retail_audit.id,
+                lot_id=retail_lot.id,
+                expected_quantity=expected,
+                first_count_quantity=max(0.0, expected - 1.0),
+                recount_quantity=expected,
+                counted_quantity=expected,
+                variance_quantity=0.0,
+                recount_required=False,
+                unit="unit",
+                reason="First count entry correction",
+                notes="Recount confirmed the ledger quantity.",
+                counted_by="demo.retail.recounter",
+                counted_at=retail_audit.completed_at,
+            )
+            session.add(retail_line)
+            session.flush()
+            scan_code = retail_lot.barcode_value or retail_lot.compliance_package_id or retail_product.upc
+            session.add_all(
+                [
+                    InventoryAuditScan(
+                        organization_id=organization.id,
+                        facility_id=facility.id,
+                        audit_id=retail_audit.id,
+                        audit_line_id=retail_line.id,
+                        raw_code=scan_code,
+                        normalized_code=scan_code.upper(),
+                        match_status="matched",
+                        scan_stage="first_count",
+                        scanned_by="demo.retail.counter",
+                        scanned_at=retail_audit.started_at + timedelta(minutes=12),
+                    ),
+                    InventoryAuditScan(
+                        organization_id=organization.id,
+                        facility_id=facility.id,
+                        audit_id=retail_audit.id,
+                        audit_line_id=retail_line.id,
+                        raw_code=scan_code,
+                        normalized_code=scan_code.upper(),
+                        match_status="matched",
+                        scan_stage="recount",
+                        scanned_by="demo.retail.recounter",
+                        scanned_at=retail_audit.completed_at - timedelta(minutes=18),
+                    ),
+                ]
+            )
+            audit_count += 1
+        if raw_lots:
+            production_lot = raw_lots[0]
+            production_expected = float(
+                session.scalar(
+                    select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(
+                        InventoryTransaction.lot_id == production_lot.id
+                    )
+                )
+                or 0.0
+            )
+            production_audit = InventoryAudit(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                audit_number="PROD-DEMO-ACTIVE",
+                status="in_progress",
+                operation_type="production",
+                blind_count=True,
+                recount_tolerance=0.5,
+                scope_label="Bulk vault cycle count",
+                created_by="demo.production.counter",
+                notes="Active synthetic bulk-weight count ready for phone scanning.",
+            )
+            session.add(production_audit)
+            session.flush()
+            session.add(
+                InventoryAuditLine(
+                    organization_id=organization.id,
+                    facility_id=facility.id,
+                    audit_id=production_audit.id,
+                    lot_id=production_lot.id,
+                    expected_quantity=max(0.0, production_expected),
+                    unit="g",
+                )
+            )
+            audit_count += 1
+        session.add(
+            AuditEvent(
+                organization_id=organization.id,
+                facility_id=facility.id,
+                entity_type="demo_dataset",
+                entity_id=organization.id,
+                action="seeded",
+                actor=actor,
+                changes_json=json.dumps(
+                    {
+                        "version": DEMO_DATA_VERSION,
+                        "scale": payload.get("scale"),
+                        "as_of_date": as_of.isoformat(),
+                        "problems": sorted(problems),
+                    }
+                ),
+            )
+        )
+
+    state["active_organization_id"] = organization.id
+    state["active_facility_id"] = facility.id
+    return {
+        "seeded": True,
+        "already_present": False,
+        "organization_id": organization.id,
+        "facility_id": facility.id,
+        "products": len(finished_products) + len(raw_products) + 1,
+        "orders": len(order_rows),
+        "customers": len(customers),
+        "trade_partners": len(trade_partners),
+        "commercial_orders": commercial_order_count,
+        "commercial_transactions": commercial_transaction_count,
+        "inventory_audits": audit_count,
+    }
+
+
+def reset_coman_demo_dataset(
+    *, database_url: str | None = None, engine: Engine | None = None
+) -> dict[str, Any]:
+    db_engine = _engine(database_url, engine)
+    factory = sessionmaker(bind=db_engine, expire_on_commit=False, future=True)
+    with factory.begin() as session:
+        organization = session.scalar(select(Organization).where(Organization.slug == DEMO_ORGANIZATION_SLUG))
+        if organization is None:
+            return {"deleted": False, "reason": "not_found"}
+        facility = session.scalar(
+            select(Facility).where(
+                Facility.organization_id == organization.id,
+                Facility.code == DEMO_FACILITY_CODE,
+            )
+        )
+        if facility is not None:
+            _clear_demo_children(session, organization.id, facility.id)
+            session.delete(facility)
+        session.delete(organization)
+    return {"deleted": True}

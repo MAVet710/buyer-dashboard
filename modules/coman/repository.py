@@ -273,7 +273,43 @@ class ComanRepository:
             if reserved + float(quantity) > balance + 1e-9: raise ValueError("Reservation exceeds available lot inventory.")
             record = MaterialReservation(organization_id=organization_id, facility_id=facility_id, production_order_id=production_order_id, lot_id=lot_id, quantity=float(quantity), unit=unit, reserved_by=actor)
             session.add(record); session.flush()
-            session.add(AuditEvent(organization_id=organization_id, ç®-¢G§²ÚîÆ­yÒred_crew_size),
+            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="material_reservation", entity_id=record.id, action="reserved", actor=actor, changes_json=json.dumps({"lot_id": lot_id, "quantity": quantity, "unit": unit})))
+            return record
+
+    def list_machine_models(self, category: str | None = None) -> list[MachineModel]:
+        with self._session_factory() as session:
+            statement = select(MachineModel).where(MachineModel.active.is_(True))
+            if category:
+                statement = statement.where(MachineModel.category == category)
+            return list(session.scalars(statement.order_by(MachineModel.manufacturer, MachineModel.model)))
+
+    def create_facility_machine(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        machine_model_id: str,
+        asset_code: str,
+        display_name: str,
+        effective_rate: float,
+        preferred_crew_size: int,
+        setup_minutes: int = 0,
+        cleanup_minutes: int = 0,
+        actor: str,
+    ) -> FacilityMachine:
+        if float(effective_rate) <= 0:
+            raise ValueError("effective_rate must be greater than zero.")
+        if int(preferred_crew_size) < 1:
+            raise ValueError("preferred_crew_size must be at least one.")
+        machine = FacilityMachine(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            machine_model_id=machine_model_id,
+            asset_code=str(asset_code).strip().upper(),
+            display_name=str(display_name).strip(),
+            effective_rate=float(effective_rate),
+            rate_unit="units/hour",
+            preferred_crew_size=int(preferred_crew_size),
             setup_minutes=max(0, int(setup_minutes)),
             cleanup_minutes=max(0, int(cleanup_minutes)),
         )

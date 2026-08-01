@@ -318,150 +318,13460 @@ except (ImportError, AttributeError, SyntaxError) as _di_import_err:
 
 
 def hash_password(plain: str) -> str:
-    """Hash a plaintext password wit€n;ÔkhëÈÏ∂ªßq´^uCBàYàŸ]Z[‹õŸX›ÿÿX⁄Y\»õ›õ€ôH[ôõ›Ÿ]Z[‹õŸX›ÿÿX⁄Yô[\NÉBàûNÉBàŸôYàHŸ]Z[‹õŸX›ÿÿX⁄Y÷»ú›Xòÿ]Y€‹ûHãúõŸX›€ò[YHãú›òZ[ó›\HãúX⁄ÿYŸ\⁄^ôHãù[ö]‹€€óWKò€‹J
-CBàŸôYñ»ù[ö]‹€€óHHù◊€ù[Y\öX ŸôYñ»ù[ö]‹€€óK\úõ‹úœHò€Ÿ\òŸHäKôö[òJ
-CBàŸ›‹H
-BàŸôYãú€‹ù›ò[Y\ ù[ö]‹€€ã\ÿŸ[ô[ôœQò[ŸJCBàô‹õ›\ûJ»ú›Xòÿ]Y€‹ûHãú›òZ[ó›\HãúX⁄ÿYŸ\⁄^ôHóKõ‹òOQò[ŸK€‹ùQò[ŸJV»úõŸX›€ò[YHóCBàò\J[XôHàããöõ⁄[äò\›\J›äKöXY
-JKù€\›
+    """Hash a plaintext password with bcrypt. For admin/dev use only."""
+    if not BCRYPT_AVAILABLE:
+        raise RuntimeError("bcrypt is not installed. Run: pip install bcrypt>=4.0.0")
+    return _bcrypt.hashpw(plain.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
 
-JJCBàúô\Ÿ]⁄[ô^
 
-CBàúô[ò[YJ€€[[úœ^»úõŸX›€ò[YHéàù‹‹õŸX›»üJCBà
-CBàô[‹ô\ó‹õ›‹»Hô[‹ô\ó‹õ›‹ÀõY\ôŸJŸ›‹€èV»ú›Xòÿ]Y€‹ûHãú›òZ[ó›\HãúX⁄ÿYŸ\⁄^ôHóK›œHõYùäCBàô[‹ô\ó‹õ›‹÷»ù‹‹õŸX›»óHHô[‹ô\ó‹õ›‹÷»ù‹‹õŸX›»óKôö[òJàäCBà^Ÿ\^Ÿ\[€éÉBàYàù‹‹õŸX›»àõ›[àô[‹ô\ó‹õ›‹Àò€€[[úŒÉBàô[‹ô\ó‹õ›‹÷»ù‹‹õŸX›»óHHàÉBÉBà⁄]›ô^[ô\äº'‰‚àô[‹ô\à‹õ‹‹ÀTôYô\ô[òŸH
-úõ€H[ùô[ù‹ûH\⁄õÿ\ô
-Hã^[ôYUùYJNÉBàYàô[‹ô\ó‹õ›‹Àô[\NÉBà›ú›XÿŸ\‹ ∏ß!Hõ»][\»õYŸŸY	‘ô[‹ô\àT–T	»[àH›\úô[ù\⁄õÿ\ôöY]ÀàäCBà[ŸNÉBà⁄\◊‹öXŸHHù[ö]ÿ€‹›à[àô[‹ô\ó‹õ›‹Àò€€[[ú»[ôô[‹ô\ó‹õ›‹÷»ù[ö]ÿ€‹›óKô›
-
-Kò[ûJ
-CBà›òÿ\[€äBààääû€[äô[‹ô\ó‹õ›‹ _H[ôJ JäàõYŸŸY\»
-îô[‹ô\àT–T
-àúõ€H[›\à\›[ùô[ù‹ûH\⁄õÿ\ôÿYàÉBàï\ŸHHù]€àô[›»»ù[ÀXY[H»HÀ‹àô]öY]»[ô]öYX[õ›‹»ö\ú›àÉBà
-»
-Bàà<'‰¨à
-äê›\úô[ùöXŸJäàH[ùô[ù‹ûH	–›\úô[ùöXŸI»0Ì»à
-⁄€\ÿ[HYù\›Y[ù
-KàÉBàYà⁄\◊‹öXŸH[ŸHàÉBà
-CBà
-CBàﬁôYóÿ€€»H»ú›Xòÿ]Y€‹ûHãú›òZ[ó›\HãúX⁄ÿYŸ\⁄^ôHãõ€ö[ô[ö]»ãò]ô›[ö]‹\ô^Hãô^\€€ö[ôãúô[‹ô\ú]HóCBàYà⁄\◊‹öXŸNÉBàô[‹ô\ó‹õ›‹»Hô[‹ô\ó‹õ›‹Àò€‹J
-CBàô[‹ô\ó‹õ›‹÷»ê›\úô[ùöXŸHóHH
-Bàù◊€ù[Y\öX ô[‹ô\ó‹õ›‹÷»ù[ö]ÿ€‹›óK\úõ‹úœHò€Ÿ\òŸHäKôö[òJ
-H»ÉBà
-Kúõ›[ô
-äCBàﬁôYóÿ€€Àò\[ô
-ê›\úô[ùöXŸHäCBàYàù‹‹õŸX›»à[àô[‹ô\ó‹õ›‹Àò€€[[úŒÉBàﬁôYóÿ€€Àò\[ô
-ù‹‹õŸX›»äCBàﬁôYóÿ€€»Hÿ»õ‹à»[àﬁôYóÿ€€»Yà»[àô[‹ô\ó‹õ›‹Àò€€[[ú◊CBà›ô]Yúò[YJô[‹ô\ó‹õ›‹÷◊ﬁôYóÿ€€◊Kúô\Ÿ]⁄[ô^
-õ‹UùYJK⁄YHú›ô]⁄äCBÉBàYà›òù]€ä∏ß•HY[ô[‹ô\àT–T[ô\»»»ãŸ^OHú◊ﬁôYóÿYÿ[äNÉBàÿYYHBàõ‹àÀ‹à[àô[‹ô\ó‹õ›‹Àö]\úõ›‹ 
-NÉBàÿÿ]H›ä‹ãôŸ]
-ú›Xòÿ]Y€‹ûHãàäJCBà‹›òZ[àH›ä‹ãôŸ]
-ú›òZ[ó›\HãàäJCBà‹⁄^ôHH›ä‹ãôŸ]
-úX⁄ÿYŸ\⁄^ôHãàäJCBàŸ\ÿ»Hàãöõ⁄[äö[\äõ€ôK◊ÿÿ]‹›òZ[ã‹⁄^ôWJJCBà›‹‹ò]»H›ä‹ãôŸ]
-ù‹‹õŸX›»ãàäJKú›ö\
+def verify_password(plain: str, hashed: str) -> bool:
+    """Verify a plaintext password against a bcrypt hash."""
+    if not BCRYPT_AVAILABLE or not plain or not hashed:
+        return False
+    try:
+        return _bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
 
-CBà›‹H›‹‹ò]Àú‹]
-ãäVÃKú›ö\
 
-HYà›‹‹ò]»[ŸHŸ\ÿ√BàûNÉBà‹]HH[ù
-‹ãôŸ]
-úô[‹ô\ú]Hã
-JCBà‹]HH‹]HYà‹]Hà[ŸHCBà^Ÿ\
-ò[YQ\úõ‹ã\Q\úõ‹äNÉBà‹]HHCBàûNÉBà‹ò]◊ÿ€‹›Hù◊€ù[Y\öX ‹ãôŸ]
-ù[ö]ÿ€‹›ã
-K\úõ‹úœHò€Ÿ\òŸHäCBà‹öXŸHHõÿ]
-‹ò]◊ÿ€‹›
-H»àYàõõ›òJ‹ò]◊ÿ€‹›
-H[ŸHåBà^Ÿ\
-ò[YQ\úõ‹ã\Q\úõ‹äNÉBà‹öXŸHHåBà›úŸ\‹⁄[€ó‹›]Kú◊⁄][\Àò\[ô
-√Bàî“’HéààãBàë\ÿ‹ö\[€àéà›‹Yà›‹[ŸHŸ\ÿÀBàî›òZ[àéà‹›òZ[ãBàî⁄^ôHéà‹⁄^ôKBàî]X[ù]Héà‹]KBàîöXŸHéàõ›[ô
-‹öXŸKäKBàï›[éàåBàJCBàÿYY
-œHCBà›ú›XÿŸ\‹ àêYY◊ÿYYH][J H»HÀàö[[àöXŸ\»ô[›ÀàäCBà‹ÿYôW‹ô\ù[ä
-CBà[ŸNÉBà›ö[ôõ Bàº'‰®H€»»
-äº'‰‚à[ùô[ù‹ûH\⁄õÿ\ô
-äà[ô\ÿY[›\àö[\»ö\ú›8†%ÉBàîô[‹ô\àT–T][\»⁄[[à\X\à\ôHõ‹à]ZX⁄»»‹ôX][€ãàÉBà
-CBÉBà›õX\öŸ›€äãKKHäCBàBà»[ö]X[^ôHŸ\‹⁄[€à›]Hõ‹à√BàYà	‹◊⁄][\…»õ›[à›úŸ\‹⁄[€ó‹›]NÉBà›úŸ\‹⁄[€ó‹›]Kú◊⁄][\»H◊CBàBà»›‹ôH[ôô[ô‹à[ôõ‹õX][€ÉBà›õX\öŸ›€äà»»»<'‰‚»‹ô\à[ôõ‹õX][€àäCBà€€K€€ã€€»H›ò€€[[ú  CBàBà⁄]€€NÉBà›‹ôW€ò[YHH›ù^⁄[ú]
-î›‹ôHò[YHãò[YOHêÿ[õòXö\»›‹ôHäCBà›‹ôWÿYô\‹»H›ù^ÿ\ôXJî›‹ôHYô\‹»ãò[YOHåLå»XZ[à›ê⁄]K›]HLåÕHãZY⁄LL
-CBàBà⁄]€€éÉBàô[ô‹ó€ò[YHH›ù^⁄[ú]
-ïô[ô‹àò[YHãò[YOHàäCBàô[ô‹óÿYô\‹»H›ù^ÿ\ôXJïô[ô‹àYô\‹»ãò[YOHàãZY⁄LL
-CBàBà⁄]€€ŒÉBà◊€ù[Xô\àH›ù^⁄[ú]
-î»ù[Xô\àãò[YOYàîÀ^Ÿ]][YKõõ› 
-Kú›ôù[YJ	…VI[IY	 _HäCBà◊Ÿ]HH›ô]W⁄[ú]
-î»]Hãò[YOY]][YKõõ› 
-Kô]J
-JCBàBà»[ôH][\√Bà›õX\öŸ›€äà»»»<'‰Èà[ôH][\»äCBàBà⁄]›ôõ‹õJòY⁄][WŸõ‹õHäNÉBà€€K€€ã€€À€€€€K€€àH›ò€€[[ú ÃãÀããKWJCBàBà⁄]€€NÉBà⁄›HH›ù^⁄[ú]
-î“’HäCBà⁄]€€éÉBà\ÿ‹ö\[€àH›ù^⁄[ú]
-ë\ÿ‹ö\[€àäCBà⁄]€€ŒÉBà›òZ[àH›ù^⁄[ú]
-î›òZ[àäCBà⁄]€€ÉBà⁄^ôHH›ù^⁄[ú]
-î⁄^ôHäCBà⁄]€€NÉBà]X[ù]HH›õù[Xô\ó⁄[ú]
-î]HãZ[ó›ò[YOLKò[YOLJCBà⁄]€€éÉBàöXŸHH›õù[Xô\ó⁄[ú]
-îöXŸHãZ[ó›ò[YOLåò[YOLå›\LåJCBàBà›XõZ]YH›ôõ‹õW‹›XõZ]ÿù]€ä∏ß•HY][HäCBàYà›XõZ]Y[ô\ÿ‹ö\[€éÉBà›úŸ\‹⁄[€ó‹›]Kú◊⁄][\Àò\[ô
-√Bà	‘“’IŒà⁄›KBà	—\ÿ‹ö\[€âŒà\ÿ‹ö\[€ãBà	‘›òZ[âŒà›òZ[ãBà	‘⁄^ôIŒà⁄^ôKBà	‘]X[ù]IŒà]X[ù]KBà	‘öXŸIŒàöXŸKBà	’›[	Œà]X[ù]H
-àöXŸCBàJCBà‹ÿYôW‹ô\ù[ä
-CBàBà»\‹^H›\úô[ù][\√BàYà›úŸ\‹⁄[€ó‹›]Kú◊⁄][\ŒÉBà›õX\öŸ›€äà»»»»›\úô[ù][\»äCBà][\◊ŸàHë]Qúò[YJ›úŸ\‹⁄[€ó‹›]Kú◊⁄][\ CBÉBà»KKKH[ùô[ù‹ûH‹õ‹‹À\ôYô\ô[òŸHKKKCBà⁄[ùóﬁôYàHÿùZ[⁄[ùóﬁôYó›XõJ
-CBàYà⁄[ùóﬁôYà\»õ€ôNÉBà›òÿ\[€äBàº'‰®H\ÿY[ùô[ù‹ûH€à[ùô[ù‹ûH\⁄õÿ\ô»[òXõH»[ùô[ù‹ûH‹õ‹‹ÀX⁄X⁄ÀàÉBà
-CBÉBà€ó⁄[ô€\›H◊CBàô]öY]◊€\›H◊CBàô]öY]◊‹ôX\€€ó€\›H◊CBàõ‹à⁄][H[à›úŸ\‹⁄[€ó‹›]Kú◊⁄][\ŒÉBà€€ó⁄[ôHBàYà⁄[ùóﬁôYà\»õ›õ€ôNÉBà€õ‹õWŸ\ÿ»H€õ‹õX[^ôWŸõ‹ó€X]⁄
-⁄][KôŸ]
-ë\ÿ‹ö\[€àãàäJCBà‹◊‹⁄^ôW‹ò]»H›ä⁄][KôŸ]
-î⁄^ôHãàäJKú›ö\
+# ============================================================
+# PURCHASING-DIRECTOR UPGRADES (NO LOGIC CHANGE)
+# - De-dupe upload logging (prevents repeated log spam on reruns)
+# - Centralize common alias lists (less drift, easier maintenance)
+# - Safer rerun helper (Streamlit version compatible)
+# - Keep UI/images/functions the same; only harden behavior
+# ============================================================
 
-CBà‹⁄^ôW‹ô\Ÿ[ùHõ€€
-‹◊‹⁄^ôW‹ò] CBà€õ‹õW‹⁄^ôHH€õ‹õX[^ôW‹⁄^ôWŸõ‹ó€X]⁄
-‹◊‹⁄^ôW‹ò] CBà€X]⁄\»H⁄[ùóﬁôYñ◊⁄[ùóﬁôYñ»õõ‹õW€ò[YHóHOH€õ‹õWŸ\ÿ◊CBàYà‹⁄^ôW‹ô\Ÿ[ùÉBà€X]⁄\»H€X]⁄\÷◊€X]⁄\÷»õõ‹õW‹⁄^ôHóHOH€õ‹õW‹⁄^ôWCBà€€ó⁄[ôH[ù
-€X]⁄\÷»õ€ö[ô››[óKú›[J
-JCBà€ó⁄[ô€\›ò\[ô
-€€ó⁄[ô
-CBà‹ô]öY]»H⁄[ùóﬁôYà\»õ›õ€ôH[ô€€ó⁄[ôèH◊‘ëUíQU◊’ëT“”Bàô]öY]◊€\›ò\[ô
-‹ô]öY] CBàô]öY]◊‹ôX\€€ó€\›ò\[ô
-àèè^‘◊‘ëUíQU◊’ëT“”H€à[ôàYà‹ô]öY]»[ŸHàäCBÉBà][\◊Ÿñ»ì€à[ô
-[ùäHóHH€ó⁄[ô€\›Bà][\◊Ÿñ»îô]öY]œ»óHHô]öY]◊€\›Bà][\◊Ÿñ»îô]öY]»ôX\€€àóHHô]öY]◊‹ôX\€€ó€\›BÉBàYà[ûJô]öY]◊€\›
-NÉBà›ùÿ\õö[ô Bàà∏¶®;Ó#»€ôH‹à[‹ôH»[ôH][\»[ôXYH]ôHè^‘◊‘ëUíQU◊’ëT“”H[ö]»€à[ôàÉBàîô]öY]»õYŸŸY][\»ôYõ‹ôH\ò⁄\⁄[ôÀàÉBà
-CBÉBà›ô]Yúò[YJ][\◊Ÿã⁄YHú›ô]⁄äCBàBà»›Xù›[Bà›Xù›[H›[J][V…’›[	◊Hõ‹à][H[à›úŸ\‹⁄[€ó‹›]Kú◊⁄][\ CBàBà»ÿ[›[][€ú√Bà›õX\öŸ›€äà»»»<'‰¨›[»äCBà€€K€€ã€€»H›ò€€[[ú  CBàBà⁄]€€NÉBà^‹ò]HH›õù[Xô\ó⁄[ú]
-ï^ò]H
-	JHãZ[ó›ò[YOLåX^›ò[YOLLåò[YOLå›\LåJCBà⁄]€€éÉBà\ÿ€›[ùH›õù[Xô\ó⁄[ú]
-ë\ÿ€›[ù
-	
-HãZ[ó›ò[YOLåò[YOLå›\LKå
-CBà⁄]€€ŒÉBà⁄\[ô»H›õù[Xô\ó⁄[ú]
-î⁄\[ô»
-	
-HãZ[ó›ò[YOLåò[YOLå›\LKå
-CBàBà^ÿ[[›[ùH›Xù›[
-à
-^‹ò]H»L
-CBà›[H›Xù›[
-»^ÿ[[›[ùH\ÿ€›[ù
-»⁄\[ô√Bà›úŸ\‹⁄[€ó‹›]Kúõ‹‹ŸY‹◊››[Hõÿ]
-›[
-CBàBà»\‹^H›[√Bà›õX\öŸ›€äãKKHäCBà›[◊ÿ€€K›[◊ÿ€€àH›ò€€[[ú ÃÀWJCBà⁄]›[◊ÿ€€éÉBà›õX\öŸ›€äàääî›Xù›[ääà	‹›Xù›[ãåôüHäCBàYà^‹ò]HàÉBà›õX\öŸ›€äàääï^
-›^‹ò]_IJNääà	›^ÿ[[›[ùãåôüHäCBàYà\ÿ€›[ùàÉBà›õX\öŸ›€äàääë\ÿ€›[ùääàIŸ\ÿ€›[ùãåôüHäCBàYà⁄\[ô»àÉBà›õX\öŸ›€äàääî⁄\[ôŒääà	‹⁄\[ôŒãåôüHäCBà›õX\öŸ›€äàà»»»
-äï›[ääà	››[ãåôüHäCBàBà»X›[€àù]€ú√Bà€€K€€ã€€»H›ò€€[[ú  CBà⁄]€€NÉBàYà›òù]€äº'Â‰{Ó#»€X\à[][\»äNÉBà›úŸ\‹⁄[€ó‹›]Kú◊⁄][\»H◊CBà‹ÿYôW‹ô\ù[ä
-CBàBà⁄]€€éÉBàYà›òù]€äº'‰·Ÿ[ô\ò]HàäNÉBà»Ÿ[ô\ò]HÉBàóÿùYôô\àHû]\“S 
-CBà»Hÿ[ùò\Àêÿ[ùò\ óÿùYôô\ãYŸ\⁄^ôO[]\äCBà⁄YZY⁄H]\ÉBàBà»XY\ÉBàÀúŸ]õ€ù
-í[ô]XÿKPõ€ãå
-CBàÀôò]‘›ö[ô Jö[ò⁄ZY⁄HJö[ò⁄îTê“T—H‘ëTàäCBàBà»»[ôõ√BàÀúŸ]õ€ù
-í[ô]XÿHãL
-CBàÀôò]‘›ö[ô Jö[ò⁄ZY⁄HKå ö[ò⁄àî»ù[Xô\éà‹◊€ù[Xô\üHäCBàÀôò]‘›ö[ô Jö[ò⁄ZY⁄HKçJö[ò⁄àë]Nà‹◊Ÿ]_HäCBàBà»›‹ôH[ôõ√BàÀúŸ]õ€ù
-í[ô]XÿKPõ€ãLäCBàÀôò]‘›ö[ô Jö[ò⁄ZY⁄Häö[ò⁄ëîì”NàäCBàÀúŸ]õ€ù
-í[ô]XÿHãL
-CBàHHZY⁄Hãåäö[ò⁄BàÀôò]‘›ö[ô Jö[ò⁄K›‹ôW€ò[YJCBàõ‹à[ôH[à›‹ôWÿYô\‹Àú‹]
-	◊â NÉBàHOHåMJö[ò⁄BàÀôò]‘›ö[ô Jö[ò⁄K[ôJCBàBà»ô[ô‹à[ôõ√BàÀúŸ]õ€ù
-í[ô]XÿKPõ€ãLäCBàÀôò]‘›ö[ô 
-ö[ò⁄ZY⁄Häö[ò⁄ïŒàäCBàÀúŸ]õ€ù
-í[ô]XÿHãL
-CBàHHZY⁄Hãåäö[ò⁄BàÀôò]‘›ö[ô 
-ö[ò⁄Kô[ô‹ó€ò[YJCBàõ‹à[ôH[àô[ô‹óÿYô\‹Àú‹]
-	◊â NÉBàHOHåMJö[ò⁄BàÀôò]‘›ö[ô 
-ö[ò⁄K[ôJCBàBà»][\»XõCBàHHZY⁄HÀçJö[ò⁄BàÀúŸ]õ€ù
-í[ô]XÿKPõ€ãL
-CBàÀôò]‘›ö[ô Jö[ò⁄Kî“’HäCBàÀôò]‘›ö[ô äö[ò⁄Kë\ÿ‹ö\[€àäCBàÀôò]‘›ö[ô 
-ö[ò⁄Kî›òZ[àäCBàÀôò]‘›ö[ô Jö[ò⁄Kî⁄^ôHäCBàÀôò]‘›ö[ô KçJö[ò⁄Kî]HäCBàÀôò]‘›ö[ô äö[ò⁄KîöXŸHäCBàÀôò]‘›ö[ô ãç ö[ò⁄Kï›[äCBàBàÀõ[ôJJö[ò⁄HHåJö[ò⁄ÀçJö[ò⁄HHåJö[ò⁄
-CBàBàHOHåçJö[ò⁄BàÀúŸ]õ€ù
-í[ô]XÿHãJCBàõ‹à][H[à›úŸ\‹⁄[€ó‹›]Kú◊⁄][\ŒÉBàÀôò]‘›ö[ô Jö[ò⁄K›ä][V…‘“’I◊JVŒìPV‘“’W”Së’‘óJCBàÀôò]‘›ö[ô äö[ò⁄K›ä][V…—\ÿ‹ö\[€â◊JVŒìPV—T–‘íTS”ó”Së’‘óJCBàÀôò]‘›ö[ô 
-ö[ò⁄K›ä][V…‘›òZ[â◊JVŒìPV‘’êRSó”Së’‘óJCBàÀôò]‘›ö[ô Jö[ò⁄K›ä][V…‘⁄^ôI◊JVŒìPV‘“VëW”Së’‘óJCBàÀôò]‘›ö[ô KçJö[ò⁄K›ä][V…‘]X[ù]I◊JJCBàÀôò]‘›ö[ô äö[ò⁄Kàâ⁄][V…‘öXŸI◊NãåôüHäCBàÀôò]‘›ö[ô ãç ö[ò⁄Kàâ⁄][V…’›[	◊NãåôüHäCBàHOHåäö[ò⁄BàYàHäö[ò⁄à»ô]»YŸHYàôYYYBàÀú⁄›‘YŸJ
-CBàHHZY⁄HJö[ò⁄BàBà»›[√BàHOHå ö[ò⁄BàÀõ[ôJKçJö[ò⁄KÀçJö[ò⁄JCBàHOHåçJö[ò⁄BàÀúŸ]õ€ù
-í[ô]XÿHãL
-CBàÀôò]‘›ö[ô äö[ò⁄Kî›Xù›[àäCBàÀôò]‘›ö[ô ãç ö[ò⁄Kàâ‹›Xù›[ãåôüHäCBàBàYà^‹ò]HàÉBàHOHåäö[ò⁄BàÀôò]‘›ö[ô äö[ò⁄Kàï^
-›^‹ò]_IJNàäCBàÀôò]‘›ö[ô ãç ö[ò⁄Kàâ›^ÿ[[›[ùãåôüHäCBàBàYà\ÿ€›[ùàÉBàHOHåäö[ò⁄BàÀôò]‘›ö[ô äö[ò⁄Kë\ÿ€›[ùàäCBàÀôò]‘›ö[ô ãç ö[ò⁄KàãIŸ\ÿ€›[ùãåôüHäCBàBàYà⁄\[ô»àÉBàHOHåäö[ò⁄BàÀôò]‘›ö[ô äö[ò⁄Kî⁄\[ôŒàäCBàÀôò]‘›ö[ô ãç ö[ò⁄Kàâ‹⁄\[ôŒãåôüHäCBàBàHOHåçJö[ò⁄BàÀõ[ôJäö[ò⁄KÀçJö[ò⁄JCBàHOHåçJö[ò⁄BàÀúŸ]õ€ù
-í[ô]XÿKPõ€ãLäCBàÀôò]‘›ö[ô äö[ò⁄Kï’SàäCBàÀôò]‘›ö[ô ãç ö[ò⁄Kàâ››[ãåôüHäCBàBàÀúÿ]ôJ
-CBàóÿùYôô\ãúŸYZ 
-CBàBà›ô›€õÿYÿù]€äBàXô[Hº'‰ÈH›€õÿYàãBà]O\óÿùYôô\ãBàö[W€ò[YOYàî◊ﬁ‹◊€ù[Xô\üWﬁŸ]][YKõõ› 
-Kú›ôù[YJ	…VI[IY	 _KúàãBàZ[YOHò\Xÿ][€ã‹àÉBà
-CBà[ŸNÉBà›ö[ôõ º'‰aàY][\»»[›\à\ò⁄\ŸH‹ô\à\⁄[ô»Hõ‹õHXõ›ôHäCBÉBà»ì”’TÉBú›õX\öŸ›€äãKKHäCBûYX\àH]][YKõõ› 
-KûYX\ÉBú›õX\öŸ›€äâœ]à€\‹œHôõ€›\àèû”P—Sî—W—ì”’TüH8†(à0™HﬁYX\üOŸ]èâÀ[úÿYôWÿ[›◊⁄[UùYJCB
+def _safe_rerun():
+    """Streamlit version-safe rerun."""
+    try:
+        st.rerun()
+    except Exception:
+        try:
+            st.experimental_rerun()
+        except Exception:
+            # last resort: do nothing
+            pass
+
+
+def _render_sidebar_nav_mockup(app_mode: str, section: str | None = None) -> None:
+    active_home = "active" if app_mode == "üõí Buyer Operations" and section == "üìä Inventory Dashboard" else ""
+    buyer_active = {
+        "üìä Inventory Dashboard": "üì¶ Inventory Intelligence",
+        "üßæ PO Builder": "üìù Purchase Orders",
+        "üìà Trends": "üìä Category Analytics",
+        "üê¢ Slow Movers": "üîÅ Reorder Planner",
+    }.get(section, "")
+    st.sidebar.markdown(
+        f"""
+        <div class="sidebar-brand">
+          <img src="https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG" alt="logo" />
+          üçÅ BUYER DASHBOARD
+        </div>
+        <div class="sidebar-nav-label">HOME</div>
+        <div class="sidebar-nav-item {active_home}">üè† Home</div>
+        <div class="sidebar-nav-label">BUYER OPERATIONS</div>
+        <div class="sidebar-nav-item {'active' if buyer_active == 'üì¶ Inventory Intelligence' else ''}">üì¶ Inventory Intelligence</div>
+        <div class="sidebar-nav-item {'active' if buyer_active == 'üìù Purchase Orders' else ''}">üìù Purchase Orders</div>
+        <div class="sidebar-nav-item">ü§ù Vendor Performance</div>
+        <div class="sidebar-nav-item {'active' if buyer_active == 'üìä Category Analytics' else ''}">üìä Category Analytics</div>
+        <div class="sidebar-nav-item {'active' if buyer_active == 'üîÅ Reorder Planner' else ''}">üîÅ Reorder Planner</div>
+        <div class="sidebar-nav-label">EXTRACTION COMMAND CENTER</div>
+        <div class="sidebar-nav-item {'active' if app_mode == 'üß™ Extraction Command Center' else ''}">üìà Executive Overview</div>
+        <div class="sidebar-nav-item">üß™ Run Analytics</div>
+        <div class="sidebar-nav-item">üß≠ Process Tracker</div>
+        <div class="sidebar-nav-item">üß± Extraction Inventory</div>
+        <div class="sidebar-nav-item">ü§ù Toll Processing</div>
+        <div class="sidebar-nav-item">‚úÖ Compliance / METRC</div>
+        <div class="sidebar-nav-item">üóÇ Data Input & Mapping</div>
+        <div class="sidebar-nav-label">AI SUPPORT</div>
+        <div class="sidebar-nav-item {'active' if section == 'üß† Buyer Intelligence' else ''}">üí¨ Ask Doobie</div>
+        <div class="sidebar-nav-item" style="margin-top:8px;border:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.25);">
+          <strong>Ask Doobie</strong><br/>
+          <span style="opacity:.72">Assistant for buyer and extraction questions.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# Common alias sets (used repeatedly)
+INV_NAME_ALIASES = [
+    "product", "productname", "item", "itemname", "name", "skuname",
+    "skuid", "product name", "product_name", "product title", "title"
+]
+INV_CAT_ALIASES = [
+    "category", "subcategory", "productcategory", "department",
+    "mastercategory", "product category", "cannabis", "product_category",
+    "ecomm category", "ecommcategory",
+]
+INV_QTY_ALIASES = [
+    "available", "onhand", "onhandunits", "quantity", "qty",
+    "quantityonhand", "instock", "currentquantity", "current quantity",
+    "inventoryavailable", "inventory available", "available quantity",
+    "med total", "medtotal",
+    "med sellable", "medsellable",
+]
+INV_SKU_ALIASES = ["sku", "skuid", "productid", "product_id", "itemid", "item_id"]
+INV_BATCH_ALIASES = [
+    "batch", "batchnumber", "batch number", "lot", "lotnumber", "lot number",
+    "batchid", "batch id", "lotid", "lot id", "inventorybatch", "inventory batch",
+    "packageid", "package id",
+]
+
+SALES_NAME_ALIASES = [
+    "product", "productname", "product title", "producttitle",
+    "productid", "name", "item", "itemname", "skuname",
+    "sku", "description", "product name", "product_name"
+]
+SALES_QTY_ALIASES = [
+    "quantitysold", "quantity sold",
+    "qtysold", "qty sold",
+    "itemsold", "item sold", "items sold",
+    "unitssold", "units sold", "unit sold", "unitsold", "units",
+    "totalunits", "total units",
+    "totalinventorysold", "total inventory sold",
+    "quantity", "qty",
+]
+SALES_CAT_ALIASES = [
+    "mastercategory", "category", "master_category",
+    "productcategory", "product category",
+    "department", "dept", "subcategory", "productcategoryname",
+    "product category name"
+]
+SALES_SKU_ALIASES = ["sku", "skuid", "productid", "product_id"]
+SALES_REV_ALIASES = [
+    "netsales", "net sales", "sales", "totalsales", "total sales",
+    "revenue", "grosssales", "gross sales"
+]
+SALES_BATCH_ALIASES = [
+    "batchid", "batch id", "batch", "batchnumber", "batch number",
+    "lotid", "lot id", "lot", "lotnumber", "lot number",
+]
+SALES_PACKAGE_ALIASES = [
+    "packageid", "package id", "packagenumber", "package number",
+]
+SALES_ORDER_ID_ALIASES = ["orderid", "order id", "ordernumber", "order number", "order"]
+SALES_ORDER_TIME_ALIASES = ["ordertime", "order time", "orderdate", "order date", "datetime"]
+
+# Constants for slow movers analysis
+UNKNOWN_DAYS_OF_SUPPLY = 999
+DEFAULT_SALES_PERIOD_DAYS = 30  # Default assumption when date range cannot be determined
+SLOW_MOVER_VELOCITY_WINDOWS = [28, 56, 84]  # Available velocity window choices (days)
+SLOW_MOVER_DEFAULT_DOH_THRESHOLD = 60  # Default Days-on-Hand threshold to flag a slow mover
+SLOW_MOVER_TOP_N_OPTIONS = [25, 50, 100, 0]  # 0 = All
+SLOW_MOVER_SORT_OPTIONS = [
+    "Days of Supply ‚Üì",
+    "Weeks of Supply ‚Üì",
+    "$ On-Hand ‚Üì",
+    "Days Since Last Sale ‚Üì",
+]
+
+# Aliases for optional inventory columns used in Slow Movers
+INV_COST_ALIASES = [
+    "cost", "unitcost", "unit cost", "cogs", "costprice", "cost price",
+    "wholesale", "wholesaleprice", "wholesale price",
+    "currentprice", "current price",
+]
+INV_RETAIL_PRICE_ALIASES = [
+    "medprice", "med price", "retail", "retailprice", "retail price", "msrp",
+]
+INV_STRAIN_TYPE_ALIASES = [
+    "straintype", "strain type", "strain", "ecommstraintype", "ecomm strain type",
+    "producttype", "product type",
+]
+INV_BRAND_ALIASES = [
+    "brand", "brandname", "brand name", "vendor", "vendorname", "vendor name",
+    "manufacturer", "producer", "supplier",
+]
+INV_SKU_COL_ALIASES = INV_SKU_ALIASES  # reuse existing list
+
+# Expiration date aliases for inventory
+INV_EXPIRY_ALIASES = [
+    "expirationdate", "expiration date", "expiry", "expirydate", "expiry date",
+    "bestby", "best by", "bestbydate", "best by date", "usebydate", "use by date",
+    "expires", "exp", "expdate", "exp date",
+]
+
+# Fraction of retail price used to derive unit_cost when no explicit cost column is present
+INV_COST_RETAIL_RATIO = 0.5
+
+# Recognized strain type values from explicit column (prefer these over inferred extraction)
+VALID_STRAIN_TYPES = frozenset([
+    "indica", "sativa", "hybrid", "cbd",
+    "indica dominant hybrid", "sativa dominant hybrid",
+])
+
+# Inventory Dashboard ‚Äì Buyer View constants
+# Sort options for buyer-focused inventory view
+INVENTORY_SORT_OPTIONS = [
+    "$ on hand ‚Üì",
+    "DOH (high‚Üílow) ‚Üì",
+    "DOH (low‚Üíhigh) ‚Üë",
+    "Expiring soonest",
+    "Avg weekly sales ‚Üì",
+]
+# DOH ‚â§ this value ‚Üí flagged as Reorder (configurable)
+INVENTORY_REORDER_DOH_THRESHOLD = 21
+# DOH ‚â• this value ‚Üí flagged as Overstock (configurable)
+INVENTORY_OVERSTOCK_DOH_THRESHOLD = 90
+# Days until expiry ‚â§ this ‚Üí flagged as Expiring (configurable)
+INVENTORY_EXPIRING_SOON_DAYS = 60
+
+# Constants for PDF generation
+MAX_SKU_LENGTH_PDF = 10
+MAX_DESCRIPTION_LENGTH_PDF = 20
+MAX_STRAIN_LENGTH_PDF = 10
+MAX_SIZE_LENGTH_PDF = 8
+
+# Maximum allowed upload size per file (50 MB)
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+# Maximum rows to display in product-level detail table (performance guard)
+PRODUCT_TABLE_DISPLAY_LIMIT = 2000
+
+# Minimum on-hand units threshold for flagging a PO line for review
+PO_REVIEW_THRESHOLD = 15
+
+# Optional external market references for buyer workflows.
+# These links are informational only; buyer recommendations should still be grounded
+# in uploaded operational data and/or retrieved internal context.
+BUYER_MARKET_REFERENCES = [
+    {
+        "name": "Headset Brand Marketplace",
+        "url": "https://www.headset.io/brands",
+        "notes": "Live, frequently updated brand-level market visibility across U.S. cannabis markets.",
+    },
+]
+
+# Local app URL for self-hosted deployment links
+LOCAL_APP_URL = os.environ.get("LOCAL_APP_URL", "http://localhost:8501")
+
+
+class _DoobieTextResponse:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+def _get_doobie_ai_client() -> DoobieClient:
+    cfg = resolve_doobie_config()
+    return DoobieClient(
+        base_url=str(cfg.get("base_url") or ""),
+        api_key=str(cfg.get("api_key") or ""),
+    )
+
+
+def _doobie_ai_status() -> str:
+    status = st.session_state.get("doobie_status") or {}
+    if isinstance(status, str):
+        return str(status).strip().lower() or "not_connected"
+
+    raw_status = str(status.get("status") or "not_connected").strip().lower()
+
+    if raw_status in {"invalid", "invalid_license", "revoked", "expired"}:
+        return "invalid_license"
+    if raw_status in {"not_connected", "unavailable"}:
+        return raw_status
+    if not bool(status.get("connected")):
+        return "not_connected"
+
+    client = _get_doobie_ai_client()
+    return "connected" if client.enabled else "unavailable"
+
+
+# =========================
+# FREE STRAIN LOOKUP DATABASE
+# =========================
+# Comprehensive database of cannabis strains and their types (completely free, no API needed)
+STRAIN_DATABASE = {
+    # Popular Indica Strains
+    "granddaddy purple": "indica", "gdp": "indica", "purple kush": "indica",
+    "northern lights": "indica", "afghani": "indica", "blueberry": "indica",
+    "bubba kush": "indica", "master kush": "indica", "og kush": "indica",
+    "skywalker og": "indica", "kosher kush": "indica", "la confidential": "indica",
+    "purple punch": "indica", "ice cream cake": "indica", "wedding cake": "indica",
+    "do si dos": "indica", "dosidos": "indica", "zkittlez": "indica",
+    "gelato": "indica", "sherbet": "indica", "sunset sherbet": "indica",
+    "purple urkle": "indica", "grape ape": "indica", "blackberry kush": "indica",
+    "death star": "indica", "romulan": "indica", "critical kush": "indica",
+    "chocolate og": "indica", "motorbreath": "indica", "slurricane": "indica",
+    "sundae driver": "indica", "candy rain": "indica", "cherry pie": "indica",
+    
+    # Popular Sativa Strains
+    "sour diesel": "sativa", "jack herer": "sativa", "durban poison": "sativa",
+    "green crack": "sativa", "super lemon haze": "sativa", "tangie": "sativa",
+    "strawberry cough": "sativa", "trainwreck": "sativa", "maui wowie": "sativa",
+    "acapulco gold": "sativa", "panama red": "sativa", "super silver haze": "sativa",
+    "amnesia haze": "sativa", "ghost train haze": "sativa", "candyland": "sativa",
+    "lemon skunk": "sativa", "chemdog": "sativa", "chem dawg": "sativa",
+    "cherry ak": "sativa", "j1": "sativa", "lamb's bread": "sativa",
+    "red congolese": "sativa", "thai": "sativa", "colombian gold": "sativa",
+    "malawi": "sativa", "super sour diesel": "sativa", "clementine": "sativa",
+    
+    # Popular Hybrid Strains
+    "blue dream": "hybrid", "girl scout cookies": "hybrid", "gsc": "hybrid",
+    "gorilla glue": "hybrid", "gg4": "hybrid", "white widow": "hybrid",
+    "pineapple express": "hybrid", "ak-47": "hybrid", "sour og": "hybrid",
+    "golden goat": "hybrid", "headband": "hybrid", "chernobyl": "hybrid",
+    "bruce banner": "hybrid", "fire og": "hybrid", "gmo cookies": "hybrid",
+    "mac": "hybrid", "miracle alien cookies": "hybrid", "wedding crasher": "hybrid",
+    "mimosa": "hybrid", "runtz": "hybrid", "biscotti": "hybrid",
+    "cookies and cream": "hybrid", "animal cookies": "hybrid", "platinum cookies": "hybrid",
+    "thin mint": "hybrid", "thin mint cookies": "hybrid", "scooby snacks": "hybrid",
+    "london pound cake": "hybrid", "apples and bananas": "hybrid",
+    "cereal milk": "hybrid", "rainbow belts": "hybrid", "jealousy": "hybrid",
+    "grape gasoline": "hybrid", "oreoz": "hybrid", "gary payton": "hybrid",
+    "obama kush": "hybrid", "tahoe og": "hybrid", "sfv og": "hybrid",
+    "larry og": "hybrid", "triple og": "hybrid", "wifi og": "hybrid",
+    
+    # Generic strain-related terms (with word boundaries to avoid false positives)
+    # These match only when appearing as standalone words
+    "kush": "indica", "haze": "sativa", "cookies": "hybrid",
+    "diesel": "sativa", "skunk": "sativa", "cheese": "hybrid", "punch": "indica",
+    "cake": "indica", "pie": "indica", "breath": "hybrid", "sherb": "indica",
+}
+
+# Pre-compile regex patterns for performance
+SIZE_PATTERN = re.compile(r'\b\d+\.?\d*\s*(g|mg|oz|ml|ct|count|pk|pack)\b')
+PRODUCT_TYPE_PATTERN = re.compile(r'\b(flower|pre[-\s]?roll|joint|blunt|eighth|quarter|half|ounce)\b')
+
+# Pre-sort strain names by length (longest first) for matching priority
+SORTED_STRAIN_NAMES = sorted(STRAIN_DATABASE.keys(), key=len, reverse=True)
+
+# Pre-compile strain matching patterns for performance
+STRAIN_PATTERNS = {
+    strain: re.compile(r'\b' + re.escape(strain) + r'\b')
+    for strain in STRAIN_DATABASE.keys()
+}
+
+# Cache for strain lookups
+strain_lookup_cache = {}
+
+
+def free_strain_lookup(product_name, category):
+    """
+    Free strain type lookup using a comprehensive strain database and pattern matching.
+    No API calls, completely free and works offline.
+    
+    Args:
+        product_name: The product name to analyze
+        category: The product category (e.g., "flower", "pre rolls")
+    
+    Returns:
+        str: The detected strain type (indica, sativa, hybrid) or "unspecified"
+    """
+    if not product_name:
+        return "unspecified"
+    
+    # Check cache first
+    cache_key = f"{product_name.lower().strip()}|{category.lower().strip()}"
+    if cache_key in strain_lookup_cache:
+        return strain_lookup_cache[cache_key]
+    
+    # Normalize the product name for matching
+    name_lower = product_name.lower().strip()
+    
+    # Remove common size indicators and product types to focus on strain name
+    # Uses pre-compiled regex patterns for better performance
+    clean_name = SIZE_PATTERN.sub('', name_lower)
+    clean_name = PRODUCT_TYPE_PATTERN.sub('', clean_name)
+    clean_name = clean_name.strip()
+    
+    # Try exact match first (most accurate)
+    if clean_name in STRAIN_DATABASE:
+        result = STRAIN_DATABASE[clean_name]
+        strain_lookup_cache[cache_key] = result
+        return result
+    
+    # Try partial matching - uses pre-compiled patterns and pre-sorted list
+    # Longer strain names are checked first to prefer specific over generic matches
+    for strain_name in SORTED_STRAIN_NAMES:
+        # Use pre-compiled word boundary pattern to avoid false matches
+        # e.g., "og" should match "OG Kush" but not "dOGfood"
+        if STRAIN_PATTERNS[strain_name].search(clean_name):
+            result = STRAIN_DATABASE[strain_name]
+            strain_lookup_cache[cache_key] = result
+            return result
+    
+    # No match found
+    strain_lookup_cache[cache_key] = "unspecified"
+    return "unspecified"
+
+
+def ai_lookup_strain_type(product_name, category):
+    """
+    DEPRECATED (v2.0): Use free_strain_lookup() instead for cost-free strain detection.
+    
+    This function is kept for backward compatibility but now redirects to the free lookup.
+    Will be removed in v3.0 (planned for Q2 2026).
+    
+    Migration: Replace `ai_lookup_strain_type(name, cat)` with `free_strain_lookup(name, cat)`
+    """
+    return free_strain_lookup(product_name, category)
+
+
+# =========================
+# CONFIG & BRANDING (MAVet)
+# =========================
+CLIENT_NAME = "MAVet710"
+APP_TITLE = "BUYER DASHBOARD"
+APP_TAGLINE = "Streamlined purchasing visibility powered by Dutchie / BLAZE data."
+LICENSE_FOOTER = "Semper Paratus ‚Ä¢ Powered by Good Weed and Data"
+
+# üîê TRIAL SETTINGS
+TRIAL_DURATION_HOURS = 24
+
+# =========================
+# SECRETS-BASED AUTH LOADING
+# =========================
+# Credentials are loaded from st.secrets["auth"] or environment variables.
+# Plaintext credentials are NOT stored in source code.
+# See SECURITY.md for configuration instructions.
+
+def _load_auth_secrets():
+    """
+    Load admin users, regular users, and trial key hash from Streamlit secrets
+    or environment variable fallback.
+
+    Returns (admin_users_dict, user_users_dict, trial_key_hash_or_plain).
+    Each dict maps username -> bcrypt_hash (or plaintext if
+    st.secrets["auth"]["use_plaintext"] is explicitly True).
+    """
+    devs: dict = {}
+    admins: dict = {}
+    users: dict = {}
+    trial_value: str = ""
+
+    try:
+        auth = st.secrets.get("auth", {})
+    except Exception:
+        auth = {}
+
+    use_plaintext = bool(auth.get("use_plaintext", False)) if isinstance(auth, Mapping) else False
+
+    # --- platform developers/owners ---
+    raw_devs = auth.get("devs", {}) if isinstance(auth, Mapping) else {}
+    if isinstance(raw_devs, Mapping):
+        for k, v in raw_devs.items():
+            try:
+                devs[str(k)] = str(v)
+            except Exception:
+                pass
+
+    # --- admins ---
+    raw_admins = auth.get("admins", {}) if isinstance(auth, Mapping) else {}
+    if isinstance(raw_admins, Mapping):
+        for k, v in raw_admins.items():
+            try:
+                admins[str(k)] = str(v)
+            except Exception:
+                pass
+
+    # --- users ---
+    raw_users = auth.get("users", {}) if isinstance(auth, Mapping) else {}
+    if isinstance(raw_users, Mapping):
+        for k, v in raw_users.items():
+            try:
+                users[str(k)] = str(v)
+            except Exception:
+                pass
+
+    # --- trial key ---
+    trial_value = str(auth.get("trial_key_hash", "")).strip() if isinstance(auth, Mapping) else ""
+
+    # Env-var fallback (single admin / single user / trial key)
+    env_admin_user = os.environ.get("ADMIN_USERNAME", "").strip()
+    env_admin_pass = os.environ.get("ADMIN_PASSWORD_HASH", "").strip()
+    env_user_name = os.environ.get("USER_USERNAME", "").strip()
+    env_user_pass = os.environ.get("USER_PASSWORD_HASH", "").strip()
+    env_trial = os.environ.get("TRIAL_KEY_HASH", "").strip()
+
+    if env_admin_user and env_admin_pass and env_admin_user not in admins:
+        admins[env_admin_user] = env_admin_pass
+    if env_user_name and env_user_pass and env_user_name not in users:
+        users[env_user_name] = env_user_pass
+    if env_trial and not trial_value:
+        trial_value = env_trial
+
+    return devs, admins, users, trial_value, use_plaintext
+
+
+DEV_USERS, ADMIN_USERS, USER_USERS, _TRIAL_VALUE, _AUTH_PLAINTEXT = _load_auth_secrets()
+
+if not BCRYPT_AVAILABLE and not st.session_state.get("_bcrypt_warning_shown"):
+    st.warning(
+        "‚ö†Ô∏è bcrypt is not installed. Password verification is disabled. "
+        "Please add `bcrypt>=4.0.0` to your requirements.txt and redeploy."
+    )
+    st.session_state["_bcrypt_warning_shown"] = True
+
+
+def _check_password(plain: str, stored: str) -> bool:
+    """
+    Verify a password against a stored value.
+    Uses bcrypt when available; falls back to plaintext only when
+    use_plaintext mode is explicitly enabled or bcrypt is unavailable.
+    """
+    if not plain or not stored:
+        return False
+    if BCRYPT_AVAILABLE and not _AUTH_PLAINTEXT:
+        return verify_password(plain, stored)
+    # Plaintext fallback (legacy / dev only)
+    return plain == stored
+
+
+def _authenticate_account(username: str, password: str, require_admin: bool) -> tuple[bool, str]:
+    """Authenticate against durable users first, then bootstrap legacy secrets."""
+    clean_username = str(username or "").strip()
+    if not clean_username or not password:
+        return False, ""
+
+    database_user = APP_USER_STORE.get_user(clean_username)
+    if database_user is not None:
+        role_allowed = database_user.is_admin if require_admin else not database_user.is_admin
+        if database_user.active and role_allowed and verify_password(password, database_user.password_hash):
+            APP_USER_STORE.record_login(database_user.id)
+            st.session_state.auth_user_id = database_user.id
+            st.session_state.auth_user_role = database_user.role
+            st.session_state.auth_organization_id = database_user.organization_id
+            st.session_state.auth_must_change_password = database_user.must_change_password
+            return True, database_user.username
+        # A durable username is authoritative. Never fall through to a legacy
+        # secret when the database record is disabled, has another role, or the
+        # password does not match.
+        return False, ""
+
+    legacy_identity = resolve_legacy_identity(
+        clean_username,
+        dev_users=DEV_USERS,
+        admin_users=ADMIN_USERS,
+        standard_users=USER_USERS,
+        require_admin=require_admin,
+    )
+    stored_value = legacy_identity.stored_value if legacy_identity else ""
+    if stored_value and _check_password(password, stored_value):
+        # Authentication must establish a complete authorization context even
+        # when Supabase is temporarily unavailable during legacy bootstrap.
+        st.session_state.auth_user_id = None
+        st.session_state.auth_user_role = legacy_identity.role
+        st.session_state.auth_organization_id = None
+        st.session_state.auth_must_change_password = False
+        durable_hash = stored_value
+        if not str(durable_hash).startswith(("$2a$", "$2b$", "$2y$")) and BCRYPT_AVAILABLE:
+            durable_hash = hash_password(password)
+        if str(durable_hash).startswith(("$2a$", "$2b$", "$2y$")):
+            durable_user = APP_USER_STORE.ensure_legacy_user(
+                username=legacy_identity.username,
+                password_hash=durable_hash,
+                role=legacy_identity.role,
+            )
+            if durable_user:
+                st.session_state.auth_user_id = durable_user.id
+                st.session_state.auth_user_role = durable_user.role
+                st.session_state.auth_organization_id = durable_user.organization_id
+                st.session_state.auth_must_change_password = durable_user.must_change_password
+        return True, legacy_identity.username
+    return False, ""
+
+
+def _check_trial_key(plain: str) -> bool:
+    """Verify a trial key against the stored hash or plaintext value."""
+    if not plain or not _TRIAL_VALUE:
+        return False
+    if BCRYPT_AVAILABLE and not _AUTH_PLAINTEXT:
+        return verify_password(plain, _TRIAL_VALUE)
+    return plain == _TRIAL_VALUE
+
+
+def _validate_auth_config() -> list:
+    """
+    Runtime self-check for auth configuration.
+    Returns a list of (severity, message) tuples ('ok', 'warn', 'error').
+    Never reveals secret values or hashes.
+    """
+    issues = []
+    if not BCRYPT_AVAILABLE:
+        issues.append(("error", "bcrypt is not installed. Add `bcrypt>=4.0.0` to requirements.txt and redeploy."))
+    if not ADMIN_USERS:
+        issues.append(("error", "No admin users loaded. Check that [auth.admins] is present in Streamlit secrets."))
+    else:
+        issues.append(("ok", f"{len(ADMIN_USERS)} admin user(s) loaded: {', '.join(sorted(ADMIN_USERS.keys()))}"))
+    if DEV_USERS:
+        issues.append(("ok", f"{len(DEV_USERS)} DEV user(s) loaded: {', '.join(sorted(DEV_USERS.keys()))}"))
+    if not USER_USERS:
+        issues.append(("warn", "No standard users loaded. Check that [auth.users] is present in Streamlit secrets if user login is expected."))
+    else:
+        issues.append(("ok", f"{len(USER_USERS)} standard user(s) loaded: {', '.join(sorted(USER_USERS.keys()))}"))
+    for uname, stored_hash in {**ADMIN_USERS, **DEV_USERS}.items():
+        if not stored_hash.startswith(("$2a$", "$2b$", "$2y$")):
+            issues.append(("warn", f"Admin '{uname}': stored value does not look like a bcrypt hash (should start with $2a$, $2b$, or $2y$)."))
+    for uname, stored_hash in USER_USERS.items():
+        if not stored_hash.startswith(("$2a$", "$2b$", "$2y$")):
+            issues.append(("warn", f"User '{uname}': stored value does not look like a bcrypt hash (should start with $2a$, $2b$, or $2y$)."))
+    return issues
+
+# ‚úÖ Canonical category names (values, not column names)
+REB_CATEGORIES = [
+    "flower",
+    "pre rolls",
+    "vapes",
+    "edibles",
+    "beverages",
+    "concentrates",
+    "tinctures",
+    "topicals",
+]
+
+# Tab icon (favicon) ‚Äì MAVet image
+page_icon_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
+
+st.set_page_config(
+    page_title=APP_TITLE,
+    layout="wide",
+    page_icon=page_icon_url,
+)
+
+# Background image ‚Äì MAVet image
+background_url = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
+
+# =========================
+# DAILY DATA PERSISTENCE
+# Persists uploaded file bytes across session timeouts for the current calendar day.
+# Uses @st.cache_resource so the store lives in server memory for the process lifetime.
+# Keyed by {YYYY-MM-DD}::{username} so data is isolated per user and auto-expires at midnight.
+# =========================
+_DAILY_CACHE_KEYS = ["_cache_inv", "_cache_sales", "_cache_extra_sales", "_cache_quarantine"]
+
+
+@st.cache_resource
+def _get_daily_store() -> dict:
+    """Return the server-wide mutable dict used for daily file-cache persistence."""
+    return {}
+
+
+def _daily_store_key(username: str) -> str:
+    # Use | as delimiter since it cannot appear in typical usernames
+    return f"{datetime.now().strftime('%Y-%m-%d')}|{username}"
+
+
+def _save_to_daily_store(username: str) -> None:
+    """Persist the current session's file caches to the cross-session daily store."""
+    if not username:
+        return
+    store = _get_daily_store()
+    key = _daily_store_key(username)
+    if key not in store:
+        store[key] = {}
+    for ck in _DAILY_CACHE_KEYS:
+        val = st.session_state.get(ck)
+        if isinstance(val, dict) and val.get("bytes"):
+            store[key][ck] = {"name": val.get("name", ""), "bytes": val["bytes"]}
+    store[key]["_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Purge entries from previous days to avoid unbounded memory growth
+    today = datetime.now().strftime("%Y-%m-%d")
+    for k in list(store.keys()):
+        if not k.startswith(today):
+            del store[k]
+
+
+def _load_from_daily_store(username: str) -> bool:
+    """
+    Restore today's file caches from the daily store into session state.
+    Only restores keys that are not already set in session state.
+    Returns True if at least one file cache was restored.
+    """
+    if not username:
+        return False
+    store = _get_daily_store()
+    data = store.get(_daily_store_key(username), {})
+    restored = False
+    for ck in _DAILY_CACHE_KEYS:
+        if ck in data and not st.session_state.get(ck):
+            st.session_state[ck] = data[ck]
+            restored = True
+    return restored
+
+
+def _clear_daily_store(username: str) -> None:
+    """Remove today's stored file caches for this user from both the store and session state."""
+    if not username:
+        return
+    store = _get_daily_store()
+    key = _daily_store_key(username)
+    if key in store:
+        del store[key]
+    for ck in _DAILY_CACHE_KEYS:
+        st.session_state.pop(ck, None)
+    # Also reset processed DataFrames so the UI prompts for new uploads
+    for sk in ["inv_raw_df", "sales_raw_df", "extra_sales_df",
+               "detail_cached_df", "detail_product_cached_df"]:
+        st.session_state[sk] = None
+
+
+def _current_authenticated_identity() -> tuple[str | None, bool]:
+    if st.session_state.get("is_admin") and st.session_state.get("admin_user"):
+        return str(st.session_state.get("admin_user")), True
+    if st.session_state.get("user_authenticated") and st.session_state.get("user_user"):
+        return str(st.session_state.get("user_user")), False
+    return None, False
+
+
+def _hydrate_persistent_user_integrations() -> None:
+    """
+    Attach persistent integrations to the currently authenticated username.
+    Never blocks login; silently degrades when DB is unavailable.
+    """
+    username, is_admin = _current_authenticated_identity()
+    if not username:
+        return
+
+    normalized = str(username).strip().casefold()
+    hydrated_user = str(st.session_state.get("_db_hydrated_username") or "")
+    if hydrated_user == normalized:
+        return
+
+    if not USER_INTEGRATIONS_STORE.available:
+        st.session_state["_db_hydrated_username"] = normalized
+        st.session_state["_db_available"] = False
+        return
+
+    st.session_state["_db_available"] = True
+    record = USER_INTEGRATIONS_STORE.ensure_user(username=username, is_admin=bool(is_admin))
+    if record:
+        # Existing auth remains source-of-truth. DB stores integration data only.
+        st.session_state.doobie_base_url = str(record.doobie_base_url or "")
+        st.session_state.doobie_api_key = str(record.doobie_api_key or "")
+        st.session_state.doobie_license_key = str(getattr(record, "doobie_license_key", "") or "")
+        st.session_state.doobie_license_status = str(getattr(record, "doobie_license_status", "not_connected") or "not_connected")
+        st.session_state.doobie_plan_type = str(getattr(record, "doobie_plan_type", "") or "")
+        st.session_state.doobie_customer_id = str(getattr(record, "doobie_customer_id", "") or "")
+        st.session_state.doobie_company_name = str(getattr(record, "doobie_company_name", "") or "")
+        st.session_state.doobie_status = str(record.doobie_status or "not_connected")
+        st.session_state.doobie_last_validated = record.doobie_last_validated
+        st.session_state.metrc_api_key = str(record.metrc_api_key or "")
+        st.session_state.metrc_state = str(record.metrc_state or "")
+        st.session_state.metrc_license = str(record.metrc_license or "")
+
+    st.session_state["_db_hydrated_username"] = normalized
+
+
+def _save_persistent_user_integrations() -> None:
+    """
+    Save integration settings for the current authenticated user.
+    No-op when DB is unavailable; keeps app usable without persistence.
+    """
+    username, is_admin = _current_authenticated_identity()
+    if not username or not USER_INTEGRATIONS_STORE.available:
+        return
+    USER_INTEGRATIONS_STORE.save_user_integrations(
+        username=username,
+        is_admin=bool(is_admin),
+        values={
+            "doobie_base_url": str(st.session_state.get("doobie_base_url") or ""),
+            "doobie_api_key": str(st.session_state.get("doobie_api_key") or ""),
+            "doobie_license_key": str(st.session_state.get("doobie_license_key") or ""),
+            "doobie_license_status": str(st.session_state.get("doobie_license_status") or "not_connected"),
+            "doobie_plan_type": str(st.session_state.get("doobie_plan_type") or ""),
+            "doobie_customer_id": str(st.session_state.get("doobie_customer_id") or ""),
+            "doobie_company_name": str(st.session_state.get("doobie_company_name") or ""),
+            "doobie_features_json": json.dumps(st.session_state.get("doobie_features") or {}),
+            "doobie_status": str(st.session_state.get("doobie_status") or "not_connected"),
+            "doobie_last_validated": (
+                str(st.session_state.get("doobie_last_validated"))
+                if st.session_state.get("doobie_last_validated")
+                else None
+            ),
+            "metrc_api_key": str(st.session_state.get("metrc_api_key") or ""),
+            "metrc_state": str(st.session_state.get("metrc_state") or ""),
+            "metrc_license": str(st.session_state.get("metrc_license") or ""),
+        },
+    )
+
+
+def _hydrate_global_integrations() -> None:
+    """
+    Load admin-managed global integrations into runtime session context.
+    Never blocks login/auth flows.
+    """
+    if st.session_state.get("_global_integrations_hydrated"):
+        return
+
+    st.session_state["_global_integrations_store_available"] = GLOBAL_INTEGRATIONS_STORE.available
+    if not GLOBAL_INTEGRATIONS_STORE.available:
+        st.session_state["_global_integrations_hydrated"] = True
+        return
+
+    record = GLOBAL_INTEGRATIONS_STORE.get_global()
+    if record:
+        st.session_state.global_doobie_base_url = str(record.doobie_base_url or "")
+        st.session_state.global_doobie_api_key = str(record.doobie_api_key or "")
+        st.session_state.global_doobie_status = str(record.doobie_status or "not_connected")
+        st.session_state.global_doobie_last_validated = record.doobie_last_validated
+        st.session_state.global_metrc_api_key = str(record.metrc_api_key or "")
+        st.session_state.global_metrc_state = str(record.metrc_state or "")
+        st.session_state.global_metrc_license = str(record.metrc_license or "")
+        st.session_state.global_metrc_status = str(record.metrc_status or "not_connected")
+        st.session_state.global_metrc_last_validated = record.metrc_last_validated
+        st.session_state.global_integrations_updated_by = str(record.updated_by or "")
+        st.session_state.global_integrations_updated_at = (
+            record.updated_at.isoformat() if record.updated_at else ""
+        )
+
+    st.session_state["_global_integrations_hydrated"] = True
+
+
+def _save_global_integrations(updated_by: str) -> bool:
+    if not GLOBAL_INTEGRATIONS_STORE.available:
+        return False
+    return GLOBAL_INTEGRATIONS_STORE.save_global_integrations(
+        values={
+            "doobie_base_url": str(st.session_state.get("global_doobie_base_url") or ""),
+            "doobie_api_key": str(st.session_state.get("global_doobie_api_key") or ""),
+            "doobie_status": str(st.session_state.get("global_doobie_status") or "not_connected"),
+            "doobie_last_validated": (
+                str(st.session_state.get("global_doobie_last_validated"))
+                if st.session_state.get("global_doobie_last_validated")
+                else None
+            ),
+            "metrc_api_key": str(st.session_state.get("global_metrc_api_key") or ""),
+            "metrc_state": str(st.session_state.get("global_metrc_state") or ""),
+            "metrc_license": str(st.session_state.get("global_metrc_license") or ""),
+            "metrc_status": str(st.session_state.get("global_metrc_status") or "not_connected"),
+            "metrc_last_validated": (
+                str(st.session_state.get("global_metrc_last_validated"))
+                if st.session_state.get("global_metrc_last_validated")
+                else None
+            ),
+        },
+        updated_by=updated_by,
+    )
+
+
+# =========================
+# SESSION STATE DEFAULTS
+# =========================
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+if "admin_user" not in st.session_state:
+    st.session_state.admin_user = None
+if "user_authenticated" not in st.session_state:
+    st.session_state.user_authenticated = False
+if "user_user" not in st.session_state:
+    st.session_state.user_user = None
+if "auth_user_id" not in st.session_state:
+    st.session_state.auth_user_id = None
+if "auth_user_role" not in st.session_state:
+    st.session_state.auth_user_role = None
+if "auth_organization_id" not in st.session_state:
+    st.session_state.auth_organization_id = None
+if "active_organization_id" not in st.session_state:
+    st.session_state.active_organization_id = None
+if "active_facility_id" not in st.session_state:
+    st.session_state.active_facility_id = None
+if "auth_must_change_password" not in st.session_state:
+    st.session_state.auth_must_change_password = False
+if "trial_start" not in st.session_state:
+    st.session_state.trial_start = None
+if "metric_filter" not in st.session_state:
+    st.session_state.metric_filter = "All"  # All / Reorder ASAP
+if "inv_raw_df" not in st.session_state:
+    st.session_state.inv_raw_df = None
+if "sales_raw_df" not in st.session_state:
+    st.session_state.sales_raw_df = None
+if "extra_sales_df" not in st.session_state:
+    st.session_state.extra_sales_df = None
+if "delivery_raw_df" not in st.session_state:
+    st.session_state.delivery_raw_df = None
+if "daily_sales_raw_df" not in st.session_state:
+    st.session_state.daily_sales_raw_df = None
+if "detail_cached_df" not in st.session_state:
+    st.session_state.detail_cached_df = None
+if "detail_product_cached_df" not in st.session_state:
+    st.session_state.detail_product_cached_df = None
+if "theme" not in st.session_state:
+    st.session_state.theme = "Dark"  # Dark by default
+if "strain_lookup_enabled" not in st.session_state:
+    st.session_state.strain_lookup_enabled = True  # Enable free strain database lookup by default
+if "data_mode" not in st.session_state:
+    st.session_state.data_mode = "üìÅ Uploads"  # Default to manual upload mode
+if "di_comparison_mode" not in st.session_state:
+    st.session_state.di_comparison_mode = "üìÖ Before/After (¬±N days)"  # Default analysis mode
+
+# Upload tracking (God-only viewer)
+if "upload_log" not in st.session_state:
+    st.session_state.upload_log = []  # list of dicts
+if "uploaded_files_store" not in st.session_state:
+    # key: upload_id -> {"name":..., "bytes":..., "uploader":..., "ts":...}
+    st.session_state.uploaded_files_store = {}
+
+# Upload de-dupe signature store (prevents repeated logging on reruns)
+if "_upload_sig_seen" not in st.session_state:
+    st.session_state._upload_sig_seen = set()
+
+# Daily persistence restore flags (prevent re-restoring on every rerun)
+if "_daily_restored" not in st.session_state:
+    st.session_state._daily_restored = False
+if "_daily_restore_msg" not in st.session_state:
+    st.session_state._daily_restore_msg = False
+if "license_session_data" not in st.session_state:
+    st.session_state.license_session_data = None
+if "license_grace_mode" not in st.session_state:
+    st.session_state.license_grace_mode = False
+if "doobie_status" not in st.session_state:
+    st.session_state.doobie_status = "not_connected"
+if "doobie_base_url" not in st.session_state:
+    st.session_state.doobie_base_url = ""
+if "doobie_api_key" not in st.session_state:
+    st.session_state.doobie_api_key = ""
+if "doobie_connected" not in st.session_state:
+    st.session_state.doobie_connected = False
+if "doobie_last_validated" not in st.session_state:
+    st.session_state.doobie_last_validated = None
+if "doobie_features" not in st.session_state:
+    st.session_state.doobie_features = {}
+if "doobie_license_key" not in st.session_state:
+    st.session_state.doobie_license_key = ""
+if "doobie_license_status" not in st.session_state:
+    st.session_state.doobie_license_status = "not_connected"
+if "doobie_plan_type" not in st.session_state:
+    st.session_state.doobie_plan_type = ""
+if "doobie_customer_id" not in st.session_state:
+    st.session_state.doobie_customer_id = ""
+if "doobie_company_name" not in st.session_state:
+    st.session_state.doobie_company_name = ""
+if "metrc_api_key" not in st.session_state:
+    st.session_state.metrc_api_key = ""
+if "metrc_state" not in st.session_state:
+    st.session_state.metrc_state = ""
+if "metrc_license" not in st.session_state:
+    st.session_state.metrc_license = ""
+if "_db_hydrated_username" not in st.session_state:
+    st.session_state._db_hydrated_username = ""
+if "_db_available" not in st.session_state:
+    st.session_state._db_available = USER_INTEGRATIONS_STORE.available
+if "global_doobie_base_url" not in st.session_state:
+    st.session_state.global_doobie_base_url = ""
+if "global_doobie_api_key" not in st.session_state:
+    st.session_state.global_doobie_api_key = ""
+if "global_doobie_status" not in st.session_state:
+    st.session_state.global_doobie_status = "not_connected"
+if "global_doobie_last_validated" not in st.session_state:
+    st.session_state.global_doobie_last_validated = None
+if "global_metrc_api_key" not in st.session_state:
+    st.session_state.global_metrc_api_key = ""
+if "global_metrc_state" not in st.session_state:
+    st.session_state.global_metrc_state = ""
+if "global_metrc_license" not in st.session_state:
+    st.session_state.global_metrc_license = ""
+if "global_metrc_status" not in st.session_state:
+    st.session_state.global_metrc_status = "not_connected"
+if "global_metrc_last_validated" not in st.session_state:
+    st.session_state.global_metrc_last_validated = None
+if "global_integrations_updated_by" not in st.session_state:
+    st.session_state.global_integrations_updated_by = ""
+if "global_integrations_updated_at" not in st.session_state:
+    st.session_state.global_integrations_updated_at = ""
+if "_global_integrations_hydrated" not in st.session_state:
+    st.session_state._global_integrations_hydrated = False
+if "_global_integrations_store_available" not in st.session_state:
+    st.session_state._global_integrations_store_available = GLOBAL_INTEGRATIONS_STORE.available
+
+# Brute-force login protection counters
+_LOCKOUT_MAX_ATTEMPTS = 5
+_LOCKOUT_MINUTES = 10
+if "_admin_fail_count" not in st.session_state:
+    st.session_state._admin_fail_count = 0
+if "_admin_lockout_until" not in st.session_state:
+    st.session_state._admin_lockout_until = None
+if "_user_fail_count" not in st.session_state:
+    st.session_state._user_fail_count = 0
+if "_user_lockout_until" not in st.session_state:
+    st.session_state._user_lockout_until = None
+
+theme = st.session_state.theme
+
+# =========================
+# GLOBAL STYLING (theme-aware) ‚Äî DO NOT CHANGE LOOK
+# =========================
+main_bg = "rgba(0, 0, 0, 0.85)" if theme == "Dark" else "rgba(255, 255, 255, 0.94)"
+main_text = "#ffffff" if theme == "Dark" else "#111111"
+
+st.markdown(
+    f"""
+    <style>
+    .stApp {{
+        background-image: url('{background_url}');
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }}
+
+    /* Main content area (center) */
+    .block-container {{
+        background-color: {main_bg};
+        padding: 2rem;
+        border-radius: 12px;
+        color: {main_text} !important;
+    }}
+
+    /* Inherit shell text color while allowing semantic status/accent colors. */
+    .block-container *:not(input):not(textarea):not(select) {{
+        color: inherit;
+    }}
+
+    /* Keep tables readable on dark background */
+    .dataframe td {{
+        color: {main_text} !important;
+    }}
+
+    .stButton>button {{
+        background-color: rgba(255, 255, 255, 0.08);
+        color: {main_text};
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 6px;
+    }}
+
+    .stButton>button:hover {{
+        background-color: rgba(255, 255, 255, 0.25);
+    }}
+
+    .footer {{
+        text-align: center;
+        font-size: 0.75rem;
+        opacity: 0.7;
+        margin-top: 2rem;
+        color: {main_text} !important;
+    }}
+
+    /* Sidebar: high-contrast, readable (fixes white/hard-to-see issues) */
+    [data-testid="stSidebar"] {{
+        background-color: #f3f4f6 !important;
+    }}
+    [data-testid="stSidebar"] * {{
+        color: #111111 !important;
+        font-size: 0.9rem;
+    }}
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] textarea,
+    [data-testid="stSidebar"] select {{
+        background-color: #ffffff !important;
+        color: #111111 !important;
+        border-radius: 4px;
+    }}
+
+    /* PO-only labels in main content */
+    .po-label {{
+        color: {main_text} !important;
+        font-weight: 600;
+        font-size: 0.9rem;
+        margin-bottom: 0.1rem;
+    }}
+
+    /* ---- Slow Movers filter bar + KPI tiles (contrast/readability) ---- */
+    .sm-filter-bar {{
+        background-color: {"rgba(30,30,40,0.92)" if theme == "Dark" else "rgba(240,242,246,0.98)"};
+        border: 1px solid {"rgba(255,255,255,0.18)" if theme == "Dark" else "rgba(0,0,0,0.12)"};
+        border-radius: 10px;
+        padding: 0.75rem 1rem 0.5rem 1rem;
+        margin-bottom: 1rem;
+    }}
+
+    /* Input widgets inside the filter bar */
+    .sm-filter-bar input,
+    .sm-filter-bar select,
+    .sm-filter-bar textarea {{
+        background-color: {"rgba(255,255,255,0.12)" if theme == "Dark" else "#ffffff"} !important;
+        color: {main_text} !important;
+        border: 1px solid {"rgba(255,255,255,0.35)" if theme == "Dark" else "rgba(0,0,0,0.25)"} !important;
+        border-radius: 5px;
+    }}
+    .sm-filter-bar input:focus,
+    .sm-filter-bar select:focus {{
+        outline: 2px solid #4da6ff !important;
+    }}
+
+    /* KPI tile cards */
+    .sm-kpi-tile {{
+        background-color: {"rgba(255,255,255,0.10)" if theme == "Dark" else "rgba(255,255,255,0.95)"};
+        border: 1px solid {"rgba(255,255,255,0.22)" if theme == "Dark" else "rgba(0,0,0,0.12)"};
+        border-radius: 8px;
+        padding: 0.65rem 1rem;
+        text-align: center;
+    }}
+    .sm-kpi-tile .kpi-value {{
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: {main_text} !important;
+    }}
+    .sm-kpi-tile .kpi-label {{
+        font-size: 0.78rem;
+        opacity: 0.78;
+        color: {main_text} !important;
+    }}
+
+    /* Table header and zebra rows */
+    .sm-table-wrap .dataframe thead th {{
+        background-color: {"rgba(60,80,120,0.85)" if theme == "Dark" else "rgba(220,230,245,0.95)"} !important;
+        color: {main_text} !important;
+        font-weight: 700;
+        border-bottom: 2px solid {"rgba(255,255,255,0.3)" if theme == "Dark" else "rgba(0,0,0,0.2)"};
+    }}
+    .sm-table-wrap .dataframe tbody tr:nth-child(even) td {{
+        background-color: {"rgba(255,255,255,0.05)" if theme == "Dark" else "rgba(245,247,252,0.85)"} !important;
+    }}
+    .sm-table-wrap .dataframe tbody tr:hover td {{
+        background-color: {"rgba(255,255,255,0.12)" if theme == "Dark" else "rgba(210,220,240,0.7)"} !important;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(load_polished_theme(background_url), unsafe_allow_html=True)
+render_sidebar_nav_css()
+render_inventory_table_css()
+st.markdown(load_premium_shell(st.session_state.theme), unsafe_allow_html=True)
+render_sidebar_identity(background_url)
+
+# =========================
+# HELPER FUNCTIONS
+# =========================
+def normalize_col(col: str) -> str:
+    """Lower + strip non-alphanumerics for matching (no spaces, etc.)."""
+    return re.sub(r"[^a-z0-9]", "", str(col).lower())
+
+
+def detect_column(columns, aliases):
+    """
+    Auto-detect a column by comparing normalized names
+    against a list of alias keys (already normalized).
+    """
+    norm_map = {normalize_col(c): c for c in columns}
+    for alias in aliases:
+        if alias in norm_map:
+            return norm_map[alias]
+    return None
+
+
+def parse_currency_to_float(series: "pd.Series") -> "pd.Series":
+    """
+    Parse a pandas Series that may contain currency strings like ``"$45.00"``
+    or ``"$1,234.56"`` into float values.
+
+    - Strips leading ``$`` and embedded commas before calling ``pd.to_numeric``.
+    - Non-parseable values (blanks, ``None``, other strings) become ``NaN``.
+    """
+    return (
+        series.astype(str)
+        .str.strip()
+        .str.replace(r"^\$", "", regex=True)
+        .str.replace(",", "", regex=False)
+        .pipe(lambda s: pd.to_numeric(s, errors="coerce"))
+    )
+
+
+
+
+def format_currency(value: float) -> str:
+    try:
+        return f"${float(value):,.2f}"
+    except Exception:
+        return "$0.00"
+
+
+def calculate_sales_window(sales_df: pd.DataFrame, selected_days: int) -> tuple[pd.DataFrame, float, str | None, str | None]:
+    if sales_df is None or sales_df.empty:
+        return pd.DataFrame(), 0.0, None, None
+    sdf = sales_df.copy()
+    date_col = detect_column(sdf.columns, [normalize_col(x) for x in ["date", "sold date", "sales date", "order date", "created at"]])
+    sales_col = detect_column(sdf.columns, [normalize_col(x) for x in ["net sales", "total", "gross sales", "revenue", "retail sales", "sales"]])
+    if sales_col is None:
+        return pd.DataFrame(), 0.0, date_col, sales_col
+    sdf[sales_col] = parse_currency_to_float(sdf[sales_col]).fillna(0)
+    if date_col:
+        sdf[date_col] = pd.to_datetime(sdf[date_col], errors="coerce")
+        max_date = sdf[date_col].max()
+        if pd.notna(max_date):
+            sdf = sdf[sdf[date_col] >= (max_date - pd.Timedelta(days=int(selected_days) - 1))]
+    return sdf, float(sdf[sales_col].sum()), date_col, sales_col
+
+
+def calculate_active_inventory_cost(inventory_df: pd.DataFrame, cogs_pct: float, include_dead: bool, include_quarantine: bool, include_accessories: bool) -> tuple[pd.DataFrame, float]:
+    if inventory_df is None or inventory_df.empty:
+        return pd.DataFrame(), 0.0
+    idf = inventory_df.copy()
+    idf.columns = idf.columns.astype(str).str.strip().str.lower()
+    qty_col = detect_column(idf.columns, [normalize_col(x) for x in [
+        "on hand", "qty", "quantity", "onhandunits", "quantity on hand",
+        "available", "available quantity", "inventory available", "med total", "med sellable",
+    ]])
+    cat_col = detect_column(idf.columns, [normalize_col(x) for x in ["mastercategory", "subcategory", "category", "product category"]])
+    total_cost_col = detect_column(idf.columns, [normalize_col(x) for x in ["total cost", "inventory cost", "cost total", "extended cost"]])
+    unit_cost_col = detect_column(idf.columns, [normalize_col(x) for x in ["unit_cost", "cost", "cost/unit", "unit cost", "wholesale price"]])
+    retail_col = detect_column(idf.columns, [normalize_col(x) for x in ["retail price", "price", "retail", "med price"]])
+    dos_col = detect_column(idf.columns, [normalize_col(x) for x in ["daysonhand", "dos", "days of supply"]])
+    name_col = detect_column(idf.columns, [normalize_col(x) for x in ["itemname", "product name", "name"]])
+
+    if qty_col is None:
+        return pd.DataFrame(), 0.0
+    idf[qty_col] = pd.to_numeric(idf[qty_col], errors="coerce").fillna(0)
+    if total_cost_col:
+        idf["_active_cost"] = parse_currency_to_float(idf[total_cost_col]).fillna(0)
+    else:
+        unit_cost = parse_currency_to_float(idf[unit_cost_col]).fillna(0) if unit_cost_col else pd.Series(0, index=idf.index)
+        if retail_col is not None:
+            retail_est = parse_currency_to_float(idf[retail_col]).fillna(0) * float(cogs_pct)
+            unit_cost = unit_cost.where(unit_cost > 0, retail_est)
+        idf["_active_cost"] = idf[qty_col] * unit_cost
+
+    if not include_accessories and cat_col is not None:
+        idf = idf[~idf[cat_col].astype(str).str.lower().str.contains("accessor", na=False)]
+    if not include_dead:
+        if dos_col is not None:
+            idf = idf[pd.to_numeric(idf[dos_col], errors="coerce").fillna(0) != 999]
+        if name_col is not None:
+            idf = idf[~idf[name_col].astype(str).str.lower().str.contains("dead", na=False)]
+    if not include_quarantine and name_col is not None:
+        idf = idf[~idf[name_col].astype(str).str.lower().str.contains("quarantine|hold", na=False)]
+
+    return idf, float(idf["_active_cost"].sum())
+
+def normalize_rebelle_category(raw):
+    """
+    Map similar names to canonical categories.
+    Case-insensitive with whitespace trimming.
+    """
+    if pd.isna(raw) or raw is None:
+        return "unknown"
+    
+    s = str(raw).lower().strip()
+    
+    if not s:
+        return "unknown"
+
+    # Flower
+    if any(k in s for k in ["flower", "bud", "buds", "cannabis flower"]):
+        return "flower"
+
+    # Pre Rolls
+    if any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint", "joints"]):
+        return "pre rolls"
+
+    # Vapes
+    if any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"]):
+        return "vapes"
+
+    # Edibles
+    if any(k in s for k in ["edible", "gummy", "gummies", "chocolate", "chew", "cookies"]):
+        return "edibles"
+
+    # Beverages
+    if any(k in s for k in ["beverage", "drink", "drinkable", "shot", "beverages"]):
+        return "beverages"
+
+    # Concentrates
+    if any(k in s for k in ["concentrate", "wax", "shatter", "crumble", "resin", "rosin", "dab", "rso"]):
+        return "concentrates"
+
+    # Tinctures
+    if any(k in s for k in ["tincture", "tinctures", "drops", "sublingual", "dropper"]):
+        return "tinctures"
+
+    # Topicals
+    if any(k in s for k in ["topical", "lotion", "cream", "salve", "balm"]):
+        return "topicals"
+
+    return s  # unchanged if not matched
+
+
+def extract_size(text, context=None):
+    """
+    Parse package size:
+    - mg doses: "500mg"
+    - grams/oz: normalize 1oz/28g to "28g"
+    - vapes: detect 0.5g if appears as ".5" etc
+    Handles null values safely.
+    """
+    if pd.isna(text) or text is None:
+        return "unspecified"
+    
+    s = str(text).lower().strip()
+    
+    if not s:
+        return "unspecified"
+
+    # mg
+    mg = re.search(r"(\d+(\.\d+)?\s?mg)\b", s)
+    if mg:
+        return mg.group(1).replace(" ", "")
+
+    # g / oz
+    g = re.search(r"((?:\d+\.?\d*|\.\d+)\s?(g|oz))\b", s)
+    if g:
+        val = g.group(1).replace(" ", "").lower()
+        if val in ["1oz", "1.0oz", "28g", "28.0g"]:
+            return "28g"
+        return val
+
+    # vapes .5
+    if any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"]):
+        half = re.search(r"\b0\.5\b|\b\.5\b", s)
+        if half:
+            return "0.5g"
+
+    return "unspecified"
+
+
+def _stack_parts(*parts):
+    parts_clean = [p.strip() for p in parts if p and str(p).strip() and str(p).strip() != "unspecified"]
+    if not parts_clean:
+        return "unspecified"
+    return " ".join(parts_clean)
+
+
+def extract_strain_type(name, subcat):
+    """
+    Stacked strain/type logic:
+    - Base: indica / sativa / hybrid / cbd / unspecified
+    - Flower: add Shake/Popcorn/Small Buds/Super Shake (stacked)
+    - Flower: Rise/Refresh/Rest mapping (rise=sativa, refresh=hybrid, rest=indica) stacked
+    - Vapes: detect oil type (distillate, live resin / LLR, cured resin, rosin) stacked with base
+    - Edibles: detect form (gummy, chocolate) stacked with base
+    - Concentrates: detect RSO stacked with base
+    - Pre-rolls: infused
+    - Disposables: disposable (vapes)
+    Handles null values safely.
+    """
+    if pd.isna(name):
+        name = ""
+    if pd.isna(subcat):
+        subcat = ""
+    
+    s = str(name).lower().strip()
+    cat = str(subcat).lower().strip()
+
+    base = "unspecified"
+    if "indica" in s:
+        base = "indica"
+    elif "sativa" in s:
+        base = "sativa"
+    elif "hybrid" in s:
+        base = "hybrid"
+    elif "cbd" in s:
+        base = "cbd"
+
+    # Rise/Refresh/Rest mapping for flower (only if base not already explicit)
+    rr_tag = None
+    if "flower" in cat:
+        if re.search(r"\brise\b", s):
+            rr_tag = "rise"
+            if base == "unspecified":
+                base = "sativa"
+        elif re.search(r"\brefresh\b", s):
+            rr_tag = "refresh"
+            if base == "unspecified":
+                base = "hybrid"
+        elif re.search(r"\brest\b", s):
+            rr_tag = "rest"
+            if base == "unspecified":
+                base = "indica"
+
+    vape_flag = ("vape" in cat) or any(k in s for k in ["vape", "cart", "cartridge", "pen", "pod"])
+    preroll_flag = ("pre roll" in cat) or ("pre rolls" in cat) or any(k in s for k in ["pre roll", "preroll", "pre-roll", "joint"])
+
+    # Flower: special buckets stacked
+    flower_bucket = None
+    if "flower" in cat:
+        if "super shake" in s:
+            flower_bucket = "super shake"
+        elif re.search(r"\bshake\b", s):
+            flower_bucket = "shake"
+        elif any(k in s for k in ["small buds", "smalls", "small bud"]):
+            flower_bucket = "small buds"
+        elif "popcorn" in s:
+            flower_bucket = "popcorn"
+
+    # Vapes: oil type detection
+    oil = None
+    if vape_flag:
+        if any(k in s for k in ["liquid live resin", "live resin", "llr"]):
+            oil = "live resin"
+        elif "cured resin" in s:
+            oil = "cured resin"
+        elif "rosin" in s:
+            oil = "rosin"
+        elif any(k in s for k in ["distillate", "disty"]):
+            oil = "distillate"
+
+    # Disposable handling
+    is_disposable = ("disposable" in s) or ("dispos" in s)
+    if vape_flag and is_disposable:
+        oil = _stack_parts(oil, "disposable")
+
+    # Pre-roll infused
+    infused = None
+    if preroll_flag and "infused" in s:
+        infused = "infused"
+
+    # Edibles: form detection
+    edible_form = None
+    if "edible" in cat:
+        if any(k in s for k in ["gummy", "gummies", "chew", "fruit chew"]):
+            edible_form = "gummy"
+        elif any(k in s for k in ["chocolate", "choc"]):
+            edible_form = "chocolate"
+
+    # Concentrates: RSO
+    conc_tag = None
+    if "concentrate" in cat and ("rso" in s or "rick simpson" in s):
+        conc_tag = "rso"
+
+    # Free strain database lookup for flower and pre-rolls when base is unspecified
+    if base == "unspecified" and ("flower" in cat or preroll_flag):
+        # Check if strain lookup is enabled in settings
+        try:
+            if st.session_state.strain_lookup_enabled:
+                # Use free database to determine the strain type from the product name
+                lookup_result = free_strain_lookup(name, subcat)
+                if lookup_result != "unspecified":
+                    base = lookup_result
+        except AttributeError:
+            # Session state not available yet (app initialization), skip lookup
+            pass
+        except Exception as e:
+            # Unexpected error in strain lookup - log but don't fail
+            # This ensures product processing continues even if lookup has a bug
+            import sys
+            print(f"Warning: Strain lookup error for '{name}': {type(e).__name__}", file=sys.stderr)
+
+    # Compose stacked type
+    if "flower" in cat:
+        return _stack_parts(base, flower_bucket, rr_tag)
+
+    if vape_flag:
+        return _stack_parts(base, oil)
+
+    if "edible" in cat:
+        return _stack_parts(base, edible_form)
+
+    if "concentrate" in cat:
+        return _stack_parts(base, conc_tag)
+
+    if preroll_flag:
+        return _stack_parts(base, infused)
+
+    return base
+
+
+def _normalize_for_match(text: str) -> str:
+    """Lowercase, strip, collapse whitespace, remove punctuation for PO cross-reference matching."""
+    s = re.sub(r"[^\w\s]", "", str(text).lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _normalize_size_for_match(size: str) -> str:
+    """Normalize size string for matching: lowercase and remove all internal spaces (e.g. '3.5 g' -> '3.5g')."""
+    return re.sub(r"\s+", "", str(size).lower().strip())
+
+
+def _build_inv_xref_table():
+    """
+    Build a cross-reference table from st.session_state.inv_raw_df using the same
+    normalization/parsing as the Inventory Dashboard.
+
+    Returns a DataFrame with columns:
+        product_name, packagesize, norm_name, norm_size, onhand_total
+    or None if inventory is unavailable / cannot be parsed.
+    """
+    raw = st.session_state.get("inv_raw_df")
+    if raw is None or (hasattr(raw, "empty") and raw.empty):
+        return None
+    try:
+        inv = raw.copy()
+        inv.columns = inv.columns.astype(str).str.strip().str.lower()
+
+        name_col = detect_column(inv.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+        cat_col = detect_column(inv.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+        qty_col = detect_column(inv.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+        batch_col = detect_column(inv.columns, [normalize_col(a) for a in INV_BATCH_ALIASES])
+
+        if not (name_col and qty_col):
+            return None
+
+        rename_map = {qty_col: "onhandunits", name_col: "itemname"}
+        if cat_col:
+            rename_map[cat_col] = "subcategory"
+        if batch_col:
+            rename_map[batch_col] = "batch"
+        inv = inv.rename(columns=rename_map)
+
+        if "subcategory" not in inv.columns:
+            inv["subcategory"] = ""
+
+        inv["itemname"] = inv["itemname"].astype(str).str.strip()
+        inv["onhandunits"] = pd.to_numeric(inv["onhandunits"], errors="coerce").fillna(0)
+
+        if "batch" in inv.columns:
+            inv, _, _ = deduplicate_inventory(inv)
+
+        inv["product_name"] = inv["itemname"]
+        inv["packagesize"] = inv.apply(
+            lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1
+        )
+
+        # Sum across all batches at (product_name, packagesize)
+        agg = (
+            inv.groupby(["product_name", "packagesize"], dropna=False)["onhandunits"]
+            .sum()
+            .reset_index()
+            .rename(columns={"onhandunits": "onhand_total"})
+        )
+        agg["norm_name"] = agg["product_name"].apply(_normalize_for_match)
+        agg["norm_size"] = agg["packagesize"].apply(_normalize_size_for_match)
+        return agg
+    except Exception:
+        return None
+
+
+def read_inventory_file(uploaded_file):
+    """
+    Read inventory CSV or Excel while being robust to 3‚Äì10 line headers
+    (e.g., Dutchie exports with Export Date / filters at the top).
+    """
+    name = uploaded_file.name.lower()
+    uploaded_file.seek(0)
+
+    if name.endswith(".csv"):
+        tmp = pd.read_csv(uploaded_file, header=None)
+    else:
+        tmp = pd.read_excel(uploaded_file, header=None)
+
+    header_row = 0
+    max_scan = min(15, len(tmp))
+    for i in range(max_scan):
+        row_text = " ".join(str(v) for v in tmp.iloc[i].tolist()).lower()
+        if any(tok in row_text for tok in ["product", "item", "sku", "name", "available"]):
+            header_row = i
+            break
+
+    uploaded_file.seek(0)
+    if name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file, header=header_row)
+    else:
+        df = pd.read_excel(uploaded_file, header=header_row)
+
+    return df
+
+
+def filter_vault_inventory(df):
+    """
+    Filter inventory DataFrame to only include rows where Room == "Vault"
+    (case-insensitive).
+
+    Args:
+        df: Raw inventory DataFrame (column names not yet normalized).
+
+    Returns:
+        tuple: (filtered_df, n_included, n_excluded)
+            filtered_df  ‚Äì DataFrame containing only Vault rows.
+            n_included   ‚Äì Number of rows kept (Vault).
+            n_excluded   ‚Äì Number of rows dropped (non-Vault).
+
+    Raises:
+        ValueError: If the Room column is not present in the file.
+    """
+    norm_cols = {str(c).strip().lower(): c for c in df.columns}
+    room_col = norm_cols.get("room")
+
+    if room_col is None:
+        raise ValueError(
+            "The inventory file is missing a 'Room' column. "
+            "Please upload the correct inventory report that includes a 'Room' column "
+            "(expected values: Vault, Quarantine, Employee Stock, ‚Ä¶). "
+            "Only Vault rows are used by this dashboard."
+        )
+
+    room_norm = df[room_col].apply(lambda v: str(v).strip().lower())
+    mask = room_norm == "vault"
+    n_included = int(mask.sum())
+    n_excluded = int((~mask).sum())
+    return df[mask].copy(), n_included, n_excluded
+
+
+def deduplicate_inventory(inv_df):
+    """
+    Consolidate inventory by Product Name + Batch ID.
+    Groups duplicate entries and SUMS quantities (not max).
+    
+    Args:
+        inv_df: DataFrame with columns: itemname, batch (optional), onhandunits, etc.
+        
+    Returns:
+        tuple: (deduplicated_df, num_duplicates_removed, log_message)
+    """
+    if inv_df is None or inv_df.empty:
+        return inv_df, 0, "No inventory data to deduplicate."
+    
+    original_count = len(inv_df)
+    
+    try:
+        # Clean and normalize batch column if it exists
+        if "batch" in inv_df.columns:
+            # Handle NaN values before converting to string
+            inv_df["batch"] = inv_df["batch"].fillna("")
+            # Trim whitespace and normalize batch IDs
+            inv_df["batch"] = inv_df["batch"].astype(str).str.strip()
+            # Replace empty strings and common invalid string representations with NaN
+            inv_df["batch"] = inv_df["batch"].replace({
+                "": np.nan, 
+                "nan": np.nan, 
+                "NaN": np.nan,
+                "NAN": np.nan,
+                "none": np.nan, 
+                "None": np.nan,
+                "NONE": np.nan,
+                "<NA>": np.nan,
+            })
+            
+            has_batch = inv_df["batch"].notna()
+            
+            if has_batch.any():
+                # Separate records with and without batch IDs
+                inv_with = inv_df[has_batch].copy()
+                inv_without = inv_df[~has_batch].copy()
+                
+                # Determine deduplication keys
+                # Use itemname + batch for products with batch IDs
+                dedupe_keys = ["itemname", "batch"]
+                
+                # Build aggregation map - SUM quantities, keep first of other columns
+                agg_map = {"onhandunits": "sum"}  # CRITICAL FIX: Changed from "max" to "sum"
+                
+                # Preserve other columns
+                for c in ["subcategory", "sku"]:
+                    if c in inv_with.columns and c not in dedupe_keys:
+                        agg_map[c] = "first"
+                
+                # Group and aggregate
+                inv_with_deduped = (
+                    inv_with.groupby(dedupe_keys, dropna=False, as_index=False)
+                    .agg(agg_map)
+                )
+                
+                # Combine deduplicated records with non-batch records
+                inv_df = pd.concat([inv_with_deduped, inv_without], ignore_index=True)
+                
+                deduplicated_count = len(inv_df)
+                num_removed = original_count - deduplicated_count
+                
+                if num_removed > 0:
+                    log_msg = (
+                        f"‚úÖ Deduplication complete: Consolidated {num_removed} duplicate "
+                        f"inventory entries (Product Name + Batch ID). "
+                        f"Original: {original_count} rows ‚Üí Deduplicated: {deduplicated_count} rows"
+                    )
+                else:
+                    log_msg = "No duplicate inventory entries found."
+                    
+                return inv_df, num_removed, log_msg
+        
+        # No batch column or no batch data
+        return inv_df, 0, "No batch data available for deduplication."
+        
+    except Exception as e:
+        # If deduplication fails, return original data with error message
+        error_msg = f"‚ö†Ô∏è Deduplication encountered an error: {str(e)}. Using original data."
+        return inv_df, 0, error_msg
+
+
+def read_sales_file(uploaded_file):
+    """
+    Read sales report (CSV or Excel) with smart header detection.
+    Supports:
+    - CSV files with metadata rows (Export Date, From Date, To Date, Location)
+    - Excel files with or without metadata rows
+    Looks for a row that contains something like 'category' and 'product'
+    (Dutchie 'Product Sales Report' style).
+    
+    Args:
+        uploaded_file: File-like object with .name attribute and standard read methods
+    
+    Returns:
+        pd.DataFrame: Sales data with detected header row, or empty DataFrame if uploaded_file is None
+    """
+    if uploaded_file is None:
+        return pd.DataFrame()
+    
+    name = uploaded_file.name.lower()
+    uploaded_file.seek(0)
+    
+    # Determine file type and read accordingly
+    if name.endswith(".csv"):
+        # For CSV, read without header first to detect metadata rows
+        tmp = pd.read_csv(uploaded_file, header=None)
+    elif name.endswith((".xlsx", ".xls")):
+        # For Excel, use existing logic
+        tmp = pd.read_excel(uploaded_file, header=None)
+    else:
+        # Unsupported format - try Excel as fallback for backward compatibility
+        # (some Excel files might have non-standard extensions)
+        try:
+            tmp = pd.read_excel(uploaded_file, header=None)
+        except (ValueError, FileNotFoundError, OSError, Exception) as e:
+            # If Excel parsing fails, provide helpful error message
+            raise ValueError(
+                f"Unsupported file format or unable to read file: {name}. "
+                "Please upload a CSV or Excel file (.csv, .xlsx, .xls). "
+                f"Error: {str(e)}"
+            )
+    
+    # Detect header row by looking for actual column names
+    # Skip metadata rows that typically have format "Key:,Value,..."
+    header_row = 0
+    max_scan = min(20, len(tmp))
+    
+    for i in range(max_scan):
+        row_values = tmp.iloc[i].tolist()
+        row_text = " ".join(str(v) for v in row_values).lower()
+        
+        # Skip metadata rows (rows where first cell ends with colon)
+        first_cell = row_values[0]
+        if pd.notna(first_cell):
+            first_cell_str = str(first_cell).strip()
+            if first_cell_str.endswith(':'):
+                continue
+        
+        # Look for header row containing 'category' and 'product' or 'name'
+        if "category" in row_text and ("product" in row_text or "name" in row_text):
+            header_row = i
+            break
+    
+    # Re-read with the correct header row
+    uploaded_file.seek(0)
+    if name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file, header=header_row)
+    else:
+        # Excel or fallback format
+        df = pd.read_excel(uploaded_file, header=header_row)
+    
+    return df
+
+
+def read_delivery_file(uploaded_file):
+    """
+    Read a delivery/receiving report.
+    Supported: CSV/XLSX preferred. PDF is best-effort (may fail if the PDF is image-based).
+    Expected fields (any names, auto-detected):
+      - received date (or delivery date)
+      - product name (or item)
+      - quantity received
+      - optional: category, batch/lot
+    Returns a DataFrame (may be empty if parsing fails).
+    """
+    if uploaded_file is None:
+        return pd.DataFrame()
+
+    name = uploaded_file.name.lower()
+    uploaded_file.seek(0)
+    raw_bytes = uploaded_file.read()
+    uploaded_file.seek(0)
+
+    if name.endswith((".csv", ".xlsx", ".xls")):
+        if _DELIVERY_IMPACT_AVAILABLE:
+            _recv_dt, items_df, _debug = parse_manifest_csv_xlsx_bytes(
+                raw_bytes, filename=uploaded_file.name
+            )
+            if not items_df.empty:
+                return items_df
+        # Fallback: naive read for files that don't match the manifest format.
+        if name.endswith(".csv"):
+            return pd.read_csv(BytesIO(raw_bytes))
+        return pd.read_excel(BytesIO(raw_bytes))
+
+    if name.endswith(".pdf"):
+        return _extract_delivery_from_pdf(uploaded_file)
+
+    return pd.DataFrame()
+
+
+def _extract_delivery_from_pdf(uploaded_file):
+    """
+    Best-effort PDF parsing:
+    - Tries pdfplumber tables first (works if the PDF has selectable text tables).
+    - Falls back to PyPDF2 text extraction and simple row heuristics.
+    """
+    uploaded_file.seek(0)
+    pdf_bytes = uploaded_file.read()
+    uploaded_file.seek(0)
+
+    # 1) pdfplumber table extraction
+    try:
+        import pdfplumber  # type: ignore
+        rows = []
+        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                tables = page.extract_tables() or []
+                for t in tables:
+                    if not t or len(t) < 2:
+                        continue
+                    for r in t[1:]:
+                        rows.append([str(x).strip() if x is not None else "" for x in r])
+        if rows:
+            return pd.DataFrame(rows)
+    except Exception:
+        pass
+
+    # 2) PyPDF2 text extraction
+    try:
+        from PyPDF2 import PdfReader  # type: ignore
+        reader = PdfReader(BytesIO(pdf_bytes))
+        text = ""
+        for p in reader.pages:
+            try:
+                text += (p.extract_text() or "") + "\n"
+            except Exception:
+                continue
+        if not text.strip():
+            return pd.DataFrame()
+
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        parsed = []
+        for ln in lines:
+            if re.search(r"\b\d{1,4}\b", ln) and len(ln.split()) >= 3:
+                parsed.append([ln])
+        return pd.DataFrame(parsed, columns=["raw"])
+    except Exception:
+        return pd.DataFrame()
+
+
+def read_daily_sales_file(uploaded_file):
+    """
+    Read a daily sales report for spike analysis (recommended).
+    Supported: CSV/XLSX.
+    Expected fields (auto-detected):
+      - date (sale date, day, business date)
+      - category (optional but strongly recommended)
+      - product name (optional if you want SKU-level)
+      - units/qty sold
+      - revenue/net sales (optional)
+    """
+    if uploaded_file is None:
+        return pd.DataFrame()
+
+    name = uploaded_file.name.lower()
+    uploaded_file.seek(0)
+
+    if name.endswith(".csv"):
+        return pd.read_csv(uploaded_file)
+
+    if name.endswith((".xlsx", ".xls")):
+        tmp = pd.read_excel(uploaded_file, header=None)
+        header_row = 0
+        max_scan = min(25, len(tmp))
+        for i in range(max_scan):
+            row_text = " ".join(str(v) for v in tmp.iloc[i].tolist()).lower()
+            if any(tok in row_text for tok in ["date", "day", "business"]) and any(tok in row_text for tok in ["sales", "revenue", "qty", "quantity", "units", "product"]):
+                header_row = i
+                break
+        uploaded_file.seek(0)
+        return pd.read_excel(uploaded_file, header=header_row)
+
+    return pd.DataFrame()
+
+
+def _parse_grams_from_size(size_str):
+    """
+    Convert '3.5g' -> 3.5
+            '1g' -> 1
+            '28g' -> 28
+            '1oz' -> 28
+    Return float grams or None
+    """
+    s = str(size_str).lower().strip()
+    if s == "28g":
+        return 28.0
+    if s in ("1oz", "1.0oz"):
+        return 28.0
+    m = re.match(r"^(\d+(\.\d+)?)g$", s)
+    if m:
+        return float(m.group(1))
+    m2 = re.match(r"^(\d+(\.\d+)?)oz$", s)
+    if m2:
+        return float(m2.group(1)) * 28.0
+    return None
+
+
+def _parse_mg_from_size(size_str):
+    """
+    Convert '100mg' -> 100
+    Return float mg or None
+    """
+    s = str(size_str).lower().strip()
+    m = re.match(r"^(\d+(\.\d+)?)mg$", s)
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def _file_signature(file_obj, uploader_username: str, file_role: str):
+    """Cheap signature to prevent repeated upload logging on reruns."""
+    try:
+        name = getattr(file_obj, "name", "upload")
+        file_obj.seek(0)
+        b = file_obj.read()
+        file_obj.seek(0)
+        size = len(b)
+        head = b[:2048]
+        tail = b[-2048:] if size > 2048 else b
+        return f"{uploader_username}|{file_role}|{name}|{size}|{hash(head)}|{hash(tail)}"
+    except Exception:
+        return None
+
+
+def track_upload(uploaded_file, uploader_username: str, file_role: str):
+    """
+    Store uploaded file bytes in session_state so 'God' can view/download later.
+
+    Purchasing-director fix:
+    - Prevent duplicate log spam: only log a given file once per session.
+    - Reject files exceeding MAX_UPLOAD_BYTES.
+    """
+    if uploaded_file is None:
+        return
+
+    sig = _file_signature(uploaded_file, uploader_username, file_role)
+    if sig and sig in st.session_state._upload_sig_seen:
+        return
+
+    try:
+        uploaded_file.seek(0)
+        b = uploaded_file.read()
+        uploaded_file.seek(0)
+    except Exception:
+        return
+
+    if len(b) > MAX_UPLOAD_BYTES:
+        st.error(
+            f"‚ùå File '{getattr(uploaded_file, 'name', 'upload')}' exceeds the "
+            f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB size limit and was not stored."
+        )
+        return
+
+    if sig:
+        st.session_state._upload_sig_seen.add(sig)
+
+    upload_id = f"{datetime.now().isoformat()}::{uploader_username}::{file_role}::{uploaded_file.name}"
+    st.session_state.uploaded_files_store[upload_id] = {
+        "name": uploaded_file.name,
+        "bytes": b,
+        "uploader": uploader_username,
+        "role": file_role,
+        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    st.session_state.upload_log.append({
+        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "uploader": uploader_username,
+        "role": file_role,
+        "filename": uploaded_file.name,
+        "upload_id": upload_id,
+    })
+
+
+# =========================
+# PDF GENERATION FOR PO
+# =========================
+def generate_po_pdf(
+    store_name,
+    store_number,
+    store_address,
+    store_phone,
+    store_contact,
+    vendor_name,
+    vendor_license,
+    vendor_address,
+    vendor_contact,
+    po_number,
+    po_date,
+    terms,
+    notes,
+    po_df,
+    subtotal,
+    discount,
+    tax_amount,
+    shipping,
+    total,
+):
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+
+    left_margin = 0.7 * inch
+    right_margin = width - 0.7 * inch
+    top_margin = height - 0.75 * inch
+
+    # Header Title
+    y = top_margin
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(left_margin, y, f"{CLIENT_NAME} - Purchase Order")
+    y -= 0.25 * inch
+
+    # PO Number and Date
+    c.setFont("Helvetica", 10)
+    c.drawString(left_margin, y, f"PO Number: {po_number}")
+    c.drawRightString(right_margin, y, f"Date: {po_date.strftime('%m/%d/%Y')}")
+    y -= 0.35 * inch
+
+    # Store (Ship-To) block
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(left_margin, y, "Ship To:")
+    c.setFont("Helvetica", 10)
+    y -= 0.18 * inch
+    c.drawString(left_margin, y, store_name or "")
+    y -= 0.16 * inch
+    if store_number:
+        c.drawString(left_margin, y, f"Store #: {store_number}")
+        y -= 0.16 * inch
+    if store_address:
+        c.drawString(left_margin, y, store_address)
+        y -= 0.16 * inch
+    if store_phone:
+        c.drawString(left_margin, y, f"Phone: {store_phone}")
+        y -= 0.16 * inch
+    if store_contact:
+        c.drawString(left_margin, y, f"Buyer: {store_contact}")
+        y -= 0.2 * inch
+
+    # Vendor block
+    vend_y = top_margin - 0.35 * inch
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(width / 2, vend_y, "Vendor:")
+    vend_y -= 0.18 * inch
+    c.setFont("Helvetica", 10)
+    if vendor_name:
+        c.drawString(width / 2, vend_y, vendor_name)
+        vend_y -= 0.16 * inch
+    if vendor_license:
+        c.drawString(width / 2, vend_y, f"License #: {vendor_license}")
+        vend_y -= 0.16 * inch
+    if vendor_address:
+        c.drawString(width / 2, vend_y, vendor_address)
+        vend_y -= 0.16 * inch
+    if vendor_contact:
+        c.drawString(width / 2, vend_y, f"Contact: {vendor_contact}")
+        vend_y -= 0.2 * inch
+
+    # Terms
+    y = min(y, vend_y) - 0.15 * inch
+    if terms:
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(left_margin, y, "Payment Terms:")
+        c.setFont("Helvetica", 10)
+        c.drawString(left_margin + 90, y, terms)
+        y -= 0.25 * inch
+
+    # Notes
+    if notes:
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(left_margin, y, "Notes:")
+        y -= 0.16 * inch
+        c.setFont("Helvetica", 9)
+        text_obj = c.beginText()
+        text_obj.setTextOrigin(left_margin, y)
+        text_obj.setLeading(12)
+        for line in notes.splitlines():
+            text_obj.textLine(line)
+        c.drawText(text_obj)
+        y = text_obj.getY() - 0.25 * inch
+
+    # Table header
+    c.setFont("Helvetica-Bold", 10)
+    header_y = y
+    if header_y < 2.5 * inch:
+        c.showPage()
+        width, height = letter
+        left_margin = 0.7 * inch
+        right_margin = width - 0.7 * inch
+        header_y = height - 1 * inch
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(left_margin, header_y, f"{CLIENT_NAME} - Purchase Order")
+        header_y -= 0.4 * inch
+        c.setFont("Helvetica-Bold", 10)
+
+    y = header_y
+    col_x = {
+        "line": left_margin,
+        "sku": left_margin + 0.4 * inch,
+        "desc": left_margin + 1.4 * inch,
+        "strain": left_margin + 3.8 * inch,
+        "size": left_margin + 4.6 * inch,
+        "qty": left_margin + 5.2 * inch,
+        "unit": left_margin + 6.0 * inch,
+        "total": left_margin + 7.0 * inch,
+    }
+
+    c.drawString(col_x["line"], y, "Ln")
+    c.drawString(col_x["sku"], y, "SKU")
+    c.drawString(col_x["desc"], y, "Description")
+    c.drawString(col_x["strain"], y, "Strain")
+    c.drawString(col_x["size"], y, "Size")
+    c.drawRightString(col_x["qty"] + 0.3 * inch, y, "Qty")
+    c.drawRightString(col_x["unit"] + 0.7 * inch, y, "Unit Price")
+    c.drawRightString(col_x["total"] + 0.8 * inch, y, "Line Total")
+    y -= 0.2 * inch
+
+    c.setLineWidth(0.5)
+    c.line(left_margin, y, right_margin, y)
+    y -= 0.18 * inch
+    c.setFont("Helvetica", 9)
+
+    # Table rows
+    for idx, row in po_df.reset_index(drop=True).iterrows():
+        if y < 1.2 * inch:
+            c.showPage()
+            width, height = letter
+            left_margin = 0.7 * inch
+            right_margin = width - 0.7 * inch
+            y = height - 1 * inch
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(left_margin, y, "SKU Line Items (cont.)")
+            y -= 0.25 * inch
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(col_x["line"], y, "Ln")
+            c.drawString(col_x["sku"], y, "SKU")
+            c.drawString(col_x["desc"], y, "Description")
+            c.drawString(col_x["strain"], y, "Strain")
+            c.drawString(col_x["size"], y, "Size")
+            c.drawRightString(col_x["qty"] + 0.3 * inch, y, "Qty")
+            c.drawRightString(col_x["unit"] + 0.7 * inch, y, "Unit Price")
+            c.drawRightString(col_x["total"] + 0.8 * inch, y, "Line Total")
+            y -= 0.2 * inch
+            c.line(left_margin, y, right_margin, y)
+            y -= 0.18 * inch
+            c.setFont("Helvetica", 9)
+
+        line_no = idx + 1
+        c.drawString(col_x["line"], y, str(line_no))
+        c.drawString(col_x["sku"], y, str(row.get("SKU", ""))[:10])
+        c.drawString(col_x["desc"], y, str(row.get("Description", ""))[:30])
+        c.drawString(col_x["strain"], y, str(row.get("Strain", ""))[:10])
+        c.drawString(col_x["size"], y, str(row.get("Size", ""))[:8])
+        c.drawRightString(col_x["qty"] + 0.3 * inch, y, f"{int(row.get('Qty', 0))}")
+        c.drawRightString(col_x["unit"] + 0.7 * inch, y, f"${row.get('Unit Price', 0):,.2f}")
+        c.drawRightString(col_x["total"] + 0.8 * inch, y, f"${row.get('Line Total', 0):,.2f}")
+        y -= 0.18 * inch
+
+    # Totals
+    if y < 1.8 * inch:
+        c.showPage()
+        width, height = letter
+        left_margin = 0.7 * inch
+        right_margin = width - 0.7 * inch
+        y = height - 1.5 * inch
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawRightString(col_x["total"] + 0.8 * inch, y, f"Subtotal: ${subtotal:,.2f}")
+    y -= 0.2 * inch
+    if discount > 0:
+        c.drawRightString(col_x["total"] + 0.8 * inch, y, f"Discount: -${discount:,.2f}")
+        y -= 0.2 * inch
+    if tax_amount > 0:
+        c.drawRightString(col_x["total"] + 0.8 * inch, y, f"Tax: ${tax_amount:,.2f}")
+        y -= 0.2 * inch
+    if shipping > 0:
+        c.drawRightString(col_x["total"] + 0.8 * inch, y, f"Shipping / Fees: ${shipping:,.2f}")
+        y -= 0.2 * inch
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawRightString(col_x["total"] + 0.8 * inch, y, f"TOTAL: ${total:,.2f}")
+
+    c.showPage()
+    c.save()
+    pdf = buffer.getvalue()
+    buffer.close()
+    return pdf
+
+
+def _load_compliance_sources_from_df(df):
+    """Convert a structured compliance dataframe into repository records."""
+    from datetime import date
+
+    required = [
+        "state",
+        "scope",
+        "topic",
+        "answer",
+        "source_citation",
+        "source_url",
+        "last_updated",
+        "review_status",
+    ]
+
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    missing = [c for c in required if c not in cols]
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(missing)}")
+
+    repo = ComplianceRepository()
+    for _, row in df.iterrows():
+        raw_date = row[cols["last_updated"]]
+        parsed_date = pd.to_datetime(raw_date, errors="coerce")
+        if pd.isna(parsed_date):
+            parsed_date = pd.Timestamp(date.today())
+        repo.add(
+            ComplianceSource(
+                state=str(row[cols["state"]]).strip(),
+                scope=str(row[cols["scope"]]).strip().lower(),
+                topic=str(row[cols["topic"]]).strip(),
+                answer=str(row[cols["answer"]]).strip(),
+                source_citation=str(row[cols["source_citation"]]).strip(),
+                source_url=str(row[cols["source_url"]]).strip(),
+                last_updated=parsed_date.date(),
+                review_status=str(row[cols["review_status"]]).strip(),
+            )
+        )
+
+    return repo
+
+
+def _audit_compliance_source_df(df):
+    """Return admin validation results for a compliance source dataframe."""
+    required = [
+        "state",
+        "scope",
+        "topic",
+        "answer",
+        "source_citation",
+        "source_url",
+        "last_updated",
+        "review_status",
+    ]
+    cols = [str(c).strip().lower() for c in df.columns]
+    missing = [c for c in required if c not in cols]
+
+    report = {
+        "missing_columns": missing,
+        "row_count": int(len(df)),
+        "duplicate_rows": 0,
+        "blank_critical_rows": 0,
+    }
+
+    if not missing and not df.empty:
+        local_df = df.copy()
+        local_df.columns = cols
+
+        dup_subset = ["state", "scope", "topic", "source_citation"]
+        report["duplicate_rows"] = int(local_df.duplicated(subset=dup_subset, keep=False).sum())
+
+        critical = local_df[["state", "scope", "topic", "answer", "source_citation", "source_url"]].copy()
+        blank_mask = critical.applymap(lambda x: str(x).strip() == "" or str(x).strip().lower() == "nan").any(axis=1)
+        report["blank_critical_rows"] = int(blank_mask.sum())
+
+    return report
+
+
+def _generate_grounded_compliance_response(repo, state, scope, topic, question):
+    """Return a structured compliance answer grounded in source records."""
+    matches = repo.query(state=state, scope=scope, topic=topic)
+    base_answer = format_compliance_answer(matches)
+
+    if not matches:
+        return base_answer
+
+    # Optional synthesis, still constrained by retrieved source rows.
+    if _doobie_ai_status() == "connected":
+        context = "\n\n".join(
+            [
+                (
+                    f"State: {m.state}\n"
+                    f"Scope: {m.scope}\n"
+                    f"Topic: {m.topic}\n"
+                    f"Answer: {m.answer}\n"
+                    f"Citation: {m.source_citation}\n"
+                    f"URL: {m.source_url}\n"
+                    f"Last Updated: {m.last_updated.isoformat()}\n"
+                    f"Review: {m.review_status}"
+                )
+                for m in matches
+            ]
+        )
+        prompt = f"""
+Use only the provided source rows to answer the compliance question.
+Do not invent regulations.
+
+Question: {question}
+State: {state}
+Scope: {scope}
+Topic: {topic}
+
+Sources:
+{context}
+
+Output format:
+- Short answer
+- Bullet list of source-backed requirements
+- Include citation tags exactly as written in source rows
+- Include source URLs
+- Include last updated date and review status
+"""
+        try:
+            resp = _generate_ai_with_quota_fallback(
+                system_prompt=(
+                    "You are a cannabis compliance analyst. "
+                    "Only answer from provided structured sources."
+                ),
+                user_prompt=prompt,
+                max_tokens=700,
+            )
+            return f"{resp.text}\n\n---\n\nSource Records\n\n{base_answer}"
+        except Exception:
+            return base_answer
+
+    return base_answer
+
+
+
+# =========================
+# SIMPLE AI INVENTORY CHECK
+# =========================
+
+
+def _generate_ai_with_quota_fallback(system_prompt, user_prompt, max_tokens=700):
+    """Generate AI output through Doobie only."""
+    if not _doobie_ai_access_enabled():
+        raise RuntimeError("Doobie AI is not connected.")
+
+    client = _get_doobie_ai_client()
+    if not client.enabled:
+        raise RuntimeError("Doobie AI is currently unavailable.")
+
+    result = client.copilot(
+        question=str(user_prompt or "").strip(),
+        data={
+            "system_prompt": str(system_prompt or "").strip(),
+            "max_tokens": int(max_tokens),
+        },
+        persona=None,
+    )
+    if str(result.get("mode", "")).lower() == "fallback":
+        raise RuntimeError("Doobie AI is currently unavailable.")
+
+    answer = str(result.get("answer") or "").strip()
+    recommendations = result.get("recommendations", [])
+    if isinstance(recommendations, list) and recommendations:
+        answer = f"{answer}\n\n" + "\n".join(f"- {rec}" for rec in recommendations)
+
+    if not answer:
+        answer = "Doobie AI is currently unavailable."
+    return _DoobieTextResponse(answer)
+
+
+def _build_copilot_context(app_mode, section):
+    context_lines = [
+        f"App mode: {app_mode}",
+        f"Section: {section}",
+        f"Date: {datetime.utcnow().date().isoformat()}",
+    ]
+
+    inv_df = st.session_state.get("inv_raw_df")
+    sales_df = st.session_state.get("sales_raw_df")
+
+    if isinstance(inv_df, pd.DataFrame):
+        context_lines.append(f"Inventory rows loaded: {len(inv_df)}")
+        context_lines.append(f"Inventory columns: {', '.join(list(inv_df.columns[:20]))}")
+    if isinstance(sales_df, pd.DataFrame):
+        context_lines.append(f"Sales rows loaded: {len(sales_df)}")
+        context_lines.append(f"Sales columns: {', '.join(list(sales_df.columns[:20]))}")
+
+    return "\n".join(context_lines)
+
+
+def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
+    """Compute buyer-focused demand and risk signals from uploaded data."""
+    sales = sales_df_raw.copy()
+    sales.columns = sales.columns.astype(str).str.lower()
+
+    inv = None
+    if isinstance(inv_df_raw, pd.DataFrame):
+        inv = inv_df_raw.copy()
+        inv.columns = inv.columns.astype(str).str.lower()
+
+    sales_name_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
+    sales_qty_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
+    sales_cat_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_CAT_ALIASES])
+    sales_rev_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_REV_ALIASES])
+
+    if not (sales_name_col and sales_qty_col and sales_cat_col):
+        raise ValueError("Could not detect required sales columns (name, quantity, category).")
+
+    rename_map = {
+        sales_name_col: "product_name",
+        sales_qty_col: "units_sold",
+        sales_cat_col: "category",
+    }
+    if sales_rev_col:
+        rename_map[sales_rev_col] = "revenue"
+
+    sales = sales.rename(columns=rename_map)
+    sales["units_sold"] = pd.to_numeric(sales["units_sold"], errors="coerce").fillna(0)
+    if "revenue" in sales.columns:
+        sales["revenue"] = pd.to_numeric(sales["revenue"], errors="coerce").fillna(0)
+    else:
+        sales["revenue"] = 0.0
+
+    by_product = (
+        sales.groupby(["product_name", "category"], as_index=False)[["units_sold", "revenue"]]
+        .sum()
+        .sort_values("units_sold", ascending=False)
+    )
+
+    by_product["avg_daily_units"] = by_product["units_sold"] / max(int(lookback_days), 1)
+
+    if inv is not None:
+        inv_name_col = detect_column(inv.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+        inv_qty_col = detect_column(inv.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+        if inv_name_col and inv_qty_col:
+            inv = inv.rename(columns={inv_name_col: "product_name", inv_qty_col: "on_hand_units"})
+            inv["on_hand_units"] = pd.to_numeric(inv["on_hand_units"], errors="coerce").fillna(0)
+            inv_rollup = inv.groupby("product_name", as_index=False)["on_hand_units"].sum()
+            by_product = by_product.merge(inv_rollup, on="product_name", how="left")
+            by_product["on_hand_units"] = by_product["on_hand_units"].fillna(0)
+            by_product["days_of_cover"] = np.where(
+                by_product["avg_daily_units"] > 0,
+                by_product["on_hand_units"] / by_product["avg_daily_units"],
+                np.nan,
+            )
+        else:
+            by_product["on_hand_units"] = np.nan
+            by_product["days_of_cover"] = np.nan
+    else:
+        by_product["on_hand_units"] = np.nan
+        by_product["days_of_cover"] = np.nan
+
+    by_product["risk_flag"] = np.where(
+        by_product["days_of_cover"].notna() & (by_product["days_of_cover"] <= 14),
+        "Reorder Risk",
+        "Monitor",
+    )
+
+    by_category = (
+        by_product.groupby("category", as_index=False)[["units_sold", "revenue"]]
+        .sum()
+        .sort_values("units_sold", ascending=False)
+    )
+
+    summary = {
+        "total_units_sold": float(by_product["units_sold"].sum()),
+        "total_revenue": float(by_product["revenue"].sum()),
+        "at_risk_skus": int((by_product["risk_flag"] == "Reorder Risk").sum()),
+        "tracked_skus": int(len(by_product)),
+    }
+
+    return summary, by_category, by_product
+
+
+def _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days):
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
+    if _doobie_ai_status() != "connected":
+        return "Doobie AI is currently unavailable."
+
+    top_categories = by_category.head(8).to_dict(orient="records")
+    top_risks = by_product[by_product["risk_flag"] == "Reorder Risk"].head(20).to_dict(orient="records")
+
+    prompt = f"""
+Create a concise weekly buyer brief for a cannabis retail team.
+
+Lookback window: {lookback_days} days
+Summary: {json.dumps(summary, indent=2)}
+Top categories: {json.dumps(top_categories, indent=2)}
+At-risk SKUs: {json.dumps(top_risks, indent=2)}
+
+Output sections:
+1) Executive summary (3 bullets)
+2) Reorder now (top 5)
+3) Overstock/monitor watchouts
+4) Suggested buyer actions for next 7 days
+"""
+    try:
+        client = _get_doobie_ai_client()
+        resp = client.buyer_brief(
+            data={
+                "summary": summary,
+                "top_categories": top_categories,
+                "at_risk_skus": top_risks,
+                "lookback_days": lookback_days,
+                "prompt": prompt,
+            },
+            state="MA",
+        )
+        if str(resp.get("mode", "")).lower() == "fallback":
+            return "Doobie AI is currently unavailable."
+        return str(resp.get("answer") or "Doobie AI is currently unavailable.")
+    except Exception as exc:
+        return f"Doobie buyer brief failed: {exc}"
+
+
+def _run_main_ai_copilot(question, app_mode, section):
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
+    if _doobie_ai_status() != "connected":
+        return "Doobie AI is currently unavailable."
+
+    context = _build_copilot_context(app_mode, section)
+    try:
+        client = _get_doobie_ai_client()
+        result = client.copilot(
+            question=str(question or "").strip(),
+            data={
+                "workspace_context": context,
+                "app_mode": app_mode,
+                "section": section,
+            },
+            persona=None,
+        )
+        if str(result.get("mode", "")).lower() == "fallback":
+            raise RuntimeError("Doobie AI is currently unavailable.")
+        return str(result.get("answer") or "Doobie AI is currently unavailable.")
+    except Exception as exc:
+        return f"AI copilot failed: {exc}"
+
+
+def render_main_ai_copilot(app_mode, section):
+    with st.sidebar.expander("üß† Main AI Copilot", expanded=False):
+        if not _doobie_ai_access_enabled():
+            st.caption("Connect Doobie AI to enable this feature.")
+            return
+        st.caption("Use this assistant across buyer, compliance, and extraction workflows.")
+        st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
+        st.write(f"Status: {_doobie_ai_status()}")
+
+        if st.button("Refresh Doobie Status", key="refresh_doobie_ai_status"):
+            _refresh_doobie_connection_state()
+            _safe_rerun()
+
+        question = st.text_area(
+            "Ask the AI copilot",
+            value="What should I focus on next in this section?",
+            key="main_ai_copilot_question",
+            height=100,
+        )
+        if st.button("Run Copilot", key="run_main_ai_copilot"):
+            answer = _run_main_ai_copilot(question, app_mode, section)
+            st.markdown(answer)
+
+
+def ai_inventory_check(detail_view, doh_threshold, data_source):
+    """
+    Send a small slice of the current table to the AI so it can
+    comment on obvious issues: zero on-hand, crazy DOH, etc.
+    """
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
+    if _doobie_ai_status() != "connected":
+        return "Doobie AI is currently unavailable."
+
+    sample = detail_view.copy()
+    if "reorderpriority" in sample.columns:
+        sample = sample.sort_values(["reorderpriority", "daysonhand"], ascending=[True, True])
+    sample = sample.head(80)
+
+    cols = [
+        c
+        for c in [
+            "mastercategory",
+            "subcategory",
+            "strain_type",
+            "packagesize",
+            "onhandunits",
+            "unitssold",
+            "avgunitsperday",
+            "daysonhand",
+            "reorderqty",
+            "reorderpriority",
+        ]
+        if c in sample.columns
+    ]
+    sample_records = sample[cols].to_dict(orient="records")
+
+    prompt = f"""
+You are an expert cannabis retail buyer and inventory strategist.
+
+You are looking at a slice of an inventory dashboard for a store using {data_source}.
+Each row is a category/size/type combo with its sales and coverage.
+
+Fields:
+- mastercategory / subcategory
+- strain_type (stacked; e.g. indica live resin, hybrid gummy, indica popcorn, etc.)
+- packagesize (like 3.5g, 1g, 5mg, 28g, 500mg)
+- onhandunits (current inventory units)
+- unitssold (units sold in lookback window)
+- avgunitsperday
+- daysonhand
+- reorderqty
+- reorderpriority (1=ASAP, 2=Watch, 3=Comfortable, 4=Dead)
+
+Target days on hand: {doh_threshold}
+
+Data (JSON list of rows):
+{json.dumps(sample_records, indent=2)}
+
+Tasks:
+1. Call out any rows that look obviously wrong or risky (0 onhand but strong sales, etc.)
+2. Top 3 categories in danger + anything dead/overbought.
+3. Keep it short, punchy, buyer-friendly.
+"""
+
+    try:
+        client = _get_doobie_ai_client()
+        response = client.inventory_check(
+            data={"rows": sample_records, "doh_threshold": doh_threshold, "prompt": prompt},
+            state="MA",
+        )
+        if str(response.get("mode", "")).lower() == "fallback":
+            return "Doobie AI is currently unavailable."
+        return str(response.get("answer") or "Doobie AI is currently unavailable.")
+    except Exception as e:
+        return f"Doobie inventory check failed: {e}"
+
+
+def _feature_enabled(feature_name: str, default_enabled: bool = True) -> bool:
+    features = get_license_features(st.session_state.get("license_session_data"))
+    if feature_name not in features:
+        return default_enabled
+    return bool(features.get(feature_name))
+
+
+def _normalize_license_status(raw_status: str | None, valid: bool = False) -> str:
+    status = str(raw_status or "").strip().lower()
+    if status in {"active", "trial", "ok"} and valid:
+        return "connected"
+    if status in {"revoked", "invalid", "expired", "inactive", "suspended", "blocked"}:
+        return "invalid_license"
+    if valid:
+        return "connected"
+    return "not_connected"
+
+
+def _doobie_status_message(status: str) -> str:
+    return {
+        "connected": "Connected",
+        "service_only": "Service Only",
+        "ai_unavailable": "AI Unavailable",
+        "invalid_license": "Invalid License",
+        "unavailable": "Unavailable",
+        "not_connected": "Not Connected",
+    }.get(status, "Not Connected")
+
+
+def _run_doobie_support_endpoint_check(timeout_seconds: int = 6) -> dict[str, Any]:
+    client = _get_doobie_ai_client()
+    client.timeout_seconds = timeout_seconds
+    result = client.support_copilot_health_check()
+    if result.get("ok"):
+        return result
+
+    error_code = str(result.get("error_code") or "").strip().lower()
+    reason_map = {
+        "endpoint_missing": "support endpoint not found",
+        "unauthorized": "unauthorized",
+        "timeout": "timeout",
+        "invalid_json": "invalid JSON",
+        "request_error": "request error",
+        "fallback_response_detected": "fallback returned",
+    }
+    likely_cause = reason_map.get(error_code) or "invalid response"
+    result["likely_cause"] = likely_cause
+    return result
+
+
+def _derive_doobie_ai_readiness_status(
+    config_present: bool,
+    service_check: dict[str, Any],
+    support_check: dict[str, Any],
+) -> str:
+    if not config_present:
+        return "not_connected"
+    service_ok = bool(service_check.get("ok"))
+    support_ok = bool(support_check.get("ok"))
+    if service_ok and support_ok:
+        return "connected"
+    if service_ok and not support_ok:
+        return "ai_unavailable"
+    if not service_ok and support_ok:
+        return "service_only"
+    return "unavailable"
+
+
+def _format_license_validation_error(reason: str | None, status_code: int | None = None) -> str:
+    reason_code = str(reason or "").strip().lower()
+    reason_messages = {
+        "missing_doobie_base_url": "Doobie config error: missing DOOBIE_BASE_URL (or DOOBIELOGIC_URL).",
+        "missing_license_key": "Please enter a Doobie key.",
+        "license_timeout": "Doobie license validation timed out. Please retry.",
+        "license_request_error": "Doobie license request failed. Check network/DNS and try again.",
+        "unauthorized": "Doobie auth failed (service API key rejected). Check DOOBIE_API_KEY / DOOBIELOGIC_API_KEY.",
+        "license_endpoint_not_found": "Doobie endpoint not found. Expected POST /api/v1/license/validate.",
+        "license_server_error": "Doobie license server error. Please retry in a moment.",
+        "license_invalid": "Doobie key is invalid.",
+        "invalid_license": "Doobie key is invalid.",
+        "invalid_key": "Doobie key is invalid.",
+        "revoked": "Doobie key has been revoked.",
+        "expired": "Doobie key is expired.",
+    }
+    message = reason_messages.get(reason_code)
+    if message:
+        return message
+    if status_code in {401, 403}:
+        return "Doobie auth failed (service API key rejected). Check API key configuration."
+    return f"Doobie license validation failed: {reason_code or 'unknown_error'}."
+
+
+def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any] | None]:
+    cached_key = str(session_data.get("license_key") or "").strip()
+    if not cached_key:
+        return False, "missing_cached_license_key", None
+
+    result = validate_license_key(cached_key)
+    if result.get("ok") and result.get("valid"):
+        updated = build_cached_license_session(cached_key, result.get("payload") or {})
+        save_local_license_session(updated)
+        return True, None, updated
+
+    if result.get("ok") and not result.get("valid"):
+        clear_local_license_session()
+        return False, str(result.get("reason") or "license_invalid"), None
+
+    if license_in_grace_period(session_data):
+        return True, _format_license_validation_error(result.get("reason"), result.get("status_code")), session_data
+
+    return False, _format_license_validation_error(result.get("reason"), result.get("status_code")), None
+
+
+def _refresh_doobie_connection_state() -> None:
+    session_cfg = resolve_doobie_config()
+    if session_cfg.get("source") == "session":
+        st.session_state.doobie_status = "connected" if bool(st.session_state.get("doobie_connected")) else "not_connected"
+        return
+
+    cached_session = load_local_license_session()
+    status_payload = {
+        "status": "not_connected",
+        "connected": False,
+        "message": _doobie_status_message("not_connected"),
+    }
+
+    if cached_session:
+        st.session_state.license_session_data = cached_session
+        st.session_state.license_grace_mode = False
+        if is_license_recheck_needed(cached_session.get("validated_at")):
+            is_allowed, message, refreshed = _try_revalidate_cached_license(cached_session)
+            if is_allowed and refreshed:
+                st.session_state.license_session_data = refreshed
+                st.session_state.license_grace_mode = bool(message)
+                refreshed_status = _normalize_license_status(
+                    str(refreshed.get("status") or ""),
+                    valid=bool(refreshed.get("valid")),
+                )
+                if message:
+                    status_payload = {
+                        "status": "unavailable",
+                        "connected": True,
+                        "message": _doobie_status_message("unavailable"),
+                    }
+                else:
+                    status_payload = {
+                        "status": refreshed_status,
+                        "connected": refreshed_status == "connected",
+                        "message": _doobie_status_message(refreshed_status),
+                    }
+                if message:
+                    status_payload["detail"] = str(message)
+            else:
+                invalid_status = _normalize_license_status(str(message or ""), valid=False)
+                status_payload = {
+                    "status": "invalid_license",
+                    "connected": False,
+                    "message": _doobie_status_message("invalid_license"),
+                }
+                if message:
+                    status_payload["detail"] = str(message)
+                st.session_state.license_session_data = None
+        elif bool(cached_session.get("valid")):
+            cached_status = _normalize_license_status(
+                str(cached_session.get("status") or ""),
+                valid=bool(cached_session.get("valid")),
+            )
+            status_payload = {
+                "status": cached_status,
+                "connected": cached_status == "connected",
+                "message": _doobie_status_message(cached_status),
+            }
+        else:
+            stale_status = _normalize_license_status(str(cached_session.get("status") or ""), valid=False)
+            status_payload = {
+                "status": "invalid_license",
+                "connected": False,
+                "message": _doobie_status_message("invalid_license"),
+            }
+    else:
+        st.session_state.license_session_data = None
+
+    st.session_state.doobie_status = str(status_payload.get("status") or "not_connected")
+    st.session_state.doobie_connected = bool(status_payload.get("connected"))
+
+
+def _doobie_ai_access_enabled() -> bool:
+    if bool(st.session_state.get("doobie_connected")):
+        return True
+    status = st.session_state.get("doobie_status") or {}
+    if isinstance(status, str):
+        return str(status).strip().lower() == "connected"
+    return bool(status.get("connected"))
+
+
+def _render_doobie_ai_panel() -> None:
+    # AI connection controls are platform infrastructure. Company admins,
+    # buyers, planners, operators, QA, and read-only users must never receive
+    # credential fields or a prompt to connect Doobie.
+    if not can_manage_ai_integrations(st.session_state.get("auth_user_role")):
+        return
+    # Admins configure and diagnose Doobie from the dedicated Integrations and
+    # Admin Tools pages. Keeping the full form in their sidebar duplicates UI.
+    if st.session_state.get("is_admin", False):
+        return
+    with st.sidebar.expander("‚öôÔ∏è Connect Doobie", expanded=False):
+        resolved = resolve_doobie_config()
+        is_admin = bool(st.session_state.get("is_admin", False))
+        status_code = _doobie_ai_status()
+        status_badge = "üü¢ connected" if status_code == "connected" else ("üü† unavailable" if status_code == "unavailable" else "üü° not connected")
+        st.markdown(f"**Status:** {status_badge}")
+        if is_admin:
+            st.caption(f"Current base URL: {str(resolved.get('base_url') or 'Not configured')}")
+            if resolved.get("api_key"):
+                st.caption(f"Current API key: {mask_api_key(str(resolved.get('api_key') or ''))}")
+        else:
+            st.caption("Shared configuration is managed by admins.")
+        st.caption(f"AI Availability: {'Enabled' if _doobie_ai_access_enabled() else 'Disabled'}")
+        st.caption("Core dashboard remains usable even when Doobie is disconnected.")
+
+        if not is_admin:
+            license_input = st.text_input(
+                "Doobie License Key",
+                value="",
+                type="password",
+                key="doobie_license_key_input",
+                help="Your customer license key (not the shared service key).",
+            )
+            if st.button("Connect License", key="doobie_license_connect_btn", type="primary"):
+                candidate_license = str(license_input or st.session_state.get("doobie_license_key") or "").strip()
+                result = validate_license_key(candidate_license)
+                if result.get("ok") and result.get("valid"):
+                    payload = result.get("payload") or {}
+                    st.session_state.doobie_license_key = candidate_license
+                    st.session_state.doobie_license_status = "connected"
+                    st.session_state.doobie_connected = True
+                    st.session_state.doobie_status = "connected"
+                    st.session_state.doobie_plan_type = str(payload.get("plan_type") or "")
+                    st.session_state.doobie_customer_id = str(payload.get("customer_id") or "")
+                    st.session_state.doobie_company_name = str(payload.get("company_name") or "")
+                    st.session_state.doobie_features = payload.get("features") or {"ai": True}
+                    _save_persistent_user_integrations()
+                    st.success("Doobie license connected.")
+                elif result.get("ok"):
+                    st.error("Doobie license key is invalid or expired.")
+                else:
+                    st.error("Doobie service key is missing. Admin must configure Integrations.")
+            return
+
+        default_cfg = get_default_doobie_config()
+        base_url_input = st.text_input(
+            "Doobie Base URL",
+            value=str(st.session_state.get("doobie_base_url") or default_cfg.get("base_url") or ""),
+            key="doobie_base_url_input",
+            placeholder="https://doobie.yourdomain.com",
+        )
+        api_key_input = st.text_input(
+            "Doobie License Key",
+            value="",
+            type="password",
+            key="doobie_api_key_input",
+            help="Saved keys are masked for safety.",
+        )
+
+        if st.button("Test Connection", key="doobie_test_connection_button"):
+            candidate_key = str(api_key_input or st.session_state.get("doobie_api_key") or "").strip()
+            test_result = test_doobie_connection(base_url_input, candidate_key)
+            st.session_state.doobie_status = str(test_result.get("status") or "not_connected")
+            if test_result.get("ok"):
+                st.session_state.doobie_last_validated = test_result.get("validated_at")
+                _save_persistent_user_integrations()
+                st.success(str(test_result.get("message") or "Connected"))
+            else:
+                _save_persistent_user_integrations()
+                st.warning(str(test_result.get("message") or "Connection failed"))
+
+        if st.button("Connect", key="doobie_connect_button", type="primary"):
+            candidate_key = str(api_key_input or st.session_state.get("doobie_api_key") or "").strip()
+            test_result = test_doobie_connection(base_url_input, candidate_key)
+            if test_result.get("ok"):
+                st.session_state.doobie_base_url = str(base_url_input or "").strip().rstrip("/")
+                st.session_state.doobie_api_key = candidate_key
+                st.session_state.doobie_connected = True
+                st.session_state.doobie_status = "connected"
+                st.session_state.doobie_last_validated = test_result.get("validated_at")
+                st.session_state.doobie_features = {"ai": True}
+                _save_persistent_user_integrations()
+                st.success("Doobie connected for this session.")
+                _safe_rerun()
+            else:
+                st.session_state.doobie_connected = False
+                st.session_state.doobie_status = str(test_result.get("status") or "unavailable")
+                _save_persistent_user_integrations()
+                st.error(str(test_result.get("message") or "Unable to connect to Doobie."))
+
+        if st.button("Disconnect / Clear", key="doobie_disconnect_button"):
+            clear_session_doobie_config()
+            st.session_state.doobie_status = "not_connected"
+            st.session_state.doobie_connected = False
+            st.session_state.doobie_features = {}
+            st.session_state.doobie_api_key = ""
+            _save_persistent_user_integrations()
+            st.success("Doobie disconnected.")
+            _safe_rerun()
+
+
+def _resolve_metrc_integrator_key() -> str:
+    configured = get_default_metrc_integrator_key()
+    integrator_key = str(configured.get("api_key") or "").strip()
+    if integrator_key:
+        return integrator_key
+    try:
+        return str(
+            st.secrets.get("METRC_INTEGRATOR_API_KEY")
+            or st.secrets.get("METRC_SOFTWARE_API_KEY")
+            or ""
+        ).strip()
+    except Exception:
+        return ""
+
+
+def _render_user_metrc_integrations_page() -> None:
+    """Render account-scoped METRC settings without exposing AI controls."""
+
+    username, _ = _current_authenticated_identity()
+    if not username:
+        st.error("Sign in to manage your METRC integration.")
+        return
+
+    st.subheader("üîó METRC Integrations")
+    st.caption(
+        "Connect the METRC account and licensed facility used by your workflows. "
+        "These settings are stored for your app account only."
+    )
+
+    if not USER_INTEGRATIONS_STORE.available:
+        st.warning(
+            "Durable integration storage is unavailable. Settings will remain in this "
+            "session but may need to be entered again later."
+        )
+
+    integrator_key = _resolve_metrc_integrator_key()
+    with st.container(border=True):
+        st.markdown("### METRC")
+        st.caption(
+            "The app performs a read-only facility check. Your METRC user key is "
+            "masked after it is saved."
+        )
+        st.text_input(
+            "METRC User API Key",
+            value="",
+            key="user_metrc_api_key_input",
+            type="password",
+            help="Leave blank to keep the currently saved key.",
+        )
+        st.text_input(
+            "METRC State",
+            value=str(st.session_state.get("metrc_state") or ""),
+            key="user_metrc_state_input",
+            placeholder="e.g., CA, MA, MI, or https://api-ca.metrc.com",
+        )
+        st.text_input(
+            "METRC License / Facility",
+            value=str(st.session_state.get("metrc_license") or ""),
+            key="user_metrc_license_input",
+            help="The license number the app should verify in METRC facilities.",
+        )
+        st.caption(
+            f"Saved user key: "
+            f"{mask_api_key(str(st.session_state.get('metrc_api_key') or '')) or '(not set)'}"
+        )
+        st.caption(
+            f"Integrator key: "
+            f"{'configured' if integrator_key else 'not configured by the DEV team'}"
+        )
+        st.caption(
+            f"Status: **{st.session_state.get('user_metrc_status') or 'not_connected'}**"
+        )
+        st.caption(
+            f"Last validated: "
+            f"**{st.session_state.get('user_metrc_last_validated') or 'never'}**"
+        )
+
+        test_col, save_col, clear_col = st.columns(3)
+        if test_col.button("Test Connection", key="user_metrc_test_btn"):
+            state = str(st.session_state.get("user_metrc_state_input") or "").strip()
+            license_name = str(
+                st.session_state.get("user_metrc_license_input") or ""
+            ).strip()
+            api_key = str(
+                st.session_state.get("user_metrc_api_key_input")
+                or st.session_state.get("metrc_api_key")
+                or ""
+            ).strip()
+            result = test_metrc_connection(
+                state=state,
+                user_api_key=api_key,
+                integrator_api_key=integrator_key,
+                license_number=license_name,
+            )
+            st.session_state.user_metrc_status = str(
+                result.get("status") or "failed"
+            )
+            if result.get("ok"):
+                st.session_state.user_metrc_last_validated = (
+                    datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                )
+                st.success(
+                    str(result.get("message") or "METRC connection succeeded.")
+                )
+                st.caption(
+                    f"Facilities visible: {result.get('facility_count', 0)}"
+                )
+                if result.get("license_found") is False:
+                    st.warning(
+                        "The connection works, but this license was not found "
+                        "for the supplied METRC user key."
+                    )
+            else:
+                st.warning(
+                    str(result.get("message") or "METRC connection test failed.")
+                )
+
+        if save_col.button(
+            "Save",
+            key="user_metrc_save_btn",
+            type="primary",
+        ):
+            candidate_key = str(
+                st.session_state.get("user_metrc_api_key_input") or ""
+            ).strip()
+            if candidate_key:
+                st.session_state.metrc_api_key = candidate_key
+            st.session_state.metrc_state = str(
+                st.session_state.get("user_metrc_state_input") or ""
+            ).strip()
+            st.session_state.metrc_license = str(
+                st.session_state.get("user_metrc_license_input") or ""
+            ).strip()
+            _save_persistent_user_integrations()
+            st.success("Your METRC settings were saved.")
+
+        if clear_col.button("Clear / Reset", key="user_metrc_clear_btn"):
+            st.session_state.metrc_api_key = ""
+            st.session_state.metrc_state = ""
+            st.session_state.metrc_license = ""
+            st.session_state.user_metrc_status = "not_connected"
+            st.session_state.user_metrc_last_validated = None
+            st.session_state.user_metrc_api_key_input = ""
+            st.session_state.user_metrc_state_input = ""
+            st.session_state.user_metrc_license_input = ""
+            _save_persistent_user_integrations()
+            st.success("Your METRC settings were cleared.")
+            _safe_rerun()
+
+
+def _render_admin_integrations_page() -> None:
+    if not can_manage_ai_integrations(st.session_state.get("auth_user_role")):
+        _render_user_metrc_integrations_page()
+        return
+    if not st.session_state.get("is_admin", False):
+        st.error("Level DEV access is required.")
+        return
+
+    st.subheader("üß† AI & METRC Integrations")
+    st.caption("Level DEV platform credentials and connection settings.")
+
+    if not st.session_state.get("_global_integrations_store_available"):
+        st.warning("Global integrations persistence is unavailable in this environment.")
+
+    last_by = str(st.session_state.get("global_integrations_updated_by") or "n/a")
+    last_at = str(st.session_state.get("global_integrations_updated_at") or "n/a")
+    st.caption(f"Last updated by: **{last_by}** ‚Ä¢ Updated at: **{last_at}**")
+
+    admin_user = str(st.session_state.get("admin_user") or "admin")
+
+    with st.container(border=True):
+        st.markdown("### Doobie")
+        st.caption("Shared default connection used when session override is not present.")
+        st.text_input(
+            "Doobie Base URL",
+            value=str(st.session_state.get("global_doobie_base_url") or ""),
+            key="admin_global_doobie_base_url_input",
+            placeholder="https://doobie.yourdomain.com",
+        )
+        st.text_input(
+            "Doobie Service API Key",
+            value="",
+            key="admin_global_doobie_api_key_input",
+            type="password",
+            help="Leave blank to keep the currently saved key.",
+        )
+        st.caption(
+            f"Saved key: {mask_api_key(str(st.session_state.get('global_doobie_api_key') or '')) or '(not set)'}"
+        )
+        st.caption(f"Status: **{st.session_state.get('global_doobie_status') or 'not_connected'}**")
+        st.caption(
+            f"Last validated: **{st.session_state.get('global_doobie_last_validated') or 'never'}**"
+        )
+
+        col_test, col_save, col_clear = st.columns(3)
+        if col_test.button("Test Connection", key="admin_global_doobie_test_btn"):
+            candidate_url = str(st.session_state.get("admin_global_doobie_base_url_input") or "").strip()
+            candidate_key = str(
+                st.session_state.get("admin_global_doobie_api_key_input")
+                or st.session_state.get("global_doobie_api_key")
+                or ""
+            ).strip()
+            result = test_doobie_connection(candidate_url, candidate_key)
+            st.session_state.global_doobie_status = str(result.get("status") or "not_connected")
+            if result.get("ok"):
+                st.session_state.global_doobie_last_validated = result.get("validated_at")
+                st.success(str(result.get("message") or "Connected"))
+            else:
+                st.warning(str(result.get("message") or "Connection failed"))
+
+        if col_save.button("Save", key="admin_global_doobie_save_btn", type="primary"):
+            candidate_url = str(st.session_state.get("admin_global_doobie_base_url_input") or "").strip().rstrip("/")
+            candidate_key = str(st.session_state.get("admin_global_doobie_api_key_input") or "").strip()
+            st.session_state.global_doobie_base_url = candidate_url
+            if candidate_key:
+                st.session_state.global_doobie_api_key = candidate_key
+            st.session_state.global_integrations_updated_by = admin_user
+            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
+            if _save_global_integrations(updated_by=admin_user):
+                st.success("Doobie global settings saved.")
+            else:
+                st.error("Unable to save Doobie global settings.")
+
+        if col_clear.button("Clear / Reset", key="admin_global_doobie_clear_btn"):
+            st.session_state.global_doobie_base_url = ""
+            st.session_state.global_doobie_api_key = ""
+            st.session_state.global_doobie_status = "not_connected"
+            st.session_state.global_doobie_last_validated = None
+            st.session_state.admin_global_doobie_base_url_input = ""
+            st.session_state.admin_global_doobie_api_key_input = ""
+            st.session_state.global_integrations_updated_by = admin_user
+            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
+            if _save_global_integrations(updated_by=admin_user):
+                st.success("Doobie global settings cleared.")
+            else:
+                st.error("Unable to clear Doobie global settings.")
+
+    with st.container(border=True):
+        st.markdown("### METRC")
+        st.caption("Read-only connection test using Metrc Basic Auth. Configure the integrator key in secrets/env as METRC_INTEGRATOR_API_KEY.")
+        st.text_input(
+            "METRC User API Key",
+            value="",
+            key="admin_global_metrc_api_key_input",
+            type="password",
+            help="This is the user API key generated from the Metrc account. Leave blank to keep the currently saved key.",
+        )
+        st.text_input(
+            "METRC State",
+            value=str(st.session_state.get("global_metrc_state") or ""),
+            key="admin_global_metrc_state_input",
+            placeholder="e.g., CA, MA, MI, or https://api-ca.metrc.com",
+        )
+        st.text_input(
+            "METRC License / Facility",
+            value=str(st.session_state.get("global_metrc_license") or ""),
+            key="admin_global_metrc_license_input",
+            help="Optional but recommended. The connection test verifies whether this license appears in /facilities/v2/.",
+        )
+        _metrc_integrator_cfg = get_default_metrc_integrator_key()
+        _metrc_integrator_key = str(_metrc_integrator_cfg.get("api_key") or "").strip()
+        if not _metrc_integrator_key:
+            try:
+                _metrc_integrator_key = str(
+                    st.secrets.get("METRC_INTEGRATOR_API_KEY")
+                    or st.secrets.get("METRC_SOFTWARE_API_KEY")
+                    or ""
+                ).strip()
+            except Exception:
+                _metrc_integrator_key = ""
+        st.caption(
+            f"Saved user key: {mask_api_key(str(st.session_state.get('global_metrc_api_key') or '')) or '(not set)'}"
+        )
+        st.caption(
+            f"Integrator key: {'configured' if _metrc_integrator_key else 'missing METRC_INTEGRATOR_API_KEY'}"
+        )
+        st.caption(f"Status: **{st.session_state.get('global_metrc_status') or 'not_connected'}**")
+        st.caption(
+            f"Last validated: **{st.session_state.get('global_metrc_last_validated') or 'never'}**"
+        )
+
+        m_test, m_save, m_clear = st.columns(3)
+        if m_test.button("Test Connection", key="admin_global_metrc_test_btn"):
+            state = str(st.session_state.get("admin_global_metrc_state_input") or "").strip()
+            license_name = str(st.session_state.get("admin_global_metrc_license_input") or "").strip()
+            api_key = str(
+                st.session_state.get("admin_global_metrc_api_key_input")
+                or st.session_state.get("global_metrc_api_key")
+                or ""
+            ).strip()
+            result = test_metrc_connection(
+                state=state,
+                user_api_key=api_key,
+                integrator_api_key=_metrc_integrator_key,
+                license_number=license_name,
+            )
+            st.session_state.global_metrc_status = str(result.get("status") or "failed")
+            if result.get("ok"):
+                st.session_state.global_metrc_last_validated = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                st.success(str(result.get("message") or "Metrc connection succeeded."))
+                st.caption(f"Endpoint: {result.get('base_url')}/facilities/v2/")
+                st.caption(f"Facilities visible: {result.get('facility_count', 0)}")
+                if result.get("facilities_preview"):
+                    st.caption("Preview: " + ", ".join(str(x) for x in result.get("facilities_preview", [])))
+                if result.get("license_found") is False:
+                    st.warning("Connection works, but that license number was not found for this Metrc user key.")
+            else:
+                st.warning(str(result.get("message") or "Metrc connection test failed."))
+                if result.get("http_status"):
+                    st.caption(f"HTTP status: {result.get('http_status')}")
+                if result.get("base_url"):
+                    st.caption(f"Endpoint: {result.get('base_url')}/facilities/v2/")
+
+        if m_save.button("Save", key="admin_global_metrc_save_btn", type="primary"):
+            candidate_key = str(st.session_state.get("admin_global_metrc_api_key_input") or "").strip()
+            st.session_state.global_metrc_state = str(st.session_state.get("admin_global_metrc_state_input") or "").strip()
+            st.session_state.global_metrc_license = str(st.session_state.get("admin_global_metrc_license_input") or "").strip()
+            if candidate_key:
+                st.session_state.global_metrc_api_key = candidate_key
+            st.session_state.global_integrations_updated_by = admin_user
+            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
+            if _save_global_integrations(updated_by=admin_user):
+                st.success("METRC global settings saved.")
+            else:
+                st.error("Unable to save METRC global settings.")
+
+        if m_clear.button("Clear / Reset", key="admin_global_metrc_clear_btn"):
+            st.session_state.global_metrc_api_key = ""
+            st.session_state.global_metrc_state = ""
+            st.session_state.global_metrc_license = ""
+            st.session_state.global_metrc_status = "not_connected"
+            st.session_state.global_metrc_last_validated = None
+            st.session_state.admin_global_metrc_api_key_input = ""
+            st.session_state.admin_global_metrc_state_input = ""
+            st.session_state.admin_global_metrc_license_input = ""
+            st.session_state.global_integrations_updated_by = admin_user
+            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
+            if _save_global_integrations(updated_by=admin_user):
+                st.success("METRC global settings cleared.")
+            else:
+                st.error("Unable to clear METRC global settings.")
+
+
+def _render_admin_user_management() -> None:
+    st.markdown("### User Management")
+    st.caption("Create and manage durable app accounts stored in PostgreSQL. Passwords are bcrypt-hashed before saving.")
+
+    if not APP_USER_STORE.configured:
+        st.warning(
+            "Durable user storage is not configured for this deployment. Set COMAN_DATABASE_URL "
+            "to the Supabase Session pooler connection string. Existing secrets-based login remains available."
+        )
+        return
+
+    current_admin = str(st.session_state.get("admin_user") or "admin")
+    current_role = str(st.session_state.get("auth_user_role") or "admin")
+    is_dev = current_role == "dev"
+    current_organization_id = st.session_state.get("auth_organization_id")
+    legacy_hash = DEV_USERS.get(current_admin) or ADMIN_USERS.get(current_admin, "")
+    if legacy_hash.startswith(("$2a$", "$2b$", "$2y$")):
+        APP_USER_STORE.ensure_legacy_user(
+            username=current_admin,
+            password_hash=legacy_hash,
+            role="dev" if current_admin in DEV_USERS else "admin",
+        )
+
+    if is_dev:
+        users = APP_USER_STORE.list_users()
+    elif current_organization_id:
+        users = [
+            user
+            for user in APP_USER_STORE.list_users(current_organization_id)
+            if not user.is_dev
+        ]
+    else:
+        st.warning(
+            "This admin account is not assigned to an organization. Level DEV must assign it before it can manage users."
+        )
+        return
+    if users:
+        user_rows = [
+            {
+                "Username": user.username,
+                "Display Name": user.display_name,
+                "Email": user.email,
+                "Role": user.role,
+                "Active": user.active,
+                "Organization ID": user.organization_id or "Unassigned",
+                "Must Change Password": user.must_change_password,
+                "Last Login": user.last_login_at,
+                "Created": user.created_at,
+            }
+            for user in users
+        ]
+        st.dataframe(pd.DataFrame(user_rows), width="stretch", hide_index=True)
+    else:
+        st.info("No durable users exist yet. Create the first account below.")
+
+    if is_dev:
+        organizations = APP_USER_STORE.list_organizations()
+        with st.expander("Platform Organizations & Facilities", expanded=not organizations):
+            st.caption("Level DEV creates the company and facility records that scope every other account.")
+            org_tab, facility_tab = st.tabs(["Add Organization", "Add Facility"])
+            with org_tab:
+                with st.form("dev_create_organization", clear_on_submit=True):
+                    organization_name = st.text_input("Organization name")
+                    organization_slug = st.text_input("Organization slug", help="For example: acme-cannabis")
+                    add_organization = st.form_submit_button("Add Organization", type="primary")
+                if add_organization:
+                    try:
+                        APP_USER_STORE.create_organization(name=organization_name, slug=organization_slug)
+                        st.success("Organization created.")
+                        _safe_rerun()
+                    except Exception as exc:
+                        st.error(f"Unable to create organization: {exc}")
+            with facility_tab:
+                if not organizations:
+                    st.info("Create an organization first.")
+                else:
+                    organizations_by_name = {item.name: item for item in organizations}
+                    with st.form("dev_create_facility", clear_on_submit=True):
+                        facility_org_name = st.selectbox("Organization", sorted(organizations_by_name))
+                        facility_name = st.text_input("Facility name")
+                        facility_code = st.text_input("Facility code", help="Short unique code such as MAIN or MA01.")
+                        facility_timezone = st.text_input("Timezone", value="America/New_York")
+                        add_facility = st.form_submit_button("Add Facility", type="primary")
+                    if add_facility:
+                        try:
+                            APP_USER_STORE.create_facility(
+                                organization_id=organizations_by_name[facility_org_name].id,
+                                name=facility_name,
+                                code=facility_code,
+                                timezone_name=facility_timezone,
+                            )
+                            st.success("Facility created.")
+                            _safe_rerun()
+                        except Exception as exc:
+                            st.error(f"Unable to create facility: {exc}")
+
+    create_tab, manage_tab = st.tabs(["Create User", "Manage Existing"])
+    with create_tab:
+        organization_options = {"Unassigned": None}
+        if is_dev:
+            organization_options.update(
+                {item.name: item.id for item in APP_USER_STORE.list_organizations()}
+            )
+        elif st.session_state.get("auth_organization_id"):
+            organization_options = {
+                "Assigned organization": st.session_state.get("auth_organization_id")
+            }
+        organization_label = st.selectbox(
+            "Organization",
+            list(organization_options),
+            key="admin_create_user_organization",
+        )
+        selected_create_organization_id = organization_options[organization_label]
+        create_facilities = (
+            APP_USER_STORE.list_facilities(selected_create_organization_id)
+            if selected_create_organization_id
+            else []
+        )
+        create_facility_options = {
+            f"{facility.name} ({facility.code})": facility.id
+            for facility in create_facilities
+        }
+        with st.form("admin_create_durable_user", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            username = c1.text_input("Username", help="Letters, numbers, periods, underscores, and hyphens.")
+            display_name = c2.text_input("Display name")
+            email = c1.text_input("Email (optional)")
+            available_roles = ["buyer", "planner", "supervisor", "operator", "qa", "read_only", "admin"]
+            if is_dev:
+                available_roles.append("dev")
+            role = c2.selectbox("Role", available_roles)
+            create_facility_labels = st.multiselect(
+                "Facility access",
+                list(create_facility_options),
+                default=list(create_facility_options),
+                help="Selected facilities are the locations this user can open. Admins can access every facility in their organization.",
+            )
+            password = c1.text_input("Temporary password", type="password")
+            password_confirm = c2.text_input("Confirm temporary password", type="password")
+            must_change = st.checkbox("Require password change", value=True)
+            create_user = st.form_submit_button("Create User", type="primary")
+
+        if create_user:
+            if len(password) < 12:
+                st.error("Temporary passwords must contain at least 12 characters.")
+            elif password != password_confirm:
+                st.error("The password confirmation does not match.")
+            elif role != "dev" and not selected_create_organization_id:
+                st.error("Choose an organization for every non-DEV account.")
+            elif not BCRYPT_AVAILABLE:
+                st.error("bcrypt is required before users can be created.")
+            else:
+                try:
+                    APP_USER_STORE.create_user(
+                        username=username,
+                        password_hash=hash_password(password),
+                        role=role,
+                        organization_id=(
+                            None if role == "dev" else selected_create_organization_id
+                        ),
+                        display_name=display_name,
+                        email=email,
+                        created_by=current_admin,
+                        must_change_password=must_change,
+                        facility_ids=(
+                            []
+                            if role == "dev"
+                            else [create_facility_options[label] for label in create_facility_labels]
+                        ),
+                    )
+                    st.success(f"User '{username}' created and stored securely.")
+                    _safe_rerun()
+                except Exception as exc:
+                    st.error(f"Unable to create user: {exc}")
+
+    with manage_tab:
+        if not users:
+            st.caption("Create a user before using account management actions.")
+        else:
+            users_by_name = {user.username: user for user in users}
+            selected_username = st.selectbox("User", sorted(users_by_name), key="admin_manage_user")
+            selected_user = users_by_name[selected_username]
+            if selected_user.is_dev and not is_dev:
+                st.error("Only Level DEV can manage a DEV account.")
+                return
+
+            st.markdown("#### Account Details & Access")
+            st.caption(
+                f"Account ID: {selected_user.id}  |  Created: {selected_user.created_at or 'Unknown'}  |  "
+                f"Last login: {selected_user.last_login_at or 'Never'}"
+            )
+            profile_left, profile_right = st.columns(2)
+            edit_username = profile_left.text_input(
+                "Username",
+                value=selected_user.username,
+                key=f"admin_edit_username_{selected_user.id}",
+            )
+            edit_display_name = profile_right.text_input(
+                "Display name",
+                value=selected_user.display_name,
+                key=f"admin_edit_display_name_{selected_user.id}",
+            )
+            edit_email = profile_left.text_input(
+                "Email",
+                value=selected_user.email,
+                key=f"admin_edit_email_{selected_user.id}",
+            )
+            editable_roles = ["buyer", "planner", "supervisor", "operator", "qa", "read_only", "admin"]
+            if is_dev:
+                editable_roles.append("dev")
+            edit_role = profile_right.selectbox(
+                "Role",
+                editable_roles,
+                index=editable_roles.index(selected_user.role),
+                key=f"admin_edit_role_{selected_user.id}",
+            )
+
+            if is_dev:
+                editable_organizations = APP_USER_STORE.list_organizations(active_only=False)
+                edit_organization_options = {"Unassigned / Platform-wide": None}
+                edit_organization_options.update(
+                    {
+                        f"{organization.name} ({organization.slug})"
+                        + ("" if organization.active else " - Inactive"): organization.id
+                        for organization in editable_organizations
+                    }
+                )
+                current_organization_label = next(
+                    (
+                        label
+                        for label, organization_id in edit_organization_options.items()
+                        if organization_id == selected_user.organization_id
+                    ),
+                    "Unassigned / Platform-wide",
+                )
+                edit_organization_label = st.selectbox(
+                    "Organization",
+                    list(edit_organization_options),
+                    index=list(edit_organization_options).index(current_organization_label),
+                    disabled=edit_role == "dev",
+                    help="DEV accounts remain platform-wide. All other roles must belong to one organization.",
+                    key=f"admin_edit_organization_{selected_user.id}",
+                )
+                edit_organization_id = (
+                    None
+                    if edit_role == "dev"
+                    else edit_organization_options[edit_organization_label]
+                )
+            else:
+                edit_organization_id = current_organization_id
+                st.text_input(
+                    "Organization",
+                    value="Assigned organization",
+                    disabled=True,
+                    key=f"admin_edit_organization_locked_{selected_user.id}",
+                )
+
+            edit_facility_options: dict[str, str] = {}
+            assigned_facility_labels: list[str] = []
+            if edit_role != "dev" and edit_organization_id:
+                available_facilities = APP_USER_STORE.list_facilities(
+                    edit_organization_id,
+                    active_only=False,
+                )
+                edit_facility_options = {
+                    f"{facility.name} ({facility.code})"
+                    + ("" if facility.active else " - Inactive"): facility.id
+                    for facility in available_facilities
+                }
+                assigned_facility_ids = {
+                    facility.id
+                    for facility in APP_USER_STORE.list_facilities(
+                        edit_organization_id,
+                        user_id=selected_user.id,
+                        active_only=False,
+                    )
+                }
+                assigned_facility_labels = [
+                    label
+                    for label, facility_id in edit_facility_options.items()
+                    if facility_id in assigned_facility_ids
+                ]
+            edit_facility_labels = st.multiselect(
+                "Facility access",
+                list(edit_facility_options),
+                default=assigned_facility_labels,
+                disabled=edit_role == "dev" or not edit_organization_id,
+                help=(
+                    "Standard users can open only selected facilities. Organization admins can open all company facilities. "
+                    "No selections means the user has no facility workspace access."
+                ),
+                key=f"admin_edit_facilities_{selected_user.id}",
+            )
+            state_left, state_right = st.columns(2)
+            desired_active = state_left.checkbox(
+                "Account active",
+                value=selected_user.active,
+                key=f"admin_user_active_{selected_user.id}",
+            )
+            desired_must_change = state_right.checkbox(
+                "Require password change at next login",
+                value=selected_user.must_change_password,
+                key=f"admin_user_must_change_{selected_user.id}",
+            )
+
+            if st.button(
+                "Save all account changes",
+                type="primary",
+                width="stretch",
+                key=f"admin_save_user_details_{selected_user.id}",
+            ):
+                is_current_account = (
+                    selected_user.id == st.session_state.get("auth_user_id")
+                    or selected_user.username == current_admin
+                )
+                if is_current_account and not desired_active:
+                    st.error("You cannot deactivate the account currently signed in.")
+                elif is_current_account and edit_role != selected_user.role:
+                    st.error("You cannot change the role of the account currently signed in.")
+                elif not is_dev and edit_organization_id != current_organization_id:
+                    st.error("Company admins cannot move users outside their organization.")
+                elif edit_role != "dev" and not edit_organization_id:
+                    st.error("Choose an organization for every non-DEV account.")
+                else:
+                    try:
+                        updated_user = APP_USER_STORE.update_user(
+                            selected_user.id,
+                            username=edit_username,
+                            display_name=edit_display_name,
+                            email=edit_email,
+                            role=edit_role,
+                            organization_id=edit_organization_id,
+                            facility_ids=[
+                                edit_facility_options[label]
+                                for label in edit_facility_labels
+                            ],
+                            active=desired_active,
+                            must_change_password=desired_must_change,
+                            updated_by=current_admin,
+                        )
+                        if is_current_account:
+                            st.session_state.admin_user = updated_user.username
+                        st.success("All account details and access assignments were updated.")
+                        _safe_rerun()
+                    except Exception as exc:
+                        st.error(f"Unable to update the account: {exc}")
+
+            st.markdown("#### Reset Password")
+            reset_password = st.text_input("New temporary password", type="password", key="admin_reset_password")
+            reset_confirm = st.text_input("Confirm new password", type="password", key="admin_reset_confirm")
+            if st.button("Reset password", key="admin_reset_password_btn"):
+                if len(reset_password) < 12:
+                    st.error("Temporary passwords must contain at least 12 characters.")
+                elif reset_password != reset_confirm:
+                    st.error("The password confirmation does not match.")
+                elif APP_USER_STORE.reset_password(
+                    selected_user.id, hash_password(reset_password), current_admin
+                ):
+                    st.success("Password reset. The user will be required to change it.")
+                else:
+                    st.error("Unable to reset the password.")
+
+# =========================
+# INIT DOOBIE CONNECTION + SHOW DEBUG (admin-only)
+# =========================
+_refresh_doobie_connection_state()
+
+# Diagnostics are platform-owner tools; ordinary company admins do not need
+# them in their day-to-day sidebar.
+if st.session_state.get("auth_user_role") == "dev":
+    with st.sidebar.expander("üõ† Developer Diagnostics", expanded=False):
+        ai_debug_tab, auth_debug_tab = st.tabs(["AI", "Authentication"])
+        with ai_debug_tab:
+            status = _doobie_ai_status()
+            resolved_cfg = resolve_doobie_config()
+            st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
+            st.write(f"AI Status: {status}")
+            st.write(f"Doobie config source: {resolved_cfg.get('source')}")
+            st.write(f"Doobie base URL configured: {bool(str(resolved_cfg.get('base_url') or '').strip())}")
+            st.write(f"Doobie API key configured: {bool(str(resolved_cfg.get('api_key') or '').strip())}")
+        with auth_debug_tab:
+            _auth_admins_section = False
+            _auth_users_section = False
+            try:
+                _auth_admins_section = "auth" in st.secrets and "admins" in st.secrets["auth"]
+                _auth_users_section = "auth" in st.secrets and "users" in st.secrets["auth"]
+            except Exception:
+                pass
+            st.write(f"auth.admins section exists: {_auth_admins_section}")
+            st.write(f"auth.users section exists: {_auth_users_section}")
+            st.write(f"Admin usernames loaded: {len(ADMIN_USERS)}")
+            st.write(f"Standard usernames loaded: {len(USER_USERS)}")
+            st.write(f"bcrypt available: {BCRYPT_AVAILABLE}")
+            for severity, msg in _validate_auth_config():
+                if severity == "ok":
+                    st.success(msg)
+                elif severity == "warn":
+                    st.warning(msg)
+                else:
+                    st.error(msg)
+
+# =========================
+# STRAIN LOOKUP TOGGLE
+# =========================
+with st.sidebar.expander("‚öôÔ∏è Preferences", expanded=False):
+    st.markdown("**Free Strain Database Lookup**")
+    st.write("Uses a comprehensive database of cannabis strains to automatically classify products.")
+    strain_enabled = st.checkbox(
+        "Enable strain lookup for flower/pre-rolls",
+        value=st.session_state.strain_lookup_enabled,
+        help="When enabled, uses a free strain database to identify strain types for products that don't have explicit strain info in their names. Completely free, no API costs!"
+    )
+    if strain_enabled != st.session_state.strain_lookup_enabled:
+        st.session_state.strain_lookup_enabled = strain_enabled
+        # Clear the cache when toggling
+        strain_lookup_cache.clear()
+        st.success("Setting updated! Refresh your data to apply changes.")
+    
+    st.info(f"üìä Database contains {len(STRAIN_DATABASE)} strain entries")
+    st.info(f"üíæ Cache has {len(strain_lookup_cache)} lookups")
+
+    st.markdown("**Appearance**")
+    theme_choice = st.radio(
+        "Theme",
+        ["Dark", "Light"],
+        index=0 if st.session_state.theme == "Dark" else 1,
+        horizontal=True,
+    )
+    if theme_choice != st.session_state.theme:
+        st.session_state.theme = theme_choice
+        _safe_rerun()
+
+# =========================
+# üîê ACCOUNT + TRIAL GATE
+# =========================
+if APP_USER_STORE.configured:
+    st.sidebar.caption("‚òÅÔ∏è Supabase storage configured")
+else:
+    st.sidebar.warning("Supabase storage is not configured")
+
+st.sidebar.markdown("### Account")
+
+_signed_in = st.session_state.is_admin or st.session_state.user_authenticated
+if not _signed_in:
+    _locked_until = max(
+        [value for value in [st.session_state._admin_lockout_until, st.session_state._user_lockout_until] if value],
+        default=None,
+    )
+    if _locked_until and datetime.now() < _locked_until:
+        remaining_s = int((_locked_until - datetime.now()).total_seconds())
+        st.sidebar.error(f"Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s.")
+    else:
+        login_user = st.sidebar.text_input("Username", key="unified_login_username")
+        login_pass = st.sidebar.text_input("Password", type="password", key="unified_login_password")
+        if st.sidebar.button("Sign in", type="primary", key="unified_login_btn", width="stretch"):
+            authenticated, account_name, is_admin_account = authenticate_any_role(
+                lambda username, password, require_admin: _authenticate_account(
+                    username, password, require_admin=require_admin
+                ),
+                login_user,
+                login_pass,
+            )
+            if authenticated:
+                apply_authenticated_session(st.session_state, account_name, is_admin_account)
+                _safe_rerun()
+            else:
+                st.session_state._user_fail_count += 1
+                remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._user_fail_count
+                if remaining_attempts <= 0:
+                    lock_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
+                    st.session_state._admin_lockout_until = lock_until
+                    st.session_state._user_lockout_until = lock_until
+                    st.sidebar.error(f"Login locked for {_LOCKOUT_MINUTES} minutes.")
+                else:
+                    st.sidebar.error(f"Invalid username or password. {remaining_attempts} attempt(s) remaining.")
+else:
+    account_name = st.session_state.admin_user if st.session_state.is_admin else st.session_state.user_user
+    account_role = str(st.session_state.get("auth_user_role") or "trial").upper().replace("_", " ")
+    st.sidebar.success(f"{account_name} ¬∑ {account_role}")
+    if st.sidebar.button("Sign out", key="unified_logout_btn", width="stretch"):
+        clear_authenticated_session(st.session_state)
+        _safe_rerun()
+
+if (
+    (st.session_state.is_admin or st.session_state.user_authenticated)
+    and st.session_state.auth_must_change_password
+):
+    st.warning("Your administrator issued a temporary password. Create a private password to continue.")
+    with st.form("required_password_change_form", clear_on_submit=True):
+        new_password = st.text_input("New password", type="password")
+        confirm_password = st.text_input("Confirm new password", type="password")
+        change_submitted = st.form_submit_button("Save new password", type="primary")
+    if change_submitted:
+        if len(new_password) < 12:
+            st.error("Use at least 12 characters.")
+        elif new_password != confirm_password:
+            st.error("The passwords do not match.")
+        elif not st.session_state.auth_user_id:
+            st.error("This account is not connected to the user database.")
+        elif APP_USER_STORE.change_password(
+            st.session_state.auth_user_id, hash_password(new_password)
+        ):
+            st.session_state.auth_must_change_password = False
+            st.success("Password updated.")
+            _safe_rerun()
+        else:
+            st.error("The password could not be updated. Ask an administrator to verify the account.")
+    st.stop()
+
+trial_now = datetime.now()
+
+if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
+    if st.session_state.trial_start is None:
+        with st.sidebar.expander("Trial access", expanded=False):
+            trial_key_input = st.text_input("Trial key", type="password", key="trial_key_input")
+            if st.button("Activate trial", key="activate_trial", width="stretch"):
+                if _check_trial_key(trial_key_input.strip()):
+                    st.session_state.trial_start = trial_now.isoformat()
+                    st.success("Trial activated for 24 hours.")
+                else:
+                    st.error("Invalid trial key.")
+        st.info("Sign in with your account, or expand Trial access if you were issued a trial key.")
+        st.stop()
+    else:
+        try:
+            started_at = datetime.fromisoformat(st.session_state.trial_start)
+        except Exception:
+            st.session_state.trial_start = None
+            _safe_rerun()
+
+        elapsed = trial_now - started_at
+        remaining = timedelta(hours=TRIAL_DURATION_HOURS) - elapsed
+
+        if remaining.total_seconds() <= 0:
+            st.sidebar.error("‚õî Trial expired. Please contact the vendor for full access.")
+            st.error("The 24-hour trial has expired. Contact the vendor to purchase a full license.")
+            st.stop()
+        else:
+            hours_left = int(remaining.total_seconds() // 3600)
+            mins_left = int((remaining.total_seconds() % 3600) // 60)
+            st.sidebar.info(f"‚è∞ Trial time remaining: {hours_left}h {mins_left}m")
+
+def _render_access_context() -> None:
+    role = str(st.session_state.get("auth_user_role") or "trial")
+    user_id = st.session_state.get("auth_user_id")
+    assigned_org_id = st.session_state.get("auth_organization_id")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Access Context")
+    st.sidebar.caption(f"Role: {role.upper().replace('_', ' ')}")
+
+    if role == "dev":
+        st.sidebar.success("LEVEL DEV ¬∑ Platform-wide access")
+        organizations = APP_USER_STORE.list_organizations()
+        sandbox_exists = any(item.slug == "dev-sandbox" for item in organizations)
+        if not sandbox_exists:
+            st.sidebar.caption("No DEV Sandbox exists yet.")
+            if st.sidebar.button("Create DEV Sandbox", key="create_dev_sandbox", width="stretch"):
+                try:
+                    APP_USER_STORE.ensure_dev_sandbox()
+                    st.sidebar.success("DEV Sandbox created.")
+                    _safe_rerun()
+                except Exception:
+                    st.sidebar.error(
+                        "DEV Sandbox could not connect to Supabase. Check the database secret, then try once."
+                    )
+        if not organizations:
+            st.sidebar.warning("No organizations are available. Check the Supabase connection.")
+            st.session_state.active_organization_id = None
+            st.session_state.active_facility_id = None
+            return
+        organizations_by_label = {
+            ("DEV Sandbox" if item.slug == "dev-sandbox" else f"{item.name} ({item.slug})"): item
+            for item in organizations
+        }
+        labels = list(organizations_by_label)
+        current_org = st.session_state.get("active_organization_id")
+        current_index = next(
+            (index for index, label in enumerate(labels) if organizations_by_label[label].id == current_org),
+            0,
+        )
+        org_label = st.sidebar.selectbox("Organization", labels, index=current_index, key="dev_org_context")
+        selected_org = organizations_by_label[org_label]
+        st.session_state.active_organization_id = selected_org.id
+        facilities = APP_USER_STORE.list_facilities(selected_org.id)
+    else:
+        st.session_state.active_organization_id = assigned_org_id
+        if not assigned_org_id:
+            st.sidebar.warning("This account is not assigned to an organization.")
+            st.session_state.active_facility_id = None
+            return
+        organizations = {item.id: item for item in APP_USER_STORE.list_organizations(active_only=False)}
+        assigned_org = organizations.get(assigned_org_id)
+        st.sidebar.info(assigned_org.name if assigned_org else "Assigned organization")
+        facilities = APP_USER_STORE.list_facilities(
+            assigned_org_id,
+            user_id=user_id if role != "admin" else None,
+        )
+
+    if not facilities:
+        st.sidebar.caption("No accessible facilities")
+        st.session_state.active_facility_id = None
+        return
+    facilities_by_label = {f"{item.name} ({item.code})": item for item in facilities}
+    facility_labels = list(facilities_by_label)
+    current_facility = st.session_state.get("active_facility_id")
+    facility_index = next(
+        (index for index, label in enumerate(facility_labels) if facilities_by_label[label].id == current_facility),
+        0,
+    )
+    facility_label = st.sidebar.selectbox("Facility", facility_labels, index=facility_index, key="facility_context")
+    selected_facility = facilities_by_label[facility_label]
+    st.session_state.active_facility_id = selected_facility.id
+    st.sidebar.caption(f"Timezone: {selected_facility.timezone_name}")
+
+
+if st.session_state.is_admin or st.session_state.user_authenticated:
+    _render_access_context()
+    if st.session_state.get("auth_user_role") == "dev":
+        st.info("LEVEL DEV ‚Äî Platform-wide access is active. Select the company and facility you want to inspect.")
+
+# Hydrate per-user persistent integrations after auth succeeds.
+_hydrate_persistent_user_integrations()
+_hydrate_global_integrations()
+
+# =========================
+# DOOBIE AI CONNECTION (non-blocking, layered on top of login)
+# =========================
+_refresh_doobie_connection_state()
+_render_doobie_ai_panel()
+
+# =========================
+# RESTORE TODAY'S UPLOADS (cross-session persistence)
+# Runs once per session, after authentication is confirmed.
+# =========================
+if not st.session_state._daily_restored:
+    _restore_username = None
+    if st.session_state.is_admin and st.session_state.admin_user:
+        _restore_username = st.session_state.admin_user
+    elif st.session_state.user_authenticated and st.session_state.user_user:
+        _restore_username = st.session_state.user_user
+    if _restore_username:
+        _restored_any = _load_from_daily_store(_restore_username)
+        st.session_state._daily_restored = True
+        if _restored_any:
+            st.session_state._daily_restore_msg = True
+
+# =========================
+# HEADER
+# =========================
+def _to_report_df(value):
+    if isinstance(value, pd.DataFrame):
+        return value.copy() if not value.empty else pd.DataFrame([{"Message": "No data available"}])
+    if isinstance(value, list):
+        try:
+            df = pd.DataFrame(value)
+            return df if not df.empty else pd.DataFrame([{"Message": "No data available"}])
+        except Exception:
+            return pd.DataFrame([{"Message": "No data available"}])
+    if isinstance(value, dict):
+        if not value:
+            return pd.DataFrame([{"Message": "No data available"}])
+        return pd.DataFrame([{"Key": str(k), "Value": v} for k, v in value.items()])
+    if value is None:
+        return pd.DataFrame([{"Message": "No data available"}])
+    return pd.DataFrame([{"Value": value}])
+
+
+def _safe_report_df(value, empty_message="No data available") -> pd.DataFrame:
+    if isinstance(value, pd.DataFrame):
+        return value.copy()
+
+    if value is None:
+        return pd.DataFrame([{"Message": empty_message}])
+
+    if isinstance(value, list):
+        if not value:
+            return pd.DataFrame([{"Message": empty_message}])
+        try:
+            df = pd.DataFrame(value)
+            return df if not df.empty else pd.DataFrame([{"Message": empty_message}])
+        except Exception:
+            return pd.DataFrame([{"Message": empty_message}])
+
+    if isinstance(value, dict):
+        if not value:
+            return pd.DataFrame([{"Message": empty_message}])
+        try:
+            if all(not isinstance(v, (dict, list, tuple, set, pd.Series, pd.DataFrame)) for v in value.values()):
+                return pd.DataFrame(
+                    [{"Metric": str(k), "Value": "" if v is None else str(v)} for k, v in value.items()]
+                )
+            return pd.DataFrame(
+                [{"Metric": str(k), "Value": "" if v is None else str(v)} for k, v in value.items()]
+            )
+        except Exception:
+            return pd.DataFrame([{"Message": empty_message}])
+
+    return pd.DataFrame([{"Value": str(value)}])
+
+
+def _draw_pdf_report_background(c, page_w, page_h, dark=True):
+    image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "IMG_7158.PNG")
+    try:
+        if os.path.exists(image_path):
+            img = ImageReader(image_path)
+            img_w, img_h = img.getSize()
+            scale = max(page_w / img_w, page_h / img_h)
+            draw_w, draw_h = img_w * scale, img_h * scale
+            c.drawImage(
+                img,
+                (page_w - draw_w) / 2,
+                (page_h - draw_h) / 2,
+                width=draw_w,
+                height=draw_h,
+                mask="auto",
+            )
+    except Exception:
+        pass
+
+    c.saveState()
+    try:
+        c.setFillAlpha(0.78 if dark else 0.9)
+    except Exception:
+        pass
+    c.setFillColor(colors.HexColor("#0f0f10") if dark else colors.white)
+    c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+    c.restoreState()
+
+
+
+
+def _safe_numeric_series(df, column_name, default=0.0) -> pd.Series:
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.Series(dtype="float64")
+
+    if column_name in df.columns:
+        return pd.to_numeric(df[column_name], errors="coerce").fillna(default)
+
+    return pd.Series([default] * len(df), index=df.index, dtype="float64")
+
+
+def _safe_series_mean(series: pd.Series, default=0.0) -> float:
+    if series is None or series.empty:
+        return float(default)
+    mean_value = series.mean()
+    return float(mean_value) if pd.notna(mean_value) else float(default)
+
+
+def _safe_numeric_sum(df, column_name, default=0.0) -> float:
+    series = _safe_numeric_series(df, column_name, default=0.0)
+    if series.empty:
+        return float(default)
+    total = series.sum()
+    return float(total) if pd.notna(total) else float(default)
+
+
+def _safe_numeric_mean(df, column_name, default=0.0) -> float:
+    return _safe_series_mean(_safe_numeric_series(df, column_name, default=0.0), default=default)
+
+def _build_buyer_executive_report_bytes(payload: dict) -> bytes:
+    payload = payload or {}
+    out = BytesIO()
+    sheet_map = [
+        ("Executive Summary", payload.get("summary") or payload.get("executive_summary")),
+        ("KPI Overview", payload.get("kpis") or payload.get("buyer_kpis")),
+        ("Inventory Health", payload.get("inventory_health")),
+        ("Reorder Summary", payload.get("reorder_summary") or payload.get("detail_view")),
+        ("Category Breakdown", payload.get("category_breakdown") or payload.get("inv_summary")),
+        ("Product Detail", payload.get("product_detail") or payload.get("sales_summary")),
+    ]
+    wrote_sheet = False
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        for sheet_name, section_value in sheet_map:
+            if section_value is None:
+                continue
+            _to_report_df(section_value).to_excel(writer, index=False, sheet_name=sheet_name[:31])
+            wrote_sheet = True
+        if not wrote_sheet:
+            pd.DataFrame(
+                [{"Message": "Upload inventory and sales data before exporting a buyer report."}]
+            ).to_excel(writer, index=False, sheet_name="Executive Summary")
+    out.seek(0)
+    return out.read()
+
+
+def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
+    from reports.buyer_report import _build_buyer_executive_report_pdf as build_report
+
+    return build_report(payload)
+
+    payload = payload or {}
+    out = BytesIO()
+    page_w, page_h = letter[1], letter[0]
+    c = canvas.Canvas(out, pagesize=(page_w, page_h))
+
+    # Buyer Dashboard PDF style tokens
+    pdf_colors = {
+        "BACKGROUND_DARK": colors.HexColor("#0f0f10"),
+        "CARD_BG": colors.HexColor("#181818"),
+        "CARD_BG_ALT": colors.HexColor("#202124"),
+        "BORDER": colors.HexColor("#343434"),
+        "ACCENT_ORANGE": colors.HexColor("#ff9a3c"),
+        "TEXT_PRIMARY": colors.HexColor("#ffffff"),
+        "TEXT_SECONDARY": colors.HexColor("#b8b8b8"),
+        "TEXT_MUTED": colors.HexColor("#7f7f7f"),
+        "SUCCESS_GREEN": colors.HexColor("#64d18a"),
+        "WARNING_YELLOW": colors.HexColor("#f6c453"),
+        "DANGER_RED": colors.HexColor("#ff5c5c"),
+        "BLUE_ACCENT": colors.HexColor("#5ea8ff"),
+        "APPENDIX_BG": colors.HexColor("#f7f8fa"),
+        "APPENDIX_ROW_ALT": colors.HexColor("#f0f2f5"),
+    }
+
+    def _draw_wrapped_text(x, y_top, text, width, font_name="Helvetica", font_size=10, line_height=14, color=None):
+        text_obj = c.beginText(x, y_top)
+        text_obj.setFont(font_name, font_size)
+        text_obj.setFillColor(color or pdf_colors["body"])
+
+        words = str(text or "").split()
+        if not words:
+            c.drawText(text_obj)
+            return y_top
+
+        line = words[0]
+        for word in words[1:]:
+            candidate = f"{line} {word}"
+            if pdfmetrics.stringWidth(candidate, font_name, font_size) <= width:
+                line = candidate
+            else:
+                text_obj.textLine(line)
+                line = word
+        text_obj.textLine(line)
+        c.drawText(text_obj)
+        return y_top
+
+    def _norm_col(name: str) -> str:
+        return "".join(ch for ch in str(name).strip().lower() if ch.isalnum())
+
+    def _resolve_report_columns(df: pd.DataFrame, preferred_columns: list[tuple[str, list[str]]]) -> tuple[pd.DataFrame, dict]:
+        if df is None or df.empty:
+            return pd.DataFrame(), {}
+        normalized_map = {_norm_col(col): col for col in df.columns}
+        resolved = {}
+        out = pd.DataFrame(index=df.index)
+        for display_name, aliases in preferred_columns:
+            for alias in aliases:
+                real_col = normalized_map.get(_norm_col(alias))
+                if real_col:
+                    out[display_name] = df[real_col]
+                    resolved[display_name] = real_col
+                    break
+        return out, resolved
+
+    def _draw_report_header_footer(page_title: str, use_dark_body: bool = True):
+        _draw_pdf_report_background(c, page_w, page_h, dark=use_dark_body)
+        c.setFillColor(pdf_colors["CARD_BG"])
+        c.rect(0, page_h - 46, page_w, 46, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.rect(0, page_h - 46, page_w, 2, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(30, page_h - 28, "Buyer Dashboard")
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"])
+        c.setFont("Helvetica", 9)
+        c.drawRightString(page_w - 30, page_h - 28, "Buyer Executive Summary")
+        c.setFillColor(pdf_colors["TEXT_MUTED"])
+        c.setFont("Helvetica", 8)
+        c.drawString(30, 16, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawRightString(page_w - 30, 16, f"Page {c.getPageNumber()}")
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.setFont("Helvetica-Bold", 15)
+        c.drawString(30, page_h - 72, page_title)
+
+    def _format_display_value(col_name: str, value):
+        if pd.isna(value):
+            return ""
+        col_norm = _norm_col(col_name)
+        if "pct" in col_norm or "percent" in col_norm:
+            return f"{float(value):,.1f}%"
+        if any(k in col_norm for k in ["price", "value", "revenue", "cost", "amount", "dollar"]):
+            return f"${float(value):,.2f}"
+        if "avgunitsperday" in col_norm:
+            return f"{float(value):,.2f}"
+        if "avgdaysonhand" in col_norm or col_norm == "avgdos":
+            return f"{float(value):,.1f}"
+        if any(k in col_norm for k in ["reorderqty", "daysonhand", "count", "units", "onhand", "sold", "sku"]):
+            return f"{float(value):,.0f}"
+        return f"{float(value):,.2f}" if isinstance(value, (int, float, np.number)) else str(value)
+
+    def _humanize_label(name: str) -> str:
+        mapping = {
+            "sku_count": "SKU Count",
+            "total_units_sold": "Total Units Sold",
+            "total_on_hand_units": "Total On Hand",
+            "avg_units_per_day": "Avg Units/Day",
+            "avg_days_on_hand": "Avg DOS",
+            "total_reorder_qty": "Total Reorder Qty",
+            "pct_inventory": "% Inventory",
+            "pct_units_sold": "% Units Sold",
+        }
+        raw = str(name)
+        if raw in mapping:
+            return mapping[raw]
+        return raw.replace("_", " ").strip().title().replace("Dos", "DOS").replace("Sku", "SKU")
+
+    def _append_pdf_message_page(title: str, message: str):
+        c.showPage()
+        _draw_report_header_footer(title, use_dark_body=False)
+        c.setFillColor(pdf_colors["CARD_BG"])
+        c.roundRect(30, page_h - 180, page_w - 60, 90, 10, stroke=1, fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"])
+        c.roundRect(30, page_h - 180, page_w - 60, 90, 10, stroke=1, fill=0)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        _draw_wrapped_text(45, page_h - 130, message, width=page_w - 90, font_name="Helvetica", font_size=11, color=pdf_colors["TEXT_PRIMARY"])
+
+    def _append_pdf_table_page(title: str, df: pd.DataFrame):
+        if df is None or df.empty:
+            _append_pdf_message_page(title, "No data available.")
+            return
+        display_cols = [_humanize_label(cn) for cn in list(df.columns)]
+        data_df = df.copy()
+        for col in data_df.columns:
+            numeric = pd.to_numeric(data_df[col], errors="coerce")
+            if not numeric.isna().all():
+                data_df[col] = [ _format_display_value(col, v) for v in numeric ]
+            else:
+                data_df[col] = data_df[col].fillna("").astype(str)
+        rows = [display_cols] + data_df.fillna("").astype(str).values.tolist()
+        available_w = page_w - 60
+        col_count = max(1, len(df.columns))
+        col_widths = [available_w / col_count] * col_count
+        style_cmds_base = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#163A63")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#B7CDE0")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]
+        max_rows_per_page = 34
+        data_rows = rows[1:]
+        for chunk_idx in range(0, len(data_rows), max_rows_per_page):
+            c.showPage()
+            _draw_report_header_footer(title, use_dark_body=False)
+            page_suffix = f" (cont. {chunk_idx // max_rows_per_page + 1})" if chunk_idx > 0 else ""
+            c.setFillColor(pdf_colors["TEXT_SECONDARY"])
+            c.setFont("Helvetica", 9)
+            c.drawString(30, page_h - 84, f"{title}{page_suffix}")
+            chunk_rows = [rows[0]] + data_rows[chunk_idx:chunk_idx + max_rows_per_page]
+            table = Table(chunk_rows, colWidths=col_widths, repeatRows=1)
+            style_cmds = [
+                ("BACKGROUND", (0, 0), (-1, 0), pdf_colors["ACCENT_ORANGE"]),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("GRID", (0, 0), (-1, -1), 0.25, pdf_colors["BORDER"]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            ]
+            for ridx in range(1, len(chunk_rows)):
+                bg = pdf_colors["APPENDIX_ROW_ALT"] if ridx % 2 == 0 else colors.white
+                style_cmds.append(("BACKGROUND", (0, ridx), (-1, ridx), bg))
+            table.setStyle(TableStyle(style_cmds))
+            _, h = table.wrap(available_w, page_h - 100)
+            table.drawOn(c, 30, page_h - 96 - h)
+
+    def _derive_inventory_health_flags(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame()
+        out = df.copy()
+        doh = pd.to_numeric(out.get("Days on Hand"), errors="coerce").fillna(0)
+        sold = pd.to_numeric(out.get("Units Sold"), errors="coerce").fillna(0)
+        onhand = pd.to_numeric(out.get("On Hand"), errors="coerce").fillna(0)
+        flag = np.where((sold <= 0) & (onhand > 0), "Dead / No Movement",
+                        np.where(doh <= 7, "Low Stock",
+                                 np.where(doh <= 21, "Watch",
+                                          np.where(doh < 60, "Healthy", "Overstock"))))
+        out["Health Flag"] = flag
+        return out
+
+    def _build_category_performance_df(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame()
+        cat_col = "Category" if "Category" in df.columns else None
+        if not cat_col:
+            return pd.DataFrame()
+        tmp = df.copy()
+        for col in ["Units Sold", "On Hand", "Avg Units/Day", "Days on Hand", "Reorder Qty"]:
+            if col in tmp.columns:
+                tmp[col] = pd.to_numeric(tmp[col], errors="coerce").fillna(0)
+        grouped = tmp.groupby(cat_col, dropna=False).agg(
+            sku_count=("Item", "count") if "Item" in tmp.columns else (cat_col, "count"),
+            total_units_sold=("Units Sold", "sum") if "Units Sold" in tmp.columns else (cat_col, "size"),
+            total_on_hand_units=("On Hand", "sum") if "On Hand" in tmp.columns else (cat_col, "size"),
+            avg_units_per_day=("Avg Units/Day", "mean") if "Avg Units/Day" in tmp.columns else (cat_col, "size"),
+            avg_days_on_hand=("Days on Hand", "mean") if "Days on Hand" in tmp.columns else (cat_col, "size"),
+            total_reorder_qty=("Reorder Qty", "sum") if "Reorder Qty" in tmp.columns else (cat_col, "size"),
+        ).reset_index().rename(columns={cat_col: "Category"})
+        total_inv = grouped["total_on_hand_units"].sum() if "total_on_hand_units" in grouped.columns else 0
+        total_sold = grouped["total_units_sold"].sum() if "total_units_sold" in grouped.columns else 0
+        grouped["pct_inventory"] = (grouped["total_on_hand_units"] / total_inv * 100) if total_inv else 0
+        grouped["pct_units_sold"] = (grouped["total_units_sold"] / total_sold * 100) if total_sold else 0
+        return grouped
+
+    detail_df = _to_report_df(payload.get("detail_view"))
+    sales_df = _to_report_df(payload.get("sales_df"))
+    inv_df = _to_report_df(payload.get("inv_df"))
+    reporting_period = payload.get("reporting_period") or "N/A"
+    store_name = payload.get("store_name") or "N/A"
+
+    has_real_data = any(
+        isinstance(payload.get(k), pd.DataFrame) and not payload.get(k).empty
+        for k in ["detail_view", "sales_df", "inv_df", "sales_summary", "inv_summary"]
+    )
+
+    if not has_real_data:
+        _draw_pdf_report_background(c, page_w, page_h, dark=True)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        c.setFont("Helvetica-Bold", 28)
+        c.drawString(40, page_h - 70, "Buyer Executive Summary")
+        c.setFont("Helvetica", 12)
+        c.setFillColor(pdf_colors["TEXT_MUTED"])
+        c.drawString(40, page_h - 95, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        c.setFont("Helvetica", 14)
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"])
+        c.drawString(40, page_h - 140, "Upload inventory and sales data before exporting a buyer executive summary.")
+        c.showPage()
+        c.save()
+        out.seek(0)
+        return out.read()
+
+    def _num(series, default=0.0):
+        s = pd.to_numeric(series, errors="coerce").fillna(0) if series is not None else pd.Series(dtype=float)
+        return float(s.sum()) if not s.empty else float(default)
+
+    total_units_sold = _num(sales_df["unitssold"]) if "unitssold" in sales_df.columns else 0.0
+    total_units_onhand = _num(inv_df["onhandunits"]) if "onhandunits" in inv_df.columns else 0.0
+    total_inventory_value = _num(inv_df["inventoryvalue"]) if "inventoryvalue" in inv_df.columns else 0.0
+    avg_dos = float(pd.to_numeric(detail_df.get("daysonhand", pd.Series(dtype=float)), errors="coerce").fillna(0).mean()) if "daysonhand" in detail_df.columns else 0.0
+    total_reorder_need = _num(detail_df["reorderqty"]) if "reorderqty" in detail_df.columns else 0.0
+    low_stock = int(((pd.to_numeric(detail_df.get("daysonhand", 0), errors="coerce").fillna(0) > 0) & (pd.to_numeric(detail_df.get("daysonhand", 0), errors="coerce").fillna(0) <= payload.get("doh_threshold", 21))).sum()) if "daysonhand" in detail_df.columns else 0
+    overstock = int((pd.to_numeric(detail_df.get("daysonhand", 0), errors="coerce").fillna(0) > 60).sum()) if "daysonhand" in detail_df.columns else 0
+    slow_movers = int((pd.to_numeric(detail_df.get("avgunitsperday", 0), errors="coerce").fillna(0) <= 0).sum()) if "avgunitsperday" in detail_df.columns else 0
+    reorder_skus = int((pd.to_numeric(detail_df.get("reorderqty", 0), errors="coerce").fillna(0) > 0).sum()) if "reorderqty" in detail_df.columns else 0
+    at_risk = int((pd.to_numeric(detail_df.get("daysonhand", 0), errors="coerce").fillna(0) <= 7).sum()) if "daysonhand" in detail_df.columns else 0
+    avg_units_per_day = float(pd.to_numeric(detail_df.get("avgunitsperday", pd.Series(dtype=float)), errors="coerce").fillna(0).mean()) if "avgunitsperday" in detail_df.columns else 0.0
+    avg_days_on_hand = avg_dos
+    health_score = max(0, min(100, int(100 - ((low_stock * 2) + (at_risk * 3)))))
+
+    _draw_report_header_footer("Executive Summary", use_dark_body=True)
+    c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+    c.rect(30, page_h - 90, 180, 4, stroke=0, fill=1)
+    c.setFillColor(pdf_colors["TEXT_MUTED"])
+    c.setFont("Helvetica", 10)
+    _draw_wrapped_text(30, page_h - 106, f"Period: {reporting_period}   |   Store: {store_name}", width=page_w - 60, font_name="Helvetica", font_size=10, line_height=12, color=pdf_colors["TEXT_MUTED"])
+
+    def panel(x, y, w, h, title):
+        c.setFillColor(pdf_colors["CARD_BG"])
+        c.roundRect(x, y, w, h, 8, stroke=1, fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"])
+        c.roundRect(x, y, w, h, 8, stroke=1, fill=0)
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(x + 10, y + h - 18, title)
+
+    panel(24, 400, 410, 130, "Overview / Executive Snapshot")
+    overview_lines = [
+        f"Total Inventory Value: ${total_inventory_value:,.0f}",
+        f"Total Units Sold: {total_units_sold:,.0f}",
+        f"Total Units On Hand: {total_units_onhand:,.0f}",
+        f"Avg DOS: {avg_dos:,.1f}",
+        f"Total Reorder Need: {total_reorder_need:,.0f}",
+        f"Inventory Health Score: {health_score}",
+    ]
+    c.setFont("Helvetica", 10)
+    for i, line in enumerate(overview_lines):
+        _draw_wrapped_text(36, 505 - (i * 18), line, width=390, font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["TEXT_PRIMARY"])
+
+    panel(24, 245, 410, 145, "KPI / Metrics")
+    kpis = [
+        ("Avg Units/Day", f"{avg_units_per_day:,.2f}"), ("Avg Days On Hand", f"{avg_days_on_hand:,.1f}"),
+        ("Low-stock SKUs", f"{low_stock:,}"), ("Overstock SKUs", f"{overstock:,}"),
+        ("Slow-movers", f"{slow_movers:,}"), ("Reorder SKUs", f"{reorder_skus:,}"),
+        ("At-risk SKUs", f"{at_risk:,}"), ("AOV", "N/A"), ("Items/Txn", "N/A"),
+    ]
+    c.setFont("Helvetica", 9)
+    for idx, (k, v) in enumerate(kpis):
+        col = idx % 3
+        row = idx // 3
+        x = 36 + (col * 130)
+        y = 360 - (row * 36)
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"])
+        c.drawString(x, y, k)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(x, y - 12, v)
+        c.setFont("Helvetica", 9)
+
+    panel(24, 32, 410, 200, "Category Charts")
+    bar_img, donut_img = BytesIO(), BytesIO()
+    try:
+        cat_col = "subcategory" if "subcategory" in detail_df.columns else ("mastercategory" if "mastercategory" in detail_df.columns else None)
+        if cat_col:
+            grouped = detail_df.groupby(cat_col, as_index=False).agg({"daysonhand": "mean", "onhandunits": "sum"}).sort_values("daysonhand", ascending=False).head(6)
+            fig1, ax1 = plt.subplots(figsize=(4.0, 2.0))
+            ax1.barh(grouped[cat_col].astype(str), grouped["daysonhand"], color="#ff9a3c")
+            ax1.set_facecolor("none")
+            fig1.patch.set_alpha(0.0)
+            ax1.tick_params(colors="#ffffff")
+            ax1.spines["bottom"].set_color("#343434")
+            ax1.spines["left"].set_color("#343434")
+            ax1.set_title("Category DOS", fontsize=9)
+            ax1.tick_params(labelsize=8)
+            fig1.tight_layout()
+            fig1.savefig(bar_img, format="png", dpi=160, transparent=True)
+            plt.close(fig1)
+
+            fig2, ax2 = plt.subplots(figsize=(2.7, 2.0))
+            fig2.patch.set_alpha(0.0)
+            ax2.set_facecolor("none")
+            ax2.pie(grouped["onhandunits"], labels=None, wedgeprops=dict(width=0.45), startangle=90, colors=["#ff9a3c", "#5ea8ff", "#64d18a", "#f6c453", "#ff5c5c", "#b8b8b8"])
+            ax2.set_title("Inventory Mix", fontsize=9, color="white")
+            fig2.tight_layout()
+            fig2.savefig(donut_img, format="png", dpi=160, transparent=True)
+            plt.close(fig2)
+    except Exception:
+        pass
+
+    if bar_img.getbuffer().nbytes > 0:
+        bar_img.seek(0)
+        c.drawImage(ImageReader(bar_img), 35, 58, width=250, height=150, mask="auto")
+    else:
+        c.setFillColor(pdf_colors["CARD_BG_ALT"]); c.roundRect(35, 92, 250, 44, 6, stroke=1, fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"]); c.roundRect(35, 92, 250, 44, 6, stroke=1, fill=0)
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.drawString(46, 112, "No data available for bar chart.")
+    if donut_img.getbuffer().nbytes > 0:
+        donut_img.seek(0)
+        c.drawImage(ImageReader(donut_img), 290, 58, width=130, height=145, mask="auto")
+    else:
+        c.setFillColor(pdf_colors["CARD_BG_ALT"]); c.roundRect(290, 92, 130, 44, 6, stroke=1, fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"]); c.roundRect(290, 92, 130, 44, 6, stroke=1, fill=0)
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.drawString(300, 112, "No data available.")
+
+    panel(448, 245, page_w - 472, 285, "Insights / Findings")
+    insights = [
+        f"Reorder hotspots: {reorder_skus} SKUs currently need replenishment.",
+        f"At-risk inventory: {at_risk} SKUs are at or below 7 days on hand.",
+        f"Overstock exposure: {overstock} SKUs are above 60 days on hand.",
+        f"Slow movers: {slow_movers} SKUs show no recent movement.",
+        f"Inventory health score is {health_score}/100.",
+    ]
+    c.setFont("Helvetica", 10)
+    insight_y = 500
+    for text in insights:
+        _draw_wrapped_text(460, insight_y, f"‚Ä¢ {text}", width=(page_w - 495), font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["TEXT_PRIMARY"])
+        insight_y -= 44
+
+    panel(448, 32, page_w - 472, 200, "Summary of Findings")
+    summary = (
+        f"Buyer inventory is strongest where days-on-hand remains near target and reorder "
+        f"coverage is controlled. Current pressure is concentrated in {reorder_skus} reorder SKUs "
+        f"and {at_risk} at-risk SKUs, while {overstock} overstock positions and {slow_movers} slow movers "
+        f"represent carrying-risk exposure."
+    )
+    _draw_wrapped_text(460, 190, summary, width=(page_w - 495), font_name="Helvetica", font_size=10, line_height=14, color=pdf_colors["TEXT_PRIMARY"])
+
+    # Appendix A/B/C pages appended after executive summary page.
+    reorder_source = (
+        _safe_report_df(payload.get("reorder_summary"))
+        if not _safe_report_df(payload.get("reorder_summary")).empty
+        else _safe_report_df(payload.get("detail_view"))
+        if not _safe_report_df(payload.get("detail_view")).empty
+        else _safe_report_df(payload.get("product_detail"))
+    )
+    reorder_pref = [
+        ("Item", ["itemname", "product_name", "item name", "Product Name"]),
+        ("Brand/Vendor", ["brand", "vendor"]),
+        ("Category", ["subcategory", "category", "mastercategory"]),
+        ("Package Size", ["packagesize", "package_size", "package size"]),
+        ("Strain Type", ["strain_type", "strain type"]),
+        ("On Hand", ["onhandunits", "on_hand_units", "available"]),
+        ("Units Sold", ["unitssold", "units_sold", "total inventory sold"]),
+        ("Avg Units/Day", ["avgunitsperday", "avg_units_per_day"]),
+        ("Days on Hand", ["daysonhand", "days_on_hand", "dos"]),
+        ("Reorder Qty", ["reorderqty", "reorder_qty"]),
+        ("Priority", ["reorderpriority", "reorder_priority"]),
+    ]
+    reorder_table, _ = _resolve_report_columns(reorder_source, reorder_pref)
+    if reorder_table.empty:
+        _append_pdf_message_page("Appendix A: Reorder Action List", "No reorder action data available.")
+    else:
+        for c_name in ["Priority", "Days on Hand", "Avg Units/Day"]:
+            if c_name in reorder_table.columns:
+                reorder_table[c_name] = pd.to_numeric(reorder_table[c_name], errors="coerce")
+        sort_cols, ascending = [], []
+        if "Priority" in reorder_table.columns:
+            sort_cols.append("Priority"); ascending.append(True)
+        if "Days on Hand" in reorder_table.columns:
+            sort_cols.append("Days on Hand"); ascending.append(True)
+        if "Avg Units/Day" in reorder_table.columns:
+            sort_cols.append("Avg Units/Day"); ascending.append(False)
+        if sort_cols:
+            reorder_table = reorder_table.sort_values(sort_cols, ascending=ascending, na_position="last")
+        _append_pdf_table_page("Appendix A: Reorder Action List", reorder_table.head(250))
+
+    health_source = _safe_report_df(payload.get("inventory_health"))
+    if health_source.empty:
+        health_source = reorder_source
+    health_table, _ = _resolve_report_columns(health_source, reorder_pref[:-1] + [("Health Flag", ["health_flag", "healthflag"])])
+    if health_table.empty:
+        _append_pdf_message_page("Appendix B: Inventory Health Detail", "No inventory health data available.")
+    else:
+        if "Health Flag" not in health_table.columns:
+            health_table = _derive_inventory_health_flags(health_table)
+        severity = {"Low Stock": 1, "Watch": 2, "Healthy": 3, "Overstock": 4, "Dead / No Movement": 5}
+        health_table["_severity"] = health_table.get("Health Flag", "").map(severity).fillna(99)
+        if "Days on Hand" in health_table.columns:
+            health_table["Days on Hand"] = pd.to_numeric(health_table["Days on Hand"], errors="coerce")
+        health_table = health_table.sort_values(["_severity", "Days on Hand"] if "Days on Hand" in health_table.columns else ["_severity"], ascending=[True, True] if "Days on Hand" in health_table.columns else [True], na_position="last").drop(columns=["_severity"], errors="ignore")
+        _append_pdf_table_page("Appendix B: Inventory Health Detail", health_table.head(250))
+
+    cat_source = _safe_report_df(payload.get("detail_view"))
+    if cat_source.empty:
+        cat_source = reorder_source
+    cat_table_in, _ = _resolve_report_columns(cat_source, reorder_pref)
+    cat_perf = _build_category_performance_df(cat_table_in)
+    if cat_perf.empty:
+        _append_pdf_message_page("Appendix C: Category Performance", "No category performance data available.")
+    else:
+        sort_col = "total_reorder_qty" if "total_reorder_qty" in cat_perf.columns else "total_units_sold"
+        cat_perf = cat_perf.sort_values(sort_col, ascending=False)
+        _append_pdf_table_page("Appendix C: Category Performance", cat_perf.head(250))
+
+
+    c.showPage()
+    _draw_pdf_report_background(c, page_w, page_h, dark=False)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(30, page_h - 40, "Cost Breakdown")
+    cost_df = _safe_report_df(payload.get("cost_breakdown"))
+    if not cost_df.empty:
+        cols = [col for col in ["Cost Type", "Total Cost", "Cost per Gram", "Cost per Unit"] if col in cost_df.columns]
+        if cols:
+            data = [cols] + cost_df[cols].astype(str).values.tolist()
+            t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
+            t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
+            _, h = t.wrap(page_w - 60, page_h - 120)
+            t.drawOn(c, 30, page_h - 70 - h)
+        else:
+            c.setFillColor(colors.black)
+            c.setFont("Helvetica", 10)
+            c.drawString(30, page_h - 70, "No cost breakdown data available.")
+
+    c.showPage()
+    _draw_pdf_report_background(c, page_w, page_h, dark=False)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(30, page_h - 40, "Compliance Checklist")
+    comp_df = _safe_report_df(payload.get("compliance_checklist"))
+    if not comp_df.empty:
+        cols = [col for col in ["Requirement", "Status"] if col in comp_df.columns]
+        if cols:
+            data = [cols] + comp_df[cols].astype(str).values.tolist()
+            t = Table(data, colWidths=[(page_w - 60) / max(len(cols), 1)] * max(len(cols), 1), repeatRows=1)
+            t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f49b42")), ("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
+            _, h = t.wrap(page_w - 60, page_h - 120)
+            t.drawOn(c, 30, page_h - 70 - h)
+        else:
+            c.setFillColor(colors.black)
+            c.setFont("Helvetica", 10)
+            c.drawString(30, page_h - 70, "No compliance checklist data available.")
+
+    c.save()
+    out.seek(0)
+    return out.read()
+
+def _build_extraction_executive_report_pdf(payload: dict) -> bytes:
+    from reports.extraction_report import _build_extraction_executive_report_pdf as build_report
+
+    return build_report(payload)
+
+    payload = payload or {}
+    out = BytesIO()
+    page_w, page_h = letter[1], letter[0]
+    c = canvas.Canvas(out, pagesize=(page_w, page_h))
+
+    pdf_colors = {
+        "BACKGROUND_DARK": colors.HexColor("#0f0f10"),
+        "CARD_BG": colors.HexColor("#181818"),
+        "CARD_BG_ALT": colors.HexColor("#202124"),
+        "BORDER": colors.HexColor("#343434"),
+        "ACCENT_ORANGE": colors.HexColor("#ff9a3c"),
+        "TEXT_PRIMARY": colors.HexColor("#ffffff"),
+        "TEXT_SECONDARY": colors.HexColor("#b8b8b8"),
+        "TEXT_MUTED": colors.HexColor("#7f7f7f"),
+        "SUCCESS_GREEN": colors.HexColor("#64d18a"),
+        "WARNING_YELLOW": colors.HexColor("#f6c453"),
+        "DANGER_RED": colors.HexColor("#ff5c5c"),
+        "BLUE_ACCENT": colors.HexColor("#5ea8ff"),
+        "APPENDIX_BG": colors.HexColor("#f7f8fa"),
+        "APPENDIX_ROW_ALT": colors.HexColor("#f0f2f5"),
+    }
+
+    def _norm_col(name: str) -> str:
+        return "".join(ch for ch in str(name).strip().lower() if ch.isalnum())
+
+    def _safe_float(v):
+        vv = pd.to_numeric(pd.Series([v]), errors="coerce").iloc[0]
+        return None if pd.isna(vv) else float(vv)
+
+    def _fmt_weight(v):
+        fv = _safe_float(v)
+        return "N/A" if fv is None else f"{fv:,.1f}g"
+
+    def _fmt_pct(v):
+        fv = _safe_float(v)
+        return "N/A" if fv is None else f"{fv:,.1f}%"
+
+    def _fmt_currency(v):
+        fv = _safe_float(v)
+        return "N/A" if fv is None else f"${fv:,.2f}"
+
+    def _fmt_cpg(v):
+        fv = _safe_float(v)
+        return "N/A" if fv is None else f"${fv:,.2f}/g"
+
+    def _fmt_units(v):
+        fv = _safe_float(v)
+        return "N/A" if fv is None else f"{int(round(fv)):,}"
+
+    def _fmt_bool(v):
+        if pd.isna(v):
+            return "N/A"
+        s = str(v).strip().lower()
+        if s in ["true", "1", "yes", "y", "hold"]:
+            return "Yes"
+        if s in ["false", "0", "no", "n"]:
+            return "No"
+        return str(v)
+
+    def _draw_report_header_footer(page_title: str, dark: bool = True):
+        background = globals().get("_draw_pdf_report_background")
+        if callable(background):
+            background(c, page_w, page_h, dark=dark)
+        else:
+            c.setFillColor(
+                pdf_colors["BACKGROUND_DARK"] if dark else pdf_colors["APPENDIX_BG"]
+            )
+            c.rect(0, 0, page_w, page_h, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["CARD_BG"])
+        c.rect(0, page_h - 46, page_w, 46, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.rect(0, page_h - 46, page_w, 2, stroke=0, fill=1)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(30, page_h - 28, "Buyer Dashboard")
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"])
+        c.setFont("Helvetica", 9)
+        c.drawRightString(page_w - 30, page_h - 28, "Extraction Executive Summary")
+        c.setFillColor(pdf_colors["TEXT_MUTED"])
+        c.setFont("Helvetica", 8)
+        c.drawString(30, 16, f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawRightString(page_w - 30, 16, f"Page {c.getPageNumber()}")
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.setFont("Helvetica-Bold", 15)
+        c.drawString(30, page_h - 72, page_title)
+
+    def _panel(x, y, w, h, title):
+        c.setFillColor(pdf_colors["CARD_BG"])
+        c.roundRect(x, y, w, h, 8, stroke=1, fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"])
+        c.roundRect(x, y, w, h, 8, stroke=1, fill=0)
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"])
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(x + 10, y + h - 18, title)
+
+    runs = _safe_report_df(payload.get("run_performance"))
+    profitability = _safe_report_df(payload.get("profitability"))
+    process = _safe_report_df(payload.get("process_tracking"))
+    _state = getattr(globals().get("st", None), "session_state", {}) or {}
+    inv_sources = [payload.get("extraction_inventory"), payload.get("ecc_inventory"), payload.get("material_inventory"), payload.get("source_materials"), _state.get("ecc_inventory_log"), _state.get("extraction_inventory")]
+    inventory = pd.DataFrame()
+    for src in inv_sources:
+        df = _safe_report_df(src)
+        if not df.empty:
+            inventory = df
+            break
+
+    has_data = any(not df.empty for df in [runs, profitability, process, inventory])
+    _draw_report_header_footer("Executive Summary", dark=True)
+
+    if not has_data:
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        c.setFont("Helvetica", 13)
+        c.drawString(40, page_h - 130, "Upload or enter extraction data before exporting an extraction executive summary.")
+        c.save(); out.seek(0); return out.read()
+
+    summary = payload.get("summary", {}) or {}
+    kpis = payload.get("kpis", {}) or {}
+    c.setFillColor(pdf_colors["ACCENT_ORANGE"]); c.rect(30, page_h - 90, 240, 4, stroke=0, fill=1)
+    c.setFillColor(pdf_colors["TEXT_MUTED"]); c.setFont("Helvetica", 10)
+    c.drawString(30, page_h - 106, f"Period: {summary.get('reporting_period','N/A')}   |   Facility: {summary.get('facility_context','N/A')}")
+
+    qa_holds = int(kpis.get("qa_holds_or_coa_pending", 0) or 0)
+    at_risk = int(kpis.get("at_risk_batches", 0) or 0)
+    metric_rows = [
+        ("Total Runs", _fmt_units(kpis.get("total_runs"))), ("Total Input Weight", _fmt_weight(kpis.get("total_input_weight_g"))),
+        ("Total Finished Output", _fmt_weight(kpis.get("total_finished_output_g"))), ("Average Yield %", _fmt_pct(kpis.get("avg_yield_pct"))),
+        ("Average Efficiency %", _fmt_pct(kpis.get("avg_efficiency_pct"))), ("Total Estimated Revenue", _fmt_currency(kpis.get("total_estimated_revenue_usd"))),
+        ("Total COGs", _fmt_currency(kpis.get("total_cogs_usd"))), ("Gross Profit", _fmt_currency(kpis.get("gross_profit_usd"))),
+        ("Gross Margin %", _fmt_pct(kpis.get("gross_margin_pct"))), ("QA Holds / COA Pending", f"{qa_holds:,}"), ("At-Risk Batches", f"{at_risk:,}"),
+    ]
+
+    _panel(24, 420, 470, 120, "KPI Metrics")
+    c.setFont("Helvetica", 9)
+    for i, (label, val) in enumerate(metric_rows):
+        col, row = i % 3, i // 3
+        x, y = 36 + (col * 150), 516 - (row * 26)
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.drawString(x, y, label)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"]); c.setFont("Helvetica-Bold", 10); c.drawString(x, y - 12, val); c.setFont("Helvetica", 9)
+
+    _panel(24, 235, 300, 175, "Production Health")
+    method_mix = runs["method"].astype(str).value_counts().head(3).to_dict() if "method" in runs.columns else {}
+    prod_lines = [f"Yield performance: {_fmt_pct(kpis.get('avg_yield_pct'))}", f"Output volume: {_fmt_weight(kpis.get('total_finished_output_g'))}", f"QA/COA pressure: {qa_holds:,} flagged runs", f"Method mix: {', '.join([f'{k} ({v})' for k,v in method_mix.items()]) if method_mix else 'N/A'}"]
+    c.setFillColor(pdf_colors["TEXT_PRIMARY"]); c.setFont("Helvetica", 10)
+    for i, line in enumerate(prod_lines): c.drawString(36, 380 - (i*30), line[:80])
+
+    _panel(336, 235, 300, 175, "Financial Health")
+    fin_vals = [kpis.get("total_estimated_revenue_usd"), kpis.get("total_cogs_usd"), kpis.get("gross_profit_usd"), kpis.get("gross_margin_pct")]
+    fin_all_missing = all((_safe_float(v) in [None, 0.0] for v in fin_vals))
+    fin_lines = [f"Revenue: {_fmt_currency(kpis.get('total_estimated_revenue_usd'))}", f"COGs: {_fmt_currency(kpis.get('total_cogs_usd'))}", f"Gross profit: {_fmt_currency(kpis.get('gross_profit_usd'))}", f"Gross margin: {_fmt_pct(kpis.get('gross_margin_pct'))}"]
+    for i, line in enumerate(fin_lines): c.drawString(348, 380 - (i*30), line)
+    if fin_all_missing:
+        c.setFillColor(pdf_colors["WARNING_YELLOW"]); c.drawString(348, 258, "Financial inputs not provided")
+
+    _panel(648, 235, page_w-672, 175, "Extraction Inventory Summary")
+    if inventory.empty:
+        c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.drawString(660, 330, "No extraction inventory data was available for this report.")
+    else:
+        cols = {_norm_col(cn):cn for cn in inventory.columns}
+        def col(*names):
+            for n in names:
+                if _norm_col(n) in cols: return cols[_norm_col(n)]
+            return None
+        cur, res, avail = col("current_weight_g","current_weight"), col("reserved_weight_g","reserved_weight"), col("available_weight_g","available_weight")
+        metrc, mtype, strain, status = col("metrc_package_id"), col("material_type"), col("strain"), col("status")
+        inv_lines = [
+            f"Total lots: {len(inventory):,}",
+            f"Current weight: {_fmt_weight(pd.to_numeric(inventory[cur],errors='coerce').sum()) if cur else 'N/A'}",
+            f"Reserved weight: {_fmt_weight(pd.to_numeric(inventory[res],errors='coerce').sum()) if res else 'N/A'}",
+            f"Available weight: {_fmt_weight(pd.to_numeric(inventory[avail],errors='coerce').sum()) if avail else 'N/A'}",
+            f"Material types: {inventory[mtype].nunique() if mtype else 0}",
+            f"Strains: {inventory[strain].nunique() if strain else 0}",
+            f"Missing METRC IDs: {int(inventory[metrc].isna().sum()) if metrc else 'N/A'}",
+            f"Held/Unavailable: {int(inventory[status].astype(str).str.contains('hold|unavail', case=False, na=False).sum()) if status else 'N/A'}",
+        ]
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"])
+        for i,line in enumerate(inv_lines[:6]): c.drawString(660, 380 - (i*24), line[:48])
+
+    _panel(24, 32, page_w - 48, 190, "Summary of Findings")
+    findings = (payload.get("insights", {}) or {}).get("summary_of_findings") or "Extraction performance indicates opportunities in yield, cost control, inventory pressure, and QA throughput."
+    c.setFillColor(pdf_colors["TEXT_PRIMARY"]); c.setFont("Helvetica", 10); c.drawString(36, 192, findings[:260])
+
+    def _format_table_value(col_name, value):
+        if pd.isna(value): return "N/A"
+        n = _norm_col(col_name)
+        financial_cols = {"unitsizeg","unitsperbatch","unitpriceusd","totalcogsusd","costpergram","costperunit","estimatedrevenueusd","grossprofitusd","grossmarginpct"}
+        if n in financial_cols and _safe_float(value) == 0.0: return "N/A"
+        if n in ["qahold"]: return _fmt_bool(value)
+        if "pct" in n: return _fmt_pct(value)
+        if any(k in n for k in ["revenue","cogs","profit","cost","price","usd"]):
+            return _fmt_cpg(value) if "costpergram" in n else _fmt_currency(value)
+        if "weightg" in n or "outputg" in n or "inputg" in n: return _fmt_weight(value)
+        if "units" in n: return _fmt_units(value)
+        return str(value)
+
+    def _append_table_page(title, df, cols, note=None):
+        c.showPage(); _draw_report_header_footer(title, dark=False)
+        if note:
+            c.setFillColor(pdf_colors["WARNING_YELLOW"]); c.setFont("Helvetica", 9); c.drawString(30, page_h - 90, note)
+        if df.empty:
+            c.setFillColor(pdf_colors["TEXT_MUTED"]); c.drawString(30, page_h - 120, "No data available."); return
+        cmap = {_norm_col(cn): cn for cn in df.columns}
+        resolved = [cmap[_norm_col(cn)] for cn in cols if _norm_col(cn) in cmap]
+        data = df[resolved].copy() if resolved else pd.DataFrame()
+        labels = {"batch_id_internal":"Batch ID","input_weight_g":"Input Weight","finished_output_g":"Finished Output","yield_pct":"Yield %","coa_status":"COA Status","qa_hold":"QA Hold","total_cogs_usd":"Total COGs","cost_per_gram":"Cost/G","estimated_revenue_usd":"Est. Revenue","gross_profit_usd":"Gross Profit","gross_margin_pct":"Gross Margin %","metrc_package_id":"METRC Package","available_weight_g":"Available Weight"}
+        headers = [labels.get(cn, cn.replace('_',' ').title()) for cn in resolved]
+        for cn in resolved: data[cn] = data[cn].apply(lambda v: _format_table_value(cn, v))
+        rows = [headers] + data.fillna("N/A").astype(str).values.tolist()
+        chunk=30
+        for i in range(0, len(rows)-1, chunk):
+            if i>0: c.showPage(); _draw_report_header_footer(title, dark=False)
+            page_rows=[rows[0]]+rows[i+1:i+1+chunk]
+            t=Table(page_rows, colWidths=[(page_w-60)/len(headers)]*len(headers), repeatRows=1)
+            style=[("BACKGROUND",(0,0),(-1,0),pdf_colors["ACCENT_ORANGE"]),("TEXTCOLOR",(0,0),(-1,0),colors.black),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),7),("GRID",(0,0),(-1,-1),0.25,pdf_colors["BORDER"])]
+            for ridx in range(1,len(page_rows)): style.append(("BACKGROUND",(0,ridx),(-1,ridx),pdf_colors["APPENDIX_ROW_ALT"] if ridx%2==0 else colors.white))
+            t.setStyle(TableStyle(style)); _,h=t.wrap(page_w-60,page_h-120); t.drawOn(c,30,page_h-100-h)
+
+    _append_table_page("Appendix A: Run Performance Detail", runs, ["run_date","batch_id_internal","method","input_material_type","input_weight_g","finished_output_g","yield_pct","status","coa_status","qa_hold"])
+    _append_table_page("Appendix B: Value & Profitability Detail", profitability, ["batch_id_internal","method","final_product_type","finished_output_g","unit_size_g","units_per_batch","unit_price_usd","total_cogs_usd","cost_per_gram","cost_per_unit","estimated_revenue_usd","gross_profit_usd","gross_margin_pct"], note="Financial inputs were not provided for some or all runs. Revenue, COGs, and margin values may be unavailable.")
+    _append_table_page("Appendix C: Process / Stage Tracking", process, ["batch_id_internal","process_stage","stage_input_weight_g","stage_output_weight_g","stage_loss_g","stage_yield_pct","metrc_stage_input_id","metrc_stage_output_id","notes"])
+    _append_table_page("Appendix D: Extraction Inventory / Material Pressure", inventory, ["material_name","material_type","strain","source_vendor","batch_id_internal","metrc_package_id","current_weight_g","reserved_weight_g","available_weight_g","cost_per_g","intended_method","status","storage_location"], note=None if not inventory.empty else "No extraction inventory detail available.")
+
+    c.save(); out.seek(0); return out.read()
+
+
+def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
+    from reports.white_label_report import _build_white_label_repack_report_pdf as build_report
+
+    return build_report(payload)
+
+    payload = payload or {}
+    out = BytesIO()
+    c = canvas.Canvas(out, pagesize=landscape(letter))
+    page_w, page_h = landscape(letter)
+
+    pdf_colors = {
+        "BACKGROUND_DARK": colors.HexColor("#0f0f10"),
+        "CARD_BG": colors.HexColor("#181818"),
+        "CARD_BG_ALT": colors.HexColor("#202124"),
+        "BORDER": colors.HexColor("#343434"),
+        "ACCENT_ORANGE": colors.HexColor("#ff9a3c"),
+        "TEXT_PRIMARY": colors.HexColor("#ffffff"),
+        "TEXT_SECONDARY": colors.HexColor("#b8b8b8"),
+        "TEXT_MUTED": colors.HexColor("#7f7f7f"),
+        "SUCCESS_GREEN": colors.HexColor("#64d18a"),
+        "WARNING_YELLOW": colors.HexColor("#f6c453"),
+        "DANGER_RED": colors.HexColor("#ff5c5c"),
+        "BLUE_ACCENT": colors.HexColor("#5ea8ff"),
+        "APPENDIX_BG": colors.HexColor("#f6f7f9"),
+    }
+    styles = getSampleStyleSheet()
+    p_wrap = ParagraphStyle("wl_wrap", parent=styles["BodyText"], fontName="Helvetica", fontSize=8, leading=10)
+    h_wrap = ParagraphStyle("wl_head", parent=styles["BodyText"], fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=colors.black)
+
+    def _is_nonempty(v):
+        if v is None:
+            return False
+        if isinstance(v, pd.DataFrame):
+            return not v.empty
+        if isinstance(v, (list, tuple, set, dict)):
+            return len(v) > 0
+        return True
+
+    def _df(v):
+        if isinstance(v, pd.DataFrame):
+            return v.copy()
+        if isinstance(v, list):
+            return pd.DataFrame(v)
+        if isinstance(v, dict):
+            return pd.DataFrame([v])
+        return pd.DataFrame()
+
+    def _first_nonempty(*values):
+        for value in values:
+            if _is_nonempty(value):
+                return value
+        return None
+
+    def _num(v):
+        try: return float(v)
+        except Exception: return None
+
+    def _fmt_money(v):
+        n=_num(v); return f"${n:,.2f}" if n is not None else "N/A"
+    def _fmt_pct(v):
+        n=_num(v); return f"{n:.1f}%" if n is not None else "N/A"
+    def _fmt_g(v):
+        n=_num(v); return f"{n:,.1f} g" if n is not None else "N/A"
+    def _fmt_units(v):
+        n=_num(v); return f"{int(round(n)):,}" if n is not None else "N/A"
+
+    summary = payload.get("summary") or {}
+    scenario = payload.get("scenario_name") or "Current Session"
+    package_df = _df(_first_nonempty(payload.get("package_output_summary"), payload.get("package_plan")))
+    cost_df = _df(payload.get("cost_breakdown"))
+    comp_df = _df(payload.get("compliance_checklist"))
+    readiness = payload.get("margin_readiness") if isinstance(payload.get("margin_readiness"), dict) else {}
+
+    def _col(df, candidates):
+        lower = {str(c).strip().lower(): c for c in df.columns}
+        for cand in candidates:
+            if cand.lower() in lower:
+                return lower[cand.lower()]
+        return None
+
+    has_data = any([_is_nonempty(package_df), _is_nonempty(cost_df), _is_nonempty(comp_df), _is_nonempty(summary)])
+
+    def _header(title, dark=True):
+        _draw_pdf_report_background(c, page_w, page_h, dark=dark)
+        c.setFillColor(pdf_colors["ACCENT_ORANGE"]); c.rect(0,page_h-42,page_w,42,stroke=0,fill=1)
+        c.setFillColor(colors.black); c.setFont("Helvetica-Bold", 12); c.drawString(20,page_h-27,title)
+        c.setFont("Helvetica",8); c.drawRightString(page_w-20,page_h-27,f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}")
+
+    _header("White Label / Repack Executive Summary", dark=True)
+    c.setFillColor(pdf_colors["TEXT_PRIMARY"]); c.setFont("Helvetica-Bold", 20); c.drawString(24, page_h-84, "White Label / Repack Executive Summary")
+    c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.setFont("Helvetica", 10)
+    meta=[f"Scenario: {scenario}",f"Strain: {summary.get('strain_name') or 'N/A'}",f"Type: {payload.get('bulk_lot_details',{}).get('wl_strain_type') or 'N/A'}",f"Cultivator/Vendor: {payload.get('bulk_lot_details',{}).get('wl_vendor_name') or 'N/A'}",f"Source METRC Package: {summary.get('source_metrc_package_id') or 'N/A'}",f"COA: {summary.get('coa_link') or 'N/A'}"]
+    y=page_h-104
+    for m in meta:
+        c.drawString(26,y,m); y-=13
+
+    units_col = _col(package_df, ['units_produced','units'])
+    packaging_col = _col(package_df, ['total_packaging_cost'])
+    total_units = package_df[units_col].fillna(0).sum() if units_col else None
+    total_packaging_cost = package_df[packaging_col].fillna(0).sum() if packaging_col else None
+    avg_packaging_per_unit = (total_packaging_cost / max(1, total_units)) if (total_packaging_cost is not None and total_units is not None) else None
+
+    kpis = [
+        ("Landed Cost", _fmt_money(summary.get("landed_cost_usd"))),
+        ("Total Revenue", _fmt_money(summary.get("total_revenue_usd"))),
+        ("Gross Profit", _fmt_money(summary.get("gross_profit_usd"))),
+        ("Gross Margin %", _fmt_pct(summary.get("gross_margin_pct"))),
+        ("Total Units", _fmt_units(total_units)),
+        ("Usable Weight", _fmt_g(payload.get('bulk_lot_details',{}).get('wl_usable_weight_g'))),
+        ("Total Packaging Cost", _fmt_money(total_packaging_cost)),
+        ("Avg Packaging Cost / Unit", _fmt_money(avg_packaging_per_unit)),
+        ("Complete Margin Rows", str(int(readiness.get("complete_rows",0))) if readiness else "N/A"),
+        ("Incomplete Margin Rows", str(int(readiness.get("incomplete_rows",0))) if readiness else "N/A"),
+    ]
+    x0,y0,w,h=24,page_h-275,146,54
+    for i,(k,v) in enumerate(kpis):
+        r,cidx=divmod(i,5); x=x0+cidx*(w+8); y=y0-r*(h+8)
+        c.setFillColor(pdf_colors["CARD_BG"] if i%2==0 else pdf_colors["CARD_BG_ALT"]); c.roundRect(x,y,w,h,6,stroke=1,fill=1)
+        c.setStrokeColor(pdf_colors["BORDER"]); c.setFillColor(pdf_colors["TEXT_MUTED"]); c.setFont("Helvetica",8); c.drawString(x+8,y+h-16,k)
+        c.setFillColor(pdf_colors["TEXT_PRIMARY"]); c.setFont("Helvetica-Bold",12); c.drawString(x+8,y+14,v)
+
+    c.setFillColor(pdf_colors["TEXT_SECONDARY"]); c.setFont("Helvetica",9)
+    c.drawString(24,70,f"Margin Readiness: complete {readiness.get('complete_rows','N/A') if readiness else 'N/A'}, incomplete {readiness.get('incomplete_rows','N/A') if readiness else 'N/A'}")
+    c.drawString(24,56,f"Packaging Cost Summary: {_fmt_money(package_df[_col(package_df,['total_packaging_cost'])].fillna(0).sum() if _col(package_df,['total_packaging_cost']) else None)}")
+    ready=(comp_df[_col(comp_df,['status'])].astype(str).str.lower().eq('ready').sum() if _col(comp_df,['status']) else 0)
+    review=(comp_df[_col(comp_df,['status'])].astype(str).str.contains('review',case=False,na=False).sum() if _col(comp_df,['status']) else 0)
+    missing=(comp_df[_col(comp_df,['status'])].astype(str).str.contains('missing',case=False,na=False).sum() if _col(comp_df,['status']) else 0)
+    c.drawString(24,42,f"Compliance Readiness: Ready {ready} | Needs Review {review} | Missing {missing}")
+
+    def _draw_table_page(title, df, columns, formatters=None):
+        c.showPage(); _header(title, dark=False)
+        columns=[(cname,label) for cname,label in columns if cname]
+        if not columns or df.empty:
+            c.setFillColor(pdf_colors["TEXT_MUTED"]); c.drawString(24,page_h-80,"No data available."); return
+        rows=[]
+        for _,row in df.iterrows():
+            rr=[]
+            for col,label in columns:
+                val=row.get(col)
+                if formatters and col in formatters: val=formatters[col](val)
+                rr.append(Paragraph(str(val if pd.notna(val) else "N/A"), p_wrap))
+            rows.append(rr)
+        header=[Paragraph(lbl,h_wrap) for _,lbl in columns]
+        table=Table([header]+rows, colWidths=[(page_w-48)/len(columns)]*len(columns), repeatRows=1)
+        st=[("BACKGROUND",(0,0),(-1,0),pdf_colors["ACCENT_ORANGE"]),("GRID",(0,0),(-1,-1),0.25,pdf_colors["BORDER"]),("VALIGN",(0,0),(-1,-1),"TOP")]
+        table.setStyle(TableStyle(st)); _,th=table.wrap(page_w-48,page_h-110); table.drawOn(c,24,max(30,page_h-80-th))
+
+    if not has_data:
+        c.showPage(); _header("White Label / Repack Executive Summary", dark=False); c.drawString(24,page_h-80,"No report data available. Run a scenario and export again.")
+    else:
+        _draw_table_page("Package Size Performance ‚Äî Table A: Package Output", package_df, [(_col(package_df,['package_size_g','package_size']),'Package Size'),(_col(package_df,['allocation_pct']),'Allocation %'),(_col(package_df,['grams_allocated']),'Grams Allocated'),(_col(package_df,['units_produced','units']),'Units'),(_col(package_df,['target_retail_price_per_unit','retail_price']),'Retail Price'),(_col(package_df,['revenue','total_revenue','total_revenue_usd']),'Revenue'),(_col(package_df,['status']),'Status')], { _col(package_df,['allocation_pct']):_fmt_pct, _col(package_df,['grams_allocated']):_fmt_g, _col(package_df,['target_retail_price_per_unit','retail_price']):_fmt_money, _col(package_df,['revenue','total_revenue','total_revenue_usd']):_fmt_money })
+        _draw_table_page("Package Size Performance ‚Äî Table B: Margin Detail", package_df, [(_col(package_df,['package_size_g','package_size']),'Package Size'),(_col(package_df,['total_packaging_cost_per_unit','packaging_per_unit']),'Packaging / Unit'),(_col(package_df,['total_packaging_cost']),'Total Packaging'),(_col(package_df,['all_in_cost_per_unit']),'All-In / Unit'),(_col(package_df,['break_even_price_per_unit']),'Break-even Price'),(_col(package_df,['gross_profit']),'Gross Profit'),(_col(package_df,['gross_margin_pct']),'Gross Margin %')], { _col(package_df,['total_packaging_cost_per_unit','packaging_per_unit']):_fmt_money,_col(package_df,['total_packaging_cost']):_fmt_money,_col(package_df,['all_in_cost_per_unit']):_fmt_money,_col(package_df,['break_even_price_per_unit']):_fmt_money,_col(package_df,['gross_profit']):_fmt_money,_col(package_df,['gross_margin_pct']):_fmt_pct })
+        _draw_table_page("Cost Breakdown", cost_df, [(_col(cost_df,['Cost Type','cost_type']),'Cost Type'),(_col(cost_df,['Total Cost','total_cost']),'Total Cost'),(_col(cost_df,['Cost per Gram','cost_per_gram']),'Cost per Gram'),(_col(cost_df,['Cost per Unit','cost_per_unit']),'Cost per Unit')], { _col(cost_df,['Total Cost','total_cost']):_fmt_money, _col(cost_df,['Cost per Gram','cost_per_gram']):lambda v: f"{_fmt_money(v)}/g" if _num(v) is not None else "N/A", _col(cost_df,['Cost per Unit','cost_per_unit']):_fmt_money })
+        _draw_table_page("Compliance Checklist", comp_df, [(_col(comp_df,['Requirement','requirement']),'Requirement'),(_col(comp_df,['Status','status']),'Status'),(_col(comp_df,['Notes','notes']),'Notes')], None)
+
+    c.save(); out.seek(0); return out.read()
+
+
+_display_user = (
+    st.session_state.admin_user if st.session_state.get("is_admin")
+    else st.session_state.get("user_user") or "Buyer"
+)
+
+
+def _time_greeting() -> str:
+    hour = datetime.now().hour
+    if hour < 12:
+        return "Good Morning"
+    if hour < 17:
+        return "Good Afternoon"
+    return "Good Evening"
+
+
+render_commandbar(
+    user_name=str(_display_user),
+    role=str(st.session_state.get("auth_user_role") or "trial"),
+    storage_connected=bool(APP_USER_STORE.configured),
+)
+_buyer_export_payload = st.session_state.get("buyer_export_payload")
+_buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+workspace_options = build_workspace_options(_feature_enabled)
+workspace_groups = {
+    RETAIL_OPS: [
+        workspace
+        for workspace in workspace_options
+        if workspace not in {COMAN_WORKSPACE, COMMERCIAL_WORKSPACE, EXTRACTION_WORKSPACE, DATA_HUB_WORKSPACE}
+    ],
+    PRODUCTION_OPS: [
+        workspace
+        for workspace in workspace_options
+        if workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
+    ],
+    COMMERCIAL_OPS: [
+        workspace
+        for workspace in workspace_options
+        if workspace == COMMERCIAL_WORKSPACE
+    ],
+    DATA_OPERATIONS: [
+        workspace
+        for workspace in workspace_options
+        if workspace == DATA_HUB_WORKSPACE
+    ],
+}
+workspace_groups = {
+    group: options for group, options in workspace_groups.items() if options
+}
+operation_groups = list(workspace_groups)
+saved_workspace = st.session_state.get("workspace_mode")
+saved_group = (
+    PRODUCTION_OPS
+    if saved_workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
+    else COMMERCIAL_OPS
+    if saved_workspace == COMMERCIAL_WORKSPACE
+    else DATA_OPERATIONS
+    if saved_workspace == DATA_HUB_WORKSPACE
+    else RETAIL_OPS
+)
+if operation_groups and st.session_state.get("operations_group") not in operation_groups:
+    st.session_state["operations_group"] = (
+        saved_group if saved_group in operation_groups else operation_groups[0]
+    )
+if operation_groups:
+    group_workspace_options = workspace_groups[st.session_state["operations_group"]]
+    if st.session_state.get("workspace_mode") not in group_workspace_options:
+        st.session_state["workspace_mode"] = group_workspace_options[0]
+_active_workspace = st.session_state.get("workspace_mode", workspace_options[0] if workspace_options else "üõí Buyer Operations")
+
+
+def _sync_workspace_to_operations_group() -> None:
+    selected_group = st.session_state.get("operations_group")
+    selected_group_options = workspace_groups.get(selected_group, [])
+    if selected_group_options and st.session_state.get("workspace_mode") not in selected_group_options:
+        st.session_state["workspace_mode"] = selected_group_options[0]
+
+
+_ecc_runs = _safe_report_df(st.session_state.get("ecc_run_log"))
+_extraction_profitability = _safe_report_df(st.session_state.get("ecc_run_value_snapshot", _ecc_runs))
+_extraction_payload = {
+    "summary": {
+        "reporting_period": st.session_state.get("ecc_reporting_period", "Current session"),
+        "facility_context": st.session_state.get("ecc_facility_context", "N/A"),
+    },
+    "kpis": {
+        "total_runs": int(len(_ecc_runs)),
+        "total_input_weight_g": _safe_numeric_sum(_ecc_runs, "input_weight_g"),
+        "total_finished_output_g": _safe_numeric_sum(_ecc_runs, "final_output_g") if "final_output_g" in _ecc_runs.columns else _safe_numeric_sum(_ecc_runs, "finished_output_g"),
+        "avg_yield_pct": _safe_numeric_mean(_ecc_runs, "yield_pct"),
+        "avg_efficiency_pct": _safe_numeric_mean(_ecc_runs, "efficiency_pct"),
+        "total_estimated_revenue_usd": _safe_numeric_sum(_extraction_profitability, "estimated_revenue_usd"),
+        "total_cogs_usd": _safe_numeric_sum(_extraction_profitability, "total_cogs_usd"),
+        "gross_profit_usd": _safe_numeric_sum(_extraction_profitability, "gross_profit_usd"),
+        "gross_margin_pct": _safe_numeric_mean(_extraction_profitability, "gross_margin_pct"),
+        "at_risk_batches": int(_extraction_profitability["value_risk_flag"].astype(str).str.lower().isin(["critical", "warning"]).sum()) if "value_risk_flag" in _extraction_profitability.columns else 0,
+        "qa_holds_or_coa_pending": int((_ecc_runs["qa_hold"].astype(str).str.lower().isin(["true", "yes", "1", "hold"]).sum() if "qa_hold" in _ecc_runs.columns else 0) + (_ecc_runs["coa_status"].astype(str).str.contains("pending", case=False, na=False).sum() if "coa_status" in _ecc_runs.columns else 0)),
+    },
+    "run_performance": _ecc_runs,
+    "profitability": _extraction_profitability,
+    "process_tracking": _ecc_runs,
+    "extraction_inventory": _safe_report_df(st.session_state.get("ecc_inventory_log")),
+    "qa_compliance": _ecc_runs,
+    "formulation": _ecc_runs,
+    "unitization": _extraction_profitability,
+    "insights": {"summary_of_findings": st.session_state.get("ecc_summary_findings", "")},
+}
+_extraction_report_file = f"extraction_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+st.markdown(
+    """
+    <style>
+    .st-key-buyer_export_report_btn button,
+    .st-key-buyer_export_report_btn_disabled button {
+        border: none;
+        border-radius: 12px;
+        padding: 0.58rem 0.9rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, rgba(255,154,60,.95), rgba(255,187,119,.92));
+        color: #1b1308;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+_export_left, _export_right = st.columns([6, 1.4])
+_retail_report_parts: list[tuple[str, bytes]] = []
+_production_report_parts: list[tuple[str, bytes]] = []
+_buyer_report_bytes = None
+_white_report_bytes = None
+_extraction_report_bytes = _build_extraction_executive_report_pdf(_extraction_payload)
+if _buyer_export_payload is not None:
+    _buyer_report_bytes = _build_buyer_executive_report_pdf(_buyer_export_payload)
+    _retail_report_parts.append(("Buyer Operations", _buyer_report_bytes))
+_white_pack_payload = st.session_state.get("white_label_export_payload")
+if _white_pack_payload is not None:
+    _white_report_bytes = _build_white_label_repack_report_pdf(_white_pack_payload)
+    _retail_report_parts.append(("White Label / Repack", _white_report_bytes))
+for _report_name, _report_state_key in [
+    ("Retail Labor Operations", "retail_ops_labor_report_bytes"),
+    ("Competitor Intelligence", "retail_ops_competitor_report_bytes"),
+]:
+    _report_bytes = st.session_state.get(_report_state_key)
+    if isinstance(_report_bytes, bytes) and _report_bytes.startswith(b"%PDF"):
+        _retail_report_parts.append((_report_name, _report_bytes))
+if not _ecc_runs.empty:
+    _production_report_parts.append(("Extraction Operations", _extraction_report_bytes))
+_coman_report_bytes = st.session_state.get("production_ops_coman_report_bytes")
+if isinstance(_coman_report_bytes, bytes) and _coman_report_bytes.startswith(b"%PDF"):
+    _production_report_parts.append(("Co-Man Production", _coman_report_bytes))
+
+with _export_left:
+    with st.popover("Executive Report Packs"):
+        from reports.executive_system import combine_report_pdfs
+
+        st.caption("Reports are separated into Retail Ops and Production Ops. Packs include currently available reports.")
+        _pack_col1, _pack_col2 = st.columns(2)
+        with _pack_col1:
+            st.markdown("**Retail Ops**")
+            st.caption(", ".join(name for name, _ in _retail_report_parts) or "No reports ready")
+            if _retail_report_parts:
+                st.download_button(
+                    "Download Retail Ops Pack",
+                    data=combine_report_pdfs(
+                        [report for _, report in _retail_report_parts],
+                        title="DoobieLogic Retail Ops Executive Pack",
+                        division="Retail Ops",
+                    ),
+                    file_name=f"retail_ops_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+                    mime="application/pdf",
+                    key="retail_ops_report_pack",
+                    width="stretch",
+                )
+        with _pack_col2:
+            st.markdown("**Production Ops**")
+            st.caption(", ".join(name for name, _ in _production_report_parts) or "No reports ready")
+            if _production_report_parts:
+                st.download_button(
+                    "Download Production Ops Pack",
+                    data=combine_report_pdfs(
+                        [report for _, report in _production_report_parts],
+                        title="DoobieLogic Production Ops Executive Pack",
+                        division="Production Ops",
+                    ),
+                    file_name=f"production_ops_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+                    mime="application/pdf",
+                    key="production_ops_report_pack",
+                    width="stretch",
+                )
+        if _retail_report_parts and _production_report_parts:
+            st.download_button(
+                "Download Company Executive Pack",
+                data=combine_report_pdfs(
+                    [report for _, report in _retail_report_parts + _production_report_parts],
+                    title="DoobieLogic Company Executive Pack",
+                    division="All Operations",
+                ),
+                file_name=f"company_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+                mime="application/pdf",
+                key="company_report_pack",
+                width="stretch",
+            )
+with _export_right:
+    if _active_workspace == DATA_HUB_WORKSPACE:
+        st.caption("Data Hub manages operational sources; reports remain in their destination workspaces.")
+    elif _active_workspace == COMMERCIAL_WORKSPACE:
+        st.caption("Commercial orders and fulfillment exports are available inside the workspace.")
+    elif _active_workspace == EXTRACTION_WORKSPACE:
+        st.download_button(
+            "Export Production Ops Report",
+            data=_extraction_report_bytes,
+            file_name=_extraction_report_file,
+            mime="application/pdf",
+            key="extraction_export_report_btn",
+        )
+        st.caption("Production Ops executive PDF")
+    elif _active_workspace == COMAN_WORKSPACE:
+        st.caption("Production Ops report is available under Co-Man Performance.")
+    elif _active_workspace == WHITE_LABEL_WORKSPACE:
+        white_payload = st.session_state.get("white_label_export_payload")
+        if white_payload is None:
+            if st.button("Export Retail Ops Report", key="white_label_export_report_btn_disabled"):
+                st.warning("Run a white label scenario first, then export.")
+        else:
+            st.download_button(
+                "Export Retail Ops Report",
+                data=_white_report_bytes,
+                file_name=f"retail_ops_repack_report_{datetime.now().strftime('%Y-%m-%d')}.pdf",
+                mime="application/pdf",
+                key="white_label_export_report_btn",
+            )
+            st.caption("Retail Ops executive PDF")
+    elif _buyer_export_payload is None:
+        if st.button("Export Retail Ops Report", key="buyer_export_report_btn_disabled"):
+            st.warning("Upload inventory and sales data before exporting a buyer report.")
+    else:
+        st.download_button(
+            "Export Retail Ops Report",
+            data=_buyer_report_bytes,
+            file_name=_buyer_report_file_pdf,
+            mime="application/pdf",
+            key="buyer_export_report_btn",
+        )
+        st.caption("Retail Ops executive PDF")
+render_section_header(
+    "BUYER DASHBOARD",
+    subtitle="Compliance and operations intelligence for buyer and extraction teams.",
+)
+_is_dev_session = can_manage_ai_integrations(
+    st.session_state.get("auth_user_role")
+)
+if _is_dev_session:
+    _doobie_header_status = _doobie_ai_status()
+    if _doobie_header_status == "connected":
+        st.caption("üü¢ Doobie Connected")
+    elif _doobie_header_status in {
+        "invalid",
+        "revoked",
+        "expired",
+        "invalid_license",
+    }:
+        st.caption("üî¥ Doobie Invalid / Revoked")
+    elif _doobie_header_status == "unavailable":
+        st.caption("üü† Doobie Unavailable")
+    else:
+        st.caption("üü° Doobie Not Connected")
+if st.session_state.get("_daily_restore_msg"):
+    st.info(
+        "üìÇ Your uploads from earlier today have been restored automatically. "
+        "You can re-upload files at any time to refresh them."
+    )
+    st.session_state._daily_restore_msg = False
+if _is_dev_session:
+    if _doobie_ai_status() == "connected":
+        st.markdown("‚úÖ AI buyer-assist is **ON** for this session.")
+    elif not _doobie_ai_access_enabled():
+        st.markdown("üü° AI buyer-assist is **OFF** until Doobie AI is connected.")
+    else:
+        st.markdown("‚ö†Ô∏è AI buyer-assist is **OFF** (Doobie AI unavailable).")
+st.markdown("---")
+
+if not PLOTLY_AVAILABLE:
+    st.warning(
+        "‚ö†Ô∏è Plotly is not installed in this environment. Charts will be disabled.\n\n"
+        "If using Streamlit Cloud, add `plotly` and `reportlab` to your `requirements.txt` file."
+    )
+
+# =========================
+# GOD-ONLY: Upload viewer (requested)
+# =========================
+_UPLOAD_TTL_MINUTES = 60
+
+if st.session_state.is_admin:
+    # TTL purge: remove entries older than _UPLOAD_TTL_MINUTES on each run
+    now_ts = datetime.now()
+    expired_ids = []
+    for uid, meta in list(st.session_state.uploaded_files_store.items()):
+        try:
+            entry_ts = datetime.strptime(meta["ts"], "%Y-%m-%d %H:%M:%S")
+            if (now_ts - entry_ts).total_seconds() > _UPLOAD_TTL_MINUTES * 60:
+                expired_ids.append(uid)
+        except (KeyError, ValueError):
+            pass
+    for uid in expired_ids:
+        st.session_state.uploaded_files_store.pop(uid, None)
+    st.session_state.upload_log = [
+        r for r in st.session_state.upload_log if r["upload_id"] not in expired_ids
+    ]
+
+    with st.sidebar.expander("üóÇÔ∏è Admin Uploads", expanded=False):
+        st.warning(
+            "‚ö†Ô∏è This panel displays sensitive user-uploaded data. "
+            "Handle with care and do not share outside authorized personnel."
+        )
+        if st.button("üóëÔ∏è Clear all stored uploads", key="clear_upload_store"):
+            st.session_state.upload_log = []
+            st.session_state.uploaded_files_store = {}
+            st.session_state._upload_sig_seen = set()
+            st.success("All stored uploads cleared.")
+        if len(st.session_state.upload_log) == 0:
+            st.write("No uploads logged yet.")
+        else:
+            log_df = pd.DataFrame(st.session_state.upload_log)
+            st.dataframe(log_df, width="stretch")
+            st.markdown("#### Download an uploaded file")
+            upload_ids = [r["upload_id"] for r in st.session_state.upload_log]
+            selected = st.selectbox("Select upload", upload_ids)
+            if selected and selected in st.session_state.uploaded_files_store:
+                meta = st.session_state.uploaded_files_store[selected]
+                st.write(f"Uploader: {meta['uploader']}")
+                st.write(f"Role: {meta['role']}")
+                st.write(f"File: {meta['name']}")
+                st.download_button(
+                    "‚¨áÔ∏è Download uploaded file",
+                    data=meta["bytes"],
+                    file_name=meta["name"],
+                    mime="application/octet-stream",
+                )
+
+
+
+def kpi_card(label: str, value, help_text: str = ""):
+    """Reusable compact KPI tile."""
+    with st.container(border=True):
+        st.caption(label)
+        st.markdown(f"### {value}")
+        if help_text:
+            st.caption(help_text)
+
+
+def _safe_num(series: pd.Series) -> float:
+    return float(pd.to_numeric(series, errors="coerce").fillna(0).sum()) if series is not None else 0.0
+
+
+def _build_buyer_executive_report_bytes(report_payload: dict) -> bytes:
+    detail_view = report_payload.get("detail_view", pd.DataFrame()).copy()
+    detail_product = report_payload.get("detail_product", pd.DataFrame()).copy()
+    sales_df = report_payload.get("sales_df", pd.DataFrame()).copy()
+    inv_df = report_payload.get("inv_df", pd.DataFrame()).copy()
+    sales_summary = report_payload.get("sales_summary", pd.DataFrame()).copy()
+    inv_summary = report_payload.get("inv_summary", pd.DataFrame()).copy()
+    doh_threshold = int(report_payload.get("doh_threshold", 45))
+
+    generated_at = datetime.now()
+    _reporting_period = report_payload.get("reporting_period") or "Not available"
+    _store_name = report_payload.get("store_name") or "Not available"
+
+    total_sales = _safe_num(sales_df.get("net_sales")) if "net_sales" in sales_df.columns else 0.0
+    total_units_sold = _safe_num(sales_df.get("unitssold")) if "unitssold" in sales_df.columns else _safe_num(detail_view.get("unitssold"))
+    total_inventory_on_hand = _safe_num(detail_view.get("onhandunits")) if "onhandunits" in detail_view.columns else _safe_num(inv_df.get("onhandunits"))
+    total_retail_value = _safe_num(inv_df.get("retail_price") * pd.to_numeric(inv_df.get("onhandunits"), errors="coerce").fillna(0)) if {"retail_price", "onhandunits"}.issubset(inv_df.columns) else 0.0
+    reorder_total = _safe_num(detail_view.get("reorderqty")) if "reorderqty" in detail_view.columns else 0.0
+    avg_units_day = float(pd.to_numeric(detail_view.get("avgunitsperday"), errors="coerce").fillna(0).mean()) if "avgunitsperday" in detail_view.columns and not detail_view.empty else 0.0
+    avg_doh = float(pd.to_numeric(detail_view.get("daysonhand"), errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0).mean()) if "daysonhand" in detail_view.columns and not detail_view.empty else 0.0
+    aov = float(total_sales / max(pd.to_numeric(sales_df.get("order_id"), errors="coerce").nunique(), 1)) if "order_id" in sales_df.columns and total_sales > 0 else None
+    items_per_txn = float(total_units_sold / max(pd.to_numeric(sales_df.get("order_id"), errors="coerce").nunique(), 1)) if "order_id" in sales_df.columns and total_units_sold > 0 else None
+    gross_margin = None
+    if {"unit_cost", "unitssold"}.issubset(detail_view.columns) and total_sales > 0:
+        cogs = _safe_num(pd.to_numeric(detail_view["unit_cost"], errors="coerce").fillna(0) * pd.to_numeric(detail_view["unitssold"], errors="coerce").fillna(0))
+        gross_margin = (total_sales - cogs) / total_sales if total_sales > 0 else None
+
+    low_stock = detail_view[detail_view.get("daysonhand", pd.Series(dtype=float)).between(1, doh_threshold)] if "daysonhand" in detail_view.columns else pd.DataFrame()
+    overstocked = detail_view[detail_view.get("daysonhand", pd.Series(dtype=float)) > (doh_threshold * 2)] if "daysonhand" in detail_view.columns else pd.DataFrame()
+    slow_movers = detail_view[detail_view.get("reorderpriority", pd.Series(dtype=str)).astype(str).str.contains("Dead", case=False, na=False)] if "reorderpriority" in detail_view.columns else pd.DataFrame()
+    high_risk = detail_view[detail_view.get("reorderpriority", pd.Series(dtype=str)).astype(str).str.contains("ASAP", case=False, na=False)] if "reorderpriority" in detail_view.columns else pd.DataFrame()
+
+    exec_summary = pd.DataFrame([
+        ["Date generated", generated_at.strftime("%Y-%m-%d %H:%M:%S")],
+        ["Reporting period", _reporting_period],
+        ["Store / location", _store_name],
+        ["Total sales", f"${total_sales:,.2f}" if total_sales else "Not available"],
+        ["Total units sold", f"{int(total_units_sold):,}"],
+        ["Total inventory on hand", f"{int(total_inventory_on_hand):,}"],
+        ["Total retail value", f"${total_retail_value:,.2f}" if total_retail_value else "Not available"],
+    ], columns=["Metric", "Value"])
+
+    kpi_overview = pd.DataFrame([
+        ["Average units per day", f"{avg_units_day:,.2f}"],
+        ["Days on hand (avg)", f"{avg_doh:,.1f}"],
+        ["Reorder quantity total", f"{int(reorder_total):,}"],
+        ["AOV", f"${aov:,.2f}" if aov is not None else "Not available"],
+        ["Items per transaction", f"{items_per_txn:,.2f}" if items_per_txn is not None else "Not available"],
+        ["Gross margin", f"{gross_margin:.1%}" if gross_margin is not None else "Not available"],
+        ["Inventory health summary", f"{len(high_risk)} high-risk lines, {len(slow_movers)} dead/slow movers"],
+    ], columns=["KPI", "Value"])
+
+    cat_source = detail_view if "subcategory" in detail_view.columns else pd.DataFrame()
+    category_breakdown = pd.DataFrame()
+    if not cat_source.empty:
+        category_breakdown = cat_source.groupby("subcategory", dropna=False).agg(
+            category_sales=("unitssold", "sum") if "unitssold" in cat_source.columns else ("subcategory", "count"),
+            category_inventory=("onhandunits", "sum") if "onhandunits" in cat_source.columns else ("subcategory", "count"),
+            category_dos=("daysonhand", "mean") if "daysonhand" in cat_source.columns else ("subcategory", "count"),
+            category_reorder_pressure=("reorderqty", "sum") if "reorderqty" in cat_source.columns else ("subcategory", "count"),
+        ).reset_index()
+
+    product_cols = ["product_name", "brand", "subcategory", "packagesize", "strain_type", "onhandunits", "avgunitsperday", "daysonhand", "reorderqty", "reorderpriority"]
+    product_detail = detail_product.copy()
+    if "brand" not in product_detail.columns:
+        product_detail["brand"] = "Not available"
+    product_detail = product_detail[[c for c in product_cols if c in product_detail.columns]]
+
+    buyer_notes = pd.DataFrame([
+        ["Categories needing attention", ", ".join(category_breakdown.sort_values("category_reorder_pressure", ascending=False)["subcategory"].astype(str).head(3).tolist()) if not category_breakdown.empty else "Not available"],
+        ["Likely overstock risk", f"{len(overstocked)} lines with DOS > {doh_threshold * 2}"],
+        ["Likely reorder pressure", f"{len(high_risk)} lines flagged Reorder ASAP"],
+        ["Missing data warnings", "; ".join([k for k, v in {"AOV": aov, "Items/txn": items_per_txn, "Gross margin": gross_margin}.items() if v is None]) or "None"],
+    ], columns=["Topic", "Summary"])
+
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        exec_summary.to_excel(writer, index=False, sheet_name="Executive Summary")
+        kpi_overview.to_excel(writer, index=False, sheet_name="Buyer KPI Overview")
+        low_stock.to_excel(writer, index=False, sheet_name="Low Stock")
+        overstocked.to_excel(writer, index=False, sheet_name="Overstocked")
+        slow_movers.to_excel(writer, index=False, sheet_name="Slow Movers")
+        high_risk.to_excel(writer, index=False, sheet_name="High Risk")
+        detail_view.sort_values("reorderqty", ascending=False).head(100).to_excel(writer, index=False, sheet_name="Reorder Summary")
+        category_breakdown.to_excel(writer, index=False, sheet_name="Category Breakdown")
+        product_detail.to_excel(writer, index=False, sheet_name="Product Detail")
+        buyer_notes.to_excel(writer, index=False, sheet_name="Buyer Notes")
+        sales_summary.to_excel(writer, index=False, sheet_name="Sales Summary")
+        inv_summary.to_excel(writer, index=False, sheet_name="Inventory Summary")
+    out.seek(0)
+    return out.read()
+
+# ============================================================
+# EXTRA MODULE ‚Äì EXTRACTION COMMAND CENTER
+# ============================================================
+def _compute_extraction_alerts(run_df, job_df):
+    """Compute operational extraction alerts for leadership and shift teams."""
+    alerts = []
+    if run_df is None or run_df.empty:
+        return alerts
+
+    if "yield_pct" in run_df.columns:
+        low_yield = run_df[run_df["yield_pct"] < 12]
+        if not low_yield.empty:
+            alerts.append(f"Low yield runs: {len(low_yield)} below 12% yield.")
+
+    if "qa_hold" in run_df.columns:
+        qa_holds = int(run_df["qa_hold"].fillna(False).sum())
+        if qa_holds > 0:
+            alerts.append(f"QA holds active: {qa_holds} run(s).")
+
+    if "coa_status" in run_df.columns:
+        pending_or_failed = int(run_df["coa_status"].isin(["Pending", "Failed"]).sum())
+        if pending_or_failed > 0:
+            alerts.append(f"COA risk: {pending_or_failed} run(s) pending/failed.")
+
+    if "margin_per_gram" in run_df.columns:
+        negative_margin = int((pd.to_numeric(run_df["margin_per_gram"], errors="coerce").fillna(0) < 0).sum())
+        if negative_margin > 0:
+            alerts.append(f"Negative margin runs: {negative_margin}.")
+
+    if "value_risk_flag" in run_df.columns:
+        high_value_risk = int(run_df["value_risk_flag"].isin(["Critical", "Warning"]).sum())
+        if high_value_risk > 0:
+            alerts.append(f"Value risk flags: {high_value_risk} run(s) need review.")
+
+    if job_df is not None and not job_df.empty and "sla_status" in job_df.columns:
+        at_risk_jobs = int((job_df["sla_status"] == "At Risk").sum())
+        if at_risk_jobs > 0:
+            alerts.append(f"Toll jobs at SLA risk: {at_risk_jobs}.")
+
+    return alerts
+
+
+def _generate_extraction_ai_brief(
+    run_df,
+    job_df,
+    alerts,
+    inventory_context: dict[str, Any] | None = None,
+    value_context: dict[str, Any] | None = None,
+):
+    if not _doobie_ai_access_enabled():
+        return "Connect Doobie AI to enable this feature."
+    if _doobie_ai_status() != "connected":
+        return "Doobie AI is currently unavailable."
+
+    run_preview = run_df.head(50).to_dict(orient="records") if run_df is not None else []
+    job_preview = job_df.head(50).to_dict(orient="records") if job_df is not None else []
+
+    prompt = f"""
+Create an extraction operations briefing for cannabis processing leadership.
+
+Alerts: {json.dumps(alerts, indent=2)}
+Runs sample: {json.dumps(run_preview, indent=2, default=str)}
+Jobs sample: {json.dumps(job_preview, indent=2, default=str)}
+Inventory context: {json.dumps(inventory_context or {}, indent=2, default=str)}
+Value context: {json.dumps(value_context or {}, indent=2, default=str)}
+
+Output sections:
+1) Operational health summary
+2) Highest-priority batch/job interventions
+3) QA/COA actions
+4) Throughput + margin recommendations for next 72 hours
+"""
+
+    try:
+        client = _get_doobie_ai_client()
+        resp = client.extraction_brief(
+            data={
+                "alerts": alerts,
+                "run_preview": run_preview,
+                "job_preview": job_preview,
+                "inventory_context": inventory_context or {},
+                "value_context": value_context or {},
+                "prompt": prompt,
+            },
+            state="MA",
+        )
+        if str(resp.get("mode", "")).lower() == "fallback":
+            return "Doobie AI is currently unavailable."
+        return str(resp.get("answer") or "Doobie AI is currently unavailable.")
+    except Exception as exc:
+        return f"Doobie extraction brief failed: {exc}"
+
+
+_ECC_INVENTORY_COLUMNS = [
+    "received_date",
+    "material_name",
+    "material_type",
+    "strain",
+    "source_vendor",
+    "batch_id_internal",
+    "metrc_package_id",
+    "input_category",
+    "current_weight_g",
+    "reserved_weight_g",
+    "available_weight_g",
+    "cost_per_g",
+    "total_cost",
+    "status",
+    "storage_location",
+    "intended_method",
+    "notes",
+]
+
+_ECC_MATERIAL_TYPES = [
+    "Fresh Frozen",
+    "Cured Biomass",
+    "Trim",
+    "Hash",
+    "Crude",
+    "Distillate",
+    "Ethanol",
+    "Solvent",
+    "Other",
+]
+_ECC_STATUS_VALUES = ["Available", "Reserved", "In Process", "Quarantine", "Depleted"]
+_ECC_METHOD_VALUES = ["BHO", "CO2", "Rosin", "Ethanol", "Mixed / TBD"]
+_ECC_METHOD_DEFAULT_YIELD = {"BHO": 15.0, "CO2": 12.0, "Rosin": 8.0, "Ethanol": 14.0}
+EXTRACTION_METHOD_FAMILY_MAP: dict[str, str] = {
+    "BHO": "Hydrocarbon",
+    "PHO": "Hydrocarbon",
+    "Hydrocarbon Blend": "Hydrocarbon",
+    "Ethanol": "Ethanol",
+    "CO2": "CO2",
+    "Ice Water Hash": "Ice Water Hash",
+    "Dry Sift": "Dry Sift",
+    "Rosin": "Rosin",
+}
+EXTRACTION_METHOD_OPTIONS = ["BHO", "CO2", "Rosin", "Ethanol", "Ice Water Hash", "Dry Sift", "PHO", "Hydrocarbon Blend"]
+EXTRACTION_WORKFLOW_TEMPLATES: dict[str, list[str]] = {
+    "Hydrocarbon": [
+        "Intake",
+        "Extraction",
+        "Solvent Recovery / Purge",
+        "Dewax / Post-Process",
+        "Separation / Crystallization",
+        "Formulation",
+        "Filling / Packaging",
+        "Final Output",
+    ],
+    "Ethanol": [
+        "Intake",
+        "Extraction / Wash",
+        "Solvent Recovery",
+        "Winterization",
+        "Filtration",
+        "Decarboxylation",
+        "Distillation",
+        "Formulation",
+        "Filling / Packaging",
+        "Final Output",
+    ],
+    "CO2": [
+        "Intake",
+        "Extraction",
+        "Separation",
+        "Refinement",
+        "Winterization",
+        "Decarboxylation",
+        "Distillation",
+        "Formulation",
+        "Filling / Packaging",
+        "Final Output",
+    ],
+    "Ice Water Hash": [
+        "Intake",
+        "Wash / Agitation",
+        "Bag Separation",
+        "Drying",
+        "Grading",
+        "Rosin Press",
+        "Final Output",
+    ],
+    "Dry Sift": [
+        "Intake",
+        "Screening / Sifting",
+        "Refinement",
+        "Pressed Hash",
+        "Rosin Press",
+        "Final Output",
+    ],
+    "Rosin": [
+        "Intake",
+        "Preparation / Bagging",
+        "Press",
+        "Collection",
+        "Curing / Jar Tech",
+        "Formulation",
+        "Filling / Packaging",
+        "Final Output",
+    ],
+}
+EXTRACTION_INTERMEDIATE_PRODUCT_OPTIONS = [
+    "Crude Oil",
+    "Winterized Oil",
+    "Filtered Oil",
+    "Decarbed Oil",
+    "Distillate",
+    "Live Resin Fraction",
+    "Bubble Hash",
+    "Dry Sift",
+    "Rosin",
+]
+EXTRACTION_TERPENE_HANDLING_MODES = [
+    "Native / No Add-Back",
+    "Reintroduced Cannabis Terpenes",
+    "Botanically Derived Terpenes",
+    "Terp Fraction Recombined",
+    "Custom Blend",
+]
+EXTRACTION_METHOD_STAGE_OUTPUT_FIELDS: dict[str, list[tuple[str, str]]] = {
+    "Hydrocarbon": [
+        ("extraction_output_g", "Extraction Output (g)"),
+        ("purge_output_g", "Purge Output (g)"),
+        ("crystallization_output_g", "Crystallization Output (g)"),
+        ("sauce_fraction_g", "Sauce Fraction (g)"),
+        ("diamond_fraction_g", "Diamond Fraction (g)"),
+    ],
+    "Ethanol": [
+        ("crude_output_g", "Crude Output (g)"),
+        ("winterized_output_g", "Winterized Output (g)"),
+        ("filtered_output_g", "Filtered Output (g)"),
+        ("decarbed_output_g", "Decarbed Output (g)"),
+        ("distillate_output_g", "Distillate Output (g)"),
+    ],
+    "CO2": [
+        ("crude_output_g", "Crude Output (g)"),
+        ("winterized_output_g", "Winterized Output (g)"),
+        ("filtered_output_g", "Filtered Output (g)"),
+        ("decarbed_output_g", "Decarbed Output (g)"),
+        ("distillate_output_g", "Distillate Output (g)"),
+    ],
+    "Ice Water Hash": [
+        ("wash_output_g", "Wash Output (g)"),
+        ("dried_hash_output_g", "Dried Hash Output (g)"),
+        ("rosin_output_g", "Rosin Output (g)"),
+    ],
+    "Dry Sift": [
+        ("sift_output_g", "Sift Output (g)"),
+        ("pressed_hash_output_g", "Pressed Hash Output (g)"),
+        ("rosin_output_g", "Rosin Output (g)"),
+    ],
+    "Rosin": [
+        ("rosin_output_g", "Rosin Output (g)"),
+        ("jar_tech_output_g", "Curing / Jar Tech Output (g)"),
+    ],
+}
+# Centralized extraction output taxonomy used across run forms, process updates,
+# valuation mapping, and chart grouping logic.
+EXTRACTION_OUTPUT_OPTIONS: dict[str, list[str]] = {
+    "solvent_based": [
+        "BHO",
+        "Live Resin",
+        "Badder",
+        "Budder",
+        "Batter",
+        "Shatter",
+        "Crumble",
+        "Sugar",
+        "Sauce",
+        "Terp Sauce",
+        "Diamonds",
+        "THCA Crystalline",
+        "Diamonds in Sauce",
+        "HTE",
+        "HTFSE",
+        "Distillate",
+        "CO2 Oil",
+        "RSO",
+        "Bulk Oil",
+    ],
+    "solventless": [
+        "Rosin",
+        "Live Rosin",
+        "Hash Rosin",
+        "Bubble Hash",
+        "Ice Water Hash",
+        "Full Melt",
+        "Dry Sift",
+        "Pressed Hash",
+        "Temple Ball",
+        "Piatella",
+    ],
+    "filled_products": [
+        "Vape Oil",
+        "Vape Cart Fill",
+        "Disposable Fill",
+        "Infused Pre-Roll Input",
+    ],
+}
+EXTRACTION_OUTPUT_FLAT_OPTIONS = [label for labels in EXTRACTION_OUTPUT_OPTIONS.values() for label in labels]
+EXTRACTION_PRODUCT_TYPE_OPTIONS = EXTRACTION_OUTPUT_FLAT_OPTIONS + ["Other"]
+EXTRACTION_DOWNSTREAM_OPTIONS = ["N/A"] + EXTRACTION_OUTPUT_FLAT_OPTIONS
+EXTRACTION_OUTPUT_NORM_LOOKUP = {
+    re.sub(r"[^a-z0-9]+", "_", v.strip().lower()).strip("_"): v
+    for v in EXTRACTION_OUTPUT_FLAT_OPTIONS
+}
+EXTRACTION_OUTPUT_ALIAS_LOOKUP = {
+    "diamonds_sauce": "Diamonds in Sauce",
+    "diamonds_and_sauce": "Diamonds in Sauce",
+    "ice_hash": "Ice Water Hash",
+    "cart_fill": "Vape Cart Fill",
+    "distillate_cart": "Vape Cart Fill",
+    "distillate_disposable": "Disposable Fill",
+    "disty_carts": "Vape Cart Fill",
+    "disty_disposables": "Disposable Fill",
+    "bulk_distillate": "Bulk Oil",
+    "fresh_press": "Rosin",
+    "rosin_jam": "Hash Rosin",
+}
+# Estimated default market assumptions (USD per finished gram) for internal KPI
+# modeling only. These are not live market feeds.
+# TODO: replace MARKET_PRICE_MAP with admin-configurable pricing or live pricing feed
+MARKET_PRICE_MAP = {
+    # Stable normalized aliases retained for calculation callers and tests.
+    "bho": 12,
+    "live_resin": 20,
+    "badder": 16,
+    "shatter": 11,
+    "rosin": 32,
+    "rosin_jam": 42,
+    "distillate": 9,
+    "rso": 8,
+    "co2_oil": 10,
+    "vape": 14,
+    "bulk_oil": 10,
+    "concentrate": 12,
+    "BHO": 12,
+    "Live Resin": 20,
+    "Badder": 16,
+    "Budder": 16,
+    "Batter": 16,
+    "Shatter": 11,
+    "Crumble": 10,
+    "Sugar": 14,
+    "Sauce": 18,
+    "Terp Sauce": 20,
+    "Diamonds": 24,
+    "THCA Crystalline": 22,
+    "Diamonds in Sauce": 26,
+    "HTE": 18,
+    "HTFSE": 22,
+    "Distillate": 9,
+    "CO2 Oil": 10,
+    "RSO": 8,
+    "Bulk Oil": 10,
+    "Rosin": 32,
+    "Live Rosin": 38,
+    "Hash Rosin": 42,
+    "Bubble Hash": 18,
+    "Ice Water Hash": 20,
+    "Full Melt": 30,
+    "Dry Sift": 14,
+    "Pressed Hash": 12,
+    "Temple Ball": 14,
+    "Piatella": 36,
+    "Vape Oil": 14,
+    "Vape Cart Fill": 16,
+    "Disposable Fill": 16,
+    "Infused Pre-Roll Input": 7,
+}
+_ECC_METHOD_TO_OUTPUT_FALLBACK = {"BHO": "BHO", "CO2": "CO2 Oil", "Rosin": "Rosin", "Ethanol": "RSO"}
+_ECC_FALLBACK_INPUT_COST_PER_G = 1.25
+_ECC_FALLBACK_OPERATIONAL_COST_USD = 150.0
+_ECC_LOW_MARGIN_PER_G_THRESHOLD = 2.0
+_ECC_LOW_MARGIN_PCT_THRESHOLD = 10.0
+_ECC_EXTREME_COST_TO_VALUE_WARNING_RATIO = 0.85
+_ECC_SUSPICIOUS_MARGIN_PCT_THRESHOLD = 80.0
+_ECC_DEFAULT_ALLOCATION_GRAMS = 50.0
+_ECC_DRAFT_BATCH_PREFIX = "INV-DRAFT"
+_ECC_PACKAGED_REVENUE_ALERT_RATIO = 0.75
+_ECC_PACK_UNIT_PRESETS: dict[str, list[float]] = {
+    "Concentrate / Dabs": [0.5, 1.0, 2.0, 3.5],
+    "Vape Cart Fill": [0.5, 1.0],
+    "Disposable Fill": [0.5, 1.0],
+    "Infused Pre-Roll Input": [0.25, 0.5, 1.0],
+    "Bulk / Formulation": [],
+}
+_ECC_BULK_ONLY_OUTPUTS = {
+    "Bulk Oil",
+    "Vape Oil",
+    "RSO",
+    "CO2 Oil",
+    "HTE",
+    "HTFSE",
+}
+
+_ECC_TRACEABILITY_FIELDS: list[str] = [
+    "source_inventory_batch_ids",
+    "source_inventory_metrc_ids",
+    "allocated_input_weight_g",
+    "allocated_input_cost_total",
+    "inventory_linked",
+    "metrc_input_package_id",
+    "metrc_intermediate_package_id",
+    "metrc_distillate_package_id",
+    "metrc_formulation_package_id",
+    "metrc_final_package_id",
+    "metrc_stage_input_id",
+    "metrc_stage_output_id",
+]
+_ECC_VALUE_FIELDS: list[str] = [
+    "input_cost_total",
+    "operational_cost_total",
+    "total_cost",
+    "cost_per_gram",
+    "market_price_per_gram",
+    "estimated_value_usd",
+    "margin_per_gram",
+    "total_profit_usd",
+    "margin_pct_est",
+    "value_risk_flag",
+    "unmapped_output_type",
+    "output_mapping_warning",
+    "normalized_output_type",
+    "raw_material_cogs_usd",
+    "processing_cogs_usd",
+    "packaging_cogs_usd",
+    "labor_cogs_usd",
+    "overhead_cogs_usd",
+    "total_cogs_usd",
+    "total_cogs_override",
+    "final_product_type",
+    "unit_size_g",
+    "unit_price_usd",
+    "units_per_batch",
+    "leftover_grams",
+    "packaging_yield_loss_g",
+    "usable_output_g",
+    "packaging_mode",
+    "bulk_estimated_value_usd",
+    "packaged_estimated_revenue_usd",
+    "estimated_revenue_usd",
+    "revenue_per_gram_realized",
+    "cost_per_unit",
+    "gross_profit_usd",
+    "gross_margin_pct",
+    "packaging_warning",
+]
+
+
+def _ecc_get_packaging_mode(final_product_type: Any) -> str:
+    normalized = normalize_extraction_output_label(final_product_type)
+    if normalized in {"Vape Cart Fill"}:
+        return "Vape Cart Fill"
+    if normalized in {"Disposable Fill"}:
+        return "Disposable Fill"
+    if normalized in {"Infused Pre-Roll Input"}:
+        return "Infused Pre-Roll Input"
+    if normalized in _ECC_BULK_ONLY_OUTPUTS:
+        return "Bulk / Formulation"
+    if normalized:
+        return "Concentrate / Dabs"
+    return "Bulk / Formulation"
+
+
+def _ecc_get_pack_size_presets(final_product_type: Any) -> list[float]:
+    return _ECC_PACK_UNIT_PRESETS.get(_ecc_get_packaging_mode(final_product_type), [])
+
+
+def _ecc_norm_price_key(value: Any) -> str:
+    """Normalize label text into a lowercase key for MARKET_PRICE_MAP lookups."""
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def normalize_extraction_output_label(value: Any) -> str:
+    """Normalize extraction output labels to a canonical centralized taxonomy label."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    key = _ecc_norm_price_key(raw)
+    if key in {"n_a", "na", "none"}:
+        return ""
+    alias_match = EXTRACTION_OUTPUT_ALIAS_LOOKUP.get(key)
+    if alias_match:
+        return alias_match
+    return EXTRACTION_OUTPUT_NORM_LOOKUP.get(key, raw)
+
+
+def _ecc_get_method_family(method: Any) -> str:
+    method_text = str(method or "").strip()
+    return EXTRACTION_METHOD_FAMILY_MAP.get(method_text, method_text if method_text in EXTRACTION_WORKFLOW_TEMPLATES else "Hydrocarbon")
+
+
+def _ecc_get_workflow_stages(method: Any, workflow_template: Any = "") -> list[str]:
+    template = str(workflow_template or "").strip()
+    if template in EXTRACTION_WORKFLOW_TEMPLATES:
+        return EXTRACTION_WORKFLOW_TEMPLATES[template]
+    family = _ecc_get_method_family(method)
+    return EXTRACTION_WORKFLOW_TEMPLATES.get(family, EXTRACTION_WORKFLOW_TEMPLATES["Hydrocarbon"])
+
+
+def _ecc_workflow_supports_formulation(method: Any, workflow_template: Any = "") -> bool:
+    return "Formulation" in _ecc_get_workflow_stages(method, workflow_template)
+
+
+def _ecc_validate_terpene_percentage(terpene_pct: float) -> tuple[bool, str]:
+    if terpene_pct < 0:
+        return False, "Terpene % cannot be negative."
+    if terpene_pct > 15:
+        return False, "Terpene % above 15% is unusually high. Verify formulation."
+    if terpene_pct > 12:
+        return True, "Terpene % is high for most vape/concentrate formulations; review if intentional."
+    return True, ""
+
+
+def _ecc_compute_formulation_terpene_weight(formulation_base_g: float, terpene_pct: float, manual_terpene_weight_g: float) -> float:
+    manual_val = float(manual_terpene_weight_g or 0.0)
+    if manual_val > 0:
+        return manual_val
+    return float(formulation_base_g or 0.0) * float(terpene_pct or 0.0) / 100.0
+
+
+def _ecc_parse_list_field(raw_value: Any) -> list[str]:
+    """Parse list-like input from JSON/list/CSV-ish text into a deduplicated string list."""
+    if raw_value is None or (isinstance(raw_value, float) and np.isnan(raw_value)):
+        return []
+    if isinstance(raw_value, (list, tuple, set)):
+        values = [str(v).strip() for v in raw_value if str(v).strip()]
+    else:
+        text = str(raw_value).strip()
+        if not text:
+            return []
+        try:
+            decoded = json.loads(text)
+            if isinstance(decoded, list):
+                values = [str(v).strip() for v in decoded if str(v).strip()]
+            else:
+                values = [x.strip() for x in text.split(",") if x.strip()]
+        except Exception:
+            values = [x.strip() for x in text.replace("[", "").replace("]", "").split(",") if x.strip()]
+    return list(dict.fromkeys(values))
+
+
+def _ecc_serialize_list_field(values: list[str]) -> str:
+    return json.dumps([str(v).strip() for v in values if str(v).strip()])
+
+
+def _ecc_safe_div(numerator: Any, denominator: Any) -> float:
+    """Safe division that returns 0.0 for invalid inputs or zero denominator."""
+    try:
+        num = float(numerator)
+        den = float(denominator)
+    except Exception:
+        return 0.0
+    return (num / den) if den else 0.0
+
+
+def _ecc_get_market_price_per_gram(row: pd.Series) -> tuple[float, str, bool]:
+    """Return market price by priority: final product type ‚Üí downstream product ‚Üí intermediate type ‚Üí method fallback."""
+    candidates = [
+        normalize_extraction_output_label(row.get("final_product_type", "")),
+        normalize_extraction_output_label(row.get("downstream_product", "")),
+        normalize_extraction_output_label(row.get("finished_product_type", "")),
+        normalize_extraction_output_label(row.get("intermediate_product_type", "")),
+        normalize_extraction_output_label(row.get("product_type", "")),
+    ]
+    for label in candidates:
+        if label in MARKET_PRICE_MAP:
+            return float(MARKET_PRICE_MAP[label]), label, False
+
+    method_norm = str(row.get("method", "")).strip()
+    method_fallback = _ECC_METHOD_TO_OUTPUT_FALLBACK.get(method_norm, "")
+    if method_fallback and method_fallback in MARKET_PRICE_MAP:
+        return float(MARKET_PRICE_MAP[method_fallback]), method_fallback, True
+    return 0.0, "unmapped_output_type", True
+
+
+def _ecc_ensure_run_schema(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for col in _ECC_TRACEABILITY_FIELDS:
+        if col not in out.columns:
+            out[col] = False if col == "inventory_linked" else (0.0 if col.startswith("allocated_") else "[]")
+    for col in _ECC_VALUE_FIELDS:
+        if col not in out.columns:
+            if col == "value_risk_flag":
+                out[col] = "Neutral"
+            elif col in ["output_mapping_warning", "normalized_output_type"]:
+                out[col] = ""
+            else:
+                out[col] = False if col == "unmapped_output_type" else 0.0
+    out["inventory_linked"] = out["inventory_linked"].fillna(False).astype(bool)
+    text_defaults = {
+        "workflow_template": "",
+        "intermediate_product_type": "",
+        "final_product_type": "",
+        "packaging_mode": "",
+        "packaging_warning": "",
+        "formulation_base_g": 0.0,
+        "terpene_handling_mode": "",
+        "terpene_type": "",
+        "terpene_source": "",
+        "terpene_percentage": 0.0,
+        "terpene_weight_g": 0.0,
+        "formulation_applied": False,
+        "total_cogs_override": False,
+    }
+    for col, default_val in text_defaults.items():
+        if col not in out.columns:
+            out[col] = default_val
+    for output_fields in EXTRACTION_METHOD_STAGE_OUTPUT_FIELDS.values():
+        for field_name, _ in output_fields:
+            if field_name not in out.columns:
+                out[field_name] = 0.0
+    for numeric_col in [
+        "allocated_input_weight_g",
+        "allocated_input_cost_total",
+        "input_cost_total",
+        "operational_cost_total",
+        "total_cost",
+        "cost_per_gram",
+        "market_price_per_gram",
+        "estimated_value_usd",
+        "margin_per_gram",
+        "total_profit_usd",
+        "margin_pct_est",
+        "formulation_base_g",
+        "terpene_percentage",
+        "terpene_weight_g",
+        "raw_material_cogs_usd",
+        "processing_cogs_usd",
+        "packaging_cogs_usd",
+        "labor_cogs_usd",
+        "overhead_cogs_usd",
+        "total_cogs_usd",
+        "unit_size_g",
+        "unit_price_usd",
+        "units_per_batch",
+        "leftover_grams",
+        "packaging_yield_loss_g",
+        "usable_output_g",
+        "bulk_estimated_value_usd",
+        "packaged_estimated_revenue_usd",
+        "estimated_revenue_usd",
+        "revenue_per_gram_realized",
+        "cost_per_unit",
+        "gross_profit_usd",
+        "gross_margin_pct",
+    ]:
+        out[numeric_col] = pd.to_numeric(out[numeric_col], errors="coerce").fillna(0.0)
+    for list_col in ["source_inventory_batch_ids", "source_inventory_metrc_ids"]:
+        out[list_col] = out[list_col].fillna("[]").astype(str)
+    out["value_risk_flag"] = out["value_risk_flag"].fillna("Neutral").astype(str)
+    out["output_mapping_warning"] = out["output_mapping_warning"].fillna("").astype(str)
+    out["normalized_output_type"] = out["normalized_output_type"].fillna("").astype(str)
+    out["unmapped_output_type"] = out["unmapped_output_type"].fillna(False).astype(bool)
+    if "finished_product_type" not in out.columns:
+        out["finished_product_type"] = out.get("product_type", "Other")
+    out["finished_product_type"] = out["finished_product_type"].fillna(out.get("product_type", "Other")).astype(str)
+    out["workflow_template"] = out["workflow_template"].fillna("").astype(str)
+    out["intermediate_product_type"] = out["intermediate_product_type"].fillna("").astype(str)
+    out["final_product_type"] = out["final_product_type"].fillna("").astype(str)
+    out["terpene_handling_mode"] = out["terpene_handling_mode"].fillna("").astype(str)
+    out["terpene_type"] = out["terpene_type"].fillna("").astype(str)
+    out["terpene_source"] = out["terpene_source"].fillna("").astype(str)
+    out["formulation_applied"] = out["formulation_applied"].fillna(False).astype(bool)
+    out["total_cogs_override"] = out["total_cogs_override"].fillna(False).astype(bool)
+    out["packaging_mode"] = out["packaging_mode"].replace("", np.nan).fillna(
+        out["final_product_type"].map(_ecc_get_packaging_mode)
+    ).astype(str)
+    out["packaging_warning"] = out["packaging_warning"].fillna("").astype(str)
+    return out
+
+
+def _ecc_calculate_run_value_metrics(run_df: pd.DataFrame, inventory_df: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Compute run-level cost, market value, margin, and risk flags using inventory-linked cost basis when available."""
+    if run_df is None:
+        return pd.DataFrame()
+    out = _ecc_ensure_run_schema(run_df.copy())
+    for col in ["input_weight_g", "finished_output_g", "processing_fee_usd", "cogs_usd", "est_revenue_usd"]:
+        if col not in out.columns:
+            out[col] = 0.0
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+
+    inv = _ecc_finalize_inventory_frame(inventory_df.copy()) if inventory_df is not None else pd.DataFrame()
+    inv_avg_cost_per_g = 0.0
+    if not inv.empty:
+        inv_cost_series = pd.to_numeric(inv.get("cost_per_g", 0), errors="coerce").replace(0, np.nan)
+        inv_avg_cost_per_g = float(inv_cost_series.mean())
+    fallback_input_cost_per_g = inv_avg_cost_per_g if inv_avg_cost_per_g > 0 else _ECC_FALLBACK_INPUT_COST_PER_G
+    fallback_operational_cost = _ECC_FALLBACK_OPERATIONAL_COST_USD
+
+    inv_batch_cost_map: dict[str, float] = {}
+    inv_metrc_cost_map: dict[str, float] = {}
+    if not inv.empty:
+        for _, inv_row in inv.iterrows():
+            _cost = float(pd.to_numeric(inv_row.get("cost_per_g", 0), errors="coerce") or 0.0)
+            _batch = str(inv_row.get("batch_id_internal", "")).strip()
+            _metrc = str(inv_row.get("metrc_package_id", "")).strip()
+            if _batch and _cost > 0:
+                inv_batch_cost_map[_batch] = _cost
+            if _metrc and _cost > 0:
+                inv_metrc_cost_map[_metrc] = _cost
+
+    input_cost_vals: list[float] = []
+    op_cost_vals: list[float] = []
+    total_cost_vals: list[float] = []
+    cost_per_g_vals: list[float] = []
+    mkt_price_vals: list[float] = []
+    est_val_vals: list[float] = []
+    margin_per_g_vals: list[float] = []
+    total_profit_vals: list[float] = []
+    margin_pct_vals: list[float] = []
+    value_risk_flags: list[str] = []
+    unmapped_vals: list[bool] = []
+    mapping_warning_vals: list[str] = []
+    normalized_output_vals: list[str] = []
+    raw_material_cogs_vals: list[float] = []
+    processing_cogs_vals: list[float] = []
+    packaging_cogs_vals: list[float] = []
+    labor_cogs_vals: list[float] = []
+    overhead_cogs_vals: list[float] = []
+    total_cogs_vals: list[float] = []
+    packaging_modes: list[str] = []
+    unit_size_vals: list[float] = []
+    unit_price_vals: list[float] = []
+    units_vals: list[int] = []
+    leftover_vals: list[float] = []
+    pkg_loss_vals: list[float] = []
+    usable_output_vals: list[float] = []
+    bulk_value_vals: list[float] = []
+    packaged_revenue_vals: list[float] = []
+    realized_rev_per_g_vals: list[float] = []
+    cost_per_unit_vals: list[float] = []
+    gross_profit_vals: list[float] = []
+    gross_margin_vals: list[float] = []
+    packaging_warning_vals: list[str] = []
+
+    for _, row in out.iterrows():
+        finished_output_g = float(row.get("finished_output_g", 0.0) or 0.0)
+        input_weight_g = float(row.get("allocated_input_weight_g", 0.0) or 0.0)
+        if input_weight_g <= 0:
+            input_weight_g = float(row.get("input_weight_g", 0.0) or 0.0)
+
+        allocated_input_cost_total = float(row.get("allocated_input_cost_total", 0.0) or 0.0)
+        if allocated_input_cost_total > 0:
+            input_cost_total = allocated_input_cost_total
+        else:
+            linked_batch_ids = _ecc_parse_list_field(row.get("source_inventory_batch_ids", "[]"))
+            linked_metrc_ids = _ecc_parse_list_field(row.get("source_inventory_metrc_ids", "[]"))
+            matched_costs = [
+                inv_batch_cost_map[x]
+                for x in linked_batch_ids
+                if x in inv_batch_cost_map
+            ] + [
+                inv_metrc_cost_map[x]
+                for x in linked_metrc_ids
+                if x in inv_metrc_cost_map
+            ]
+            run_cost_per_input_g = float(pd.to_numeric(row.get("cost_per_input_gram", np.nan), errors="coerce"))
+            if matched_costs:
+                cost_per_input_g = float(np.mean(matched_costs))
+            elif pd.notna(run_cost_per_input_g) and run_cost_per_input_g > 0:
+                cost_per_input_g = run_cost_per_input_g
+            else:
+                cost_per_input_g = fallback_input_cost_per_g
+            input_cost_total = input_weight_g * cost_per_input_g
+
+        raw_material_cogs = float(pd.to_numeric(row.get("raw_material_cogs_usd", np.nan), errors="coerce") or 0.0)
+        if raw_material_cogs <= 0:
+            raw_material_cogs = input_cost_total
+        processing_cogs = float(pd.to_numeric(row.get("processing_cogs_usd", np.nan), errors="coerce") or 0.0)
+        if processing_cogs <= 0:
+            processing_cogs = float(row.get("processing_fee_usd", 0.0) or 0.0)
+        packaging_cogs = float(pd.to_numeric(row.get("packaging_cogs_usd", np.nan), errors="coerce") or 0.0)
+        labor_cost = float(pd.to_numeric(row.get("labor_cogs_usd", row.get("labor_cost_usd", 0.0)), errors="coerce") or 0.0)
+        overhead_cost = float(pd.to_numeric(row.get("overhead_cogs_usd", row.get("overhead_cost_usd", 0.0)), errors="coerce") or 0.0)
+        operational_cost_total = processing_cogs + packaging_cogs + labor_cost + overhead_cost
+        if operational_cost_total <= 0:
+            operational_cost_total = fallback_operational_cost
+
+        component_cogs_total = raw_material_cogs + processing_cogs + packaging_cogs + labor_cost + overhead_cost
+        total_cogs_override = bool(row.get("total_cogs_override", False))
+        manual_total_cogs = float(pd.to_numeric(row.get("total_cogs_usd", np.nan), errors="coerce") or 0.0)
+        legacy_cogs = float(pd.to_numeric(row.get("cogs_usd", np.nan), errors="coerce") or 0.0)
+        if total_cogs_override and manual_total_cogs >= 0:
+            total_cogs = manual_total_cogs
+        elif component_cogs_total > 0:
+            total_cogs = component_cogs_total
+        elif legacy_cogs > 0:
+            total_cogs = legacy_cogs
+        else:
+            total_cogs = input_cost_total + operational_cost_total
+
+        total_cost = total_cogs
+        cost_per_gram = _ecc_safe_div(total_cost, finished_output_g)
+        market_price_per_gram, normalized_output_type, is_unmapped_output = _ecc_get_market_price_per_gram(row)
+        bulk_estimated_value_usd = finished_output_g * market_price_per_gram
+        packaging_mode = str(row.get("packaging_mode", "") or _ecc_get_packaging_mode(row.get("final_product_type", "")))
+        unit_size_g = float(pd.to_numeric(row.get("unit_size_g", 0.0), errors="coerce") or 0.0)
+        unit_price_usd = float(pd.to_numeric(row.get("unit_price_usd", 0.0), errors="coerce") or 0.0)
+        packaging_yield_loss_g = max(float(pd.to_numeric(row.get("packaging_yield_loss_g", 0.0), errors="coerce") or 0.0), 0.0)
+        if packaging_yield_loss_g > finished_output_g:
+            packaging_yield_loss_g = finished_output_g
+        usable_output_g = max(finished_output_g - packaging_yield_loss_g, 0.0)
+        units_per_batch = int(np.floor(usable_output_g / unit_size_g)) if unit_size_g > 0 else 0
+        units_per_batch = max(units_per_batch, 0)
+        leftover_grams = max(usable_output_g - (units_per_batch * unit_size_g), 0.0) if unit_size_g > 0 else usable_output_g
+        packaged_estimated_revenue_usd = float(units_per_batch * unit_price_usd) if (unit_size_g > 0 and unit_price_usd >= 0) else 0.0
+        legacy_revenue = float(pd.to_numeric(row.get("est_revenue_usd", 0.0), errors="coerce") or 0.0)
+        estimated_value_usd = (
+            packaged_estimated_revenue_usd
+            if packaged_estimated_revenue_usd > 0
+            else (legacy_revenue if legacy_revenue > 0 else bulk_estimated_value_usd)
+        )
+        packaging_warning = ""
+        if unit_size_g <= 0 and packaging_mode != "Bulk / Formulation" and unit_price_usd > 0:
+            packaging_warning = "Unit price entered without a valid unit size."
+        elif unit_size_g > 0 and leftover_grams >= unit_size_g * 0.5:
+            packaging_warning = "Noticeable leftover grams due to pack-size rounding."
+        if bulk_estimated_value_usd > 0 and packaged_estimated_revenue_usd > 0 and (packaged_estimated_revenue_usd / bulk_estimated_value_usd) < _ECC_PACKAGED_REVENUE_ALERT_RATIO:
+            packaging_warning = "Packaged revenue is materially below bulk value assumption."
+        margin_per_gram = market_price_per_gram - cost_per_gram
+        total_profit_usd = estimated_value_usd - total_cost
+        margin_pct_est = _ecc_safe_div(total_profit_usd * 100.0, estimated_value_usd)
+
+        # Value risk classification:
+        # - Critical: negative margin/profit
+        # - Warning: thin margin or high cost-to-value pressure
+        # - Review: unusually high profitability, may indicate mapping/input anomaly
+        flag = "Neutral"
+        if margin_per_gram < 0 or total_profit_usd < 0:
+            flag = "Critical"
+        elif margin_per_gram < _ECC_LOW_MARGIN_PER_G_THRESHOLD or margin_pct_est < _ECC_LOW_MARGIN_PCT_THRESHOLD:
+            flag = "Warning"
+        elif cost_per_gram > market_price_per_gram * _ECC_EXTREME_COST_TO_VALUE_WARNING_RATIO:
+            flag = "Warning"
+        elif margin_pct_est > _ECC_SUSPICIOUS_MARGIN_PCT_THRESHOLD and finished_output_g > 0:
+            flag = "Review"
+        if is_unmapped_output and flag != "Critical":
+            flag = "Warning"
+
+        input_cost_vals.append(round(input_cost_total, 2))
+        op_cost_vals.append(round(operational_cost_total, 2))
+        total_cost_vals.append(round(total_cost, 2))
+        cost_per_g_vals.append(round(cost_per_gram, 4))
+        mkt_price_vals.append(round(market_price_per_gram, 4))
+        est_val_vals.append(round(estimated_value_usd, 2))
+        margin_per_g_vals.append(round(margin_per_gram, 4))
+        total_profit_vals.append(round(total_profit_usd, 2))
+        margin_pct_vals.append(round(margin_pct_est, 2))
+        value_risk_flags.append(flag)
+        unmapped_vals.append(bool(is_unmapped_output))
+        mapping_warning_vals.append("‚ö†Ô∏è Unmapped Output Type" if is_unmapped_output else "")
+        normalized_output_vals.append(normalized_output_type)
+        raw_material_cogs_vals.append(round(raw_material_cogs, 2))
+        processing_cogs_vals.append(round(processing_cogs, 2))
+        packaging_cogs_vals.append(round(packaging_cogs, 2))
+        labor_cogs_vals.append(round(labor_cost, 2))
+        overhead_cogs_vals.append(round(overhead_cost, 2))
+        total_cogs_vals.append(round(total_cogs, 2))
+        packaging_modes.append(packaging_mode)
+        unit_size_vals.append(round(unit_size_g, 4))
+        unit_price_vals.append(round(unit_price_usd, 2))
+        units_vals.append(units_per_batch)
+        leftover_vals.append(round(leftover_grams, 4))
+        pkg_loss_vals.append(round(packaging_yield_loss_g, 4))
+        usable_output_vals.append(round(usable_output_g, 4))
+        bulk_value_vals.append(round(bulk_estimated_value_usd, 2))
+        packaged_revenue_vals.append(round(packaged_estimated_revenue_usd, 2))
+        realized_rev_per_g_vals.append(round(_ecc_safe_div(estimated_value_usd, finished_output_g), 4))
+        cost_per_unit_vals.append(round(_ecc_safe_div(total_cogs, units_per_batch), 4))
+        gross_profit_vals.append(round(estimated_value_usd - total_cogs, 2))
+        gross_margin_vals.append(round(_ecc_safe_div((estimated_value_usd - total_cogs) * 100.0, estimated_value_usd), 2))
+        packaging_warning_vals.append(packaging_warning)
+
+    out["input_cost_total"] = input_cost_vals
+    out["operational_cost_total"] = op_cost_vals
+    out["total_cost"] = total_cost_vals
+    out["cost_per_gram"] = cost_per_g_vals
+    out["market_price_per_gram"] = mkt_price_vals
+    out["estimated_value_usd"] = est_val_vals
+    out["margin_per_gram"] = margin_per_g_vals
+    out["total_profit_usd"] = total_profit_vals
+    out["margin_pct_est"] = margin_pct_vals
+    out["value_risk_flag"] = value_risk_flags
+    out["unmapped_output_type"] = unmapped_vals
+    out["output_mapping_warning"] = mapping_warning_vals
+    out["normalized_output_type"] = normalized_output_vals
+    out["raw_material_cogs_usd"] = raw_material_cogs_vals
+    out["processing_cogs_usd"] = processing_cogs_vals
+    out["packaging_cogs_usd"] = packaging_cogs_vals
+    out["labor_cogs_usd"] = labor_cogs_vals
+    out["overhead_cogs_usd"] = overhead_cogs_vals
+    out["total_cogs_usd"] = total_cogs_vals
+    out["cogs_usd"] = total_cogs_vals
+    out["packaging_mode"] = packaging_modes
+    out["unit_size_g"] = unit_size_vals
+    out["unit_price_usd"] = unit_price_vals
+    out["units_per_batch"] = units_vals
+    out["leftover_grams"] = leftover_vals
+    out["packaging_yield_loss_g"] = pkg_loss_vals
+    out["usable_output_g"] = usable_output_vals
+    out["bulk_estimated_value_usd"] = bulk_value_vals
+    out["packaged_estimated_revenue_usd"] = packaged_revenue_vals
+    out["estimated_revenue_usd"] = est_val_vals
+    out["est_revenue_usd"] = est_val_vals
+    out["revenue_per_gram_realized"] = realized_rev_per_g_vals
+    out["cost_per_unit"] = cost_per_unit_vals
+    out["gross_profit_usd"] = gross_profit_vals
+    out["gross_margin_pct"] = gross_margin_vals
+    out["packaging_warning"] = packaging_warning_vals
+    out["total_profit_usd"] = gross_profit_vals
+    out["margin_pct_est"] = gross_margin_vals
+    return out
+
+
+def _ecc_load_uploaded_inventory_file(uploaded_file):
+    raw = uploaded_file.getvalue()
+    file_name = str(getattr(uploaded_file, "name", "")).lower()
+    if file_name.endswith((".xlsx", ".xls")):
+        return pd.read_excel(BytesIO(raw))
+    return pd.read_csv(BytesIO(raw))
+
+
+def _ecc_enforce_inventory_schema(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None:
+        df = pd.DataFrame()
+    out = df.copy()
+    for col in _ECC_INVENTORY_COLUMNS:
+        if col not in out.columns:
+            out[col] = np.nan
+    return out[_ECC_INVENTORY_COLUMNS]
+
+
+def _ecc_normalize_extraction_inventory(raw_df: pd.DataFrame):
+    alias_map = {
+        "material_name": ["material_name", "product", "item", "material", "inventory item", "material name"],
+        "material_type": ["material_type", "type", "material type", "category", "inventory category"],
+        "current_weight_g": ["current_weight_g", "weight", "qty", "quantity", "grams", "g", "current weight", "on hand"],
+        "reserved_weight_g": ["reserved_weight_g", "reserved", "allocated", "committed", "reserved grams"],
+        "received_date": ["received_date", "received date", "intake date", "date in", "date received"],
+        "source_vendor": ["source_vendor", "vendor", "supplier", "producer", "source"],
+        "storage_location": ["storage_location", "room", "location", "storage", "vault"],
+        "metrc_package_id": ["metrc_package_id", "package id", "metrc package", "metrc id"],
+        "batch_id_internal": ["batch_id_internal", "batch id", "internal batch id", "batch"],
+        "strain": ["strain"],
+        "input_category": ["input_category", "input category"],
+        "available_weight_g": ["available_weight_g", "available grams", "available weight", "available"],
+        "cost_per_g": ["cost_per_g", "cost per g", "cost per gram"],
+        "total_cost": ["total_cost", "total cost"],
+        "status": ["status"],
+        "intended_method": ["intended_method", "intended method", "method"],
+        "notes": ["notes", "note"],
+    }
+    mapped = {}
+    normalized = pd.DataFrame(index=raw_df.index)
+    for target_col, aliases in alias_map.items():
+        src_col = detect_column(raw_df.columns, [normalize_col(a) for a in aliases])
+        if src_col:
+            normalized[target_col] = raw_df[src_col]
+            mapped[target_col] = src_col
+
+    normalized = _ecc_enforce_inventory_schema(normalized)
+    return normalized, len(mapped), mapped
+
+
+def _ecc_finalize_inventory_frame(df: pd.DataFrame) -> pd.DataFrame:
+    inv = _ecc_enforce_inventory_schema(df)
+    for numeric_col in ["current_weight_g", "reserved_weight_g", "available_weight_g", "cost_per_g", "total_cost"]:
+        inv[numeric_col] = pd.to_numeric(inv[numeric_col], errors="coerce")
+    inv["current_weight_g"] = inv["current_weight_g"].fillna(0.0)
+    inv["reserved_weight_g"] = inv["reserved_weight_g"].fillna(0.0)
+    inv["available_weight_g"] = inv["available_weight_g"].fillna(inv["current_weight_g"] - inv["reserved_weight_g"])
+    inv["cost_per_g"] = inv["cost_per_g"].fillna(0.0)
+    inv["total_cost"] = inv["total_cost"].fillna(inv["current_weight_g"] * inv["cost_per_g"])
+
+    inv["received_date"] = pd.to_datetime(inv["received_date"], errors="coerce").dt.normalize()
+    for text_col in [
+        "material_name",
+        "material_type",
+        "strain",
+        "source_vendor",
+        "batch_id_internal",
+        "metrc_package_id",
+        "input_category",
+        "status",
+        "storage_location",
+        "intended_method",
+        "notes",
+    ]:
+        inv[text_col] = inv[text_col].fillna("").astype(str).str.strip()
+
+    material_lookup = {v.lower(): v for v in _ECC_MATERIAL_TYPES}
+    status_lookup = {v.lower(): v for v in _ECC_STATUS_VALUES}
+    method_lookup = {v.lower(): v for v in _ECC_METHOD_VALUES}
+    inv["material_type"] = inv["material_type"].str.lower().map(material_lookup).fillna("Other")
+    inv["status"] = inv["status"].str.lower().map(status_lookup).fillna("Available")
+    inv["intended_method"] = inv["intended_method"].str.lower().map(method_lookup).fillna("Mixed / TBD")
+    return inv
+
+
+def _ecc_add_inventory_aging(inv_df: pd.DataFrame) -> pd.DataFrame:
+    out = inv_df.copy()
+    today = pd.Timestamp.today().normalize()
+    age_days_raw = (today - pd.to_datetime(out["received_date"], errors="coerce")).dt.days
+    out["future_received_date"] = age_days_raw < 0
+    out["age_days"] = age_days_raw.fillna(0).clip(lower=0).astype(int)
+    out["aging_flag"] = np.select(
+        [
+            out["age_days"] < 14,
+            (out["age_days"] >= 14) & (out["age_days"] <= 29),
+            (out["age_days"] >= 30) & (out["age_days"] <= 59),
+            out["age_days"] >= 60,
+        ],
+        ["Fresh", "Aging", "Priority Run", "Stale"],
+        default="Fresh",
+    )
+    return out
+
+
+def _ecc_add_estimated_output(inv_df: pd.DataFrame, global_yield_pct: float = 12.0, use_method_defaults: bool = True):
+    out = inv_df.copy()
+    if use_method_defaults:
+        out["yield_pct_assumed"] = out["intended_method"].map(_ECC_METHOD_DEFAULT_YIELD).fillna(global_yield_pct)
+    else:
+        out["yield_pct_assumed"] = float(global_yield_pct)
+    out["estimated_output_g"] = out["available_weight_g"] * out["yield_pct_assumed"] / 100.0
+    return out
+
+
+def _ecc_append_inventory_rows(existing_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
+    merged = pd.concat([existing_df, new_df], ignore_index=True)
+    # Treat rows as duplicates when they refer to the same lot identity/location tuple.
+    dedupe_subset = ["received_date", "material_name", "batch_id_internal", "metrc_package_id", "storage_location"]
+    dedupe_key_present = merged[dedupe_subset].fillna("").astype(str).apply(
+        lambda row: any(v.strip() for v in row),
+        axis=1,
+    )
+    deduped_with_keys = merged[dedupe_key_present].drop_duplicates(subset=dedupe_subset, keep="last")
+    keep_without_keys = merged[~dedupe_key_present]
+    return pd.concat([deduped_with_keys, keep_without_keys], ignore_index=True)
+
+
+def _ecc_apply_default_if_empty(df: pd.DataFrame, column_name: str, default_value: str):
+    df[column_name] = df[column_name].replace("", np.nan).fillna(default_value)
+    return df
+
+
+# ‚îÄ‚îÄ‚îÄ Mass-balance helpers ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+_MB_EDITABLE_FIELDS: list[str] = [
+    "extraction_output_g",
+    "post_process_output_g",
+    "distillation_output_g",
+    "final_output_g",
+]
+_MB_COMPUTED_FIELDS: list[str] = [
+    "extraction_loss_g",
+    "post_process_loss_g",
+    "distillation_loss_g",
+    "final_loss_g",
+    "extraction_yield_pct",
+    "post_process_yield_pct",
+    "distillation_yield_pct",
+    "final_yield_pct",
+    "post_process_stage_efficiency_pct",
+    "distillation_efficiency_pct",
+    "final_stage_efficiency_pct",
+    "mass_balance_flag",
+]
+# Unusually high yield warning thresholds per method
+_MB_HIGH_YIELD_THRESHOLDS: dict[str, float] = {
+    "BHO": 40.0,
+    "CO2": 35.0,
+    "Rosin": 25.0,
+    "Ethanol": 35.0,
+}
+
+
+def _ensure_mass_balance_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """Add mass-balance columns with safe defaults when absent; back-fill from legacy fields."""
+    df = df.copy()
+    for col in _MB_EDITABLE_FIELDS:
+        if col not in df.columns:
+            df[col] = 0.0
+    for col in _MB_COMPUTED_FIELDS:
+        if col not in df.columns:
+            df[col] = "OK" if col == "mass_balance_flag" else 0.0
+    # Back-fill extraction_output_g from intermediate_output_g (only for rows still at zero)
+    if "intermediate_output_g" in df.columns:
+        mask = pd.to_numeric(df["extraction_output_g"], errors="coerce").fillna(0.0) == 0.0
+        df.loc[mask, "extraction_output_g"] = pd.to_numeric(
+            df.loc[mask, "intermediate_output_g"], errors="coerce"
+        ).fillna(0.0)
+    # Back-fill final_output_g from finished_output_g (only for rows still at zero)
+    if "finished_output_g" in df.columns:
+        mask = pd.to_numeric(df["final_output_g"], errors="coerce").fillna(0.0) == 0.0
+        df.loc[mask, "final_output_g"] = pd.to_numeric(
+            df.loc[mask, "finished_output_g"], errors="coerce"
+        ).fillna(0.0)
+    return df
+
+
+def _compute_mass_balance(df: pd.DataFrame) -> pd.DataFrame:
+    """Recompute all derived mass-balance columns from editable stage weights."""
+    df = _ensure_mass_balance_cols(df)
+    for col in ["input_weight_g"] + _MB_EDITABLE_FIELDS:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    inp = df["input_weight_g"].replace(0.0, float("nan"))
+    ext = df["extraction_output_g"]
+    pp = df["post_process_output_g"]
+    dist = df["distillation_output_g"]
+    final = df["final_output_g"]
+    ext_nz = ext.replace(0.0, float("nan"))
+    pp_nz = pp.replace(0.0, float("nan"))
+    dist_nz = dist.replace(0.0, float("nan"))
+
+    # Stage losses (zero when downstream stage is not used)
+    df["extraction_loss_g"] = (inp - ext).clip(lower=0).fillna(0.0).round(3)
+    df["post_process_loss_g"] = (ext - pp).where(pp > 0, other=0.0).clip(lower=0).fillna(0.0).round(3)
+    df["distillation_loss_g"] = (pp - dist).where(dist > 0, other=0.0).clip(lower=0).fillna(0.0).round(3)
+    # Final-stage loss: diff from last used upstream stage
+    last_upstream = dist.where(dist > 0, pp.where(pp > 0, ext))
+    df["final_loss_g"] = (last_upstream - final).clip(lower=0).fillna(0.0).round(3)
+
+    # Yields vs raw input
+    df["extraction_yield_pct"] = (ext / inp * 100).fillna(0.0).round(2)
+    df["post_process_yield_pct"] = (pp / inp * 100).fillna(0.0).round(2)
+    df["distillation_yield_pct"] = (dist / inp * 100).fillna(0.0).round(2)
+    df["final_yield_pct"] = (final / inp * 100).fillna(0.0).round(2)
+
+    # Stage-to-stage efficiencies
+    df["post_process_stage_efficiency_pct"] = (pp / ext_nz * 100).fillna(0.0).round(2)
+    df["distillation_efficiency_pct"] = (dist / pp_nz * 100).fillna(0.0).round(2)
+    df["final_stage_efficiency_pct"] = (final / dist_nz * 100).fillna(0.0).round(2)
+
+    # Backward-compat: overall extraction-to-finish efficiency (used by top-level KPIs)
+    df["post_process_efficiency_pct"] = (final / ext_nz * 100).fillna(0.0).round(2)
+
+    # Backward-compat: sync legacy fields so Executive Overview / Run Analytics still work
+    existing_yield = df.get("yield_pct", pd.Series(0.0, index=df.index)).fillna(0.0)
+    df["yield_pct"] = df["final_yield_pct"].where(df["final_yield_pct"] > 0, other=existing_yield)
+    existing_finished = df.get("finished_output_g", pd.Series(0.0, index=df.index)).fillna(0.0)
+    df["finished_output_g"] = final.where(final > 0, other=existing_finished)
+
+    # Validation flags
+    method_thresh = (
+        df["method"].map(_MB_HIGH_YIELD_THRESHOLDS).fillna(40.0)
+        if "method" in df.columns
+        else pd.Series(40.0, index=df.index)
+    )
+    terpene_allowance = pd.to_numeric(df.get("terpene_weight_g", 0.0), errors="coerce").fillna(0.0)
+    formulation_applied = df.get("formulation_applied", pd.Series(False, index=df.index)).fillna(False).astype(bool)
+    allowed_final_cap = last_upstream + terpene_allowance.where(formulation_applied, other=0.0)
+    critical_mask = (
+        ((ext > df["input_weight_g"]) & (df["input_weight_g"] > 0) & (ext > 0))
+        | ((pp > ext) & (ext > 0) & (pp > 0))
+        | ((dist > pp) & (pp > 0) & (dist > 0))
+        | ((final > allowed_final_cap) & (last_upstream > 0) & (final > 0))
+    )
+    warning_mask = (
+        (df["final_yield_pct"] > method_thresh) & (df["input_weight_g"] > 0)
+    ) & ~critical_mask
+
+    df["mass_balance_flag"] = "OK"
+    df.loc[warning_mask, "mass_balance_flag"] = "Warning"
+    df.loc[critical_mask, "mass_balance_flag"] = "Critical"
+
+    return df
+
+
+# ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+
+
+def render_extraction_command_center():
+
+    if "ecc_run_log" not in st.session_state:
+        st.session_state.ecc_run_log = pd.DataFrame(
+            [
+                {
+                    "run_date": "2026-03-27",
+                    "state": "MA",
+                    "license_name": "Example Lab",
+                    "client_name": "In House",
+                    "batch_id_internal": "BHO-0001",
+                    "metrc_package_id_input": "1A4060300000000000001111",
+                    "metrc_package_id_output": "1A4060300000000000002222",
+                    "metrc_manifest_or_transfer_id": "TR-001",
+                    "metrc_input_package_id": "1A4060300000000000001111",
+                    "metrc_intermediate_package_id": "",
+                    "metrc_distillate_package_id": "",
+                    "metrc_formulation_package_id": "",
+                    "metrc_final_package_id": "1A4060300000000000002222",
+                    "metrc_stage_input_id": "",
+                    "metrc_stage_output_id": "",
+                    "method": "BHO",
+                    "workflow_template": "Hydrocarbon",
+                    "strain": "The 4th Kind",
+                    "product_type": "Sugar",
+                    "intermediate_product_type": "Live Resin Fraction",
+                    "final_product_type": "Sugar",
+                    "downstream_product": "N/A",
+                    "process_stage": "Packaged",
+                    "intake_complete": True,
+                    "extraction_complete": True,
+                    "post_process_complete": True,
+                    "formulation_complete": True,
+                    "filling_complete": True,
+                    "packaging_complete": True,
+                    "ready_for_transfer": True,
+                    "input_material_type": "Fresh Frozen",
+                    "input_weight_g": 2500.0,
+                    "intermediate_output_g": 480.0,
+                    "finished_output_g": 430.0,
+                    "residual_loss_g": 50.0,
+                    "yield_pct": 17.2,
+                    "post_process_efficiency_pct": 89.6,
+                    # Mass-balance stage fields (inline editable in Process Tracker)
+                    "extraction_output_g": 480.0,
+                    "extraction_loss_g": 2020.0,
+                    "post_process_output_g": 430.0,
+                    "post_process_loss_g": 50.0,
+                    "distillation_output_g": 0.0,
+                    "distillation_loss_g": 0.0,
+                    "final_output_g": 430.0,
+                    "formulation_base_g": 0.0,
+                    "formulation_applied": False,
+                    "terpene_handling_mode": "Native / No Add-Back",
+                    "terpene_type": "",
+                    "terpene_source": "",
+                    "terpene_percentage": 0.0,
+                    "terpene_weight_g": 0.0,
+                    "final_loss_g": 0.0,
+                    "extraction_yield_pct": 19.2,
+                    "post_process_yield_pct": 17.2,
+                    "distillation_yield_pct": 0.0,
+                    "final_yield_pct": 17.2,
+                    "post_process_stage_efficiency_pct": 89.58,
+                    "distillation_efficiency_pct": 0.0,
+                    "final_stage_efficiency_pct": 0.0,
+                    "mass_balance_flag": "OK",
+                    "operator": "Operator A",
+                    "machine_line": "BHO-1",
+                    "status": "Complete",
+                    "toll_processing": False,
+                    "processing_fee_usd": 0.0,
+                    "est_revenue_usd": 3440.0,
+                    "cogs_usd": 1200.0,
+                    "raw_material_cogs_usd": 700.0,
+                    "processing_cogs_usd": 220.0,
+                    "packaging_cogs_usd": 80.0,
+                    "labor_cogs_usd": 120.0,
+                    "overhead_cogs_usd": 80.0,
+                    "total_cogs_usd": 1200.0,
+                    "total_cogs_override": False,
+                    "packaging_mode": "Concentrate / Dabs",
+                    "unit_size_g": 1.0,
+                    "unit_price_usd": 38.0,
+                    "packaging_yield_loss_g": 2.0,
+                    "usable_output_g": 428.0,
+                    "units_per_batch": 428,
+                    "leftover_grams": 0.0,
+                    "bulk_estimated_value_usd": 6020.0,
+                    "packaged_estimated_revenue_usd": 16264.0,
+                    "estimated_revenue_usd": 16264.0,
+                    "revenue_per_gram_realized": 37.82,
+                    "cost_per_unit": 2.80,
+                    "gross_profit_usd": 15064.0,
+                    "gross_margin_pct": 92.62,
+                    "packaging_warning": "",
+                    "source_inventory_batch_ids": "[]",
+                    "source_inventory_metrc_ids": "[]",
+                    "allocated_input_weight_g": 0.0,
+                    "allocated_input_cost_total": 0.0,
+                    "inventory_linked": False,
+                    "input_cost_total": 0.0,
+                    "operational_cost_total": 0.0,
+                    "total_cost": 0.0,
+                    "cost_per_gram": 0.0,
+                    "market_price_per_gram": 0.0,
+                    "estimated_value_usd": 0.0,
+                    "margin_per_gram": 0.0,
+                    "total_profit_usd": 0.0,
+                    "margin_pct_est": 0.0,
+                    "value_risk_flag": "Neutral",
+                    "coa_status": "Passed",
+                    "qa_hold": False,
+                    "notes": "Sample seed record",
+                }
+            ]
+        )
+
+    if "ecc_client_jobs" not in st.session_state:
+        st.session_state.ecc_client_jobs = pd.DataFrame(
+            [
+                {
+                    "client_name": "North Shore Processing",
+                    "state": "MA",
+                    "license_or_registration": "LIC-001",
+                    "metrc_transfer_id": "TR-001",
+                    "material_received_date": "2026-03-25",
+                    "promised_completion_date": "2026-03-30",
+                    "method": "BHO",
+                    "input_weight_g": 2500.0,
+                    "expected_output_g": 450.0,
+                    "actual_output_g": 430.0,
+                    "sla_status": "On Track",
+                    "invoice_status": "Draft",
+                    "payment_status": "Pending",
+                    "coa_status": "Passed",
+                    "job_status": "Processing",
+                }
+            ]
+        )
+    if "ecc_inventory_log" not in st.session_state:
+        st.session_state.ecc_inventory_log = pd.DataFrame(columns=_ECC_INVENTORY_COLUMNS)
+
+    # Ensure mass-balance columns exist for older sessions that pre-date this feature
+    st.session_state.ecc_run_log = _ensure_mass_balance_cols(st.session_state.ecc_run_log)
+    st.session_state.ecc_run_log = _ecc_ensure_run_schema(st.session_state.ecc_run_log)
+
+    render_section_header(
+        "Extraction Command Center",
+        subtitle="Built for BHO, CO2, Rosin, and Ethanol operations with toll processing and METRC-aware workflows.",
+    )
+
+    with st.sidebar:
+        st.markdown("### üß™ Extraction Controls")
+        states = ["All", "MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"]
+        methods = ["All"] + EXTRACTION_METHOD_OPTIONS
+
+        selected_state = st.selectbox("METRC State", states, index=0, key="ecc_selected_state")
+        selected_method = st.selectbox("Extraction Method", methods, index=0, key="ecc_selected_method")
+        toll_only = st.toggle("Show Toll Processing Only", value=False, key="ecc_toll_only")
+        st.divider()
+
+        st.markdown("#### METRC / Compliance")
+        st.text_input(
+            "Facility License Number",
+            placeholder="Example: LIC123-OPERATIONS",
+            key="ecc_facility_license_number",
+        )
+        st.text_input(
+            "Primary METRC License Label",
+            placeholder="Example: MA Processing License",
+            key="ecc_metrc_license_label",
+        )
+        st.selectbox(
+            "Seed-to-Sale Tracking",
+            ["METRC", "BioTrack", "Other / Mixed"],
+            key="ecc_seed_to_sale_tracking",
+        )
+
+    run_df = _compute_mass_balance(st.session_state.ecc_run_log.copy())
+    job_df = st.session_state.ecc_client_jobs.copy()
+    inventory_master_df = _ecc_add_inventory_aging(_ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy()))
+    inventory_method_projection_df = _ecc_add_estimated_output(inventory_master_df, global_yield_pct=12.0, use_method_defaults=True)
+    run_df = _ecc_calculate_run_value_metrics(run_df, inventory_master_df)
+
+    if selected_state != "All":
+        run_df = run_df[run_df["state"] == selected_state]
+        job_df = job_df[job_df["state"] == selected_state]
+    if selected_method != "All":
+        run_df = run_df[run_df["method"] == selected_method]
+        job_df = job_df[job_df["method"] == selected_method]
+    if toll_only:
+        run_df = run_df[run_df["toll_processing"]]
+
+    total_runs = len(run_df)
+    total_finished_output = float(run_df["finished_output_g"].sum()) if not run_df.empty else 0.0
+    avg_yield = float(run_df["yield_pct"].mean()) if not run_df.empty else 0.0
+    avg_post_eff = float(run_df["post_process_efficiency_pct"].mean()) if not run_df.empty else 0.0
+    active_days = run_df["run_date"].nunique() if not run_df.empty else 0
+    at_risk_batches = int(
+        ((run_df["qa_hold"]) | (run_df["coa_status"].isin(["Failed", "Pending"]))).sum()
+    ) if not run_df.empty else 0
+    est_revenue = float(run_df["estimated_revenue_usd"].sum()) if not run_df.empty else 0.0
+    cogs = float(run_df["total_cogs_usd"].sum()) if not run_df.empty else 0.0
+    gross_margin_pct = ((est_revenue - cogs) / est_revenue * 100) if est_revenue else 0.0
+    avg_cost_per_g = float(run_df["cost_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0) if not run_df.empty else 0.0
+    avg_cost_per_unit = float(run_df["cost_per_unit"].replace(0, np.nan).mean(skipna=True) or 0.0) if not run_df.empty else 0.0
+    avg_value_per_g = float(run_df["market_price_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0) if not run_df.empty else 0.0
+    avg_margin_per_g = float(run_df["margin_per_gram"].mean(skipna=True) or 0.0) if not run_df.empty else 0.0
+    total_est_profit = float(run_df["gross_profit_usd"].sum()) if not run_df.empty else 0.0
+    total_units_est = int(pd.to_numeric(run_df.get("units_per_batch", 0), errors="coerce").fillna(0).sum()) if not run_df.empty else 0
+    negative_margin_runs = int((run_df["margin_per_gram"] < 0).sum()) if not run_df.empty else 0
+    low_margin_runs = int(
+        ((run_df["margin_per_gram"] >= 0) & (run_df["margin_per_gram"] < _ECC_LOW_MARGIN_PER_G_THRESHOLD)).sum()
+    ) if not run_df.empty else 0
+    extreme_cost_runs = int(
+        (run_df["cost_per_gram"] > run_df["market_price_per_gram"] * _ECC_EXTREME_COST_TO_VALUE_WARNING_RATIO).sum()
+    ) if not run_df.empty else 0
+    suspicious_profit_runs = int((run_df["margin_pct_est"] > _ECC_SUSPICIOUS_MARGIN_PCT_THRESHOLD).sum()) if not run_df.empty else 0
+
+    render_extraction_kpi(
+        [
+            {"label": "Runs", "value": total_runs},
+            {"label": "Output", "value": f"{total_finished_output:,.1f} g"},
+            {"label": "Avg Yield", "value": f"{avg_yield:.1f}%"},
+            {"label": "Efficiency", "value": f"{avg_post_eff:.1f}%"},
+            {"label": "Risk", "value": "Low" if at_risk_batches == 0 else ("Medium" if at_risk_batches < 3 else "High")},
+        ]
+    )
+
+    top = st.columns(8)
+    with top[0]:
+        kpi_card("Extraction Runs", total_runs)
+    with top[1]:
+        kpi_card("Finished Output (g)", f"{total_finished_output:,.1f}")
+    with top[2]:
+        kpi_card("Avg Yield %", f"{avg_yield:.1f}%")
+    with top[3]:
+        kpi_card("Post-Process Eff.", f"{avg_post_eff:.1f}%")
+    with top[4]:
+        kpi_card("Active Production Days", active_days)
+    with top[5]:
+        kpi_card("At-Risk Batches", at_risk_batches)
+    with top[6]:
+        kpi_card("Revenue", f"${est_revenue:,.0f}")
+    with top[7]:
+        kpi_card("Gross Margin", f"{gross_margin_pct:.1f}%")
+
+    render_extraction_kpi(
+        [
+            {"label": "Avg Cost / g", "value": f"${avg_cost_per_g:,.2f}"},
+            {"label": "Avg Cost / Unit", "value": f"${avg_cost_per_unit:,.2f}"},
+            {"label": "Estimated Units", "value": f"{total_units_est:,}"},
+            {"label": "Avg Value / g", "value": f"${avg_value_per_g:,.2f}"},
+            {"label": "Avg Margin / g", "value": f"${avg_margin_per_g:,.2f}"},
+            {"label": "Total Est. Profit", "value": f"${total_est_profit:,.0f}"},
+        ]
+    )
+
+    overview_tab, runs_tab, process_tab, inv_tab, toll_tab, compliance_tab, inputs_tab, ai_ops_tab = st.tabs(
+        [
+            "Executive Overview",
+            "Run Analytics",
+            "Process Tracker",
+            "Extraction Inventory",
+            "Toll Processing",
+            "Compliance / METRC",
+            "Data Input",
+            "AI Ops Brief",
+        ]
+    )
+
+    with overview_tab:
+        display_df = run_df.copy()
+        display_df["run_date_parsed"] = pd.to_datetime(display_df.get("run_date"), errors="coerce")
+        qa_hold_series = (
+            display_df["qa_hold"].fillna(False).astype(bool)
+            if "qa_hold" in display_df.columns
+            else pd.Series(False, index=display_df.index)
+        )
+        coa_series = (
+            display_df["coa_status"].fillna("Pending").astype(str)
+            if "coa_status" in display_df.columns
+            else pd.Series("Pending", index=display_df.index)
+        )
+        display_df["qa_risk_bucket"] = np.where(
+            qa_hold_series,
+            "QA Hold",
+            coa_series,
+        )
+        downstream_series = (
+            display_df["downstream_product"].fillna("").astype(str).map(normalize_extraction_output_label)
+            if "downstream_product" in display_df.columns
+            else pd.Series("", index=display_df.index)
+        )
+        final_product_series = (
+            display_df["final_product_type"].fillna("").astype(str).map(normalize_extraction_output_label)
+            if "final_product_type" in display_df.columns
+            else pd.Series("", index=display_df.index)
+        )
+        finished_product_series = (
+            display_df["finished_product_type"].fillna("").astype(str).map(normalize_extraction_output_label)
+            if "finished_product_type" in display_df.columns
+            else pd.Series("", index=display_df.index)
+        )
+        product_series = (
+            display_df["product_type"].fillna("Other").astype(str).map(normalize_extraction_output_label)
+            if "product_type" in display_df.columns
+            else pd.Series("Other", index=display_df.index)
+        )
+        display_df["product_bucket"] = final_product_series
+        display_df["product_bucket"] = np.where(
+            display_df["product_bucket"].astype(str).str.strip().eq(""),
+            downstream_series,
+            display_df["product_bucket"],
+        )
+        display_df["product_bucket"] = np.where(
+            pd.Series(display_df["product_bucket"]).astype(str).str.strip().eq(""),
+            finished_product_series,
+            display_df["product_bucket"],
+        )
+        display_df["product_bucket"] = np.where(
+            pd.Series(display_df["product_bucket"]).astype(str).str.strip().eq(""),
+            product_series,
+            display_df["product_bucket"],
+        )
+
+        row1_l, row1_r = st.columns(2)
+        with row1_l:
+            chart_card_start("Output by Method", "Finished extraction output grouped by method.")
+            if display_df.empty:
+                st.info("No run data available.")
+            else:
+                method_summary = (
+                    display_df.groupby("method", as_index=False)["finished_output_g"]
+                    .sum()
+                    .sort_values("finished_output_g", ascending=False)
+                )
+                if PLOTLY_AVAILABLE:
+                    fig = px.bar(
+                        method_summary,
+                        x="method",
+                        y="finished_output_g",
+                        color_discrete_sequence=["#f5a524"],
+                    )
+                    fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                    st.plotly_chart(fig, width="stretch")
+                else:
+                    st.bar_chart(method_summary.set_index("method")["finished_output_g"])
+            chart_card_end()
+        with row1_r:
+            chart_card_start("Yield Trend Over Time", "Run-level yield trend to spot process drift.")
+            trend_df = display_df[display_df["run_date_parsed"].notna()].sort_values("run_date_parsed")
+            if trend_df.empty:
+                st.caption("No dated runs available for trend view.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.line(
+                    trend_df,
+                    x="run_date_parsed",
+                    y="yield_pct",
+                    markers=True,
+                    color_discrete_sequence=["#f5a524"],
+                )
+                fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.line_chart(trend_df.set_index("run_date_parsed")["yield_pct"])
+            chart_card_end()
+
+        row2_l, row2_r = st.columns(2)
+        with row2_l:
+            chart_card_start("Revenue vs COGS Trend", "Financial trendline across run dates.")
+            revenue_df = (
+                display_df[display_df["run_date_parsed"].notna()]
+                .assign(run_day=lambda d: d["run_date_parsed"].dt.date)
+                .groupby("run_day", as_index=False)[["estimated_revenue_usd", "total_cogs_usd"]]
+                .sum()
+            )
+            if revenue_df.empty:
+                st.caption("No financial timeline data yet.")
+            elif PLOTLY_AVAILABLE:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["estimated_revenue_usd"], mode="lines+markers", name="Revenue", line=dict(color="#f5a524")))
+                fig.add_trace(go.Scatter(x=revenue_df["run_day"], y=revenue_df["total_cogs_usd"], mode="lines+markers", name="COGS", line=dict(color="#ff6161")))
+                fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.line_chart(revenue_df.set_index("run_day")[["estimated_revenue_usd", "total_cogs_usd"]])
+            chart_card_end()
+        with row2_r:
+            chart_card_start("Batch Status Breakdown", "Current run status distribution.")
+            status_df = (
+                display_df.groupby("status", as_index=False)["batch_id_internal"]
+                .count()
+                .rename(columns={"batch_id_internal": "count"})
+                .sort_values("count", ascending=False)
+            )
+            if status_df.empty:
+                st.caption("No status data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.pie(status_df, values="count", names="status")
+                fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(status_df.set_index("status")["count"])
+            chart_card_end()
+
+        row3_l, row3_r = st.columns(2)
+        with row3_l:
+            chart_card_start("COA / QA Risk Breakdown", "QA hold and COA outcome composition.")
+            qa_df = (
+                display_df.groupby("qa_risk_bucket", as_index=False)["batch_id_internal"]
+                .count()
+                .rename(columns={"batch_id_internal": "count"})
+            )
+            if qa_df.empty:
+                st.caption("No QA/COA risk data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(qa_df, x="qa_risk_bucket", y="count", color="qa_risk_bucket")
+                fig.update_layout(height=340, template="plotly_dark", showlegend=False, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(qa_df.set_index("qa_risk_bucket")["count"])
+            chart_card_end()
+        with row3_r:
+            chart_card_start("Output by Product Type", "Finished output grouped by product downstream path.")
+            prod_df = (
+                display_df.groupby("product_bucket", as_index=False)["finished_output_g"]
+                .sum()
+                .sort_values("finished_output_g", ascending=False)
+            )
+            if prod_df.empty:
+                st.caption("No output product data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(prod_df, x="product_bucket", y="finished_output_g", color_discrete_sequence=["#f5a524"])
+                fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(prod_df.set_index("product_bucket")["finished_output_g"])
+            chart_card_end()
+
+        row4_l, row4_r = st.columns(2)
+        with row4_l:
+            chart_card_start("Method Efficiency Comparison", "Average post-process efficiency by method.")
+            eff_df = (
+                display_df.groupby("method", as_index=False)["post_process_efficiency_pct"]
+                .mean()
+                .sort_values("post_process_efficiency_pct", ascending=False)
+            )
+            if eff_df.empty:
+                st.caption("No efficiency data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(eff_df, x="method", y="post_process_efficiency_pct", color_discrete_sequence=["#f5a524"])
+                fig.update_layout(height=340, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(eff_df.set_index("method")["post_process_efficiency_pct"])
+            chart_card_end()
+        with row4_r:
+            chart_card_start("Inventory Pressure Snapshot", "Available grams, aging pressure, and projected output by intended method.")
+            if inventory_method_projection_df.empty:
+                st.caption("No extraction inventory available.")
+            else:
+                inv_press = (
+                    inventory_method_projection_df.groupby("intended_method", as_index=False)[["available_weight_g", "estimated_output_g"]]
+                    .sum()
+                    .sort_values("available_weight_g", ascending=False)
+                )
+                if PLOTLY_AVAILABLE:
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(x=inv_press["intended_method"], y=inv_press["available_weight_g"], name="Available g", marker_color="#5aa8ff"))
+                    fig.add_trace(go.Bar(x=inv_press["intended_method"], y=inv_press["estimated_output_g"], name="Projected Output g", marker_color="#f5a524"))
+                    fig.update_layout(
+                        barmode="group",
+                        height=300,
+                        template="plotly_dark",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                    )
+                    st.plotly_chart(fig, width="stretch")
+                else:
+                    st.bar_chart(inv_press.set_index("intended_method")[["available_weight_g", "estimated_output_g"]])
+                st.caption(
+                    f"Aging lots (30+ days): {int((inventory_method_projection_df['age_days'] >= 30).sum())} ‚Ä¢ "
+                    f"Projected output: {float(inventory_method_projection_df['estimated_output_g'].sum()):,.1f} g"
+                )
+            chart_card_end()
+
+        row5_l, row5_r = st.columns(2)
+        with row5_l:
+            chart_card_start("Top At-Risk Batches", "Operational, QA, and value-risk prioritized runs.")
+            at_risk_df = display_df.copy()
+            qa_hold_flag = at_risk_df.get("qa_hold", pd.Series(False, index=at_risk_df.index)).fillna(False).astype(bool).astype(int)
+            coa_status_flag = at_risk_df.get("coa_status", pd.Series("", index=at_risk_df.index)).fillna("").isin(["Failed", "Pending"]).astype(int)
+            negative_margin_flag = at_risk_df.get("margin_per_gram", pd.Series(0.0, index=at_risk_df.index)).fillna(0.0).lt(0).astype(int)
+            low_yield_flag = at_risk_df.get("yield_pct", pd.Series(0.0, index=at_risk_df.index)).fillna(0.0).lt(10).astype(int)
+            at_risk_df["risk_score"] = (
+                qa_hold_flag * 3
+                + coa_status_flag * 2
+                + negative_margin_flag * 2
+                + low_yield_flag
+            )
+            at_risk_df = at_risk_df.sort_values(["risk_score", "yield_pct"], ascending=[False, True]).head(12)
+            cols = ["batch_id_internal", "method", "yield_pct", "coa_status", "qa_hold", "status", "margin_per_gram", "output_mapping_warning"]
+            st.dataframe(at_risk_df[[c for c in cols if c in at_risk_df.columns]], width="stretch", hide_index=True)
+            chart_card_end()
+        with row5_r:
+            chart_card_start("Top Aging Material Lots", "Oldest lots requiring run allocation priority.")
+            aging_cols = ["material_name", "batch_id_internal", "age_days", "available_weight_g", "aging_flag", "intended_method"]
+            if inventory_master_df.empty:
+                st.caption("No inventory lots available.")
+            else:
+                aging_df = inventory_master_df.sort_values(["age_days", "available_weight_g"], ascending=[False, False]).head(12)
+                st.dataframe(aging_df[[c for c in aging_cols if c in aging_df.columns]], width="stretch", hide_index=True)
+            chart_card_end()
+
+        row6_l, row6_r = st.columns(2)
+        with row6_l:
+            chart_card_start("Executive Risk Summary", "Critical, warning, and neutral observations from workflow, inventory, and value layers.")
+            critical: list[str] = []
+            warning: list[str] = []
+            neutral: list[str] = []
+            if negative_margin_runs > 0:
+                critical.append(f"{negative_margin_runs} run(s) are currently negative-margin.")
+            if at_risk_batches > 0:
+                critical.append(f"{at_risk_batches} batch(es) are QA hold or COA pending/failed.")
+            if avg_yield < 10 and total_runs > 0:
+                warning.append("Average yield is below 10%.")
+            if low_margin_runs > 0:
+                warning.append(f"{low_margin_runs} run(s) have low margin (< $2/g).")
+            if extreme_cost_runs > 0:
+                warning.append(f"{extreme_cost_runs} run(s) show extreme cost-per-gram pressure.")
+            if not inventory_master_df.empty and int((inventory_master_df["age_days"] >= 30).sum()) > 0:
+                warning.append("Inventory contains aging lots (30+ days).")
+            if suspicious_profit_runs > 0:
+                neutral.append(f"{suspicious_profit_runs} run(s) have unusually high estimated profitability and should be reviewed.")
+            unmapped_output_runs = int(display_df.get("unmapped_output_type", pd.Series(False, index=display_df.index)).fillna(False).astype(bool).sum()) if not display_df.empty else 0
+            if unmapped_output_runs > 0:
+                warning.append(f"{unmapped_output_runs} run(s) use unmapped output taxonomy and are on fallback valuation.")
+            packaging_warning_runs = int(display_df.get("packaging_warning", pd.Series("", index=display_df.index)).fillna("").astype(str).str.strip().ne("").sum()) if not display_df.empty else 0
+            if packaging_warning_runs > 0:
+                warning.append(f"{packaging_warning_runs} run(s) have packaging/unitization warnings.")
+            if total_runs > 0 and not critical and not warning:
+                neutral.append("No critical workflow or value risks detected in current filters.")
+
+            if critical:
+                st.error("Critical")
+                for msg in critical:
+                    st.markdown(f"- {msg}")
+            if warning:
+                st.warning("Warning")
+                for msg in warning:
+                    st.markdown(f"- {msg}")
+            if neutral:
+                st.info("Neutral / Review")
+                for msg in neutral:
+                    st.markdown(f"- {msg}")
+            chart_card_end()
+        with row6_r:
+            chart_card_start("AI Ops Context Preview", "Snapshot of context passed into AI Ops Brief.")
+            st.write(
+                {
+                    "negative_margin_runs": negative_margin_runs,
+                    "low_margin_runs": low_margin_runs,
+                    "extreme_cost_runs": extreme_cost_runs,
+                    "inventory_aging_lots_30_plus": int((inventory_master_df["age_days"] >= 30).sum()) if not inventory_master_df.empty else 0,
+                    "inventory_linked_runs": int(display_df["inventory_linked"].fillna(False).sum()) if not display_df.empty else 0,
+                }
+            )
+            chart_card_end()
+
+        st.markdown("### Value & Profitability Analysis")
+        v1, v2 = st.columns(2)
+        with v1:
+            chart_card_start("Profit by Method", "Total estimated profit by extraction method.")
+            profit_method_df = (
+                display_df.groupby("method", as_index=False)["total_profit_usd"]
+                .sum()
+                .sort_values("total_profit_usd", ascending=False)
+            )
+            if profit_method_df.empty:
+                st.caption("No profitability data yet.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(profit_method_df, x="method", y="total_profit_usd", color="total_profit_usd", color_continuous_scale=["#ff6161", "#f5a524", "#4cd388"])
+                fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(profit_method_df.set_index("method")["total_profit_usd"])
+            chart_card_end()
+        with v2:
+            chart_card_start("Cost vs Value per Method", "Average cost per gram versus market value per gram.")
+            method_cost_val_df = (
+                display_df.groupby("method", as_index=False)[["cost_per_gram", "market_price_per_gram"]]
+                .mean()
+                .sort_values("market_price_per_gram", ascending=False)
+            )
+            if method_cost_val_df.empty:
+                st.caption("No cost/value comparison data.")
+            elif PLOTLY_AVAILABLE:
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=method_cost_val_df["method"], y=method_cost_val_df["cost_per_gram"], name="Avg Cost/g", marker_color="#ff6161"))
+                fig.add_trace(go.Bar(x=method_cost_val_df["method"], y=method_cost_val_df["market_price_per_gram"], name="Avg Value/g", marker_color="#4cd388"))
+                fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(method_cost_val_df.set_index("method")[["cost_per_gram", "market_price_per_gram"]])
+            chart_card_end()
+
+        v3, v4 = st.columns(2)
+        with v3:
+            chart_card_start("Margin by Product Type", "Average margin per gram by product output.")
+            margin_product_df = (
+                display_df.groupby("product_bucket", as_index=False)["margin_per_gram"]
+                .mean()
+                .sort_values("margin_per_gram", ascending=False)
+            )
+            if margin_product_df.empty:
+                st.caption("No margin-by-product data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(
+                    margin_product_df,
+                    x="product_bucket",
+                    y="margin_per_gram",
+                    color="margin_per_gram",
+                    color_continuous_scale=["#ff6161", "#f5a524", "#4cd388"],
+                )
+                fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(margin_product_df.set_index("product_bucket")["margin_per_gram"])
+            chart_card_end()
+        with v4:
+            chart_card_start("Top Profitable / Worst Performing Runs", "Best and worst total profit outcomes.")
+            top_cols = ["run_date", "batch_id_internal", "method", "product_bucket", "finished_output_g", "total_profit_usd", "margin_per_gram", "margin_pct_est", "output_mapping_warning"]
+            top_runs = display_df.sort_values("total_profit_usd", ascending=False).head(8)
+            worst_runs = display_df.sort_values("total_profit_usd", ascending=True).head(8)
+            st.markdown("**Top Profitable Runs**")
+            st.dataframe(top_runs[[c for c in top_cols if c in top_runs.columns]], width="stretch", hide_index=True)
+            st.markdown("**Worst Performing Runs**")
+            st.dataframe(worst_runs[[c for c in top_cols if c in worst_runs.columns]], width="stretch", hide_index=True)
+            chart_card_end()
+
+        st.markdown("### Post-Production Financials")
+        f1, f2 = st.columns(2)
+        with f1:
+            chart_card_start("Revenue by Product Type", "Packaged revenue vs bulk value comparison.")
+            product_revenue_df = (
+                display_df.groupby("product_bucket", as_index=False)[["packaged_estimated_revenue_usd", "bulk_estimated_value_usd"]]
+                .sum()
+                .sort_values("packaged_estimated_revenue_usd", ascending=False)
+            )
+            if product_revenue_df.empty:
+                st.caption("No packaged revenue data.")
+            elif PLOTLY_AVAILABLE:
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=product_revenue_df["product_bucket"], y=product_revenue_df["packaged_estimated_revenue_usd"], name="Packaged Revenue", marker_color="#4cd388"))
+                fig.add_trace(go.Bar(x=product_revenue_df["product_bucket"], y=product_revenue_df["bulk_estimated_value_usd"], name="Bulk Value", marker_color="#5aa8ff"))
+                fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(product_revenue_df.set_index("product_bucket")[["packaged_estimated_revenue_usd", "bulk_estimated_value_usd"]])
+            chart_card_end()
+        with f2:
+            chart_card_start("Units by Product Type", "Estimated sellable units by output format.")
+            units_df = (
+                display_df.groupby("product_bucket", as_index=False)["units_per_batch"]
+                .sum()
+                .sort_values("units_per_batch", ascending=False)
+            )
+            if units_df.empty:
+                st.caption("No unitization data.")
+            elif PLOTLY_AVAILABLE:
+                fig = px.bar(units_df, x="product_bucket", y="units_per_batch", color_discrete_sequence=["#f5a524"])
+                fig.update_layout(height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(units_df.set_index("product_bucket")["units_per_batch"])
+            chart_card_end()
+
+        f3, f4 = st.columns(2)
+        with f3:
+            chart_card_start("Cost vs Revenue by Method", "Total COGs versus packaged revenue grouped by extraction method.")
+            cvr_df = (
+                display_df.groupby("method", as_index=False)[["total_cogs_usd", "estimated_revenue_usd"]]
+                .sum()
+                .sort_values("estimated_revenue_usd", ascending=False)
+            )
+            if cvr_df.empty:
+                st.caption("No method-level financial data.")
+            elif PLOTLY_AVAILABLE:
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=cvr_df["method"], y=cvr_df["total_cogs_usd"], name="COGs", marker_color="#ff6161"))
+                fig.add_trace(go.Bar(x=cvr_df["method"], y=cvr_df["estimated_revenue_usd"], name="Revenue", marker_color="#4cd388"))
+                fig.update_layout(barmode="group", height=320, template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(cvr_df.set_index("method")[["total_cogs_usd", "estimated_revenue_usd"]])
+            chart_card_end()
+        with f4:
+            chart_card_start("Pack Size Sensitivity", "How alternate pack sizes impact estimated unit counts.")
+            sensitivity_rows: list[dict[str, Any]] = []
+            for _, r in display_df.iterrows():
+                current_type = r.get("final_product_type", r.get("product_type", ""))
+                for size in _ecc_get_pack_size_presets(current_type):
+                    usable = max(float(r.get("usable_output_g", r.get("finished_output_g", 0.0)) or 0.0), 0.0)
+                    sensitivity_rows.append(
+                        {
+                            "batch_id_internal": r.get("batch_id_internal", ""),
+                            "product_type": normalize_extraction_output_label(current_type) or current_type or "Other",
+                            "pack_size_g": size,
+                            "estimated_units": int(np.floor(usable / size)) if size > 0 else 0,
+                        }
+                    )
+            sensitivity_df = pd.DataFrame(sensitivity_rows)
+            if sensitivity_df.empty:
+                st.caption("Sensitivity view appears when product type has pack-size presets.")
+            else:
+                st.dataframe(
+                    sensitivity_df.sort_values(["product_type", "pack_size_g", "estimated_units"], ascending=[True, True, False]).head(40),
+                    width="stretch",
+                    hide_index=True,
+                )
+            chart_card_end()
+
+    with runs_tab:
+        st.subheader("Run Explorer")
+        run_explorer_df = run_df.copy()
+        if "output_mapping_warning" in run_explorer_df.columns:
+            run_explorer_df["output_mapping_warning"] = run_explorer_df["output_mapping_warning"].fillna("")
+        st.dataframe(run_explorer_df, width="stretch", hide_index=True)
+
+        st.markdown("#### Quick add a run")
+        st.caption(
+            "Capture the intake essentials now. Stage weights, economics, packaging, and detailed "
+            "traceability can be added only when they become relevant."
+        )
+        with st.form("ecc_quick_run_form", clear_on_submit=True):
+            quick1, quick2, quick3 = st.columns(3)
+            quick_run_date = quick1.date_input("Run date", value=datetime.today())
+            quick_state_default = str(st.session_state.get("ecc_selected_state", "MA"))
+            if quick_state_default not in ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"]:
+                quick_state_default = "MA"
+            quick_state_options = ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"]
+            quick_state = quick2.selectbox(
+                "State",
+                quick_state_options,
+                index=quick_state_options.index(quick_state_default),
+            )
+            quick_method = quick3.selectbox("Method", EXTRACTION_METHOD_OPTIONS)
+
+            quick_client = quick1.text_input("Client", value="In House")
+            quick_batch = quick2.text_input(
+                "Internal batch ID*",
+                placeholder="RUN-2026-0001",
+            )
+            quick_input_weight = quick3.number_input(
+                "Input weight (g)*",
+                min_value=0.0,
+                step=1.0,
+            )
+
+            quick_material = quick1.selectbox(
+                "Input material",
+                ["Fresh Frozen", "Cured Biomass", "Hash", "Flower", "Trim", "Other"],
+            )
+            quick_product = quick2.selectbox(
+                "Planned finished product",
+                EXTRACTION_PRODUCT_TYPE_OPTIONS,
+            )
+            quick_metrc_input = quick3.text_input("METRC input package (optional)")
+
+            quick_operator = quick1.text_input("Operator (optional)")
+            quick_machine = quick2.text_input("Machine / line (optional)")
+            quick_toll = quick3.checkbox("Customer-owned / toll job")
+            quick_submit = st.form_submit_button(
+                "Create run and continue tracking",
+                type="primary",
+            )
+
+        if quick_submit:
+            quick_batch_clean = quick_batch.strip()
+            existing_batches = set(
+                st.session_state.ecc_run_log.get(
+                    "batch_id_internal",
+                    pd.Series(dtype=str),
+                )
+                .fillna("")
+                .astype(str)
+                .str.strip()
+            )
+            if not quick_batch_clean:
+                st.error("Internal batch ID is required.")
+            elif float(quick_input_weight or 0.0) <= 0:
+                st.error("Input weight must be greater than zero.")
+            elif quick_batch_clean in existing_batches:
+                st.error("That internal batch ID already exists. Open Process Tracker to update it.")
+            else:
+                quick_workflow_template = _ecc_get_method_family(quick_method)
+                quick_product_normalized = (
+                    normalize_extraction_output_label(quick_product) or quick_product
+                )
+                quick_record = build_quick_run_record(
+                    run_date=quick_run_date,
+                    state=quick_state,
+                    client_name=quick_client,
+                    batch_id_internal=quick_batch_clean,
+                    method=quick_method,
+                    workflow_template=quick_workflow_template,
+                    product_type=quick_product_normalized,
+                    input_material_type=quick_material,
+                    input_weight_g=float(quick_input_weight),
+                    operator=quick_operator,
+                    machine_line=quick_machine,
+                    metrc_input_package_id=quick_metrc_input,
+                    toll_processing=quick_toll,
+                )
+                st.session_state.ecc_run_log = pd.concat(
+                    [st.session_state.ecc_run_log, pd.DataFrame([quick_record])],
+                    ignore_index=True,
+                )
+                st.session_state.ecc_run_log = _ecc_ensure_run_schema(
+                    _ensure_mass_balance_cols(st.session_state.ecc_run_log)
+                )
+                st.success(
+                    f"{quick_batch_clean} created at Intake. Continue in Process Tracker."
+                )
+                st.rerun()
+
+        with st.expander("Advanced run entry ‚Äî all fields", expanded=False):
+            r1, r2, r3 = st.columns(3)
+            with r1:
+                run_date = st.date_input("Run Date", value=datetime.today(), key="ecc_run_date")
+                state = st.selectbox(
+                    "State / Jurisdiction",
+                    ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"],
+                    key="ecc_run_state",
+                )
+                license_name = st.text_input("Facility / License Name", key="ecc_license_name")
+                client_name = st.text_input("Client Name", value="In House", key="ecc_client_name")
+                batch_id_internal = st.text_input("Internal Batch ID", key="ecc_batch_id")
+                method = st.selectbox("Method", EXTRACTION_METHOD_OPTIONS, key="ecc_method")
+                workflow_family_default = _ecc_get_method_family(method)
+                workflow_template = st.selectbox(
+                    "Workflow Template",
+                    list(EXTRACTION_WORKFLOW_TEMPLATES.keys()),
+                    index=list(EXTRACTION_WORKFLOW_TEMPLATES.keys()).index(workflow_family_default)
+                    if workflow_family_default in EXTRACTION_WORKFLOW_TEMPLATES
+                    else 0,
+                    key="ecc_workflow_template",
+                )
+                stage_options = _ecc_get_workflow_stages(method, workflow_template)
+                product_type = st.selectbox(
+                    "Product Type",
+                    EXTRACTION_PRODUCT_TYPE_OPTIONS,
+                    key="ecc_product_type",
+                )
+                intermediate_product_type = st.selectbox(
+                    "Intermediate Product Type",
+                    [""] + EXTRACTION_INTERMEDIATE_PRODUCT_OPTIONS,
+                    key="ecc_intermediate_product_type",
+                )
+                final_product_type = st.selectbox(
+                    "Final Product Type",
+                    [""] + EXTRACTION_PRODUCT_TYPE_OPTIONS,
+                    key="ecc_final_product_type",
+                    help="Used for valuation priority and finished-product KPIs.",
+                )
+                downstream_product = st.selectbox(
+                    "Downstream Product Path",
+                    EXTRACTION_DOWNSTREAM_OPTIONS,
+                    key="ecc_downstream_product",
+                    help="Track whether extracted oil is converted into finished vape products.",
+                )
+                process_stage = st.selectbox(
+                    "Current Process Stage",
+                    stage_options,
+                    index=0,
+                    key="ecc_process_stage",
+                )
+            with r2:
+                input_material_type = st.selectbox(
+                    "Input Material Type",
+                    ["Fresh Frozen", "Cured Biomass", "Hash", "Flower", "Trim", "Other"],
+                    key="ecc_input_material_type",
+                )
+                input_weight_g = st.number_input("Input Weight (g)", min_value=0.0, step=1.0, key="ecc_input_weight")
+                cost_per_input_gram = st.number_input(
+                    "Input Cost Basis ($/g)",
+                    min_value=0.0,
+                    step=0.1,
+                    key="ecc_cost_per_input_gram",
+                    help="Used when the run is not linked to inventory lot allocations.",
+                )
+                intermediate_output_g = st.number_input(
+                    "Intermediate Output (g)", min_value=0.0, step=0.1, key="ecc_intermediate_output"
+                )
+                finished_output_g = st.number_input(
+                    "Finished Output (g)", min_value=0.0, step=0.1, key="ecc_finished_output"
+                )
+                residual_loss_g = st.number_input(
+                    "Residual Loss (g)", min_value=0.0, step=0.1, key="ecc_residual_loss"
+                )
+                operator = st.text_input("Operator", key="ecc_operator")
+                machine_line = st.text_input("Machine / Line", key="ecc_machine_line")
+                formulation_base_g = st.number_input(
+                    "Formulation Base (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    key="ecc_formulation_base_g",
+                    help="Optional base mass entering formulation stage.",
+                )
+                terpene_percentage = st.number_input(
+                    "Terpene % (optional)",
+                    min_value=0.0,
+                    step=0.1,
+                    key="ecc_terpene_percentage",
+                )
+                terpene_weight_g = st.number_input(
+                    "Terpene Weight (g, optional override)",
+                    min_value=0.0,
+                    step=0.1,
+                    key="ecc_terpene_weight_g",
+                )
+            with r3:
+                metrc_package_id_input = st.text_input("METRC Package ID - Input", key="ecc_pkg_input")
+                metrc_package_id_output = st.text_input("METRC Package ID - Output", key="ecc_pkg_output")
+                metrc_input_package_id = st.text_input("METRC Input Package ID", key="ecc_metrc_input_package_id")
+                metrc_intermediate_package_id = st.text_input("METRC Intermediate Package ID", key="ecc_metrc_intermediate_package_id")
+                metrc_distillate_package_id = st.text_input("METRC Distillate Package ID", key="ecc_metrc_distillate_package_id")
+                metrc_formulation_package_id = st.text_input("METRC Formulation Package ID", key="ecc_metrc_formulation_package_id")
+                metrc_final_package_id = st.text_input("METRC Final Package ID", key="ecc_metrc_final_package_id")
+                metrc_stage_input_id = st.text_input("METRC Stage Input ID", key="ecc_metrc_stage_input_id")
+                metrc_stage_output_id = st.text_input("METRC Stage Output ID", key="ecc_metrc_stage_output_id")
+                metrc_manifest_or_transfer_id = st.text_input(
+                    "METRC Manifest / Transfer ID",
+                    key="ecc_manifest_id",
+                )
+                terpene_handling_mode = st.selectbox(
+                    "Terpene Handling Mode",
+                    [""] + EXTRACTION_TERPENE_HANDLING_MODES,
+                    key="ecc_terpene_handling_mode",
+                )
+                terpene_type = st.text_input("Terpene Type (optional)", key="ecc_terpene_type")
+                terpene_source = st.text_input("Terpene Source (optional)", key="ecc_terpene_source")
+                coa_status = st.selectbox(
+                    "COA Status",
+                    ["Pending", "Passed", "Failed", "Not Submitted"],
+                    key="ecc_coa_status",
+                )
+                qa_hold = st.checkbox("QA Hold", key="ecc_qa_hold")
+                toll_processing_flag = st.checkbox("Toll Processing Job", key="ecc_toll_flag")
+                processing_fee_usd = st.number_input(
+                    "Processing Fee (USD)", min_value=0.0, step=10.0, key="ecc_processing_fee"
+                )
+                st.markdown("**COGs Inputs (optional)**")
+                raw_material_cogs_usd = st.number_input("Raw Material COGs (USD)", min_value=0.0, step=10.0, key="ecc_raw_material_cogs_usd")
+                processing_cogs_usd = st.number_input("Processing COGs (USD)", min_value=0.0, step=10.0, key="ecc_processing_cogs_usd")
+                packaging_cogs_usd = st.number_input("Packaging COGs (USD)", min_value=0.0, step=10.0, key="ecc_packaging_cogs_usd")
+                labor_cogs_usd = st.number_input("Labor COGs (USD)", min_value=0.0, step=10.0, key="ecc_labor_cogs_usd")
+                overhead_cogs_usd = st.number_input("Overhead COGs (USD)", min_value=0.0, step=10.0, key="ecc_overhead_cogs_usd")
+                total_cogs_override = st.checkbox("Manual Total COGs Override", key="ecc_total_cogs_override")
+                total_cogs_usd = st.number_input("Total COGs (USD)", min_value=0.0, step=10.0, key="ecc_total_cogs")
+                st.markdown("**Finished Pack Configuration**")
+                packaging_mode = _ecc_get_packaging_mode(final_product_type or product_type)
+                pack_presets = _ecc_get_pack_size_presets(final_product_type or product_type)
+                preset_opts = ["Bulk / No Unitization"] + [f"{x:g} g" for x in pack_presets]
+                preset_choice = st.selectbox(
+                    "Pack Size Preset",
+                    preset_opts,
+                    key="ecc_pack_size_preset",
+                    help="Select a default pack size for concentrates/cart fill/disposable workflows.",
+                )
+                inferred_unit_size = 0.0 if preset_choice == "Bulk / No Unitization" else float(preset_choice.replace(" g", ""))
+                unit_size_g = st.number_input(
+                    "Unit Size (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(inferred_unit_size),
+                    key="ecc_unit_size_g",
+                    help="Custom unit size override supported (e.g., 0.5g / 1g / 2g / 3.5g).",
+                )
+                unit_price_usd = st.number_input("Unit Price (USD)", min_value=0.0, step=0.5, key="ecc_unit_price_usd")
+                packaging_yield_loss_g = st.number_input(
+                    "Packaging Yield Loss (g, optional)",
+                    min_value=0.0,
+                    step=0.1,
+                    key="ecc_packaging_yield_loss_g",
+                )
+                est_revenue_usd_manual = st.number_input(
+                    "Estimated Revenue Override (USD, optional)",
+                    min_value=0.0,
+                    step=10.0,
+                    key="ecc_est_revenue",
+                    help="Used if unitized pricing is not configured.",
+                )
+                notes = st.text_area("Run Notes", key="ecc_notes")
+                stage_output_inputs: dict[str, float] = {}
+                stage_fields = EXTRACTION_METHOD_STAGE_OUTPUT_FIELDS.get(workflow_template, [])
+                if stage_fields:
+                    st.markdown("**Method-Aware Stage Outputs (optional)**")
+                    for field_name, field_label in stage_fields:
+                        stage_output_inputs[field_name] = st.number_input(
+                            field_label,
+                            min_value=0.0,
+                            step=0.1,
+                            key=f"ecc_add_{field_name}",
+                        )
+
+            if st.button("Add Run", type="primary", key="ecc_add_run"):
+                terpene_ok, terpene_msg = _ecc_validate_terpene_percentage(float(terpene_percentage or 0.0))
+                if not terpene_ok:
+                    st.error(terpene_msg)
+                    st.stop()
+                if terpene_msg:
+                    st.warning(terpene_msg)
+                if packaging_yield_loss_g > float(finished_output_g or 0.0):
+                    st.error("Packaging yield loss cannot exceed finished output grams.")
+                    st.stop()
+                if unit_size_g < 0:
+                    st.error("Unit size must be >= 0.")
+                    st.stop()
+                if unit_price_usd < 0:
+                    st.error("Unit price must be >= 0.")
+                    st.stop()
+                if total_cogs_usd < 0:
+                    st.error("Total COGs must be >= 0.")
+                    st.stop()
+                if (final_product_type or product_type) and (packaging_mode != "Bulk / Formulation") and unit_price_usd > 0 and unit_size_g <= 0:
+                    st.error("Unit size must be > 0 when unit pricing is entered for packaged products.")
+                    st.stop()
+                formulation_applied = _ecc_workflow_supports_formulation(method, workflow_template) and (
+                    float(formulation_base_g or 0.0) > 0
+                    or float(terpene_percentage or 0.0) > 0
+                    or float(terpene_weight_g or 0.0) > 0
+                    or str(terpene_handling_mode or "").strip() not in {"", "Native / No Add-Back"}
+                )
+                terpene_weight_calc_g = _ecc_compute_formulation_terpene_weight(
+                    float(formulation_base_g or intermediate_output_g or finished_output_g or 0.0),
+                    float(terpene_percentage or 0.0),
+                    float(terpene_weight_g or 0.0),
+                )
+                adjusted_final_output_g = float(finished_output_g or 0.0)
+                if formulation_applied:
+                    base_for_formulation = float(formulation_base_g or finished_output_g or intermediate_output_g or 0.0)
+                    adjusted_final_output_g = base_for_formulation + float(terpene_weight_calc_g or 0.0)
+                yield_pct = (adjusted_final_output_g / input_weight_g * 100) if input_weight_g else 0.0
+                post_eff = (adjusted_final_output_g / intermediate_output_g * 100) if intermediate_output_g else 0.0
+                new_row = pd.DataFrame(
+                    [
+                        {
+                            "run_date": str(run_date),
+                            "state": state,
+                            "license_name": license_name,
+                            "client_name": client_name,
+                            "batch_id_internal": batch_id_internal,
+                            "metrc_package_id_input": metrc_package_id_input,
+                            "metrc_package_id_output": metrc_package_id_output,
+                            "metrc_input_package_id": metrc_input_package_id or metrc_package_id_input,
+                            "metrc_intermediate_package_id": metrc_intermediate_package_id,
+                            "metrc_distillate_package_id": metrc_distillate_package_id,
+                            "metrc_formulation_package_id": metrc_formulation_package_id,
+                            "metrc_final_package_id": metrc_final_package_id or metrc_package_id_output,
+                            "metrc_stage_input_id": metrc_stage_input_id,
+                            "metrc_stage_output_id": metrc_stage_output_id,
+                            "metrc_manifest_or_transfer_id": metrc_manifest_or_transfer_id,
+                            "method": method,
+                            "workflow_template": workflow_template,
+                            "product_type": normalize_extraction_output_label(product_type) or product_type,
+                            "intermediate_product_type": normalize_extraction_output_label(intermediate_product_type) or intermediate_product_type,
+                            "finished_product_type": normalize_extraction_output_label(final_product_type or product_type) or final_product_type or product_type,
+                            "final_product_type": normalize_extraction_output_label(final_product_type or product_type) or final_product_type or product_type,
+                            "downstream_product": normalize_extraction_output_label(downstream_product) or downstream_product,
+                            "process_stage": process_stage,
+                            "intake_complete": stage_options.index(process_stage) >= 1 if process_stage in stage_options else False,
+                            "extraction_complete": stage_options.index(process_stage) >= 2 if process_stage in stage_options and len(stage_options) > 2 else False,
+                            "post_process_complete": "Dewax / Post-Process" in stage_options and stage_options.index(process_stage) > stage_options.index("Dewax / Post-Process") if process_stage in stage_options and "Dewax / Post-Process" in stage_options else False,
+                            "formulation_complete": "Formulation" in stage_options and stage_options.index(process_stage) > stage_options.index("Formulation") if process_stage in stage_options and "Formulation" in stage_options else False,
+                            "filling_complete": "Filling / Packaging" in stage_options and stage_options.index(process_stage) > stage_options.index("Filling / Packaging") if process_stage in stage_options and "Filling / Packaging" in stage_options else False,
+                            "packaging_complete": "Final Output" in stage_options and stage_options.index(process_stage) >= stage_options.index("Final Output") if process_stage in stage_options and "Final Output" in stage_options else False,
+                            "ready_for_transfer": process_stage == "Final Output",
+                            "input_material_type": input_material_type,
+                            "input_weight_g": input_weight_g,
+                            "cost_per_input_gram": cost_per_input_gram,
+                            "intermediate_output_g": intermediate_output_g,
+                            "finished_output_g": adjusted_final_output_g,
+                            "residual_loss_g": residual_loss_g,
+                            "yield_pct": yield_pct,
+                            "post_process_efficiency_pct": post_eff,
+                            "formulation_base_g": formulation_base_g,
+                            "formulation_applied": formulation_applied,
+                            "terpene_handling_mode": terpene_handling_mode,
+                            "terpene_type": terpene_type,
+                            "terpene_source": terpene_source,
+                            "terpene_percentage": terpene_percentage,
+                            "terpene_weight_g": terpene_weight_calc_g,
+                            "operator": operator,
+                            "machine_line": machine_line,
+                            "status": "Complete",
+                            "toll_processing": toll_processing_flag,
+                            "processing_fee_usd": processing_fee_usd,
+                            "est_revenue_usd": est_revenue_usd_manual,
+                            "raw_material_cogs_usd": raw_material_cogs_usd,
+                            "processing_cogs_usd": processing_cogs_usd,
+                            "packaging_cogs_usd": packaging_cogs_usd,
+                            "labor_cogs_usd": labor_cogs_usd,
+                            "overhead_cogs_usd": overhead_cogs_usd,
+                            "total_cogs_usd": total_cogs_usd,
+                            "total_cogs_override": total_cogs_override,
+                            "cogs_usd": total_cogs_usd if total_cogs_override else (
+                                raw_material_cogs_usd + processing_cogs_usd + packaging_cogs_usd + labor_cogs_usd + overhead_cogs_usd
+                            ),
+                            "packaging_mode": packaging_mode,
+                            "unit_size_g": unit_size_g,
+                            "unit_price_usd": unit_price_usd,
+                            "packaging_yield_loss_g": packaging_yield_loss_g,
+                            "source_inventory_batch_ids": "[]",
+                            "source_inventory_metrc_ids": "[]",
+                            "allocated_input_weight_g": 0.0,
+                            "allocated_input_cost_total": 0.0,
+                            "inventory_linked": False,
+                            "coa_status": coa_status,
+                            "qa_hold": qa_hold,
+                            "notes": notes,
+                            **stage_output_inputs,
+                        }
+                    ]
+                )
+                st.session_state.ecc_run_log = pd.concat(
+                    [st.session_state.ecc_run_log, new_row],
+                    ignore_index=True,
+                )
+                st.success("Run added. Rerun to view updated KPIs.")
+
+    with process_tab:
+        st.subheader("Start-to-Finish Process Tracker")
+        st.caption(
+            "Track stage-by-stage mass balance. Edit stage weights inline ‚Äî losses and yields update automatically."
+        )
+
+        if st.session_state.ecc_run_log.empty:
+            st.info("No runs available yet. Add a run to begin tracking the extraction process.")
+        else:
+            # ‚îÄ‚îÄ KPI tiles ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+            _mb_all = _compute_mass_balance(st.session_state.ecc_run_log.copy())
+            _total_input_pt = float(_mb_all["input_weight_g"].fillna(0).sum())
+            _final_col = _mb_all["final_output_g"].where(
+                _mb_all["final_output_g"] > 0,
+                _mb_all.get("finished_output_g", pd.Series(0.0, index=_mb_all.index)).fillna(0),
+            )
+            _total_final_pt = float(_final_col.sum())
+            _avg_final_yield_pt = float(
+                _mb_all["final_yield_pct"].replace(0, float("nan")).mean(skipna=True) or 0.0
+            )
+            _total_loss_pt = float(
+                (
+                    _mb_all["extraction_loss_g"]
+                    + _mb_all["post_process_loss_g"]
+                    + _mb_all["distillation_loss_g"]
+                    + _mb_all["final_loss_g"]
+                ).fillna(0).sum()
+            )
+            _runs_with_warnings_pt = int(
+                _mb_all["mass_balance_flag"].isin(["Warning", "Critical"]).sum()
+            )
+            k1, k2, k3, k4, k5 = st.columns(5)
+            with k1:
+                kpi_card("Total Input Weight", f"{_total_input_pt:,.1f} g")
+            with k2:
+                kpi_card("Total Final Output", f"{_total_final_pt:,.1f} g")
+            with k3:
+                kpi_card("Avg Final Yield %", f"{_avg_final_yield_pt:.1f}%")
+            with k4:
+                kpi_card("Total Process Loss", f"{_total_loss_pt:,.1f} g")
+            with k5:
+                kpi_card("Runs w/ Warnings", _runs_with_warnings_pt)
+
+            st.divider()
+
+            # ‚îÄ‚îÄ Run selector ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+            process_df = _mb_all.reset_index(drop=True)
+            process_df = _ecc_calculate_run_value_metrics(process_df, inventory_master_df)
+            if "process_stage" not in process_df.columns:
+                process_df["process_stage"] = "Intake"
+            for _col in [
+                "intake_complete",
+                "extraction_complete",
+                "post_process_complete",
+                "formulation_complete",
+                "filling_complete",
+                "packaging_complete",
+                "ready_for_transfer",
+            ]:
+                if _col not in process_df.columns:
+                    process_df[_col] = False
+
+            process_df["run_label"] = (
+                process_df["run_date"].astype(str)
+                + " ‚Ä¢ "
+                + process_df["batch_id_internal"].astype(str).replace("", "No Batch ID")
+                + " ‚Ä¢ "
+                + process_df["method"].astype(str)
+            )
+            selected_run = st.selectbox(
+                "Select Run to Update",
+                process_df["run_label"].tolist(),
+                key="ecc_process_selected_run",
+            )
+            selected_idx = process_df.index[process_df["run_label"] == selected_run][0]
+            selected_row = process_df.loc[selected_idx]
+
+            # Mass-balance status badge
+            _flag_val = str(selected_row.get("mass_balance_flag", "OK"))
+            _flag_icon = {"OK": "üü¢", "Warning": "üü°", "Critical": "üî¥"}.get(_flag_val, "‚ö™")
+            _flag_color = {
+                "OK": "#4cd388",
+                "Warning": "#f3c74c",
+                "Critical": "#ff6161",
+            }.get(_flag_val, "#5aa8ff")
+            st.markdown(
+                f"<span class='pill-badge' style='background:{_flag_color};'>{_flag_icon} Mass Balance: {_flag_val}</span>",
+                unsafe_allow_html=True,
+            )
+            st.info(
+                " | ".join(
+                    [
+                        f"Workflow: {str(selected_row.get('workflow_template', '') or _ecc_get_method_family(selected_row.get('method', '')))}",
+                        f"Current Stage: {str(selected_row.get('process_stage', 'Intake'))}",
+                        f"METRC Input/Final: {str(selected_row.get('metrc_input_package_id', selected_row.get('metrc_package_id_input', 'n/a'))) or 'n/a'} / {str(selected_row.get('metrc_final_package_id', selected_row.get('metrc_package_id_output', 'n/a'))) or 'n/a'}",
+                        f"Terpenes: {str(selected_row.get('terpene_handling_mode', 'n/a') or 'n/a')}",
+                        f"Intermediate‚ÜíFinal: {str(selected_row.get('intermediate_product_type', 'n/a') or 'n/a')} ‚Üí {str(selected_row.get('final_product_type', selected_row.get('finished_product_type', 'n/a')) or 'n/a')}",
+                    ]
+                )
+            )
+
+            with st.expander("Quick stage update", expanded=True):
+                st.caption(
+                    "Move the selected run forward with one observed output. "
+                    "Use the full editor below only for exceptions or detailed economics."
+                )
+                selected_method_value = str(selected_row.get("method", "BHO") or "BHO")
+                selected_template_value = str(
+                    selected_row.get("workflow_template", "")
+                    or _ecc_get_method_family(selected_method_value)
+                )
+                quick_stage_options = _ecc_get_workflow_stages(
+                    selected_method_value,
+                    selected_template_value,
+                )
+                current_stage_value = str(selected_row.get("process_stage", "Intake"))
+                current_stage_index = (
+                    quick_stage_options.index(current_stage_value)
+                    if current_stage_value in quick_stage_options
+                    else 0
+                )
+                suggested_stage_index = min(
+                    current_stage_index + 1,
+                    len(quick_stage_options) - 1,
+                )
+                with st.form(
+                    f"ecc_quick_stage_form_{int(selected_idx)}",
+                    clear_on_submit=True,
+                ):
+                    stage1, stage2, stage3 = st.columns(3)
+                    quick_new_stage = stage1.selectbox(
+                        "New stage",
+                        quick_stage_options,
+                        index=suggested_stage_index,
+                    )
+                    quick_stage_output = stage2.number_input(
+                        "Observed output (g)",
+                        min_value=0.0,
+                        step=0.1,
+                        help="Enter the measured output leaving this stage. Leave zero for a status-only update.",
+                    )
+                    quick_stage_status = stage3.selectbox(
+                        "Run status",
+                        ["Queued", "Processing", "On Hold", "Complete", "Failed"],
+                        index=1,
+                    )
+                    quick_stage_metrc_output = stage1.text_input(
+                        "Stage output package ID (optional)"
+                    )
+                    quick_stage_operator = stage2.text_input(
+                        "Operator (optional)",
+                        value=str(selected_row.get("operator", "") or ""),
+                    )
+                    quick_stage_note = stage3.text_input(
+                        "Shift note (optional)",
+                        placeholder="Yield, downtime, QA, or handoff note",
+                    )
+                    quick_stage_submit = st.form_submit_button(
+                        "Save stage update",
+                        type="primary",
+                    )
+
+                if quick_stage_submit:
+                    st.session_state.ecc_run_log.loc[
+                        selected_idx,
+                        "process_stage",
+                    ] = quick_new_stage
+                    st.session_state.ecc_run_log.loc[
+                        selected_idx,
+                        "status",
+                    ] = quick_stage_status
+                    st.session_state.ecc_run_log.loc[
+                        selected_idx,
+                        "operator",
+                    ] = quick_stage_operator
+                    completion_updates = stage_completion_flags(
+                        quick_stage_options,
+                        quick_new_stage,
+                    )
+                    for field_name, field_value in completion_updates.items():
+                        st.session_state.ecc_run_log.loc[
+                            selected_idx,
+                            field_name,
+                        ] = field_value
+                    if float(quick_stage_output or 0.0) > 0:
+                        for field_name, field_value in quick_stage_weight_updates(
+                            quick_new_stage,
+                            float(quick_stage_output),
+                        ).items():
+                            st.session_state.ecc_run_log.loc[
+                                selected_idx,
+                                field_name,
+                            ] = field_value
+                    if quick_stage_metrc_output.strip():
+                        st.session_state.ecc_run_log.loc[
+                            selected_idx,
+                            "metrc_stage_output_id",
+                        ] = quick_stage_metrc_output.strip()
+                        if quick_new_stage == "Final Output":
+                            st.session_state.ecc_run_log.loc[
+                                selected_idx,
+                                "metrc_final_package_id",
+                            ] = quick_stage_metrc_output.strip()
+                    if quick_stage_note.strip():
+                        existing_notes = str(
+                            st.session_state.ecc_run_log.loc[selected_idx].get(
+                                "notes",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+                        timestamped_note = (
+                            f"{datetime.now().strftime('%Y-%m-%d %H:%M')} ‚Äî "
+                            f"{quick_stage_note.strip()}"
+                        )
+                        st.session_state.ecc_run_log.loc[
+                            selected_idx,
+                            "notes",
+                        ] = "\n".join(
+                            value
+                            for value in [existing_notes, timestamped_note]
+                            if value
+                        )
+                    st.session_state.ecc_run_log = _ecc_ensure_run_schema(
+                        _ensure_mass_balance_cols(
+                            st.session_state.ecc_run_log
+                        )
+                    )
+                    st.success(
+                        f"{selected_row.get('batch_id_internal', 'Run')} moved to {quick_new_stage}."
+                    )
+                    st.rerun()
+
+            st.markdown("#### Linked Inventory & Value Context")
+            source_batches = _ecc_parse_list_field(selected_row.get("source_inventory_batch_ids", "[]"))
+            source_metrc = _ecc_parse_list_field(selected_row.get("source_inventory_metrc_ids", "[]"))
+            manual_cost_key = f"ecc_manual_cost_per_g_update_{int(selected_idx)}"
+            manual_value_key = f"ecc_manual_value_per_g_update_{int(selected_idx)}"
+            if manual_cost_key not in st.session_state:
+                st.session_state[manual_cost_key] = float(selected_row.get("manual_cost_per_gram", 0.0) or 0.0)
+            if manual_value_key not in st.session_state:
+                st.session_state[manual_value_key] = float(selected_row.get("manual_market_price_per_gram", 0.0) or 0.0)
+
+            manual_cost_preview = float(st.session_state.get(manual_cost_key, 0.0) or 0.0)
+            manual_value_preview = float(st.session_state.get(manual_value_key, 0.0) or 0.0)
+            effective_cost_per_g = manual_cost_preview if manual_cost_preview > 0 else float(selected_row.get("cost_per_gram", 0.0) or 0.0)
+            effective_value_per_g = manual_value_preview if manual_value_preview > 0 else float(selected_row.get("market_price_per_gram", 0.0) or 0.0)
+            effective_margin_per_g = effective_value_per_g - effective_cost_per_g
+
+            src1, src2, src3 = st.columns(3)
+            with src1:
+                st.metric("Inventory Linked", "Yes" if bool(selected_row.get("inventory_linked", False)) else "No")
+                st.metric("Allocated Input (g)", f"{float(selected_row.get('allocated_input_weight_g', 0.0)):.1f}")
+            with src2:
+                st.metric("Allocated Input Cost", f"${float(selected_row.get('allocated_input_cost_total', 0.0)):,.2f}")
+                st.metric("Cost / g", f"${effective_cost_per_g:,.2f}")
+            with src3:
+                st.metric("Value / g", f"${effective_value_per_g:,.2f}")
+                st.metric("Margin / g", f"${effective_margin_per_g:,.2f}")
+            if source_batches or source_metrc:
+                st.caption(
+                    f"Source batches: {', '.join(source_batches) if source_batches else 'n/a'} | "
+                    f"Source METRC IDs: {', '.join(source_metrc) if source_metrc else 'n/a'}"
+                )
+            linked_source_batch = str(selected_row.get("source_inventory_batch_id", "")).strip()
+            linked_source_material = str(selected_row.get("source_material_name", "")).strip()
+            if linked_source_batch or linked_source_material:
+                st.caption(
+                    f"Linked source lot: {linked_source_batch or 'n/a'} | "
+                    f"Source material: {linked_source_material or 'n/a'}"
+                )
+
+            st.markdown("#### Value Model Overrides")
+            ov1, ov2 = st.columns(2)
+            with ov1:
+                manual_cost_per_g = st.number_input(
+                    "Override Cost / g ($)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("manual_cost_per_gram", 0.0) or 0.0),
+                    help="Optional manual override. Set to 0 to use calculated cost-per-gram.",
+                    key=f"ecc_manual_cost_per_g_update_{int(selected_idx)}",
+                )
+            with ov2:
+                manual_value_per_g = st.number_input(
+                    "Override Value / g ($)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("manual_market_price_per_gram", 0.0) or 0.0),
+                    help="Optional manual override. Set to 0 to use taxonomy/method market value mapping.",
+                    key=f"ecc_manual_value_per_g_update_{int(selected_idx)}",
+                )
+
+            # ‚îÄ‚îÄ Process status controls (preserved from original) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+            st.markdown("#### Process Status")
+            selected_workflow_template = str(selected_row.get("workflow_template", "")).strip() or _ecc_get_method_family(selected_row.get("method", ""))
+            selected_stage_options = _ecc_get_workflow_stages(selected_row.get("method", ""), selected_workflow_template)
+            p1, p2, p3 = st.columns(3)
+            with p1:
+                updated_stage = st.selectbox(
+                    "Process Stage",
+                    selected_stage_options,
+                    index=selected_stage_options.index(selected_row.get("process_stage", selected_stage_options[0]))
+                    if selected_row.get("process_stage", selected_stage_options[0]) in selected_stage_options
+                    else 0,
+                    key=f"ecc_process_stage_update_{int(selected_idx)}",
+                )
+                updated_status = st.selectbox(
+                    "Operational Status",
+                    ["Queued", "Processing", "Packaging", "Complete", "Hold"],
+                    index=(
+                        ["Queued", "Processing", "Packaging", "Complete", "Hold"].index(selected_row.get("status", "Processing"))
+                        if selected_row.get("status", "Processing") in ["Queued", "Processing", "Packaging", "Complete", "Hold"]
+                        else 1
+                    ),
+                    key=f"ecc_process_status_update_{int(selected_idx)}",
+                )
+                updated_product_type = st.selectbox(
+                    "Finished Product Type",
+                    EXTRACTION_PRODUCT_TYPE_OPTIONS,
+                    index=(
+                        EXTRACTION_PRODUCT_TYPE_OPTIONS.index(
+                            normalize_extraction_output_label(
+                                selected_row.get("finished_product_type", selected_row.get("product_type", "Other"))
+                            ) or "Other"
+                        )
+                        if (normalize_extraction_output_label(selected_row.get("finished_product_type", selected_row.get("product_type", "Other"))) or "Other")
+                        in EXTRACTION_PRODUCT_TYPE_OPTIONS
+                        else EXTRACTION_PRODUCT_TYPE_OPTIONS.index("Other")
+                    ),
+                    key=f"ecc_process_product_type_update_{int(selected_idx)}",
+                )
+            with p2:
+                updated_downstream = st.selectbox(
+                    "Downstream Output",
+                    EXTRACTION_DOWNSTREAM_OPTIONS,
+                    index=(
+                        EXTRACTION_DOWNSTREAM_OPTIONS.index(
+                            normalize_extraction_output_label(selected_row.get("downstream_product", "N/A"))
+                            or selected_row.get("downstream_product", "N/A")
+                        )
+                        if (normalize_extraction_output_label(selected_row.get("downstream_product", "N/A")) or selected_row.get("downstream_product", "N/A"))
+                        in EXTRACTION_DOWNSTREAM_OPTIONS
+                        else 0
+                    ),
+                    key=f"ecc_process_downstream_update_{int(selected_idx)}",
+                )
+                updated_coa = st.selectbox(
+                    "COA Status",
+                    ["Pending", "Passed", "Failed", "Not Submitted"],
+                    index=(
+                        ["Pending", "Passed", "Failed", "Not Submitted"].index(selected_row.get("coa_status", "Pending"))
+                        if selected_row.get("coa_status", "Pending") in ["Pending", "Passed", "Failed", "Not Submitted"]
+                        else 0
+                    ),
+                    key=f"ecc_process_coa_update_{int(selected_idx)}",
+                )
+                updated_qa_hold = st.checkbox(
+                    "QA Hold",
+                    value=bool(selected_row.get("qa_hold", False)),
+                    key=f"ecc_process_qa_hold_update_{int(selected_idx)}",
+                )
+            with p3:
+                intake_complete = st.checkbox("Intake Complete", value=bool(selected_row.get("intake_complete", False)), key=f"ecc_intake_complete_update_{int(selected_idx)}")
+                extraction_complete = st.checkbox("Extraction Complete", value=bool(selected_row.get("extraction_complete", False)), key=f"ecc_extraction_complete_update_{int(selected_idx)}")
+                post_process_complete = st.checkbox("Post-Process Complete", value=bool(selected_row.get("post_process_complete", False)), key=f"ecc_post_process_complete_update_{int(selected_idx)}")
+                formulation_complete = st.checkbox("Formulation Complete", value=bool(selected_row.get("formulation_complete", False)), key=f"ecc_formulation_complete_update_{int(selected_idx)}")
+                filling_complete = st.checkbox("Filling Complete", value=bool(selected_row.get("filling_complete", False)), key=f"ecc_filling_complete_update_{int(selected_idx)}")
+                packaging_complete = st.checkbox("Packaging Complete", value=bool(selected_row.get("packaging_complete", False)), key=f"ecc_packaging_complete_update_{int(selected_idx)}")
+                ready_for_transfer = st.checkbox("Ready for Transfer", value=bool(selected_row.get("ready_for_transfer", False)), key=f"ecc_ready_for_transfer_update_{int(selected_idx)}")
+
+            st.markdown("#### Workflow, Product Path, and METRC Traceability")
+            w1, w2, w3 = st.columns(3)
+            with w1:
+                updated_workflow_template = st.selectbox(
+                    "Workflow Template",
+                    list(EXTRACTION_WORKFLOW_TEMPLATES.keys()),
+                    index=list(EXTRACTION_WORKFLOW_TEMPLATES.keys()).index(selected_workflow_template)
+                    if selected_workflow_template in EXTRACTION_WORKFLOW_TEMPLATES
+                    else 0,
+                    key=f"ecc_workflow_template_update_{int(selected_idx)}",
+                )
+                updated_intermediate_product_type = st.selectbox(
+                    "Intermediate Product Type",
+                    [""] + EXTRACTION_INTERMEDIATE_PRODUCT_OPTIONS,
+                    index=([""] + EXTRACTION_INTERMEDIATE_PRODUCT_OPTIONS).index(
+                        normalize_extraction_output_label(selected_row.get("intermediate_product_type", "")) or str(selected_row.get("intermediate_product_type", ""))
+                    ) if (normalize_extraction_output_label(selected_row.get("intermediate_product_type", "")) or str(selected_row.get("intermediate_product_type", ""))) in ([""] + EXTRACTION_INTERMEDIATE_PRODUCT_OPTIONS) else 0,
+                    key=f"ecc_intermediate_product_update_{int(selected_idx)}",
+                )
+                updated_final_product_type = st.selectbox(
+                    "Final Product Type",
+                    [""] + EXTRACTION_PRODUCT_TYPE_OPTIONS,
+                    index=([""] + EXTRACTION_PRODUCT_TYPE_OPTIONS).index(
+                        normalize_extraction_output_label(selected_row.get("final_product_type", selected_row.get("finished_product_type", ""))) or str(selected_row.get("final_product_type", selected_row.get("finished_product_type", "")))
+                    ) if (normalize_extraction_output_label(selected_row.get("final_product_type", selected_row.get("finished_product_type", ""))) or str(selected_row.get("final_product_type", selected_row.get("finished_product_type", "")))) in ([""] + EXTRACTION_PRODUCT_TYPE_OPTIONS) else 0,
+                    key=f"ecc_final_product_update_{int(selected_idx)}",
+                )
+            with w2:
+                updated_metrc_input_pkg = st.text_input("METRC Input Package ID", value=str(selected_row.get("metrc_input_package_id", selected_row.get("metrc_package_id_input", ""))), key=f"ecc_metrc_input_pkg_update_{int(selected_idx)}")
+                updated_metrc_intermediate_pkg = st.text_input("METRC Intermediate Package ID", value=str(selected_row.get("metrc_intermediate_package_id", "")), key=f"ecc_metrc_intermediate_pkg_update_{int(selected_idx)}")
+                updated_metrc_distillate_pkg = st.text_input("METRC Distillate Package ID", value=str(selected_row.get("metrc_distillate_package_id", "")), key=f"ecc_metrc_distillate_pkg_update_{int(selected_idx)}")
+                updated_metrc_formulation_pkg = st.text_input("METRC Formulation Package ID", value=str(selected_row.get("metrc_formulation_package_id", "")), key=f"ecc_metrc_formulation_pkg_update_{int(selected_idx)}")
+                updated_metrc_final_pkg = st.text_input("METRC Final Package ID", value=str(selected_row.get("metrc_final_package_id", selected_row.get("metrc_package_id_output", ""))), key=f"ecc_metrc_final_pkg_update_{int(selected_idx)}")
+            with w3:
+                updated_metrc_stage_input = st.text_input("METRC Stage Input ID", value=str(selected_row.get("metrc_stage_input_id", "")), key=f"ecc_metrc_stage_input_update_{int(selected_idx)}")
+                updated_metrc_stage_output = st.text_input("METRC Stage Output ID", value=str(selected_row.get("metrc_stage_output_id", "")), key=f"ecc_metrc_stage_output_update_{int(selected_idx)}")
+                updated_terpene_handling_mode = st.selectbox(
+                    "Terpene Handling Mode",
+                    [""] + EXTRACTION_TERPENE_HANDLING_MODES,
+                    index=([""] + EXTRACTION_TERPENE_HANDLING_MODES).index(str(selected_row.get("terpene_handling_mode", "")))
+                    if str(selected_row.get("terpene_handling_mode", "")) in ([""] + EXTRACTION_TERPENE_HANDLING_MODES)
+                    else 0,
+                    key=f"ecc_terpene_mode_update_{int(selected_idx)}",
+                )
+                updated_terpene_type = st.text_input("Terpene Type", value=str(selected_row.get("terpene_type", "")), key=f"ecc_terpene_type_update_{int(selected_idx)}")
+                updated_terpene_source = st.text_input("Terpene Source", value=str(selected_row.get("terpene_source", "")), key=f"ecc_terpene_source_update_{int(selected_idx)}")
+
+            st.markdown("#### Post-Production Financials")
+            fin1, fin2, fin3 = st.columns(3)
+            with fin1:
+                upd_raw_material_cogs = st.number_input(
+                    "Raw Material COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("raw_material_cogs_usd", selected_row.get("input_cost_total", 0.0)) or 0.0),
+                    key=f"ecc_raw_material_cogs_update_{int(selected_idx)}",
+                )
+                upd_processing_cogs = st.number_input(
+                    "Processing COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("processing_cogs_usd", selected_row.get("processing_fee_usd", 0.0)) or 0.0),
+                    key=f"ecc_processing_cogs_update_{int(selected_idx)}",
+                )
+                upd_packaging_cogs = st.number_input(
+                    "Packaging COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("packaging_cogs_usd", 0.0) or 0.0),
+                    key=f"ecc_packaging_cogs_update_{int(selected_idx)}",
+                )
+            with fin2:
+                upd_labor_cogs = st.number_input(
+                    "Labor COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("labor_cogs_usd", selected_row.get("labor_cost_usd", 0.0)) or 0.0),
+                    key=f"ecc_labor_cogs_update_{int(selected_idx)}",
+                )
+                upd_overhead_cogs = st.number_input(
+                    "Overhead COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("overhead_cogs_usd", selected_row.get("overhead_cost_usd", 0.0)) or 0.0),
+                    key=f"ecc_overhead_cogs_update_{int(selected_idx)}",
+                )
+                upd_total_cogs_override = st.checkbox(
+                    "Manual Total COGs Override",
+                    value=bool(selected_row.get("total_cogs_override", False)),
+                    key=f"ecc_total_cogs_override_update_{int(selected_idx)}",
+                )
+                upd_total_cogs = st.number_input(
+                    "Total COGs (USD)",
+                    min_value=0.0,
+                    step=10.0,
+                    value=float(selected_row.get("total_cogs_usd", selected_row.get("cogs_usd", 0.0)) or 0.0),
+                    key=f"ecc_total_cogs_update_{int(selected_idx)}",
+                )
+            with fin3:
+                upd_packaging_mode = st.selectbox(
+                    "Packaging Mode",
+                    list(_ECC_PACK_UNIT_PRESETS.keys()),
+                    index=list(_ECC_PACK_UNIT_PRESETS.keys()).index(str(selected_row.get("packaging_mode", _ecc_get_packaging_mode(selected_row.get("final_product_type", "")))))
+                    if str(selected_row.get("packaging_mode", _ecc_get_packaging_mode(selected_row.get("final_product_type", "")))) in list(_ECC_PACK_UNIT_PRESETS.keys())
+                    else 0,
+                    key=f"ecc_packaging_mode_update_{int(selected_idx)}",
+                )
+                upd_unit_size = st.number_input(
+                    "Unit Size (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("unit_size_g", 0.0) or 0.0),
+                    key=f"ecc_unit_size_update_{int(selected_idx)}",
+                )
+                upd_unit_price = st.number_input(
+                    "Unit Price (USD)",
+                    min_value=0.0,
+                    step=0.5,
+                    value=float(selected_row.get("unit_price_usd", 0.0) or 0.0),
+                    key=f"ecc_unit_price_update_{int(selected_idx)}",
+                )
+                upd_packaging_loss = st.number_input(
+                    "Packaging Yield Loss (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("packaging_yield_loss_g", 0.0) or 0.0),
+                    key=f"ecc_packaging_loss_update_{int(selected_idx)}",
+                )
+
+            st.markdown("#### Formulation Controls")
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                upd_formulation_base_g = st.number_input(
+                    "Formulation Base (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("formulation_base_g", 0.0) or 0.0),
+                    key=f"ecc_formulation_base_update_{int(selected_idx)}",
+                )
+            with f2:
+                upd_terpene_pct = st.number_input(
+                    "Terpene % (optional)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("terpene_percentage", 0.0) or 0.0),
+                    key=f"ecc_terpene_pct_update_{int(selected_idx)}",
+                )
+            with f3:
+                upd_terpene_weight_g = st.number_input(
+                    "Terpene Weight (g, optional override)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("terpene_weight_g", 0.0) or 0.0),
+                    key=f"ecc_terpene_weight_update_{int(selected_idx)}",
+                )
+
+            updated_notes = st.text_area(
+                "Process Notes / Handoff Notes",
+                value=str(selected_row.get("notes", "")),
+                key=f"ecc_process_notes_update_{int(selected_idx)}",
+            )
+
+            # ‚îÄ‚îÄ Mass Balance ‚Äî Stage Weights (inline editor) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+            st.markdown("#### Mass Balance ‚Äî Stage Weights")
+            st.caption(
+                "Enter the measured output at each stage. "
+                "Leave a stage at 0 if it is not used in this run. "
+                "Losses and yields recalculate automatically."
+            )
+            mb1, mb2, mb3, mb4, mb5 = st.columns(5)
+            with mb1:
+                upd_input_weight = st.number_input(
+                    "Input Weight (g)",
+                    min_value=0.0,
+                    step=1.0,
+                    value=float(selected_row.get("input_weight_g", 0.0)),
+                    key=f"ecc_mb_input_weight_{int(selected_idx)}",
+                )
+            with mb2:
+                upd_extraction_output = st.number_input(
+                    "Extraction Output (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("extraction_output_g", 0.0)),
+                    key=f"ecc_mb_extraction_output_{int(selected_idx)}",
+                )
+            with mb3:
+                upd_post_process_output = st.number_input(
+                    "Post-Process Output (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("post_process_output_g", 0.0)),
+                    key=f"ecc_mb_post_process_output_{int(selected_idx)}",
+                    help="Leave 0 if post-process stage is not used for this run.",
+                )
+            with mb4:
+                upd_distillation_output = st.number_input(
+                    "Distillation Output (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(selected_row.get("distillation_output_g", 0.0)),
+                    key=f"ecc_mb_distillation_output_{int(selected_idx)}",
+                    help="Leave 0 if distillation stage is not used for this run.",
+                )
+            with mb5:
+                upd_final_output = st.number_input(
+                    "Final Output (g)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=float(
+                        selected_row.get(
+                            "final_output_g",
+                            float(selected_row.get("finished_output_g", 0.0)),
+                        )
+                    ),
+                    key=f"ecc_mb_final_output_{int(selected_idx)}",
+                )
+
+            stage_output_updates: dict[str, float] = {}
+            stage_field_defs = EXTRACTION_METHOD_STAGE_OUTPUT_FIELDS.get(selected_workflow_template, [])
+            if stage_field_defs:
+                st.markdown("#### Method-Aware Stage Outputs")
+                so_cols = st.columns(min(3, len(stage_field_defs)))
+                for idx, (field_name, field_label) in enumerate(stage_field_defs):
+                    with so_cols[idx % len(so_cols)]:
+                        stage_output_updates[field_name] = st.number_input(
+                            field_label,
+                            min_value=0.0,
+                            step=0.1,
+                            value=float(selected_row.get(field_name, 0.0) or 0.0),
+                            key=f"ecc_stage_output_{field_name}_{int(selected_idx)}",
+                        )
+
+            # Live loss/yield preview (computed client-side without modifying session state)
+            _inp_v = float(upd_input_weight)
+            _ext_v = float(upd_extraction_output)
+            _pp_v = float(upd_post_process_output)
+            _dist_v = float(upd_distillation_output)
+            _final_v = float(upd_final_output)
+            _terp_v = float(upd_terpene_weight_g)
+            _supports_formulation_preview = _ecc_workflow_supports_formulation(selected_row.get("method", ""), updated_workflow_template)
+            _inp_safe = _inp_v if _inp_v > 0 else float("nan")
+            _last_up_v = _dist_v if _dist_v > 0 else (_pp_v if _pp_v > 0 else _ext_v)
+            _allowed_final_cap_v = _last_up_v + (_terp_v if _supports_formulation_preview else 0.0)
+            _ext_loss_v = max(0.0, _inp_v - _ext_v) if _inp_v > 0 else 0.0
+            _pp_loss_v = max(0.0, _ext_v - _pp_v) if _pp_v > 0 and _ext_v > 0 else 0.0
+            _dist_loss_v = max(0.0, _pp_v - _dist_v) if _dist_v > 0 and _pp_v > 0 else 0.0
+            _final_loss_v = max(0.0, _last_up_v - _final_v) if _last_up_v > 0 else 0.0
+            _ext_yield_v = _ext_v / _inp_safe * 100 if not np.isnan(_inp_safe) else 0.0
+            _final_yield_v = _final_v / _inp_safe * 100 if not np.isnan(_inp_safe) else 0.0
+
+            st.markdown("**Computed Losses & Yields ‚Äî live preview:**")
+            pr1, pr2, pr3, pr4, pr5, pr6 = st.columns(6)
+            with pr1:
+                st.metric("Extraction Loss (g)", f"{_ext_loss_v:.1f}")
+            with pr2:
+                st.metric("Post-Process Loss (g)", f"{_pp_loss_v:.1f}")
+            with pr3:
+                st.metric("Distillation Loss (g)", f"{_dist_loss_v:.1f}")
+            with pr4:
+                st.metric("Final Stage Loss (g)", f"{_final_loss_v:.1f}")
+            with pr5:
+                st.metric("Extraction Yield %", f"{_ext_yield_v:.1f}%")
+            with pr6:
+                st.metric("Final Yield %", f"{_final_yield_v:.1f}%")
+
+            # Inline validation messages
+            _method_thresh = _MB_HIGH_YIELD_THRESHOLDS.get(str(selected_row.get("method", "BHO")), 40.0)
+            if _inp_v > 0 and _ext_v > _inp_v:
+                st.error("üî¥ Critical: Extraction output exceeds input weight ‚Äî verify your values.")
+            elif _pp_v > 0 and _ext_v > 0 and _pp_v > _ext_v:
+                st.error("üî¥ Critical: Post-process output exceeds extraction output.")
+            elif _dist_v > 0 and _pp_v > 0 and _dist_v > _pp_v:
+                st.error("üî¥ Critical: Distillation output exceeds post-process output.")
+            elif _final_v > 0 and _last_up_v > 0 and _final_v > _allowed_final_cap_v:
+                st.error("üî¥ Critical: Final output exceeds last upstream stage output.")
+            elif _final_yield_v > _method_thresh and _inp_v > 0:
+                st.warning(
+                    f"üü° Warning: Final yield {_final_yield_v:.1f}% is unusually high for "
+                    f"{selected_row.get('method', 'this method')} (threshold: {_method_thresh}%). "
+                    "Verify your values."
+                )
+
+            # ‚îÄ‚îÄ Save button ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+            if st.button("Update Extraction Process", type="primary", key="ecc_update_process"):
+                terpene_ok_update, terpene_msg_update = _ecc_validate_terpene_percentage(float(upd_terpene_pct or 0.0))
+                if not terpene_ok_update:
+                    st.error(terpene_msg_update)
+                    st.stop()
+                if terpene_msg_update:
+                    st.warning(terpene_msg_update)
+                if upd_packaging_loss > float(upd_final_output or 0.0):
+                    st.error("Packaging yield loss cannot exceed final output grams.")
+                    st.stop()
+                if upd_packaging_mode != "Bulk / Formulation" and upd_unit_price > 0 and upd_unit_size <= 0:
+                    st.error("Unit size must be > 0 for packaged products with a unit price.")
+                    st.stop()
+                supports_formulation = _ecc_workflow_supports_formulation(selected_row.get("method", ""), updated_workflow_template)
+                calculated_terpene_weight = _ecc_compute_formulation_terpene_weight(
+                    float(upd_formulation_base_g or upd_final_output or 0.0),
+                    float(upd_terpene_pct or 0.0),
+                    float(upd_terpene_weight_g or 0.0),
+                )
+                formulation_applied_update = bool(supports_formulation and (upd_formulation_base_g > 0 or calculated_terpene_weight > 0 or updated_terpene_handling_mode not in {"", "Native / No Add-Back"}))
+                final_output_effective = float(upd_final_output)
+                if formulation_applied_update:
+                    formulation_base_effective = float(upd_formulation_base_g or upd_distillation_output or upd_post_process_output or upd_extraction_output or upd_final_output or 0.0)
+                    final_output_effective = formulation_base_effective + float(calculated_terpene_weight or 0.0)
+
+                # Write back status/workflow fields
+                st.session_state.ecc_run_log.loc[selected_idx, "process_stage"] = updated_stage
+                st.session_state.ecc_run_log.loc[selected_idx, "status"] = updated_status
+                normalized_product_type = normalize_extraction_output_label(updated_product_type) or updated_product_type
+                normalized_downstream = normalize_extraction_output_label(updated_downstream) or updated_downstream
+                normalized_intermediate = normalize_extraction_output_label(updated_intermediate_product_type) or updated_intermediate_product_type
+                normalized_final = normalize_extraction_output_label(updated_final_product_type or updated_product_type) or updated_final_product_type or updated_product_type
+                st.session_state.ecc_run_log.loc[selected_idx, "product_type"] = normalized_product_type
+                st.session_state.ecc_run_log.loc[selected_idx, "finished_product_type"] = normalized_final
+                st.session_state.ecc_run_log.loc[selected_idx, "intermediate_product_type"] = normalized_intermediate
+                st.session_state.ecc_run_log.loc[selected_idx, "final_product_type"] = normalized_final
+                st.session_state.ecc_run_log.loc[selected_idx, "workflow_template"] = updated_workflow_template
+                st.session_state.ecc_run_log.loc[selected_idx, "downstream_product"] = normalized_downstream
+                st.session_state.ecc_run_log.loc[selected_idx, "coa_status"] = updated_coa
+                st.session_state.ecc_run_log.loc[selected_idx, "qa_hold"] = updated_qa_hold
+                st.session_state.ecc_run_log.loc[selected_idx, "intake_complete"] = intake_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "extraction_complete"] = extraction_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "post_process_complete"] = post_process_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "formulation_complete"] = formulation_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "filling_complete"] = filling_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "packaging_complete"] = packaging_complete
+                st.session_state.ecc_run_log.loc[selected_idx, "ready_for_transfer"] = ready_for_transfer
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_input_package_id"] = updated_metrc_input_pkg
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_intermediate_package_id"] = updated_metrc_intermediate_pkg
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_distillate_package_id"] = updated_metrc_distillate_pkg
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_formulation_package_id"] = updated_metrc_formulation_pkg
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_final_package_id"] = updated_metrc_final_pkg
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_stage_input_id"] = updated_metrc_stage_input
+                st.session_state.ecc_run_log.loc[selected_idx, "metrc_stage_output_id"] = updated_metrc_stage_output
+                st.session_state.ecc_run_log.loc[selected_idx, "terpene_handling_mode"] = updated_terpene_handling_mode
+                st.session_state.ecc_run_log.loc[selected_idx, "terpene_type"] = updated_terpene_type
+                st.session_state.ecc_run_log.loc[selected_idx, "terpene_source"] = updated_terpene_source
+                st.session_state.ecc_run_log.loc[selected_idx, "terpene_percentage"] = upd_terpene_pct
+                st.session_state.ecc_run_log.loc[selected_idx, "terpene_weight_g"] = calculated_terpene_weight
+                st.session_state.ecc_run_log.loc[selected_idx, "formulation_base_g"] = upd_formulation_base_g
+                st.session_state.ecc_run_log.loc[selected_idx, "formulation_applied"] = formulation_applied_update
+                st.session_state.ecc_run_log.loc[selected_idx, "raw_material_cogs_usd"] = upd_raw_material_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "processing_cogs_usd"] = upd_processing_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "packaging_cogs_usd"] = upd_packaging_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "labor_cogs_usd"] = upd_labor_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "overhead_cogs_usd"] = upd_overhead_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "total_cogs_override"] = upd_total_cogs_override
+                st.session_state.ecc_run_log.loc[selected_idx, "total_cogs_usd"] = upd_total_cogs
+                st.session_state.ecc_run_log.loc[selected_idx, "packaging_mode"] = upd_packaging_mode
+                st.session_state.ecc_run_log.loc[selected_idx, "unit_size_g"] = upd_unit_size
+                st.session_state.ecc_run_log.loc[selected_idx, "unit_price_usd"] = upd_unit_price
+                st.session_state.ecc_run_log.loc[selected_idx, "packaging_yield_loss_g"] = upd_packaging_loss
+                st.session_state.ecc_run_log.loc[selected_idx, "notes"] = updated_notes
+                # Write back editable mass-balance stage weights
+                st.session_state.ecc_run_log.loc[selected_idx, "input_weight_g"] = upd_input_weight
+                st.session_state.ecc_run_log.loc[selected_idx, "extraction_output_g"] = upd_extraction_output
+                st.session_state.ecc_run_log.loc[selected_idx, "post_process_output_g"] = upd_post_process_output
+                st.session_state.ecc_run_log.loc[selected_idx, "distillation_output_g"] = upd_distillation_output
+                st.session_state.ecc_run_log.loc[selected_idx, "final_output_g"] = final_output_effective
+                for field_name, field_val in stage_output_updates.items():
+                    st.session_state.ecc_run_log.loc[selected_idx, field_name] = float(field_val or 0.0)
+                # Keep legacy fields in sync so upstream views (Executive Overview, Run Analytics) reflect edits
+                st.session_state.ecc_run_log.loc[selected_idx, "intermediate_output_g"] = upd_extraction_output
+                # Use the last non-zero downstream stage as the legacy finished_output_g fallback
+                _legacy_finished = next(
+                    (v for v in [final_output_effective, upd_distillation_output, upd_post_process_output, upd_extraction_output] if v > 0),
+                    0.0,
+                )
+                st.session_state.ecc_run_log.loc[selected_idx, "finished_output_g"] = _legacy_finished
+                # Recompute all derived mass-balance columns and write back for all rows
+                _mb_updated = _compute_mass_balance(st.session_state.ecc_run_log.copy())
+                _derived_write_back = (
+                    _MB_COMPUTED_FIELDS
+                    + ["yield_pct", "finished_output_g", "post_process_efficiency_pct"]
+                )
+                for _dc in _derived_write_back:
+                    if _dc in _mb_updated.columns:
+                        st.session_state.ecc_run_log[_dc] = _mb_updated[_dc]
+                st.success("Extraction process and mass balance updated successfully.")
+
+            # ‚îÄ‚îÄ Process Snapshot ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+            _process_view_cols = [
+                "run_date",
+                "batch_id_internal",
+                "method",
+                "workflow_template",
+                "process_stage",
+                "status",
+                "intermediate_product_type",
+                "final_product_type",
+                "input_weight_g",
+                "extraction_output_g",
+                "extraction_loss_g",
+                "extraction_yield_pct",
+                "post_process_output_g",
+                "post_process_loss_g",
+                "distillation_output_g",
+                "distillation_loss_g",
+                "final_output_g",
+                "final_loss_g",
+                "final_yield_pct",
+                "mass_balance_flag",
+                "metrc_stage_input_id",
+                "metrc_stage_output_id",
+                "terpene_handling_mode",
+                "terpene_percentage",
+                "terpene_weight_g",
+                "coa_status",
+                "qa_hold",
+                "ready_for_transfer",
+            ]
+            st.markdown("#### Process Snapshot")
+            _snapshot_df = _compute_mass_balance(st.session_state.ecc_run_log.copy())
+            st.dataframe(
+                _snapshot_df[[c for c in _process_view_cols if c in _snapshot_df.columns]],
+                width="stretch",
+                hide_index=True,
+            )
+
+            # ‚îÄ‚îÄ Stage loss + yield charts ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+            st.markdown("#### Stage Loss & Yield Analysis")
+            _chart_df = _snapshot_df
+            if not _chart_df.empty:
+                ch_left, ch_right = st.columns(2)
+                with ch_left:
+                    st.markdown("**Total Loss by Stage (g)**")
+                    _stage_loss_df = pd.DataFrame(
+                        {
+                            "Stage": ["Extraction", "Post-Process", "Distillation", "Final Stage"],
+                            "Total Loss (g)": [
+                                float(_chart_df["extraction_loss_g"].fillna(0).sum()),
+                                float(_chart_df["post_process_loss_g"].fillna(0).sum()),
+                                float(_chart_df["distillation_loss_g"].fillna(0).sum()),
+                                float(_chart_df["final_loss_g"].fillna(0).sum()),
+                            ],
+                        }
+                    )
+                    st.bar_chart(_stage_loss_df.set_index("Stage")["Total Loss (g)"])
+                with ch_right:
+                    st.markdown("**Final Yield % by Run**")
+                    _yield_chart = _chart_df[["batch_id_internal", "final_yield_pct"]].copy()
+                    _yield_chart = _yield_chart[_yield_chart["final_yield_pct"] > 0].set_index(
+                        "batch_id_internal"
+                    )
+                    if not _yield_chart.empty:
+                        st.bar_chart(_yield_chart["final_yield_pct"])
+                    else:
+                        st.caption("No final yield data to display yet.")
+
+    with inv_tab:
+        st.subheader("Extraction Input Inventory")
+        st.caption("Track extraction input lots (fresh frozen, biomass, trim, hash, crude, distillate, solvents) separately from run records.")
+
+        age_threshold = st.slider("Aging threshold (days)", min_value=7, max_value=120, value=30, key="ecc_inventory_aging_threshold")
+        low_stock_threshold = st.number_input(
+            "Low available stock threshold (g)",
+            min_value=0.0,
+            value=250.0,
+            step=25.0,
+            key="ecc_inventory_low_stock_threshold",
+        )
+        yield_model = st.radio(
+            "Projected yield model",
+            ["Method defaults", "Single global yield %"],
+            horizontal=True,
+            key="ecc_inventory_yield_model",
+        )
+        global_yield_pct = st.slider(
+            "Global projected yield %",
+            min_value=1.0,
+            max_value=40.0,
+            value=12.0,
+            step=0.5,
+            key="ecc_inventory_global_yield_pct",
+        )
+        use_method_defaults = yield_model == "Method defaults"
+        chart_card_start("Projected Output Calculator", "Tune the projected output model before appending inventory.")
+        st.caption("Method defaults use method-specific assumptions. Global mode applies one yield % to all lots.")
+        st.caption(f"Current active model: {'Method defaults' if use_method_defaults else f'Global {global_yield_pct:.1f}%'}")
+        chart_card_end()
+
+        uploaded_inventory_file = st.file_uploader(
+            "Upload extraction inventory (CSV, XLSX, XLS)",
+            type=["csv", "xlsx", "xls"],
+            key="ecc_inventory_upload",
+        )
+
+        if uploaded_inventory_file is not None:
+            try:
+                uploaded_inv_df = _ecc_load_uploaded_inventory_file(uploaded_inventory_file)
+                st.caption(f"Detected {len(uploaded_inv_df.columns)} source columns.")
+                auto_normalized, auto_matches, auto_map = _ecc_normalize_extraction_inventory(uploaded_inv_df)
+                st.caption(f"Auto-mapped fields: {auto_matches}")
+                if auto_map:
+                    st.write({k: v for k, v in auto_map.items()})
+
+                if auto_matches >= 3:
+                    auto_preview = _ecc_finalize_inventory_frame(auto_normalized)
+                    st.dataframe(auto_preview.head(100), width="stretch", hide_index=True)
+                    if st.button("Append Auto-Mapped Inventory", key="ecc_inventory_append_auto", type="primary"):
+                        st.session_state.ecc_inventory_log = _ecc_append_inventory_rows(st.session_state.ecc_inventory_log, auto_preview)
+                        st.success(f"Added {len(auto_preview)} row(s) into extraction inventory log.")
+                else:
+                    st.warning("Auto-mapping detected fewer than 3 fields. Use manual mapping below.")
+                    map_options = _ECC_INVENTORY_COLUMNS + ["IGNORE"]
+                    st.markdown("##### Manual Column Mapping")
+                    manual_rows = []
+                    for col_idx, col in enumerate(uploaded_inv_df.columns):
+                        col_key = f"{col_idx}_{normalize_col(col)}"
+                        sample = uploaded_inv_df[col].dropna().astype(str).head(1)
+                        sample_value = sample.iloc[0] if not sample.empty else ""
+                        c1, c2, c3 = st.columns([1.2, 1.6, 1.2])
+                        with c1:
+                            st.code(str(col))
+                        with c2:
+                            st.write(sample_value)
+                        with c3:
+                            target_field = st.selectbox(
+                                f"Map {col}",
+                                options=map_options,
+                                index=map_options.index("IGNORE"),
+                                key=f"ecc_inv_map_{col_key}",
+                                label_visibility="collapsed",
+                            )
+                        manual_rows.append((col, target_field))
+
+                    m1, m2, m3 = st.columns(3)
+                    with m1:
+                        default_material_type = st.selectbox(
+                            "Default material_type",
+                            options=["(none)"] + _ECC_MATERIAL_TYPES,
+                            index=0,
+                            key="ecc_inv_default_material_type",
+                        )
+                    with m2:
+                        default_status = st.selectbox(
+                            "Default status",
+                            options=["(none)"] + _ECC_STATUS_VALUES,
+                            index=1,
+                            key="ecc_inv_default_status",
+                        )
+                    with m3:
+                        default_method = st.selectbox(
+                            "Default intended_method",
+                            options=["(none)"] + _ECC_METHOD_VALUES,
+                            index=0,
+                            key="ecc_inv_default_method",
+                        )
+
+                    if st.button("Convert to Extraction Inventory", key="ecc_inventory_convert_manual", type="primary"):
+                        mapped_df = pd.DataFrame(index=uploaded_inv_df.index)
+                        for source_col, target_col in manual_rows:
+                            if target_col != "IGNORE":
+                                mapped_df[target_col] = uploaded_inv_df[source_col]
+
+                        mapped_df = _ecc_enforce_inventory_schema(mapped_df)
+                        if default_material_type != "(none)":
+                            mapped_df = _ecc_apply_default_if_empty(mapped_df, "material_type", default_material_type)
+                        if default_status != "(none)":
+                            mapped_df = _ecc_apply_default_if_empty(mapped_df, "status", default_status)
+                        if default_method != "(none)":
+                            mapped_df = _ecc_apply_default_if_empty(mapped_df, "intended_method", default_method)
+
+                        mapped_df = _ecc_finalize_inventory_frame(mapped_df)
+                        st.session_state.ecc_inventory_log = _ecc_append_inventory_rows(st.session_state.ecc_inventory_log, mapped_df)
+                        st.success(f"Converted and appended {len(mapped_df)} row(s).")
+                        st.dataframe(mapped_df.head(100), width="stretch", hide_index=True)
+            except Exception as exc:
+                st.error(f"Could not load extraction inventory file: {exc}")
+
+        inventory_df = _ecc_add_inventory_aging(_ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy()))
+        inventory_df = _ecc_add_estimated_output(
+            inventory_df,
+            global_yield_pct=global_yield_pct,
+            use_method_defaults=use_method_defaults,
+        )
+
+        total_input = float(inventory_df["current_weight_g"].sum()) if not inventory_df.empty else 0.0
+        total_available = float(inventory_df["available_weight_g"].sum()) if not inventory_df.empty else 0.0
+        total_reserved = float(inventory_df["reserved_weight_g"].sum()) if not inventory_df.empty else 0.0
+        total_lots = int(len(inventory_df))
+        aging_lots = int((inventory_df["age_days"] >= age_threshold).sum()) if not inventory_df.empty else 0
+        projected_total = float(inventory_df["estimated_output_g"].sum()) if not inventory_df.empty else 0.0
+
+        render_extraction_kpi(
+            [
+                {"label": "Total Input Weight", "value": f"{total_input:,.1f} g"},
+                {"label": "Available Weight", "value": f"{total_available:,.1f} g"},
+                {"label": "Reserved Weight", "value": f"{total_reserved:,.1f} g"},
+                {"label": "Aging Lots", "value": aging_lots},
+                {"label": "Estimated Output", "value": f"{projected_total:,.1f} g"},
+            ]
+        )
+
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
+        with k1:
+            kpi_card("Total Input Weight (g)", f"{total_input:,.1f}")
+        with k2:
+            kpi_card("Available Weight (g)", f"{total_available:,.1f}")
+        with k3:
+            kpi_card("Reserved Weight (g)", f"{total_reserved:,.1f}")
+        with k4:
+            kpi_card("Lots in Inventory", total_lots)
+        with k5:
+            kpi_card("Aging Lots", aging_lots)
+        with k6:
+            kpi_card("Est. Output Potential (g)", f"{projected_total:,.1f}")
+
+        if inventory_df.empty:
+            st.info("No extraction inventory rows in session yet. Upload a file to begin.")
+        else:
+            future_date_count = int(inventory_df["future_received_date"].sum()) if "future_received_date" in inventory_df.columns else 0
+            if future_date_count > 0:
+                st.warning(f"{future_date_count} lot(s) have a received date in the future. Aging days were floored at 0.")
+
+            p1, p2 = st.columns(2)
+            with p1:
+                chart_card_start("Inventory by Material Type", "Estimated output grouped by material type.")
+                by_type = (
+                    inventory_df.groupby("material_type", as_index=False)["estimated_output_g"]
+                    .sum()
+                    .sort_values("estimated_output_g", ascending=False)
+                )
+                st.bar_chart(by_type.set_index("material_type")["estimated_output_g"])
+                chart_card_end()
+            with p2:
+                chart_card_start("Output by Intended Method", "Estimated output grouped by intended extraction method.")
+                by_method = (
+                    inventory_df.groupby("intended_method", as_index=False)["estimated_output_g"]
+                    .sum()
+                    .sort_values("estimated_output_g", ascending=False)
+                )
+                st.bar_chart(by_method.set_index("intended_method")["estimated_output_g"])
+                chart_card_end()
+
+            chart_card_start("Aging Distribution", "Lot aging distribution for planning priority runs.")
+            _aging_bins = pd.cut(
+                pd.to_numeric(inventory_df["age_days"], errors="coerce").fillna(0),
+                bins=[-1, 7, 30, 60, 10_000],
+                labels=["Fresh (0-7)", "Aging (8-30)", "Priority Run (31-60)", "Stale (60+)"],
+            )
+            _aging_chart = _aging_bins.value_counts().reindex(["Fresh (0-7)", "Aging (8-30)", "Priority Run (31-60)", "Stale (60+)"], fill_value=0)
+            st.bar_chart(_aging_chart)
+            chart_card_end()
+
+            st.markdown("#### Inventory Filters")
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                mat_filter = st.multiselect(
+                    "Material Type",
+                    options=sorted([x for x in inventory_df["material_type"].dropna().unique() if str(x).strip()]),
+                    default=[],
+                    key="ecc_inv_filter_material_type",
+                )
+                status_filter = st.multiselect(
+                    "Status",
+                    options=sorted([x for x in inventory_df["status"].dropna().unique() if str(x).strip()]),
+                    default=[],
+                    key="ecc_inv_filter_status",
+                )
+            with f2:
+                method_filter = st.multiselect(
+                    "Intended Method",
+                    options=sorted([x for x in inventory_df["intended_method"].dropna().unique() if str(x).strip()]),
+                    default=[],
+                    key="ecc_inv_filter_method",
+                )
+                aging_filter = st.multiselect(
+                    "Aging Flag",
+                    options=["Fresh", "Aging", "Priority Run", "Stale"],
+                    default=[],
+                    key="ecc_inv_filter_aging",
+                )
+            with f3:
+                location_filter = st.multiselect(
+                    "Storage Location",
+                    options=sorted([x for x in inventory_df["storage_location"].dropna().unique() if str(x).strip()]),
+                    default=[],
+                    key="ecc_inv_filter_location",
+                )
+                text_filter = st.text_input(
+                    "Search material / batch / vendor",
+                    key="ecc_inv_filter_text",
+                ).strip().lower()
+
+            filtered_inv = inventory_df.copy()
+            if mat_filter:
+                filtered_inv = filtered_inv[filtered_inv["material_type"].isin(mat_filter)]
+            if status_filter:
+                filtered_inv = filtered_inv[filtered_inv["status"].isin(status_filter)]
+            if method_filter:
+                filtered_inv = filtered_inv[filtered_inv["intended_method"].isin(method_filter)]
+            if aging_filter:
+                filtered_inv = filtered_inv[filtered_inv["aging_flag"].isin(aging_filter)]
+            if location_filter:
+                filtered_inv = filtered_inv[filtered_inv["storage_location"].isin(location_filter)]
+            if text_filter:
+                text_cols = (
+                    filtered_inv["material_name"].fillna("").astype(str)
+                    + " "
+                    + filtered_inv["batch_id_internal"].fillna("").astype(str)
+                    + " "
+                    + filtered_inv["source_vendor"].fillna("").astype(str)
+                ).str.lower()
+                filtered_inv = filtered_inv[text_cols.str.contains(text_filter, na=False)]
+
+            filtered_inv["priority"] = filtered_inv["aging_flag"].fillna("Fresh")
+
+            table_cols = [
+                "material_name",
+                "material_type",
+                "batch_id_internal",
+                "available_weight_g",
+                "age_days",
+                "priority",
+                "intended_method",
+            ]
+            chart_card_start("Extraction Inventory Table", "Material Name, Type, Batch, Available, Age, Priority, Method.")
+            st.dataframe(filtered_inv[[c for c in table_cols if c in filtered_inv.columns]], width="stretch", hide_index=True)
+            chart_card_end()
+
+            st.markdown("### Inventory ‚Üí Workflow Allocation")
+            st.caption("Select one or more lots, allocate grams, and create a queued run draft or attach to an existing run.")
+            selectable_inv = filtered_inv[filtered_inv["available_weight_g"] > 0].copy()
+            if selectable_inv.empty:
+                st.info("No available inventory lots match current filters.")
+            else:
+                selectable_inv["batch_id_internal"] = selectable_inv["batch_id_internal"].fillna("").astype(str)
+                lot_idx_options = selectable_inv.index.tolist()
+
+                multi_mode = st.checkbox("Select multiple lots", key="ecc_allocate_multi_mode")
+
+                if not multi_mode:
+                    # ‚îÄ‚îÄ Single-lot path (unchanged) ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                    selected_lot_idx = st.selectbox(
+                        "Inventory Lot (batch_id_internal)",
+                        options=lot_idx_options,
+                        format_func=lambda idx: str(selectable_inv.loc[idx, "batch_id_internal"]).strip() or f"Lot {idx}",
+                        key="ecc_allocate_selected_lot",
+                    )
+                    selected_lot = selectable_inv.loc[selected_lot_idx]
+                    selected_batch_id = str(selected_lot.get("batch_id_internal", "")).strip()
+                    selected_metrc_id = str(selected_lot.get("metrc_package_id", "")).strip()
+                    selected_material_name = str(selected_lot.get("material_name", "")).strip()
+                    selected_available_weight = float(pd.to_numeric(selected_lot.get("available_weight_g", 0), errors="coerce") or 0.0)
+                    selected_cost_per_g = float(pd.to_numeric(selected_lot.get("cost_per_g", 0), errors="coerce") or 0.0)
+                    selected_intended_method = str(selected_lot.get("intended_method", "")).strip()
+
+                    alloc_a, alloc_b = st.columns(2)
+                    with alloc_a:
+                        allocation_weight_g = st.number_input(
+                            "allocation_weight_g",
+                            min_value=0.0,
+                            value=min(_ECC_DEFAULT_ALLOCATION_GRAMS, selected_available_weight),
+                            step=1.0,
+                            key="ecc_allocation_weight_g",
+                        )
+                        allocation_client = st.text_input(
+                            "client_name",
+                            value="In House",
+                            key="ecc_allocation_client_name",
+                        )
+                    with alloc_b:
+                        method_options = _ECC_METHOD_VALUES.copy()
+                        if selected_intended_method and selected_intended_method not in method_options:
+                            method_options = [selected_intended_method] + method_options
+                        default_method_idx = method_options.index(selected_intended_method) if selected_intended_method in method_options else 0
+                        allocation_method = st.selectbox(
+                            "method",
+                            options=method_options,
+                            index=default_method_idx,
+                            key="ecc_allocation_method_single",
+                        )
+                        st.caption(
+                            f"METRC: {selected_metrc_id or 'n/a'} | Material: {selected_material_name or 'n/a'} | "
+                            f"Available: {selected_available_weight:,.1f} g"
+                        )
+
+                    allocation_target = st.radio(
+                        "Allocation Target",
+                        options=["Create new run draft", "Attach to existing run"],
+                        key="ecc_allocation_target",
+                        horizontal=True,
+                    )
+
+                    selected_existing_run_label = None
+                    _attach_run_log_ready = (
+                        allocation_target == "Attach to existing run"
+                        and "ecc_run_log" in st.session_state
+                        and isinstance(st.session_state.ecc_run_log, pd.DataFrame)
+                        and not st.session_state.ecc_run_log.empty
+                    )
+                    if _attach_run_log_ready:
+                        _attach_df = _ecc_ensure_run_schema(st.session_state.ecc_run_log.copy()).reset_index()
+                        _attach_df["_run_label"] = (
+                            _attach_df["run_date"].astype(str)
+                            + " ‚Ä¢ "
+                            + _attach_df["batch_id_internal"].astype(str).replace("", "No Batch ID")
+                            + " ‚Ä¢ "
+                            + _attach_df["method"].astype(str)
+                        )
+                        selected_existing_run_label = st.selectbox(
+                            "Run to attach inventory to",
+                            options=_attach_df["_run_label"].tolist(),
+                            key="ecc_allocate_attach_run",
+                        )
+                    elif allocation_target == "Attach to existing run":
+                        st.info("No existing runs in the log. Use 'Create new run draft' first.")
+
+                    if st.button("Allocate Inventory", key="ecc_allocate_inventory", type="primary"):
+                        if allocation_weight_g <= 0:
+                            st.error("Allocation weight must be greater than 0 g.")
+                        elif allocation_weight_g > selected_available_weight:
+                            st.error(
+                                f"Allocation weight cannot exceed available weight ({selected_available_weight:,.1f} g)."
+                            )
+                        elif allocation_target == "Attach to existing run" and not _attach_run_log_ready:
+                            st.error("No existing runs available to attach to.")
+                        else:
+                            inv_working = _ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy())
+                            if selected_lot_idx not in inv_working.index:
+                                st.error("Selected lot was not found in inventory. Please refresh selection.")
+                            else:
+                                available_before = float(pd.to_numeric(inv_working.loc[selected_lot_idx, "available_weight_g"], errors="coerce") or 0.0)
+                                if allocation_weight_g > available_before:
+                                    st.error(
+                                        f"Allocation weight cannot exceed available weight ({available_before:,.1f} g)."
+                                    )
+                                else:
+                                    # ‚îÄ‚îÄ Shared: update inventory lot ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                                    inv_working.loc[selected_lot_idx, "available_weight_g"] = max(
+                                        available_before - float(allocation_weight_g),
+                                        0.0,
+                                    )
+                                    if "reserved_weight_g" in inv_working.columns:
+                                        reserved_before = float(pd.to_numeric(inv_working.loc[selected_lot_idx, "reserved_weight_g"], errors="coerce") or 0.0)
+                                        inv_working.loc[selected_lot_idx, "reserved_weight_g"] = max(
+                                            reserved_before + float(allocation_weight_g),
+                                            0.0,
+                                        )
+                                    if inv_working.loc[selected_lot_idx, "available_weight_g"] <= 0:
+                                        inv_working.loc[selected_lot_idx, "status"] = "Depleted"
+                                    elif str(inv_working.loc[selected_lot_idx, "status"]).strip().lower() == "available":
+                                        inv_working.loc[selected_lot_idx, "status"] = "Reserved"
+                                    st.session_state.ecc_inventory_log = inv_working[_ECC_INVENTORY_COLUMNS].copy()
+
+                                    # ‚îÄ‚îÄ Ensure run log is a DataFrame ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                                    if "ecc_run_log" not in st.session_state:
+                                        st.session_state.ecc_run_log = pd.DataFrame()
+                                    existing_run_log = st.session_state.ecc_run_log
+                                    if isinstance(existing_run_log, list):
+                                        run_log = pd.DataFrame(existing_run_log)
+                                        st.session_state.ecc_run_log = run_log.copy()
+                                    else:
+                                        run_log = existing_run_log.copy()
+                                    run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
+                                    allocation_cost_total = float(allocation_weight_g) * selected_cost_per_g
+
+                                    if allocation_target == "Create new run draft":
+                                        run_id_values = (
+                                            run_log.get("batch_id_internal", pd.Series(dtype="object"))
+                                            .fillna("")
+                                            .astype(str)
+                                            .str.extract(r"^RUN-(\d{4})$")[0]
+                                        )
+                                        parsed_run_nums = pd.to_numeric(run_id_values, errors="coerce").dropna()
+                                        current_max_run_num = int(parsed_run_nums.max()) if not parsed_run_nums.empty else 0
+                                        next_run_num = current_max_run_num + 1
+                                        run_batch_id = f"RUN-{next_run_num:04d}"
+
+                                        draft_row = pd.DataFrame(
+                                            [
+                                                {
+                                                    "run_date": str(datetime.today().date()),
+                                                    "batch_id_internal": run_batch_id,
+                                                    "client_name": allocation_client or "In House",
+                                                    "method": allocation_method,
+                                                    "process_stage": "Queued",
+                                                    "status": "Queued",
+                                                    "input_weight_g": float(allocation_weight_g),
+                                                    "source_inventory_batch_id": selected_batch_id,
+                                                    "source_inventory_metrc_id": selected_metrc_id,
+                                                    "source_material_name": selected_material_name,
+                                                    "source_inventory_batch_ids": _ecc_serialize_list_field([selected_batch_id] if selected_batch_id else []),
+                                                    "source_inventory_metrc_ids": _ecc_serialize_list_field([selected_metrc_id] if selected_metrc_id else []),
+                                                    "inventory_linked": True,
+                                                    "allocated_input_weight_g": float(allocation_weight_g),
+                                                    "allocated_input_cost_total": allocation_cost_total,
+                                                    "input_cost_total": allocation_cost_total,
+                                                }
+                                            ]
+                                        )
+                                        run_log = pd.concat([run_log, draft_row], ignore_index=True)
+                                        st.session_state.ecc_run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
+                                        st.success(
+                                            f"Created run {run_batch_id} with {float(allocation_weight_g):,.1f} g from lot {selected_batch_id or 'n/a'}."
+                                        )
+                                    else:
+                                        # ‚îÄ‚îÄ Attach to existing run ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                                        if not selected_existing_run_label:
+                                            st.error("Select a run to attach inventory to.")
+                                        else:
+                                            _attach_df2 = run_log.reset_index()
+                                            _attach_df2["_run_label"] = (
+                                                _attach_df2["run_date"].astype(str)
+                                                + " ‚Ä¢ "
+                                                + _attach_df2["batch_id_internal"].astype(str).replace("", "No Batch ID")
+                                                + " ‚Ä¢ "
+                                                + _attach_df2["method"].astype(str)
+                                            )
+                                            _match = _attach_df2[_attach_df2["_run_label"] == selected_existing_run_label]
+                                            if _match.empty:
+                                                st.error("Selected run could not be matched. Please refresh selection.")
+                                            else:
+                                                target_idx = int(_match["index"].iloc[0])
+                                                existing_batches = _ecc_parse_list_field(run_log.loc[target_idx, "source_inventory_batch_ids"])
+                                                existing_metrc = _ecc_parse_list_field(run_log.loc[target_idx, "source_inventory_metrc_ids"])
+                                                merged_batches = list(dict.fromkeys(existing_batches + ([selected_batch_id] if selected_batch_id else [])))
+                                                merged_metrc = list(dict.fromkeys(existing_metrc + ([selected_metrc_id] if selected_metrc_id else [])))
+                                                run_log.loc[target_idx, "source_inventory_batch_ids"] = _ecc_serialize_list_field(merged_batches)
+                                                run_log.loc[target_idx, "source_inventory_metrc_ids"] = _ecc_serialize_list_field(merged_metrc)
+                                                _existing_bid = str(run_log.loc[target_idx, "source_inventory_batch_id"]).strip()
+                                                if not _existing_bid or _existing_bid in {"nan", "None"}:
+                                                    run_log.loc[target_idx, "source_inventory_batch_id"] = selected_batch_id
+                                                _existing_mid = str(run_log.loc[target_idx, "source_inventory_metrc_id"]).strip()
+                                                if not _existing_mid or _existing_mid in {"nan", "None"}:
+                                                    run_log.loc[target_idx, "source_inventory_metrc_id"] = selected_metrc_id
+                                                _existing_mat = str(run_log.loc[target_idx, "source_material_name"]).strip()
+                                                if not _existing_mat or _existing_mat in {"nan", "None"}:
+                                                    run_log.loc[target_idx, "source_material_name"] = selected_material_name
+                                                run_log.loc[target_idx, "allocated_input_weight_g"] = float(run_log.loc[target_idx, "allocated_input_weight_g"]) + float(allocation_weight_g)
+                                                run_log.loc[target_idx, "allocated_input_cost_total"] = float(run_log.loc[target_idx, "allocated_input_cost_total"]) + allocation_cost_total
+                                                run_log.loc[target_idx, "input_cost_total"] = float(run_log.loc[target_idx, "input_cost_total"]) + allocation_cost_total
+                                                run_log.loc[target_idx, "inventory_linked"] = True
+                                                if float(run_log.loc[target_idx, "input_weight_g"]) <= 0:
+                                                    run_log.loc[target_idx, "input_weight_g"] = float(run_log.loc[target_idx, "allocated_input_weight_g"])
+                                                if str(run_log.loc[target_idx, "method"]).strip() in {"", "Mixed / TBD"}:
+                                                    run_log.loc[target_idx, "method"] = allocation_method
+                                                st.session_state.ecc_run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
+                                                st.success(
+                                                    f"Attached {float(allocation_weight_g):,.1f} g from lot {selected_batch_id or 'n/a'} to run {selected_existing_run_label}."
+                                                )
+
+                else:
+                    # ‚îÄ‚îÄ Multi-lot path ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                    selected_lot_indices = st.multiselect(
+                        "Inventory Lots (batch_id_internal)",
+                        options=lot_idx_options,
+                        format_func=lambda idx: str(selectable_inv.loc[idx, "batch_id_internal"]).strip() or f"Lot {idx}",
+                        key="ecc_allocate_multi_lots",
+                    )
+
+                    if not selected_lot_indices:
+                        st.info("Select at least one inventory lot above.")
+                    else:
+                        # Per-lot weight inputs
+                        lot_alloc_weights: dict = {}
+                        for _ml_idx in selected_lot_indices:
+                            _ml_lot = selectable_inv.loc[_ml_idx]
+                            _ml_label = str(_ml_lot.get("batch_id_internal", "")).strip() or f"Lot {_ml_idx}"
+                            _ml_avail = float(pd.to_numeric(_ml_lot.get("available_weight_g", 0), errors="coerce") or 0.0)
+                            _ml_metrc = str(_ml_lot.get("metrc_package_id", "")).strip()
+                            _ml_mat = str(_ml_lot.get("material_name", "")).strip()
+                            _ml_w = st.number_input(
+                                f"Grams from {_ml_label} (available: {_ml_avail:,.1f} g)",
+                                min_value=0.0,
+                                value=min(_ECC_DEFAULT_ALLOCATION_GRAMS, _ml_avail),
+                                step=1.0,
+                                key=f"ecc_alloc_wt_{_ml_idx}",
+                            )
+                            st.caption(f"  METRC: {_ml_metrc or 'n/a'} | Material: {_ml_mat or 'n/a'}")
+                            lot_alloc_weights[_ml_idx] = _ml_w
+
+                        _multi_total_alloc = sum(lot_alloc_weights.values())
+                        st.metric("Total Allocated (g)", f"{_multi_total_alloc:,.1f}")
+
+                        _first_lot_multi = selectable_inv.loc[selected_lot_indices[0]]
+                        _first_intended_method_multi = str(_first_lot_multi.get("intended_method", "")).strip()
+
+                        multi_alloc_a, multi_alloc_b = st.columns(2)
+                        with multi_alloc_a:
+                            allocation_client_multi = st.text_input(
+                                "client_name",
+                                value="In House",
+                                key="ecc_allocation_client_name_multi",
+                            )
+                        with multi_alloc_b:
+                            _method_opts_multi = _ECC_METHOD_VALUES.copy()
+                            if _first_intended_method_multi and _first_intended_method_multi not in _method_opts_multi:
+                                _method_opts_multi = [_first_intended_method_multi] + _method_opts_multi
+                            _default_method_idx_multi = _method_opts_multi.index(_first_intended_method_multi) if _first_intended_method_multi in _method_opts_multi else 0
+                            allocation_method_multi = st.selectbox(
+                                "method",
+                                options=_method_opts_multi,
+                                index=_default_method_idx_multi,
+                                key="ecc_allocation_method_multi",
+                            )
+
+                        allocation_target_multi = st.radio(
+                            "Allocation Target",
+                            options=["Create new run draft", "Attach to existing run"],
+                            key="ecc_allocation_target_multi",
+                            horizontal=True,
+                        )
+
+                        selected_existing_run_label_multi = None
+                        _attach_run_log_ready_multi = (
+                            allocation_target_multi == "Attach to existing run"
+                            and "ecc_run_log" in st.session_state
+                            and isinstance(st.session_state.ecc_run_log, pd.DataFrame)
+                            and not st.session_state.ecc_run_log.empty
+                        )
+                        if _attach_run_log_ready_multi:
+                            _attach_df_multi = _ecc_ensure_run_schema(st.session_state.ecc_run_log.copy()).reset_index()
+                            _attach_df_multi["_run_label"] = (
+                                _attach_df_multi["run_date"].astype(str)
+                                + " ‚Ä¢ "
+                                + _attach_df_multi["batch_id_internal"].astype(str).replace("", "No Batch ID")
+                                + " ‚Ä¢ "
+                                + _attach_df_multi["method"].astype(str)
+                            )
+                            selected_existing_run_label_multi = st.selectbox(
+                                "Run to attach inventory to",
+                                options=_attach_df_multi["_run_label"].tolist(),
+                                key="ecc_allocate_attach_run_multi",
+                            )
+                        elif allocation_target_multi == "Attach to existing run":
+                            st.info("No existing runs in the log. Use 'Create new run draft' first.")
+
+                        if st.button("Allocate Inventory (Multi-Lot)", key="ecc_allocate_inventory_multi", type="primary"):
+                            _multi_errors = []
+                            for _ml_idx, _ml_w in lot_alloc_weights.items():
+                                _ml_avail_check = float(pd.to_numeric(selectable_inv.loc[_ml_idx, "available_weight_g"], errors="coerce") or 0.0)
+                                _ml_label_check = str(selectable_inv.loc[_ml_idx, "batch_id_internal"]).strip() or f"Lot {_ml_idx}"
+                                if _ml_w <= 0:
+                                    _multi_errors.append(f"Lot {_ml_label_check}: allocation weight must be > 0 g.")
+                                elif _ml_w > _ml_avail_check:
+                                    _multi_errors.append(f"Lot {_ml_label_check}: {_ml_w:,.1f} g exceeds available {_ml_avail_check:,.1f} g.")
+                            if allocation_target_multi == "Attach to existing run" and not _attach_run_log_ready_multi:
+                                _multi_errors.append("No existing runs available to attach to.")
+                            if _multi_errors:
+                                for _me in _multi_errors:
+                                    st.error(_me)
+                            else:
+                                inv_working = _ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy())
+                                _lot_inv_errors = []
+                                for _ml_idx, _ml_w in lot_alloc_weights.items():
+                                    if _ml_idx not in inv_working.index:
+                                        _ml_label_check = str(selectable_inv.loc[_ml_idx, "batch_id_internal"]).strip() or f"Lot {_ml_idx}"
+                                        _lot_inv_errors.append(f"Lot {_ml_label_check} not found in inventory. Refresh selection.")
+                                        continue
+                                    _ml_avail_now = float(pd.to_numeric(inv_working.loc[_ml_idx, "available_weight_g"], errors="coerce") or 0.0)
+                                    if _ml_w > _ml_avail_now:
+                                        _ml_label_check = str(selectable_inv.loc[_ml_idx, "batch_id_internal"]).strip() or f"Lot {_ml_idx}"
+                                        _lot_inv_errors.append(f"Lot {_ml_label_check}: {_ml_w:,.1f} g exceeds current available {_ml_avail_now:,.1f} g.")
+                                if _lot_inv_errors:
+                                    for _lie in _lot_inv_errors:
+                                        st.error(_lie)
+                                else:
+                                    # Mutate each lot and collect aggregated fields
+                                    _all_batch_ids: list = []
+                                    _all_metrc_ids: list = []
+                                    _multi_total_cost = 0.0
+                                    _multi_total_weight = 0.0
+                                    _multi_first_batch_id = ""
+                                    _multi_first_metrc_id = ""
+                                    _multi_first_material_name = ""
+                                    for _ml_idx, _ml_w in lot_alloc_weights.items():
+                                        _ml_lot2 = selectable_inv.loc[_ml_idx]
+                                        _ml_bid = str(_ml_lot2.get("batch_id_internal", "")).strip()
+                                        _ml_mid = str(_ml_lot2.get("metrc_package_id", "")).strip()
+                                        _ml_mat2 = str(_ml_lot2.get("material_name", "")).strip()
+                                        _ml_cpg = float(pd.to_numeric(_ml_lot2.get("cost_per_g", 0), errors="coerce") or 0.0)
+                                        _ml_avail_before = float(pd.to_numeric(inv_working.loc[_ml_idx, "available_weight_g"], errors="coerce") or 0.0)
+                                        inv_working.loc[_ml_idx, "available_weight_g"] = max(_ml_avail_before - float(_ml_w), 0.0)
+                                        if "reserved_weight_g" in inv_working.columns:
+                                            _ml_res_before = float(pd.to_numeric(inv_working.loc[_ml_idx, "reserved_weight_g"], errors="coerce") or 0.0)
+                                            inv_working.loc[_ml_idx, "reserved_weight_g"] = max(_ml_res_before + float(_ml_w), 0.0)
+                                        if inv_working.loc[_ml_idx, "available_weight_g"] <= 0:
+                                            inv_working.loc[_ml_idx, "status"] = "Depleted"
+                                        elif str(inv_working.loc[_ml_idx, "status"]).strip().lower() == "available":
+                                            inv_working.loc[_ml_idx, "status"] = "Reserved"
+                                        if _ml_bid:
+                                            _all_batch_ids.append(_ml_bid)
+                                        if _ml_mid:
+                                            _all_metrc_ids.append(_ml_mid)
+                                        _multi_total_cost += float(_ml_w) * _ml_cpg
+                                        _multi_total_weight += float(_ml_w)
+                                        if not _multi_first_batch_id:
+                                            _multi_first_batch_id = _ml_bid
+                                        if not _multi_first_metrc_id:
+                                            _multi_first_metrc_id = _ml_mid
+                                        if not _multi_first_material_name:
+                                            _multi_first_material_name = _ml_mat2
+                                    st.session_state.ecc_inventory_log = inv_working[_ECC_INVENTORY_COLUMNS].copy()
+
+                                    # Ensure run log is a DataFrame
+                                    if "ecc_run_log" not in st.session_state:
+                                        st.session_state.ecc_run_log = pd.DataFrame()
+                                    _existing_run_log_multi = st.session_state.ecc_run_log
+                                    if isinstance(_existing_run_log_multi, list):
+                                        run_log = pd.DataFrame(_existing_run_log_multi)
+                                        st.session_state.ecc_run_log = run_log.copy()
+                                    else:
+                                        run_log = _existing_run_log_multi.copy()
+                                    run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
+                                    _all_batch_ids_deduped = list(dict.fromkeys(_all_batch_ids))
+                                    _all_metrc_ids_deduped = list(dict.fromkeys(_all_metrc_ids))
+
+                                    if allocation_target_multi == "Create new run draft":
+                                        _run_id_values_multi = (
+                                            run_log.get("batch_id_internal", pd.Series(dtype="object"))
+                                            .fillna("")
+                                            .astype(str)
+                                            .str.extract(r"^RUN-(\d{4})$")[0]
+                                        )
+                                        _parsed_nums_multi = pd.to_numeric(_run_id_values_multi, errors="coerce").dropna()
+                                        _max_run_num_multi = int(_parsed_nums_multi.max()) if not _parsed_nums_multi.empty else 0
+                                        run_batch_id_multi = f"RUN-{_max_run_num_multi + 1:04d}"
+                                        draft_row_multi = pd.DataFrame(
+                                            [
+                                                {
+                                                    "run_date": str(datetime.today().date()),
+                                                    "batch_id_internal": run_batch_id_multi,
+                                                    "client_name": allocation_client_multi or "In House",
+                                                    "method": allocation_method_multi,
+                                                    "process_stage": "Queued",
+                                                    "status": "Queued",
+                                                    "input_weight_g": _multi_total_weight,
+                                                    "source_inventory_batch_id": _multi_first_batch_id,
+                                                    "source_inventory_metrc_id": _multi_first_metrc_id,
+                                                    "source_material_name": _multi_first_material_name,
+                                                    "source_inventory_batch_ids": _ecc_serialize_list_field(_all_batch_ids_deduped),
+                                                    "source_inventory_metrc_ids": _ecc_serialize_list_field(_all_metrc_ids_deduped),
+                                                    "inventory_linked": True,
+                                                    "allocated_input_weight_g": _multi_total_weight,
+                                                    "allocated_input_cost_total": _multi_total_cost,
+                                                    "input_cost_total": _multi_total_cost,
+                                                }
+                                            ]
+                                        )
+                                        run_log = pd.concat([run_log, draft_row_multi], ignore_index=True)
+                                        st.session_state.ecc_run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
+                                        st.success(
+                                            f"Created run {run_batch_id_multi} with {_multi_total_weight:,.1f} g from {len(lot_alloc_weights)} lot(s)."
+                                        )
+                                    else:
+                                        # Attach to existing run (multi-lot)
+                                        if not selected_existing_run_label_multi:
+                                            st.error("Select a run to attach inventory to.")
+                                        else:
+                                            _attach_df2m = run_log.reset_index()
+                                            _attach_df2m["_run_label"] = (
+                                                _attach_df2m["run_date"].astype(str)
+                                                + " ‚Ä¢ "
+                                                + _attach_df2m["batch_id_internal"].astype(str).replace("", "No Batch ID")
+                                                + " ‚Ä¢ "
+                                                + _attach_df2m["method"].astype(str)
+                                            )
+                                            _match_m = _attach_df2m[_attach_df2m["_run_label"] == selected_existing_run_label_multi]
+                                            if _match_m.empty:
+                                                st.error("Selected run could not be matched. Please refresh selection.")
+                                            else:
+                                                target_idx_m = int(_match_m["index"].iloc[0])
+                                                _ex_batches_m = _ecc_parse_list_field(run_log.loc[target_idx_m, "source_inventory_batch_ids"])
+                                                _ex_metrc_m = _ecc_parse_list_field(run_log.loc[target_idx_m, "source_inventory_metrc_ids"])
+                                                run_log.loc[target_idx_m, "source_inventory_batch_ids"] = _ecc_serialize_list_field(list(dict.fromkeys(_ex_batches_m + _all_batch_ids_deduped)))
+                                                run_log.loc[target_idx_m, "source_inventory_metrc_ids"] = _ecc_serialize_list_field(list(dict.fromkeys(_ex_metrc_m + _all_metrc_ids_deduped)))
+                                                _ex_bid_m = str(run_log.loc[target_idx_m, "source_inventory_batch_id"]).strip()
+                                                if not _ex_bid_m or _ex_bid_m in {"nan", "None"}:
+                                                    run_log.loc[target_idx_m, "source_inventory_batch_id"] = _multi_first_batch_id
+                                                _ex_mid_m = str(run_log.loc[target_idx_m, "source_inventory_metrc_id"]).strip()
+                                                if not _ex_mid_m or _ex_mid_m in {"nan", "None"}:
+                                                    run_log.loc[target_idx_m, "source_inventory_metrc_id"] = _multi_first_metrc_id
+                                                _ex_mat_m = str(run_log.loc[target_idx_m, "source_material_name"]).strip()
+                                                if not _ex_mat_m or _ex_mat_m in {"nan", "None"}:
+                                                    run_log.loc[target_idx_m, "source_material_name"] = _multi_first_material_name
+                                                run_log.loc[target_idx_m, "allocated_input_weight_g"] = float(run_log.loc[target_idx_m, "allocated_input_weight_g"]) + _multi_total_weight
+                                                run_log.loc[target_idx_m, "allocated_input_cost_total"] = float(run_log.loc[target_idx_m, "allocated_input_cost_total"]) + _multi_total_cost
+                                                run_log.loc[target_idx_m, "input_cost_total"] = float(run_log.loc[target_idx_m, "input_cost_total"]) + _multi_total_cost
+                                                run_log.loc[target_idx_m, "inventory_linked"] = True
+                                                if float(run_log.loc[target_idx_m, "input_weight_g"]) <= 0:
+                                                    run_log.loc[target_idx_m, "input_weight_g"] = float(run_log.loc[target_idx_m, "allocated_input_weight_g"])
+                                                if str(run_log.loc[target_idx_m, "method"]).strip() in {"", "Mixed / TBD"}:
+                                                    run_log.loc[target_idx_m, "method"] = allocation_method_multi
+                                                st.session_state.ecc_run_log = _ecc_ensure_run_schema(_ensure_mass_balance_cols(run_log))
+                                                st.success(
+                                                    f"Attached {_multi_total_weight:,.1f} g from {len(lot_alloc_weights)} lot(s) to run {selected_existing_run_label_multi}."
+                                                )
+
+    with toll_tab:
+        st.subheader("Toll Processing Command View")
+        st.dataframe(job_df, width="stretch", hide_index=True)
+        with st.expander("Add Toll Processing Job", expanded=False):
+            t1, t2, t3 = st.columns(3)
+            with t1:
+                client_name = st.text_input("Client Name", key="ecc_job_client_name")
+                state = st.selectbox("METRC State", ["MA", "ME", "NY", "NJ", "MI", "NV", "CA", "Other"], key="ecc_job_state")
+                license_or_registration = st.text_input("Client License / Registration", key="ecc_job_license")
+                method = st.selectbox("Method", ["BHO", "CO2", "Rosin", "Ethanol"], key="ecc_job_method")
+            with t2:
+                metrc_transfer_id = st.text_input("METRC Transfer ID", key="ecc_job_metrc")
+                material_received_date = st.date_input("Material Received Date", key="ecc_job_received")
+                promised_completion_date = st.date_input("Promised Completion Date", key="ecc_job_promised")
+                input_weight_g = st.number_input("Input Weight (g)", min_value=0.0, step=1.0, key="ecc_job_input")
+            with t3:
+                expected_output_g = st.number_input(
+                    "Expected Output (g)", min_value=0.0, step=0.1, key="ecc_job_expected"
+                )
+                actual_output_g = st.number_input("Actual Output (g)", min_value=0.0, step=0.1, key="ecc_job_actual")
+                invoice_status = st.selectbox(
+                    "Invoice Status", ["Draft", "Sent", "Paid", "Overdue"], key="ecc_job_invoice"
+                )
+                payment_status = st.selectbox("Payment Status", ["Pending", "Partial", "Paid"], key="ecc_job_payment")
+                coa_status = st.selectbox("COA Status", ["Pending", "Passed", "Failed"], key="ecc_job_coa")
+                job_status = st.selectbox(
+                    "Job Status",
+                    ["Queued", "Processing", "Packaging", "Complete", "Hold"],
+                    key="ecc_job_status",
+                )
+
+            if st.button("Add Toll Job", key="ecc_add_job"):
+                today = pd.Timestamp.today().normalize()
+                promised = pd.Timestamp(promised_completion_date)
+                sla_status = "At Risk" if promised < today else "On Track"
+                new_job = pd.DataFrame(
+                    [
+                        {
+                            "client_name": client_name,
+                            "state": state,
+                            "license_or_registration": license_or_registration,
+                            "metrc_transfer_id": metrc_transfer_id,
+                            "material_received_date": str(material_received_date),
+                            "promised_completion_date": str(promised_completion_date),
+                            "method": method,
+                            "input_weight_g": input_weight_g,
+                            "expected_output_g": expected_output_g,
+                            "actual_output_g": actual_output_g,
+                            "sla_status": sla_status,
+                            "invoice_status": invoice_status,
+                            "payment_status": payment_status,
+                            "coa_status": coa_status,
+                            "job_status": job_status,
+                        }
+                    ]
+                )
+                st.session_state.ecc_client_jobs = pd.concat(
+                    [st.session_state.ecc_client_jobs, new_job],
+                    ignore_index=True,
+                )
+                st.success("Toll job added.")
+
+    with compliance_tab:
+        st.subheader("Compliance / METRC Traceability")
+        required_fields = pd.DataFrame(
+            [
+                ["METRC State", "Jurisdiction for reporting and workflow rules"],
+                ["Facility / License Name", "Required internal mapping for multi-site operations"],
+                ["Internal Batch ID", "Your own batch identifier"],
+                ["METRC Package ID - Input", "Starting package used in the run"],
+                ["METRC Package ID - Output", "Finished package created from the run"],
+                ["METRC Manifest / Transfer ID", "Movement and custody tracking"],
+                ["Client License / Registration", "Critical for toll processing"],
+                ["COA Status", "Pending, passed, failed, or not submitted"],
+                ["QA Hold", "Operational hold flag"],
+                ["Run Notes", "Exception log, deviations, and event context"],
+            ],
+            columns=["Field", "Purpose"],
+        )
+        st.dataframe(required_fields, width="stretch", hide_index=True)
+
+    with inputs_tab:
+        chart_card_start("Data Input + Mapping", "Upload extraction data, preview parsed rows, map fields, and convert to run log.")
+        render_extraction_partner_upload_ui()
+        chart_card_end()
+
+    with ai_ops_tab:
+        st.subheader("AI Operations Brief")
+        run_value_df = _ecc_calculate_run_value_metrics(run_df.copy(), inventory_master_df)
+        alerts = _compute_extraction_alerts(run_value_df, job_df)
+        inventory_context = {}
+        value_context = {}
+        inventory_for_ai = _ecc_add_estimated_output(
+            _ecc_add_inventory_aging(_ecc_finalize_inventory_frame(st.session_state.ecc_inventory_log.copy())),
+            global_yield_pct=12.0,
+            use_method_defaults=True,
+        )
+        if not inventory_for_ai.empty:
+            ai_age_threshold = int(st.session_state.get("ecc_inventory_aging_threshold", 30))
+            ai_low_stock_threshold = float(st.session_state.get("ecc_inventory_low_stock_threshold", 250.0))
+            inventory_context = {
+                "inventory_lots": int(len(inventory_for_ai)),
+                "aging_material_count": int((inventory_for_ai["age_days"] >= ai_age_threshold).sum()),
+                "low_available_stock_count": int((inventory_for_ai["available_weight_g"] <= ai_low_stock_threshold).sum()),
+                "projected_output_g": float(inventory_for_ai["estimated_output_g"].sum()),
+            }
+            st.markdown("#### Inventory Context")
+            st.write(inventory_context)
+
+        if not run_value_df.empty:
+            value_context = {
+                "negative_margin_runs": int((run_value_df["margin_per_gram"] < 0).sum()),
+                "low_margin_runs": int(
+                    (
+                        (run_value_df["margin_per_gram"] >= 0)
+                        & (run_value_df["margin_per_gram"] < _ECC_LOW_MARGIN_PER_G_THRESHOLD)
+                    ).sum()
+                ),
+                "total_estimated_profit_usd": float(run_value_df["total_profit_usd"].sum()),
+                "avg_cost_per_gram": float(run_value_df["cost_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0),
+                "avg_value_per_gram": float(run_value_df["market_price_per_gram"].replace(0, np.nan).mean(skipna=True) or 0.0),
+                "inventory_linked_runs": int(run_value_df["inventory_linked"].fillna(False).sum()),
+                "value_risk_runs": int(run_value_df["value_risk_flag"].isin(["Critical", "Warning"]).sum()),
+            }
+            st.markdown("#### Value & Profitability Context")
+            st.write(value_context)
+
+        if alerts:
+            st.markdown("#### Current Alerts")
+            for alert in alerts:
+                st.warning(alert)
+        else:
+            st.success("No high-priority extraction alerts detected from current dataset.")
+
+        st.markdown("#### Recommended Actions")
+        st.caption("Generate a shift-ready brief grounded in current run and toll job data.")
+
+        if not _doobie_ai_access_enabled():
+            st.info("Connect Doobie AI to enable this feature.")
+        elif st.button("Generate AI Extraction Brief", key="ecc_ai_ops_brief"):
+            with st.spinner("Analyzing extraction operations..."):
+                brief = _generate_extraction_ai_brief(
+                    run_value_df,
+                    job_df,
+                    alerts,
+                    inventory_context=inventory_context,
+                    value_context=value_context,
+                )
+            st.markdown(brief)
+
+# =========================
+# TOP-LEVEL APP MODE SWITCH
+# =========================
+def _grams_from_unit(weight_value: float, weight_unit: str) -> float:
+    if weight_unit == "lb":
+        return weight_value * 453.59237
+    if weight_unit == "oz":
+        return weight_value * 28.349523125
+    return weight_value
+
+
+def render_white_label_repack_workspace():
+    st.markdown("## White Label / Repack")
+    st.caption("Operational and compliance tracking for private-label/repack flower workflows. Not legal advice.")
+
+    default_retail_price_map = {1.0: 10.0, 3.5: 25.0, 7.0: 45.0, 14.0: 80.0, 28.0: 140.0}
+    default_plan = [
+        {"enabled": False, "package_size_g": 1.0, "allocation_pct": 0.0, "bag_or_container_cost_per_unit": 0.12, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": default_retail_price_map[1.0]},
+        {"enabled": True, "package_size_g": 3.5, "allocation_pct": 50.0, "bag_or_container_cost_per_unit": 0.18, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": default_retail_price_map[3.5]},
+        {"enabled": True, "package_size_g": 7.0, "allocation_pct": 25.0, "bag_or_container_cost_per_unit": 0.24, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": default_retail_price_map[7.0]},
+        {"enabled": True, "package_size_g": 14.0, "allocation_pct": 15.0, "bag_or_container_cost_per_unit": 0.32, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": default_retail_price_map[14.0]},
+        {"enabled": True, "package_size_g": 28.0, "allocation_pct": 10.0, "bag_or_container_cost_per_unit": 0.45, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": default_retail_price_map[28.0]},
+        {"enabled": False, "package_size_g": 0.0, "allocation_pct": 0.0, "bag_or_container_cost_per_unit": 0.2, "label_cost_per_unit": 0.05, "tamper_seal_cost_per_unit": 0.0, "humidity_pack_cost_per_unit": 0.0, "compliance_sticker_cost_per_unit": 0.0, "other_packaging_cost_per_unit": 0.0, "target_retail_price_per_unit": 0.0},
+    ]
+    st.session_state.setdefault("white_label_saved_scenarios", {})
+    st.session_state.setdefault("white_label_active_scenario_name", "Current Session")
+    st.session_state.setdefault("white_label_package_plan", default_plan)
+
+    scenario_name = st.text_input("Scenario Name", value=st.session_state.get("white_label_active_scenario_name", "Current Session"))
+    s1, s2, s3, s4 = st.columns(4)
+    with s1:
+        if st.button("Save Scenario", key="wl_save"):
+            st.session_state["white_label_saved_scenarios"][scenario_name] = {k: v for k, v in st.session_state.items() if k.startswith("wl_")}
+            st.session_state["white_label_saved_scenarios"][scenario_name]["white_label_package_plan"] = st.session_state.get("white_label_package_plan", default_plan)
+            st.success(f"Saved scenario: {scenario_name}")
+    with s2:
+        names = ["Current Session"] + sorted(st.session_state["white_label_saved_scenarios"].keys())
+        load_name = st.selectbox("Load Scenario", names, key="wl_load_name")
+    with s3:
+        if st.button("Duplicate Scenario", key="wl_duplicate"):
+            src = st.session_state["white_label_saved_scenarios"].get(load_name)
+            if src:
+                dup_name = f"{load_name} Copy"
+                st.session_state["white_label_saved_scenarios"][dup_name] = dict(src)
+                st.success(f"Duplicated as {dup_name}")
+    with s4:
+        if st.button("Clear Scenario", key="wl_clear"):
+            for key in [k for k in list(st.session_state.keys()) if k.startswith("wl_")]:
+                del st.session_state[key]
+            st.session_state["white_label_package_plan"] = default_plan
+            st.success("Cleared scenario values for current session.")
+
+    if load_name != "Current Session" and st.button("Apply Loaded Scenario", key="wl_apply_load"):
+        payload = st.session_state["white_label_saved_scenarios"].get(load_name, {})
+        for key, val in payload.items():
+            st.session_state[key] = val
+        st.success(f"Loaded {load_name}")
+
+    tabs = st.tabs(["Step 1: Bulk Lot", "Step 2: Costs", "Step 3: Package Plan", "Step 4: Results", "Step 5: Compliance"])
+    with tabs[0]:
+        st.info("Start with the bulk flower lot you are considering buying or repacking.")
+        strain_name = st.text_input("Strain Name *", key="wl_strain_name")
+        strain_type = st.selectbox("Strain Type *", ["Indica", "Sativa", "Hybrid", "CBD", "Mixed", "Unknown"], key="wl_strain_type")
+        cultivator_name = st.text_input("Cultivator Name *", key="wl_cultivator_name")
+        vendor_name = st.text_input("Vendor Name *", key="wl_vendor_name")
+        c1, c2 = st.columns(2)
+        bulk_weight_value = c1.number_input("Bulk Weight *", min_value=0.0, value=0.0, key="wl_bulk_weight_value")
+        bulk_weight_unit = c2.selectbox("Weight Unit *", ["g", "oz", "lb"], key="wl_bulk_weight_unit")
+        bulk_total_cost_usd = st.number_input("Total Bulk Cost ($) *", min_value=0.0, value=0.0, key="wl_bulk_total_cost_usd")
+        coa_link = st.text_input("Certificate of Analysis (COA) Link *", key="wl_coa_link")
+        thca_pct = st.number_input("THCA (%) *", min_value=0.0, max_value=100.0, value=0.0, key="wl_thca_pct")
+        terpene_pct = st.number_input("Terpenes (%) *", min_value=0.0, max_value=100.0, value=0.0, key="wl_terpene_pct")
+        with st.expander("Advanced Lot Details"):
+            cultivator_license_number = st.text_input("Cultivator License Number", key="wl_cultivator_license_number")
+            source_metrc_package_id = st.text_input("Source METRC Package ID", key="wl_source_metrc_package_id")
+            batch_or_lot_number = st.text_input("Batch or Lot Number", key="wl_batch_or_lot_number")
+            harvest_date = st.date_input("Harvest Date", value=datetime.now().date(), key="wl_harvest_date")
+            testing_date = st.date_input("Testing Date", value=datetime.now().date(), key="wl_testing_date")
+            received_date = st.date_input("Received Date", value=datetime.now().date(), key="wl_received_date")
+            total_thc_pct = st.number_input("Total THC (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_total_thc_pct")
+            moisture_pct = st.number_input("Moisture (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_moisture_pct")
+            testing_notes = st.text_area("Testing Notes", key="wl_testing_notes")
+            buyer_notes = st.text_area("Buyer Notes", key="wl_buyer_notes")
+            compliance_notes = st.text_area("Compliance Notes", key="wl_compliance_notes")
+
+    with tabs[1]:
+        st.info("Add the costs that change the true landed cost of the flower.")
+        discount_pct = st.number_input("Purchase Discount (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_discount_pct")
+        shrink_loss_pct = st.number_input("Expected Shrink Loss (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_shrink_loss_pct")
+        labor_cost_total_usd = st.number_input("Total Labor Cost ($)", min_value=0.0, value=0.0, key="wl_labor_cost_total_usd")
+        other_costs_usd = st.number_input("Other Costs ($)", min_value=0.0, value=0.0, key="wl_other_costs_usd")
+        with st.expander("Advanced Costs"):
+            freight_or_delivery_cost_usd = st.number_input("Freight or Delivery Cost ($)", min_value=0.0, value=0.0, key="wl_freight_or_delivery_cost_usd")
+            sample_or_testing_cost_usd = st.number_input("Sampling or Testing Cost ($)", min_value=0.0, value=0.0, key="wl_sample_or_testing_cost_usd")
+            compliance_admin_cost_usd = st.number_input("Compliance Administration Cost ($)", min_value=0.0, value=0.0, key="wl_compliance_admin_cost_usd")
+            qa_hold_loss_pct = st.number_input("QA Hold Loss (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_qa_hold_loss_pct")
+            trim_loss_pct = st.number_input("Trim Loss (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_trim_loss_pct")
+            moisture_loss_pct = st.number_input("Moisture Loss (%)", min_value=0.0, max_value=100.0, value=0.0, key="wl_moisture_loss_pct")
+
+    total_g = _grams_from_unit(st.session_state.get("wl_bulk_weight_value", 0.0), st.session_state.get("wl_bulk_weight_unit", "g"))
+    landed_cost_usd = max(0.0, st.session_state.get("wl_bulk_total_cost_usd", 0.0) * (1 - st.session_state.get("wl_discount_pct", 0.0) / 100.0) + st.session_state.get("wl_freight_or_delivery_cost_usd", 0.0) + st.session_state.get("wl_sample_or_testing_cost_usd", 0.0))
+    total_loss_pct = min(100.0, st.session_state.get("wl_shrink_loss_pct", 0.0) + st.session_state.get("wl_trim_loss_pct", 0.0) + st.session_state.get("wl_qa_hold_loss_pct", 0.0) + st.session_state.get("wl_moisture_loss_pct", 0.0))
+    usable_weight_g = max(0.0, total_g * (1 - total_loss_pct / 100.0))
+    effective_cost_per_gram = landed_cost_usd / usable_weight_g if usable_weight_g > 0 else 0.0
+
+    with tabs[2]:
+        st.info("Choose how much of the lot goes into each package size. Packaging costs can vary by size.")
+        plan_df = pd.DataFrame(st.session_state.get("white_label_package_plan", default_plan))
+        plan_df["bag_or_container_cost_per_unit"] = plan_df.get("bag_or_container_cost_per_unit", plan_df.get("bag_cost_per_unit", 0.0))
+        for col in ["tamper_seal_cost_per_unit", "humidity_pack_cost_per_unit", "compliance_sticker_cost_per_unit", "other_packaging_cost_per_unit"]:
+            if col not in plan_df.columns:
+                plan_df[col] = 0.0
+        plan_df["total_packaging_cost_per_unit"] = (
+            plan_df["bag_or_container_cost_per_unit"].fillna(0.0)
+            + plan_df["label_cost_per_unit"].fillna(0.0)
+            + plan_df["tamper_seal_cost_per_unit"].fillna(0.0)
+            + plan_df["humidity_pack_cost_per_unit"].fillna(0.0)
+            + plan_df["compliance_sticker_cost_per_unit"].fillna(0.0)
+            + plan_df["other_packaging_cost_per_unit"].fillna(0.0)
+        )
+        simple_mode = st.toggle("Simple Mode", value=st.session_state.get("wl_simple_mode", True), key="wl_simple_mode")
+        primary_cols = ["enabled", "package_size_g", "allocation_pct", "target_retail_price_per_unit", "total_packaging_cost_per_unit"]
+        edited = st.data_editor(plan_df[primary_cols], width="stretch", num_rows="dynamic", key="wl_package_editor")
+        detail_cols = ["enabled", "package_size_g", "bag_or_container_cost_per_unit", "label_cost_per_unit", "tamper_seal_cost_per_unit", "humidity_pack_cost_per_unit", "compliance_sticker_cost_per_unit", "other_packaging_cost_per_unit"]
+        if not simple_mode:
+            with st.expander("Packaging Cost Details", expanded=False):
+                details_edited = st.data_editor(plan_df[detail_cols], width="stretch", num_rows="dynamic", key="wl_packaging_detail_editor")
+        else:
+            details_edited = plan_df[detail_cols]
+        merged = edited.merge(details_edited, on=["enabled", "package_size_g"], how="left", suffixes=("", "_detail"))
+        st.session_state["white_label_package_plan"] = merged.to_dict("records")
+        alloc_total = float(edited.loc[edited["enabled"], "allocation_pct"].sum()) if not edited.empty else 0.0
+        if alloc_total > 100:
+            st.warning("Your package allocation is over 100%.")
+        elif alloc_total < 100:
+            st.warning(f"You still have {100 - alloc_total:.1f}% unallocated.")
+        if usable_weight_g < 0:
+            st.warning("Usable grams cannot be negative.")
+
+    enabled_df = pd.DataFrame(st.session_state.get("white_label_package_plan", default_plan))
+    if not enabled_df.empty:
+        enabled_df = enabled_df[enabled_df["enabled"] == True].copy()
+
+    rows=[]
+    for _,r in enabled_df.iterrows():
+        size=float(r.get("package_size_g",0) or 0)
+        alloc_pct=float(r.get("allocation_pct",0) or 0)
+        bag=float(r.get("bag_or_container_cost_per_unit",r.get("bag_cost_per_unit",0)) or 0)
+        label=float(r.get("label_cost_per_unit",0) or 0)
+        tamper=float(r.get("tamper_seal_cost_per_unit",0) or 0)
+        humidity=float(r.get("humidity_pack_cost_per_unit",0) or 0)
+        compliance=float(r.get("compliance_sticker_cost_per_unit",0) or 0)
+        other_pack=float(r.get("other_packaging_cost_per_unit",r.get("additional_packaging_cost_per_unit",0)) or 0)
+        price=float(r.get("target_retail_price_per_unit",0) or 0)
+        missing_inputs=[]
+        if price <= 0: missing_inputs.append("Retail price missing")
+        if bag < 0 or label < 0 or tamper < 0 or humidity < 0 or compliance < 0 or other_pack < 0: missing_inputs.append("Packaging cost missing")
+        if alloc_pct <= 0: missing_inputs.append("Allocation missing")
+        if landed_cost_usd <= 0: missing_inputs.append("Bulk cost missing")
+        if size<=0:
+            missing_inputs.append("Package size missing")
+            st.warning("Enabled package rows must have package_size_g > 0.")
+            continue
+        alloc_g=usable_weight_g*(alloc_pct/100.0)
+        units=int(np.floor(alloc_g/size))
+        leftover=max(0.0,alloc_g-(units*size))
+        if leftover>0: st.info("This package size produces leftover grams.")
+        total_packaging_unit=max(0.0, bag + label + tamper + humidity + compliance + other_pack)
+        total_packaging_cost=units*total_packaging_unit
+        revenue=(units*price) if not missing_inputs else np.nan
+        bulk_cost=units*size*effective_cost_per_gram
+        unit_other=(st.session_state.get("wl_labor_cost_total_usd",0)+st.session_state.get("wl_other_costs_usd",0)+st.session_state.get("wl_compliance_admin_cost_usd",0))/max(1,len(enabled_df))
+        all_in=bulk_cost+total_packaging_cost+unit_other
+        profit=(revenue-all_in) if not missing_inputs else np.nan
+        margin=((profit/revenue*100.0) if revenue and revenue>0 else np.nan) if not missing_inputs else np.nan
+        break_even=(all_in/units) if units>0 and not missing_inputs else np.nan
+        status = "Complete" if not missing_inputs else "Incomplete"
+        strain_name = str(st.session_state.get("wl_strain_name") or "Repack Product").strip()
+        product_name = f"{strain_name} Flower {size:g}g"
+        rows.append({"Product Name":product_name,"Package Size":f"{size:g}g","Allocation %":alloc_pct,"Grams Allocated":alloc_g,"Units Produced":units,"Retail Price":(price if price>0 else np.nan),"Total Packaging / Unit":total_packaging_unit,"Total Packaging Cost":total_packaging_cost,"All-In Cost / Unit":(all_in/units if units>0 else np.nan),"Break-even Price":break_even,"Revenue":revenue,"Gross Profit":profit,"Gross Margin %":margin,"Status":status,"Missing Inputs":", ".join(missing_inputs) if missing_inputs else ""})
+    results_df=pd.DataFrame(rows)
+    total_units=int(results_df["Units Produced"].sum()) if not results_df.empty else 0
+    total_revenue=float(results_df["Revenue"].fillna(0).sum()) if not results_df.empty else 0
+    total_packaging=float(results_df["Total Packaging Cost"].fillna(0).sum()) if not results_df.empty else 0
+    total_all_in=float((results_df["All-In Cost / Unit"].fillna(0)*results_df["Units Produced"]).sum()) if not results_df.empty else 0
+    gross_profit=total_revenue-total_all_in
+    gross_margin=(gross_profit/total_revenue*100.0) if total_revenue>0 else 0
+    leftover_total=max(0.0, usable_weight_g - float(results_df["Grams Allocated"].sum()) if not results_df.empty else usable_weight_g)
+
+    margin_readiness = {}
+    with tabs[3]:
+        st.info("Review estimated units, revenue, profit, and margin.")
+        k=st.columns(5)
+        k[0].metric("Usable Weight", f"{usable_weight_g:,.1f} g")
+        k[1].metric("Total Units", f"{total_units:,}")
+        k[2].metric("Total Revenue", f"${total_revenue:,.0f}")
+        k[3].metric("Gross Profit", f"${gross_profit:,.0f}")
+        k[4].metric("Gross Margin %", f"{gross_margin:.1f}%")
+        st.metric("Leftover Grams", f"{leftover_total:,.1f} g")
+        if not results_df.empty:
+            st.metric("Best Package Size by Margin", str(results_df.sort_values("Gross Margin %", ascending=False).iloc[0]["Package Size"]))
+        if not results_df.empty:
+            readiness = {
+                "complete_rows": int((results_df["Status"] == "Complete").sum()),
+                "incomplete_rows": int((results_df["Status"] == "Incomplete").sum()),
+                "missing_retail_price_count": int(results_df["Missing Inputs"].str.contains("Retail price missing", na=False).sum()),
+                "missing_packaging_cost_count": int(results_df["Missing Inputs"].str.contains("Packaging cost missing", na=False).sum()),
+                "total_allocation_pct": float(results_df["Allocation %"].sum()),
+                "unallocated_grams": float(leftover_total),
+            }
+            st.markdown("#### Margin Readiness")
+            st.json(readiness)
+            margin_readiness = readiness
+            if readiness["incomplete_rows"] > 0:
+                st.warning("Some margins are incomplete because required inputs are missing.")
+        display_df = results_df.replace({np.nan: "N/A"})
+        st.dataframe(display_df, width="stretch")
+        if not results_df.empty:
+            st.bar_chart(results_df.set_index("Package Size")["Revenue"])
+            st.bar_chart(results_df.set_index("Package Size")["Gross Profit"])
+            st.bar_chart(results_df.set_index("Package Size")["Gross Margin %"])
+
+    with tabs[4]:
+        st.info("Check whether the lot has the documentation needed before launch.")
+        checklist = [
+            ("COA Link Present", "Ready" if st.session_state.get("wl_coa_link") else "Missing"),
+            ("COA Status Passed", "Ready" if st.session_state.get("wl_coa_status", "Needs Review") == "Passed" else "Needs Review"),
+            ("THCA / Cannabinoid Data Present", "Ready" if st.session_state.get("wl_thca_pct", 0) > 0 or st.session_state.get("wl_total_thc_pct", 0) > 0 else "Missing"),
+            ("Terpene Data Present", "Ready" if st.session_state.get("wl_terpene_pct", 0) > 0 else "Needs Review"),
+            ("Cultivator Name Present", "Ready" if st.session_state.get("wl_cultivator_name") else "Missing"),
+            ("Cultivator License Present", "Ready" if st.session_state.get("wl_cultivator_license_number") else "Missing"),
+            ("Source METRC Package ID Present", "Ready" if st.session_state.get("wl_source_metrc_package_id") else "Missing"),
+            ("Batch/Lot Number Present", "Ready" if st.session_state.get("wl_batch_or_lot_number") else "Missing"),
+            ("Harvest Date Present", "Ready" if st.session_state.get("wl_harvest_date") else "Missing"),
+            ("Testing Date Present", "Ready" if st.session_state.get("wl_testing_date") else "Missing"),
+            ("Label Review Completed", "Ready" if st.session_state.get("wl_label_review_status", "Needs Review") == "Ready" else "Needs Review"),
+        ]
+        cdf = pd.DataFrame(checklist, columns=["Requirement", "Status"])
+        st.dataframe(cdf, width="stretch")
+
+    return {"scenario_name": scenario_name or "Current Session", "summary": {"strain_name": st.session_state.get("wl_strain_name", ""), "source_metrc_package_id": st.session_state.get("wl_source_metrc_package_id", ""), "landed_cost_usd": landed_cost_usd, "total_revenue_usd": total_revenue, "gross_profit_usd": gross_profit, "gross_margin_pct": gross_margin, "coa_link": st.session_state.get("wl_coa_link", "")}, "bulk_lot_details": {k:v for k,v in st.session_state.items() if k.startswith("wl_")}, "package_plan": st.session_state.get("white_label_package_plan", default_plan), "package_output_summary": results_df, "margin_readiness": margin_readiness, "cost_breakdown": pd.DataFrame([{"Cost Type":"Landed Cost","Total Cost":landed_cost_usd,"Cost per Gram":effective_cost_per_gram,"Cost per Unit":(total_all_in/max(1,total_units))},{"Cost Type":"Packaging+Label","Total Cost":total_packaging,"Cost per Gram":(total_packaging/max(1,usable_weight_g)),"Cost per Unit":(total_packaging/max(1,total_units))},{"Cost Type":"Labor","Total Cost":st.session_state.get("wl_labor_cost_total_usd",0.0),"Cost per Gram":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,usable_weight_g)),"Cost per Unit":(st.session_state.get("wl_labor_cost_total_usd",0.0)/max(1,total_units))}]), "compliance_checklist": cdf}
+
+if not workspace_options:
+    st.error("Your license does not include any enabled workspace modules.")
+    st.stop()
+
+_group_col, _workspace_col = st.columns([1, 1.65])
+with _group_col:
+    operation_group = st.selectbox(
+        "Operations Area",
+        operation_groups,
+        help=(
+            "Retail Ops contains buying and repack tools. Production Ops contains Co-Man "
+            "and extraction tools. Data & Integrations loads shared operational sources."
+        ),
+        key="operations_group",
+        on_change=_sync_workspace_to_operations_group,
+    )
+
+group_workspace_options = workspace_groups[operation_group]
+
+with _workspace_col:
+    app_mode = st.selectbox(
+        "Workspace",
+        group_workspace_options,
+        help=f"Choose a workspace inside {operation_group}.",
+        key="workspace_mode",
+    )
+
+if app_mode == DATA_HUB_WORKSPACE:
+    render_hero(
+        "Data Hub",
+        "Connect, upload, review, and reuse operational data across every workspace.",
+        _display_user,
+        "Data Operations",
+    )
+    render_data_hub_workspace()
+    st.stop()
+if app_mode == COMMERCIAL_WORKSPACE:
+    render_commercial_workspace()
+    st.stop()
+if app_mode == EXTRACTION_WORKSPACE:
+    render_hero(
+        f"{_time_greeting()}, Extraction Team",
+        "Command center KPIs, process signals, and inventory risk in one view.",
+        _display_user,
+        "Operations",
+    )
+    if _feature_enabled("ai_support", default_enabled=True):
+        render_main_ai_copilot(app_mode, "üß™ Extraction Command Center")
+    else:
+        st.info("AI support is not enabled for this license plan.")
+    render_extraction_command_center()
+    st.stop()
+if app_mode == WHITE_LABEL_WORKSPACE:
+    render_hero(
+        "White Label / Repack",
+        "Model private-label repack economics and compliance readiness.",
+        _display_user,
+        "Buyer ‚Ä¢ Repack",
+    )
+    white_payload = render_white_label_repack_workspace()
+    if white_payload:
+        st.session_state["white_label_export_payload"] = white_payload
+    st.stop()
+if app_mode == COMAN_WORKSPACE:
+    render_hero(
+        "Co-Man Production",
+        "Track internal production and customer-owned contract packaging in one durable queue.",
+        _display_user,
+        "Production Operations",
+    )
+    render_coman_workspace()
+    st.stop()
+
+# =========================
+# GLOBAL DATA MODE SELECTOR (BUYER OPERATIONS ONLY)
+# =========================
+st.sidebar.markdown("---")
+data_mode = st.sidebar.selectbox(
+    "üîå Data Input Mode",
+    ["üìÅ Uploads", "üî¥ Dutchie Live"],
+    key="data_mode",
+    help=(
+        "Uploads: use manual CSV/XLSX exports from your POS system (current behaviour). "
+        "Dutchie Live: pull data directly from the Dutchie API ‚Äî requires API credentials. "
+        "See docs/dutchie.md for setup instructions."
+    ),
+)
+st.sidebar.markdown("---")
+
+# =========================
+# PAGE SWITCH (BUYER OPERATIONS)
+# =========================
+section_options = buyer_section_options(
+    is_admin=st.session_state.get("is_admin", False),
+    user_role=str(st.session_state.get("auth_user_role") or "trial"),
+    admin_exports_enabled=_feature_enabled("admin_exports", default_enabled=True),
+)
+
+section = st.sidebar.selectbox(
+    "Page",
+    section_options,
+    key="buyer_section",
+    help="Choose a Buyer Operations page. This compact menu keeps the sidebar usable on phones.",
+)
+
+if section == INVENTORY_COUNTS_SECTION:
+    render_hero(
+        "Retail Inventory Counts",
+        "Scan Dutchie labels, complete recounts, and reconcile store inventory with a durable audit trail.",
+        str(_display_user),
+        "Retail Operations",
+    )
+    render_inventory_audit_workspace("retail")
+    st.stop()
+
+if _feature_enabled("ai_support", default_enabled=True):
+    render_main_ai_copilot(app_mode, section)
+else:
+    st.caption("AI support is unavailable for your current plan.")
+
+# ============================================================
+# PAGE 1 ‚Äì INVENTORY DASHBOARD
+# ============================================================
+if section == "üìä Inventory Dashboard":
+    render_hero(
+        f"{_time_greeting()}, {_display_user}",
+        "Here's what's happening with your portfolio today.",
+        str(_display_user),
+        "Buyer ‚Ä¢ Operations",
+    )
+
+    st.sidebar.markdown("### üß© Data Source")
+    data_source = st.sidebar.selectbox(
+        "Select POS / Data Source",
+        ["Dutchie", "BLAZE"],
+        index=0,
+        help="Changes how column names are interpreted. Files are still CSV/XLSX exports.",
+    )
+
+    # ------------------------------------------------------------
+    # DATA SOURCE: UPLOADS vs DUTCHIE LIVE
+    # ------------------------------------------------------------
+    if data_mode == "üìÅ Uploads":
+        st.sidebar.header("üìÇ Upload Core Reports")
+        inv_file = st.sidebar.file_uploader(
+            "Inventory File (CSV or Excel)", type=["csv", "xlsx", "xls"], key="inv_upload"
+        )
+        product_sales_file = st.sidebar.file_uploader(
+            "Product Sales Report (qty-based Excel)", type=["xlsx", "xls"], key="sales_upload"
+        )
+        extra_sales_file = st.sidebar.file_uploader(
+            "Optional Extra Sales Detail (revenue)",
+            type=["xlsx", "xls"],
+            help="Optional: revenue detail. Can be used for pricing trends.",
+            key="extra_sales_upload",
+        )
+        quarantine_file = st.sidebar.file_uploader(
+            "Quarantine List (CSV or Excel)",
+            type=["csv", "xlsx", "xls"],
+            help="Optional: list of items in quarantine to exclude from slow movers analysis.",
+            key="quarantine_upload",
+        )
+
+        # ------------------------------------------------------------
+        # UPLOAD CACHE (prevents uploads from wiping when switching tabs)
+        # ------------------------------------------------------------
+        class _UploadedFileLike(BytesIO):
+            def __init__(self, b: bytes, name: str):
+                super().__init__(b)
+                self.name = name
+
+        def _cache_upload(file_obj, cache_key: str):
+            if file_obj is None:
+                return
+            try:
+                file_obj.seek(0)
+                b = file_obj.read()
+                file_obj.seek(0)
+            except Exception:
+                return
+            if len(b) > MAX_UPLOAD_BYTES:
+                st.error(
+                    f"‚ùå File '{getattr(file_obj, 'name', 'upload')}' exceeds the "
+                    f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB size limit and was not processed."
+                )
+                return
+            st.session_state[cache_key] = {"name": getattr(file_obj, "name", "upload"), "bytes": b}
+
+        def _load_cached(cache_key: str):
+            obj = st.session_state.get(cache_key)
+            if isinstance(obj, dict) and obj.get("bytes"):
+                return _UploadedFileLike(obj["bytes"], obj.get("name", "cached_upload"))
+            return None
+
+        _cache_upload(inv_file, "_cache_inv")
+        _cache_upload(product_sales_file, "_cache_sales")
+        _cache_upload(extra_sales_file, "_cache_extra_sales")
+        _cache_upload(quarantine_file, "_cache_quarantine")
+
+        # Persist file caches to the daily store so they survive session timeouts
+        _ds_user = (
+            st.session_state.admin_user if st.session_state.is_admin
+            else st.session_state.get("user_user")
+        )
+        if _ds_user:
+            _save_to_daily_store(_ds_user)
+
+        if inv_file is None:
+            inv_file = _load_cached("_cache_inv")
+            if inv_file is not None:
+                st.sidebar.caption(f"Using cached Inventory file: {inv_file.name}")
+        if product_sales_file is None:
+            product_sales_file = _load_cached("_cache_sales")
+            if product_sales_file is not None:
+                st.sidebar.caption(f"Using cached Product Sales file: {product_sales_file.name}")
+        if extra_sales_file is None:
+            extra_sales_file = _load_cached("_cache_extra_sales")
+            if extra_sales_file is not None:
+                st.sidebar.caption(f"Using cached Extra Sales file: {extra_sales_file.name}")
+        if quarantine_file is None:
+            quarantine_file = _load_cached("_cache_quarantine")
+            if quarantine_file is not None:
+                st.sidebar.caption(f"Using cached Quarantine file: {quarantine_file.name}")
+
+        if st.sidebar.button("üßπ Clear uploads (today & session)"):
+            _ds_user_clear = (
+                st.session_state.admin_user if st.session_state.is_admin
+                else st.session_state.get("user_user")
+            )
+            _clear_daily_store(_ds_user_clear)
+            st.session_state._daily_restored = False
+            _safe_rerun()
+
+        # Track uploads for God viewer (de-duped)
+        current_user = (
+            st.session_state.admin_user
+            if st.session_state.is_admin
+            else (st.session_state.user_user if st.session_state.user_authenticated else "trial_user")
+        )
+        if inv_file is not None:
+            track_upload(inv_file, current_user, "inventory")
+        if product_sales_file is not None:
+            track_upload(product_sales_file, current_user, "product_sales")
+        if extra_sales_file is not None:
+            track_upload(extra_sales_file, current_user, "extra_sales")
+        if quarantine_file is not None:
+            track_upload(quarantine_file, current_user, "quarantine")
+
+    else:
+        # ‚îÄ‚îÄ Dutchie Live mode ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+        # File upload widgets are not shown; data comes from the Dutchie API.
+        inv_file = None
+        product_sales_file = None
+        extra_sales_file = None
+        quarantine_file = None
+
+        if _DUTCHIE_CLIENT_AVAILABLE:
+            _dc = DutchieConfig.from_env_and_secrets()
+            _bundle, _dutchie_err = fetch_dutchie_data(_dc)
+            if _dutchie_err:
+                st.sidebar.warning(f"‚ö†Ô∏è Dutchie Live: {_dutchie_err}")
+            else:
+                _inv_live, _sales_live, _extra_live, _del_live, _dsales_live = _bundle
+                if _inv_live is not None:
+                    st.session_state.inv_raw_df = _inv_live
+                if _sales_live is not None:
+                    st.session_state.sales_raw_df = _sales_live
+                if _extra_live is not None:
+                    st.session_state.extra_sales_df = _extra_live
+                if _del_live is not None:
+                    st.session_state.delivery_raw_df = _del_live
+                if _dsales_live is not None:
+                    st.session_state.daily_sales_raw_df = _dsales_live
+        else:
+            st.sidebar.error("‚ùå dutchie_client module is not available.")
+
+    st.sidebar.markdown("---")
+    st.sidebar.header("‚öôÔ∏è Forecast Settings")
+    doh_threshold = int(st.sidebar.number_input("Target Days on Hand", 1, 60, 21))
+    st.session_state.doh_threshold_cache = int(doh_threshold)
+    velocity_adjustment = float(st.sidebar.number_input("Velocity Adjustment", 0.01, 5.0, 0.5))
+    date_diff = int(st.sidebar.slider("Days in Sales Period", 7, 120, 60))
+
+    # Cache raw dataframes
+    if inv_file is not None:
+        try:
+            inv_df_raw = read_inventory_file(inv_file)
+            try:
+                inv_df_raw, vault_included, vault_excluded = filter_vault_inventory(inv_df_raw)
+                st.sidebar.info(
+                    f"üè¶ Vault filter applied: **{vault_included}** batch rows included, "
+                    f"**{vault_excluded}** excluded (non-Vault rooms)."
+                )
+            except ValueError as ve:
+                st.error(str(ve))
+                st.stop()
+            st.session_state.inv_raw_df = inv_df_raw
+        except Exception as e:
+            st.error(f"Error reading inventory file: {e}")
+            st.stop()
+
+    if product_sales_file is not None:
+        try:
+            sales_raw_raw = read_sales_file(product_sales_file)
+            st.session_state.sales_raw_df = sales_raw_raw
+        except Exception as e:
+            st.error(f"Error reading Product Sales report: {e}")
+            st.stop()
+
+    if extra_sales_file is not None:
+        try:
+            extra_sales_raw = read_sales_file(extra_sales_file)
+            st.session_state.extra_sales_df = extra_sales_raw
+        except Exception:
+            st.session_state.extra_sales_df = None
+
+    # Process quarantine file and extract product names
+    if quarantine_file is not None:
+        try:
+            quarantine_df = read_inventory_file(quarantine_file)
+            # Normalize column names
+            quarantine_df.columns = quarantine_df.columns.astype(str).str.strip().str.lower()
+            # Detect product name column
+            quarantine_name_col = detect_column(
+                quarantine_df.columns, 
+                [normalize_col(a) for a in INV_NAME_ALIASES]
+            )
+            if quarantine_name_col:
+                # Extract and normalize product names, filtering out NaN/null/empty values
+                quarantined_items = set(
+                    item for item in 
+                    quarantine_df[quarantine_name_col]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .tolist()
+                    if item  # Filter out empty strings
+                )
+                st.session_state.quarantined_items = quarantined_items
+            else:
+                st.warning("Could not detect product name column in quarantine file. Quarantine filter not applied.")
+                st.session_state.quarantined_items = set()
+        except Exception as e:
+            st.error(f"Error reading quarantine file: {e}")
+            st.session_state.quarantined_items = set()
+    else:
+        # No quarantine file uploaded
+        st.session_state.quarantined_items = set()
+
+    if st.session_state.inv_raw_df is None or st.session_state.sales_raw_df is None:
+        if data_mode == "üìÅ Uploads":
+            st.info("üìÇ Upload inventory + product sales files to continue.")
+        else:
+            if _DUTCHIE_CLIENT_AVAILABLE:
+                _dc_check = DutchieConfig.from_env_and_secrets()
+                if not _dc_check.is_configured():
+                    st.warning(
+                        "üî¥ **Dutchie Live** mode is active but API credentials are not configured.  "
+                        f"Missing: `{'`, `'.join(_dc_check.missing_keys())}`.  "
+                        "See *docs/dutchie.md* for setup instructions, or switch to "
+                        "**üìÅ Uploads** mode in the sidebar."
+                    )
+                else:
+                    st.warning(
+                        "üî¥ **Dutchie Live** mode is active but no data was returned.  "
+                        "Credentials are configured ‚Äî add the real API calls in "
+                        "`dutchie_client.py ‚Üí fetch_dutchie_data` to enable live data."
+                    )
+            else:
+                st.error("‚ùå dutchie_client module is not available.")
+        st.stop()
+
+    try:
+        inv_df = st.session_state.inv_raw_df.copy()
+        sales_raw = st.session_state.sales_raw_df.copy()
+
+        # -------- INVENTORY --------
+        inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
+
+        name_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+        cat_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+        qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+        sku_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_SKU_ALIASES])
+        batch_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BATCH_ALIASES])
+        cost_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_COST_ALIASES])
+        retail_price_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
+        strain_type_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_STRAIN_TYPE_ALIASES])
+
+        if not (name_col and cat_col and qty_col):
+            st.error(
+                "Could not auto-detect inventory columns (product / category / on-hand). "
+                "Check your Inventory export headers."
+            )
+            st.stop()
+
+        inv_df = inv_df.rename(columns={name_col: "itemname", cat_col: "subcategory", qty_col: "onhandunits"})
+        if sku_col:
+            inv_df = inv_df.rename(columns={sku_col: "sku"})
+        if batch_col:
+            inv_df = inv_df.rename(columns={batch_col: "batch"})
+        if strain_type_col:
+            inv_df = inv_df.rename(columns={strain_type_col: "_explicit_strain_type"})
+        if retail_price_col:
+            inv_df = inv_df.rename(columns={retail_price_col: "retail_price"})
+            inv_df["retail_price"] = parse_currency_to_float(inv_df["retail_price"])
+        # Always derive unit_cost as INV_COST_RETAIL_RATIO of retail_price (overrides any explicit cost column)
+        if "retail_price" in inv_df.columns:
+            inv_df["unit_cost"] = inv_df["retail_price"].fillna(0) * INV_COST_RETAIL_RATIO
+        elif cost_col:
+            inv_df = inv_df.rename(columns={cost_col: "unit_cost"})
+            inv_df["unit_cost"] = parse_currency_to_float(inv_df["unit_cost"]).fillna(0)
+
+        # Normalize itemname for better matching
+        inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
+        
+        inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
+
+        # -------- Inventory Deduplication (Product Name + Batch ID) --------
+        inv_df, num_dupes_removed, dedupe_log = deduplicate_inventory(inv_df)
+        
+        # Display deduplication results to user
+        if num_dupes_removed > 0:
+            st.sidebar.success(dedupe_log)
+        elif "No batch" not in dedupe_log and "No inventory" not in dedupe_log:
+            st.sidebar.info(dedupe_log)
+
+        inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
+        # Derive strain_type from name/category, then prefer explicit column if present
+        inv_df["strain_type"] = inv_df.apply(lambda x: extract_strain_type(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+        if "_explicit_strain_type" in inv_df.columns:
+            explicit = inv_df["_explicit_strain_type"].astype(str).str.strip().str.lower()
+            valid = explicit.isin(VALID_STRAIN_TYPES)
+            inv_df.loc[valid, "strain_type"] = explicit[valid]
+            inv_df = inv_df.drop(columns=["_explicit_strain_type"])
+        inv_df["packagesize"] = inv_df.apply(lambda x: extract_size(x.get("itemname", ""), x.get("subcategory", "")), axis=1)
+        inv_df["product_name"] = inv_df["itemname"]  # alias for product-level groupings; itemname retained for existing merges
+
+        inv_summary = (
+            inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["onhandunits"]
+            .sum()
+            .reset_index()
+        )
+        if "unit_cost" in inv_df.columns:
+            _cost_summary = (
+                inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["unit_cost"]
+                .median()
+                .reset_index()
+            )
+            inv_summary = inv_summary.merge(_cost_summary, on=["subcategory", "strain_type", "packagesize"], how="left")
+        if "retail_price" in inv_df.columns:
+            _retail_summary = (
+                inv_df.groupby(["subcategory", "strain_type", "packagesize"], dropna=False)["retail_price"]
+                .median()
+                .reset_index()
+            )
+            inv_summary = inv_summary.merge(_retail_summary, on=["subcategory", "strain_type", "packagesize"], how="left")
+
+        # -------- PRODUCT-LEVEL INVENTORY GROUPING --------
+        inv_product = (
+            inv_df.groupby(["subcategory", "product_name", "strain_type", "packagesize"], dropna=False)["onhandunits"]
+            .sum()
+            .reset_index()
+        )
+
+        # -------- SALES (qty-based ONLY) --------
+        # Normalize column names: trim whitespace and lowercase
+        sales_raw.columns = sales_raw.columns.astype(str).str.strip().str.lower()
+
+        name_col_sales = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
+        qty_col_sales = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
+        mc_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_CAT_ALIASES])
+        sales_sku_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_SKU_ALIASES])
+
+        if not (name_col_sales and qty_col_sales and mc_col):
+            missing_cols = []
+            if not name_col_sales:
+                missing_cols.append("product name")
+            if not qty_col_sales:
+                missing_cols.append("units/quantity sold")
+            if not mc_col:
+                missing_cols.append("category")
+            
+            st.error(
+                f"Product Sales file detected but could not find required columns: {', '.join(missing_cols)}.\n\n"
+                "Tip: Use Dutchie 'Product Sales Report' (qty) without editing headers.\n\n"
+                f"Available columns: {', '.join(sales_raw.columns[:10])}..."
+            )
+            st.stop()
+
+        sales_raw = sales_raw.rename(columns={name_col_sales: "product_name", qty_col_sales: "unitssold", mc_col: "mastercategory"})
+        if sales_sku_col:
+            sales_raw = sales_raw.rename(columns={sales_sku_col: "sku"})
+
+        # Detect and rename optional new-format columns
+        sales_batch_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_BATCH_ALIASES])
+        sales_package_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_PACKAGE_ALIASES])
+        sales_net_sales_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_REV_ALIASES])
+        sales_order_id_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_ORDER_ID_ALIASES])
+        sales_order_time_col = detect_column(sales_raw.columns, [normalize_col(a) for a in SALES_ORDER_TIME_ALIASES])
+        if sales_batch_col and sales_batch_col != "batch_id":
+            sales_raw = sales_raw.rename(columns={sales_batch_col: "batch_id"})
+        if sales_package_col and sales_package_col != "package_id":
+            sales_raw = sales_raw.rename(columns={sales_package_col: "package_id"})
+        if sales_net_sales_col and sales_net_sales_col != "net_sales":
+            sales_raw = sales_raw.rename(columns={sales_net_sales_col: "net_sales"})
+        if sales_order_id_col and sales_order_id_col != "order_id":
+            sales_raw = sales_raw.rename(columns={sales_order_id_col: "order_id"})
+        if sales_order_time_col and sales_order_time_col != "order_time":
+            sales_raw = sales_raw.rename(columns={sales_order_time_col: "order_time"})
+
+        # Normalize product names for better matching
+        sales_raw["product_name"] = sales_raw["product_name"].astype(str).str.strip()
+        
+        sales_raw["unitssold"] = pd.to_numeric(sales_raw["unitssold"], errors="coerce").fillna(0)
+        sales_raw["mastercategory"] = sales_raw["mastercategory"].astype(str).str.strip()
+        sales_raw["mastercategory"] = sales_raw["mastercategory"].apply(normalize_rebelle_category)
+
+        sales_df = sales_raw[
+            ~sales_raw["mastercategory"].astype(str).str.contains("accessor", na=False)
+            & (sales_raw["mastercategory"] != "all")
+        ].copy()
+
+        sales_df["packagesize"] = sales_df.apply(lambda row: extract_size(row.get("product_name", ""), row.get("mastercategory", "")), axis=1)
+        sales_df["strain_type"] = sales_df.apply(lambda row: extract_strain_type(row.get("product_name", ""), row.get("mastercategory", "")), axis=1)
+
+        # -------- SALES DETAIL (per-row, deduplicated, for SKU drilldown) --------
+        sales_detail_df = sales_df.copy()
+        sales_detail_df["product"] = sales_detail_df["product_name"].astype(str).str.strip()
+        if "net_sales" in sales_detail_df.columns:
+            sales_detail_df["net_sales"] = pd.to_numeric(sales_detail_df["net_sales"], errors="coerce").fillna(0)
+        # Deduplicate exact duplicate exported rows to prevent double counting
+        sales_detail_df = sales_detail_df.drop_duplicates()
+
+        # -------- SALES SUMMARY / BUYER DETAIL (baseline behavior) --------
+        sales_summary = (
+            sales_df.groupby(["mastercategory", "packagesize"], dropna=False)["unitssold"]
+            .sum()
+            .reset_index()
+        )
+        sales_summary["avgunitsperday"] = (sales_summary["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
+
+        # -------- PRODUCT-LEVEL SALES GROUPING --------
+        sales_product = (
+            sales_df.groupby(["mastercategory", "product_name", "strain_type", "packagesize"], dropna=False)["unitssold"]
+            .sum()
+            .reset_index()
+        )
+        sales_product["avgunitsperday"] = (sales_product["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
+
+        detail_product = pd.merge(
+            inv_product,
+            sales_product,
+            how="left",
+            left_on=["subcategory", "product_name", "strain_type", "packagesize"],
+            right_on=["mastercategory", "product_name", "strain_type", "packagesize"],
+        ).fillna(0)
+
+        detail = pd.merge(
+            inv_summary,
+            sales_summary,
+            how="left",
+            left_on=["subcategory", "packagesize"],
+            right_on=["mastercategory", "packagesize"],
+        ).fillna(0)
+
+        # ---- FLOWER 28g educated guess ----
+        flower_mask = detail["subcategory"].astype(str).str.contains("flower", na=False)
+        flower_cats = detail.loc[flower_mask, "subcategory"].unique().tolist()
+
+        def estimate_28g_from_flower_sales(cat_name: str):
+            direct = sales_df[(sales_df["mastercategory"] == cat_name) & (sales_df["packagesize"] == "28g")]
+            if not direct.empty:
+                units_28 = float(direct["unitssold"].sum())
+                avg_28 = (units_28 / max(int(date_diff), 1)) * float(velocity_adjustment)
+                return units_28, avg_28
+
+            cat_sales = sales_df[sales_df["mastercategory"] == cat_name].copy()
+            if cat_sales.empty:
+                return 0.0, 0.0
+
+            total_grams = 0.0
+            for _, r in cat_sales.iterrows():
+                grams = _parse_grams_from_size(r.get("packagesize", "unspecified"))
+                if grams is None:
+                    continue
+                total_grams += float(r.get("unitssold", 0)) * grams
+
+            if total_grams <= 0:
+                return 0.0, 0.0
+
+            est_oz_units = total_grams / 28.0
+            avg_oz = (est_oz_units / max(int(date_diff), 1)) * float(velocity_adjustment)
+            return float(est_oz_units), float(avg_oz)
+
+        missing_rows = []
+        for cat in flower_cats:
+            has_28 = ((detail["subcategory"] == cat) & (detail["packagesize"] == "28g")).any()
+            if not has_28:
+                units_28, avg_28 = estimate_28g_from_flower_sales(cat)
+                missing_rows.append({
+                    "subcategory": cat,
+                    "strain_type": "unspecified",
+                    "packagesize": "28g",
+                    "onhandunits": 0,
+                    "mastercategory": cat,
+                    "unitssold": units_28,
+                    "avgunitsperday": avg_28,
+                })
+            else:
+                row_mask = (detail["subcategory"] == cat) & (detail["packagesize"] == "28g")
+                if row_mask.any():
+                    cur_avg = float(detail.loc[row_mask, "avgunitsperday"].iloc[0])
+                    if cur_avg == 0:
+                        units_28, avg_28 = estimate_28g_from_flower_sales(cat)
+                        if avg_28 > 0:
+                            detail.loc[row_mask, "unitssold"] = units_28
+                            detail.loc[row_mask, "avgunitsperday"] = avg_28
+
+        if missing_rows:
+            detail = pd.concat([detail, pd.DataFrame(missing_rows)], ignore_index=True)
+
+        # ---- EDIBLES 500mg educated guess ----
+        edibles_mask = detail["subcategory"].astype(str).str.contains("edible", na=False)
+        edibles_cats = detail.loc[edibles_mask, "subcategory"].unique().tolist()
+
+        def estimate_500mg_from_edible_sales(cat_name: str):
+            direct = sales_df[(sales_df["mastercategory"] == cat_name) & (sales_df["packagesize"] == "500mg")]
+            if not direct.empty:
+                units_500 = float(direct["unitssold"].sum())
+                avg_500 = (units_500 / max(int(date_diff), 1)) * float(velocity_adjustment)
+                return units_500, avg_500
+
+            cat_sales = sales_df[sales_df["mastercategory"] == cat_name].copy()
+            if cat_sales.empty:
+                return 0.0, 0.0
+
+            total_mg = 0.0
+            for _, r in cat_sales.iterrows():
+                mg = _parse_mg_from_size(r.get("packagesize", "unspecified"))
+                if mg is None:
+                    continue
+                total_mg += float(r.get("unitssold", 0)) * mg
+
+            if total_mg <= 0:
+                return 0.0, 0.0
+
+            est_500_units = total_mg / 500.0
+            avg_500 = (est_500_units / max(int(date_diff), 1)) * float(velocity_adjustment)
+            return float(est_500_units), float(avg_500)
+
+        edibles_missing = []
+        for cat in edibles_cats:
+            has_500 = ((detail["subcategory"] == cat) & (detail["packagesize"] == "500mg")).any()
+            if not has_500:
+                units_500, avg_500 = estimate_500mg_from_edible_sales(cat)
+                edibles_missing.append({
+                    "subcategory": cat,
+                    "strain_type": "unspecified",
+                    "packagesize": "500mg",
+                    "onhandunits": 0,
+                    "mastercategory": cat,
+                    "unitssold": units_500,
+                    "avgunitsperday": avg_500,
+                })
+            else:
+                row_mask = (detail["subcategory"] == cat) & (detail["packagesize"] == "500mg")
+                if row_mask.any():
+                    cur_avg = float(detail.loc[row_mask, "avgunitsperday"].iloc[0])
+                    if cur_avg == 0:
+                        units_500, avg_500 = estimate_500mg_from_edible_sales(cat)
+                        if avg_500 > 0:
+                            detail.loc[row_mask, "unitssold"] = units_500
+                            detail.loc[row_mask, "avgunitsperday"] = avg_500
+
+        if edibles_missing:
+            detail = pd.concat([detail, pd.DataFrame(edibles_missing)], ignore_index=True)
+
+        # ============================================================
+        # DOH + Reorder
+        # ============================================================
+        detail["daysonhand"] = np.where(
+            detail["avgunitsperday"] > 0,
+            detail["onhandunits"] / detail["avgunitsperday"],
+            0,
+        )
+        detail["daysonhand"] = detail["daysonhand"].replace([np.inf, -np.inf], 0).fillna(0).astype(int)
+
+        detail["reorderqty"] = np.where(
+            detail["daysonhand"] < doh_threshold,
+            np.ceil((doh_threshold - detail["daysonhand"]) * detail["avgunitsperday"]),
+            0,
+        ).astype(int)
+
+        def tag(row):
+            if row["daysonhand"] <= 7 and row["avgunitsperday"] > 0:
+                return "1 ‚Äì Reorder ASAP"
+            if row["daysonhand"] <= 21 and row["avgunitsperday"] > 0:
+                return "2 ‚Äì Watch Closely"
+            if row["avgunitsperday"] == 0:
+                return "4 ‚Äì Dead Item"
+            return "3 ‚Äì Comfortable Cover"
+
+        detail["reorderpriority"] = detail.apply(tag, axis=1)
+
+        # Product-level DOH
+        detail_product["avgunitsperday"] = pd.to_numeric(detail_product["avgunitsperday"], errors="coerce").fillna(0)
+        detail_product["onhandunits"] = pd.to_numeric(detail_product["onhandunits"], errors="coerce").fillna(0)
+        detail_product["daysonhand"] = np.where(
+            detail_product["avgunitsperday"] > 0,
+            detail_product["onhandunits"] / detail_product["avgunitsperday"],
+            0,
+        )
+        detail_product["daysonhand"] = detail_product["daysonhand"].replace([np.inf, -np.inf], 0).fillna(0).astype(int)
+
+        # Cache for cross-reference in PO Builder
+        st.session_state.detail_cached_df = detail.copy()
+        st.session_state.detail_product_cached_df = detail_product.copy()
+        st.session_state.doh_threshold_cache = int(doh_threshold)
+        st.session_state.buyer_export_payload = {
+            "detail_view": detail.copy(),
+            "detail_product": detail_product.copy(),
+            "sales_df": sales_df.copy(),
+            "inv_df": inv_df.copy(),
+            "sales_summary": sales_summary.copy(),
+            "inv_summary": inv_summary.copy(),
+            "doh_threshold": int(doh_threshold),
+            "reporting_period": f"{date_diff} day window",
+            "store_name": st.session_state.get("selected_location_name") or st.session_state.get("location_name"),
+        }
+
+        # =======================
+        # POLISHED BUYER OVERVIEW
+        # =======================
+        _revenue_series = pd.to_numeric(sales_df["net_sales"], errors="coerce").fillna(0) if "net_sales" in sales_df.columns else pd.Series(dtype=float)
+        _total_revenue = float(_revenue_series.sum()) if not _revenue_series.empty else 0.0
+        _avg_doh = float(pd.to_numeric(detail["daysonhand"], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0).mean()) if not detail.empty else 0.0
+        _active_skus = int((pd.to_numeric(detail["onhandunits"], errors="coerce").fillna(0) > 0).sum()) if "onhandunits" in detail.columns else 0
+        _low_stock = int(((detail["daysonhand"] > 0) & (detail["daysonhand"] <= doh_threshold)).sum()) if "daysonhand" in detail.columns else 0
+        _oos = int((pd.to_numeric(detail["onhandunits"], errors="coerce").fillna(0) <= 0).sum()) if "onhandunits" in detail.columns else 0
+        _health_score = max(0, min(100, int(100 - ((_low_stock * 2) + (_oos * 3)))))
+
+        render_metric_tiles(
+            [
+                {"label": "Total Revenue", "value": f"${_total_revenue:,.0f}", "help": "Current sales window", "color": "green"},
+                {"label": "Avg DOH", "value": f"{_avg_doh:,.1f}", "help": "Days on hand across lines", "color": "orange"},
+                {"label": "Active SKUs", "value": f"{_active_skus:,}", "help": "On-hand inventory > 0", "color": "blue"},
+                {"label": "Low Stock", "value": f"{_low_stock:,}", "help": f"DOH ‚â§ {doh_threshold}", "color": "yellow"},
+                {"label": "Out of Stock", "value": f"{_oos:,}", "help": "Requires replenishment", "color": "red"},
+            ]
+        )
+
+        _ov1, _ov2 = st.columns([1.7, 1])
+        with _ov1:
+            chart_card_start("Sales Trend", "Net sales trend over available order/report dates.")
+            _sales_date_col = next((c for c in sales_raw.columns if "date" in str(c).lower() or "time" in str(c).lower()), None)
+            if _sales_date_col is None:
+                st.info("No date column detected for trend chart.")
+            else:
+                _trend = sales_raw.copy()
+                _trend["_date"] = pd.to_datetime(_trend[_sales_date_col], errors="coerce").dt.date
+                _trend = _trend[_trend["_date"].notna()]
+                if _trend.empty:
+                    st.info("No valid date rows for trend chart.")
+                else:
+                    if "net_sales" in _trend.columns:
+                        _trend["_metric"] = pd.to_numeric(_trend["net_sales"], errors="coerce").fillna(0)
+                    else:
+                        _trend["_metric"] = pd.to_numeric(_trend.get("unitssold", 0), errors="coerce").fillna(0)
+                    _trend_plot = _trend.groupby("_date", as_index=False)["_metric"].sum().sort_values("_date")
+                    if PLOTLY_AVAILABLE:
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(x=_trend_plot["_date"], y=_trend_plot["_metric"], mode="lines+markers", line={"color": "#ff9a3c", "width": 3}))
+                        fig.update_layout(
+                            margin={"l": 10, "r": 10, "t": 10, "b": 10},
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            height=280,
+                            font={"color": "rgba(255,255,255,0.88)"},
+                        )
+                        st.plotly_chart(fig, width="stretch")
+                    else:
+                        st.line_chart(_trend_plot.set_index("_date")["_metric"])
+            chart_card_end()
+        with _ov2:
+            chart_card_start("Revenue by Category", "Revenue mix by category (or units fallback).")
+            _cat_metric = "net_sales" if "net_sales" in sales_df.columns else "unitssold"
+            _cat_df = (
+                sales_df.groupby("mastercategory", as_index=False)[_cat_metric].sum().sort_values(_cat_metric, ascending=False)
+                if "mastercategory" in sales_df.columns and not sales_df.empty
+                else pd.DataFrame()
+            )
+            if _cat_df.empty:
+                st.info("No category distribution available.")
+            elif PLOTLY_AVAILABLE:
+                fig = go.Figure(
+                    go.Pie(
+                        labels=_cat_df["mastercategory"].astype(str),
+                        values=_cat_df[_cat_metric],
+                        hole=0.48,
+                        marker={"colors": ["#ff9a3c", "#5aa8ff", "#4cd388", "#f3c74c", "#ff6161"]},
+                    )
+                )
+                fig.update_layout(
+                    margin={"l": 10, "r": 10, "t": 10, "b": 10},
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font={"color": "rgba(255,255,255,0.88)"},
+                    height=280,
+                )
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.bar_chart(_cat_df.set_index("mastercategory")[_cat_metric])
+            chart_card_end()
+
+        _tbl_col, _health_col = st.columns([1.7, 1])
+        with _tbl_col:
+            chart_card_start("Top Slow Movers", "Highest days-on-hand with low movement.")
+            _slow_cols = [c for c in ["subcategory", "product_name", "packagesize", "daysonhand", "reorderpriority"] if c in detail_product.columns]
+            _slow = detail_product.copy() if not detail_product.empty else pd.DataFrame()
+            if _slow.empty or "daysonhand" not in _slow.columns:
+                st.info("No slow mover rows available yet.")
+            else:
+                _slow = _slow.sort_values("daysonhand", ascending=False).head(12)
+                st.dataframe(_slow[_slow_cols], width="stretch", hide_index=True)
+            chart_card_end()
+        with _health_col:
+            chart_card_start("Inventory Health", "Composite score from low-stock and OOS pressure.")
+            if PLOTLY_AVAILABLE:
+                fig = go.Figure(go.Indicator(mode="gauge+number", value=_health_score, gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#ff9a3c"}}))
+                fig.update_layout(height=260, margin={"l": 10, "r": 10, "t": 20, "b": 0}, paper_bgcolor="rgba(0,0,0,0)", font={"color": "rgba(255,255,255,0.88)"})
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.progress(max(0, min(100, _health_score)) / 100.0, text=f"Health score: {_health_score}/100")
+            chart_card_end()
+
+        _insights = [
+            f"{_low_stock} lines are in low-stock range (DOH <= {doh_threshold}).",
+            f"{_oos} lines are out of stock and need immediate attention.",
+            f"Average DOH is {_avg_doh:,.1f} days across filtered rows.",
+        ]
+        _actions = ["Prioritize Reorders", "Review Aging Lots", "Open Ask Doobie"]
+        render_ai_brief(_insights, _actions)
+        render_action_button("Open Ask Doobie")
+        st.caption("Use the Main AI Copilot in the sidebar to ask buyer questions.")
+
+        # =======================
+        # SUMMARY + CLICK FILTERS
+        # =======================
+        st.markdown("### Inventory Summary")
+        total_units = int(detail["unitssold"].sum())
+        reorder_asap = int((detail["reorderpriority"] == "1 ‚Äì Reorder ASAP").sum())
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button(f"Units Sold (Granular Size-Level): {total_units}", key="btn_total_units"):
+                st.session_state.metric_filter = "All"
+        with col2:
+            if st.button(f"Reorder ASAP (Lines): {reorder_asap}", key="btn_reorder_asap"):
+                st.session_state.metric_filter = "Reorder ASAP"
+
+        if st.session_state.metric_filter == "Reorder ASAP":
+            detail_view = detail[detail["reorderpriority"] == "1 ‚Äì Reorder ASAP"].copy()
+        else:
+            detail_view = detail.copy()
+
+        # Enrich summary rows with product context (product_count, top_products)
+        try:
+            _ctx_keys = [c for c in ["subcategory", "strain_type", "packagesize"] if c in detail.columns]
+            _dp_cols = list(dict.fromkeys(_ctx_keys + ["product_name", "unitssold"]))
+            _dp = detail_product[_dp_cols].copy()
+            _dp["unitssold"] = pd.to_numeric(_dp["unitssold"], errors="coerce").fillna(0)
+            _dp_sorted = _dp.sort_values("unitssold", ascending=False)
+            _top_products = (
+                _dp_sorted.groupby(_ctx_keys, dropna=False, sort=False)["product_name"]
+                .apply(lambda x: ", ".join(x.astype(str).head(5).tolist()))
+                .reset_index()
+                .rename(columns={"product_name": "top_products"})
+            )
+            _product_counts = (
+                _dp.groupby(_ctx_keys, dropna=False)["product_name"]
+                .nunique()
+                .reset_index()
+                .rename(columns={"product_name": "product_count"})
+            )
+            _prod_ctx_df = _top_products.merge(_product_counts, on=_ctx_keys, how="left")
+            detail_view = detail_view.merge(_prod_ctx_df, on=_ctx_keys, how="left")
+            detail_view["product_count"] = detail_view["product_count"].fillna(0).astype(int)
+            detail_view["top_products"] = detail_view["top_products"].fillna("")
+        except Exception:
+            pass
+
+        st.markdown(f"*Current filter:* **{st.session_state.metric_filter}**")
+        st.markdown("### Forecast Table")
+
+        # Quick view: Category DOS at a glance
+        try:
+            cat_quick = (
+                detail_view.groupby("subcategory", dropna=False)
+                .agg(
+                    onhandunits=("onhandunits", "sum"),
+                    avgunitsperday=("avgunitsperday", "sum"),
+                    reorder_lines=("reorderpriority", lambda x: int((x == "1 ‚Äì Reorder ASAP").sum())),
+                )
+                .reset_index()
+            )
+            cat_quick["category_dos"] = np.where(
+                cat_quick["avgunitsperday"] > 0,
+                cat_quick["onhandunits"] / cat_quick["avgunitsperday"],
+                0,
+            )
+            cat_quick["category_dos"] = cat_quick["category_dos"].replace([np.inf, -np.inf], 0).fillna(0).astype(int)
+            # Enrich category DOS with product context
+            try:
+                _dp_cat = detail_product[["subcategory", "product_name", "unitssold"]].copy()
+                _dp_cat["unitssold"] = pd.to_numeric(_dp_cat["unitssold"], errors="coerce").fillna(0)
+                _dp_cat_sorted = _dp_cat.sort_values("unitssold", ascending=False)
+                _cat_top = (
+                    _dp_cat_sorted.groupby("subcategory", dropna=False, sort=False)["product_name"]
+                    .apply(lambda x: ", ".join(x.astype(str).head(5).tolist()))
+                    .reset_index()
+                    .rename(columns={"product_name": "top_products"})
+                )
+                _cat_count = (
+                    _dp_cat.groupby("subcategory", dropna=False)["product_name"]
+                    .nunique()
+                    .reset_index()
+                    .rename(columns={"product_name": "product_count"})
+                )
+                _cat_ctx_df = _cat_top.merge(_cat_count, on="subcategory", how="left")
+                cat_quick = cat_quick.merge(_cat_ctx_df, on="subcategory", how="left")
+                cat_quick["product_count"] = cat_quick["product_count"].fillna(0).astype(int)
+                cat_quick["top_products"] = cat_quick["top_products"].fillna("")
+            except Exception:
+                pass
+            st.markdown("#### Category DOS (at a glance)")
+            _cat_q_cols = ["subcategory", "category_dos", "reorder_lines"]
+            if "product_count" in cat_quick.columns:
+                _cat_q_cols += ["product_count", "top_products"]
+            st.dataframe(
+                cat_quick[_cat_q_cols].sort_values(
+                    ["reorder_lines", "category_dos"], ascending=[False, True]
+                ),
+                width="stretch",
+            )
+        except Exception:
+            pass
+
+        def red_low(val):
+            try:
+                v = int(val)
+                return "color:#FF3131" if v < doh_threshold else ""
+            except Exception:
+                return ""
+
+        all_cats = sorted(detail_view["subcategory"].unique())
+
+        def cat_sort_key(c):
+            c_low = str(c).lower()
+            if c_low in REB_CATEGORIES:
+                return (REB_CATEGORIES.index(c_low), c_low)
+            return (len(REB_CATEGORIES), c_low)
+
+        all_cats_sorted = sorted(all_cats, key=cat_sort_key)
+
+        selected_cats = st.sidebar.multiselect(
+            "Visible Categories",
+            all_cats_sorted,
+            default=all_cats_sorted,
+        )
+        detail_view = detail_view[detail_view["subcategory"].isin(selected_cats)]
+
+        show_product_rows = st.sidebar.checkbox(
+            "Show product-level rows",
+            value=False,
+            help="When ON, shows a product-level table with explicit product_name column below the summary.",
+            key="show_product_rows",
+        )
+
+        display_cols = [
+            "top_products",
+            "mastercategory",
+            "subcategory",
+            "strain_type",
+            "packagesize",
+            "onhandunits",
+            "unitssold",
+            "avgunitsperday",
+            "daysonhand",
+            "reorderqty",
+            "reorderpriority",
+            "product_count",
+        ]
+        display_cols = [c for c in display_cols if c in detail_view.columns]
+
+        # ========= Export Forecast Table (Excel) ‚Äî requested =========
+        def build_forecast_export_bytes(df: pd.DataFrame) -> bytes:
+            buf = BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                df.to_excel(writer, index=False, sheet_name="Forecast")
+            buf.seek(0)
+            return buf.read()
+
+        export_df = detail_view[display_cols].copy()
+        st.download_button(
+            "üì• Export Forecast Table (Excel)",
+            data=build_forecast_export_bytes(export_df),
+            file_name="forecast_table.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        # ========= SKU drilldown for flagged reorder products (weighted) =========
+        def sku_drilldown_table(cat, size, strain_type):
+            """
+            Returns two tables:
+            1) SKU-level view aggregated by product+batch (deduplicated) for this row slice
+            2) Batch rollup (if inventory batch data exists)
+
+            IMPORTANT: Always returns (sku_df, batch_df) so callers can safely unpack.
+            """
+            empty = (pd.DataFrame(), pd.DataFrame())
+
+            # --- SALES DETAIL SLICE (deduplicated, aggregated) ---
+            sd = sales_detail_df[
+                (sales_detail_df["mastercategory"] == cat) & (sales_detail_df["packagesize"] == size)
+            ].copy()
+
+            if str(strain_type).lower() != "unspecified":
+                sd = sd[sd["strain_type"].astype(str).str.lower() == str(strain_type).lower()]
+
+            if sd.empty:
+                return empty
+
+            # Aggregate by product + batch_id (and package_id if present) to prevent duplicate listing
+            has_batch = "batch_id" in sd.columns
+            has_package = "package_id" in sd.columns
+            has_net_sales = "net_sales" in sd.columns
+            has_sku = "sku" in sd.columns
+
+            group_cols = ["product"]
+            if has_batch:
+                group_cols.append("batch_id")
+            if has_package:
+                group_cols.append("package_id")
+
+            agg_dict = {"unitssold": "sum"}
+            if has_net_sales:
+                agg_dict["net_sales"] = "sum"
+            if has_sku:
+                # SKU is expected to uniquely correspond to a product; take first within the group
+                agg_dict["sku"] = "first"
+
+            sku_df = sd.groupby(group_cols, dropna=False).agg(agg_dict).reset_index()
+            sku_df["est_units_per_day"] = (sku_df["unitssold"] / max(int(date_diff), 1)) * float(velocity_adjustment)
+
+            # Build ordered output columns
+            out_cols = ["product"]
+            if has_batch:
+                out_cols.append("batch_id")
+            if has_package:
+                out_cols.append("package_id")
+            out_cols.append("unitssold")
+            if has_net_sales:
+                out_cols.append("net_sales")
+            out_cols.append("est_units_per_day")
+            if has_sku:
+                out_cols.append("sku")
+
+            sku_df = sku_df[out_cols].sort_values("est_units_per_day", ascending=False).head(50)
+            sku_df = sku_df.rename(columns={"product": "product_name"})
+
+            # --- INVENTORY SLICE ---
+            idf = inv_df[(inv_df["subcategory"] == cat) & (inv_df["packagesize"] == size)].copy()
+            if str(strain_type).lower() != "unspecified":
+                idf = idf[idf["strain_type"].astype(str).str.lower() == str(strain_type).lower()]
+
+            batch_df = pd.DataFrame()
+            if not idf.empty and "batch" in idf.columns:
+                batch_df = (
+                    idf.groupby("batch", dropna=False)["onhandunits"]
+                    .sum()
+                    .reset_index()
+                    .rename(columns={"onhandunits": "batch_onhandunits"})
+                    .sort_values("batch_onhandunits", ascending=False)
+                )
+
+            return sku_df, batch_df
+
+        # Expanders by category
+        for cat in sorted(detail_view["subcategory"].unique(), key=cat_sort_key):
+            group = detail_view[detail_view["subcategory"] == cat].copy()
+
+            with st.expander(cat.title()):
+                try:
+                    denom = float(group["avgunitsperday"].sum())
+                    cat_dos = (float(group["onhandunits"].sum()) / denom) if denom > 0 else 0.0
+                except Exception:
+                    cat_dos = 0.0
+                st.markdown(f"**Category DOS:** {int(cat_dos)} days")
+
+                g = group[display_cols].copy()
+                st.dataframe(
+                    g.style.map(red_low, subset=["daysonhand"]),
+                    width="stretch",
+                )
+
+                flagged = group[group["reorderpriority"] == "1 ‚Äì Reorder ASAP"].copy()
+                if not flagged.empty:
+                    st.markdown("#### üîé Flagged Reorder Lines ‚Äî View SKUs (Weighted by Velocity)")
+                    for _, r in flagged.iterrows():
+                        row_label = (
+                            f"{r.get('strain_type','all')} ‚Ä¢ {r.get('brand','all')} ‚Ä¢ "
+                            f"{r.get('packagesize','unspecified')} ‚Ä¢ Reorder Qty: {int(r.get('reorderqty',0))}"
+                        )
+                        with st.expander(f"View SKUs ‚Äî {row_label}", expanded=False):
+                            sku_df_out, batch_df_out = sku_drilldown_table(
+                                cat=r.get("subcategory"),
+                                size=r.get("packagesize"),
+                                strain_type=r.get("strain_type"),
+                            )
+                            if sku_df_out.empty:
+                                st.info("No matching SKU-level sales rows found for this slice.")
+                            else:
+                                st.dataframe(sku_df_out, width="stretch")
+                            if not batch_df_out.empty:
+                                st.markdown("##### üß¨ Batch / Lot Breakdown (On-Hand)")
+                                st.dataframe(batch_df_out, width="stretch")
+
+        # ========= Product-Level Detail Table (toggle) =========
+        if show_product_rows and not detail_product.empty:
+            st.markdown("---")
+            st.markdown("### üì¶ Product-Level Rows")
+            dpv = detail_product[detail_product["subcategory"].isin(selected_cats)].copy()
+            dpv["unitssold"] = pd.to_numeric(dpv["unitssold"], errors="coerce").fillna(0)
+            dpv["onhandunits"] = pd.to_numeric(dpv["onhandunits"], errors="coerce").fillna(0)
+            _PROD_ROW_LIMIT = PRODUCT_TABLE_DISPLAY_LIMIT
+            if len(dpv) > _PROD_ROW_LIMIT:
+                st.caption(f"‚ö†Ô∏è Showing top {_PROD_ROW_LIMIT} rows by units sold. Download below for full data.")
+                dpv = dpv.sort_values("unitssold", ascending=False).head(_PROD_ROW_LIMIT)
+            prod_display_cols = [
+                "product_name", "subcategory", "strain_type", "packagesize",
+                "onhandunits", "unitssold", "avgunitsperday", "daysonhand",
+            ]
+            prod_display_cols = [c for c in prod_display_cols if c in dpv.columns]
+            st.dataframe(dpv[prod_display_cols], width="stretch")
+            st.download_button(
+                "üì• Download Product-Level Table (Excel)",
+                data=build_forecast_export_bytes(dpv[prod_display_cols]),
+                file_name="product_level_forecast.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_product_level",
+            )
+
+        # ============================================================
+        # SKU INVENTORY BUYER VIEW
+        # ============================================================
+        st.markdown("---")
+        st.markdown("### üìã SKU Inventory Buyer View")
+        st.write(
+            "Filter, sort, and analyze your inventory at the SKU level. "
+            "Use tabs for focused views: Reorder, Overstock, or Expiring."
+        )
+
+        try:
+            # -- Rebuild SKU-level inventory from raw data (self-contained) --
+            _b_inv = st.session_state.inv_raw_df.copy()
+            _b_inv.columns = _b_inv.columns.astype(str).str.strip().str.lower()
+
+            _b_name_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+            _b_qty_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+            _b_cat_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+            _b_sku_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_SKU_ALIASES])
+            _b_cost_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_COST_ALIASES])
+            _b_retail_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
+            _b_brand_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_BRAND_ALIASES])
+            _b_expiry_col = detect_column(_b_inv.columns, [normalize_col(a) for a in INV_EXPIRY_ALIASES])
+
+            if not (_b_name_col and _b_qty_col):
+                st.warning("Could not detect required inventory columns (product name / on-hand) for Buyer View.")
+            else:
+                _b_rename = {_b_name_col: "itemname", _b_qty_col: "onhandunits"}
+                if _b_cat_col:
+                    _b_rename[_b_cat_col] = "category"
+                if _b_sku_col:
+                    _b_rename[_b_sku_col] = "sku"
+                if _b_cost_col:
+                    _b_rename[_b_cost_col] = "unit_cost"
+                if _b_retail_col:
+                    _b_rename[_b_retail_col] = "retail_price"
+                if _b_brand_col:
+                    _b_rename[_b_brand_col] = "brand_vendor"
+                if _b_expiry_col:
+                    _b_rename[_b_expiry_col] = "expiration_date"
+
+                _b_inv = _b_inv.rename(columns=_b_rename)
+                _b_inv["itemname"] = _b_inv["itemname"].astype(str).str.strip()
+                _b_inv["onhandunits"] = pd.to_numeric(_b_inv["onhandunits"], errors="coerce").fillna(0)
+                if "unit_cost" in _b_inv.columns:
+                    _b_inv["unit_cost"] = parse_currency_to_float(_b_inv["unit_cost"])
+                if "retail_price" in _b_inv.columns:
+                    _b_inv["retail_price"] = parse_currency_to_float(_b_inv["retail_price"])
+                if "expiration_date" in _b_inv.columns:
+                    _b_inv["expiration_date"] = pd.to_datetime(_b_inv["expiration_date"], errors="coerce")
+
+                # Aggregate to one row per SKU (sum on-hand, min expiry, first for others)
+                _b_agg = {"onhandunits": "sum"}
+                for _bc in ["unit_cost", "retail_price", "brand_vendor", "category", "sku"]:
+                    if _bc in _b_inv.columns:
+                        _b_agg[_bc] = "first"
+                if "expiration_date" in _b_inv.columns:
+                    _b_agg["expiration_date"] = "min"  # earliest expiry per SKU
+                _b_sku_df = _b_inv.groupby("itemname", dropna=False).agg(_b_agg).reset_index()
+
+                # Friendly notice for missing optional columns
+                _b_missing = []
+                if "unit_cost" not in _b_sku_df.columns:
+                    _b_missing.append("wholesale unit cost (for $ on hand ‚Äì cost)")
+                if "retail_price" not in _b_sku_df.columns:
+                    _b_missing.append("retail price / med price (for $ on hand ‚Äì retail)")
+                if "brand_vendor" not in _b_sku_df.columns:
+                    _b_missing.append("vendor/brand")
+                if "expiration_date" not in _b_sku_df.columns:
+                    _b_missing.append("expiration date")
+                if _b_missing:
+                    st.info(
+                        f"‚ÑπÔ∏è Optional columns not found in inventory file: "
+                        f"{', '.join(_b_missing)}. "
+                        "Add these columns to unlock full buyer view features."
+                    )
+
+                # ---- FILTER BAR (reuses sm-filter-bar CSS) ----
+                st.markdown('<div class="sm-filter-bar">', unsafe_allow_html=True)
+                st.markdown("##### üîç Buyer Filters & Settings")
+
+                _bfr1, _bfr2, _bfr3, _bfr4 = st.columns([3, 2, 2, 2])
+                with _bfr1:
+                    _b_search = st.text_input(
+                        "Search (SKU / Product / Brand)",
+                        key="inv_b_search",
+                        placeholder="Type to filter‚Ä¶",
+                        help="Filters by product name, SKU, or brand/vendor (case-insensitive).",
+                    )
+                with _bfr2:
+                    _b_vel_win = st.selectbox(
+                        "Velocity window",
+                        options=SLOW_MOVER_VELOCITY_WINDOWS,
+                        index=1,
+                        format_func=lambda d: f"Last {d} days",
+                        key="inv_b_vel_win",
+                        help=(
+                            "Days used for avg weekly sales and DOH calculations. "
+                            "Shorter = more recent; longer = smoother."
+                        ),
+                    )
+                with _bfr3:
+                    _b_top_n_lbl = {25: "Top 25", 50: "Top 50", 100: "Top 100", 0: "All"}
+                    _b_top_n = st.selectbox(
+                        "Show top N",
+                        options=list(_b_top_n_lbl.keys()),
+                        index=3,
+                        format_func=lambda k: _b_top_n_lbl[k],
+                        key="inv_b_top_n",
+                    )
+                with _bfr4:
+                    _b_sort_by = st.selectbox(
+                        "Sort by",
+                        options=INVENTORY_SORT_OPTIONS,
+                        key="inv_b_sort_by",
+                    )
+
+                _bfr5, _bfr6, _bfr7, _bfr8 = st.columns([3, 2, 2, 2])
+                with _bfr5:
+                    _b_cat_opts = ["All"]
+                    if "category" in _b_sku_df.columns:
+                        _b_cat_opts += sorted(
+                            _b_sku_df["category"].dropna().astype(str).unique().tolist()
+                        )
+                    _b_cat = st.selectbox(
+                        "Category / Subcategory", options=_b_cat_opts, key="inv_b_cat"
+                    )
+                with _bfr6:
+                    _b_brand_opts = ["All"]
+                    if "brand_vendor" in _b_sku_df.columns:
+                        _b_brand_opts += sorted(
+                            _b_sku_df["brand_vendor"].dropna().astype(str).unique().tolist()
+                        )
+                    _b_brand = st.selectbox(
+                        "Vendor / Brand", options=_b_brand_opts, key="inv_b_brand"
+                    )
+                with _bfr7:
+                    _b_exp_window = st.selectbox(
+                        "Expiration window",
+                        options=["Any", "<30 days", "<60 days", "<90 days"],
+                        key="inv_b_exp_window",
+                        help="Filter by days until earliest expiration date.",
+                    )
+                with _bfr8:
+                    _b_onhand_only = st.toggle(
+                        "On-hand > 0",
+                        value=True,
+                        key="inv_b_onhand_only",
+                        help="Hide SKUs with zero units on hand.",
+                    )
+
+                _bfr9, _bfr10 = st.columns([2, 2])
+                with _bfr9:
+                    _b_doh_min = st.number_input(
+                        "DOH min (days)",
+                        min_value=0,
+                        max_value=9998,
+                        value=0,
+                        step=1,
+                        key="inv_b_doh_min",
+                        help="Only show SKUs with DOH ‚â• this value.",
+                    )
+                with _bfr10:
+                    _b_doh_max = st.number_input(
+                        "DOH max (days)",
+                        min_value=0,
+                        max_value=9999,
+                        value=9999,
+                        step=1,
+                        key="inv_b_doh_max",
+                        help="Only show SKUs with DOH ‚â§ this value (9999 = no upper limit).",
+                    )
+
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # ---- COMPUTE VELOCITY ----
+                _b_sales_raw = st.session_state.sales_raw_df.copy()
+                _b_sales_raw.columns = _b_sales_raw.columns.astype(str).str.strip().str.lower()
+                _b_sname_col = detect_column(
+                    _b_sales_raw.columns, [normalize_col(a) for a in SALES_NAME_ALIASES]
+                )
+                _b_sqty_col = detect_column(
+                    _b_sales_raw.columns, [normalize_col(a) for a in SALES_QTY_ALIASES]
+                )
+                _b_sdate_cols = [c for c in _b_sales_raw.columns if "date" in c]
+                _b_sdate_col = _b_sdate_cols[0] if _b_sdate_cols else None
+
+                if _b_sname_col and _b_sqty_col:
+                    _b_sales_raw[_b_sqty_col] = pd.to_numeric(
+                        _b_sales_raw[_b_sqty_col], errors="coerce"
+                    ).fillna(0)
+                    if _b_sdate_col:
+                        _b_sales_raw[_b_sdate_col] = pd.to_datetime(
+                            _b_sales_raw[_b_sdate_col], errors="coerce"
+                        )
+                        _b_cutoff = _b_sales_raw[_b_sdate_col].max() - pd.Timedelta(
+                            days=_b_vel_win
+                        )
+                        _b_sw = _b_sales_raw[
+                            _b_sales_raw[_b_sdate_col] >= _b_cutoff
+                        ].copy()
+                    else:
+                        _b_sw = _b_sales_raw.copy()
+
+                    _b_vel = (
+                        _b_sw.groupby(_b_sname_col)[_b_sqty_col]
+                        .sum()
+                        .reset_index()
+                        .rename(
+                            columns={_b_sname_col: "itemname", _b_sqty_col: "total_sold"}
+                        )
+                    )
+                    _b_vel["daily_run_rate"] = _b_vel["total_sold"] / max(_b_vel_win, 1)
+                    _b_vel["avg_weekly_sales"] = _b_vel["daily_run_rate"] * 7
+                else:
+                    _b_vel = pd.DataFrame(
+                        columns=["itemname", "total_sold", "daily_run_rate", "avg_weekly_sales"]
+                    )
+
+                # ---- MERGE INVENTORY + VELOCITY ----
+                _b_merged = _b_sku_df.merge(_b_vel, on="itemname", how="left")
+                _b_merged["daily_run_rate"] = _b_merged["daily_run_rate"].fillna(0)
+                _b_merged["avg_weekly_sales"] = _b_merged["avg_weekly_sales"].fillna(0)
+                _b_merged["total_sold"] = _b_merged["total_sold"].fillna(0)
+                _b_merged["days_of_supply"] = np.where(
+                    _b_merged["daily_run_rate"] > 0,
+                    _b_merged["onhandunits"] / _b_merged["daily_run_rate"],
+                    UNKNOWN_DAYS_OF_SUPPLY,
+                )
+
+                if "unit_cost" in _b_merged.columns:
+                    _b_merged["dollars_on_hand"] = (
+                        _b_merged["onhandunits"] * _b_merged["unit_cost"]
+                    )
+                if "retail_price" in _b_merged.columns:
+                    _b_merged["retail_dollars_on_hand"] = (
+                        _b_merged["onhandunits"] * _b_merged["retail_price"]
+                    )
+
+                _b_today = pd.Timestamp.today().normalize()
+                if "expiration_date" in _b_merged.columns:
+                    _b_merged["days_to_expire"] = (
+                        _b_merged["expiration_date"] - _b_today
+                    ).dt.days
+
+                # Status badge: Reorder / Healthy / Overstock / Expiring / No Stock
+                def _inv_status_badge(row) -> str:
+                    on_hand = row["onhandunits"]
+                    doh = row["days_of_supply"]
+                    if on_hand <= 0:
+                        return "‚¨õ No Stock"
+                    if "days_to_expire" in row.index:
+                        days_exp = row["days_to_expire"]
+                        if pd.notna(days_exp) and days_exp < INVENTORY_EXPIRING_SOON_DAYS:
+                            return "‚ö†Ô∏è Expiring"
+                    if 0 < doh <= INVENTORY_REORDER_DOH_THRESHOLD:
+                        return "üî¥ Reorder"
+                    if doh >= INVENTORY_OVERSTOCK_DOH_THRESHOLD:
+                        return "üü† Overstock"
+                    return "‚úÖ Healthy"
+
+                _b_merged["status"] = _b_merged.apply(_inv_status_badge, axis=1)
+
+                # ---- FILTER + SORT helper ----
+                _b_exp_days_map = {"<30 days": 30, "<60 days": 60, "<90 days": 90}
+
+                def _apply_inv_filters(df, tab_filter=None):
+                    _wdf = df.copy()
+                    if _b_onhand_only:
+                        _wdf = _wdf[_wdf["onhandunits"] > 0]
+                    if _b_cat != "All" and "category" in _wdf.columns:
+                        _wdf = _wdf[_wdf["category"].astype(str) == _b_cat]
+                    if _b_brand != "All" and "brand_vendor" in _wdf.columns:
+                        _wdf = _wdf[_wdf["brand_vendor"].astype(str) == _b_brand]
+                    if _b_exp_window != "Any" and "days_to_expire" in _wdf.columns:
+                        _elim = _b_exp_days_map[_b_exp_window]
+                        _wdf = _wdf[
+                            _wdf["days_to_expire"].notna()
+                            & (_wdf["days_to_expire"] < _elim)
+                        ]
+                    if _b_search.strip():
+                        _q = _b_search.strip().lower()
+                        _msk = _wdf["itemname"].str.lower().str.contains(_q, na=False)
+                        if "sku" in _wdf.columns:
+                            _msk |= (
+                                _wdf["sku"].astype(str).str.lower().str.contains(_q, na=False)
+                            )
+                        if "brand_vendor" in _wdf.columns:
+                            _msk |= (
+                                _wdf["brand_vendor"]
+                                .astype(str)
+                                .str.lower()
+                                .str.contains(_q, na=False)
+                            )
+                        _wdf = _wdf[_msk]
+                    # DOH range filter
+                    _wdf = _wdf[
+                        (_wdf["days_of_supply"] >= _b_doh_min)
+                        & (_wdf["days_of_supply"] <= _b_doh_max)
+                    ]
+                    if tab_filter is not None:
+                        _wdf = tab_filter(_wdf)
+                    _inv_sort_map = {
+                        "$ on hand ‚Üì": ("dollars_on_hand", False),
+                        "DOH (high‚Üílow) ‚Üì": ("days_of_supply", False),
+                        "DOH (low‚Üíhigh) ‚Üë": ("days_of_supply", True),
+                        "Expiring soonest": ("days_to_expire", True),
+                        "Avg weekly sales ‚Üì": ("avg_weekly_sales", False),
+                    }
+                    _sc, _sasc = _inv_sort_map.get(_b_sort_by, ("days_of_supply", False))
+                    if _sc in _wdf.columns:
+                        _wdf = _wdf.sort_values(_sc, ascending=_sasc, na_position="last")
+                    elif _b_sort_by == "Expiring soonest" and "days_to_expire" not in _wdf.columns:
+                        # Fall back to DOH ascending when expiry column is unavailable
+                        _wdf = _wdf.sort_values("days_of_supply", ascending=True, na_position="last")
+                    elif _b_sort_by == "$ on hand ‚Üì" and "dollars_on_hand" not in _wdf.columns:
+                        # Fall back to DOH descending when cost column is unavailable
+                        _wdf = _wdf.sort_values("days_of_supply", ascending=False, na_position="last")
+                    if _b_top_n and _b_top_n > 0:
+                        _wdf = _wdf.head(_b_top_n)
+                    return _wdf
+
+                # ---- KPI strip + decision-first table helper ----
+                def _render_inv_table(df):
+                    if df.empty:
+                        st.success("‚úÖ No SKUs match the current filters.")
+                        return
+                    # KPI strip
+                    _skus_in_stock = int((df["onhandunits"] > 0).sum())
+                    _total_dol = (
+                        df["dollars_on_hand"].sum()
+                        if "dollars_on_hand" in df.columns
+                        else None
+                    )
+                    _total_retail_dol = (
+                        df["retail_dollars_on_hand"].sum()
+                        if "retail_dollars_on_hand" in df.columns
+                        else None
+                    )
+                    _reorder_n = int((df["status"] == "üî¥ Reorder").sum())
+                    _overstock_n = int((df["status"] == "üü† Overstock").sum())
+                    _exp_mask = df["status"] == "‚ö†Ô∏è Expiring"
+                    _exp_n = int(_exp_mask.sum())
+                    _exp_dol = (
+                        df.loc[_exp_mask, "dollars_on_hand"].sum()
+                        if "dollars_on_hand" in df.columns
+                        else None
+                    )
+                    # Determine how many KPI columns to show
+                    _has_both_valuations = _total_dol is not None and _total_retail_dol is not None
+                    if _has_both_valuations:
+                        _kc1, _kc2, _kc3, _kc4, _kc5, _kc_exp = st.columns(6)
+                    else:
+                        _kc1, _kc2, _kc3, _kc4, _kc_exp = st.columns(5)
+                    _kc1.metric(
+                        "üì¶ SKUs in stock",
+                        _skus_in_stock,
+                        help="SKUs with on-hand > 0 in current view.",
+                    )
+                    if _has_both_valuations:
+                        _kc2.metric(
+                            "üí∞ Total $ on hand (Cost)",
+                            f"${_total_dol:,.0f}",
+                            help="Wholesale cost basis: on-hand units √ó unit cost.",
+                        )
+                        _kc3.metric(
+                            "üè∑Ô∏è Total $ on hand (Retail)",
+                            f"${_total_retail_dol:,.0f}",
+                            help="Retail price basis: on-hand units √ó retail price.",
+                        )
+                        _kc4.metric("üî¥ Reorder SKUs", _reorder_n,
+                                    help=f"DOH ‚â§ {INVENTORY_REORDER_DOH_THRESHOLD} days.")
+                        _kc5.metric("üü† Overstock SKUs", _overstock_n,
+                                    help=f"DOH ‚â• {INVENTORY_OVERSTOCK_DOH_THRESHOLD} days.")
+                    else:
+                        if _total_dol is not None:
+                            _single_val_label = f"${_total_dol:,.0f}"
+                        elif _total_retail_dol is not None:
+                            _single_val_label = f"${_total_retail_dol:,.0f}"
+                        else:
+                            _single_val_label = "N/A"
+                        _kc2.metric(
+                            "üí∞ Total $ on hand",
+                            _single_val_label,
+                            help="Requires cost or retail price column in inventory file.",
+                        )
+                        _kc3.metric("üî¥ Reorder SKUs", _reorder_n,
+                                    help=f"DOH ‚â§ {INVENTORY_REORDER_DOH_THRESHOLD} days.")
+                        _kc4.metric("üü† Overstock SKUs", _overstock_n,
+                                    help=f"DOH ‚â• {INVENTORY_OVERSTOCK_DOH_THRESHOLD} days.")
+                    _exp_label = f"{_exp_n}"
+                    if _exp_dol is not None:
+                        _exp_label += f" (${_exp_dol:,.0f})"
+                    _kc_exp.metric(
+                        f"‚ö†Ô∏è Expiring <{INVENTORY_EXPIRING_SOON_DAYS}d",
+                        _exp_label,
+                        help=f"SKUs with earliest expiry < {INVENTORY_EXPIRING_SOON_DAYS} days.",
+                    )
+                    st.markdown("---")
+                    # Decision-first table (8‚Äì10 default columns)
+                    _avg_wkly_lbl = f"Avg Wkly ({_b_vel_win}d)"
+                    _dcmap = {}
+                    if "sku" in df.columns:
+                        _dcmap["SKU"] = "sku"
+                    _dcmap["Item"] = "itemname"
+                    if "category" in df.columns:
+                        _dcmap["Category"] = "category"
+                    if "brand_vendor" in df.columns:
+                        _dcmap["Brand/Vendor"] = "brand_vendor"
+                    _dcmap["On Hand"] = "onhandunits"
+                    _dcmap[_avg_wkly_lbl] = "avg_weekly_sales"
+                    _dcmap["DOH"] = "days_of_supply"
+                    if "unit_cost" in df.columns:
+                        _dcmap["Unit Cost"] = "unit_cost"
+                    if "retail_price" in df.columns:
+                        _dcmap["Retail Price"] = "retail_price"
+                    if "dollars_on_hand" in df.columns:
+                        _dcmap["$ On Hand (Cost)"] = "dollars_on_hand"
+                    if "retail_dollars_on_hand" in df.columns:
+                        _dcmap["$ On Hand (Retail)"] = "retail_dollars_on_hand"
+                    if "expiration_date" in df.columns:
+                        _dcmap["Earliest Exp"] = "expiration_date"
+                    if "days_to_expire" in df.columns:
+                        _dcmap["Days to Exp"] = "days_to_expire"
+                    _dcmap["Status"] = "status"
+
+                    _src_c = [v for v in _dcmap.values() if v in df.columns]
+                    _lbl_c = [k for k, v in _dcmap.items() if v in df.columns]
+                    _disp = df[_src_c].copy()
+                    _disp.columns = _lbl_c
+
+                    # Round / format
+                    for _lbl in [_avg_wkly_lbl, "DOH"]:
+                        if _lbl in _disp.columns:
+                            _disp[_lbl] = (
+                                _disp[_lbl].replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan).round(1)
+                            )
+                    if "On Hand" in _disp.columns:
+                        _disp["On Hand"] = _disp["On Hand"].round(0).astype(int)
+                    # Format all $ on-hand columns (derived from _dcmap to avoid duplication)
+                    _dollar_col_labels = [
+                        lbl for lbl, src in _dcmap.items()
+                        if src in ("dollars_on_hand", "retail_dollars_on_hand")
+                    ]
+                    for _dollar_lbl in _dollar_col_labels:
+                        if _dollar_lbl in _disp.columns:
+                            _disp[_dollar_lbl] = pd.to_numeric(
+                                _disp[_dollar_lbl], errors="coerce"
+                            ).round(2)
+                    if "Days to Exp" in _disp.columns:
+                        _disp["Days to Exp"] = pd.to_numeric(
+                            _disp["Days to Exp"], errors="coerce"
+                        ).astype("Int64")
+
+                    st.markdown(
+                        f"**{len(_disp)} SKU(s)** "
+                        f"(velocity window: {_b_vel_win} days)"
+                    )
+                    st.markdown('<div class="sm-table-wrap">', unsafe_allow_html=True)
+                    st.dataframe(_disp, width="stretch", hide_index=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                    with st.expander("üîé Show all columns"):
+                        st.dataframe(
+                            df.replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan),
+                            width="stretch",
+                            hide_index=True,
+                        )
+
+                # ---- TABS ----
+                _b_tab_all, _b_tab_reorder, _b_tab_overstock, _b_tab_expiring = st.tabs(
+                    ["üì¶ All Inventory", "üî¥ Reorder", "üü† Overstock", "‚ö†Ô∏è Expiring"]
+                )
+
+                with _b_tab_all:
+                    _render_inv_table(_apply_inv_filters(_b_merged))
+
+                with _b_tab_reorder:
+                    st.caption(
+                        f"Default: DOH ‚â§ {INVENTORY_REORDER_DOH_THRESHOLD} days, "
+                        "sorted DOH ascending (most urgent first)."
+                    )
+                    _reo_df = _apply_inv_filters(
+                        _b_merged,
+                        tab_filter=lambda df: df[
+                            df["days_of_supply"] <= INVENTORY_REORDER_DOH_THRESHOLD
+                        ],
+                    )
+                    if not _reo_df.empty:
+                        _reo_df = _reo_df.sort_values(
+                            "days_of_supply", ascending=True, na_position="last"
+                        )
+                    _render_inv_table(_reo_df)
+
+                with _b_tab_overstock:
+                    st.caption(
+                        f"Default: DOH ‚â• {INVENTORY_OVERSTOCK_DOH_THRESHOLD} days, "
+                        "sorted $ on hand descending."
+                    )
+                    _ov_df = _apply_inv_filters(
+                        _b_merged,
+                        tab_filter=lambda df: df[
+                            df["days_of_supply"] >= INVENTORY_OVERSTOCK_DOH_THRESHOLD
+                        ],
+                    )
+                    if not _ov_df.empty:
+                        if "dollars_on_hand" in _ov_df.columns:
+                            _ov_df = _ov_df.sort_values(
+                                "dollars_on_hand", ascending=False, na_position="last"
+                            )
+                        else:
+                            _ov_df = _ov_df.sort_values(
+                                "days_of_supply", ascending=False, na_position="last"
+                            )
+                    _render_inv_table(_ov_df)
+
+                with _b_tab_expiring:
+                    st.caption(
+                        f"Default: Earliest expiry < {INVENTORY_EXPIRING_SOON_DAYS} days, "
+                        "sorted soonest first."
+                    )
+                    if "expiration_date" in _b_merged.columns:
+                        _exp_df = _apply_inv_filters(
+                            _b_merged,
+                            tab_filter=lambda df: df[
+                                df["days_to_expire"].notna()
+                                & (df["days_to_expire"] < INVENTORY_EXPIRING_SOON_DAYS)
+                            ],
+                        )
+                        if not _exp_df.empty:
+                            _exp_df = _exp_df.sort_values(
+                                "days_to_expire", ascending=True, na_position="last"
+                            )
+                        _render_inv_table(_exp_df)
+                    else:
+                        st.info(
+                            "‚ÑπÔ∏è No expiration date column detected in the inventory file. "
+                            "Add an 'expiration date' or 'expiry date' column to use this tab."
+                        )
+
+        except Exception as _b_err:
+            st.error(f"Error building Buyer View: {_b_err}")
+
+        # =======================
+        # AI INVENTORY CHECK
+        # =======================
+        st.markdown("---")
+        st.markdown("### ü§ñ AI Inventory Check (Optional)")
+
+        if not _doobie_ai_access_enabled():
+            st.info("Connect Doobie AI to enable this feature.")
+        elif _doobie_ai_status() == "connected":
+            if st.button("Run AI check on current view"):
+                with st.spinner("Having the AI look over this slice like a buyer..."):
+                    ai_summary = ai_inventory_check(detail_view, doh_threshold, data_source)
+                st.markdown(ai_summary)
+        else:
+            st.info("Doobie AI is currently unavailable.")
+
+    except Exception as e:
+        st.error(f"Error: {e}")
+
+
+# ============================================================
+# PAGE 2A ‚Äì COMPLIANCE Q&A
+# ============================================================
+elif section == "üß≠ Compliance Q&A":
+    st.subheader("üß≠ Compliance Q&A")
+    st.caption(
+        "Grounded compliance answers from structured sources only. "
+        "Upload reviewed source rows and query by state/scope/topic."
+    )
+
+    template_df = pd.DataFrame(
+        [
+            {
+                "state": "CA",
+                "scope": "adult-use",
+                "topic": "packaging",
+                "answer": "Child-resistant packaging is required before retail sale.",
+                "source_citation": "16 CCR ¬ß 17407",
+                "source_url": "https://cannabis.ca.gov/",
+                "last_updated": "2026-01-15",
+                "review_status": "reviewed",
+            }
+        ]
+    )
+
+    st.markdown("**Required source columns**: state, scope, topic, answer, source_citation, source_url, last_updated, review_status")
+
+    buf = BytesIO()
+    template_df.to_csv(buf, index=False)
+    st.download_button(
+        "Download compliance source template (CSV)",
+        data=buf.getvalue(),
+        file_name="compliance_sources_template.csv",
+        mime="text/csv",
+    )
+
+    source_file = st.file_uploader(
+        "Upload structured compliance sources (CSV)",
+        type=["csv"],
+        key="compliance_source_upload",
+    )
+
+    repo = None
+    if source_file is not None:
+        try:
+            source_df = pd.read_csv(source_file)
+            repo = _load_compliance_sources_from_df(source_df)
+            st.success(f"Loaded {len(source_df)} compliance source row(s).")
+            st.dataframe(source_df.head(100), width="stretch")
+        except Exception as exc:
+            st.error(f"Could not load compliance sources: {exc}")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        state = st.text_input("METRC State", value="CA", key="compliance_state")
+    with c2:
+        scope = st.selectbox("Scope", ["adult-use", "medical"], key="compliance_scope")
+    with c3:
+        topic = st.text_input("Topic", value="packaging", key="compliance_topic")
+
+    question = st.text_area(
+        "Compliance question",
+        value="What are the packaging requirements for adult-use products?",
+        key="compliance_question",
+    )
+
+    if st.button("Answer from structured sources", key="compliance_ask"):
+        if repo is None:
+            st.warning("Upload structured compliance source rows first.")
+        else:
+            result = _generate_grounded_compliance_response(repo, state, scope, topic, question)
+            st.markdown(result)
+
+# ============================================================
+# PAGE 2B ‚Äì BUYER INTELLIGENCE
+# ============================================================
+elif section == "üß† Buyer Intelligence":
+    st.subheader("üß† Buyer Intelligence")
+    st.caption("Demand, risk, and AI buyer brief generated from your uploaded sales/inventory data.")
+    with st.expander("üåê Optional live market references", expanded=False):
+        st.caption(
+            "Use these external sources as directional market context. "
+            "Prioritize your store-level sales, margin, and inventory data for buy decisions."
+        )
+        for source in BUYER_MARKET_REFERENCES:
+            st.markdown(f"- [{source['name']}]({source['url']}) ‚Äî {source['notes']}")
+
+    sales_raw_df = st.session_state.sales_raw_df
+    inv_raw_df = st.session_state.inv_raw_df
+
+    if sales_raw_df is None:
+        st.info("Upload Product Sales data on Inventory Dashboard to use Buyer Intelligence.")
+        st.stop()
+
+    lookback_days = int(
+        st.sidebar.slider(
+            "Buyer intelligence lookback (days)",
+            min_value=14,
+            max_value=120,
+            value=60,
+            key="buyer_intel_lookback",
+        )
+    )
+
+    try:
+        summary, by_category, by_product = _compute_buyer_intelligence(
+            inv_df_raw=inv_raw_df,
+            sales_df_raw=sales_raw_df,
+            lookback_days=lookback_days,
+        )
+
+        k1, k2, k3, k4 = st.columns(4)
+        with k1:
+            kpi_card("Tracked SKUs", f"{summary['tracked_skus']:,}")
+        with k2:
+            kpi_card("Units Sold", f"{summary['total_units_sold']:,.0f}")
+        with k3:
+            kpi_card("Revenue", f"${summary['total_revenue']:,.0f}")
+        with k4:
+            kpi_card("Reorder Risk SKUs", f"{summary['at_risk_skus']:,}")
+
+        c1, c2 = st.columns([1, 1.4])
+        with c1:
+            st.markdown("#### Top Categories")
+            st.dataframe(by_category.head(20), width="stretch", hide_index=True)
+        with c2:
+            st.markdown("#### SKU Risk Table")
+            st.dataframe(
+                by_product.head(200),
+                width="stretch",
+                hide_index=True,
+            )
+
+        st.markdown("---")
+        st.markdown("### ü§ñ AI Buyer Brief")
+        if not _doobie_ai_access_enabled():
+            st.info("Connect Doobie AI to enable this feature.")
+        elif st.button("Generate AI Buyer Brief", key="buyer_intel_ai_brief"):
+            with st.spinner("Generating buyer brief..."):
+                brief = _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days)
+            st.markdown(brief)
+
+    except Exception as exc:
+        st.error(f"Could not build buyer intelligence view: {exc}")
+
+# ============================================================
+# PAGE 2C ‚Äì NOMENCLATURE MAPPER / ADMIN TOOLS
+# ============================================================
+elif section == "üè∑Ô∏è Nomenclature Mapper":
+    render_nomenclature_mapper()
+
+elif section == "üõ†Ô∏è Admin Tools":
+    st.subheader("üõ†Ô∏è Admin Tools")
+
+    if not st.session_state.get("is_admin", False):
+        st.warning("Admin access is required for this section.")
+        st.stop()
+
+    st.caption("Doobie diagnostics, compliance source QA, and operational admin utilities.")
+
+    _render_admin_user_management()
+    st.markdown("---")
+
+    a1, a2 = st.columns(2)
+    with a1:
+        st.markdown("### Doobie AI Diagnostics")
+        resolved_cfg = resolve_doobie_config()
+        config_present = bool(str(resolved_cfg.get("base_url") or "").strip() and str(resolved_cfg.get("api_key") or "").strip())
+        service_check = (
+            test_doobie_connection(
+                str(resolved_cfg.get("base_url") or ""),
+                str(resolved_cfg.get("api_key") or ""),
+                timeout_seconds=4,
+            )
+            if config_present
+            else {"ok": False, "status": "not_connected", "message": "Missing base URL or API key."}
+        )
+        support_check = _run_doobie_support_endpoint_check(timeout_seconds=6)
+        readiness_code = _derive_doobie_ai_readiness_status(config_present, service_check, support_check)
+
+        st.write(f"Provider name: {DOOBIE_PROVIDER_NAME}")
+        st.write(f"Config present: {'Yes' if config_present else 'No'}")
+        st.write(f"Service auth check: {'Passed' if service_check.get('ok') else 'Failed'}")
+        st.write(f"AI support endpoint: {'Ready' if support_check.get('ok') else 'Failed'}")
+        st.write(f"Overall AI readiness: {'Ready' if readiness_code == 'connected' else 'Unavailable'}")
+        st.write(f"Readiness status code: {readiness_code}")
+
+        if not service_check.get("ok"):
+            st.warning(f"Service/auth failure: {service_check.get('message') or service_check.get('status') or 'unknown'}")
+
+        if support_check.get("ok"):
+            st.success(
+                f"Support endpoint check passed (HTTP {support_check.get('http_status', 'n/a')}). "
+                f"Health phrase present: {'Yes' if support_check.get('health_phrase_present') else 'No'}."
+            )
+            if support_check.get("answer_preview"):
+                st.caption(f"AI response preview: {support_check.get('answer_preview')}")
+        else:
+            likely_cause = support_check.get("likely_cause") or support_check.get("error_code") or "unknown"
+            http_status = support_check.get("http_status")
+            detail = support_check.get("message") or "Support endpoint check failed."
+            prefix = f"HTTP {http_status} ‚Äî " if http_status is not None else ""
+            if service_check.get("ok"):
+                st.error(f"AI support check failed ({likely_cause}): {prefix}{detail}. Health/auth works but support endpoint failed.")
+            else:
+                st.error(f"AI support check failed ({likely_cause}): {prefix}{detail}.")
+
+        if st.button("Run AI Health Check", key="admin_ai_health_check"):
+            if support_check.get("ok"):
+                st.success("AI health check passed: support endpoint is ready.")
+            else:
+                likely_cause = support_check.get("likely_cause") or support_check.get("error_code") or "unknown"
+                st.error(f"AI health check failed: {likely_cause}. {support_check.get('message') or ''}".strip())
+
+    with a2:
+        st.markdown("### Session Data Overview")
+        inv_rows = len(st.session_state.inv_raw_df) if isinstance(st.session_state.get("inv_raw_df"), pd.DataFrame) else 0
+        sales_rows = len(st.session_state.sales_raw_df) if isinstance(st.session_state.get("sales_raw_df"), pd.DataFrame) else 0
+        st.write(f"Inventory rows in session: {inv_rows}")
+        st.write(f"Sales rows in session: {sales_rows}")
+        st.write(f"Upload cache entries: {len(st.session_state.get('uploaded_files_by_user_day', {}))}")
+
+        if st.button("Clear session dataframes", key="admin_clear_session_frames"):
+            st.session_state.inv_raw_df = None
+            st.session_state.sales_raw_df = None
+            st.success("Session dataframes cleared.")
+
+    st.markdown("---")
+    st.markdown("### Compliance Source QA")
+    st.caption("Upload a compliance source CSV to validate schema completeness and row quality.")
+
+    qa_upload = st.file_uploader(
+        "Upload compliance source CSV for QA",
+        type=["csv"],
+        key="admin_compliance_qa_upload",
+    )
+
+    if qa_upload is not None:
+        try:
+            qa_df = pd.read_csv(qa_upload)
+            report = _audit_compliance_source_df(qa_df)
+            st.dataframe(qa_df.head(100), width="stretch")
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                kpi_card("Rows", report["row_count"])
+            with c2:
+                kpi_card("Missing Columns", len(report["missing_columns"]))
+            with c3:
+                kpi_card("Duplicate Rows", report["duplicate_rows"])
+            with c4:
+                kpi_card("Blank Critical Rows", report["blank_critical_rows"])
+
+            if report["missing_columns"]:
+                st.error(f"Missing required columns: {', '.join(report['missing_columns'])}")
+            else:
+                st.success("Required columns are present.")
+        except Exception as exc:
+            st.error(f"Could not audit file: {exc}")
+
+# ============================================================
+# PAGE 2D ‚Äì ROLE-SAFE INTEGRATIONS
+# ============================================================
+elif section in {AI_INTEGRATIONS_SECTION, METRC_INTEGRATIONS_SECTION}:
+    _render_admin_integrations_page()
+
+# ============================================================
+# PAGE 2 ‚Äì TRENDS
+# ============================================================
+elif section == "üìà Trends":
+    st.subheader("üìà Trends")
+
+    st.markdown(
+        "This page reads the same uploaded Dutchie/BLAZE exports (if present) and surfaces "
+        "quick signals: category mix, package-size mix, and velocity movers.\n\n"
+        "**Note:** If you haven‚Äôt uploaded files yet, go to **Inventory Dashboard** first."
+    )
+
+    inv_df_raw = st.session_state.inv_raw_df
+    sales_raw_df = st.session_state.sales_raw_df
+
+    if sales_raw_df is None:
+        st.info("Upload at least the Product Sales report on the Inventory Dashboard page to see Trends.")
+        st.stop()
+
+    st.sidebar.markdown("### üìà Trend Settings")
+    trend_days = int(st.sidebar.slider("Trend window (days)", 7, 120, 30, key="trend_days"))
+    compare_days = int(st.sidebar.slider("Comparison window (prior days)", 7, 120, 30, key="compare_days"))
+    run_rate_multiplier = float(st.sidebar.number_input("Run-rate multiplier", 0.1, 3.0, 1.0, 0.1, key="run_rate_mult"))
+
+    sales = sales_raw_df.copy()
+    sales.columns = sales.columns.astype(str).str.lower()
+
+    name_col_sales = detect_column(sales.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
+    qty_col_sales = detect_column(sales.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
+    mc_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_CAT_ALIASES])
+    rev_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_REV_ALIASES])
+
+    if not (name_col_sales and qty_col_sales and mc_col):
+        st.error("Could not detect required columns in Product Sales report for Trends.\n\nNeed: product name + units sold + category.")
+        st.stop()
+
+    sales = sales.rename(columns={name_col_sales: "product_name", qty_col_sales: "unitssold", mc_col: "mastercategory"})
+    if rev_col:
+        sales = sales.rename(columns={rev_col: "revenue"})
+
+    sales["unitssold"] = pd.to_numeric(sales["unitssold"], errors="coerce").fillna(0)
+    if "revenue" in sales.columns:
+        sales["revenue"] = pd.to_numeric(sales["revenue"], errors="coerce").fillna(0)
+
+    sales["mastercategory"] = sales["mastercategory"].apply(normalize_rebelle_category)
+    sales = sales[
+        ~sales["mastercategory"].astype(str).str.contains("accessor", na=False)
+        & (sales["mastercategory"] != "all")
+    ].copy()
+
+    sales["packagesize"] = sales.apply(lambda r: extract_size(r.get("product_name", ""), r.get("mastercategory", "")), axis=1)
+    sales["strain_type"] = sales.apply(lambda r: extract_strain_type(r.get("product_name", ""), r.get("mastercategory", "")), axis=1)
+
+    cat_units = sales.groupby("mastercategory", dropna=False)["unitssold"].sum().reset_index()
+    cat_units["units_per_day"] = (cat_units["unitssold"] / max(int(trend_days), 1)) * float(run_rate_multiplier)
+
+    total_units = float(cat_units["unitssold"].sum()) if not cat_units.empty else 0.0
+    cat_units["unit_share"] = np.where(total_units > 0, cat_units["unitssold"] / total_units, 0.0)
+
+    st.markdown("### Category Mix (Units)")
+    st.dataframe(cat_units.sort_values("unitssold", ascending=False), width="stretch")
+
+    size_units = sales.groupby("packagesize", dropna=False)["unitssold"].sum().reset_index()
+    size_units["units_per_day"] = (size_units["unitssold"] / max(int(trend_days), 1)) * float(run_rate_multiplier)
+    st.markdown("### Package Size Mix (Units)")
+    st.dataframe(size_units.sort_values("unitssold", ascending=False), width="stretch")
+
+    st.markdown("### Top Movers (SKU-level)")
+    sku_cols = ["product_name", "mastercategory", "strain_type", "packagesize", "unitssold"]
+    if "revenue" in sales.columns:
+        sku_cols.append("revenue")
+    sku_view = sales[sku_cols].copy()
+    sku_view["units_per_day"] = (sku_view["unitssold"] / max(int(trend_days), 1)) * float(run_rate_multiplier)
+
+    if "revenue" in sku_view.columns:
+        sku_view["avg_price"] = np.where(sku_view["unitssold"] > 0, sku_view["revenue"] / sku_view["unitssold"], 0.0)
+
+    st.dataframe(sku_view.sort_values("units_per_day", ascending=False).head(50), width="stretch")
+
+    st.markdown("### Best Sellers by Category")
+    top_n = int(st.number_input("Top N per category", 1, 50, 10, key="trend_top_n"))
+    cat_list = sorted([c for c in sales["mastercategory"].dropna().unique().tolist()])
+    if len(cat_list) == 0:
+        st.info("No categories found in sales data.")
+    else:
+        for cat in cat_list:
+            with st.expander(f"{str(cat).title()} ‚Äî Top {int(top_n)}", expanded=False):
+                cat_df = sku_view[sku_view["mastercategory"] == cat].copy()
+                st.dataframe(cat_df.sort_values("units_per_day", ascending=False).head(int(top_n)), width="stretch")
+
+    # If inventory is available, show "fast movers low stock"
+    if inv_df_raw is not None:
+        inv_df = inv_df_raw.copy()
+        inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
+
+        name_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+        cat_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+        qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+
+        if name_col and cat_col and qty_col:
+            inv_df = inv_df.rename(columns={name_col: "itemname", cat_col: "subcategory", qty_col: "onhandunits"})
+            inv_df["subcategory"] = inv_df["subcategory"].apply(normalize_rebelle_category)
+            inv_df["packagesize"] = inv_df.apply(lambda r: extract_size(r.get("itemname", ""), r.get("subcategory", "")), axis=1)
+            inv_df["strain_type"] = inv_df.apply(lambda r: extract_strain_type(r.get("itemname", ""), r.get("subcategory", "")), axis=1)
+            inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
+
+            inv_small = inv_df[["itemname", "subcategory", "packagesize", "strain_type", "onhandunits"]].copy()
+            sku_tmp = sku_view.rename(columns={"product_name": "itemname", "mastercategory": "subcategory"}).copy()
+            merged = pd.merge(sku_tmp, inv_small, how="left", on=["itemname", "subcategory", "packagesize", "strain_type"])
+            merged["onhandunits"] = pd.to_numeric(merged.get("onhandunits", 0), errors="coerce").fillna(0)
+
+            merged["risk_score"] = merged["units_per_day"] / np.maximum(merged["onhandunits"], 1)
+            st.markdown("### Fast Movers + Low Stock (SKU-level)")
+            st.dataframe(merged.sort_values("risk_score", ascending=False).head(50), width="stretch")
+
+# ============================================================
+# PAGE ‚Äì DELIVERY IMPACT
+# ============================================================
+elif section == "üöö Delivery Impact":
+    st.subheader("üöö Delivery Impact Analysis")
+
+    if not _DELIVERY_IMPACT_AVAILABLE:
+        st.error(
+            "‚ùå The `delivery_impact` module could not be imported. "
+            "Make sure `delivery_impact.py` is present in the project root."
+        )
+        st.stop()
+
+    if data_mode == "üî¥ Dutchie Live":
+        # ‚îÄ‚îÄ Dutchie Live mode ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+        st.info(
+            "üî¥ **Dutchie Live** mode is active.  "
+            "Delivery and daily sales data will be fetched from the Dutchie API once "
+            "credentials are configured."
+        )
+        if _DUTCHIE_CLIENT_AVAILABLE:
+            _dc_del = DutchieConfig.from_env_and_secrets()
+            if not _dc_del.is_configured():
+                st.warning(
+                    "‚ö†Ô∏è Dutchie API credentials are not yet configured.  "
+                    f"Missing: `{'`, `'.join(_dc_del.missing_keys())}`.  "
+                    "See *docs/dutchie.md* for setup instructions, or switch to "
+                    "**üìÅ Uploads** mode in the sidebar."
+                )
+            else:
+                _bundle_del, _err_del = fetch_dutchie_data(_dc_del)
+                if _err_del:
+                    st.warning(f"‚ö†Ô∏è Dutchie Live: {_err_del}")
+                else:
+                    st.success("‚úÖ Dutchie Live: delivery data fetched successfully.")
+        else:
+            st.error("‚ùå dutchie_client module is not available.")
+    else:
+        # ‚îÄ‚îÄ Uploads mode ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+        st.markdown(
+            """
+            Upload one or more **delivery manifests** (CSV or XLSX preferred, PDF also supported)
+            and a **sales report** (CSV or XLSX).
+            The app will parse each manifest for its received date/time and delivered items, then
+            compute a **14-day before vs 14-day after** comparison to show how each delivery
+            correlates with spikes in **Net Sales** and **order count (traffic proxy)**.
+            """
+        )
+
+        # ‚îÄ‚îÄ File uploaders ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+        _di_col1, _di_col2 = st.columns(2)
+
+        with _di_col1:
+            st.markdown("#### üì¶ Manifest Files")
+            _manifest_files = st.file_uploader(
+                "Upload delivery manifest (CSV, XLSX, or PDF)",
+                type=["csv", "xlsx", "xls", "pdf"],
+                accept_multiple_files=True,
+                key="di_manifest_upload",
+                help=(
+                    "CSV or XLSX receiving exports are recommended. "
+                    "Each file should contain product names and received quantities. "
+                    "PDF is also supported as a fallback."
+                ),
+            )
+
+        with _di_col2:
+            st.markdown("#### üìä Sales Report")
+            _cached_sales_raw = st.session_state.get("sales_raw_df")
+            _has_cached_sales = isinstance(_cached_sales_raw, pd.DataFrame) and not _cached_sales_raw.empty
+            _reuse_cached_sales = False
+            if _has_cached_sales:
+                _reuse_cached_sales = st.toggle(
+                    "Use sales data already loaded in Buyer Dashboard",
+                    value=True,
+                    key="di_reuse_cached_sales",
+                    help=f"Reuse {_cached_sales_raw.shape[0]:,} loaded rows instead of uploading the same report again.",
+                )
+            _sales_file = st.file_uploader(
+                "Upload a different sales report (CSV or XLSX)",
+                type=["csv", "xlsx"],
+                key="di_sales_upload",
+                help=(
+                    "Expected columns: Order ID, Order Time, Product Name, "
+                    "Total Inventory Sold, Net Sales. "
+                    "Metadata preamble rows (e.g. Export Date:) are skipped automatically."
+                ),
+            )
+
+        if _manifest_files and (_sales_file or _reuse_cached_sales):
+            try:
+                # ‚îÄ‚îÄ Parse sales report ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                with st.spinner("Parsing sales report‚Ä¶"):
+                    if _sales_file is not None:
+                        _sales_file.seek(0)
+                        _sales_bytes = _sales_file.read()
+                        _sales_file.seek(0)
+                        if len(_sales_bytes) > MAX_UPLOAD_BYTES:
+                            st.error(
+                                f"‚ùå Sales file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit."
+                            )
+                            st.stop()
+                        _sales_df = _parse_sales_report_bytes(_sales_bytes, _sales_file.name)
+                        _sales_source_label = _sales_file.name
+                    else:
+                        _sales_df = _normalize_sales_report_dataframe(_cached_sales_raw)
+                        _sales_source_label = "Buyer Dashboard sales data"
+
+                if _sales_df.empty:
+                    st.error(
+                        "‚ùå No usable sales rows found. "
+                        "Ensure the file has Order Time and Net Sales columns."
+                    )
+                    st.stop()
+
+                _sales_products = sorted(_sales_df["product_name"].dropna().unique().tolist())
+                st.success(
+                    f"‚úÖ {_sales_source_label} ready: **{len(_sales_df):,}** line items ¬∑ "
+                    f"**{_sales_df['order_time'].dt.date.nunique()}** unique days ¬∑ "
+                    f"**{len(_sales_products):,}** unique products"
+                )
+
+                # ‚îÄ‚îÄ Parse manifests ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                _manifests: list = []
+                _all_debug_texts: dict = {}
+
+                with st.spinner("Parsing manifest files‚Ä¶"):
+                    for _mf in _manifest_files:
+                        if len(_mf.getvalue()) > MAX_UPLOAD_BYTES:
+                            st.warning(
+                                f"‚ö†Ô∏è Manifest **{_mf.name}** exceeds the size limit ‚Äì skipped."
+                            )
+                            continue
+                        _mf.seek(0)
+                        _mf_bytes = _mf.read()
+                        _mf_name_lower = _mf.name.lower()
+
+                        if _mf_name_lower.endswith((".csv", ".xlsx", ".xls")):
+                            _recv_dt, _items_df, _debug_text = parse_manifest_csv_xlsx_bytes(
+                                _mf_bytes, filename=_mf.name
+                            )
+                        else:
+                            _recv_dt, _items_df, _debug_text = parse_manifest_pdf_bytes(
+                                _mf_bytes, filename=_mf.name
+                            )
+
+                        _all_debug_texts[_mf.name] = _debug_text
+                        if _recv_dt is None and _items_df.empty:
+                            st.warning(
+                                f"‚ö†Ô∏è Could not extract data from **{_mf.name}**. "
+                                "Check the debug dump below."
+                            )
+                        # Guarantee received_dt is a pd.Timestamp (or None/NaT‚ÜíNone).
+                        _recv_dt_coerced = pd.to_datetime(_recv_dt, errors="coerce")
+                        _recv_dt_final = (
+                            None if pd.isna(_recv_dt_coerced)
+                            else _recv_dt_coerced
+                        )
+                        if _recv_dt is not None and _recv_dt_final is None:
+                            st.warning(
+                                f"‚ö†Ô∏è Manifest **{_mf.name}** has an unparseable received date "
+                                f"({_recv_dt!r}) and will be excluded from analysis."
+                            )
+                        _manifests.append({
+                            "filename": _mf.name,
+                            "received_dt": _recv_dt_final,
+                            "items_df": _items_df,
+                            "debug_text": _debug_text,
+                        })
+
+                if not _manifests:
+                    st.error("‚ùå No manifests could be parsed.")
+                    st.stop()
+
+                # ‚îÄ‚îÄ Sidebar controls ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("### üöö Delivery Impact Settings")
+
+                _comparison_mode = st.sidebar.selectbox(
+                    "Analysis Mode",
+                    ["üìÖ Before/After (¬±N days)", "üìÜ Same weekday last week (WoW)"],
+                    index=0,
+                    key="di_comparison_mode",
+                    help=(
+                        "**Before/After (¬±N days)**: compare N days before vs N days after delivery.\n\n"
+                        "**Same weekday last week (WoW)**: compare the delivery calendar day "
+                        "to the same weekday 7 days prior (e.g. Thu 03-19 vs Thu 03-12)."
+                    ),
+                )
+                _wow_mode = _comparison_mode == "üìÜ Same weekday last week (WoW)"
+
+                # Window-days selector is only relevant in Before/After mode
+                if not _wow_mode:
+                    _window_days = st.sidebar.selectbox(
+                        "Comparison window (days before/after)",
+                        options=[7, 14, 21, 28],
+                        index=1,
+                        key="di_window",
+                    )
+                else:
+                    _window_days = st.session_state.get("di_window", 14)
+
+                _granularity = st.sidebar.radio(
+                    "Chart granularity",
+                    ["daily", "hourly"],
+                    index=0,
+                    key="di_granularity",
+                )
+
+                _fuzzy_threshold = st.sidebar.slider(
+                    "Fuzzy match threshold",
+                    min_value=0.60,
+                    max_value=1.00,
+                    value=0.82,
+                    step=0.01,
+                    key="di_fuzzy",
+                    help=(
+                        "Minimum similarity (0‚Äì1) to accept a fuzzy product-name match. "
+                        "Higher = stricter."
+                    ),
+                )
+
+                _show_total = st.sidebar.checkbox("Total Net Sales", value=True, key="di_ov_total")
+                _show_del = st.sidebar.checkbox("Delivered-items Net Sales", value=True, key="di_ov_del")
+                _show_nondel = st.sidebar.checkbox("Non-delivered Net Sales", value=False, key="di_ov_nondel")
+                _show_orders = st.sidebar.checkbox("Order Count (traffic)", value=True, key="di_ov_orders")
+
+                # ‚îÄ‚îÄ Per-manifest matching & manifest selector ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                _valid_manifests = [m for m in _manifests if m["received_dt"] is not None]
+                _invalid_manifests = [m for m in _manifests if m["received_dt"] is None]
+
+                if _invalid_manifests:
+                    st.warning(
+                        "‚ö†Ô∏è The following manifests had no detectable received date and will be "
+                        "excluded from analysis: "
+                        + ", ".join(f"**{m['filename']}**" for m in _invalid_manifests)
+                    )
+
+                if not _valid_manifests:
+                    st.error(
+                        "‚ùå None of the uploaded manifests contained a detectable received date/time."
+                    )
+                    st.stop()
+
+                # Build manifest options for selector
+                _manifest_options = ["üì¶ Combined (all manifests)"] + [
+                    f"üìÑ {m['filename']} ({m['received_dt'].strftime('%Y-%m-%d %H:%M')})"
+                    for m in _valid_manifests
+                ]
+                _selected_manifest_label = st.selectbox(
+                    "View manifest",
+                    _manifest_options,
+                    key="di_manifest_sel",
+                )
+
+                # Resolve which manifests to show
+                if _selected_manifest_label == "üì¶ Combined (all manifests)":
+                    _active_manifests = _valid_manifests
+                else:
+                    _active_manifests = [
+                        m for m in _valid_manifests
+                        if f"üìÑ {m['filename']} ({m['received_dt'].strftime('%Y-%m-%d %H:%M')})"
+                        == _selected_manifest_label
+                    ]
+
+                # ‚îÄ‚îÄ Match delivered items for active manifests ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                _all_matched: dict = {}
+                _all_unmatched: list = []
+                _all_delivered_sales_names: list = []
+
+                for _m in _active_manifests:
+                    if _m["items_df"].empty:
+                        continue
+                    _manifest_item_names = _m["items_df"]["item_name"].dropna().tolist()
+                    _matched, _unmatched = match_manifest_to_sales(
+                        _manifest_item_names,
+                        _sales_products,
+                        fuzzy_threshold=_fuzzy_threshold,
+                    )
+                    _all_matched.update(_matched)
+                    for _u in _unmatched:
+                        if _u not in _all_unmatched:
+                            _all_unmatched.append(_u)
+                    for _sn in _matched.values():
+                        if _sn not in _all_delivered_sales_names:
+                            _all_delivered_sales_names.append(_sn)
+
+                # ‚îÄ‚îÄ KPI computation ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                st.markdown("---")
+                if _wow_mode:
+                    st.markdown("### üìä KPI Summary ‚Äì Same Weekday Last Week (WoW)")
+                else:
+                    st.markdown("### üìä KPI Summary")
+
+                _kpi_rows: list = []
+                _combined_kpi_keys = [
+                    "net_sales_before", "net_sales_after", "net_sales_lift_abs", "net_sales_lift_pct",
+                    "orders_before", "orders_after",
+                    "delivered_sales_before", "delivered_sales_after",
+                    "delivered_sales_lift_abs", "delivered_sales_lift_pct",
+                    "delivered_units_before", "delivered_units_after",
+                ]
+
+                def _safe_numeric(v):
+                    """Return float(v) if v is numeric or numeric-looking string, else None."""
+                    if v is None:
+                        return None
+                    v_num = pd.to_numeric(v, errors="coerce")
+                    if pd.isna(v_num):
+                        return None
+                    return float(v_num)
+
+                for _m in _active_manifests:
+                    if _wow_mode:
+                        _kpis = compute_weekday_wow_kpis(
+                            _sales_df,
+                            _m["received_dt"],
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                        _prior_label = _kpis["prior_day_start"].strftime("%Y-%m-%d (%a)")
+                        _deliv_label = _kpis["delivery_day_start"].strftime("%Y-%m-%d (%a)")
+                        _before_col = f"Net Sales {_prior_label} ($)"
+                        _after_col = f"Net Sales {_deliv_label} ($)"
+                    else:
+                        _kpis = compute_delivery_kpis(
+                            _sales_df,
+                            _m["received_dt"],
+                            window_days=_window_days,
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                        _before_col = "Net Sales Before ($)"
+                        _after_col = "Net Sales After ($)"
+                    _kpi_rows.append({
+                        "Manifest": _m["filename"],
+                        "Received": _m["received_dt"].strftime("%Y-%m-%d %H:%M"),
+                        _before_col: f"{_kpis['net_sales_before']:,.2f}",
+                        _after_col: f"{_kpis['net_sales_after']:,.2f}",
+                        "$ Lift": f"{_kpis['net_sales_lift_abs']:,.2f}",
+                        "% Lift": (
+                            f"{_kpis['net_sales_lift_pct']:.1f}%"
+                            if not pd.isna(_kpis["net_sales_lift_pct"])
+                            else "N/A"
+                        ),
+                        "Orders Before": _kpis["orders_before"],
+                        "Orders After": _kpis["orders_after"],
+                    })
+
+                if _kpi_rows:
+                    _kpi_df = pd.DataFrame(_kpi_rows)
+                    st.dataframe(_kpi_df, width="stretch")
+
+                # ‚îÄ‚îÄ Summary metrics ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                # Compute combined KPIs from all active manifests (hardened numeric aggregation)
+                _combined_kpis: dict = {}
+                for _m in _active_manifests:
+                    if _wow_mode:
+                        _kpis = compute_weekday_wow_kpis(
+                            _sales_df,
+                            _m["received_dt"],
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                    else:
+                        _kpis = compute_delivery_kpis(
+                            _sales_df,
+                            _m["received_dt"],
+                            window_days=_window_days,
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                    for _k in _combined_kpi_keys:
+                        v_num = _safe_numeric(_kpis.get(_k))
+                        if v_num is not None:
+                            _combined_kpis[_k] = _combined_kpis.get(_k, 0.0) + v_num
+
+                if _combined_kpis:
+                    _mk1, _mk2, _mk3, _mk4 = st.columns(4)
+                    _ns_b = _combined_kpis.get("net_sales_before", 0.0)
+                    _ns_a = _combined_kpis.get("net_sales_after", 0.0)
+                    _ns_lift = _ns_a - _ns_b
+                    _ns_pct = (_ns_lift / _ns_b * 100) if _ns_b else 0.0
+                    if _wow_mode:
+                        _mk1.metric("Net Sales (prior week same day)", f"${_ns_b:,.0f}", delta=None)
+                        _mk2.metric(
+                            "Net Sales (delivery day)",
+                            f"${_ns_a:,.0f}",
+                            delta=f"{_ns_lift:+,.0f} ({_ns_pct:+.1f}%)",
+                        )
+                    else:
+                        _mk1.metric("Net Sales (before)", f"${_ns_b:,.0f}", delta=None)
+                        _mk2.metric(
+                            "Net Sales (after)",
+                            f"${_ns_a:,.0f}",
+                            delta=f"{_ns_lift:+,.0f} ({_ns_pct:+.1f}%)",
+                        )
+                    _del_b = _combined_kpis.get("delivered_sales_before")
+                    _del_a = _combined_kpis.get("delivered_sales_after")
+                    if _del_b is not None and _del_a is not None:
+                        _del_lift = _del_a - _del_b
+                        _del_pct = (_del_lift / _del_b * 100) if _del_b else 0.0
+                        _del_label = "Delivered-items Sales (delivery day)" if _wow_mode else "Delivered-items Sales (after)"
+                        _mk3.metric(
+                            _del_label,
+                            f"${_del_a:,.0f}",
+                            delta=f"{_del_lift:+,.0f} ({_del_pct:+.1f}%)",
+                        )
+                    else:
+                        _mk3.metric("Delivered-items Sales", "N/A")
+                    _o_b = _combined_kpis.get("orders_before", 0.0)
+                    _o_a = _combined_kpis.get("orders_after", 0.0)
+                    _o_lift = _o_a - _o_b
+                    _o_label = "Orders (delivery day)" if _wow_mode else "Orders (after)"
+                    _mk4.metric(_o_label, f"{int(_o_a):,}", delta=f"{int(_o_lift):+,}")
+
+                # ‚îÄ‚îÄ Line chart ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                st.markdown("---")
+                if _wow_mode:
+                    st.markdown("### üìà Time-Series Chart ‚Äì Delivery Day vs Prior Week Same Day")
+                else:
+                    st.markdown("### üìà Time-Series Chart")
+
+                # Build time series for each active manifest and combine
+                _ts_frames: list = []
+                _wow_delivery_frames: list = []
+                _wow_prior_frames: list = []
+
+                for _m in _active_manifests:
+                    if _wow_mode:
+                        _ts_deliv, _ts_prior = build_wow_time_series(
+                            _sales_df,
+                            _m["received_dt"],
+                            granularity=_granularity,
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                        if not _ts_deliv.empty:
+                            _wow_delivery_frames.append(_ts_deliv)
+                        if not _ts_prior.empty:
+                            _wow_prior_frames.append(_ts_prior)
+                    else:
+                        _ts = build_time_series(
+                            _sales_df,
+                            _m["received_dt"],
+                            window_days=_window_days,
+                            granularity=_granularity,
+                            delivered_names=_all_delivered_sales_names or None,
+                        )
+                        if not _ts.empty:
+                            _ts["_manifest"] = _m["filename"]
+                            _ts["_recv_dt"] = _m["received_dt"]
+                            _ts_frames.append(_ts)
+
+                _chart_data_available = (
+                    (_wow_mode and (_wow_delivery_frames or _wow_prior_frames))
+                    or (not _wow_mode and _ts_frames)
+                )
+
+                def _coerce_ts_frame_for_plot(df: pd.DataFrame) -> pd.DataFrame:
+                    """Guarantee safe dtypes in a time-series frame before passing to Plotly.
+
+                    * ``period``               ‚Üí datetime (drop NaT rows)
+                    * numeric sales/count cols ‚Üí float  (coerce; fill NaN with 0)
+                    """
+                    if df.empty:
+                        return df
+                    df = df.copy()
+                    df["period"] = pd.to_datetime(df["period"], errors="coerce")
+                    df = df.dropna(subset=["period"])
+                    for _col in ("total_net_sales", "delivered_net_sales",
+                                 "non_delivered_net_sales", "order_count"):
+                        if _col in df.columns:
+                            df[_col] = pd.to_numeric(df[_col], errors="coerce").fillna(0)
+                    return df
+
+                if _chart_data_available:
+                    if PLOTLY_AVAILABLE:
+                        _fig = go.Figure()
+
+                        if _wow_mode:
+                            # ‚îÄ‚îÄ WoW overlay chart ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                            def _merge_wow_frames(frames):
+                                if not frames:
+                                    return pd.DataFrame()
+                                if len(frames) == 1:
+                                    return frames[0].copy()
+                                return (
+                                    pd.concat(frames)
+                                    .groupby("period")
+                                    [["total_net_sales", "delivered_net_sales",
+                                      "non_delivered_net_sales", "order_count"]]
+                                    .sum()
+                                    .reset_index()
+                                )
+
+                            _ts_deliv_combined = _coerce_ts_frame_for_plot(
+                                _merge_wow_frames(_wow_delivery_frames)
+                            )
+                            _ts_prior_combined = _coerce_ts_frame_for_plot(
+                                _merge_wow_frames(_wow_prior_frames)
+                            )
+
+                            if _show_total and not _ts_deliv_combined.empty:
+                                _fig.add_trace(go.Scatter(
+                                    x=_ts_deliv_combined["period"],
+                                    y=_ts_deliv_combined["total_net_sales"],
+                                    name="Total Net Sales ‚Äì Delivery Day",
+                                    mode="lines+markers",
+                                    line={"width": 2},
+                                ))
+                            if _show_total and not _ts_prior_combined.empty:
+                                _fig.add_trace(go.Scatter(
+                                    x=_ts_prior_combined["period"],
+                                    y=_ts_prior_combined["total_net_sales"],
+                                    name="Total Net Sales ‚Äì Prior Week Same Day",
+                                    mode="lines+markers",
+                                    line={"width": 2, "dash": "dash"},
+                                ))
+
+                            if _show_del:
+                                if not _ts_deliv_combined.empty and "delivered_net_sales" in _ts_deliv_combined.columns:
+                                    _fig.add_trace(go.Scatter(
+                                        x=_ts_deliv_combined["period"],
+                                        y=_ts_deliv_combined["delivered_net_sales"],
+                                        name="Delivered-items Sales ‚Äì Delivery Day",
+                                        mode="lines+markers",
+                                        line={"dash": "dot", "width": 2},
+                                    ))
+                                if not _ts_prior_combined.empty and "delivered_net_sales" in _ts_prior_combined.columns:
+                                    _fig.add_trace(go.Scatter(
+                                        x=_ts_prior_combined["period"],
+                                        y=_ts_prior_combined["delivered_net_sales"],
+                                        name="Delivered-items Sales ‚Äì Prior Week",
+                                        mode="lines+markers",
+                                        line={"dash": "dot", "width": 2},
+                                    ))
+
+                            if _show_orders:
+                                if not _ts_deliv_combined.empty and "order_count" in _ts_deliv_combined.columns:
+                                    _fig.add_trace(go.Bar(
+                                        x=_ts_deliv_combined["period"],
+                                        y=_ts_deliv_combined["order_count"],
+                                        name="Order Count ‚Äì Delivery Day",
+                                        yaxis="y2",
+                                        opacity=0.50,
+                                    ))
+                                if not _ts_prior_combined.empty and "order_count" in _ts_prior_combined.columns:
+                                    _fig.add_trace(go.Bar(
+                                        x=_ts_prior_combined["period"],
+                                        y=_ts_prior_combined["order_count"],
+                                        name="Order Count ‚Äì Prior Week",
+                                        yaxis="y2",
+                                        opacity=0.25,
+                                    ))
+
+                            # Delivery day marker
+                            for _m in _active_manifests:
+                                _deliv_day = pd.to_datetime(_m.get("received_dt"), errors="coerce")
+                                if pd.notna(_deliv_day):
+                                    # Plotly requires a numeric x (ms since epoch) for
+                                    # add_vline when annotation_position is used on a
+                                    # datetime axis.  Passing pd.Timestamp or a string
+                                    # causes "unsupported operand type(s) for +: 'int'
+                                    # and 'str'" in plotly.shapeannotation._mean.
+                                    _vline_x = int(
+                                        _deliv_day.normalize().value // 1_000_000
+                                    )
+                                    _fig.add_vline(
+                                        x=_vline_x,
+                                        line_dash="dash",
+                                        line_color="red",
+                                        annotation_text=f"Delivery Day: {_m.get('filename', '')}",
+                                        annotation_position="top left",
+                                        annotation_font_size=10,
+                                    )
+                                else:
+                                    st.warning(
+                                        f"‚ö†Ô∏è Delivery marker skipped ‚Äì could not parse received_dt"
+                                        f"{' for ' + _m['filename'] if _m.get('filename') else ''}."
+                                    )
+                        else:
+                            # ‚îÄ‚îÄ Before/After window chart ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                            # Merge time series (sum across manifests for combined view)
+                            if len(_ts_frames) > 1:
+                                _ts_merged = (
+                                    pd.concat(_ts_frames)
+                                    .groupby("period")
+                                    [["total_net_sales", "delivered_net_sales",
+                                      "non_delivered_net_sales", "order_count"]]
+                                    .sum()
+                                    .reset_index()
+                                )
+                                _ts_combined = _coerce_ts_frame_for_plot(_ts_merged)
+                            else:
+                                _ts_combined = _coerce_ts_frame_for_plot(_ts_frames[0].copy())
+
+                            if _show_total:
+                                _fig.add_trace(go.Scatter(
+                                    x=_ts_combined["period"],
+                                    y=_ts_combined["total_net_sales"],
+                                    name="Total Net Sales ($)",
+                                    mode="lines",
+                                    line={"width": 2},
+                                ))
+
+                            if _show_del and "delivered_net_sales" in _ts_combined.columns:
+                                _fig.add_trace(go.Scatter(
+                                    x=_ts_combined["period"],
+                                    y=_ts_combined["delivered_net_sales"],
+                                    name="Delivered-items Net Sales ($)",
+                                    mode="lines",
+                                    line={"dash": "dot", "width": 2},
+                                ))
+
+                            if _show_nondel and "non_delivered_net_sales" in _ts_combined.columns:
+                                _fig.add_trace(go.Scatter(
+                                    x=_ts_combined["period"],
+                                    y=_ts_combined["non_delivered_net_sales"],
+                                    name="Non-delivered Net Sales ($)",
+                                    mode="lines",
+                                    line={"dash": "dash", "width": 2},
+                                ))
+
+                            if _show_orders and "order_count" in _ts_combined.columns:
+                                _fig.add_trace(go.Bar(
+                                    x=_ts_combined["period"],
+                                    y=_ts_combined["order_count"],
+                                    name="Order Count",
+                                    yaxis="y2",
+                                    opacity=0.35,
+                                ))
+
+                            # Add vertical lines for each delivery date
+                            for _m in _active_manifests:
+                                _x = pd.to_datetime(_m.get("received_dt"), errors="coerce")
+                                if pd.notna(_x):
+                                    # Convert to integer ms-since-epoch so Plotly's
+                                    # annotation positioning arithmetic doesn't fail with
+                                    # "unsupported operand type(s) for +: 'int' and 'str'"
+                                    _vline_x = int(_x.value // 1_000_000)
+                                    _fig.add_vline(
+                                        x=_vline_x,
+                                        line_dash="dash",
+                                        line_color="red",
+                                        annotation_text=f"Delivery: {_m.get('filename', '')}",
+                                        annotation_position="top left",
+                                        annotation_font_size=10,
+                                    )
+                                else:
+                                    st.warning(
+                                        f"‚ö†Ô∏è Delivery marker skipped ‚Äì could not parse received_dt"
+                                        f"{' for ' + _m['filename'] if _m.get('filename') else ''}."
+                                    )
+
+                        _fig.update_layout(
+                            xaxis_title="Date" if _granularity == "daily" else "Date/Hour",
+                            xaxis_type="date",
+                            yaxis_title="Net Sales ($)",
+                            yaxis2={
+                                "title": "Order Count",
+                                "overlaying": "y",
+                                "side": "right",
+                                "showgrid": False,
+                            },
+                            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
+                            hovermode="x unified",
+                            height=480,
+                            margin={"t": 40, "b": 40},
+                        )
+
+                        st.plotly_chart(_fig, width="stretch")
+                    else:
+                        st.warning("‚ö†Ô∏è Plotly is not installed ‚Äì chart unavailable. Install `plotly` to enable charts.")
+                        if not _wow_mode and _ts_frames:
+                            st.dataframe(_ts_frames[0], width="stretch")
+                else:
+                    st.info(
+                        "‚ÑπÔ∏è No sales data found in the analysis windows. "
+                        "Check that your sales report covers dates around the delivery dates."
+                    )
+
+                # ‚îÄ‚îÄ Top items by lift ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                if _all_delivered_sales_names:
+                    st.markdown("---")
+                    st.markdown("### üèÜ Top Delivered Items by Lift")
+
+                    _top_rows_all: list = []
+                    for _m in _active_manifests:
+                        if _wow_mode:
+                            _kpis = compute_weekday_wow_kpis(
+                                _sales_df,
+                                _m["received_dt"],
+                                delivered_names=_all_delivered_sales_names,
+                            )
+                        else:
+                            _kpis = compute_delivery_kpis(
+                                _sales_df,
+                                _m["received_dt"],
+                                window_days=_window_days,
+                                delivered_names=_all_delivered_sales_names,
+                            )
+                        _top = _kpis.get("top_items")
+                        if _top is not None and not _top.empty:
+                            _top["manifest"] = _m["filename"]
+                            _top_rows_all.append(_top)
+
+                    if _top_rows_all:
+                        _top_combined = pd.concat(_top_rows_all).reset_index(drop=True)
+                        _top_combined = (
+                            _top_combined
+                            .groupby("item_name")
+                            .agg(
+                                sales_lift=("sales_lift", "sum"),
+                                units_lift=("units_lift", "sum"),
+                                net_sales_before=("net_sales_before", "sum"),
+                                net_sales_after=("net_sales_after", "sum"),
+                            )
+                            .reset_index()
+                            .sort_values("sales_lift", ascending=False)
+                        )
+                        st.dataframe(
+                            _top_combined.rename(columns={
+                                "item_name": "Product",
+                                "sales_lift": "Sales Lift ($)",
+                                "units_lift": "Units Lift",
+                                "net_sales_before": "Net Sales Before ($)",
+                                "net_sales_after": "Net Sales After ($)",
+                            }),
+                            width="stretch",
+                        )
+
+                # ‚îÄ‚îÄ Unmatched items ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                if _all_unmatched:
+                    st.markdown("---")
+                    st.markdown("### ‚ö†Ô∏è Unmatched Manifest Items")
+                    st.caption(
+                        "These items from the manifests could not be matched to any product "
+                        "in the sales report. Their sales are not included in the delivered-items metrics."
+                    )
+                    _unmatched_df = pd.DataFrame({"Manifest Item (unmatched)": _all_unmatched})
+                    st.dataframe(_unmatched_df, width="stretch")
+
+                if _all_matched:
+                    with st.expander("üîç View item matching results", expanded=False):
+                        _match_rows = [
+                            {"Manifest Item": k, "Matched Sales Product": v}
+                            for k, v in _all_matched.items()
+                        ]
+                        st.dataframe(pd.DataFrame(_match_rows), width="stretch")
+
+                # ‚îÄ‚îÄ Debug PDF text dumps ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ‚îÄ
+                for _fname, _dtext in _all_debug_texts.items():
+                    if _dtext:
+                        with st.expander(f"üêõ PDF debug text: {_fname}", expanded=False):
+                            st.text(_dtext[:4000] + ("‚Ä¶" if len(_dtext) > 4000 else ""))
+                            st.download_button(
+                                f"‚¨áÔ∏è Download full text for {_fname}",
+                                data=_dtext.encode("utf-8"),
+                                file_name=f"{_fname}_debug.txt",
+                                mime="text/plain",
+                                key=f"di_debug_{_fname}",
+                            )
+
+            except Exception as _di_exc:
+                import traceback as _tb
+                st.error(f"‚ùå Error processing files: {_di_exc}")
+                st.write("Please check that your files match the expected format and try again.")
+                with st.expander("üêõ Full traceback (for debugging)", expanded=False):
+                    st.code(_tb.format_exc(), language="python")
+                    # Dtype diagnostic summary to help identify type-coercion issues
+                    try:
+                        if "_sales_df" in dir() and isinstance(_sales_df, pd.DataFrame):
+                            st.markdown("**Sales DF dtypes:**")
+                            st.text(str(_sales_df.dtypes))
+                        for _name, _frame in [
+                            ("_ts_deliv_combined", locals().get("_ts_deliv_combined")),
+                            ("_ts_prior_combined", locals().get("_ts_prior_combined")),
+                            ("_ts_combined", locals().get("_ts_combined")),
+                        ]:
+                            if isinstance(_frame, pd.DataFrame) and not _frame.empty:
+                                st.markdown(f"**{_name} dtypes:**")
+                                st.text(str(_frame.dtypes))
+                    except Exception:
+                        pass
+        else:
+            _missing = []
+            if not _manifest_files:
+                _missing.append("one or more manifest PDFs")
+            if not _sales_file:
+                _missing.append("a sales report (CSV or XLSX)")
+            st.info(f"üëÜ Upload {' and '.join(_missing)} to see the analysis.")
+
+
+# ============================================================
+# PAGE ‚Äì SLOW MOVERS & TRENDS
+# ============================================================
+elif section == "üê¢ Slow Movers":
+    st.subheader("üê¢ Slow Movers & Trends")
+    st.write(
+        "Identify products sitting on the shelf, understand velocity, and take action. "
+        "Use the filters below to focus on what matters most."
+    )
+
+    if st.session_state.inv_raw_df is None or st.session_state.sales_raw_df is None:
+        st.warning("‚ö†Ô∏è Please upload inventory and sales files in the Inventory Dashboard section first.")
+        st.stop()
+
+    # ----------------------------------------------------------
+    # Helper: compute the suggested action badge for a product
+    # ----------------------------------------------------------
+    def _sm_action_badge(days_of_supply: float, weekly_sales: float, on_hand: float) -> str:
+        """Return a short action label based on DOH, velocity and stock."""
+        if on_hand <= 0:
+            return "‚¨õ No Stock"
+        if weekly_sales <= 0 or days_of_supply >= UNKNOWN_DAYS_OF_SUPPLY:
+            return "üî¥ Investigate"
+        if days_of_supply > 180:
+            return "üî¥ Promo / Stop Reorder"
+        if days_of_supply > 120:
+            return "üü† Markdown"
+        if days_of_supply > 90:
+            return "üü° Watch"
+        if days_of_supply > 60:
+            return "üü¢ Monitor"
+        return "‚úÖ Healthy"
+
+    # ----------------------------------------------------------
+    # Helper: compute slow-mover score (0‚Äì100, higher = worse)
+    # ----------------------------------------------------------
+    def _sm_score(days_of_supply: float, weekly_sales: float) -> float:
+        """Composite slow-mover score: higher means slower / more problematic."""
+        if weekly_sales <= 0:
+            return 100.0
+        # Normalise DOH against a 180-day ceiling
+        doh_component = min(days_of_supply / 180.0, 1.0) * 100.0
+        return round(doh_component, 1)
+
+    try:
+        # -------------------------------------------------------
+        # RAW DATA PREP (column detection, dedup, quarantine)
+        # -------------------------------------------------------
+        inv_df = st.session_state.inv_raw_df.copy()
+        sales_df = st.session_state.sales_raw_df.copy()
+
+        inv_df.columns = inv_df.columns.astype(str).str.strip().str.lower()
+        sales_df.columns = sales_df.columns.astype(str).str.strip().str.lower()
+
+        # Detect required sales columns
+        sales_name_col = detect_column(sales_df.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
+        sales_qty_col = detect_column(sales_df.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
+
+        if not (sales_name_col and sales_qty_col):
+            st.error(
+                f"Sales data does not have required columns.\n\n"
+                f"Looking for: product name (tried: {', '.join(SALES_NAME_ALIASES[:5])}...) "
+                f"and quantity sold (tried: {', '.join(SALES_QTY_ALIASES[:5])}...)\n\n"
+                f"Available columns: {', '.join(sales_df.columns[:10])}..."
+            )
+            st.stop()
+
+        # Detect required inventory columns
+        inv_name_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
+        inv_qty_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+        inv_batch_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BATCH_ALIASES])
+
+        if not (inv_name_col and inv_qty_col):
+            st.error(
+                f"Inventory data does not have required columns.\n\n"
+                f"Looking for: product name (tried: {', '.join(INV_NAME_ALIASES[:5])}...) "
+                f"and quantity (tried: {', '.join(INV_QTY_ALIASES[:5])}...)\n\n"
+                f"Available columns: {', '.join(inv_df.columns[:10])}..."
+            )
+            st.stop()
+
+        # Detect optional inventory columns
+        inv_cost_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_COST_ALIASES])
+        inv_retail_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_RETAIL_PRICE_ALIASES])
+        inv_brand_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_BRAND_ALIASES])
+        inv_sku_col = detect_column(inv_df.columns, [normalize_col(a) for a in INV_SKU_COL_ALIASES])
+        inv_cat_col_raw = detect_column(inv_df.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+
+        # Rename required columns
+        inv_df = inv_df.rename(columns={inv_name_col: "itemname", inv_qty_col: "onhandunits"})
+        if inv_batch_col:
+            inv_df = inv_df.rename(columns={inv_batch_col: "batch"})
+
+        inv_df["itemname"] = inv_df["itemname"].astype(str).str.strip()
+        inv_df["onhandunits"] = pd.to_numeric(inv_df["onhandunits"], errors="coerce").fillna(0)
+
+        if inv_cost_col:
+            inv_df[inv_cost_col] = parse_currency_to_float(inv_df[inv_cost_col])
+        if inv_retail_col:
+            inv_df = inv_df.rename(columns={inv_retail_col: "retail_price"})
+            inv_df["retail_price"] = parse_currency_to_float(inv_df["retail_price"])
+
+        # Dedup and quarantine
+        inv_df, num_dupes, dedupe_msg = deduplicate_inventory(inv_df)
+        if num_dupes > 0:
+            st.info(dedupe_msg)
+
+        quarantined_items = st.session_state.get('quarantined_items', set())
+        if quarantined_items:
+            original_count = len(inv_df)
+            inv_df = inv_df[~inv_df["itemname"].isin(quarantined_items)].copy()
+            filtered_count = original_count - len(inv_df)
+            if filtered_count > 0:
+                st.info(f"üö´ Filtered out {filtered_count} quarantined item(s) from slow movers analysis.")
+
+        # -------------------------------------------------------
+        # DATE COLUMN DETECTION (for velocity window & last-sale)
+        # -------------------------------------------------------
+        date_cols_sales = [col for col in sales_df.columns if 'date' in col]
+        _last_sale_by_product: dict = {}
+        _sales_date_col = date_cols_sales[0] if date_cols_sales else None
+        _data_date_range = DEFAULT_SALES_PERIOD_DAYS  # fallback
+
+        if _sales_date_col:
+            sales_df[_sales_date_col] = pd.to_datetime(sales_df[_sales_date_col], errors='coerce')
+            _dr = (sales_df[_sales_date_col].max() - sales_df[_sales_date_col].min()).days
+            if _dr > 0:
+                _data_date_range = _dr
+            # Last-sale date per product
+            _last_sale_by_product = (
+                sales_df.groupby(sales_name_col)[_sales_date_col].max()
+                .dropna().to_dict()
+            )
+
+        # -------------------------------------------------------
+        # ---- FILTER BAR ----------------------------------------
+        # -------------------------------------------------------
+        st.markdown('<div class="sm-filter-bar">', unsafe_allow_html=True)
+        st.markdown("##### üîç Filters & Settings")
+
+        _fb_r1c1, _fb_r1c2, _fb_r1c3, _fb_r1c4 = st.columns([3, 2, 2, 2])
+        with _fb_r1c1:
+            sm_search = st.text_input(
+                "Search (SKU / Product / Brand)",
+                value="",
+                placeholder="Type to filter‚Ä¶",
+                key="sm_search",
+                help="Filters by product name, SKU, or brand/vendor (case-insensitive).",
+            )
+        with _fb_r1c2:
+            sm_velocity_window = st.selectbox(
+                "Velocity window",
+                options=SLOW_MOVER_VELOCITY_WINDOWS,
+                index=1,
+                format_func=lambda d: f"Last {d} days",
+                key="sm_velocity_window",
+                help=(
+                    "The number of days used to compute average weekly sales. "
+                    "Shorter windows reflect recent demand; longer windows smooth out spikes."
+                ),
+            )
+        with _fb_r1c3:
+            sm_doh_threshold = st.number_input(
+                "Slow mover DOH >",
+                min_value=1,
+                max_value=999,
+                value=SLOW_MOVER_DEFAULT_DOH_THRESHOLD,
+                step=5,
+                key="sm_doh_threshold",
+                help=(
+                    "Days-on-Hand (DOH) threshold: products with more than this many days "
+                    "of supply are flagged as slow movers. Default is 60 days."
+                ),
+            )
+        with _fb_r1c4:
+            _top_n_labels = {25: "Top 25", 50: "Top 50", 100: "Top 100", 0: "All"}
+            sm_top_n = st.selectbox(
+                "Show top N",
+                options=list(_top_n_labels.keys()),
+                index=3,
+                format_func=lambda k: _top_n_labels[k],
+                key="sm_top_n",
+                help="Limit results to the N worst slow movers.",
+            )
+
+        _fb_r2c1, _fb_r2c2, _fb_r2c3, _fb_r2c4 = st.columns([3, 2, 2, 2])
+        with _fb_r2c1:
+            # Category dropdown (populated from data)
+            _cat_options_raw = []
+            if inv_cat_col_raw and inv_cat_col_raw in inv_df.columns:
+                _cat_options_raw = sorted(inv_df[inv_cat_col_raw].dropna().astype(str).unique().tolist())
+            sm_category = st.selectbox(
+                "Category / Subcategory",
+                options=["All"] + _cat_options_raw,
+                index=0,
+                key="sm_category",
+            )
+        with _fb_r2c2:
+            # Brand/Vendor dropdown
+            _brand_options_raw = []
+            if inv_brand_col and inv_brand_col in inv_df.columns:
+                _brand_options_raw = sorted(inv_df[inv_brand_col].dropna().astype(str).unique().tolist())
+            sm_brand = st.selectbox(
+                "Vendor / Brand",
+                options=["All"] + _brand_options_raw,
+                index=0,
+                key="sm_brand",
+            )
+        with _fb_r2c3:
+            sm_sort_by = st.selectbox(
+                "Sort by",
+                options=SLOW_MOVER_SORT_OPTIONS,
+                index=0,
+                key="sm_sort_by",
+            )
+        with _fb_r2c4:
+            sm_only_slow = st.toggle(
+                "Only slow movers",
+                value=True,
+                key="sm_only_slow",
+                help="When ON shows only products exceeding the DOH threshold; OFF shows all products.",
+            )
+            sm_exclude_zero = st.toggle(
+                "Exclude on-hand = 0",
+                value=False,
+                key="sm_exclude_zero",
+                help="Hide products with zero units on hand.",
+            )
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # -------------------------------------------------------
+        # COMPUTE VELOCITY USING SELECTED WINDOW
+        # -------------------------------------------------------
+        # Re-aggregate sales capped to selected velocity window
+        if _sales_date_col:
+            _cutoff = sales_df[_sales_date_col].max() - pd.Timedelta(days=sm_velocity_window)
+            sales_window = sales_df[sales_df[_sales_date_col] >= _cutoff].copy()
+            _effective_days = min(sm_velocity_window, _data_date_range) or sm_velocity_window
+        else:
+            sales_window = sales_df.copy()
+            _effective_days = sm_velocity_window
+
+        sales_velocity = (
+            sales_window.groupby(sales_name_col)[sales_qty_col]
+            .sum()
+            .reset_index()
+            .rename(columns={sales_name_col: "product", sales_qty_col: "total_sold"})
+        )
+        sales_velocity["daily_run_rate"] = sales_velocity["total_sold"] / max(_effective_days, 1)
+        sales_velocity["avg_weekly_sales"] = sales_velocity["daily_run_rate"] * 7
+
+        # -------------------------------------------------------
+        # MERGE INVENTORY + SALES
+        # -------------------------------------------------------
+        slow_movers = inv_df.merge(
+            sales_velocity,
+            left_on="itemname",
+            right_on="product",
+            how="left",
+        )
+
+        slow_movers["daily_run_rate"] = slow_movers["daily_run_rate"].fillna(0)
+        slow_movers["avg_weekly_sales"] = slow_movers["avg_weekly_sales"].fillna(0)
+        slow_movers["total_sold"] = slow_movers["total_sold"].fillna(0)
+
+        slow_movers["days_of_supply"] = np.where(
+            slow_movers["daily_run_rate"] > 0,
+            slow_movers["onhandunits"] / slow_movers["daily_run_rate"],
+            UNKNOWN_DAYS_OF_SUPPLY,
+        )
+        slow_movers["weeks_of_supply"] = (slow_movers["days_of_supply"] / 7).round(1)
+
+        # Days since last sale
+        _today = pd.Timestamp.today().normalize()
+        if _last_sale_by_product:
+            def _days_since_last_sale(name):
+                if name in _last_sale_by_product:
+                    return int((_today - _last_sale_by_product[name]).days)
+                return None
+            slow_movers["days_since_last_sale"] = slow_movers["itemname"].map(_days_since_last_sale)
+        else:
+            slow_movers["days_since_last_sale"] = None
+
+        # $ on-hand (if cost or retail price column available)
+        if inv_cost_col and inv_cost_col in slow_movers.columns:
+            slow_movers["dollars_on_hand"] = (
+                slow_movers["onhandunits"] * slow_movers[inv_cost_col]
+            )
+        else:
+            slow_movers["dollars_on_hand"] = None
+        if "retail_price" in slow_movers.columns:
+            slow_movers["retail_dollars_on_hand"] = (
+                slow_movers["onhandunits"] * slow_movers["retail_price"]
+            )
+
+        # Slow-mover score and action badge
+        slow_movers["sm_score"] = slow_movers.apply(
+            lambda r: _sm_score(r["days_of_supply"], r["avg_weekly_sales"]), axis=1
+        )
+        slow_movers["action"] = slow_movers.apply(
+            lambda r: _sm_action_badge(r["days_of_supply"], r["avg_weekly_sales"], r["onhandunits"]),
+            axis=1,
+        )
+
+        # Legacy discount suggestion (preserved for export)
+        def _suggest_discount(days):
+            if days > 180:
+                return "30-50% (Urgent)"
+            elif days > 120:
+                return "20-30% (High Priority)"
+            elif days > 90:
+                return "15-20% (Medium Priority)"
+            elif days > 60:
+                return "10-15% (Low Priority)"
+            else:
+                return "No discount needed"
+
+        slow_movers["suggested_discount"] = slow_movers["days_of_supply"].apply(_suggest_discount)
+
+        # -------------------------------------------------------
+        # SERVER-SIDE FILTERING
+        # -------------------------------------------------------
+        working_df = slow_movers.copy()
+
+        # Toggle: only slow movers
+        if sm_only_slow:
+            working_df = working_df[working_df["days_of_supply"] > sm_doh_threshold]
+
+        # Toggle: exclude on-hand = 0
+        if sm_exclude_zero:
+            working_df = working_df[working_df["onhandunits"] > 0]
+
+        # Category filter
+        if sm_category != "All" and inv_cat_col_raw and inv_cat_col_raw in working_df.columns:
+            working_df = working_df[working_df[inv_cat_col_raw].astype(str) == sm_category]
+
+        # Brand filter
+        if sm_brand != "All" and inv_brand_col and inv_brand_col in working_df.columns:
+            working_df = working_df[working_df[inv_brand_col].astype(str) == sm_brand]
+
+        # Search filter (SKU / product name / brand)
+        if sm_search.strip():
+            _q = sm_search.strip().lower()
+            _mask = working_df["itemname"].str.lower().str.contains(_q, na=False)
+            if inv_sku_col and inv_sku_col in working_df.columns:
+                _mask |= working_df[inv_sku_col].astype(str).str.lower().str.contains(_q, na=False)
+            if inv_brand_col and inv_brand_col in working_df.columns:
+                _mask |= working_df[inv_brand_col].astype(str).str.lower().str.contains(_q, na=False)
+            working_df = working_df[_mask]
+
+        # Sort
+        _sort_map = {
+            "Days of Supply ‚Üì": ("days_of_supply", False),
+            "Weeks of Supply ‚Üì": ("weeks_of_supply", False),
+            "$ On-Hand ‚Üì": ("dollars_on_hand", False),
+            "Days Since Last Sale ‚Üì": ("days_since_last_sale", False),
+        }
+        _sort_col, _sort_asc = _sort_map.get(sm_sort_by, ("days_of_supply", False))
+        if _sort_col in working_df.columns:
+            working_df = working_df.sort_values(_sort_col, ascending=_sort_asc, na_position="last")
+
+        # Top-N
+        if sm_top_n and sm_top_n > 0:
+            working_df = working_df.head(sm_top_n)
+
+        # -------------------------------------------------------
+        # KPI SUMMARY STRIP
+        # -------------------------------------------------------
+        _slow_count = len(working_df[working_df["days_of_supply"] > sm_doh_threshold])
+        _units_tied = int(working_df["onhandunits"].sum())
+        _median_doh = working_df["days_of_supply"].replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan).median()
+        _median_doh_str = f"{_median_doh:.0f} days" if not pd.isna(_median_doh) else "N/A"
+
+        # Worst category by $ tied up or by units
+        _worst_cat_str = "N/A"
+        if inv_cat_col_raw and inv_cat_col_raw in working_df.columns and not working_df.empty:
+            try:
+                if "dollars_on_hand" in working_df.columns and working_df["dollars_on_hand"].notna().any():
+                    _worst_cat_str = (
+                        working_df.groupby(inv_cat_col_raw)["dollars_on_hand"].sum()
+                        .idxmax()
+                    )
+                else:
+                    _worst_cat_str = (
+                        working_df.groupby(inv_cat_col_raw)["onhandunits"].sum()
+                        .idxmax()
+                    )
+            except ValueError:
+                _worst_cat_str = "N/A"
+
+        _dollars_tied_str = "N/A"
+        if "dollars_on_hand" in working_df.columns and working_df["dollars_on_hand"].notna().any():
+            _dollars_tied = working_df["dollars_on_hand"].sum()
+            _dollars_tied_str = f"${_dollars_tied:,.0f}"
+
+        st.markdown("#### üìå Snapshot ‚Äî Filtered Data")
+        _kc1, _kc2, _kc3, _kc4, _kc5 = st.columns(5)
+        _kc1.metric("üê¢ Slow-moving SKUs", _slow_count,
+                    help=f"Products with DOH > {sm_doh_threshold} days in current view.")
+        _kc2.metric("üì¶ Units tied up", f"{_units_tied:,}",
+                    help="Total units on hand across filtered products.")
+        _kc3.metric("üìä Median DOH", _median_doh_str,
+                    help="Days-on-Hand: units on hand √∑ daily run rate.")
+        _kc4.metric("üí∞ $ Tied Up", _dollars_tied_str,
+                    help="Estimated inventory value tied up (requires cost column).")
+        _kc5.metric("üè∑Ô∏è Worst Category", str(_worst_cat_str),
+                    help="Category with most units (or $ if cost available) tied up in slow movers.")
+
+        st.markdown("---")
+
+        # -------------------------------------------------------
+        # DECISION-FIRST TABLE (default columns: 7‚Äì9)
+        # -------------------------------------------------------
+        if working_df.empty:
+            st.success("‚úÖ No products match current filters. Try adjusting thresholds or filters.")
+        else:
+            # Build display columns
+            _display_cols_map: dict = {}  # label -> source col
+            _avg_weekly_label = f"Avg Wkly Sales ({sm_velocity_window}d)"
+
+            if inv_sku_col and inv_sku_col in working_df.columns:
+                _display_cols_map["SKU"] = inv_sku_col
+            _display_cols_map["Product"] = "itemname"
+            if inv_brand_col and inv_brand_col in working_df.columns:
+                _display_cols_map["Brand/Vendor"] = inv_brand_col
+            if inv_cat_col_raw and inv_cat_col_raw in working_df.columns:
+                _display_cols_map["Category"] = inv_cat_col_raw
+            _display_cols_map["On Hand"] = "onhandunits"
+            _display_cols_map[_avg_weekly_label] = "avg_weekly_sales"
+            _display_cols_map["DOH"] = "days_of_supply"
+            _display_cols_map["Wks Supply"] = "weeks_of_supply"
+            if "dollars_on_hand" in working_df.columns and working_df["dollars_on_hand"].notna().any():
+                _display_cols_map["$ On-Hand"] = "dollars_on_hand"
+            if "days_since_last_sale" in working_df.columns and working_df["days_since_last_sale"].notna().any():
+                _display_cols_map["Days Since Sale"] = "days_since_last_sale"
+            _display_cols_map["Action"] = "action"
+
+            _src_cols = list(_display_cols_map.values())
+            _lbl_cols = list(_display_cols_map.keys())
+
+            display_df = working_df[[c for c in _src_cols if c in working_df.columns]].copy()
+            display_df.columns = [_lbl_cols[i] for i, c in enumerate(_src_cols) if c in working_df.columns]
+
+            # Round numeric columns
+            for _lbl in [_avg_weekly_label, "DOH", "Wks Supply"]:
+                if _lbl in display_df.columns:
+                    display_df[_lbl] = display_df[_lbl].replace(
+                        UNKNOWN_DAYS_OF_SUPPLY, np.nan
+                    ).round(1)
+            if "On Hand" in display_df.columns:
+                display_df["On Hand"] = display_df["On Hand"].round(0).astype(int)
+            if "$ On-Hand" in display_df.columns:
+                display_df["$ On-Hand"] = pd.to_numeric(
+                    display_df["$ On-Hand"], errors="coerce"
+                ).round(2)
+            if "Days Since Sale" in display_df.columns:
+                display_df["Days Since Sale"] = pd.to_numeric(
+                    display_df["Days Since Sale"], errors="coerce"
+                ).astype("Int64")
+
+            st.markdown(
+                f"**Showing {len(display_df)} product(s)** "
+                f"(velocity window: {sm_velocity_window} days | DOH threshold: {sm_doh_threshold})"
+            )
+
+            st.markdown('<div class="sm-table-wrap">', unsafe_allow_html=True)
+            st.dataframe(display_df, width="stretch", hide_index=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # -------------------------------------------------------
+            # EXPANDABLE: Show more columns (all original data)
+            # -------------------------------------------------------
+            with st.expander("üîé Show full detail / all columns"):
+                st.dataframe(
+                    working_df.replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan),
+                    width="stretch",
+                    hide_index=True,
+                )
+
+            # -------------------------------------------------------
+            # DISCOUNT TIER SUMMARY (preserved from original)
+            # -------------------------------------------------------
+            st.markdown("### üìâ Discount Tier Summary")
+            tier_summary = (
+                working_df.groupby("suggested_discount")
+                .agg(product_count=("itemname", "count"), total_units=("onhandunits", "sum"))
+                .reset_index()
+                .rename(columns={
+                    "suggested_discount": "Discount Tier",
+                    "product_count": "Product Count",
+                    "total_units": "Total Units",
+                })
+            )
+            st.dataframe(tier_summary, width="stretch", hide_index=True)
+
+            # -------------------------------------------------------
+            # EXPORT (preserves existing functionality + adds detail sheet)
+            # -------------------------------------------------------
+            st.markdown("### üì• Export")
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                display_df.to_excel(writer, sheet_name='Slow Movers', index=False)
+                tier_summary.to_excel(writer, sheet_name='Summary', index=False)
+                working_df.replace(UNKNOWN_DAYS_OF_SUPPLY, np.nan).to_excel(
+                    writer, sheet_name='Full Detail', index=False
+                )
+            output.seek(0)
+
+            st.download_button(
+                label="üì• Download Slow Movers Report (Excel)",
+                data=output,
+                file_name=f"slow_movers_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+    except Exception as e:
+        st.error(f"Error analyzing slow movers: {str(e)}")
+        import traceback
+        st.write("Debug info:", traceback.format_exc())
+
+# ============================================================
+# PAGE ‚Äì PO BUILDER
+# ============================================================
+elif section == "üí∞ Purchasing Budget":
+    st.subheader("Purchasing Budget")
+    sales_raw = st.session_state.get("sales_raw_df")
+    inv_raw = st.session_state.get("inv_raw_df")
+    if sales_raw is None or inv_raw is None:
+        st.warning("Upload sales and inventory in Inventory Dashboard first to calculate purchasing budget.")
+    else:
+        st.sidebar.markdown("### üí∞ Purchasing Budget Settings")
+        selected_days = st.sidebar.selectbox("Planning sales window", [14, 30, 60, 90], index=1, key="pb_days")
+        target_dos = st.sidebar.number_input("Target DOS", min_value=1, value=45, key="pb_target_dos")
+        cogs_pct_input = st.sidebar.number_input("COGS % fallback", min_value=0.0, max_value=100.0, value=50.0, key="pb_cogs") / 100
+        safety_stock = st.sidebar.number_input("Safety stock %", min_value=0.0, max_value=200.0, value=10.0, key="pb_safety") / 100
+        growth_adj = st.sidebar.number_input("Growth adjustment %", min_value=-100.0, max_value=300.0, value=0.0, key="pb_growth") / 100
+        include_dead = st.sidebar.checkbox("Include dead stock?", value=False, key="pb_dead")
+        include_quarantine = st.sidebar.checkbox("Include quarantine inventory?", value=False, key="pb_quar")
+        include_accessories = st.sidebar.checkbox("Include accessories?", value=False, key="pb_acc")
+        po_total_default = float(st.session_state.get("proposed_po_total", 0.0) or 0.0)
+        on_order_cost = st.sidebar.number_input("On-order inventory cost", min_value=0.0, value=po_total_default, key="pb_on_order")
+
+        sales_window_df, sales_window_total, _, sales_col = calculate_sales_window(sales_raw, selected_days)
+        if sales_col is None:
+            st.warning("Could not detect a retail sales column in your sales file.")
+        active_inv_df, active_inventory_cost = calculate_active_inventory_cost(inv_raw, cogs_pct_input, include_dead, include_quarantine, include_accessories)
+
+        avg_daily_sales = sales_window_total / max(int(selected_days), 1)
+        avg_daily_cogs = avg_daily_sales * cogs_pct_input
+        target_inventory_cost = avg_daily_cogs * float(target_dos)
+        target_inventory_cost *= (1 + safety_stock)
+        target_inventory_cost *= (1 + growth_adj)
+        recommended_budget = target_inventory_cost - active_inventory_cost - on_order_cost
+        available_to_buy = max(recommended_budget, 0)
+
+        c1,c2,c3 = st.columns(3)
+        c1.metric("Recommended Purchasing Budget", format_currency(available_to_buy))
+        c2.metric("Current Active Inventory at Cost", format_currency(active_inventory_cost))
+        c3.metric("Target Inventory at Cost", format_currency(target_inventory_cost))
+        c4,c5,c6 = st.columns(3)
+        over_under = f"Overbought by {format_currency(abs(recommended_budget))}" if recommended_budget < 0 else f"Available to Buy: {format_currency(recommended_budget)}"
+        c4.metric("Over/Under Position", over_under)
+        c5.metric("Avg Daily COGS", format_currency(avg_daily_cogs))
+        c6.metric("On Order Cost", format_currency(on_order_cost))
+
+        inv_cat_col = detect_column(active_inv_df.columns, [normalize_col(x) for x in ["mastercategory","subcategory","category"]])
+        sales_cat_col = detect_column(sales_window_df.columns, [normalize_col(x) for x in ["mastercategory","subcategory","category"]])
+        if inv_cat_col and sales_cat_col and sales_col is not None:
+            sales_cat = sales_window_df.groupby(sales_cat_col, dropna=False)[sales_col].sum().reset_index().rename(columns={sales_cat_col:"Category","%s":"Sales"%sales_col})
+            sales_cat = sales_cat.rename(columns={sales_col:"Sales Window Retail Sales"})
+            inv_cat = active_inv_df.groupby(inv_cat_col, dropna=False)["_active_cost"].sum().reset_index().rename(columns={inv_cat_col:"Category","_active_cost":"Current Inventory at Cost"})
+            cat_df = pd.merge(sales_cat, inv_cat, on="Category", how="outer").fillna(0)
+            cat_df["Avg Daily Sales"] = cat_df["Sales Window Retail Sales"] / max(int(selected_days),1)
+            cat_df["Avg Daily COGS"] = cat_df["Avg Daily Sales"] * cogs_pct_input
+            cat_df["Target Inventory at Cost"] = cat_df["Avg Daily COGS"] * float(target_dos) * (1+safety_stock) * (1+growth_adj)
+            cat_df["Recommended Budget"] = cat_df["Target Inventory at Cost"] - cat_df["Current Inventory at Cost"]
+            cat_df["Budget Status"] = np.where(cat_df["Recommended Budget"] > 0, "Buy", np.where(cat_df["Recommended Budget"] < 0, "Overstocked", "Hold"))
+            cat_df["Notes"] = np.where(cat_df["Budget Status"]=="Buy", "Allocate purchasing budget", np.where(cat_df["Budget Status"]=="Overstocked", "Reduce buys and sell-through", "Near target"))
+            st.markdown("### Category-Level Recommended Budget")
+            st.dataframe(cat_df, width="stretch")
+            if PLOTLY_AVAILABLE and not cat_df.empty:
+                st.plotly_chart(px.bar(cat_df, x="Category", y="Recommended Budget", title="Recommended Budget by Category"), width="stretch")
+                melt_df = cat_df[["Category","Current Inventory at Cost","Target Inventory at Cost"]].melt(id_vars="Category", var_name="Metric", value_name="Value")
+                st.plotly_chart(px.bar(melt_df, x="Category", y="Value", color="Metric", barmode="group", title="Current vs Target Inventory by Category"), width="stretch")
+
+        scenario_rows=[]
+        for name,dos,ss,gr in [("Conservative",30,0.05,0.0),("Balanced",float(target_dos),float(safety_stock),float(growth_adj)),("Aggressive",60,0.15,0.10)]:
+            t=(avg_daily_cogs*dos)*(1+ss)*(1+gr)
+            rb=t-active_inventory_cost-on_order_cost
+            scenario_rows.append({"Scenario":name,"Target Inventory":t,"Current Active Inventory":active_inventory_cost,"On Order":on_order_cost,"Recommended Budget":rb,"Status":"Available to Buy" if rb>=0 else "Overbought"})
+        st.markdown("### Budget Scenario Table")
+        st.dataframe(pd.DataFrame(scenario_rows), width="stretch")
+        if "po_items" in st.session_state:
+            proposed_po_total = float(sum(float(i.get("Total",0) or 0) for i in st.session_state.po_items))
+            remaining_budget_after_po = recommended_budget - proposed_po_total
+            st.metric("Remaining Budget After PO", format_currency(remaining_budget_after_po))
+            if remaining_budget_after_po < 0:
+                st.warning(f"This PO exceeds the recommended purchasing budget by {format_currency(abs(remaining_budget_after_po))}.")
+
+elif section == "üßæ PO Builder":
+    st.subheader("Purchase Order Builder")
+    st.write("Create professional purchase orders with automatic calculations and PDF export.")
+
+    # =========================================================
+    # REORDER CROSS-REFERENCE (from Inventory Dashboard data)
+    # =========================================================
+    _detail_cached = st.session_state.get("detail_cached_df")
+    _detail_product_cached = st.session_state.get("detail_product_cached_df")
+
+    if _detail_cached is not None and not _detail_cached.empty:
+        reorder_rows = _detail_cached[_detail_cached["reorderpriority"] == "1 ‚Äì Reorder ASAP"].copy()
+
+        # Enrich with top_products if product-level data is available
+        if _detail_product_cached is not None and not _detail_product_cached.empty:
+            try:
+                _dpxref = _detail_product_cached[["subcategory", "product_name", "strain_type", "packagesize", "unitssold"]].copy()
+                _dpxref["unitssold"] = pd.to_numeric(_dpxref["unitssold"], errors="coerce").fillna(0)
+                _dp_top = (
+                    _dpxref.sort_values("unitssold", ascending=False)
+                    .groupby(["subcategory", "strain_type", "packagesize"], dropna=False, sort=False)["product_name"]
+                    .apply(lambda x: ", ".join(x.astype(str).head(5).tolist()))
+                    .reset_index()
+                    .rename(columns={"product_name": "top_products"})
+                )
+                reorder_rows = reorder_rows.merge(_dp_top, on=["subcategory", "strain_type", "packagesize"], how="left")
+                reorder_rows["top_products"] = reorder_rows["top_products"].fillna("")
+            except Exception:
+                if "top_products" not in reorder_rows.columns:
+                    reorder_rows["top_products"] = ""
+
+        with st.expander("üìä Reorder Cross-Reference (from Inventory Dashboard)", expanded=True):
+            if reorder_rows.empty:
+                st.success("‚úÖ No items flagged 'Reorder ASAP' in the current dashboard view.")
+            else:
+                _has_price = "unit_cost" in reorder_rows.columns and reorder_rows["unit_cost"].gt(0).any()
+                st.caption(
+                    f"**{len(reorder_rows)} line(s)** flagged as *Reorder ASAP* from your last Inventory Dashboard load. "
+                    "Use the button below to bulk-add them to the PO, or review individual rows first."
+                    + (
+                        " üí≤ **Current Price** = inventory 'Current price' √∑ 2 (wholesale adjustment)."
+                        if _has_price else ""
+                    )
+                )
+                _xref_cols = ["subcategory", "strain_type", "packagesize", "onhandunits", "avgunitsperday", "daysonhand", "reorderqty"]
+                if _has_price:
+                    reorder_rows = reorder_rows.copy()
+                    reorder_rows["Current Price"] = (
+                        pd.to_numeric(reorder_rows["unit_cost"], errors="coerce").fillna(0) / 2
+                    ).round(2)
+                    _xref_cols.append("Current Price")
+                if "top_products" in reorder_rows.columns:
+                    _xref_cols.append("top_products")
+                _xref_cols = [c for c in _xref_cols if c in reorder_rows.columns]
+                st.dataframe(reorder_rows[_xref_cols].reset_index(drop=True), width="stretch")
+
+                if st.button("‚ûï Add All Reorder ASAP Lines to PO", key="po_xref_add_all"):
+                    _added = 0
+                    for _, _r in reorder_rows.iterrows():
+                        _cat = str(_r.get("subcategory", ""))
+                        _strain = str(_r.get("strain_type", ""))
+                        _size = str(_r.get("packagesize", ""))
+                        _desc = " ".join(filter(None, [_cat, _strain, _size]))
+                        _top_raw = str(_r.get("top_products", "")).strip()
+                        _top = _top_raw.split(",")[0].strip() if _top_raw else _desc
+                        try:
+                            _qty = int(_r.get("reorderqty", 0))
+                            _qty = _qty if _qty > 0 else 1
+                        except (ValueError, TypeError):
+                            _qty = 1
+                        try:
+                            _raw_cost = pd.to_numeric(_r.get("unit_cost", 0), errors="coerce")
+                            _price = float(_raw_cost) / 2 if pd.notna(_raw_cost) else 0.0
+                        except (ValueError, TypeError):
+                            _price = 0.0
+                        st.session_state.po_items.append({
+                            "SKU": "",
+                            "Description": _top if _top else _desc,
+                            "Strain": _strain,
+                            "Size": _size,
+                            "Quantity": _qty,
+                            "Price": round(_price, 2),
+                            "Total": 0.0,
+                        })
+                        _added += 1
+                    st.success(f"Added {_added} item(s) to the PO. Fill in prices below.")
+                    _safe_rerun()
+    else:
+        st.info(
+            "üí° Go to **üìä Inventory Dashboard** and upload your files first ‚Äî "
+            "Reorder ASAP items will then appear here for quick PO creation."
+        )
+
+    st.markdown("---")
+    
+    # Initialize session state for PO
+    if 'po_items' not in st.session_state:
+        st.session_state.po_items = []
+    
+    # Store and Vendor Information
+    st.markdown("### üìã Order Information")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        store_name = st.text_input("Store Name", value="Cannabis Store")
+        store_address = st.text_area("Store Address", value="123 Main St\nCity, State 12345", height=100)
+    
+    with col2:
+        vendor_name = st.text_input("Vendor Name", value="")
+        vendor_address = st.text_area("Vendor Address", value="", height=100)
+    
+    with col3:
+        po_number = st.text_input("PO Number", value=f"PO-{datetime.now().strftime('%Y%m%d')}")
+        po_date = st.date_input("PO Date", value=datetime.now().date())
+    
+    # Line Items
+    st.markdown("### üì¶ Line Items")
+    
+    with st.form("add_item_form"):
+        col1, col2, col3, col4, col5, col6 = st.columns([2, 3, 2, 2, 1, 1])
+        
+        with col1:
+            sku = st.text_input("SKU")
+        with col2:
+            description = st.text_input("Description")
+        with col3:
+            strain = st.text_input("Strain")
+        with col4:
+            size = st.text_input("Size")
+        with col5:
+            quantity = st.number_input("Qty", min_value=1, value=1)
+        with col6:
+            price = st.number_input("Price", min_value=0.0, value=0.0, step=0.01)
+        
+        submitted = st.form_submit_button("‚ûï Add Item")
+        if submitted and description:
+            st.session_state.po_items.append({
+                'SKU': sku,
+                'Description': description,
+                'Strain': strain,
+                'Size': size,
+                'Quantity': quantity,
+                'Price': price,
+                'Total': quantity * price
+            })
+            _safe_rerun()
+    
+    # Display current items
+    if st.session_state.po_items:
+        st.markdown("#### Current Items")
+        items_df = pd.DataFrame(st.session_state.po_items)
+
+        # ---- Inventory cross-reference ----
+        _inv_xref = _build_inv_xref_table()
+        if _inv_xref is None:
+            st.caption(
+                "üí° Upload inventory on Inventory Dashboard to enable PO inventory cross-check."
+            )
+
+        on_hand_list = []
+        review_list = []
+        review_reason_list = []
+        for _item in st.session_state.po_items:
+            _on_hand = 0
+            if _inv_xref is not None:
+                _norm_desc = _normalize_for_match(_item.get("Description", ""))
+                _po_size_raw = str(_item.get("Size", "")).strip()
+                _size_present = bool(_po_size_raw)
+                _norm_size = _normalize_size_for_match(_po_size_raw)
+                _matches = _inv_xref[_inv_xref["norm_name"] == _norm_desc]
+                if _size_present:
+                    _matches = _matches[_matches["norm_size"] == _norm_size]
+                _on_hand = int(_matches["onhand_total"].sum())
+            on_hand_list.append(_on_hand)
+            _review = _inv_xref is not None and _on_hand >= PO_REVIEW_THRESHOLD
+            review_list.append(_review)
+            review_reason_list.append(f">={PO_REVIEW_THRESHOLD} on hand" if _review else "")
+
+        items_df["On Hand (Inv)"] = on_hand_list
+        items_df["Review?"] = review_list
+        items_df["Review Reason"] = review_reason_list
+
+        if any(review_list):
+            st.warning(
+                f"‚ö†Ô∏è One or more PO line items already have >={PO_REVIEW_THRESHOLD} units on hand. "
+                "Review flagged items before purchasing."
+            )
+
+        st.dataframe(items_df, width="stretch")
+        
+        # Subtotal
+        subtotal = sum(item['Total'] for item in st.session_state.po_items)
+        
+        # Calculations
+        st.markdown("### üí∞ Totals")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            tax_rate = st.number_input("Tax Rate (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.1)
+        with col2:
+            discount = st.number_input("Discount ($)", min_value=0.0, value=0.0, step=1.0)
+        with col3:
+            shipping = st.number_input("Shipping ($)", min_value=0.0, value=0.0, step=1.0)
+        
+        tax_amount = subtotal * (tax_rate / 100)
+        total = subtotal + tax_amount - discount + shipping
+        st.session_state.proposed_po_total = float(total)
+        
+        # Display totals
+        st.markdown("---")
+        totals_col1, totals_col2 = st.columns([3, 1])
+        with totals_col2:
+            st.markdown(f"**Subtotal:** ${subtotal:,.2f}")
+            if tax_rate > 0:
+                st.markdown(f"**Tax ({tax_rate}%):** ${tax_amount:,.2f}")
+            if discount > 0:
+                st.markdown(f"**Discount:** -${discount:,.2f}")
+            if shipping > 0:
+                st.markdown(f"**Shipping:** ${shipping:,.2f}")
+            st.markdown(f"### **Total:** ${total:,.2f}")
+        
+        # Action buttons
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("üóëÔ∏è Clear All Items"):
+                st.session_state.po_items = []
+                _safe_rerun()
+        
+        with col2:
+            if st.button("üìÑ Generate PDF"):
+                # Generate PDF
+                pdf_buffer = BytesIO()
+                c = canvas.Canvas(pdf_buffer, pagesize=letter)
+                width, height = letter
+                
+                # Header
+                c.setFont("Helvetica-Bold", 20)
+                c.drawString(1*inch, height - 1*inch, "PURCHASE ORDER")
+                
+                # PO Info
+                c.setFont("Helvetica", 10)
+                c.drawString(1*inch, height - 1.3*inch, f"PO Number: {po_number}")
+                c.drawString(1*inch, height - 1.5*inch, f"Date: {po_date}")
+                
+                # Store info
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(1*inch, height - 2*inch, "FROM:")
+                c.setFont("Helvetica", 10)
+                y = height - 2.2*inch
+                c.drawString(1*inch, y, store_name)
+                for line in store_address.split('\n'):
+                    y -= 0.15*inch
+                    c.drawString(1*inch, y, line)
+                
+                # Vendor info
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(4*inch, height - 2*inch, "TO:")
+                c.setFont("Helvetica", 10)
+                y = height - 2.2*inch
+                c.drawString(4*inch, y, vendor_name)
+                for line in vendor_address.split('\n'):
+                    y -= 0.15*inch
+                    c.drawString(4*inch, y, line)
+                
+                # Items table
+                y = height - 3.5*inch
+                c.setFont("Helvetica-Bold", 10)
+                c.drawString(1*inch, y, "SKU")
+                c.drawString(2*inch, y, "Description")
+                c.drawString(4*inch, y, "Strain")
+                c.drawString(5*inch, y, "Size")
+                c.drawString(5.5*inch, y, "Qty")
+                c.drawString(6*inch, y, "Price")
+                c.drawString(6.7*inch, y, "Total")
+                
+                c.line(1*inch, y - 0.05*inch, 7.5*inch, y - 0.05*inch)
+                
+                y -= 0.25*inch
+                c.setFont("Helvetica", 9)
+                for item in st.session_state.po_items:
+                    c.drawString(1*inch, y, str(item['SKU'])[:MAX_SKU_LENGTH_PDF])
+                    c.drawString(2*inch, y, str(item['Description'])[:MAX_DESCRIPTION_LENGTH_PDF])
+                    c.drawString(4*inch, y, str(item['Strain'])[:MAX_STRAIN_LENGTH_PDF])
+                    c.drawString(5*inch, y, str(item['Size'])[:MAX_SIZE_LENGTH_PDF])
+                    c.drawString(5.5*inch, y, str(item['Quantity']))
+                    c.drawString(6*inch, y, f"${item['Price']:.2f}")
+                    c.drawString(6.7*inch, y, f"${item['Total']:.2f}")
+                    y -= 0.2*inch
+                    if y < 2*inch:  # New page if needed
+                        c.showPage()
+                        y = height - 1*inch
+                
+                # Totals
+                y -= 0.3*inch
+                c.line(5.5*inch, y, 7.5*inch, y)
+                y -= 0.25*inch
+                c.setFont("Helvetica", 10)
+                c.drawString(6*inch, y, "Subtotal:")
+                c.drawString(6.7*inch, y, f"${subtotal:,.2f}")
+                
+                if tax_rate > 0:
+                    y -= 0.2*inch
+                    c.drawString(6*inch, y, f"Tax ({tax_rate}%):")
+                    c.drawString(6.7*inch, y, f"${tax_amount:,.2f}")
+                
+                if discount > 0:
+                    y -= 0.2*inch
+                    c.drawString(6*inch, y, "Discount:")
+                    c.drawString(6.7*inch, y, f"-${discount:,.2f}")
+                
+                if shipping > 0:
+                    y -= 0.2*inch
+                    c.drawString(6*inch, y, "Shipping:")
+                    c.drawString(6.7*inch, y, f"${shipping:,.2f}")
+                
+                y -= 0.25*inch
+                c.line(6*inch, y, 7.5*inch, y)
+                y -= 0.25*inch
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(6*inch, y, "TOTAL:")
+                c.drawString(6.7*inch, y, f"${total:,.2f}")
+                
+                c.save()
+                pdf_buffer.seek(0)
+                
+                st.download_button(
+                    label="üì• Download PDF",
+                    data=pdf_buffer,
+                    file_name=f"PO_{po_number}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf"
+                )
+    else:
+        st.info("üëÜ Add items to your purchase order using the form above")
+
+# FOOTER
+st.markdown("---")
+year = datetime.now().year
+st.markdown(f'<div class="footer">{LICENSE_FOOTER} ‚Ä¢ ¬© {year}</div>', unsafe_allow_html=True)
