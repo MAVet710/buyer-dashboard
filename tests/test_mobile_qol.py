@@ -47,7 +47,7 @@ def test_budget_recognizes_generated_inventory_available_column():
 
 
 def test_white_label_primary_fields_are_human_readable():
-    source = (ROOT / "app.py").read_text(encoding="utf-8")
+    source = (ROOT / "modules" / "repack" / "ui.py").read_text(encoding="utf-8")
 
     assert 'st.text_input("Strain Name *"' in source
     assert 'st.number_input("Total Bulk Cost ($) *"' in source
