@@ -25,7 +25,9 @@ def test_phone_layout_keeps_sidebar_bounded_and_main_content_full_width():
 def test_buyer_navigation_uses_compact_sidebar_selectors():
     source = (ROOT / "app.py").read_text(encoding="utf-8")
 
-    assert 'st.sidebar.selectbox(\n    "Page"' in source
+    assert 'st.sidebar.selectbox(\n    "Retail Area"' in source
+    assert 'st.sidebar.radio(\n    "Tool"' in source
+    assert 'key="buyer_section_group"' in source
     assert 'key="buyer_section"' in source
     assert 'data_mode = st.sidebar.selectbox(' in source
 
