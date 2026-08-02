@@ -658,4 +658,3 @@ def _identifier_candidates(raw_code: str) -> set[str]:
             if isinstance(value, (str, int, float)):
                 candidates.add(_normalize_identifier(value))
     return {candidate for candidate in candidates if candidate}
-
