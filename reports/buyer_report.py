@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 from reports.executive_system import (
@@ -28,6 +30,11 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
     detail = frame(payload.get("detail_view"))
     if detail.empty:
         detail = frame(payload.get("product_detail"))
+    product_detail = frame(payload.get("detail_product"))
+    if product_detail.empty:
+        product_detail = frame(payload.get("product_detail"))
+    if product_detail.empty:
+        product_detail = detail.copy()
     inventory = frame(payload.get("inv_df"))
     if inventory.empty:
         inventory = frame(payload.get("inventory_health"))
@@ -86,11 +93,11 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         recommendations.append("Maintain the current buying cadence and review exceptions weekly.")
 
     detail_display = display_frame(
-        detail,
+        product_detail,
         [
-            ("Product Name", ["product name", "product_name", "product", "item name", "item"]),
-            ("Category", ["category"]),
-            ("On Hand", ["on hand", "onhand", "on hand units"]),
+            ("Product Name", ["product name", "product_name", "product", "item name", "item", "itemname"]),
+            ("Category", ["category", "subcategory", "mastercategory"]),
+            ("On Hand", ["on hand", "onhand", "on hand units", "onhandunits"]),
             ("Units Sold", ["units sold", "unitssold"]),
             ("Avg Units/Day", ["avg units per day", "avgunitsperday"]),
             ("Days on Hand", ["days on hand", "daysonhand"]),
@@ -98,9 +105,27 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         ],
     )
     if not detail_display.empty:
-        doh = pd.to_numeric(detail_display.get("Days on Hand"), errors="coerce").fillna(0)
-        sold = pd.to_numeric(detail_display.get("Units Sold"), errors="coerce").fillna(0)
-        on_hand = pd.to_numeric(detail_display.get("On Hand"), errors="coerce").fillna(0)
+        on_hand = pd.to_numeric(
+            detail_display.get("On Hand", pd.Series(0, index=detail_display.index)),
+            errors="coerce",
+        ).fillna(0)
+        sold = pd.to_numeric(
+            detail_display.get("Units Sold", pd.Series(0, index=detail_display.index)),
+            errors="coerce",
+        ).fillna(0)
+        velocity = pd.to_numeric(
+            detail_display.get("Avg Units/Day", pd.Series(0, index=detail_display.index)),
+            errors="coerce",
+        ).fillna(0)
+        if "Days on Hand" not in detail_display:
+            detail_display["Days on Hand"] = (on_hand / velocity.where(velocity > 0)).fillna(0)
+        doh = pd.to_numeric(detail_display["Days on Hand"], errors="coerce").fillna(0)
+        if "Reorder Qty" not in detail_display:
+            target_days = int(first_present(payload, ["doh_threshold"], 30) or 30)
+            detail_display["Reorder Qty"] = [
+                math.ceil(max(0.0, float(target_days - days)) * max(0.0, float(rate)))
+                for days, rate in zip(doh, velocity)
+            ]
         detail_display["Inventory Status"] = "Healthy"
         detail_display.loc[(doh > 0) & (doh <= 7), "Inventory Status"] = "Critical"
         detail_display.loc[(doh > 7) & (doh <= 21), "Inventory Status"] = "Watch"
@@ -113,11 +138,42 @@ def _build_buyer_executive_report_pdf(payload: dict) -> bytes:
         if not detail_display.empty and "Reorder Qty" in detail_display
         else pd.DataFrame()
     )
+    if not reorder_actions.empty:
+        reorder_actions = reorder_actions[
+            [
+                column
+                for column in [
+                    "Product Name",
+                    "Category",
+                    "On Hand",
+                    "Avg Units/Day",
+                    "Days on Hand",
+                    "Reorder Qty",
+                    "Inventory Status",
+                ]
+                if column in reorder_actions
+            ]
+        ]
     risk_rows = (
         detail_display[detail_display.get("Inventory Status", pd.Series(dtype=str)).isin(["Critical", "Overstock", "No Movement"])]
         if not detail_display.empty
         else pd.DataFrame()
     )
+    if not risk_rows.empty:
+        risk_rows = risk_rows[
+            [
+                column
+                for column in [
+                    "Product Name",
+                    "Category",
+                    "On Hand",
+                    "Units Sold",
+                    "Days on Hand",
+                    "Inventory Status",
+                ]
+                if column in risk_rows
+            ]
+        ]
 
     category_chart: list[tuple[str, float, str]] = []
     if not detail_display.empty and "Category" in detail_display and "On Hand" in detail_display:

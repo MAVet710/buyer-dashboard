@@ -67,11 +67,12 @@ from services.workspace_navigation import (
     DATA_OPERATIONS,
     EXTRACTION_WORKSPACE,
     INVENTORY_COUNTS_SECTION,
+    MA_FLOWER_EQUIVALENCY_SECTION,
     METRC_INTEGRATIONS_SECTION,
     PRODUCTION_OPS,
     RETAIL_OPS,
     WHITE_LABEL_WORKSPACE,
-    buyer_section_options,
+    buyer_section_groups,
     can_manage_ai_integrations,
     workspace_options as build_workspace_options,
 )
@@ -85,6 +86,7 @@ from modules.extraction_quick_entry import (
 )
 from modules.nomenclature_ui import render_nomenclature_mapper
 from modules.inventory_audit.ui import render_inventory_audit_workspace
+from modules.ma_flower_equivalency.ui import render_ma_flower_equivalency
 
 load_dotenv()
 
@@ -10045,17 +10047,38 @@ st.sidebar.markdown("---")
 # =========================
 # PAGE SWITCH (BUYER OPERATIONS)
 # =========================
-section_options = buyer_section_options(
+section_groups = buyer_section_groups(
     is_admin=st.session_state.get("is_admin", False),
     user_role=str(st.session_state.get("auth_user_role") or "trial"),
     admin_exports_enabled=_feature_enabled("admin_exports", default_enabled=True),
 )
+saved_buyer_section = st.session_state.get("buyer_section")
+saved_retail_area = next(
+    (
+        group
+        for group, sections in section_groups.items()
+        if saved_buyer_section in sections
+    ),
+    next(iter(section_groups)),
+)
+if st.session_state.get("buyer_section_group") not in section_groups:
+    st.session_state["buyer_section_group"] = saved_retail_area
 
-section = st.sidebar.selectbox(
-    "Page",
-    section_options,
+retail_area = st.sidebar.selectbox(
+    "Retail Area",
+    list(section_groups),
+    key="buyer_section_group",
+    help="Choose a task area, then select the tool you need.",
+)
+visible_section_options = section_groups[retail_area]
+if st.session_state.get("buyer_section") not in visible_section_options:
+    st.session_state["buyer_section"] = visible_section_options[0]
+
+section = st.sidebar.radio(
+    "Tool",
+    visible_section_options,
     key="buyer_section",
-    help="Choose a Buyer Operations page. This compact menu keeps the sidebar usable on phones.",
+    help="Buyer Operations tools are grouped to keep navigation clean on desktop and mobile.",
 )
 
 if section == INVENTORY_COUNTS_SECTION:
@@ -10066,6 +10089,17 @@ if section == INVENTORY_COUNTS_SECTION:
         "Retail Operations",
     )
     render_inventory_audit_workspace("retail")
+    st.stop()
+
+
+if section == MA_FLOWER_EQUIVALENCY_SECTION:
+    render_hero(
+        "MA Flower Equivalency",
+        "Calculate the Dutchie flower-equivalency value for one adult-use package.",
+        str(_display_user),
+        "Retail Operations",
+    )
+    render_ma_flower_equivalency()
     st.stop()
 
 if _feature_enabled("ai_support", default_enabled=True):

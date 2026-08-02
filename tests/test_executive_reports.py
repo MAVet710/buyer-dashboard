@@ -174,3 +174,41 @@ def test_combined_report_pack_preserves_all_reports():
     text = _all_text(reader)
     assert "Retail Labor Operations Executive Report" in text
     assert "Co-Man Production Executive Report" in text
+
+
+def test_buyer_report_uses_product_level_names_in_every_action_table():
+    pdf = _build_buyer_executive_report_pdf(
+        {
+            "detail_view": pd.DataFrame(
+                [
+                    {
+                        "subcategory": "Flower",
+                        "onhandunits": 10,
+                        "unitssold": 20,
+                        "avgunitsperday": 2,
+                        "daysonhand": 5,
+                        "reorderqty": 50,
+                    }
+                ]
+            ),
+            "detail_product": pd.DataFrame(
+                [
+                    {
+                        "product_name": "Blue Dream Flower 3.5g",
+                        "subcategory": "Flower",
+                        "onhandunits": 10,
+                        "unitssold": 20,
+                        "avgunitsperday": 2,
+                        "daysonhand": 5,
+                    }
+                ]
+            ),
+            "doh_threshold": 30,
+        }
+    )
+
+    text = _all_text(_reader(pdf))
+    assert "Reorder Action List" in text
+    assert "Inventory Exceptions" in text
+    assert "Product Performance Detail" in text
+    assert text.count("Blue Dream Flower 3.5g") >= 3
