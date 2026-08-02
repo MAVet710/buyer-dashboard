@@ -1,8 +1,4 @@
-"""Published in-app policy text and immutable version metadata.
-
-The initial policy language is a beta draft and must receive attorney review
-before DoobieLogic accepts paying customers.
-"""
+"""Published in-app policy text and immutable version metadata."""
 
 from __future__ import annotations
 
@@ -12,15 +8,15 @@ from hashlib import sha256
 from services.legal_acceptance_store import PolicyDocument
 
 
-TERMS_VERSION = "2026-08-beta-1"
-PRIVACY_VERSION = "2026-08-beta-1"
-STATEMENT_VERSION = "2026-08-beta-1"
+TERMS_VERSION = "2026-08-1"
+PRIVACY_VERSION = "2026-08-1"
+STATEMENT_VERSION = "2026-08-1"
 POLICY_EFFECTIVE_AT = datetime(2026, 8, 2, tzinfo=timezone.utc)
 
 TERMS_TEXT = """
-## DoobieLogic Beta Terms of Service
+## DoobieLogic Terms of Service
 
-**Effective August 2, 2026 Â· Beta draft pending attorney review**
+**Effective August 2, 2026**
 
 DoobieLogic is business-operations software for authorized users of regulated
 cannabis organizations. You must be at least 21 years old, protect your account,
@@ -55,18 +51,19 @@ upload malicious content, interfere with the service, reverse engineer protected
 components, resell unauthorized access, or use the service to evade legal or
 regulatory duties.
 
-The beta service is provided **as is** and **as available** to the maximum extent
+The Service is provided **as is** and **as available** to the maximum extent
 permitted by law. It may change, contain errors, or experience interruptions.
 DoobieLogic may suspend access for security risks, unlawful use, material breach,
-or nonpayment under a future paid agreement. Final warranty, liability,
-indemnification, governing-law, billing, and dispute terms will be supplied in an
-attorney-approved production agreement before commercial launch.
+or nonpayment under a future paid agreement. Any paid plan, order form, or separately signed agreement may include additional
+billing, warranty, liability, indemnification, governing-law, and dispute terms.
+If a separate signed agreement conflicts with these Terms, that agreement controls
+for the conflicting provision.
 """.strip()
 
 PRIVACY_TEXT = """
-## DoobieLogic Beta Privacy Policy
+## DoobieLogic Privacy Policy
 
-**Effective August 2, 2026 Â· Beta draft pending attorney review**
+**Effective August 2, 2026**
 
 DoobieLogic may process account details, organization and facility assignments,
 authentication and security logs, accepted-policy versions, device and browser
@@ -110,7 +107,7 @@ The service is for business users age 21 or older and is not intended for
 children, patients, consumer medical records, identity-document storage, or
 payment-card storage. Privacy questions and verified access, correction, export,
 or deletion requests will be handled through the support contact published with
-the attorney-approved production policy.
+the Service or the current published policy.
 """.strip()
 
 

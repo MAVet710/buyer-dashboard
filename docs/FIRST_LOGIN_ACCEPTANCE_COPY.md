@@ -1,9 +1,9 @@
 # DoobieLogic First-Login Acceptance
 
-> **Product copy and implementation specification â€” pair with attorney-approved policies before customer launch.**
+> **Product copy and implementation specification for the published in-app policies.**
 >
-> Proposed Terms version: `2026-08-draft-1`  
-> Proposed Privacy version: `2026-08-draft-1`
+> Terms version: `2026-08-1`  
+> Privacy version: `2026-08-1`
 
 ## Screen copy
 
