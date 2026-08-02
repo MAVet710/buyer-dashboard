@@ -63,6 +63,26 @@ def load_polished_theme(background_url: str) -> str:
         padding-bottom: 3rem !important;
     }}
 
+    /* Give the task selector its own pointer-safe stacking context.  This
+       prevents a translated or collapsed sidebar from receiving clicks meant
+       for the main Operations Area control. */
+    .st-key-workspace_navigator {{
+        position: relative;
+        z-index: 20;
+        isolation: isolate;
+        padding: .55rem .65rem .7rem;
+        margin-bottom: .8rem;
+        background: rgba(12,12,12,.72);
+        border: 1px solid rgba(255,255,255,.08);
+        border-radius: 14px;
+    }}
+
+    .st-key-workspace_navigator [data-baseweb="select"] {{
+        position: relative;
+        z-index: 21;
+        pointer-events: auto;
+    }}
+
     h1, h2, h3 {{ letter-spacing: -.035em; text-wrap: balance; }}
     h1 {{ font-weight: 800 !important; }}
     p, [data-testid="stCaptionContainer"] {{ line-height: 1.55; }}
@@ -401,6 +421,14 @@ def load_polished_theme(background_url: str) -> str:
             border-radius: 0;
             border-left: 0;
             border-right: 0;
+        }}
+
+        .st-key-workspace_navigator {{
+            position: sticky;
+            top: .35rem;
+            z-index: 1000;
+            padding: .55rem;
+            box-shadow: 0 12px 32px rgba(0,0,0,.34);
         }}
 
         [data-testid="stSidebar"] {{
