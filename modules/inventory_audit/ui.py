@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date
-from io import BytesIO
 import re
 
 import pandas as pd
@@ -12,6 +11,11 @@ import streamlit as st
 from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engine
 from modules.coman.repository import ComanRepository
 from modules.inventory_audit.repository import InventoryAuditRepository
+
+try:
+    from streamlit_qrcode_scanner import qrcode_scanner
+except ImportError:  # The rest of the audit remains usable with hardware/manual input.
+    qrcode_scanner = None
 
 
 @st.cache_resource
@@ -23,23 +27,6 @@ def _standalone_repositories(cache_version: str):
 
 def _actor() -> str:
     return str(st.session_state.get("admin_user") or st.session_state.get("user_user") or "system")
-
-
-def _decode_camera_label(photo) -> tuple[str, str]:
-    if photo is None:
-        return "", ""
-    try:
-        from PIL import Image
-        import zxingcpp
-
-        result = zxingcpp.read_barcode(Image.open(BytesIO(photo.getvalue())))
-    except ImportError:
-        return "", "Camera decoding is unavailable until the barcode-scanner dependency is installed."
-    except Exception as exc:
-        return "", f"The image could not be decoded: {exc}"
-    if not result:
-        return "", "No QR code or barcode was detected. Move closer, avoid glare, and try again."
-    return str(result.text).strip(), ""
 
 
 def _column_key(value: object) -> str:
@@ -235,7 +222,139 @@ def _line_rows(lines, products_by_id, lots_by_id) -> list[dict[str, object]]:
     return rows
 
 
-def _count_form(
+def _queue_count_dialog(
+    repository: InventoryAuditRepository,
+    organization_id: str,
+    facility_id: str,
+    audit,
+    *,
+    raw_code: str,
+    recount: bool,
+    pending_key: str,
+    scanner_generation_key: str,
+    error_key: str,
+) -> None:
+    try:
+        line = repository.preview_scanned_item(
+            organization_id,
+            facility_id,
+            audit.id,
+            raw_code=raw_code,
+            actor=_actor(),
+            recount=recount,
+        )
+    except Exception as exc:
+        st.session_state[error_key] = str(exc)
+    else:
+        st.session_state[pending_key] = {"line_id": line.id, "raw_code": str(raw_code).strip()}
+    st.session_state[scanner_generation_key] = int(
+        st.session_state.get(scanner_generation_key, 0)
+    ) + 1
+    st.rerun()
+
+
+@st.dialog("Enter inventory count", width="small")
+def _scan_count_dialog(
+    repository: InventoryAuditRepository,
+    organization_id: str,
+    facility_id: str,
+    audit,
+    *,
+    pending: dict[str, str],
+    recount: bool,
+    pending_key: str,
+    scanner_generation_key: str,
+    lots_by_id,
+    products_by_id,
+) -> None:
+    line = next(
+        (
+            item
+            for item in repository.list_lines(organization_id, audit.id)
+            if item.id == pending.get("line_id")
+        ),
+        None,
+    )
+    if line is None:
+        st.error("That audit item is no longer available. Close this box and scan it again.")
+        if st.button("Close and rescan", width="stretch"):
+            st.session_state.pop(pending_key, None)
+            st.session_state[scanner_generation_key] = int(
+                st.session_state.get(scanner_generation_key, 0)
+            ) + 1
+            st.rerun()
+        return
+
+    lot = lots_by_id.get(line.lot_id)
+    product = products_by_id.get(getattr(lot, "product_id", ""))
+    product_name = getattr(product, "name", "Unknown product")
+    lot_code = getattr(lot, "lot_code", "")
+    location = getattr(lot, "location_code", "UNASSIGNED")
+    identifier = (
+        getattr(lot, "compliance_package_id", "")
+        or getattr(product, "upc", "")
+        or getattr(product, "sku", "")
+    )
+
+    st.markdown(f"### {product_name}")
+    st.caption(f"Lot {lot_code} · {location}")
+    st.code(identifier or pending.get("raw_code", ""), language=None)
+    if recount or not audit.blind_count:
+        st.metric("Expected quantity", f"{float(line.expected_quantity):,.3f} {line.unit}")
+    else:
+        st.info("Blind count is active. The expected quantity stays hidden until the first pass is complete.")
+
+    with st.form(f"scan_count_dialog_{audit.id}_{line.id}_{'recount' if recount else 'first'}"):
+        quantity = st.number_input(
+            "Physical quantity in stock",
+            min_value=0.0,
+            step=1.0,
+            format="%.3f",
+        )
+        reason = st.selectbox(
+            "Variance reason",
+            ["", "Count correction", "Damage", "Waste", "Return", "Transfer timing", "Receiving timing", "Unknown"],
+        )
+        notes = st.text_input("Count note (optional)")
+        save, cancel = st.columns(2)
+        save_clicked = save.form_submit_button(
+            "Save & scan next",
+            type="primary",
+            width="stretch",
+        )
+        cancel_clicked = cancel.form_submit_button("Cancel", width="stretch")
+
+    if cancel_clicked:
+        st.session_state.pop(pending_key, None)
+        st.session_state[scanner_generation_key] = int(
+            st.session_state.get(scanner_generation_key, 0)
+        ) + 1
+        st.rerun()
+    if save_clicked:
+        try:
+            repository.record_scanned_count(
+                organization_id,
+                facility_id,
+                audit.id,
+                raw_code=pending.get("raw_code", ""),
+                quantity=quantity,
+                actor=_actor(),
+                recount=recount,
+                reason=reason,
+                notes=notes,
+            )
+        except Exception as exc:
+            st.error(f"Count was not saved: {exc}")
+        else:
+            st.session_state.pop(pending_key, None)
+            st.session_state[scanner_generation_key] = int(
+                st.session_state.get(scanner_generation_key, 0)
+            ) + 1
+            st.toast(f"Saved {quantity:,.3f} {line.unit} for {product_name}.", icon="✅")
+            st.rerun()
+
+
+def _live_count_form(
     repository: InventoryAuditRepository,
     organization_id: str,
     facility_id: str,
@@ -247,66 +366,71 @@ def _count_form(
 ) -> None:
     stage = "recount" if recount else "first"
     title = "Recount scanner" if recount else "Scan and count"
+    pending_key = f"audit_pending_scan_{stage}_{audit.id}"
+    scanner_generation_key = f"audit_scanner_generation_{stage}_{audit.id}"
+    error_key = f"audit_scanner_error_{stage}_{audit.id}"
+
     st.markdown(f"### {title}")
     st.caption(
-        "Use a phone camera or place the cursor in the code field and scan with a USB/Bluetooth scanner."
+        "Point the live camera at a Dutchie, UPC, QR, or METRC label. The matched item opens immediately so you can enter its count."
     )
-    decoded = ""
-    with st.expander("Use phone or tablet camera", expanded=False):
-        st.caption(
-            "Allow camera access when prompted. On mobile devices, switch to the rear camera "
-            "for the clearest Dutchie, UPC, QR, or METRC label scan."
-        )
-        photo = st.camera_input(
-            "Photograph the Dutchie QR, UPC, or package label",
-            key=f"audit_camera_{stage}_{audit.id}",
-            help="Hold the label flat, fill most of the frame, and avoid glare.",
-            resolution="720p",
-            width="stretch",
-        )
-        decoded, decode_error = _decode_camera_label(photo)
-        if decoded:
-            st.success(f"Label read: {decoded}")
-        elif decode_error:
-            st.warning(decode_error)
 
-    with st.form(f"audit_scan_form_{stage}_{audit.id}", clear_on_submit=True):
-        scan_code = st.text_input(
-            "Scanned code",
-            value=decoded,
-            placeholder="Scan QR/barcode or enter Dutchie, UPC, SKU, lot, or METRC package ID",
+    pending = st.session_state.get(pending_key)
+    if pending:
+        _scan_count_dialog(
+            repository,
+            organization_id,
+            facility_id,
+            audit,
+            pending=pending,
+            recount=recount,
+            pending_key=pending_key,
+            scanner_generation_key=scanner_generation_key,
+            lots_by_id=lots_by_id,
+            products_by_id=products_by_id,
         )
-        left, right = st.columns([1, 1.3])
-        quantity = left.number_input("Physical quantity", min_value=0.0, step=1.0, format="%.3f")
-        reason = right.selectbox(
-            "Variance reason",
-            ["", "Count correction", "Damage", "Waste", "Return", "Transfer timing", "Receiving timing", "Unknown"],
-        )
-        notes = st.text_input("Count note (optional)")
-        submit_label = "Save recount" if recount else "Save count"
-        if st.form_submit_button(submit_label, type="primary", width="stretch"):
-            try:
-                line = repository.record_scanned_count(
+        return
+
+    scan_error = st.session_state.pop(error_key, None)
+    if scan_error:
+        st.error(scan_error)
+
+    if qrcode_scanner is None:
+        st.warning("Live camera scanning is unavailable. Use a Bluetooth/USB scanner or manual lookup below.")
+    else:
+        generation = int(st.session_state.get(scanner_generation_key, 0))
+        scanned_code = qrcode_scanner(key=f"live_audit_scanner_{stage}_{audit.id}_{generation}")
+        if scanned_code:
+            _queue_count_dialog(
+                repository,
+                organization_id,
+                facility_id,
+                audit,
+                raw_code=str(scanned_code),
+                recount=recount,
+                pending_key=pending_key,
+                scanner_generation_key=scanner_generation_key,
+                error_key=error_key,
+            )
+
+    with st.expander("Bluetooth / USB scanner or typed code", expanded=qrcode_scanner is None):
+        with st.form(f"audit_code_lookup_{stage}_{audit.id}", clear_on_submit=True):
+            scan_code = st.text_input(
+                "Scan or enter item code",
+                placeholder="Dutchie ID, UPC, SKU, lot, or METRC package ID",
+            )
+            if st.form_submit_button("Find item", type="primary", width="stretch"):
+                _queue_count_dialog(
+                    repository,
                     organization_id,
                     facility_id,
-                    audit.id,
+                    audit,
                     raw_code=scan_code,
-                    quantity=quantity,
-                    actor=_actor(),
                     recount=recount,
-                    reason=reason,
-                    notes=notes,
+                    pending_key=pending_key,
+                    scanner_generation_key=scanner_generation_key,
+                    error_key=error_key,
                 )
-            except Exception as exc:
-                st.error(f"Count was not saved: {exc}")
-            else:
-                lot = lots_by_id.get(line.lot_id)
-                product = products_by_id.get(getattr(lot, "product_id", ""))
-                st.success(
-                    f"Saved {quantity:,.3f} {line.unit} for "
-                    f"{getattr(product, 'name', 'product')} · {getattr(lot, 'lot_code', '')}."
-                )
-                st.rerun()
 
     with st.expander("Cannot scan? Choose the inventory item", expanded=False):
         eligible = []
@@ -329,32 +453,16 @@ def _count_form(
                 ),
                 key=f"audit_manual_line_{stage}_{audit.id}",
             )
-            selected = next(item for item in eligible if item[0].id == selection)
-            manual_quantity = st.number_input(
-                "Physical quantity",
-                min_value=0.0,
-                step=1.0,
-                format="%.3f",
-                key=f"audit_manual_qty_{stage}_{audit.id}",
-            )
-            if st.button("Save manual count", key=f"audit_manual_save_{stage}_{audit.id}", width="stretch"):
-                line, lot, product = selected
-                try:
-                    repository.record_scanned_count(
-                        organization_id,
-                        facility_id,
-                        audit.id,
-                        raw_code=_primary_code(lot, product),
-                        quantity=manual_quantity,
-                        actor=_actor(),
-                        recount=recount,
-                        notes="Manual item selection",
-                    )
-                except Exception as exc:
-                    st.error(f"Count was not saved: {exc}")
-                else:
-                    st.success("Manual count saved.")
-                    st.rerun()
+            if st.button("Enter count for selected item", key=f"audit_manual_open_{stage}_{audit.id}", width="stretch"):
+                line, lot, product = next(item for item in eligible if item[0].id == selection)
+                st.session_state[pending_key] = {
+                    "line_id": line.id,
+                    "raw_code": _primary_code(lot, product),
+                }
+                st.session_state[scanner_generation_key] = int(
+                    st.session_state.get(scanner_generation_key, 0)
+                ) + 1
+                st.rerun()
         else:
             st.success("No items remain in this count stage.")
 
@@ -500,7 +608,7 @@ def render_inventory_audits(
     if audit.status not in {"completed", "cancelled"}:
         if pending:
             st.info(f"First pass in progress: {pending} item(s) remain. Scan every item before recount results are revealed.")
-            _count_form(
+            _live_count_form(
                 repository,
                 organization_id,
                 facility_id,
@@ -514,7 +622,7 @@ def render_inventory_audits(
                 st.dataframe(progress, hide_index=True, width="stretch")
         elif recount_lines:
             st.warning(f"First pass complete. {len(recount_lines)} item(s) require a recount before approval.")
-            _count_form(
+            _live_count_form(
                 repository,
                 organization_id,
                 facility_id,
@@ -655,3 +763,4 @@ def render_inventory_audit_workspace(operation_type: str = "retail") -> None:
             st.code("migrations/versions/0012_inventory_audits.sql")
         else:
             st.error(f"Inventory Counts could not load: {exc}")
+
