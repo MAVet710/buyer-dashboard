@@ -9,10 +9,12 @@ from services.workspace_navigation import (
     METRC_INTEGRATIONS_SECTION,
     EXTRACTION_WORKSPACE,
     INVENTORY_COUNTS_SECTION,
+    MA_FLOWER_EQUIVALENCY_SECTION,
     PRODUCTION_OPS,
     RETAIL_OPS,
     WHITE_LABEL_WORKSPACE,
     buyer_section_options,
+    buyer_section_groups,
     can_manage_ai_integrations,
     workspace_group,
     workspace_groups,
@@ -92,3 +94,24 @@ def test_inventory_counts_are_available_to_retail_users():
     standard = buyer_section_options(is_admin=False, user_role="buyer")
 
     assert INVENTORY_COUNTS_SECTION in standard
+
+
+def test_buyer_tools_are_grouped_into_compact_retail_areas():
+    groups = buyer_section_groups(is_admin=False, user_role="buyer")
+
+    assert list(groups) == [
+        "Overview",
+        "Inventory",
+        "Purchasing",
+        "Compliance",
+        "Administration",
+    ]
+    assert INVENTORY_COUNTS_SECTION in groups["Inventory"]
+    assert MA_FLOWER_EQUIVALENCY_SECTION in groups["Inventory"]
+    assert METRC_INTEGRATIONS_SECTION in groups["Administration"]
+
+
+def test_ma_flower_equivalency_is_available_to_retail_users():
+    standard = buyer_section_options(is_admin=False, user_role="buyer")
+
+    assert MA_FLOWER_EQUIVALENCY_SECTION in standard
