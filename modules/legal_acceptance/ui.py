@@ -70,7 +70,7 @@ def render_legal_acceptance_gate(
         return True
 
     st.title("Welcome to DoobieLogic")
-    st.caption("Review the beta agreements before entering your operations workspace.")
+    st.caption("Review the agreements before entering your operations workspace.")
     st.info(
         "DoobieLogic supports operational decisions for regulated cannabis businesses. "
         "Qualified personnel must review outputs before applying them to live systems."
