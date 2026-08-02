@@ -717,3 +717,68 @@ class AppUserFacilityRole(TimestampMixin, Base):
         ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True
     )
     role: Mapped[str] = mapped_column(String(32), nullable=False)
+
+class LegalPolicyVersion(Base):
+    """Immutable metadata for one published legal-policy document."""
+
+    __tablename__ = "legal_policy_versions"
+    __table_args__ = (
+        UniqueConstraint("policy_type", "version", name="uq_legal_policy_type_version"),
+        CheckConstraint("policy_type in ('terms', 'privacy')", name="ck_legal_policy_type"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    policy_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    document_url: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    document_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    requires_reacceptance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    published_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class LegalAcceptanceEvent(Base):
+    """Append-only evidence that an authenticated user accepted policy versions."""
+
+    __tablename__ = "legal_acceptance_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "terms_version",
+            "privacy_version",
+            name="uq_legal_acceptance_user_versions",
+        ),
+        CheckConstraint(
+            "acceptance_method in ('first_login', 'policy_update', 'organization_activation')",
+            name="ck_legal_acceptance_method",
+        ),
+        CheckConstraint(
+            "environment in ('production', 'trial', 'sandbox')",
+            name="ck_legal_acceptance_environment",
+        ),
+        Index("ix_legal_acceptance_user_time", "user_id", "accepted_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    organization_id: Mapped[str | None] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    terms_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    privacy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    statement_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    acceptance_method: Mapped[str] = mapped_column(String(32), nullable=False)
+    environment: Mapped[str] = mapped_column(String(24), nullable=False)
+    accepted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    ip_address: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    user_agent: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True
+    )
+
