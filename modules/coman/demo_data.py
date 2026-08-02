@@ -480,7 +480,48 @@ def ensure_coman_demo_dataset(
                         reason="Living demo production completion",
                         reference=order.order_number,
                     )
-   …432 tokens truncated…
+                )
+
+        trade_partners: list[TradePartner] = []
+        partner_specs = [
+            ("Harbor Wellness", "customer", "MR281101", "Maya Chen", "Net 30"),
+            ("Cape Select", "customer", "MR281102", "Luis Pereira", "Net 15"),
+            ("Berkshire Brands", "customer", "MR281103", "Jordan Reed", "Net 30"),
+            ("Atlantic Cultivation", "vendor", "MC281201", "Avery Brooks", "Net 30"),
+            ("Pioneer Valley Packaging", "vendor", "SUP-281202", "Sam Rivera", "Net 45"),
+        ]
+        for idx, (name, partner_type, license_number, contact, terms) in enumerate(
+            partner_specs,
+            start=1,
+        ):
+            partner = TradePartner(
+                organization_id=organization.id,
+                name=name,
+                partner_type=partner_type,
+                license_or_registration=license_number,
+                contact_name=contact,
+                contact_email=f"commercial{idx}@example.invalid",
+                contact_phone=f"508-555-{1200 + idx:04d}",
+                payment_terms=terms,
+                active=True,
+            )
+            session.add(partner)
+            trade_partners.append(partner)
+        session.flush()
+
+        sales_customers = [
+            partner for partner in trade_partners if partner.partner_type == "customer"
+        ]
+        vendors = [
+            partner for partner in trade_partners if partner.partner_type == "vendor"
+        ]
+        sellable = [
+            (product, finished_lots.get(product.id))
+            for product in finished_products.values()
+            if finished_lots.get(product.id) is not None
+        ]
+        commercial_order_count = 0
+        commercial_transaction_count = 0
         sales_statuses = [
             ("confirmed", "sent", 0.0),
             ("allocated", "sent", 0.0),
