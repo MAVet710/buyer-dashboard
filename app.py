@@ -76,7 +76,6 @@ from services.workspace_navigation import (
     can_manage_ai_integrations,
     workspace_options as build_workspace_options,
 )
-from services.legal_acceptance_store import LegalAcceptanceStore
 from modules.commercial.ui import render_commercial_workspace
 from modules.coman.ui import render_coman_workspace
 from modules.data_hub import render_data_hub_workspace
@@ -89,6 +88,7 @@ from modules.nomenclature_ui import render_nomenclature_mapper
 from modules.inventory_audit.ui import render_inventory_audit_workspace
 from modules.ma_flower_equivalency.ui import render_ma_flower_equivalency
 from modules.repack.ui import render_white_label_repack_workspace
+from services.legal_acceptance_store import LegalAcceptanceStore
 from modules.legal_acceptance.ui import render_legal_acceptance_gate
 from modules.admin.user_management import render_admin_user_management
 from modules.admin.integrations import render_admin_integrations_page
@@ -98,7 +98,7 @@ from modules.navigation.workspace_shell import render_workspace_selector
 load_dotenv()
 
 # Streamlit can hot-reload app.py while retaining already-imported service
-# modules in the same Python process.  Reload the user store only when the UI
+# modules in the same Python process. Reload the user store only when the UI
 # expects a newer account-management API than the in-memory class provides.
 if not hasattr(app_user_store_module.AppUserStore, "update_user"):
     importlib.invalidate_caches()
@@ -3264,12 +3264,6 @@ def _resolve_metrc_integrator_key() -> str:
     except Exception:
         return ""
 
-
-
-
-
-
-
 # =========================
 # INIT DOOBIE CONNECTION + SHOW DEBUG (admin-only)
 # =========================
@@ -3464,8 +3458,6 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             hours_left = int(remaining.total_seconds() // 3600)
             mins_left = int((remaining.total_seconds() % 3600) // 60)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
-
-
 
 if st.session_state.is_admin or st.session_state.user_authenticated:
     render_access_context(user_store=APP_USER_STORE, rerun=_safe_rerun)
@@ -8040,8 +8032,6 @@ def render_extraction_command_center():
 # =========================
 # TOP-LEVEL APP MODE SWITCH
 # =========================
-
-
 
 if not workspace_options:
     st.error("Your license does not include any enabled workspace modules.")
