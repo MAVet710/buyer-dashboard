@@ -76,6 +76,7 @@ from services.workspace_navigation import (
     can_manage_ai_integrations,
     workspace_options as build_workspace_options,
 )
+from services.legal_acceptance_store import LegalAcceptanceStore
 from modules.commercial.ui import render_commercial_workspace
 from modules.coman.ui import render_coman_workspace
 from modules.data_hub import render_data_hub_workspace
@@ -88,16 +89,16 @@ from modules.nomenclature_ui import render_nomenclature_mapper
 from modules.inventory_audit.ui import render_inventory_audit_workspace
 from modules.ma_flower_equivalency.ui import render_ma_flower_equivalency
 from modules.repack.ui import render_white_label_repack_workspace
-from services.legal_acceptance_store import LegalAcceptanceStore
 from modules.legal_acceptance.ui import render_legal_acceptance_gate
 from modules.admin.user_management import render_admin_user_management
 from modules.admin.integrations import render_admin_integrations_page
 from modules.authentication.access_context import render_access_context
+from modules.navigation.workspace_shell import render_workspace_selector
 
 load_dotenv()
 
 # Streamlit can hot-reload app.py while retaining already-imported service
-# modules in the same Python process. Reload the user store only when the UI
+# modules in the same Python process.  Reload the user store only when the UI
 # expects a newer account-management API than the in-memory class provides.
 if not hasattr(app_user_store_module.AppUserStore, "update_user"):
     importlib.invalidate_caches()
@@ -3264,6 +3265,11 @@ def _resolve_metrc_integrator_key() -> str:
         return ""
 
 
+
+
+
+
+
 # =========================
 # INIT DOOBIE CONNECTION + SHOW DEBUG (admin-only)
 # =========================
@@ -3459,10 +3465,14 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             mins_left = int((remaining.total_seconds() % 3600) // 60)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
 
+
+
 if st.session_state.is_admin or st.session_state.user_authenticated:
     render_access_context(user_store=APP_USER_STORE, rerun=_safe_rerun)
     if st.session_state.get("auth_user_role") == "dev":
-        st.info("LEVEL DEV — Platform-wide access is active. Select the company and facility you want to inspect.")
+        st.sidebar.caption(
+            "LEVEL DEV · Platform-wide access. Choose the company and facility above."
+        )
 
 # Hydrate per-user persistent integrations after auth succeeds.
 _hydrate_persistent_user_integrations()
@@ -3627,6 +3637,21 @@ def _build_white_label_repack_report_pdf(payload: dict) -> bytes:
     return build_report(payload)
 
 
+@st.cache_data(show_spinner=False)
+def _cached_buyer_report_pdf(payload: dict) -> bytes:
+    return _build_buyer_executive_report_pdf(payload)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_extraction_report_pdf(payload: dict) -> bytes:
+    return _build_extraction_executive_report_pdf(payload)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_repack_report_pdf(payload: dict) -> bytes:
+    return _build_white_label_repack_report_pdf(payload)
+
+
 def _time_greeting() -> str:
     hour = datetime.now().hour
     if hour < 12:
@@ -3640,11 +3665,6 @@ def _time_greeting() -> str:
 _display_user = _current_authenticated_identity()[0] or "Trial User"
 
 
-render_commandbar(
-    user_name=str(_display_user),
-    role=str(st.session_state.get("auth_user_role") or "trial"),
-    storage_connected=bool(APP_USER_STORE.configured),
-)
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
 workspace_options = build_workspace_options(_feature_enabled)
@@ -3702,6 +3722,24 @@ def _sync_workspace_to_operations_group() -> None:
         st.session_state["workspace_mode"] = selected_group_options[0]
 
 
+# Render the task selector before report generation and other expensive page
+# preparation so workspace changes feel immediate on desktop and mobile.
+if not workspace_options:
+    st.error("Your license does not include any enabled workspace modules.")
+    st.stop()
+operation_group, app_mode = render_workspace_selector(
+    workspace_groups,
+    preferred_group=saved_group,
+)
+_active_workspace = app_mode
+
+render_commandbar(
+    user_name=str(_display_user),
+    role=str(st.session_state.get("auth_user_role") or "trial"),
+    storage_connected=bool(APP_USER_STORE.configured),
+)
+
+
 _ecc_runs = _safe_report_df(st.session_state.get("ecc_run_log"))
 _extraction_profitability = _safe_report_df(st.session_state.get("ecc_run_value_snapshot", _ecc_runs))
 _extraction_payload = {
@@ -3753,13 +3791,13 @@ _retail_report_parts: list[tuple[str, bytes]] = []
 _production_report_parts: list[tuple[str, bytes]] = []
 _buyer_report_bytes = None
 _white_report_bytes = None
-_extraction_report_bytes = _build_extraction_executive_report_pdf(_extraction_payload)
+_extraction_report_bytes = _cached_extraction_report_pdf(_extraction_payload)
 if _buyer_export_payload is not None:
-    _buyer_report_bytes = _build_buyer_executive_report_pdf(_buyer_export_payload)
+    _buyer_report_bytes = _cached_buyer_report_pdf(_buyer_export_payload)
     _retail_report_parts.append(("Buyer Operations", _buyer_report_bytes))
 _white_pack_payload = st.session_state.get("white_label_export_payload")
 if _white_pack_payload is not None:
-    _white_report_bytes = _build_white_label_repack_report_pdf(_white_pack_payload)
+    _white_report_bytes = _cached_repack_report_pdf(_white_pack_payload)
     _retail_report_parts.append(("White Label / Repack", _white_report_bytes))
 for _report_name, _report_state_key in [
     ("Retail Labor Operations", "retail_ops_labor_report_bytes"),
@@ -8002,32 +8040,12 @@ def render_extraction_command_center():
 # =========================
 # TOP-LEVEL APP MODE SWITCH
 # =========================
+
+
+
 if not workspace_options:
     st.error("Your license does not include any enabled workspace modules.")
     st.stop()
-
-_group_col, _workspace_col = st.columns([1, 1.65])
-with _group_col:
-    operation_group = st.selectbox(
-        "Operations Area",
-        operation_groups,
-        help=(
-            "Retail Ops contains buying and repack tools. Production Ops contains Co-Man "
-            "and extraction tools. Data & Integrations loads shared operational sources."
-        ),
-        key="operations_group",
-        on_change=_sync_workspace_to_operations_group,
-    )
-
-group_workspace_options = workspace_groups[operation_group]
-
-with _workspace_col:
-    app_mode = st.selectbox(
-        "Workspace",
-        group_workspace_options,
-        help=f"Choose a workspace inside {operation_group}.",
-        key="workspace_mode",
-    )
 
 if app_mode == DATA_HUB_WORKSPACE:
     render_hero(
@@ -8137,7 +8155,6 @@ if section == INVENTORY_COUNTS_SECTION:
     )
     render_inventory_audit_workspace("retail")
     st.stop()
-
 
 if section == MA_FLOWER_EQUIVALENCY_SECTION:
     render_hero(
@@ -10221,16 +10238,22 @@ elif section == "🚚 Delivery Impact":
                     key="di_reuse_cached_sales",
                     help=f"Reuse {_cached_sales_raw.shape[0]:,} loaded rows instead of uploading the same report again.",
                 )
-            _sales_file = st.file_uploader(
-                "Upload a different sales report (CSV or XLSX)",
-                type=["csv", "xlsx"],
-                key="di_sales_upload",
-                help=(
-                    "Expected columns: Order ID, Order Time, Product Name, "
-                    "Total Inventory Sold, Net Sales. "
-                    "Metadata preamble rows (e.g. Export Date:) are skipped automatically."
-                ),
-            )
+            _sales_file = None
+            if not _reuse_cached_sales:
+                _sales_file = st.file_uploader(
+                    "Upload a sales report (CSV or XLSX)",
+                    type=["csv", "xlsx"],
+                    key="di_sales_upload",
+                    help=(
+                        "Expected columns: Order ID, Order Time, Product Name, "
+                        "Total Inventory Sold, Net Sales. "
+                        "Metadata preamble rows (e.g. Export Date:) are skipped automatically."
+                    ),
+                )
+            elif _has_cached_sales:
+                st.caption(
+                    f"Using {_cached_sales_raw.shape[0]:,} sales rows already loaded in Buyer Dashboard."
+                )
 
         if _manifest_files and (_sales_file or _reuse_cached_sales):
             try:
@@ -10926,8 +10949,8 @@ elif section == "🚚 Delivery Impact":
         else:
             _missing = []
             if not _manifest_files:
-                _missing.append("one or more manifest PDFs")
-            if not _sales_file:
+                _missing.append("one or more manifest files (CSV, XLSX, or PDF)")
+            if not _sales_file and not _reuse_cached_sales:
                 _missing.append("a sales report (CSV or XLSX)")
             st.info(f"👆 Upload {' and '.join(_missing)} to see the analysis.")
 
@@ -11631,7 +11654,7 @@ elif section == "🧾 PO Builder":
     if 'po_items' not in st.session_state:
         st.session_state.po_items = []
     
-    # Store and Vendor Information
+    # Store, vendor, and fulfillment information
     st.markdown("### 📋 Order Information")
     col1, col2, col3 = st.columns(3)
     
@@ -11646,6 +11669,32 @@ elif section == "🧾 PO Builder":
     with col3:
         po_number = st.text_input("PO Number", value=f"PO-{datetime.now().strftime('%Y%m%d')}")
         po_date = st.date_input("PO Date", value=datetime.now().date())
+
+    contact_col, vendor_col, terms_col = st.columns(3)
+    with contact_col:
+        store_contact = st.text_input("Buyer / Contact Name")
+        store_phone = st.text_input("Buyer Phone")
+        buyer_email = st.text_input("Buyer Email")
+        store_number = st.text_input("Store / Location Number")
+    with vendor_col:
+        vendor_contact = st.text_input("Vendor Contact")
+        vendor_license = st.text_input("Vendor License Number")
+        requested_delivery_date = st.date_input(
+            "Requested Delivery Date", value=datetime.now().date() + timedelta(days=7)
+        )
+        shipping_method = st.selectbox(
+            "Shipping Method", ["Vendor delivery", "Customer pickup", "Common carrier", "Other"]
+        )
+    with terms_col:
+        terms = st.selectbox(
+            "Payment Terms", ["Due on receipt", "Prepaid", "Net 7", "Net 15", "Net 30", "Other"]
+        )
+        delivery_instructions = st.text_area(
+            "Delivery Instructions", placeholder="Receiving window, entrance, or appointment details."
+        )
+        po_notes = st.text_area(
+            "PO Notes", placeholder="Quality, substitution, or packaging instructions."
+        )
     
     # Line Items
     st.markdown("### 📦 Line Items")
@@ -11762,104 +11811,47 @@ elif section == "🧾 PO Builder":
         
         with col2:
             if st.button("📄 Generate PDF"):
-                # Generate PDF
-                pdf_buffer = BytesIO()
-                c = canvas.Canvas(pdf_buffer, pagesize=letter)
-                width, height = letter
-                
-                # Header
-                c.setFont("Helvetica-Bold", 20)
-                c.drawString(1*inch, height - 1*inch, "PURCHASE ORDER")
-                
-                # PO Info
-                c.setFont("Helvetica", 10)
-                c.drawString(1*inch, height - 1.3*inch, f"PO Number: {po_number}")
-                c.drawString(1*inch, height - 1.5*inch, f"Date: {po_date}")
-                
-                # Store info
-                c.setFont("Helvetica-Bold", 12)
-                c.drawString(1*inch, height - 2*inch, "FROM:")
-                c.setFont("Helvetica", 10)
-                y = height - 2.2*inch
-                c.drawString(1*inch, y, store_name)
-                for line in store_address.split('\n'):
-                    y -= 0.15*inch
-                    c.drawString(1*inch, y, line)
-                
-                # Vendor info
-                c.setFont("Helvetica-Bold", 12)
-                c.drawString(4*inch, height - 2*inch, "TO:")
-                c.setFont("Helvetica", 10)
-                y = height - 2.2*inch
-                c.drawString(4*inch, y, vendor_name)
-                for line in vendor_address.split('\n'):
-                    y -= 0.15*inch
-                    c.drawString(4*inch, y, line)
-                
-                # Items table
-                y = height - 3.5*inch
-                c.setFont("Helvetica-Bold", 10)
-                c.drawString(1*inch, y, "SKU")
-                c.drawString(2*inch, y, "Description")
-                c.drawString(4*inch, y, "Strain")
-                c.drawString(5*inch, y, "Size")
-                c.drawString(5.5*inch, y, "Qty")
-                c.drawString(6*inch, y, "Price")
-                c.drawString(6.7*inch, y, "Total")
-                
-                c.line(1*inch, y - 0.05*inch, 7.5*inch, y - 0.05*inch)
-                
-                y -= 0.25*inch
-                c.setFont("Helvetica", 9)
-                for item in st.session_state.po_items:
-                    c.drawString(1*inch, y, str(item['SKU'])[:MAX_SKU_LENGTH_PDF])
-                    c.drawString(2*inch, y, str(item['Description'])[:MAX_DESCRIPTION_LENGTH_PDF])
-                    c.drawString(4*inch, y, str(item['Strain'])[:MAX_STRAIN_LENGTH_PDF])
-                    c.drawString(5*inch, y, str(item['Size'])[:MAX_SIZE_LENGTH_PDF])
-                    c.drawString(5.5*inch, y, str(item['Quantity']))
-                    c.drawString(6*inch, y, f"${item['Price']:.2f}")
-                    c.drawString(6.7*inch, y, f"${item['Total']:.2f}")
-                    y -= 0.2*inch
-                    if y < 2*inch:  # New page if needed
-                        c.showPage()
-                        y = height - 1*inch
-                
-                # Totals
-                y -= 0.3*inch
-                c.line(5.5*inch, y, 7.5*inch, y)
-                y -= 0.25*inch
-                c.setFont("Helvetica", 10)
-                c.drawString(6*inch, y, "Subtotal:")
-                c.drawString(6.7*inch, y, f"${subtotal:,.2f}")
-                
-                if tax_rate > 0:
-                    y -= 0.2*inch
-                    c.drawString(6*inch, y, f"Tax ({tax_rate}%):")
-                    c.drawString(6.7*inch, y, f"${tax_amount:,.2f}")
-                
-                if discount > 0:
-                    y -= 0.2*inch
-                    c.drawString(6*inch, y, "Discount:")
-                    c.drawString(6.7*inch, y, f"-${discount:,.2f}")
-                
-                if shipping > 0:
-                    y -= 0.2*inch
-                    c.drawString(6*inch, y, "Shipping:")
-                    c.drawString(6.7*inch, y, f"${shipping:,.2f}")
-                
-                y -= 0.25*inch
-                c.line(6*inch, y, 7.5*inch, y)
-                y -= 0.25*inch
-                c.setFont("Helvetica-Bold", 12)
-                c.drawString(6*inch, y, "TOTAL:")
-                c.drawString(6.7*inch, y, f"${total:,.2f}")
-                
-                c.save()
-                pdf_buffer.seek(0)
-                
+                po_pdf_df = pd.DataFrame(st.session_state.po_items).rename(
+                    columns={
+                        "Quantity": "Qty",
+                        "Price": "Unit Price",
+                        "Total": "Line Total",
+                    }
+                )
+                fulfillment_notes = "\n".join(
+                    part for part in [
+                        f"Buyer email: {buyer_email}" if buyer_email else "",
+                        f"Requested delivery: {requested_delivery_date:%m/%d/%Y}",
+                        f"Shipping method: {shipping_method}",
+                        f"Delivery instructions: {delivery_instructions}" if delivery_instructions else "",
+                        po_notes,
+                    ]
+                    if part
+                )
+                pdf_bytes = generate_po_pdf(
+                    store_name,
+                    store_number,
+                    store_address,
+                    store_phone,
+                    store_contact,
+                    vendor_name,
+                    vendor_license,
+                    vendor_address,
+                    vendor_contact,
+                    po_number,
+                    po_date,
+                    terms,
+                    fulfillment_notes,
+                    po_pdf_df,
+                    subtotal,
+                    discount,
+                    tax_amount,
+                    shipping,
+                    total,
+                )
                 st.download_button(
                     label="📥 Download PDF",
-                    data=pdf_buffer,
+                    data=pdf_bytes,
                     file_name=f"PO_{po_number}_{datetime.now().strftime('%Y%m%d')}.pdf",
                     mime="application/pdf"
                 )
