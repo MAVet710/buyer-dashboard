@@ -67,4 +67,3 @@ def test_inventory_audits_use_live_scanning_and_item_count_dialog():
     assert '"Save & scan next"' in source
     assert "preview_scanned_item(" in source
     assert "_live_count_form(" in source
-
