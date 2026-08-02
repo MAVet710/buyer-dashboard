@@ -22,14 +22,21 @@ def test_phone_layout_keeps_sidebar_bounded_and_main_content_full_width():
     assert "background-attachment: scroll" in source
 
 
-def test_buyer_navigation_uses_compact_sidebar_selectors():
-    source = (ROOT / "app.py").read_text(encoding="utf-8")
+def test_workspace_navigation_is_task_first_and_pointer_safe():
+    app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+    nav_source = (ROOT / "modules" / "navigation" / "workspace_shell.py").read_text(
+        encoding="utf-8"
+    )
+    theme_source = (ROOT / "ui_polish.py").read_text(encoding="utf-8")
 
-    assert 'st.sidebar.selectbox(\n    "Retail Area"' in source
-    assert 'st.sidebar.radio(\n    "Tool"' in source
-    assert 'key="buyer_section_group"' in source
-    assert 'key="buyer_section"' in source
-    assert 'data_mode = st.sidebar.selectbox(' in source
+    assert 'key="workspace_navigator"' in nav_source
+    assert '"Operations Area"' in nav_source
+    assert '"Workspace"' in nav_source
+    assert app_source.index("operation_group, app_mode = render_workspace_selector(") < app_source.index(
+        "_buyer_report_bytes = _cached_buyer_report_pdf("
+    )
+    assert ".st-key-workspace_navigator" in theme_source
+    assert "pointer-events: auto" in theme_source
 
 
 def test_theme_has_consistent_focus_and_mobile_safe_areas():
@@ -59,6 +66,8 @@ def test_delivery_impact_can_reuse_loaded_sales():
 
     assert '"Use sales data already loaded in Buyer Dashboard"' in source
     assert "_normalize_sales_report_dataframe(_cached_sales_raw)" in source
+    assert "if not _reuse_cached_sales:" in source
+    assert "manifest files (CSV, XLSX, or PDF)" in source
 
 
 def test_inventory_audits_use_live_scanning_and_item_count_dialog():
