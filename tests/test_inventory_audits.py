@@ -282,6 +282,55 @@ def test_scan_resolves_upc_and_requires_recount_for_variance():
     assert len(audits.list_scans(organization.id, audit.id)) == 2
 
 
+def test_live_scan_previews_item_before_quantity_is_recorded():
+    _coman, audits, organization, facility, _product, lot = _setup()
+    audit = audits.create_audit(
+        organization.id,
+        facility.id,
+        audit_number="RTL-LIVE-001",
+        actor="dev",
+        operation_type="retail",
+        lot_ids=[lot.id],
+    )
+
+    preview = audits.preview_scanned_item(
+        organization.id,
+        facility.id,
+        audit.id,
+        raw_code="1A4FF030000000000000101",
+        actor="counter",
+    )
+
+    assert preview.lot_id == lot.id
+    assert preview.first_count_quantity is None
+    assert audits.list_scans(organization.id, audit.id) == []
+
+
+def test_live_scan_preview_retains_unmatched_exception():
+    _coman, audits, organization, facility, _product, lot = _setup()
+    audit = audits.create_audit(
+        organization.id,
+        facility.id,
+        audit_number="RTL-LIVE-002",
+        actor="dev",
+        operation_type="retail",
+        lot_ids=[lot.id],
+    )
+
+    with pytest.raises(ValueError, match="No product"):
+        audits.preview_scanned_item(
+            organization.id,
+            facility.id,
+            audit.id,
+            raw_code="UNKNOWN-LIVE-SCAN",
+            actor="counter",
+        )
+
+    exceptions = audits.list_scans(organization.id, audit.id)
+    assert len(exceptions) == 1
+    assert exceptions[0].match_status == "unmatched"
+
+
 def test_unmatched_scans_are_retained_as_audit_exceptions():
     _coman, audits, organization, facility, _product, lot = _setup()
     audit = audits.create_audit(

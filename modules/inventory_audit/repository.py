@@ -293,6 +293,94 @@ class InventoryAuditRepository:
             )
         return stats
 
+    def _matching_scan_lines(
+        self,
+        session: Session,
+        audit_id: str,
+        raw_code: str,
+    ) -> tuple[set[str], list[InventoryAuditLine]]:
+        candidates = _identifier_candidates(raw_code)
+        result_rows = list(
+            session.execute(
+                select(InventoryAuditLine, InventoryLot, Product)
+                .join(InventoryLot, InventoryLot.id == InventoryAuditLine.lot_id)
+                .join(Product, Product.id == InventoryLot.product_id)
+                .where(InventoryAuditLine.audit_id == audit_id)
+            )
+        )
+        matches: list[InventoryAuditLine] = []
+        for line, lot, product in result_rows:
+            identifiers = {
+                _normalize_identifier(value)
+                for value in (
+                    lot.compliance_package_id,
+                    lot.lot_code,
+                    lot.external_inventory_id,
+                    lot.barcode_value,
+                    product.sku,
+                    product.upc,
+                    product.external_product_id,
+                )
+                if str(value or "").strip()
+            }
+            if identifiers.intersection(candidates):
+                matches.append(line)
+        return candidates, matches
+
+    def preview_scanned_item(
+        self,
+        organization_id: str,
+        facility_id: str,
+        audit_id: str,
+        *,
+        raw_code: str,
+        actor: str,
+        recount: bool = False,
+    ) -> InventoryAuditLine:
+        """Resolve a live scan before asking the operator for its physical count."""
+
+        raw = str(raw_code or "").strip()
+        if not raw:
+            raise ValueError("Scan or enter a product code first.")
+        failure: str | None = None
+        matched_line: InventoryAuditLine | None = None
+        with self._session_factory.begin() as session:
+            audit = self._require_audit(session, organization_id, audit_id, facility_id)
+            if audit.status in {"completed", "cancelled"}:
+                raise ValueError("Completed or cancelled audits cannot be edited.")
+            candidates, matches = self._matching_scan_lines(session, audit.id, raw)
+            status = "matched"
+            if not matches:
+                status = "unmatched"
+                failure = "No product, lot, UPC, Dutchie ID, or METRC package matched that scan."
+            elif len(matches) > 1:
+                status = "ambiguous"
+                failure = "That code matches multiple lots. Scan the lot/package-specific label or choose the lot manually."
+            else:
+                matched_line = matches[0]
+                if recount and not matched_line.recount_required:
+                    failure = "This item is not currently waiting for a recount."
+                elif not recount and matched_line.first_count_quantity is not None:
+                    failure = "This item already has a first-pass count. Use its recount or correction workflow instead."
+            if failure:
+                session.add(
+                    InventoryAuditScan(
+                        organization_id=organization_id,
+                        facility_id=facility_id,
+                        audit_id=audit.id,
+                        audit_line_id=matched_line.id if matched_line else None,
+                        raw_code=raw,
+                        normalized_code=next(iter(candidates), _normalize_identifier(raw))[:512],
+                        match_status=status,
+                        scan_stage="recount" if recount else "first_count",
+                        scanned_by=str(actor),
+                    )
+                )
+        if failure:
+            raise ValueError(failure)
+        assert matched_line is not None
+        return matched_line
+
     def record_scanned_count(
         self,
         organization_id: str,
@@ -319,32 +407,7 @@ class InventoryAuditRepository:
             audit = self._require_audit(session, organization_id, audit_id, facility_id)
             if audit.status in {"completed", "cancelled"}:
                 raise ValueError("Completed or cancelled audits cannot be edited.")
-            candidates = _identifier_candidates(raw)
-            result_rows = list(
-                session.execute(
-                    select(InventoryAuditLine, InventoryLot, Product)
-                    .join(InventoryLot, InventoryLot.id == InventoryAuditLine.lot_id)
-                    .join(Product, Product.id == InventoryLot.product_id)
-                    .where(InventoryAuditLine.audit_id == audit.id)
-                )
-            )
-            matches: list[InventoryAuditLine] = []
-            for line, lot, product in result_rows:
-                identifiers = {
-                    _normalize_identifier(value)
-                    for value in (
-                        lot.compliance_package_id,
-                        lot.lot_code,
-                        lot.external_inventory_id,
-                        lot.barcode_value,
-                        product.sku,
-                        product.upc,
-                        product.external_product_id,
-                    )
-                    if str(value or "").strip()
-                }
-                if identifiers.intersection(candidates):
-                    matches.append(line)
+            candidates, matches = self._matching_scan_lines(session, audit.id, raw)
             status = "matched"
             if not matches:
                 status = "unmatched"

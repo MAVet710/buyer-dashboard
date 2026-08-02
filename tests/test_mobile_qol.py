@@ -59,11 +59,11 @@ def test_delivery_impact_can_reuse_loaded_sales():
     assert "_normalize_sales_report_dataframe(_cached_sales_raw)" in source
 
 
-def test_inventory_audits_support_phone_and_tablet_camera_scanning():
+def test_inventory_audits_use_live_scanning_and_item_count_dialog():
     source = (ROOT / "modules" / "inventory_audit" / "ui.py").read_text(encoding="utf-8")
 
-    assert 'st.expander("Use phone or tablet camera"' in source
-    assert "st.camera_input(" in source
-    assert 'resolution="720p"' in source
-    assert 'width="stretch"' in source
-    assert "switch to the rear camera" in source
+    assert "from streamlit_qrcode_scanner import qrcode_scanner" in source
+    assert '@st.dialog("Enter inventory count"' in source
+    assert '"Save & scan next"' in source
+    assert "preview_scanned_item(" in source
+    assert "_live_count_form(" in source
