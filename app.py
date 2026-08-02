@@ -88,6 +88,11 @@ from modules.nomenclature_ui import render_nomenclature_mapper
 from modules.inventory_audit.ui import render_inventory_audit_workspace
 from modules.ma_flower_equivalency.ui import render_ma_flower_equivalency
 from modules.repack.ui import render_white_label_repack_workspace
+from services.legal_acceptance_store import LegalAcceptanceStore
+from modules.legal_acceptance.ui import render_legal_acceptance_gate
+from modules.admin.user_management import render_admin_user_management
+from modules.admin.integrations import render_admin_integrations_page
+from modules.authentication.access_context import render_access_context
 
 load_dotenv()
 
@@ -102,6 +107,7 @@ AppUserStore = app_user_store_module.AppUserStore
 USER_INTEGRATIONS_STORE = UserIntegrationsStore()
 GLOBAL_INTEGRATIONS_STORE = GlobalIntegrationsStore()
 APP_USER_STORE = AppUserStore()
+LEGAL_ACCEPTANCE_STORE = LegalAcceptanceStore()
 
 # Owner mark (non-functional, intentional signature fragment).
 # __  ______             __ ____________
@@ -3258,696 +3264,6 @@ def _resolve_metrc_integrator_key() -> str:
         return ""
 
 
-def _render_user_metrc_integrations_page() -> None:
-    """Render account-scoped METRC settings without exposing AI controls."""
-
-    username, _ = _current_authenticated_identity()
-    if not username:
-        st.error("Sign in to manage your METRC integration.")
-        return
-
-    st.subheader("🔗 METRC Integrations")
-    st.caption(
-        "Connect the METRC account and licensed facility used by your workflows. "
-        "These settings are stored for your app account only."
-    )
-
-    if not USER_INTEGRATIONS_STORE.available:
-        st.warning(
-            "Durable integration storage is unavailable. Settings will remain in this "
-            "session but may need to be entered again later."
-        )
-
-    integrator_key = _resolve_metrc_integrator_key()
-    with st.container(border=True):
-        st.markdown("### METRC")
-        st.caption(
-            "The app performs a read-only facility check. Your METRC user key is "
-            "masked after it is saved."
-        )
-        st.text_input(
-            "METRC User API Key",
-            value="",
-            key="user_metrc_api_key_input",
-            type="password",
-            help="Leave blank to keep the currently saved key.",
-        )
-        st.text_input(
-            "METRC State",
-            value=str(st.session_state.get("metrc_state") or ""),
-            key="user_metrc_state_input",
-            placeholder="e.g., CA, MA, MI, or https://api-ca.metrc.com",
-        )
-        st.text_input(
-            "METRC License / Facility",
-            value=str(st.session_state.get("metrc_license") or ""),
-            key="user_metrc_license_input",
-            help="The license number the app should verify in METRC facilities.",
-        )
-        st.caption(
-            f"Saved user key: "
-            f"{mask_api_key(str(st.session_state.get('metrc_api_key') or '')) or '(not set)'}"
-        )
-        st.caption(
-            f"Integrator key: "
-            f"{'configured' if integrator_key else 'not configured by the DEV team'}"
-        )
-        st.caption(
-            f"Status: **{st.session_state.get('user_metrc_status') or 'not_connected'}**"
-        )
-        st.caption(
-            f"Last validated: "
-            f"**{st.session_state.get('user_metrc_last_validated') or 'never'}**"
-        )
-
-        test_col, save_col, clear_col = st.columns(3)
-        if test_col.button("Test Connection", key="user_metrc_test_btn"):
-            state = str(st.session_state.get("user_metrc_state_input") or "").strip()
-            license_name = str(
-                st.session_state.get("user_metrc_license_input") or ""
-            ).strip()
-            api_key = str(
-                st.session_state.get("user_metrc_api_key_input")
-                or st.session_state.get("metrc_api_key")
-                or ""
-            ).strip()
-            result = test_metrc_connection(
-                state=state,
-                user_api_key=api_key,
-                integrator_api_key=integrator_key,
-                license_number=license_name,
-            )
-            st.session_state.user_metrc_status = str(
-                result.get("status") or "failed"
-            )
-            if result.get("ok"):
-                st.session_state.user_metrc_last_validated = (
-                    datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-                )
-                st.success(
-                    str(result.get("message") or "METRC connection succeeded.")
-                )
-                st.caption(
-                    f"Facilities visible: {result.get('facility_count', 0)}"
-                )
-                if result.get("license_found") is False:
-                    st.warning(
-                        "The connection works, but this license was not found "
-                        "for the supplied METRC user key."
-                    )
-            else:
-                st.warning(
-                    str(result.get("message") or "METRC connection test failed.")
-                )
-
-        if save_col.button(
-            "Save",
-            key="user_metrc_save_btn",
-            type="primary",
-        ):
-            candidate_key = str(
-                st.session_state.get("user_metrc_api_key_input") or ""
-            ).strip()
-            if candidate_key:
-                st.session_state.metrc_api_key = candidate_key
-            st.session_state.metrc_state = str(
-                st.session_state.get("user_metrc_state_input") or ""
-            ).strip()
-            st.session_state.metrc_license = str(
-                st.session_state.get("user_metrc_license_input") or ""
-            ).strip()
-            _save_persistent_user_integrations()
-            st.success("Your METRC settings were saved.")
-
-        if clear_col.button("Clear / Reset", key="user_metrc_clear_btn"):
-            st.session_state.metrc_api_key = ""
-            st.session_state.metrc_state = ""
-            st.session_state.metrc_license = ""
-            st.session_state.user_metrc_status = "not_connected"
-            st.session_state.user_metrc_last_validated = None
-            st.session_state.user_metrc_api_key_input = ""
-            st.session_state.user_metrc_state_input = ""
-            st.session_state.user_metrc_license_input = ""
-            _save_persistent_user_integrations()
-            st.success("Your METRC settings were cleared.")
-            _safe_rerun()
-
-
-def _render_admin_integrations_page() -> None:
-    if not can_manage_ai_integrations(st.session_state.get("auth_user_role")):
-        _render_user_metrc_integrations_page()
-        return
-    if not st.session_state.get("is_admin", False):
-        st.error("Level DEV access is required.")
-        return
-
-    st.subheader("🧠 AI & METRC Integrations")
-    st.caption("Level DEV platform credentials and connection settings.")
-
-    if not st.session_state.get("_global_integrations_store_available"):
-        st.warning("Global integrations persistence is unavailable in this environment.")
-
-    last_by = str(st.session_state.get("global_integrations_updated_by") or "n/a")
-    last_at = str(st.session_state.get("global_integrations_updated_at") or "n/a")
-    st.caption(f"Last updated by: **{last_by}** • Updated at: **{last_at}**")
-
-    admin_user = str(st.session_state.get("admin_user") or "admin")
-
-    with st.container(border=True):
-        st.markdown("### Doobie")
-        st.caption("Shared default connection used when session override is not present.")
-        st.text_input(
-            "Doobie Base URL",
-            value=str(st.session_state.get("global_doobie_base_url") or ""),
-            key="admin_global_doobie_base_url_input",
-            placeholder="https://doobie.yourdomain.com",
-        )
-        st.text_input(
-            "Doobie Service API Key",
-            value="",
-            key="admin_global_doobie_api_key_input",
-            type="password",
-            help="Leave blank to keep the currently saved key.",
-        )
-        st.caption(
-            f"Saved key: {mask_api_key(str(st.session_state.get('global_doobie_api_key') or '')) or '(not set)'}"
-        )
-        st.caption(f"Status: **{st.session_state.get('global_doobie_status') or 'not_connected'}**")
-        st.caption(
-            f"Last validated: **{st.session_state.get('global_doobie_last_validated') or 'never'}**"
-        )
-
-        col_test, col_save, col_clear = st.columns(3)
-        if col_test.button("Test Connection", key="admin_global_doobie_test_btn"):
-            candidate_url = str(st.session_state.get("admin_global_doobie_base_url_input") or "").strip()
-            candidate_key = str(
-                st.session_state.get("admin_global_doobie_api_key_input")
-                or st.session_state.get("global_doobie_api_key")
-                or ""
-            ).strip()
-            result = test_doobie_connection(candidate_url, candidate_key)
-            st.session_state.global_doobie_status = str(result.get("status") or "not_connected")
-            if result.get("ok"):
-                st.session_state.global_doobie_last_validated = result.get("validated_at")
-                st.success(str(result.get("message") or "Connected"))
-            else:
-                st.warning(str(result.get("message") or "Connection failed"))
-
-        if col_save.button("Save", key="admin_global_doobie_save_btn", type="primary"):
-            candidate_url = str(st.session_state.get("admin_global_doobie_base_url_input") or "").strip().rstrip("/")
-            candidate_key = str(st.session_state.get("admin_global_doobie_api_key_input") or "").strip()
-            st.session_state.global_doobie_base_url = candidate_url
-            if candidate_key:
-                st.session_state.global_doobie_api_key = candidate_key
-            st.session_state.global_integrations_updated_by = admin_user
-            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
-            if _save_global_integrations(updated_by=admin_user):
-                st.success("Doobie global settings saved.")
-            else:
-                st.error("Unable to save Doobie global settings.")
-
-        if col_clear.button("Clear / Reset", key="admin_global_doobie_clear_btn"):
-            st.session_state.global_doobie_base_url = ""
-            st.session_state.global_doobie_api_key = ""
-            st.session_state.global_doobie_status = "not_connected"
-            st.session_state.global_doobie_last_validated = None
-            st.session_state.admin_global_doobie_base_url_input = ""
-            st.session_state.admin_global_doobie_api_key_input = ""
-            st.session_state.global_integrations_updated_by = admin_user
-            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
-            if _save_global_integrations(updated_by=admin_user):
-                st.success("Doobie global settings cleared.")
-            else:
-                st.error("Unable to clear Doobie global settings.")
-
-    with st.container(border=True):
-        st.markdown("### METRC")
-        st.caption("Read-only connection test using Metrc Basic Auth. Configure the integrator key in secrets/env as METRC_INTEGRATOR_API_KEY.")
-        st.text_input(
-            "METRC User API Key",
-            value="",
-            key="admin_global_metrc_api_key_input",
-            type="password",
-            help="This is the user API key generated from the Metrc account. Leave blank to keep the currently saved key.",
-        )
-        st.text_input(
-            "METRC State",
-            value=str(st.session_state.get("global_metrc_state") or ""),
-            key="admin_global_metrc_state_input",
-            placeholder="e.g., CA, MA, MI, or https://api-ca.metrc.com",
-        )
-        st.text_input(
-            "METRC License / Facility",
-            value=str(st.session_state.get("global_metrc_license") or ""),
-            key="admin_global_metrc_license_input",
-            help="Optional but recommended. The connection test verifies whether this license appears in /facilities/v2/.",
-        )
-        _metrc_integrator_cfg = get_default_metrc_integrator_key()
-        _metrc_integrator_key = str(_metrc_integrator_cfg.get("api_key") or "").strip()
-        if not _metrc_integrator_key:
-            try:
-                _metrc_integrator_key = str(
-                    st.secrets.get("METRC_INTEGRATOR_API_KEY")
-                    or st.secrets.get("METRC_SOFTWARE_API_KEY")
-                    or ""
-                ).strip()
-            except Exception:
-                _metrc_integrator_key = ""
-        st.caption(
-            f"Saved user key: {mask_api_key(str(st.session_state.get('global_metrc_api_key') or '')) or '(not set)'}"
-        )
-        st.caption(
-            f"Integrator key: {'configured' if _metrc_integrator_key else 'missing METRC_INTEGRATOR_API_KEY'}"
-        )
-        st.caption(f"Status: **{st.session_state.get('global_metrc_status') or 'not_connected'}**")
-        st.caption(
-            f"Last validated: **{st.session_state.get('global_metrc_last_validated') or 'never'}**"
-        )
-
-        m_test, m_save, m_clear = st.columns(3)
-        if m_test.button("Test Connection", key="admin_global_metrc_test_btn"):
-            state = str(st.session_state.get("admin_global_metrc_state_input") or "").strip()
-            license_name = str(st.session_state.get("admin_global_metrc_license_input") or "").strip()
-            api_key = str(
-                st.session_state.get("admin_global_metrc_api_key_input")
-                or st.session_state.get("global_metrc_api_key")
-                or ""
-            ).strip()
-            result = test_metrc_connection(
-                state=state,
-                user_api_key=api_key,
-                integrator_api_key=_metrc_integrator_key,
-                license_number=license_name,
-            )
-            st.session_state.global_metrc_status = str(result.get("status") or "failed")
-            if result.get("ok"):
-                st.session_state.global_metrc_last_validated = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-                st.success(str(result.get("message") or "Metrc connection succeeded."))
-                st.caption(f"Endpoint: {result.get('base_url')}/facilities/v2/")
-                st.caption(f"Facilities visible: {result.get('facility_count', 0)}")
-                if result.get("facilities_preview"):
-                    st.caption("Preview: " + ", ".join(str(x) for x in result.get("facilities_preview", [])))
-                if result.get("license_found") is False:
-                    st.warning("Connection works, but that license number was not found for this Metrc user key.")
-            else:
-                st.warning(str(result.get("message") or "Metrc connection test failed."))
-                if result.get("http_status"):
-                    st.caption(f"HTTP status: {result.get('http_status')}")
-                if result.get("base_url"):
-                    st.caption(f"Endpoint: {result.get('base_url')}/facilities/v2/")
-
-        if m_save.button("Save", key="admin_global_metrc_save_btn", type="primary"):
-            candidate_key = str(st.session_state.get("admin_global_metrc_api_key_input") or "").strip()
-            st.session_state.global_metrc_state = str(st.session_state.get("admin_global_metrc_state_input") or "").strip()
-            st.session_state.global_metrc_license = str(st.session_state.get("admin_global_metrc_license_input") or "").strip()
-            if candidate_key:
-                st.session_state.global_metrc_api_key = candidate_key
-            st.session_state.global_integrations_updated_by = admin_user
-            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
-            if _save_global_integrations(updated_by=admin_user):
-                st.success("METRC global settings saved.")
-            else:
-                st.error("Unable to save METRC global settings.")
-
-        if m_clear.button("Clear / Reset", key="admin_global_metrc_clear_btn"):
-            st.session_state.global_metrc_api_key = ""
-            st.session_state.global_metrc_state = ""
-            st.session_state.global_metrc_license = ""
-            st.session_state.global_metrc_status = "not_connected"
-            st.session_state.global_metrc_last_validated = None
-            st.session_state.admin_global_metrc_api_key_input = ""
-            st.session_state.admin_global_metrc_state_input = ""
-            st.session_state.admin_global_metrc_license_input = ""
-            st.session_state.global_integrations_updated_by = admin_user
-            st.session_state.global_integrations_updated_at = datetime.now().isoformat(timespec="seconds")
-            if _save_global_integrations(updated_by=admin_user):
-                st.success("METRC global settings cleared.")
-            else:
-                st.error("Unable to clear METRC global settings.")
-
-
-def _render_admin_user_management() -> None:
-    st.markdown("### User Management")
-    st.caption("Create and manage durable app accounts stored in PostgreSQL. Passwords are bcrypt-hashed before saving.")
-
-    if not APP_USER_STORE.configured:
-        st.warning(
-            "Durable user storage is not configured for this deployment. Set COMAN_DATABASE_URL "
-            "to the Supabase Session pooler connection string. Existing secrets-based login remains available."
-        )
-        return
-
-    current_admin = str(st.session_state.get("admin_user") or "admin")
-    current_role = str(st.session_state.get("auth_user_role") or "admin")
-    is_dev = current_role == "dev"
-    current_organization_id = st.session_state.get("auth_organization_id")
-    legacy_hash = DEV_USERS.get(current_admin) or ADMIN_USERS.get(current_admin, "")
-    if legacy_hash.startswith(("$2a$", "$2b$", "$2y$")):
-        APP_USER_STORE.ensure_legacy_user(
-            username=current_admin,
-            password_hash=legacy_hash,
-            role="dev" if current_admin in DEV_USERS else "admin",
-        )
-
-    if is_dev:
-        users = APP_USER_STORE.list_users()
-    elif current_organization_id:
-        users = [
-            user
-            for user in APP_USER_STORE.list_users(current_organization_id)
-            if not user.is_dev
-        ]
-    else:
-        st.warning(
-            "This admin account is not assigned to an organization. Level DEV must assign it before it can manage users."
-        )
-        return
-    if users:
-        user_rows = [
-            {
-                "Username": user.username,
-                "Display Name": user.display_name,
-                "Email": user.email,
-                "Role": user.role,
-                "Active": user.active,
-                "Organization ID": user.organization_id or "Unassigned",
-                "Must Change Password": user.must_change_password,
-                "Last Login": user.last_login_at,
-                "Created": user.created_at,
-            }
-            for user in users
-        ]
-        st.dataframe(pd.DataFrame(user_rows), width="stretch", hide_index=True)
-    else:
-        st.info("No durable users exist yet. Create the first account below.")
-
-    if is_dev:
-        organizations = APP_USER_STORE.list_organizations()
-        with st.expander("Platform Organizations & Facilities", expanded=not organizations):
-            st.caption("Level DEV creates the company and facility records that scope every other account.")
-            org_tab, facility_tab = st.tabs(["Add Organization", "Add Facility"])
-            with org_tab:
-                with st.form("dev_create_organization", clear_on_submit=True):
-                    organization_name = st.text_input("Organization name")
-                    organization_slug = st.text_input("Organization slug", help="For example: acme-cannabis")
-                    add_organization = st.form_submit_button("Add Organization", type="primary")
-                if add_organization:
-                    try:
-                        APP_USER_STORE.create_organization(name=organization_name, slug=organization_slug)
-                        st.success("Organization created.")
-                        _safe_rerun()
-                    except Exception as exc:
-                        st.error(f"Unable to create organization: {exc}")
-            with facility_tab:
-                if not organizations:
-                    st.info("Create an organization first.")
-                else:
-                    organizations_by_name = {item.name: item for item in organizations}
-                    with st.form("dev_create_facility", clear_on_submit=True):
-                        facility_org_name = st.selectbox("Organization", sorted(organizations_by_name))
-                        facility_name = st.text_input("Facility name")
-                        facility_code = st.text_input("Facility code", help="Short unique code such as MAIN or MA01.")
-                        facility_timezone = st.text_input("Timezone", value="America/New_York")
-                        add_facility = st.form_submit_button("Add Facility", type="primary")
-                    if add_facility:
-                        try:
-                            APP_USER_STORE.create_facility(
-                                organization_id=organizations_by_name[facility_org_name].id,
-                                name=facility_name,
-                                code=facility_code,
-                                timezone_name=facility_timezone,
-                            )
-                            st.success("Facility created.")
-                            _safe_rerun()
-                        except Exception as exc:
-                            st.error(f"Unable to create facility: {exc}")
-
-    create_tab, manage_tab = st.tabs(["Create User", "Manage Existing"])
-    with create_tab:
-        organization_options = {"Unassigned": None}
-        if is_dev:
-            organization_options.update(
-                {item.name: item.id for item in APP_USER_STORE.list_organizations()}
-            )
-        elif st.session_state.get("auth_organization_id"):
-            organization_options = {
-                "Assigned organization": st.session_state.get("auth_organization_id")
-            }
-        organization_label = st.selectbox(
-            "Organization",
-            list(organization_options),
-            key="admin_create_user_organization",
-        )
-        selected_create_organization_id = organization_options[organization_label]
-        create_facilities = (
-            APP_USER_STORE.list_facilities(selected_create_organization_id)
-            if selected_create_organization_id
-            else []
-        )
-        create_facility_options = {
-            f"{facility.name} ({facility.code})": facility.id
-            for facility in create_facilities
-        }
-        with st.form("admin_create_durable_user", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            username = c1.text_input("Username", help="Letters, numbers, periods, underscores, and hyphens.")
-            display_name = c2.text_input("Display name")
-            email = c1.text_input("Email (optional)")
-            available_roles = ["buyer", "planner", "supervisor", "operator", "qa", "read_only", "admin"]
-            if is_dev:
-                available_roles.append("dev")
-            role = c2.selectbox("Role", available_roles)
-            create_facility_labels = st.multiselect(
-                "Facility access",
-                list(create_facility_options),
-                default=list(create_facility_options),
-                help="Selected facilities are the locations this user can open. Admins can access every facility in their organization.",
-            )
-            password = c1.text_input("Temporary password", type="password")
-            password_confirm = c2.text_input("Confirm temporary password", type="password")
-            must_change = st.checkbox("Require password change", value=True)
-            create_user = st.form_submit_button("Create User", type="primary")
-
-        if create_user:
-            if len(password) < 12:
-                st.error("Temporary passwords must contain at least 12 characters.")
-            elif password != password_confirm:
-                st.error("The password confirmation does not match.")
-            elif role != "dev" and not selected_create_organization_id:
-                st.error("Choose an organization for every non-DEV account.")
-            elif not BCRYPT_AVAILABLE:
-                st.error("bcrypt is required before users can be created.")
-            else:
-                try:
-                    APP_USER_STORE.create_user(
-                        username=username,
-                        password_hash=hash_password(password),
-                        role=role,
-                        organization_id=(
-                            None if role == "dev" else selected_create_organization_id
-                        ),
-                        display_name=display_name,
-                        email=email,
-                        created_by=current_admin,
-                        must_change_password=must_change,
-                        facility_ids=(
-                            []
-                            if role == "dev"
-                            else [create_facility_options[label] for label in create_facility_labels]
-                        ),
-                    )
-                    st.success(f"User '{username}' created and stored securely.")
-                    _safe_rerun()
-                except Exception as exc:
-                    st.error(f"Unable to create user: {exc}")
-
-    with manage_tab:
-        if not users:
-            st.caption("Create a user before using account management actions.")
-        else:
-            users_by_name = {user.username: user for user in users}
-            selected_username = st.selectbox("User", sorted(users_by_name), key="admin_manage_user")
-            selected_user = users_by_name[selected_username]
-            if selected_user.is_dev and not is_dev:
-                st.error("Only Level DEV can manage a DEV account.")
-                return
-
-            st.markdown("#### Account Details & Access")
-            st.caption(
-                f"Account ID: {selected_user.id}  |  Created: {selected_user.created_at or 'Unknown'}  |  "
-                f"Last login: {selected_user.last_login_at or 'Never'}"
-            )
-            profile_left, profile_right = st.columns(2)
-            edit_username = profile_left.text_input(
-                "Username",
-                value=selected_user.username,
-                key=f"admin_edit_username_{selected_user.id}",
-            )
-            edit_display_name = profile_right.text_input(
-                "Display name",
-                value=selected_user.display_name,
-                key=f"admin_edit_display_name_{selected_user.id}",
-            )
-            edit_email = profile_left.text_input(
-                "Email",
-                value=selected_user.email,
-                key=f"admin_edit_email_{selected_user.id}",
-            )
-            editable_roles = ["buyer", "planner", "supervisor", "operator", "qa", "read_only", "admin"]
-            if is_dev:
-                editable_roles.append("dev")
-            edit_role = profile_right.selectbox(
-                "Role",
-                editable_roles,
-                index=editable_roles.index(selected_user.role),
-                key=f"admin_edit_role_{selected_user.id}",
-            )
-
-            if is_dev:
-                editable_organizations = APP_USER_STORE.list_organizations(active_only=False)
-                edit_organization_options = {"Unassigned / Platform-wide": None}
-                edit_organization_options.update(
-                    {
-                        f"{organization.name} ({organization.slug})"
-                        + ("" if organization.active else " - Inactive"): organization.id
-                        for organization in editable_organizations
-                    }
-                )
-                current_organization_label = next(
-                    (
-                        label
-                        for label, organization_id in edit_organization_options.items()
-                        if organization_id == selected_user.organization_id
-                    ),
-                    "Unassigned / Platform-wide",
-                )
-                edit_organization_label = st.selectbox(
-                    "Organization",
-                    list(edit_organization_options),
-                    index=list(edit_organization_options).index(current_organization_label),
-                    disabled=edit_role == "dev",
-                    help="DEV accounts remain platform-wide. All other roles must belong to one organization.",
-                    key=f"admin_edit_organization_{selected_user.id}",
-                )
-                edit_organization_id = (
-                    None
-                    if edit_role == "dev"
-                    else edit_organization_options[edit_organization_label]
-                )
-            else:
-                edit_organization_id = current_organization_id
-                st.text_input(
-                    "Organization",
-                    value="Assigned organization",
-                    disabled=True,
-                    key=f"admin_edit_organization_locked_{selected_user.id}",
-                )
-
-            edit_facility_options: dict[str, str] = {}
-            assigned_facility_labels: list[str] = []
-            if edit_role != "dev" and edit_organization_id:
-                available_facilities = APP_USER_STORE.list_facilities(
-                    edit_organization_id,
-                    active_only=False,
-                )
-                edit_facility_options = {
-                    f"{facility.name} ({facility.code})"
-                    + ("" if facility.active else " - Inactive"): facility.id
-                    for facility in available_facilities
-                }
-                assigned_facility_ids = {
-                    facility.id
-                    for facility in APP_USER_STORE.list_facilities(
-                        edit_organization_id,
-                        user_id=selected_user.id,
-                        active_only=False,
-                    )
-                }
-                assigned_facility_labels = [
-                    label
-                    for label, facility_id in edit_facility_options.items()
-                    if facility_id in assigned_facility_ids
-                ]
-            edit_facility_labels = st.multiselect(
-                "Facility access",
-                list(edit_facility_options),
-                default=assigned_facility_labels,
-                disabled=edit_role == "dev" or not edit_organization_id,
-                help=(
-                    "Standard users can open only selected facilities. Organization admins can open all company facilities. "
-                    "No selections means the user has no facility workspace access."
-                ),
-                key=f"admin_edit_facilities_{selected_user.id}",
-            )
-            state_left, state_right = st.columns(2)
-            desired_active = state_left.checkbox(
-                "Account active",
-                value=selected_user.active,
-                key=f"admin_user_active_{selected_user.id}",
-            )
-            desired_must_change = state_right.checkbox(
-                "Require password change at next login",
-                value=selected_user.must_change_password,
-                key=f"admin_user_must_change_{selected_user.id}",
-            )
-
-            if st.button(
-                "Save all account changes",
-                type="primary",
-                width="stretch",
-                key=f"admin_save_user_details_{selected_user.id}",
-            ):
-                is_current_account = (
-                    selected_user.id == st.session_state.get("auth_user_id")
-                    or selected_user.username == current_admin
-                )
-                if is_current_account and not desired_active:
-                    st.error("You cannot deactivate the account currently signed in.")
-                elif is_current_account and edit_role != selected_user.role:
-                    st.error("You cannot change the role of the account currently signed in.")
-                elif not is_dev and edit_organization_id != current_organization_id:
-                    st.error("Company admins cannot move users outside their organization.")
-                elif edit_role != "dev" and not edit_organization_id:
-                    st.error("Choose an organization for every non-DEV account.")
-                else:
-                    try:
-                        updated_user = APP_USER_STORE.update_user(
-                            selected_user.id,
-                            username=edit_username,
-                            display_name=edit_display_name,
-                            email=edit_email,
-                            role=edit_role,
-                            organization_id=edit_organization_id,
-                            facility_ids=[
-                                edit_facility_options[label]
-                                for label in edit_facility_labels
-                            ],
-                            active=desired_active,
-                            must_change_password=desired_must_change,
-                            updated_by=current_admin,
-                        )
-                        if is_current_account:
-                            st.session_state.admin_user = updated_user.username
-                        st.success("All account details and access assignments were updated.")
-                        _safe_rerun()
-                    except Exception as exc:
-                        st.error(f"Unable to update the account: {exc}")
-
-            st.markdown("#### Reset Password")
-            reset_password = st.text_input("New temporary password", type="password", key="admin_reset_password")
-            reset_confirm = st.text_input("Confirm new password", type="password", key="admin_reset_confirm")
-            if st.button("Reset password", key="admin_reset_password_btn"):
-                if len(reset_password) < 12:
-                    st.error("Temporary passwords must contain at least 12 characters.")
-                elif reset_password != reset_confirm:
-                    st.error("The password confirmation does not match.")
-                elif APP_USER_STORE.reset_password(
-                    selected_user.id, hash_password(reset_password), current_admin
-                ):
-                    st.success("Password reset. The user will be required to change it.")
-                else:
-                    st.error("Unable to reset the password.")
-
 # =========================
 # INIT DOOBIE CONNECTION + SHOW DEBUG (admin-only)
 # =========================
@@ -4095,6 +3411,21 @@ if (
             st.error("The password could not be updated. Ask an administrator to verify the account.")
     st.stop()
 
+if st.session_state.is_admin or st.session_state.user_authenticated:
+    _legal_environment = str(os.getenv("DOOBIE_ENVIRONMENT", "production")).strip().casefold()
+    if _legal_environment not in {"production", "trial", "sandbox"}:
+        _legal_environment = "production"
+    if not render_legal_acceptance_gate(
+        store=LEGAL_ACCEPTANCE_STORE,
+        user_id=st.session_state.get("auth_user_id"),
+        organization_id=st.session_state.get("auth_organization_id"),
+        role=str(st.session_state.get("auth_user_role") or ""),
+        environment=_legal_environment,
+        rerun=_safe_rerun,
+        sign_out=lambda: clear_authenticated_session(st.session_state),
+    ):
+        st.stop()
+
 trial_now = datetime.now()
 
 if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
@@ -4128,81 +3459,8 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
             mins_left = int((remaining.total_seconds() % 3600) // 60)
             st.sidebar.info(f"⏰ Trial time remaining: {hours_left}h {mins_left}m")
 
-def _render_access_context() -> None:
-    role = str(st.session_state.get("auth_user_role") or "trial")
-    user_id = st.session_state.get("auth_user_id")
-    assigned_org_id = st.session_state.get("auth_organization_id")
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Access Context")
-    st.sidebar.caption(f"Role: {role.upper().replace('_', ' ')}")
-
-    if role == "dev":
-        st.sidebar.success("LEVEL DEV · Platform-wide access")
-        organizations = APP_USER_STORE.list_organizations()
-        sandbox_exists = any(item.slug == "dev-sandbox" for item in organizations)
-        if not sandbox_exists:
-            st.sidebar.caption("No DEV Sandbox exists yet.")
-            if st.sidebar.button("Create DEV Sandbox", key="create_dev_sandbox", width="stretch"):
-                try:
-                    APP_USER_STORE.ensure_dev_sandbox()
-                    st.sidebar.success("DEV Sandbox created.")
-                    _safe_rerun()
-                except Exception:
-                    st.sidebar.error(
-                        "DEV Sandbox could not connect to Supabase. Check the database secret, then try once."
-                    )
-        if not organizations:
-            st.sidebar.warning("No organizations are available. Check the Supabase connection.")
-            st.session_state.active_organization_id = None
-            st.session_state.active_facility_id = None
-            return
-        organizations_by_label = {
-            ("DEV Sandbox" if item.slug == "dev-sandbox" else f"{item.name} ({item.slug})"): item
-            for item in organizations
-        }
-        labels = list(organizations_by_label)
-        current_org = st.session_state.get("active_organization_id")
-        current_index = next(
-            (index for index, label in enumerate(labels) if organizations_by_label[label].id == current_org),
-            0,
-        )
-        org_label = st.sidebar.selectbox("Organization", labels, index=current_index, key="dev_org_context")
-        selected_org = organizations_by_label[org_label]
-        st.session_state.active_organization_id = selected_org.id
-        facilities = APP_USER_STORE.list_facilities(selected_org.id)
-    else:
-        st.session_state.active_organization_id = assigned_org_id
-        if not assigned_org_id:
-            st.sidebar.warning("This account is not assigned to an organization.")
-            st.session_state.active_facility_id = None
-            return
-        organizations = {item.id: item for item in APP_USER_STORE.list_organizations(active_only=False)}
-        assigned_org = organizations.get(assigned_org_id)
-        st.sidebar.info(assigned_org.name if assigned_org else "Assigned organization")
-        facilities = APP_USER_STORE.list_facilities(
-            assigned_org_id,
-            user_id=user_id if role != "admin" else None,
-        )
-
-    if not facilities:
-        st.sidebar.caption("No accessible facilities")
-        st.session_state.active_facility_id = None
-        return
-    facilities_by_label = {f"{item.name} ({item.code})": item for item in facilities}
-    facility_labels = list(facilities_by_label)
-    current_facility = st.session_state.get("active_facility_id")
-    facility_index = next(
-        (index for index, label in enumerate(facility_labels) if facilities_by_label[label].id == current_facility),
-        0,
-    )
-    facility_label = st.sidebar.selectbox("Facility", facility_labels, index=facility_index, key="facility_context")
-    selected_facility = facilities_by_label[facility_label]
-    st.session_state.active_facility_id = selected_facility.id
-    st.sidebar.caption(f"Timezone: {selected_facility.timezone_name}")
-
-
 if st.session_state.is_admin or st.session_state.user_authenticated:
-    _render_access_context()
+    render_access_context(user_store=APP_USER_STORE, rerun=_safe_rerun)
     if st.session_state.get("auth_user_role") == "dev":
         st.info("LEVEL DEV — Platform-wide access is active. Select the company and facility you want to inspect.")
 
@@ -10646,7 +9904,14 @@ elif section == "🛠️ Admin Tools":
 
     st.caption("Doobie diagnostics, compliance source QA, and operational admin utilities.")
 
-    _render_admin_user_management()
+    render_admin_user_management(
+        user_store=APP_USER_STORE,
+        bcrypt_available=BCRYPT_AVAILABLE,
+        legacy_dev_users=DEV_USERS,
+        legacy_admin_users=ADMIN_USERS,
+        hash_password=hash_password,
+        rerun=_safe_rerun,
+    )
     st.markdown("---")
 
     a1, a2 = st.columns(2)
@@ -10750,7 +10015,14 @@ elif section == "🛠️ Admin Tools":
 # PAGE 2D – ROLE-SAFE INTEGRATIONS
 # ============================================================
 elif section in {AI_INTEGRATIONS_SECTION, METRC_INTEGRATIONS_SECTION}:
-    _render_admin_integrations_page()
+    render_admin_integrations_page(
+        user_integrations_store=USER_INTEGRATIONS_STORE,
+        current_identity=_current_authenticated_identity,
+        resolve_metrc_integrator_key=_resolve_metrc_integrator_key,
+        rerun=_safe_rerun,
+        save_user_integrations=_save_persistent_user_integrations,
+        save_global_integrations=_save_global_integrations,
+    )
 
 # ============================================================
 # PAGE 2 – TRENDS
