@@ -399,4 +399,3 @@ def test_retail_snapshot_import_is_durable_and_append_only():
     )
     assert second == {"rows": 1, "products_created": 0, "lots_created": 0, "adjustments": 1}
     assert coman.inventory_balance(organization.id, lot.id) == 21
-
