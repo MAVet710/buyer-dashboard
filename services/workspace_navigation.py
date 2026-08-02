@@ -18,6 +18,7 @@ DATA_OPERATIONS = "🗂️ Data & Integrations"
 AI_INTEGRATIONS_SECTION = "🧠 AI & METRC Integrations"
 METRC_INTEGRATIONS_SECTION = "🔗 METRC Integrations"
 INVENTORY_COUNTS_SECTION = "📋 Inventory Counts"
+MA_FLOWER_EQUIVALENCY_SECTION = "🌿 MA Flower Equivalency"
 
 
 def can_manage_ai_integrations(user_role: str | None) -> bool:
@@ -79,24 +80,56 @@ def buyer_section_options(
     AI configuration is platform infrastructure and is therefore visible only
     to Level DEV. Every other durable account receives a METRC-only page.
     """
-    options = [
-        "📊 Inventory Dashboard",
-        "📈 Trends",
-        "🚚 Delivery Impact",
-        "🐢 Slow Movers",
-        "🧾 PO Builder",
-        "🧭 Compliance Q&A",
-        "🧠 Buyer Intelligence",
-        "🏷️ Nomenclature Mapper",
-        "💰 Purchasing Budget",
-        INVENTORY_COUNTS_SECTION,
+    return [
+        section
+        for sections in buyer_section_groups(
+            is_admin=is_admin,
+            user_role=user_role,
+            admin_exports_enabled=admin_exports_enabled,
+        ).values()
+        for section in sections
     ]
+
+
+def buyer_section_groups(
+    *,
+    is_admin: bool,
+    user_role: str | None = None,
+    admin_exports_enabled: bool = True,
+) -> dict[str, list[str]]:
+    """Return Buyer Operations pages grouped around common retail tasks.
+
+    The compact groups keep the sidebar scannable while preserving every
+    existing page and its role restrictions.
+    """
+    groups = {
+        "Overview": [
+            "📊 Inventory Dashboard",
+            "📈 Trends",
+            "🧠 Buyer Intelligence",
+        ],
+        "Inventory": [
+            INVENTORY_COUNTS_SECTION,
+            "🐢 Slow Movers",
+            MA_FLOWER_EQUIVALENCY_SECTION,
+        ],
+        "Purchasing": [
+            "🚚 Delivery Impact",
+            "🧾 PO Builder",
+            "💰 Purchasing Budget",
+        ],
+        "Compliance": [
+            "🧭 Compliance Q&A",
+            "🏷️ Nomenclature Mapper",
+        ],
+        "Administration": [],
+    }
     if is_admin and admin_exports_enabled:
-        options.append("🛠️ Admin Tools")
+        groups["Administration"].append("🛠️ Admin Tools")
     normalized_role = str(user_role or ("admin" if is_admin else "buyer")).strip().lower()
-    options.append(
+    groups["Administration"].append(
         AI_INTEGRATIONS_SECTION
         if can_manage_ai_integrations(normalized_role)
         else METRC_INTEGRATIONS_SECTION
     )
-    return options
+    return {group: sections for group, sections in groups.items() if sections}
