@@ -10,8 +10,7 @@ from modules.repack.logic import grams_from_unit
 
 
 def render_white_label_repack_workspace():
-    st.markdown("## White Label / Repack")
-    st.caption("Operational and compliance tracking for private-label/repack flower workflows. Not legal advice.")
+    st.caption("Plan a private-label flower lot from bulk intake through package margin and release readiness.")
 
     default_retail_price_map = {1.0: 10.0, 3.5: 25.0, 7.0: 45.0, 14.0: 80.0, 28.0: 140.0}
     default_plan = [
@@ -142,6 +141,7 @@ def render_white_label_repack_workspace():
         enabled_df = enabled_df[enabled_df["enabled"] == True].copy()
 
     rows=[]
+    package_leftovers: list[tuple[str, float]] = []
     for _,r in enabled_df.iterrows():
         size=float(r.get("package_size_g",0) or 0)
         alloc_pct=float(r.get("allocation_pct",0) or 0)
@@ -164,7 +164,8 @@ def render_white_label_repack_workspace():
         alloc_g=usable_weight_g*(alloc_pct/100.0)
         units=int(np.floor(alloc_g/size))
         leftover=max(0.0,alloc_g-(units*size))
-        if leftover>0: st.info("This package size produces leftover grams.")
+        if leftover > 0:
+            package_leftovers.append((f"{size:g}g", leftover))
         total_packaging_unit=max(0.0, bag + label + tamper + humidity + compliance + other_pack)
         total_packaging_cost=units*total_packaging_unit
         revenue=(units*price) if not missing_inputs else np.nan
@@ -190,6 +191,11 @@ def render_white_label_repack_workspace():
     margin_readiness = {}
     with tabs[3]:
         st.info("Review estimated units, revenue, profit, and margin.")
+        if package_leftovers:
+            leftover_summary = ", ".join(
+                f"{size} ({grams:,.2f} g)" for size, grams in package_leftovers
+            )
+            st.info(f"Package-size rounding leaves partial grams in: {leftover_summary}.")
         k=st.columns(5)
         k[0].metric("Usable Weight", f"{usable_weight_g:,.1f} g")
         k[1].metric("Total Units", f"{total_units:,}")
