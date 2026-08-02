@@ -539,21 +539,30 @@ def _data_table(
     dataframe: pd.DataFrame,
     styles: dict[str, ParagraphStyle],
     palette: ReportPalette,
+    *,
+    section_title: str = "",
+    section_description: str = "",
 ) -> LongTable:
     df = dataframe.copy()
     header = [Paragraph(_escape(_humanize_header(column)).upper(), styles["table_head"]) for column in df.columns]
+    title_parts: list[Flowable] = [Paragraph(_escape(section_title), styles["section"])]
+    if section_description:
+        title_parts.append(Paragraph(_escape(section_description), styles["section_description"]))
+    section_band = [title_parts] + [""] * max(0, len(df.columns) - 1)
     body = [
         [Paragraph(_escape(_format_value(value, str(column))), styles["table_cell"]) for column, value in row.items()]
         for _, row in df.iterrows()
     ]
     table = LongTable(
-        [header] + body,
+        [section_band, header] + body,
         colWidths=_column_widths(df, CONTENT_WIDTH),
-        repeatRows=1,
+        repeatRows=2,
         hAlign="LEFT",
     )
     commands = [
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(palette.accent_dark)),
+        ("SPAN", (0, 0), (-1, 0)),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F0F2EF")),
+        ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor(palette.accent_dark)),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D8DBD7")),
         ("LEFTPADDING", (0, 0), (-1, -1), 5),
@@ -561,7 +570,7 @@ def _data_table(
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]
-    for row_index in range(1, len(body) + 1):
+    for row_index in range(2, len(body) + 2):
         background = colors.white if row_index % 2 else colors.HexColor("#F0F2EF")
         commands.append(("BACKGROUND", (0, row_index), (-1, row_index), background))
     table.setStyle(TableStyle(commands))
@@ -595,10 +604,17 @@ def _section_flowables(
         if available_columns:
             df = df[available_columns]
     df = df.head(max(1, section.max_rows))
-    heading = [Paragraph(_escape(section.title), styles["section"])]
-    if section.description:
-        heading.append(Paragraph(_escape(section.description), styles["section_description"]))
-    return [CondPageBreak(150), KeepTogether(heading), _data_table(df, styles, palette), Spacer(1, 12)]
+    return [
+        CondPageBreak(150),
+        _data_table(
+            df,
+            styles,
+            palette,
+            section_title=section.title,
+            section_description=section.description,
+        ),
+        Spacer(1, 12),
+    ]
 
 
 def build_executive_pdf(spec: ExecutiveReportSpec) -> bytes:

@@ -176,6 +176,37 @@ def _sales(catalog: list[dict[str, Any]], today: date, count: int, days: int,
     return pd.DataFrame(rows)
 
 
+def _calibrate_inventory_to_sales(
+    catalog: list[dict[str, Any]], sales: pd.DataFrame, days: int
+) -> None:
+    """Give the demo company a believable, mostly healthy inventory position.
+
+    The sales generator intentionally creates a wide velocity curve.  Inventory
+    should follow that observed curve instead of using unrelated random unit
+    counts, otherwise the demo can show hundreds of days of supply while also
+    claiming to be a profitable, well-run operator.
+    """
+    sold_by_sku = sales.groupby("SKU")["Quantity Sold"].sum().to_dict()
+    target_windows = {
+        "fast": (8, 18),
+        "healthy": (24, 42),
+        "slow": (48, 84),
+        "dead": (0, 0),
+    }
+    for idx, product in enumerate(catalog):
+        units_sold = float(sold_by_sku.get(product["sku"], 0.0))
+        daily = units_sold / max(days, 1)
+        low, high = target_windows[product["velocity_class"]]
+        if product["velocity_class"] == "dead":
+            # A small, deliberate dead-stock tail gives the dashboard useful
+            # cleanup work without dominating every KPI.
+            product["on_hand"] = 0 if idx % 8 else 8 + (idx % 13)
+            continue
+        span = max(1, high - low + 1)
+        target_days = 6 if product["velocity_class"] == "fast" and idx % 16 == 0 else low + ((idx * 7) % span)
+        product["on_hand"] = max(1, int(round(daily * target_days)))
+
+
 def _detail(catalog: list[dict[str, Any]], sales: pd.DataFrame, days: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     sold = sales.groupby("SKU", as_index=False).agg(unitssold=("Quantity Sold", "sum"), net_sales=("Net Sales", "sum"))
     rows = []
@@ -281,6 +312,7 @@ def build_buyer_demo(today: date, *, scale: str = "medium", seed: int = 710,
     manifest = _manifest(catalog, today, history_rng, problems)
     delivered_skus = set(manifest.get("SKU", pd.Series(dtype=str)).astype(str))
     sales = _sales(catalog, today, cfg["sales_rows"], cfg["days"], history_rng, delivered_skus)
+    _calibrate_inventory_to_sales(catalog, sales, cfg["days"])
     inventory = _inventory(catalog, today, problems)
     detail, detail_product = _detail(catalog, sales, cfg["days"])
     quarantine_products = [p["product_name"] for i, p in enumerate(catalog) if i % 37 == 0]

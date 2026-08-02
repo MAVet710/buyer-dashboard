@@ -151,3 +151,16 @@ def test_every_persona_returns_a_grounded_training_answer(monkeypatch):
         assert result["mode"]
 
     assert len(state["demo_training_history"]) == len(demo_data.PERSONAS)
+
+
+def test_demo_company_is_profitable_with_a_believable_inventory_curve():
+    payload = demo_data.build_demo_payload(date(2026, 8, 2), scale="medium")
+    product_detail = payload["detail_product"]
+    capped_doh = product_detail["daysonhand"].clip(upper=120)
+
+    assert 18 <= float(capped_doh.median()) <= 45
+    assert 18 <= float(capped_doh.mean()) <= 50
+    assert product_detail["reorderpriority"].astype(str).str.contains("Reorder ASAP").any()
+    assert product_detail["reorderpriority"].astype(str).str.contains("Dead Item").sum() <= 6
+    assert payload["sales"]["Gross Margin %"].between(25, 75).all()
+    assert payload["sales"]["Gross Profit"].gt(0).all()

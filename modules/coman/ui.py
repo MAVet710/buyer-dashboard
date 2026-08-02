@@ -564,6 +564,40 @@ def render_coman_workspace() -> None:
         if not machine_models:
             st.warning("No machine benchmark models are loaded yet.")
         else:
+            with st.expander("Browse benchmark library", expanded=False):
+                library_rows = pd.DataFrame(
+                    [
+                        {
+                            "Manufacturer": model.manufacturer,
+                            "Model": model.model,
+                            "Category": model.category.replace("_", " ").title(),
+                            "Published Max": model.published_max_rate,
+                            "Rate Unit": model.rate_unit,
+                            "Planning Utilization %": model.planning_utilization_pct,
+                            "Minimum Operators": model.minimum_operators,
+                            "Source": model.source_url,
+                        }
+                        for model in machine_models
+                    ]
+                )
+                library_query = st.text_input(
+                    "Search manufacturer, model, or category",
+                    key="coman_machine_library_search",
+                    placeholder="Vape-Jet, Ishida, pre-roll, grinder…",
+                ).strip()
+                if library_query:
+                    searchable = library_rows.astype(str).agg(" ".join, axis=1)
+                    library_rows = library_rows[
+                        searchable.str.contains(library_query, case=False, regex=False)
+                    ]
+                st.dataframe(
+                    library_rows,
+                    hide_index=True,
+                    width="stretch",
+                    column_config={
+                        "Source": st.column_config.LinkColumn("Manufacturer source", display_text="Open")
+                    },
+                )
             model_options = {
                 f"{model.manufacturer} — {model.model} ({model.category})": model
                 for model in machine_models

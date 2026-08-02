@@ -6,7 +6,13 @@ from PyPDF2 import PdfReader
 from reports.buyer_report import _build_buyer_executive_report_pdf
 from reports.coman_report import _build_coman_executive_report_pdf
 from reports.competitor_report import _build_competitor_intelligence_report_pdf
-from reports.executive_system import combine_report_pdfs
+from reports.executive_system import (
+    ExecutiveReportSpec,
+    ReportSection,
+    RETAIL_PALETTE,
+    build_executive_pdf,
+    combine_report_pdfs,
+)
 from reports.extraction_report import _build_extraction_executive_report_pdf
 from reports.retail_ops_report import _build_retail_ops_executive_report_pdf
 from reports.white_label_report import _build_white_label_repack_report_pdf
@@ -212,3 +218,42 @@ def test_buyer_report_uses_product_level_names_in_every_action_table():
     assert "Inventory Exceptions" in text
     assert "Product Performance Detail" in text
     assert text.count("Blue Dream Flower 3.5g") >= 3
+
+
+def test_long_report_tables_repeat_section_identity_on_every_continuation_page():
+    rows = pd.DataFrame(
+        [
+            {
+                "Product Name": f"Test Product {index:03d}",
+                "SKU": f"SKU-{index:03d}",
+                "On Hand": index + 1,
+                "Days on Hand": 20 + index,
+            }
+            for index in range(120)
+        ]
+    )
+    pdf = build_executive_pdf(
+        ExecutiveReportSpec(
+            title="Pagination Test",
+            subtitle="Readable continuation pages",
+            palette=RETAIL_PALETTE,
+            sections=[
+                ReportSection(
+                    "Product Inventory Detail",
+                    rows,
+                    "Named rows must remain understandable after a page break.",
+                    max_rows=120,
+                )
+            ],
+        )
+    )
+    reader = _reader(pdf)
+    table_pages = [
+        page.extract_text() or ""
+        for page in reader.pages
+        if "Test Product" in (page.extract_text() or "")
+    ]
+
+    assert len(table_pages) >= 2
+    assert all("Product Inventory Detail" in page for page in table_pages)
+    assert all("PRODUCT NAME" in page for page in table_pages)

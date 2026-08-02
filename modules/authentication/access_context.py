@@ -31,9 +31,25 @@ def render_access_context(*, user_store, rerun) -> None:
             st.session_state.active_organization_id = None
             st.session_state.active_facility_id = None
             return
-        organizations_by_label = {
-            ("DEV Sandbox" if item.slug == "dev-sandbox" else f"{item.name} ({item.slug})"): item
+        # A legacy simulation tenant may remain in databases upgraded from the
+        # original demo architecture.  Once the unified DEV Sandbox exists,
+        # keep that duplicate out of the selector so there is one obvious,
+        # complete place for product demonstrations and QA.
+        visible_organizations = [
+            item
             for item in organizations
+            if not (
+                sandbox_exists
+                and item.slug == "doobielogic-demo-simulation"
+            )
+        ]
+        organizations_by_label = {
+            (
+                "DEV Sandbox · Complete Demo"
+                if item.slug == "dev-sandbox"
+                else f"{item.name} ({item.slug})"
+            ): item
+            for item in visible_organizations
         }
         labels = list(organizations_by_label)
         current_org = st.session_state.get("active_organization_id")

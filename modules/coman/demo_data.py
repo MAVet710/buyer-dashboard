@@ -36,9 +36,77 @@ from modules.coman.models import (
     TradePartner,
 )
 
-DEMO_ORGANIZATION_SLUG = "doobielogic-demo-simulation"
-DEMO_FACILITY_CODE = "DEMO-SOUTHCOAST"
-DEMO_DATA_VERSION = "full-app-simulation-v4-inventory-audits"
+# The platform owner's sandbox is the durable living-demo tenant.  Keeping one
+# canonical organization prevents DEV from accidentally selecting an empty
+# sandbox while a separate fully seeded demo tenant sits beside it.
+DEMO_ORGANIZATION_SLUG = "dev-sandbox"
+DEMO_FACILITY_CODE = "SANDBOX"
+DEMO_DATA_VERSION = "full-app-simulation-v5-unified-dev-sandbox"
+
+# Manufacturer-published planning benchmarks.  Operators can override observed
+# rates on each facility asset; these values are only a starting point.
+INDUSTRY_REFERENCE_MACHINES = (
+    {
+        "manufacturer": "GreenBroz",
+        "model": "Model G Precision Batch Grinder",
+        "category": "cannabis grinding and destemming",
+        "operations": ["destemming", "grinding", "sifting"],
+        "rate": 100.0,
+        "rate_unit": "pounds/hour",
+        "min_ops": 1,
+        "max_ops": 2,
+        "utilization": 65.0,
+        "source": "https://www.greenbroz.com/automation/rise-n-grind",
+    },
+    {
+        "manufacturer": "STM Canna",
+        "model": "RocketBox 2.0",
+        "category": "batch pre-roll cone filling",
+        "operations": ["cone loading", "flower filling", "compaction"],
+        "rate": 2500.0,
+        "rate_unit": "pre-rolls/hour",
+        "min_ops": 1,
+        "max_ops": 2,
+        "utilization": 65.0,
+        "source": "https://stmcanna.com/rocketbox-2-0-commercial-preroll-machine-joint-roller/",
+    },
+    {
+        "manufacturer": "STM Canna",
+        "model": "RocketBox Pro",
+        "category": "continuous pre-roll cone filling",
+        "operations": ["multi-station filling", "compaction", "tray handling"],
+        "rate": 5000.0,
+        "rate_unit": "pre-rolls/hour",
+        "min_ops": 2,
+        "max_ops": 4,
+        "utilization": 60.0,
+        "source": "https://stmcanna.com/automated-commercial-pre-roll-machines/",
+    },
+    {
+        "manufacturer": "RollPros",
+        "model": "Blackbird",
+        "category": "automatic joint rolling",
+        "operations": ["paper feed", "flower dosing", "joint rolling"],
+        "rate": 900.0,
+        "rate_unit": "pre-rolls/hour",
+        "min_ops": 1,
+        "max_ops": 2,
+        "utilization": 70.0,
+        "source": "https://rollpros.com/blackbird/",
+    },
+    {
+        "manufacturer": "Sorting Robotics",
+        "model": "Stardust",
+        "category": "infused pre-roll coating",
+        "operations": ["adhesive application", "kief coating", "infused pre-roll finishing"],
+        "rate": 1500.0,
+        "rate_unit": "pre-rolls/hour",
+        "min_ops": 1,
+        "max_ops": 2,
+        "utilization": 65.0,
+        "source": "https://www.sortingrobotics.com/the-grind-blog/how-to-improve-efficiency-in-pre-roll-production",
+    },
+)
 
 
 def _frame(payload: dict[str, Any], key: str) -> pd.DataFrame:
@@ -82,14 +150,14 @@ def _ensure_org_and_facility(session: Any, company: dict[str, Any]) -> tuple[Org
     organization = session.scalar(select(Organization).where(Organization.slug == DEMO_ORGANIZATION_SLUG))
     if organization is None:
         organization = Organization(
-            name=str(company.get("company_name") or "DoobieLogic Demo Simulation"),
+            name="DEV Sandbox",
             slug=DEMO_ORGANIZATION_SLUG,
             active=True,
         )
         session.add(organization)
         session.flush()
     else:
-        organization.name = str(company.get("company_name") or organization.name)
+        organization.name = "DEV Sandbox"
         organization.active = True
     facility = session.scalar(
         select(Facility).where(
@@ -100,7 +168,7 @@ def _ensure_org_and_facility(session: Any, company: dict[str, Any]) -> tuple[Org
     if facility is None:
         facility = Facility(
             organization_id=organization.id,
-            name=str(company.get("facility_name") or "South Coast Production Campus"),
+            name="Sandbox Facility",
             code=DEMO_FACILITY_CODE,
             timezone_name="America/New_York",
             active=True,
@@ -108,7 +176,7 @@ def _ensure_org_and_facility(session: Any, company: dict[str, Any]) -> tuple[Org
         session.add(facility)
         session.flush()
     else:
-        facility.name = str(company.get("facility_name") or facility.name)
+        facility.name = "Sandbox Facility"
         facility.active = True
     return organization, facility
 
@@ -634,6 +702,39 @@ def ensure_coman_demo_dataset(
                 )
                 commercial_transaction_count += 1
             commercial_order_count += 1
+
+        for reference in INDUSTRY_REFERENCE_MACHINES:
+            model = session.scalar(
+                select(MachineModel).where(
+                    MachineModel.manufacturer == reference["manufacturer"],
+                    MachineModel.model == reference["model"],
+                )
+            )
+            if model is None:
+                model = MachineModel(
+                    manufacturer=reference["manufacturer"],
+                    model=reference["model"],
+                    category=reference["category"],
+                    operations_json=json.dumps(reference["operations"]),
+                    published_max_rate=reference["rate"],
+                    rate_unit=reference["rate_unit"],
+                    published_min_operators=reference["min_ops"],
+                    published_max_operators=reference["max_ops"],
+                    planning_utilization_pct=reference["utilization"],
+                    source_url=reference["source"],
+                    active=True,
+                )
+                session.add(model)
+            else:
+                model.category = reference["category"]
+                model.operations_json = json.dumps(reference["operations"])
+                model.published_max_rate = reference["rate"]
+                model.rate_unit = reference["rate_unit"]
+                model.published_min_operators = reference["min_ops"]
+                model.published_max_operators = reference["max_ops"]
+                model.planning_utilization_pct = reference["utilization"]
+                model.source_url = reference["source"]
+                model.active = True
 
         machine_specs = [
             ("IMA", "Pre-roll line facility benchmark", "Pre-Roll", 720.0, 4, "PR-IMA-01", "IMA Pre-Roll Line"),
