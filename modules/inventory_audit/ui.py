@@ -57,8 +57,10 @@ def _render_retail_snapshot_intake(
     repository: InventoryAuditRepository,
     organization_id: str,
     facility_id: str,
+    *,
+    expanded: bool = False,
 ) -> None:
-    with st.expander("Load or refresh Dutchie retail inventory", expanded=False):
+    with st.expander("Load or refresh Dutchie retail inventory", expanded=expanded):
         st.caption(
             "Use the active Buyer Ops inventory or upload a Dutchie CSV/XLSX export. The importer preserves an append-only synchronization trail."
         )
@@ -742,10 +744,15 @@ def render_inventory_audit_workspace(operation_type: str = "retail") -> None:
         return
     try:
         audits, coman = _standalone_repositories("inventory-audits-scan-v1")
-        if operation_type == "retail":
-            _render_retail_snapshot_intake(audits, organization_id, facility_id)
         products = coman.list_products(organization_id)
         lots = coman.list_inventory_lots(organization_id, facility_id)
+        if operation_type == "retail":
+            _render_retail_snapshot_intake(
+                audits,
+                organization_id,
+                facility_id,
+                expanded=not lots,
+            )
         render_inventory_audits(
             audits,
             organization_id,
