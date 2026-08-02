@@ -3636,6 +3636,10 @@ def _time_greeting() -> str:
     return "Good Evening"
 
 
+# Establish the display identity once before any top-level workspace rendering.
+_display_user = _current_authenticated_identity()[0] or "Trial User"
+
+
 render_commandbar(
     user_name=str(_display_user),
     role=str(st.session_state.get("auth_user_role") or "trial"),
