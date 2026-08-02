@@ -763,4 +763,3 @@ def render_inventory_audit_workspace(operation_type: str = "retail") -> None:
             st.code("migrations/versions/0012_inventory_audits.sql")
         else:
             st.error(f"Inventory Counts could not load: {exc}")
-
