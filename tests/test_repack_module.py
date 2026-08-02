@@ -33,3 +33,10 @@ def test_repack_workspace_has_a_single_module_entrypoint():
 
     assert ui_functions.count("render_white_label_repack_workspace") == 1
     assert "_grams_from_unit" not in ui_functions
+
+
+def test_repack_leftover_guidance_is_consolidated_in_results():
+    source = (ROOT / "modules" / "repack" / "ui.py").read_text(encoding="utf-8")
+
+    assert source.count("Package-size rounding leaves partial grams") == 1
+    assert "This package size produces leftover grams" not in source
