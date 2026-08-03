@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
+
 from datetime import date
 
 from sqlalchemy import create_engine, func, select
@@ -10,6 +13,23 @@ from modules.coman.demo_data import (
     ensure_coman_demo_dataset,
     reset_coman_demo_dataset,
 )
+
+
+def test_machine_reference_migration_revision_fits_alembic_version_column():
+    migration_path = (
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "versions"
+        / "0014_expand_machine_reference_library.py"
+    )
+    spec = importlib.util.spec_from_file_location("migration_0014", migration_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+
+    assert module.down_revision == "0013_legal_acceptance"
+    assert module.revision == "0014_machine_reference_library"
+    assert len(module.revision) <= 32
 from modules.coman.models import (
     AuditEvent,
     Base,
