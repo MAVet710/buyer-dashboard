@@ -1,5 +1,7 @@
 -- Common, manufacturer-published production-machine planning benchmarks.
 -- Facility-level observed rates always override these reference values.
+begin;
+
 insert into public.coman_machine_models
     (id, manufacturer, model, category, operations_json, published_max_rate,
      rate_unit, published_min_operators, published_max_operators,
@@ -23,3 +25,9 @@ on conflict (manufacturer, model) do update set
     source_checked_at = excluded.source_checked_at,
     active = true,
     updated_at = excluded.updated_at;
+
+update public.alembic_version
+set version_num = '0014_machine_reference_library'
+where version_num = '0013_legal_acceptance';
+
+commit;
