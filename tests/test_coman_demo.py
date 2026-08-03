@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
+import importlib.util
+from pathlib import Path
 
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
@@ -167,3 +169,19 @@ def test_reset_removes_only_the_demo_tenant_and_is_idempotent():
         "deleted": False,
         "reason": "not_found",
     }
+
+def test_machine_reference_migration_revision_fits_alembic_version_column():
+    migration_path = (
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "versions"
+        / "0014_expand_machine_reference_library.py"
+    )
+    spec = importlib.util.spec_from_file_location("migration_0014", migration_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.down_revision == "0013_legal_acceptance"
+    assert module.revision == "0014_machine_reference_library"
+    assert len(module.revision) <= 32

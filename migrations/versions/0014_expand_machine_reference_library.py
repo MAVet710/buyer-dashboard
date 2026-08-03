@@ -1,6 +1,6 @@
 """Expand the common production-machine reference library.
 
-Revision ID: 0014_expand_machine_reference_library
+Revision ID: 0014_machine_reference_library
 Revises: 0013_legal_acceptance
 """
 
@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from alembic import op
 
-revision = "0014_expand_machine_reference_library"
+revision = "0014_machine_reference_library"
 down_revision = "0013_legal_acceptance"
 branch_labels = None
 depends_on = None
