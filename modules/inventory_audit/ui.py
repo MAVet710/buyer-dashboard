@@ -1,8 +1,9 @@
-"""Phone-first Streamlit UI for physical counts and reconciliation."""
+"""Phone-first Streamlit UI for resumable physical counts and reconciliation."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import datetime
+from io import BytesIO
 import re
 
 import pandas as pd
@@ -11,6 +12,7 @@ import streamlit as st
 from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engine
 from modules.coman.repository import ComanRepository
 from modules.inventory_audit.repository import InventoryAuditRepository
+from modules.inventory_audit.workflow import EDITABLE_STATUSES, get_audit_events, set_audit_status
 
 try:
     from streamlit_qrcode_scanner import qrcode_scanner
@@ -38,11 +40,6 @@ def _guess_column(columns, aliases: list[str]) -> str | None:
     for alias in aliases:
         if _column_key(alias) in keyed:
             return keyed[_column_key(alias)]
-    for alias in aliases:
-        target = _column_key(alias)
-        for key, original in keyed.items():
-            if target and (target in key or key in target):
-                return original
     return None
 
 
@@ -62,23 +59,21 @@ def _render_retail_snapshot_intake(
 ) -> None:
     with st.expander("Load or refresh Dutchie retail inventory", expanded=expanded):
         st.caption(
-            "Use the active Buyer Ops inventory or upload a Dutchie CSV/XLSX export. The importer preserves an append-only synchronization trail."
+            "Use Buyer Ops inventory already loaded in this session or upload a Dutchie CSV/XLSX export."
         )
         active = st.session_state.get("inv_raw_df")
         if not isinstance(active, pd.DataFrame) or active.empty:
             active = st.session_state.get("inv_df")
         has_active = isinstance(active, pd.DataFrame) and not active.empty
-        sources = ["Upload Dutchie inventory export"]
+        choices = ["Upload Dutchie inventory export"]
         if has_active:
-            sources.insert(0, "Use active Buyer Ops inventory")
-        source = st.radio("Inventory source", sources, horizontal=True, key="retail_audit_snapshot_source")
+            choices.insert(0, "Use active Buyer Ops inventory")
+        source = st.radio("Inventory source", choices, horizontal=True, key="retail_audit_snapshot_source")
         frame = active.copy() if source.startswith("Use active") and has_active else None
         reference = "Active Buyer Ops inventory"
         if source.startswith("Upload"):
             uploaded = st.file_uploader(
-                "Dutchie inventory file",
-                type=["csv", "xlsx", "xls"],
-                key="retail_audit_inventory_upload",
+                "Dutchie inventory file", type=["csv", "xlsx", "xls"], key="retail_audit_inventory_upload"
             )
             if uploaded is not None:
                 try:
@@ -86,13 +81,12 @@ def _render_retail_snapshot_intake(
                     reference = uploaded.name
                 except Exception as exc:
                     st.error(f"The inventory file could not be read: {exc}")
-                    frame = None
+                    return
         if not isinstance(frame, pd.DataFrame) or frame.empty:
-            st.info("Choose the current Buyer Ops inventory or upload a Dutchie inventory export to continue.")
+            st.info("Choose current Buyer Ops inventory or upload a Dutchie inventory export to continue.")
             return
-        st.dataframe(frame.head(8), hide_index=True, width="stretch")
+
         columns = [str(column) for column in frame.columns]
-        optional = ["Not provided", *columns]
         aliases = {
             "product_name": ["Product Name", "Item Name", "Name", "Product"],
             "quantity": ["Available", "Quantity", "Qty", "On Hand", "Quantity Available", "Inventory"],
@@ -108,62 +102,30 @@ def _render_retail_snapshot_intake(
             "unit_cost": ["Unit Cost", "Cost", "Inventory Cost"],
             "retail_price": ["Retail Price", "Price", "Unit Price"],
         }
-
-        def choose(label: str, field: str, required: bool = False):
-            guess = _guess_column(columns, aliases[field])
-            choices = columns if required else optional
-            default = guess if guess in choices else choices[0]
-            return st.selectbox(
-                label,
-                choices,
-                index=choices.index(default),
+        product_guess = _guess_column(columns, aliases["product_name"]) or columns[0]
+        quantity_guess = _guess_column(columns, aliases["quantity"]) or columns[0]
+        left, right = st.columns(2)
+        product_name = left.selectbox("Product name *", columns, index=columns.index(product_guess))
+        quantity = right.selectbox("Quantity in stock *", columns, index=columns.index(quantity_guess))
+        mapping = {"product_name": product_name, "quantity": quantity}
+        optional = ["Not provided", *columns]
+        for field, field_aliases in aliases.items():
+            if field in mapping:
+                continue
+            guess = _guess_column(columns, field_aliases)
+            mapping[field] = st.selectbox(
+                field.replace("_", " ").title(),
+                optional,
+                index=optional.index(guess) if guess in optional else 0,
                 key=f"retail_snapshot_map_{field}",
             )
-
-        st.markdown("**Confirm column mapping**")
-        required_left, required_right = st.columns(2)
-        product_name = required_left.selectbox(
-            "Product name *",
-            columns,
-            index=columns.index(_guess_column(columns, aliases["product_name"]) or columns[0]),
-            key="retail_snapshot_map_product_name",
-        )
-        quantity_guess = _guess_column(columns, aliases["quantity"])
-        quantity = required_right.selectbox(
-            "Quantity in stock *",
-            columns,
-            index=columns.index(quantity_guess or columns[0]),
-            key="retail_snapshot_map_quantity",
-        )
-        mapping = {"product_name": product_name, "quantity": quantity}
-        mapping_labels = [
-            ("SKU", "sku"),
-            ("UPC / barcode", "upc"),
-            ("Dutchie product ID", "external_product_id"),
-            ("Lot / batch", "lot_code"),
-            ("METRC package ID", "compliance_package_id"),
-            ("Dutchie inventory ID", "external_inventory_id"),
-            ("QR / label value", "barcode_value"),
-            ("Location / shelf", "location_code"),
-            ("Unit of measure", "unit"),
-            ("Unit cost", "unit_cost"),
-            ("Retail price", "retail_price"),
-        ]
-        for index in range(0, len(mapping_labels), 2):
-            cols = st.columns(2)
-            for offset, (label, field) in enumerate(mapping_labels[index:index + 2]):
-                with cols[offset]:
-                    mapping[field] = choose(label, field)
         if st.button("Import durable retail snapshot", type="primary", width="stretch"):
             normalized_rows = []
             for _, source_row in frame.iterrows():
                 target = {}
                 for field, column in mapping.items():
-                    if column == "Not provided":
-                        target[field] = ""
-                    else:
-                        value = source_row.get(column)
-                        target[field] = "" if pd.isna(value) else value
+                    value = "" if column == "Not provided" else source_row.get(column)
+                    target[field] = "" if pd.isna(value) else value
                 normalized_rows.append(target)
             try:
                 result = repository.import_retail_snapshot(
@@ -177,8 +139,8 @@ def _render_retail_snapshot_intake(
                 st.error(f"Retail inventory could not be imported: {exc}")
             else:
                 st.success(
-                    f"Imported {result['rows']} rows: {result['products_created']} new products, "
-                    f"{result['lots_created']} new lots, and {result['adjustments']} ledger updates."
+                    f"Imported {result['rows']} rows: {result['products_created']} products, "
+                    f"{result['lots_created']} lots, {result['adjustments']} balance updates."
                 )
                 st.cache_resource.clear()
                 st.rerun()
@@ -224,6 +186,52 @@ def _line_rows(lines, products_by_id, lots_by_id) -> list[dict[str, object]]:
     return rows
 
 
+def _report_frame(rows: list[dict[str, object]]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame()
+    frame = pd.DataFrame(rows).drop(columns=["line_id"], errors="ignore")
+    frame["Cost Impact"] = frame["Variance"] * frame["Unit Cost"]
+    frame["Revenue Impact"] = frame["Variance"] * frame["Retail Price"]
+    frame["Scan Status"] = frame["Final Count"].apply(lambda value: "Scanned" if pd.notna(value) else "Not scanned")
+    return frame
+
+
+def _excel_report_bytes(audit, report: pd.DataFrame, events) -> bytes:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        pd.DataFrame(
+            [
+                {
+                    "Audit": audit.audit_number,
+                    "Status": audit.status,
+                    "Scope": audit.scope_label,
+                    "Started": audit.started_at,
+                    "Created By": audit.created_by,
+                    "Generated": datetime.now().astimezone(),
+                }
+            ]
+        ).to_excel(writer, sheet_name="Summary", index=False)
+        report.to_excel(writer, sheet_name="Audit Detail", index=False)
+        pd.DataFrame(
+            [
+                {
+                    "Action": event.action,
+                    "Actor": event.actor,
+                    "Time": event.created_at,
+                    "Changes": event.changes_json,
+                }
+                for event in events
+            ]
+        ).to_excel(writer, sheet_name="Activity", index=False)
+    return output.getvalue()
+
+
+def _audit_progress(lines) -> tuple[int, int, int]:
+    scanned = sum(line.first_count_quantity is not None for line in lines)
+    recounts = sum(bool(line.recount_required) for line in lines)
+    return scanned, len(lines), recounts
+
+
 def _queue_count_dialog(
     repository: InventoryAuditRepository,
     organization_id: str,
@@ -233,7 +241,6 @@ def _queue_count_dialog(
     raw_code: str,
     recount: bool,
     pending_key: str,
-    scanner_generation_key: str,
     error_key: str,
 ) -> None:
     try:
@@ -249,9 +256,6 @@ def _queue_count_dialog(
         st.session_state[error_key] = str(exc)
     else:
         st.session_state[pending_key] = {"line_id": line.id, "raw_code": str(raw_code).strip()}
-    st.session_state[scanner_generation_key] = int(
-        st.session_state.get(scanner_generation_key, 0)
-    ) + 1
     st.rerun()
 
 
@@ -265,72 +269,37 @@ def _scan_count_dialog(
     pending: dict[str, str],
     recount: bool,
     pending_key: str,
-    scanner_generation_key: str,
     lots_by_id,
     products_by_id,
 ) -> None:
-    line = next(
-        (
-            item
-            for item in repository.list_lines(organization_id, audit.id)
-            if item.id == pending.get("line_id")
-        ),
-        None,
-    )
+    line = next((item for item in repository.list_lines(organization_id, audit.id) if item.id == pending.get("line_id")), None)
     if line is None:
-        st.error("That audit item is no longer available. Close this box and scan it again.")
+        st.error("That audit item is no longer available.")
         if st.button("Close and rescan", width="stretch"):
             st.session_state.pop(pending_key, None)
-            st.session_state[scanner_generation_key] = int(
-                st.session_state.get(scanner_generation_key, 0)
-            ) + 1
             st.rerun()
         return
-
     lot = lots_by_id.get(line.lot_id)
     product = products_by_id.get(getattr(lot, "product_id", ""))
     product_name = getattr(product, "name", "Unknown product")
-    lot_code = getattr(lot, "lot_code", "")
-    location = getattr(lot, "location_code", "UNASSIGNED")
-    identifier = (
-        getattr(lot, "compliance_package_id", "")
-        or getattr(product, "upc", "")
-        or getattr(product, "sku", "")
-    )
-
     st.markdown(f"### {product_name}")
-    st.caption(f"Lot {lot_code} · {location}")
-    st.code(identifier or pending.get("raw_code", ""), language=None)
+    st.caption(f"{getattr(lot, 'lot_code', '')} · {getattr(lot, 'location_code', 'UNASSIGNED')}")
     if recount or not audit.blind_count:
         st.metric("Expected quantity", f"{float(line.expected_quantity):,.3f} {line.unit}")
     else:
-        st.info("Blind count is active. The expected quantity stays hidden until the first pass is complete.")
-
+        st.info("Blind count is active. Expected inventory stays hidden during the first pass.")
     with st.form(f"scan_count_dialog_{audit.id}_{line.id}_{'recount' if recount else 'first'}"):
-        quantity = st.number_input(
-            "Physical quantity in stock",
-            min_value=0.0,
-            step=1.0,
-            format="%.3f",
-        )
+        quantity = st.number_input("Physical quantity in stock", min_value=0.0, step=1.0, format="%.3f")
         reason = st.selectbox(
             "Variance reason",
             ["", "Count correction", "Damage", "Waste", "Return", "Transfer timing", "Receiving timing", "Unknown"],
         )
         notes = st.text_input("Count note (optional)")
         save, cancel = st.columns(2)
-        save_clicked = save.form_submit_button(
-            "Save & scan next",
-            type="primary",
-            width="stretch",
-        )
+        save_clicked = save.form_submit_button("Save & scan next", type="primary", width="stretch")
         cancel_clicked = cancel.form_submit_button("Cancel", width="stretch")
-
     if cancel_clicked:
         st.session_state.pop(pending_key, None)
-        st.session_state[scanner_generation_key] = int(
-            st.session_state.get(scanner_generation_key, 0)
-        ) + 1
         st.rerun()
     if save_clicked:
         try:
@@ -349,9 +318,6 @@ def _scan_count_dialog(
             st.error(f"Count was not saved: {exc}")
         else:
             st.session_state.pop(pending_key, None)
-            st.session_state[scanner_generation_key] = int(
-                st.session_state.get(scanner_generation_key, 0)
-            ) + 1
             st.toast(f"Saved {quantity:,.3f} {line.unit} for {product_name}.", icon="✅")
             st.rerun()
 
@@ -367,16 +333,11 @@ def _live_count_form(
     products_by_id,
 ) -> None:
     stage = "recount" if recount else "first"
-    title = "Recount scanner" if recount else "Scan and count"
     pending_key = f"audit_pending_scan_{stage}_{audit.id}"
-    scanner_generation_key = f"audit_scanner_generation_{stage}_{audit.id}"
     error_key = f"audit_scanner_error_{stage}_{audit.id}"
-
-    st.markdown(f"### {title}")
-    st.caption(
-        "Point the live camera at a Dutchie, UPC, QR, or METRC label. The matched item opens immediately so you can enter its count."
-    )
-
+    camera_value_key = f"audit_last_camera_value_{stage}_{audit.id}"
+    st.markdown("### Recount scanner" if recount else "### Scan and count")
+    st.caption("Camera, Bluetooth/USB scanner, typed code, and manual product selection all remain available.")
     pending = st.session_state.get(pending_key)
     if pending:
         _scan_count_dialog(
@@ -387,22 +348,23 @@ def _live_count_form(
             pending=pending,
             recount=recount,
             pending_key=pending_key,
-            scanner_generation_key=scanner_generation_key,
             lots_by_id=lots_by_id,
             products_by_id=products_by_id,
         )
         return
-
     scan_error = st.session_state.pop(error_key, None)
     if scan_error:
         st.error(scan_error)
-
     if qrcode_scanner is None:
         st.warning("Live camera scanning is unavailable. Use a Bluetooth/USB scanner or manual lookup below.")
     else:
-        generation = int(st.session_state.get(scanner_generation_key, 0))
-        scanned_code = qrcode_scanner(key=f"live_audit_scanner_{stage}_{audit.id}_{generation}")
-        if scanned_code:
+        # Keep this key stable. Changing it remounts the browser camera component and
+        # can make iPhone/Android request camera permission again on every Streamlit rerun.
+        scanned_code = qrcode_scanner(key=f"live_audit_scanner_{stage}_{audit.id}")
+        if not scanned_code:
+            st.session_state.pop(camera_value_key, None)
+        elif st.session_state.get(camera_value_key) != str(scanned_code):
+            st.session_state[camera_value_key] = str(scanned_code)
             _queue_count_dialog(
                 repository,
                 organization_id,
@@ -411,16 +373,11 @@ def _live_count_form(
                 raw_code=str(scanned_code),
                 recount=recount,
                 pending_key=pending_key,
-                scanner_generation_key=scanner_generation_key,
                 error_key=error_key,
             )
-
     with st.expander("Bluetooth / USB scanner or typed code", expanded=qrcode_scanner is None):
         with st.form(f"audit_code_lookup_{stage}_{audit.id}", clear_on_submit=True):
-            scan_code = st.text_input(
-                "Scan or enter item code",
-                placeholder="Dutchie ID, UPC, SKU, lot, or METRC package ID",
-            )
+            scan_code = st.text_input("Scan or enter item code", placeholder="Dutchie ID, UPC, SKU, lot, or METRC package ID")
             if st.form_submit_button("Find item", type="primary", width="stretch"):
                 _queue_count_dialog(
                     repository,
@@ -430,10 +387,8 @@ def _live_count_form(
                     raw_code=scan_code,
                     recount=recount,
                     pending_key=pending_key,
-                    scanner_generation_key=scanner_generation_key,
                     error_key=error_key,
                 )
-
     with st.expander("Cannot scan? Choose the inventory item", expanded=False):
         eligible = []
         for line in repository.list_lines(organization_id, audit.id):
@@ -444,172 +399,207 @@ def _live_count_form(
             lot = lots_by_id.get(line.lot_id)
             product = products_by_id.get(getattr(lot, "product_id", ""))
             eligible.append((line, lot, product))
-        if eligible:
-            selection = st.selectbox(
-                "Inventory item",
-                options=[line.id for line, _, _ in eligible],
-                format_func=lambda line_id: next(
-                    f"{getattr(product, 'name', 'Unknown')} · {getattr(lot, 'lot_code', '')} · {getattr(lot, 'location_code', '')}"
-                    for line, lot, product in eligible
-                    if line.id == line_id
-                ),
-                key=f"audit_manual_line_{stage}_{audit.id}",
-            )
-            if st.button("Enter count for selected item", key=f"audit_manual_open_{stage}_{audit.id}", width="stretch"):
-                line, lot, product = next(item for item in eligible if item[0].id == selection)
-                st.session_state[pending_key] = {
-                    "line_id": line.id,
-                    "raw_code": _primary_code(lot, product),
-                }
-                st.session_state[scanner_generation_key] = int(
-                    st.session_state.get(scanner_generation_key, 0)
-                ) + 1
-                st.rerun()
-        else:
+        if not eligible:
             st.success("No items remain in this count stage.")
-
-
-def _final_totals(rows: list[dict[str, object]]) -> pd.DataFrame:
-    if not rows:
-        return pd.DataFrame()
-    frame = pd.DataFrame(rows)
-    completed = frame[frame["Final Count"].notna()].copy()
-    if completed.empty:
-        return pd.DataFrame()
-    completed["Cost Impact"] = completed["Variance"] * completed["Unit Cost"]
-    completed["Revenue Impact"] = completed["Variance"] * completed["Retail Price"]
-    return (
-        completed.groupby("Unit", dropna=False)
-        .agg(
-            **{
-                "Expected": ("Expected", "sum"),
-                "Physical": ("Final Count", "sum"),
-                "Variance": ("Variance", "sum"),
-                "Absolute Variance": ("Variance", lambda values: values.abs().sum()),
-                "Cost Impact": ("Cost Impact", "sum"),
-                "Revenue Impact": ("Revenue Impact", "sum"),
-            }
+            return
+        selection = st.selectbox(
+            "Inventory item",
+            options=[line.id for line, _, _ in eligible],
+            format_func=lambda line_id: next(
+                f"{getattr(product, 'name', 'Unknown')} · {getattr(lot, 'lot_code', '')} · {getattr(lot, 'location_code', '')}"
+                for line, lot, product in eligible
+                if line.id == line_id
+            ),
+            key=f"audit_manual_line_{stage}_{audit.id}",
         )
-        .reset_index()
-    )
+        if st.button("Enter count for selected item", key=f"audit_manual_open_{stage}_{audit.id}", width="stretch"):
+            line, lot, product = next(item for item in eligible if item[0].id == selection)
+            st.session_state[pending_key] = {"line_id": line.id, "raw_code": _primary_code(lot, product)}
+            st.rerun()
 
 
-def render_inventory_audits(
-    repository: InventoryAuditRepository,
+def _create_audit_form(
+    repository,
     organization_id: str,
     facility_id: str,
-    products,
     lots,
-    *,
-    operation_type: str = "production",
+    products_by_id,
+    audits,
+    operation_type: str,
 ) -> None:
-    """Render audit creation, scan counting, recount, final totals, and history."""
-
     retail = operation_type == "retail"
-    st.subheader("Retail inventory counts" if retail else "Inventory audit & reconciliation")
-    st.caption(
-        "Scan Dutchie labels, UPCs, SKUs, lots, or METRC packages. First-pass variances move into a required recount queue before approval."
-    )
-    audits = repository.list_audits(organization_id, facility_id, operation_type)
-    products_by_id = {product.id: product for product in products}
-    lots_by_id = {lot.id: lot for lot in lots}
     lot_options = {
-        lot.id: (
-            f"{getattr(products_by_id.get(lot.product_id), 'name', 'Unknown')} · "
-            f"{lot.lot_code} · {lot.location_code}"
-        )
+        lot.id: f"{getattr(products_by_id.get(lot.product_id), 'name', 'Unknown')} · {lot.lot_code} · {lot.location_code}"
         for lot in lots
     }
-
-    with st.expander("Start a physical count", expanded=not audits):
-        if not lots:
-            st.info("Load inventory lots for this facility before starting an audit.")
+    if not lots:
+        st.info("Load inventory for this facility before starting an audit.")
+        return
+    with st.form(f"inventory_audit_create_{operation_type}"):
+        prefix = "RTL" if retail else "PROD"
+        generated = f"{prefix}-{datetime.now():%Y%m%d-%H%M%S}"
+        left, right = st.columns(2)
+        audit_number = left.text_input("Audit name / number", value=generated)
+        scope = right.text_input("Scope", value="Full store" if retail else "Full facility")
+        selected_lots = st.multiselect(
+            "Inventory to count",
+            options=list(lot_options),
+            default=list(lot_options),
+            format_func=lambda lot_id: lot_options[lot_id],
+        )
+        settings_left, settings_right = st.columns(2)
+        blind_count = settings_left.checkbox("Blind first count", value=True)
+        tolerance = settings_right.number_input("Recount tolerance", min_value=0.0, value=0.0, step=0.1)
+        notes = st.text_area("Notes (optional)", height=70)
+        submitted = st.form_submit_button("Start New Audit", type="primary", width="stretch")
+    if submitted:
+        try:
+            audit = repository.create_audit(
+                organization_id,
+                facility_id,
+                audit_number=audit_number,
+                actor=_actor(),
+                scope_label=scope,
+                notes=notes,
+                lot_ids=selected_lots,
+                operation_type=operation_type,
+                blind_count=blind_count,
+                recount_tolerance=tolerance,
+            )
+            set_audit_status(
+                repository,
+                organization_id,
+                facility_id,
+                audit.id,
+                status="in_progress",
+                actor=_actor(),
+            )
+        except Exception as exc:
+            st.error(f"We couldn’t start the audit. Nothing was opened: {exc}")
         else:
-            with st.form(f"inventory_audit_create_{operation_type}"):
-                left, right = st.columns(2)
-                prefix = "RTL" if retail else "PROD"
-                audit_number = left.text_input(
-                    "Audit number", value=f"{prefix}-{date.today():%Y%m%d}-{len(audits) + 1:03d}"
-                )
-                scope = right.text_input("Scope", value="Full store" if retail else "Full facility")
-                selected_lots = st.multiselect(
-                    "Inventory to count",
-                    options=list(lot_options),
-                    default=list(lot_options),
-                    format_func=lambda lot_id: lot_options[lot_id],
-                )
-                settings_left, settings_right = st.columns(2)
-                blind_count = settings_left.checkbox(
-                    "Blind first count",
-                    value=True,
-                    help="Expected quantities remain hidden until the first pass is complete.",
-                )
-                tolerance = settings_right.number_input(
-                    "Recount tolerance",
-                    min_value=0.0,
-                    value=0.0,
-                    step=0.1,
-                    help="A variance greater than this amount requires a recount.",
-                )
-                notes = st.text_area("Instructions / notes", height=70)
-                if st.form_submit_button("Start count", type="primary", width="stretch"):
-                    try:
-                        repository.create_audit(
+            st.session_state[f"current_audit_id_{operation_type}"] = audit.id
+            st.success("Audit started. You can leave it, start another, and return later.")
+            st.rerun()
+
+
+def _render_audit_dashboard(repository, organization_id, facility_id, audits, products_by_id, lots_by_id, operation_type):
+    st.markdown("### Audit Dashboard")
+    if not audits:
+        st.info("No audit history yet. Start the first audit above.")
+        return None
+    groups = [
+        ("Active", {"in_progress", "draft"}),
+        ("Paused", {"paused"}),
+        ("Stopped", {"stopped"}),
+        ("Completed", {"completed"}),
+        ("Cancelled", {"cancelled"}),
+    ]
+    current_key = f"current_audit_id_{operation_type}"
+    selected = st.session_state.get(current_key)
+    for heading, statuses in groups:
+        group = [audit for audit in audits if audit.status in statuses]
+        if not group:
+            continue
+        st.markdown(f"#### {heading} Audits")
+        for audit in group:
+            lines = repository.list_lines(organization_id, audit.id)
+            scanned, total, recounts = _audit_progress(lines)
+            completion = (scanned / max(total, 1)) * 100
+            with st.container(border=True):
+                top, action = st.columns([4, 1])
+                top.markdown(f"**{audit.audit_number}**  \n{audit.scope_label} · {audit.status.replace('_', ' ').title()}")
+                top.caption(f"{scanned}/{total} scanned · {completion:.0f}% · {recounts} recount(s) waiting · Started by {audit.created_by}")
+                label = "Resume" if audit.status in EDITABLE_STATUSES else "Review"
+                if action.button(label, key=f"open_audit_{audit.id}", width="stretch"):
+                    if audit.status in {"paused", "stopped", "draft"}:
+                        set_audit_status(
+                            repository,
                             organization_id,
                             facility_id,
-                            audit_number=audit_number,
+                            audit.id,
+                            status="in_progress",
                             actor=_actor(),
-                            scope_label=scope,
-                            notes=notes,
-                            lot_ids=selected_lots,
-                            operation_type=operation_type,
-                            blind_count=blind_count,
-                            recount_tolerance=tolerance,
                         )
-                    except Exception as exc:
-                        st.error(f"Unable to start the count: {exc}")
-                    else:
-                        st.success("Count started and expected inventory captured.")
-                        st.rerun()
+                    st.session_state[current_key] = audit.id
+                    st.rerun()
+                if selected == audit.id:
+                    st.caption("Currently open")
+    return selected
 
-    if not audits:
-        st.info("No count history yet. Start the first audit above.")
+
+def _render_report_tools(repository, organization_id: str, audit, rows) -> None:
+    report = _report_frame(rows)
+    events = get_audit_events(repository, organization_id, audit.id)
+    st.markdown("### Audit Report")
+    status_label = "Partial" if audit.status in EDITABLE_STATUSES else audit.status.replace("_", " ").title()
+    st.info(f"Report status: **{status_label}**. Unscanned items remain visible and are not presented as completed counts.")
+    if report.empty:
+        st.info("No audit detail is available yet.")
         return
-
-    audit_by_id = {audit.id: audit for audit in audits}
-    open_ids = [audit.id for audit in audits if audit.status in {"draft", "in_progress"}]
-    default_id = open_ids[0] if open_ids else audits[0].id
-    selected_id = st.selectbox(
-        "Audit session",
-        options=list(audit_by_id),
-        index=list(audit_by_id).index(default_id),
-        format_func=lambda audit_id: (
-            f"{audit_by_id[audit_id].audit_number} · "
-            f"{audit_by_id[audit_id].status.replace('_', ' ').title()} · {audit_by_id[audit_id].scope_label}"
-        ),
+    st.dataframe(report, hide_index=True, width="stretch")
+    c1, c2 = st.columns(2)
+    c1.download_button(
+        "Export CSV",
+        data=report.to_csv(index=False).encode("utf-8"),
+        file_name=f"inventory_audit_{audit.audit_number}_{audit.status}.csv",
+        mime="text/csv",
+        width="stretch",
     )
-    audit = audit_by_id[selected_id]
+    c2.download_button(
+        "Export Excel",
+        data=_excel_report_bytes(audit, report, events),
+        file_name=f"inventory_audit_{audit.audit_number}_{audit.status}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        width="stretch",
+    )
+    with st.expander("Activity log", expanded=False):
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"Action": event.action, "Actor": event.actor, "Time": event.created_at, "Changes": event.changes_json}
+                    for event in events
+                ]
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+
+
+def _render_open_audit(repository, organization_id, facility_id, audit, products_by_id, lots_by_id, operation_type):
+    current_key = f"current_audit_id_{operation_type}"
     lines = repository.list_lines(organization_id, audit.id)
     rows = _line_rows(lines, products_by_id, lots_by_id)
-    first_complete = sum(line.first_count_quantity is not None for line in lines)
-    pending = len(lines) - first_complete
-    recount_lines = [line for line in lines if line.recount_required]
-    variances = [line for line in lines if line.counted_quantity is not None and abs(line.variance_quantity) > 1e-9]
+    scanned, total, recounts = _audit_progress(lines)
+    pending = total - scanned
     scans = repository.list_scans(organization_id, audit.id)
     exceptions = [scan for scan in scans if scan.match_status != "matched"]
 
+    st.divider()
+    st.markdown(f"## {audit.audit_number}")
+    st.caption(f"Audit ID: {audit.id} · {audit.scope_label} · {audit.status.replace('_', ' ').title()}")
     metrics = st.columns(4)
-    metrics[0].metric("First pass", f"{first_complete}/{len(lines)}")
-    metrics[1].metric("Recounts waiting", len(recount_lines))
-    metrics[2].metric("Scan exceptions", len(exceptions))
-    metrics[3].metric(
-        "Accuracy",
-        "Blind" if audit.blind_count and pending else f"{((len(lines) - len(variances)) / max(1, len(lines))) * 100:.1f}%",
-    )
+    metrics[0].metric("Products scanned", f"{scanned}/{total}")
+    metrics[1].metric("Remaining", pending)
+    metrics[2].metric("Recounts", recounts)
+    metrics[3].metric("Scan exceptions", len(exceptions))
 
-    if audit.status not in {"completed", "cancelled"}:
+    nav1, nav2, nav3, nav4 = st.columns(4)
+    if nav1.button("Back to Dashboard", width="stretch"):
+        st.session_state.pop(current_key, None)
+        st.rerun()
+    if audit.status in EDITABLE_STATUSES and nav2.button("Pause Audit", width="stretch"):
+        set_audit_status(repository, organization_id, facility_id, audit.id, status="paused", actor=_actor())
+        st.session_state.pop(current_key, None)
+        st.rerun()
+    if audit.status in EDITABLE_STATUSES and nav3.button("Stop & Review", width="stretch"):
+        set_audit_status(repository, organization_id, facility_id, audit.id, status="stopped", actor=_actor())
+        st.session_state[current_key] = audit.id
+        st.rerun()
+    show_report = nav4.button("Generate Current Report", width="stretch")
+
+    if audit.status in EDITABLE_STATUSES:
         if pending:
-            st.info(f"First pass in progress: {pending} item(s) remain. Scan every item before recount results are revealed.")
+            st.info(f"First pass in progress: {pending} item(s) remain. You can pause or stop at any time.")
             _live_count_form(
                 repository,
                 organization_id,
@@ -619,11 +609,8 @@ def render_inventory_audits(
                 lots_by_id=lots_by_id,
                 products_by_id=products_by_id,
             )
-            if not audit.blind_count:
-                progress = pd.DataFrame(rows).drop(columns=["line_id", "Unit Cost", "Retail Price"])
-                st.dataframe(progress, hide_index=True, width="stretch")
-        elif recount_lines:
-            st.warning(f"First pass complete. {len(recount_lines)} item(s) require a recount before approval.")
+        elif recounts:
+            st.warning(f"First pass complete. {recounts} item(s) require recount.")
             _live_count_form(
                 repository,
                 organization_id,
@@ -633,17 +620,44 @@ def render_inventory_audits(
                 lots_by_id=lots_by_id,
                 products_by_id=products_by_id,
             )
-            recount_ids = {line.id for line in recount_lines}
-            recount_frame = pd.DataFrame([row for row in rows if row["line_id"] in recount_ids])
-            st.dataframe(
-                recount_frame.drop(columns=["line_id", "Unit Cost", "Retail Price"]),
-                hide_index=True,
-                width="stretch",
-            )
         else:
-            st.success("Counting and required recounts are complete. Review totals and approve the audit.")
+            st.success("The intended count scope is fully counted and ready for completion.")
+            confirm = st.checkbox(
+                "I reviewed the count and confirm the intended audit scope is complete",
+                key=f"audit_confirm_{audit.id}",
+            )
+            post_adjustments = st.checkbox(
+                "Post approved corrections to the append-only inventory ledger",
+                value=True,
+                key=f"audit_post_{audit.id}",
+            )
+            if st.button("Complete Audit", type="primary", disabled=not confirm, width="stretch"):
+                try:
+                    repository.complete_audit(
+                        organization_id,
+                        facility_id,
+                        audit.id,
+                        actor=_actor(),
+                        post_adjustments=post_adjustments,
+                    )
+                except Exception as exc:
+                    st.error(f"Unable to complete the audit: {exc}")
+                else:
+                    st.success("Audit completed.")
+                    st.rerun()
+    elif audit.status == "stopped":
+        st.warning("This audit was stopped before completion. Its current results are preserved.")
+        if st.button("Reopen Audit", type="primary", width="stretch"):
+            set_audit_status(repository, organization_id, facility_id, audit.id, status="in_progress", actor=_actor())
+            st.rerun()
+    elif audit.status == "paused":
+        if st.button("Resume Audit", type="primary", width="stretch"):
+            set_audit_status(repository, organization_id, facility_id, audit.id, status="in_progress", actor=_actor())
+            st.rerun()
+    elif audit.status == "completed":
+        st.success("This audit is completed and preserved as historical record.")
     else:
-        st.success("This audit is complete and locked.")
+        st.info(f"Audit status: {audit.status.replace('_', ' ').title()}")
 
     if exceptions:
         with st.expander(f"Scan exceptions ({len(exceptions)})", expanded=False):
@@ -664,74 +678,66 @@ def render_inventory_audits(
                 width="stretch",
             )
 
-    ready = pending == 0 and not recount_lines
-    if ready or audit.status == "completed":
-        st.divider()
-        st.markdown("### Final audit totals")
-        totals = _final_totals(rows)
-        st.caption("Different units of measure remain separate so totals are operationally meaningful.")
-        if not totals.empty:
-            st.dataframe(
-                totals,
-                hide_index=True,
-                width="stretch",
-                column_config={
-                    "Cost Impact": st.column_config.NumberColumn(format="$%.2f"),
-                    "Revenue Impact": st.column_config.NumberColumn(format="$%.2f"),
-                },
-            )
-        detail = pd.DataFrame(rows).drop(columns=["line_id"])
-        st.dataframe(detail, hide_index=True, width="stretch")
-        st.download_button(
-            "Export final audit CSV",
-            data=detail.to_csv(index=False).encode("utf-8"),
-            file_name=f"inventory_audit_{audit.audit_number}.csv",
-            mime="text/csv",
-        )
-        if audit.status not in {"completed", "cancelled"}:
-            st.markdown("### Manager approval")
-            confirm = st.checkbox(
-                "I reviewed the recounts and confirmed the final physical quantities",
-                key=f"audit_confirm_{audit.id}",
-            )
-            post_adjustments = st.checkbox(
-                "Post approved corrections to the append-only inventory ledger",
-                value=True,
-                key=f"audit_post_{audit.id}",
-            )
-            if st.button("Approve and complete audit", type="primary", disabled=not confirm, width="stretch"):
-                try:
-                    repository.complete_audit(
-                        organization_id,
-                        facility_id,
-                        audit.id,
-                        actor=_actor(),
-                        post_adjustments=post_adjustments,
-                    )
-                except Exception as exc:
-                    st.error(f"Unable to complete the audit: {exc}")
-                else:
-                    st.success("Audit approved and completed.")
-                    st.rerun()
+    if show_report or audit.status in {"stopped", "completed", "cancelled"}:
+        _render_report_tools(repository, organization_id, audit, rows)
 
-    st.divider()
-    st.markdown("### Audit history")
-    history = pd.DataFrame(
-        [
-            {
-                "Audit": item.audit_number,
-                "Type": item.operation_type.title(),
-                "Status": item.status.replace("_", " ").title(),
-                "Scope": item.scope_label,
-                "Started": item.started_at,
-                "Started By": item.created_by,
-                "Completed": item.completed_at,
-                "Completed By": item.completed_by,
-            }
-            for item in audits
-        ]
+
+def render_inventory_audits(
+    repository: InventoryAuditRepository,
+    organization_id: str,
+    facility_id: str,
+    products,
+    lots,
+    *,
+    operation_type: str = "production",
+) -> None:
+    """Render independent audit sessions with pause, stop, resume, scan, and reporting."""
+
+    retail = operation_type == "retail"
+    st.subheader("Retail Scan Audit" if retail else "Inventory Audit & Reconciliation")
+    st.caption(
+        "Each audit is an independent saved workspace. Start another audit at any time, pause one, return later, or stop and report on partial work."
     )
-    st.dataframe(history, hide_index=True, width="stretch")
+    audits = repository.list_audits(organization_id, facility_id, operation_type)
+    products_by_id = {product.id: product for product in products}
+    lots_by_id = {lot.id: lot for lot in lots}
+
+    with st.expander("Start New Audit", expanded=not audits):
+        _create_audit_form(
+            repository,
+            organization_id,
+            facility_id,
+            lots,
+            products_by_id,
+            audits,
+            operation_type,
+        )
+
+    current_id = _render_audit_dashboard(
+        repository,
+        organization_id,
+        facility_id,
+        audits,
+        products_by_id,
+        lots_by_id,
+        operation_type,
+    )
+    if not current_id:
+        return
+    audit_by_id = {audit.id: audit for audit in repository.list_audits(organization_id, facility_id, operation_type)}
+    audit = audit_by_id.get(current_id)
+    if audit is None:
+        st.session_state.pop(f"current_audit_id_{operation_type}", None)
+        st.rerun()
+    _render_open_audit(
+        repository,
+        organization_id,
+        facility_id,
+        audit,
+        products_by_id,
+        lots_by_id,
+        operation_type,
+    )
 
 
 def render_inventory_audit_workspace(operation_type: str = "retail") -> None:
@@ -743,16 +749,13 @@ def render_inventory_audit_workspace(operation_type: str = "retail") -> None:
         st.warning("Select an organization and facility before opening Inventory Counts.")
         return
     try:
-        audits, coman = _standalone_repositories("inventory-audits-scan-v1")
+        audits, coman = _standalone_repositories("inventory-audits-session-v2")
         products = coman.list_products(organization_id)
         lots = coman.list_inventory_lots(organization_id, facility_id)
         if operation_type == "retail":
-            _render_retail_snapshot_intake(
-                audits,
-                organization_id,
-                facility_id,
-                expanded=not lots,
-            )
+            _render_retail_snapshot_intake(audits, organization_id, facility_id, expanded=not lots)
+            products = coman.list_products(organization_id)
+            lots = coman.list_inventory_lots(organization_id, facility_id)
         render_inventory_audits(
             audits,
             organization_id,
@@ -765,8 +768,8 @@ def render_inventory_audit_workspace(operation_type: str = "retail") -> None:
         st.error("Supabase is not configured. Add COMAN_DATABASE_URL to the Streamlit app secrets.")
     except Exception as exc:
         message = str(exc)
-        if "inventory_audits" in message or "inventory_audit_scans" in message:
-            st.error("Inventory Counts needs database migration 0012 before it can load.")
-            st.code("migrations/versions/0012_inventory_audits.sql")
+        if "inventory_audits" in message or "ck_inventory_audit_status" in message:
+            st.error("Inventory Counts needs database migration 0015 before resumable audits can load.")
+            st.code("migrations/versions/0015_inventory_audit_lifecycle.sql")
         else:
             st.error(f"Inventory Counts could not load: {exc}")
