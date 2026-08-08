@@ -83,7 +83,7 @@ def get_audit_events(repository, organization_id: str, audit_id: str):
     """Return the durable lifecycle/event trail for one audit."""
 
     with repository._session_factory() as session:  # noqa: SLF001 - companion module
-        return list(
+        events = list(
             session.scalars(
                 select(AuditEvent)
                 .where(
@@ -94,3 +94,9 @@ def get_audit_events(repository, organization_id: str, audit_id: str):
                 .order_by(AuditEvent.occurred_at, AuditEvent.id)
             )
         )
+    # The reporting UI historically used ``created_at`` for event-like rows.
+    # AuditEvent uses ``occurred_at``; expose a compatibility alias on these
+    # detached instances so existing report rendering remains simple.
+    for event in events:
+        event.created_at = event.occurred_at
+    return events
