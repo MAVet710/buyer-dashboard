@@ -6,14 +6,27 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 import json
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from modules.coman.models import AuditEvent, InventoryAudit
 
 
-EDITABLE_STATUSES = {"draft", "in_progress", "paused", "stopped"}
+# Only these states should render an editable scanner. Paused/stopped audits are
+# durable and resumable, but remain read-only until the operator explicitly resumes.
+EDITABLE_STATUSES = {"draft", "in_progress"}
+RESUMABLE_STATUSES = {"paused", "stopped"}
 CLOSED_STATUSES = {"completed", "cancelled"}
-ALL_STATUSES = EDITABLE_STATUSES | CLOSED_STATUSES
+ALL_STATUSES = EDITABLE_STATUSES | RESUMABLE_STATUSES | CLOSED_STATUSES
+
+# Keep fresh SQLAlchemy-created schemas aligned with migration 0015. Production
+# databases are changed by the migration; this also keeps local/test create_all()
+# schemas from retaining the pre-0015 status CHECK constraint.
+for _constraint in InventoryAudit.__table__.constraints:
+    if getattr(_constraint, "name", None) == "ck_inventory_audit_status":
+        _constraint.sqltext = text(
+            "status in ('draft', 'in_progress', 'paused', 'stopped', 'completed', 'cancelled')"
+        )
+        break
 
 
 class AuditWorkflowError(ValueError):
@@ -65,7 +78,7 @@ def set_audit_status(
                 entity_type="inventory_audit",
                 entity_id=audit.id,
                 action={
-                    "in_progress": "resumed" if previous in {"paused", "stopped"} else "started",
+                    "in_progress": "resumed" if previous in RESUMABLE_STATUSES else "started",
                     "paused": "paused",
                     "stopped": "stopped",
                     "cancelled": "cancelled",
