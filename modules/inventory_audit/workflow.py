@@ -91,6 +91,6 @@ def get_audit_events(repository, organization_id: str, audit_id: str):
                     AuditEvent.entity_type == "inventory_audit",
                     AuditEvent.entity_id == audit_id,
                 )
-                .order_by(AuditEvent.created_at, AuditEvent.id)
+                .order_by(AuditEvent.occurred_at, AuditEvent.id)
             )
         )
