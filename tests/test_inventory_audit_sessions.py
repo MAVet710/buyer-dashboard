@@ -7,7 +7,11 @@ from sqlalchemy import create_engine
 from modules.coman.models import Base
 from modules.coman.repository import ComanRepository
 from modules.inventory_audit.repository import InventoryAuditRepository
-from modules.inventory_audit.workflow import get_audit_events, set_audit_status
+from modules.inventory_audit.workflow import (
+    ensure_audit_lifecycle_schema,
+    get_audit_events,
+    set_audit_status,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +54,10 @@ def test_audit_can_pause_stop_and_resume_without_losing_session():
         operation_type="retail",
         lot_ids=[lot.id],
     )
+
+    # SQLite does not need the production PostgreSQL repair path, but the guard
+    # must remain safe to call before every lifecycle transition.
+    assert ensure_audit_lifecycle_schema(audits) is False
 
     set_audit_status(
         audits,
@@ -121,3 +129,14 @@ def test_audit_dashboard_supports_all_session_states():
     assert "Reopen Audit" in source
     assert "Export CSV" in source
     assert "Export Excel" in source
+
+
+def test_pause_stop_runtime_guard_can_apply_migration_0015_in_postgres():
+    source = (ROOT / "modules" / "inventory_audit" / "workflow.py").read_text(encoding="utf-8")
+
+    assert "ensure_audit_lifecycle_schema" in source
+    assert "drop constraint if exists ck_inventory_audit_status" in source
+    assert "add constraint ck_inventory_audit_status" in source
+    assert "'paused', 'stopped'" in source
+    assert "0015_inventory_audit_lifecycle" in source
+    assert "0014_machine_reference_library" in source
