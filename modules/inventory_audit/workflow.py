@@ -19,8 +19,9 @@ CLOSED_STATUSES = {"completed", "cancelled"}
 ALL_STATUSES = EDITABLE_STATUSES | RESUMABLE_STATUSES | CLOSED_STATUSES
 
 # Keep fresh SQLAlchemy-created schemas aligned with migration 0015. Production
-# databases are changed by the migration; this also keeps local/test create_all()
-# schemas from retaining the pre-0015 status CHECK constraint.
+# databases are also self-healed by ensure_audit_lifecycle_schema() below so a
+# deployed Streamlit app does not get stuck waiting for someone to manually paste
+# the standalone SQL into Supabase before Pause/Stop can work.
 for _constraint in InventoryAudit.__table__.constraints:
     if getattr(_constraint, "name", None) == "ck_inventory_audit_status":
         _constraint.sqltext = text(
@@ -31,6 +32,67 @@ for _constraint in InventoryAudit.__table__.constraints:
 
 class AuditWorkflowError(ValueError):
     """Raised when an inventory-audit lifecycle transition is not allowed."""
+
+
+def ensure_audit_lifecycle_schema(repository) -> bool:
+    """Idempotently apply migration 0015 to a live PostgreSQL audit table.
+
+    Streamlit Cloud deploys application code but does not automatically execute
+    the repository's standalone Supabase SQL files. Older production databases
+    therefore retain the pre-0015 CHECK constraint and reject ``paused`` and
+    ``stopped`` statuses. This guard runs only for PostgreSQL and only changes the
+    constraint when the live definition is still missing those states.
+
+    Returns True when the constraint was changed, otherwise False.
+    """
+
+    with repository._session_factory.begin() as session:  # noqa: SLF001 - companion module
+        bind = session.get_bind()
+        if bind.dialect.name != "postgresql":
+            return False
+
+        definition = session.execute(
+            text(
+                """
+                select pg_get_constraintdef(c.oid)
+                from pg_constraint c
+                join pg_class t on t.oid = c.conrelid
+                join pg_namespace n on n.oid = t.relnamespace
+                where n.nspname = 'public'
+                  and t.relname = 'inventory_audits'
+                  and c.conname = 'ck_inventory_audit_status'
+                """
+            )
+        ).scalar_one_or_none()
+
+        normalized = str(definition or "").lower()
+        changed = "paused" not in normalized or "stopped" not in normalized
+        if changed:
+            session.execute(
+                text(
+                    "alter table public.inventory_audits "
+                    "drop constraint if exists ck_inventory_audit_status"
+                )
+            )
+            session.execute(
+                text(
+                    "alter table public.inventory_audits "
+                    "add constraint ck_inventory_audit_status "
+                    "check (status in ('draft', 'in_progress', 'paused', 'stopped', 'completed', 'cancelled'))"
+                )
+            )
+
+        # Keep Alembic bookkeeping synchronized when this app-side guard is what
+        # actually applied 0015. The update is intentionally conditional so newer
+        # databases are never stamped backward.
+        session.execute(
+            text(
+                "update public.alembic_version "
+                "set version_num = '0015_inventory_audit_lifecycle' "
+                "where version_num = '0014_machine_reference_library'"
+            )
+        )
+        return changed
 
 
 def set_audit_status(
@@ -48,6 +110,17 @@ def set_audit_status(
     clean_status = str(status or "").strip().lower()
     if clean_status not in ALL_STATUSES:
         raise AuditWorkflowError(f"Unsupported audit status: {clean_status or 'blank'}")
+
+    # Production may have the audit tables but still be on the pre-0015 status
+    # constraint. Repair that schema before attempting Pause/Stop/Resume so the
+    # operator is never trapped in an audit because deployment skipped the SQL.
+    try:
+        ensure_audit_lifecycle_schema(repository)
+    except Exception as exc:
+        raise AuditWorkflowError(
+            "The audit database could not enable Pause/Stop automatically. "
+            "Verify the database user can alter inventory_audits or apply migration 0015."
+        ) from exc
 
     with repository._session_factory.begin() as session:  # noqa: SLF001 - companion module
         audit = repository._require_audit(  # noqa: SLF001 - companion module
