@@ -338,6 +338,7 @@ def _live_count_form(
     camera_value_key = f"audit_last_camera_value_{stage}_{audit.id}"
     st.markdown("### Recount scanner" if recount else "### Scan and count")
     st.caption("Camera, Bluetooth/USB scanner, typed code, and manual product selection all remain available.")
+
     pending = st.session_state.get(pending_key)
     if pending:
         _scan_count_dialog(
@@ -351,34 +352,36 @@ def _live_count_form(
             lots_by_id=lots_by_id,
             products_by_id=products_by_id,
         )
-        return
+
     scan_error = st.session_state.pop(error_key, None)
     if scan_error:
         st.error(scan_error)
     if qrcode_scanner is None:
         st.warning("Live camera scanning is unavailable. Use a Bluetooth/USB scanner or manual lookup below.")
     else:
-        # Keep this key stable. Changing it remounts the browser camera component and
-        # can make iPhone/Android request camera permission again on every Streamlit rerun.
+        # Keep this key stable and keep the component rendered while the count
+        # dialog is open. Remounting the browser camera can cause mobile Safari
+        # or Chrome to request permission again after every scan.
         scanned_code = qrcode_scanner(key=f"live_audit_scanner_{stage}_{audit.id}")
-        if not scanned_code:
-            st.session_state.pop(camera_value_key, None)
-        elif st.session_state.get(camera_value_key) != str(scanned_code):
-            st.session_state[camera_value_key] = str(scanned_code)
-            _queue_count_dialog(
-                repository,
-                organization_id,
-                facility_id,
-                audit,
-                raw_code=str(scanned_code),
-                recount=recount,
-                pending_key=pending_key,
-                error_key=error_key,
-            )
+        if not pending:
+            if not scanned_code:
+                st.session_state.pop(camera_value_key, None)
+            elif st.session_state.get(camera_value_key) != str(scanned_code):
+                st.session_state[camera_value_key] = str(scanned_code)
+                _queue_count_dialog(
+                    repository,
+                    organization_id,
+                    facility_id,
+                    audit,
+                    raw_code=str(scanned_code),
+                    recount=recount,
+                    pending_key=pending_key,
+                    error_key=error_key,
+                )
     with st.expander("Bluetooth / USB scanner or typed code", expanded=qrcode_scanner is None):
         with st.form(f"audit_code_lookup_{stage}_{audit.id}", clear_on_submit=True):
             scan_code = st.text_input("Scan or enter item code", placeholder="Dutchie ID, UPC, SKU, lot, or METRC package ID")
-            if st.form_submit_button("Find item", type="primary", width="stretch"):
+            if st.form_submit_button("Find item", type="primary", width="stretch", disabled=bool(pending)):
                 _queue_count_dialog(
                     repository,
                     organization_id,
@@ -411,8 +414,14 @@ def _live_count_form(
                 if line.id == line_id
             ),
             key=f"audit_manual_line_{stage}_{audit.id}",
+            disabled=bool(pending),
         )
-        if st.button("Enter count for selected item", key=f"audit_manual_open_{stage}_{audit.id}", width="stretch"):
+        if st.button(
+            "Enter count for selected item",
+            key=f"audit_manual_open_{stage}_{audit.id}",
+            width="stretch",
+            disabled=bool(pending),
+        ):
             line, lot, product = next(item for item in eligible if item[0].id == selection)
             st.session_state[pending_key] = {"line_id": line.id, "raw_code": _primary_code(lot, product)}
             st.rerun()
@@ -509,9 +518,14 @@ def _render_audit_dashboard(repository, organization_id, facility_id, audits, pr
                 top, action = st.columns([4, 1])
                 top.markdown(f"**{audit.audit_number}**  \n{audit.scope_label} · {audit.status.replace('_', ' ').title()}")
                 top.caption(f"{scanned}/{total} scanned · {completion:.0f}% · {recounts} recount(s) waiting · Started by {audit.created_by}")
-                label = "Resume" if audit.status in EDITABLE_STATUSES else "Review"
+                if audit.status == "in_progress":
+                    label = "Open"
+                elif audit.status in {"paused", "draft"}:
+                    label = "Resume"
+                else:
+                    label = "Review"
                 if action.button(label, key=f"open_audit_{audit.id}", width="stretch"):
-                    if audit.status in {"paused", "stopped", "draft"}:
+                    if audit.status in {"paused", "draft"}:
                         set_audit_status(
                             repository,
                             organization_id,
