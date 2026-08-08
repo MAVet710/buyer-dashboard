@@ -78,3 +78,15 @@ def test_inventory_audits_use_live_scanning_and_item_count_dialog():
     assert '"Save & scan next"' in source
     assert "preview_scanned_item(" in source
     assert "_live_count_form(" in source
+
+
+def test_retail_audit_defaults_to_latest_uploaded_inventory_report():
+    source = (ROOT / "modules" / "inventory_audit" / "ui.py").read_text(encoding="utf-8")
+
+    assert 'choices = ["Upload Dutchie inventory export"]' in source
+    assert 'choices.append("Use active Buyer Ops inventory")' in source
+    assert '"Import & Use for Next Audit"' in source
+    assert "_retail_scope_key(organization_id, facility_id)" in source
+    assert "_snapshot_scope_lot_codes(normalized_rows)" in source
+    assert "effective_lot_ids = scoped_lot_ids if retail and scoped_lot_ids else list(lot_options)" in source
+    assert "Only items represented in the most recently imported audit report" in source

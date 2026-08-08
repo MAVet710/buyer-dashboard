@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 from io import BytesIO
 import re
 
@@ -50,6 +51,37 @@ def _read_inventory_file(uploaded) -> pd.DataFrame:
     return pd.read_excel(uploaded)
 
 
+def _retail_scope_key(organization_id: str, facility_id: str) -> str:
+    return f"retail_audit_scope_{organization_id}_{facility_id}"
+
+
+def _snapshot_scope_lot_codes(rows: list[dict[str, object]]) -> list[str]:
+    """Mirror retail snapshot lot-code generation so the next audit can use only this upload."""
+
+    lot_codes: list[str] = []
+    for row in rows:
+        name = str(row.get("product_name") or "").strip()
+        if not name:
+            continue
+        upc = str(row.get("upc") or "").strip()
+        external_product_id = str(row.get("external_product_id") or "").strip()
+        sku = str(row.get("sku") or upc or external_product_id).strip().upper()
+        if not sku:
+            sku = f"RETAIL-{hashlib.sha1(name.casefold().encode('utf-8')).hexdigest()[:10].upper()}"
+        package_id = str(row.get("compliance_package_id") or "").strip()
+        external_inventory_id = str(row.get("external_inventory_id") or "").strip()
+        location = str(row.get("location_code") or "UNASSIGNED").strip().upper()
+        lot_code = str(
+            row.get("lot_code")
+            or package_id
+            or external_inventory_id
+            or f"RETAIL-{sku}-{location}"
+        ).strip().upper()
+        if lot_code:
+            lot_codes.append(lot_code)
+    return list(dict.fromkeys(lot_codes))
+
+
 def _render_retail_snapshot_intake(
     repository: InventoryAuditRepository,
     organization_id: str,
@@ -57,18 +89,31 @@ def _render_retail_snapshot_intake(
     *,
     expanded: bool = False,
 ) -> None:
+    scope_key = _retail_scope_key(organization_id, facility_id)
+    current_scope = st.session_state.get(scope_key) or {}
     with st.expander("Load or refresh Dutchie retail inventory", expanded=expanded):
         st.caption(
-            "Use Buyer Ops inventory already loaded in this session or upload a Dutchie CSV/XLSX export."
+            "Upload the inventory report you want to audit. Reusing Buyer Ops inventory is still available, but a fresh upload is the default."
         )
+        if current_scope.get("reference"):
+            st.info(
+                f"Next audit source: **{current_scope['reference']}** · "
+                f"{current_scope.get('row_count', 0)} imported row(s)."
+            )
         active = st.session_state.get("inv_raw_df")
         if not isinstance(active, pd.DataFrame) or active.empty:
             active = st.session_state.get("inv_df")
         has_active = isinstance(active, pd.DataFrame) and not active.empty
         choices = ["Upload Dutchie inventory export"]
         if has_active:
-            choices.insert(0, "Use active Buyer Ops inventory")
-        source = st.radio("Inventory source", choices, horizontal=True, key="retail_audit_snapshot_source")
+            choices.append("Use active Buyer Ops inventory")
+        source = st.radio(
+            "Inventory source",
+            choices,
+            index=0,
+            horizontal=True,
+            key="retail_audit_snapshot_source",
+        )
         frame = active.copy() if source.startswith("Use active") and has_active else None
         reference = "Active Buyer Ops inventory"
         if source.startswith("Upload"):
@@ -83,9 +128,10 @@ def _render_retail_snapshot_intake(
                     st.error(f"The inventory file could not be read: {exc}")
                     return
         if not isinstance(frame, pd.DataFrame) or frame.empty:
-            st.info("Choose current Buyer Ops inventory or upload a Dutchie inventory export to continue.")
+            st.info("Upload the inventory report you want to audit, or intentionally choose current Buyer Ops inventory.")
             return
 
+        st.caption(f"Selected source: **{reference}** · {len(frame):,} row(s)")
         columns = [str(column) for column in frame.columns]
         aliases = {
             "product_name": ["Product Name", "Item Name", "Name", "Product"],
@@ -119,7 +165,7 @@ def _render_retail_snapshot_intake(
                 index=optional.index(guess) if guess in optional else 0,
                 key=f"retail_snapshot_map_{field}",
             )
-        if st.button("Import durable retail snapshot", type="primary", width="stretch"):
+        if st.button("Import & Use for Next Audit", type="primary", width="stretch"):
             normalized_rows = []
             for _, source_row in frame.iterrows():
                 target = {}
@@ -138,9 +184,14 @@ def _render_retail_snapshot_intake(
             except Exception as exc:
                 st.error(f"Retail inventory could not be imported: {exc}")
             else:
+                st.session_state[scope_key] = {
+                    "reference": reference,
+                    "lot_codes": _snapshot_scope_lot_codes(normalized_rows),
+                    "row_count": int(result["rows"]),
+                    "imported_at": datetime.now().astimezone().isoformat(),
+                }
                 st.success(
-                    f"Imported {result['rows']} rows: {result['products_created']} products, "
-                    f"{result['lots_created']} lots, {result['adjustments']} balance updates."
+                    f"Imported {result['rows']} rows from {reference}. This upload is now the source for your next audit."
                 )
                 st.cache_resource.clear()
                 st.rerun()
@@ -435,6 +486,9 @@ def _create_audit_form(
     products_by_id,
     audits,
     operation_type: str,
+    *,
+    default_lot_ids: list[str] | None = None,
+    source_reference: str = "",
 ) -> None:
     retail = operation_type == "retail"
     lot_options = {
@@ -444,16 +498,24 @@ def _create_audit_form(
     if not lots:
         st.info("Load inventory for this facility before starting an audit.")
         return
+    scoped_lot_ids = [lot_id for lot_id in (default_lot_ids or []) if lot_id in lot_options]
+    effective_lot_ids = scoped_lot_ids if retail and scoped_lot_ids else list(lot_options)
+    if retail and source_reference and scoped_lot_ids:
+        st.success(f"Audit source: **{source_reference}** · {len(scoped_lot_ids):,} inventory item(s) from that upload.")
+        st.caption("Only items represented in the most recently imported audit report are selected for this new audit.")
+    elif retail:
+        st.warning("No uploaded audit report is selected. This audit will use all durable inventory currently stored for the facility.")
     with st.form(f"inventory_audit_create_{operation_type}"):
         prefix = "RTL" if retail else "PROD"
         generated = f"{prefix}-{datetime.now():%Y%m%d-%H%M%S}"
         left, right = st.columns(2)
         audit_number = left.text_input("Audit name / number", value=generated)
-        scope = right.text_input("Scope", value="Full store" if retail else "Full facility")
+        default_scope = f"Uploaded report: {source_reference}" if retail and source_reference and scoped_lot_ids else ("Full store" if retail else "Full facility")
+        scope = right.text_input("Scope", value=default_scope)
         selected_lots = st.multiselect(
             "Inventory to count",
-            options=list(lot_options),
-            default=list(lot_options),
+            options=effective_lot_ids,
+            default=effective_lot_ids,
             format_func=lambda lot_id: lot_options[lot_id],
         )
         settings_left, settings_right = st.columns(2)
@@ -487,7 +549,7 @@ def _create_audit_form(
             st.error(f"We couldn’t start the audit. Nothing was opened: {exc}")
         else:
             st.session_state[f"current_audit_id_{operation_type}"] = audit.id
-            st.success("Audit started. You can leave it, start another, and return later.")
+            st.success("Audit started from the selected inventory source. You can leave it, start another, and return later.")
             st.rerun()
 
 
@@ -716,6 +778,18 @@ def render_inventory_audits(
     products_by_id = {product.id: product for product in products}
     lots_by_id = {lot.id: lot for lot in lots}
 
+    source_reference = ""
+    default_lot_ids: list[str] = []
+    if retail:
+        scope = st.session_state.get(_retail_scope_key(organization_id, facility_id)) or {}
+        source_reference = str(scope.get("reference") or "")
+        scope_lot_codes = {str(value).strip().upper() for value in scope.get("lot_codes", []) if str(value).strip()}
+        default_lot_ids = [lot.id for lot in lots if str(lot.lot_code).strip().upper() in scope_lot_codes]
+        if source_reference and scope_lot_codes and not default_lot_ids:
+            st.warning(
+                f"The selected upload {source_reference} was imported, but its items could not be matched to the current durable lot list. Re-import the report before starting the audit."
+            )
+
     with st.expander("Start New Audit", expanded=not audits):
         _create_audit_form(
             repository,
@@ -725,6 +799,8 @@ def render_inventory_audits(
             products_by_id,
             audits,
             operation_type,
+            default_lot_ids=default_lot_ids,
+            source_reference=source_reference,
         )
 
     current_id = _render_audit_dashboard(
@@ -763,7 +839,7 @@ def render_inventory_audit_workspace(operation_type: str = "retail") -> None:
         st.warning("Select an organization and facility before opening Inventory Counts.")
         return
     try:
-        audits, coman = _standalone_repositories("inventory-audits-session-v2")
+        audits, coman = _standalone_repositories("inventory-audits-session-v3-upload-scope")
         products = coman.list_products(organization_id)
         lots = coman.list_inventory_lots(organization_id, facility_id)
         if operation_type == "retail":
