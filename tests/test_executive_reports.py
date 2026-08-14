@@ -1,7 +1,7 @@
 from io import BytesIO
 
 import pandas as pd
-from PyPDF2 import PdfReader
+from services.pdf_compat import PdfReader
 
 from reports.buyer_report import _build_buyer_executive_report_pdf
 from reports.coman_report import _build_coman_executive_report_pdf

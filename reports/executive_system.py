@@ -735,7 +735,7 @@ def combine_report_pdfs(
     title: str,
     division: str,
 ) -> bytes:
-    from PyPDF2 import PdfReader, PdfWriter
+    from services.pdf_compat import PdfReader, PdfWriter
 
     writer = PdfWriter()
     for report in reports:

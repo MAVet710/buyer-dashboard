@@ -8,6 +8,8 @@ from services.workspace_navigation import (
     DATA_OPERATIONS,
     METRC_INTEGRATIONS_SECTION,
     EXTRACTION_WORKSPACE,
+    HOME_OPS,
+    HOME_WORKSPACE,
     INVENTORY_COUNTS_SECTION,
     MA_FLOWER_EQUIVALENCY_SECTION,
     PRODUCTION_OPS,
@@ -25,6 +27,7 @@ from services.workspace_navigation import (
 def test_workspace_options_follow_license_features():
     enabled = lambda name, default_enabled=True: name == "buyer_module"
     options = workspace_options(enabled)
+    assert HOME_WORKSPACE in options
     assert COMAN_WORKSPACE in options
     assert COMMERCIAL_WORKSPACE in options
     assert DATA_HUB_WORKSPACE in options
@@ -39,6 +42,7 @@ def test_workspaces_are_grouped_by_operating_area():
 
     groups = workspace_groups(enabled)
 
+    assert groups[HOME_OPS] == [HOME_WORKSPACE]
     assert groups[RETAIL_OPS] == [BUYER_WORKSPACE, WHITE_LABEL_WORKSPACE]
     assert groups[PRODUCTION_OPS] == [COMAN_WORKSPACE, EXTRACTION_WORKSPACE]
     assert groups[COMMERCIAL_OPS] == [COMMERCIAL_WORKSPACE]
@@ -46,6 +50,7 @@ def test_workspaces_are_grouped_by_operating_area():
 
 
 def test_saved_workspace_resolves_to_its_operations_group():
+    assert workspace_group(HOME_WORKSPACE) == HOME_OPS
     assert workspace_group(BUYER_WORKSPACE) == RETAIL_OPS
     assert workspace_group(WHITE_LABEL_WORKSPACE) == RETAIL_OPS
     assert workspace_group(COMAN_WORKSPACE) == PRODUCTION_OPS

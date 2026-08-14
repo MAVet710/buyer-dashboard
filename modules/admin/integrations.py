@@ -1,6 +1,6 @@
 """Role-aware METRC and platform integration administration UI."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import streamlit as st
 
@@ -93,7 +93,7 @@ def render_user_metrc_integrations_page(*, user_integrations_store, current_iden
             )
             if result.get("ok"):
                 st.session_state.user_metrc_last_validated = (
-                    datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                    datetime.now(timezone.utc).replace(microsecond=0).isoformat()
                 )
                 st.success(
                     str(result.get("message") or "METRC connection succeeded.")
@@ -298,7 +298,7 @@ def render_admin_integrations_page(*, user_integrations_store, current_identity,
             )
             st.session_state.global_metrc_status = str(result.get("status") or "failed")
             if result.get("ok"):
-                st.session_state.global_metrc_last_validated = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                st.session_state.global_metrc_last_validated = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
                 st.success(str(result.get("message") or "Metrc connection succeeded."))
                 st.caption(f"Endpoint: {result.get('base_url')}/facilities/v2/")
                 st.caption(f"Facilities visible: {result.get('facility_count', 0)}")

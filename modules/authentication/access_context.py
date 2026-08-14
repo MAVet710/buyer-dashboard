@@ -29,7 +29,9 @@ def render_access_context(*, user_store, rerun) -> None:
         if not organizations:
             st.sidebar.warning("No organizations are available. Check the Supabase connection.")
             st.session_state.active_organization_id = None
+            st.session_state.active_organization_name = ""
             st.session_state.active_facility_id = None
+            st.session_state.active_facility_name = ""
             return
         # A legacy simulation tenant may remain in databases upgraded from the
         # original demo architecture.  Once the unified DEV Sandbox exists,
@@ -60,15 +62,21 @@ def render_access_context(*, user_store, rerun) -> None:
         org_label = st.sidebar.selectbox("Organization", labels, index=current_index, key="dev_org_context")
         selected_org = organizations_by_label[org_label]
         st.session_state.active_organization_id = selected_org.id
+        st.session_state.active_organization_name = selected_org.name
         facilities = user_store.list_facilities(selected_org.id)
     else:
         st.session_state.active_organization_id = assigned_org_id
         if not assigned_org_id:
             st.sidebar.warning("This account is not assigned to an organization.")
+            st.session_state.active_organization_name = ""
             st.session_state.active_facility_id = None
+            st.session_state.active_facility_name = ""
             return
         organizations = {item.id: item for item in user_store.list_organizations(active_only=False)}
         assigned_org = organizations.get(assigned_org_id)
+        st.session_state.active_organization_name = (
+            assigned_org.name if assigned_org else "Assigned organization"
+        )
         st.sidebar.info(assigned_org.name if assigned_org else "Assigned organization")
         facilities = user_store.list_facilities(
             assigned_org_id,
@@ -78,6 +86,7 @@ def render_access_context(*, user_store, rerun) -> None:
     if not facilities:
         st.sidebar.caption("No accessible facilities")
         st.session_state.active_facility_id = None
+        st.session_state.active_facility_name = ""
         return
     facilities_by_label = {f"{item.name} ({item.code})": item for item in facilities}
     facility_labels = list(facilities_by_label)
@@ -89,4 +98,5 @@ def render_access_context(*, user_store, rerun) -> None:
     facility_label = st.sidebar.selectbox("Facility", facility_labels, index=facility_index, key="facility_context")
     selected_facility = facilities_by_label[facility_label]
     st.session_state.active_facility_id = selected_facility.id
+    st.session_state.active_facility_name = selected_facility.name
     st.sidebar.caption(f"Timezone: {selected_facility.timezone_name}")

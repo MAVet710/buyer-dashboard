@@ -86,11 +86,12 @@ def load_premium_shell(theme: str = "Dark") -> str:
     }}
 
     [data-testid="stHeader"] {{
+        height: 0;
         background: transparent;
     }}
 
     [data-testid="stToolbar"] {{
-        opacity: .72;
+        display: none !important;
     }}
 
     .block-container {{
@@ -231,7 +232,7 @@ def load_premium_shell(theme: str = "Dark") -> str:
 
     /* Sidebar */
     [data-testid="stSidebar"] {{
-        width: 300px !important;
+        width: 272px !important;
         color: var(--dl-text) !important;
         background:
             radial-gradient(circle at 20% 0%, rgba(231, 152, 78, .10), transparent 17rem),
@@ -394,6 +395,50 @@ def load_premium_shell(theme: str = "Dark") -> str:
 
     .tile-card, .chart-card, .section-header-card, .hero, .ai-brief {{
         border-radius: var(--dl-radius-lg) !important;
+    }}
+
+    .dl-role-home {{
+        position: relative;
+        overflow: hidden;
+        margin: 0 0 1rem;
+        padding: clamp(1.4rem, 3vw, 2.35rem);
+        border: 1px solid var(--dl-border);
+        border-radius: var(--dl-radius-xl);
+        background:
+            radial-gradient(circle at 88% 12%, rgba(231, 152, 78, .18), transparent 18rem),
+            linear-gradient(145deg, var(--dl-surface-raised), var(--dl-surface));
+        box-shadow: 0 18px 56px var(--dl-shadow);
+    }}
+
+    .dl-role-home__kicker {{
+        margin-bottom: .55rem;
+        color: var(--dl-copper) !important;
+        font-size: .65rem;
+        font-weight: 850;
+        letter-spacing: .18em;
+    }}
+
+    .dl-role-home h1 {{
+        max-width: 760px;
+        margin: 0 0 .5rem;
+    }}
+
+    .dl-role-home p {{
+        max-width: 720px;
+        margin: 0;
+        color: var(--dl-text-soft) !important;
+    }}
+
+    .dl-role-home__context {{
+        display: inline-flex;
+        margin-top: 1rem;
+        padding: .36rem .64rem;
+        color: var(--dl-text-soft) !important;
+        background: var(--dl-surface-soft);
+        border: 1px solid var(--dl-border);
+        border-radius: 999px;
+        font-size: .75rem;
+        font-weight: 700;
     }}
 
     .section-header-card {{
