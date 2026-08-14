@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
+from typing import Any
 
 
 BUYER_WORKSPACE = "🛒 Buyer Operations"
@@ -21,6 +22,43 @@ AI_INTEGRATIONS_SECTION = "🧠 AI & METRC Integrations"
 METRC_INTEGRATIONS_SECTION = "🔗 METRC Integrations"
 INVENTORY_COUNTS_SECTION = "📋 Inventory Counts"
 MA_FLOWER_EQUIVALENCY_SECTION = "🌿 MA Flower Equivalency"
+
+
+PENDING_NAVIGATION_KEY = "_pending_workspace_navigation"
+
+
+def queue_workspace_navigation(
+    state: MutableMapping[str, Any],
+    *,
+    group: str,
+    workspace: str,
+    buyer_section: str = "",
+) -> None:
+    """Queue navigation for the next rerun without mutating live widget keys."""
+
+    state[PENDING_NAVIGATION_KEY] = {
+        "group": str(group),
+        "workspace": str(workspace),
+        "buyer_section": str(buyer_section or ""),
+    }
+
+
+def apply_pending_workspace_navigation(state: MutableMapping[str, Any]) -> bool:
+    """Apply and clear one queued request before navigation widgets render."""
+
+    pending = state.pop(PENDING_NAVIGATION_KEY, None)
+    if not isinstance(pending, dict):
+        return False
+    group = str(pending.get("group") or "")
+    workspace = str(pending.get("workspace") or "")
+    if not group or not workspace:
+        return False
+    state["operations_group"] = group
+    state["workspace_mode"] = workspace
+    buyer_section = str(pending.get("buyer_section") or "")
+    if buyer_section:
+        state["buyer_section"] = buyer_section
+    return True
 
 
 def can_manage_ai_integrations(user_role: str | None) -> bool:

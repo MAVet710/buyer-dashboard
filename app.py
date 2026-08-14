@@ -76,8 +76,10 @@ from services.workspace_navigation import (
     PRODUCTION_OPS,
     RETAIL_OPS,
     WHITE_LABEL_WORKSPACE,
+    apply_pending_workspace_navigation,
     buyer_section_groups,
     can_manage_ai_integrations,
+    queue_workspace_navigation,
     workspace_options as build_workspace_options,
     workspace_groups as build_workspace_groups,
 )
@@ -3682,6 +3684,7 @@ _display_user = _current_authenticated_identity()[0] or "Trial User"
 
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+apply_pending_workspace_navigation(st.session_state)
 workspace_options = build_workspace_options(_feature_enabled)
 workspace_groups = build_workspace_groups(_feature_enabled)
 operation_groups = list(workspace_groups)
@@ -8048,8 +8051,11 @@ if _tenant_issue:
         "Tenant-owned production and commercial records are never opened without an explicit organization and facility context."
     )
     if st.button("Return to Operations Home", key="tenant_guard_home", type="primary"):
-        st.session_state["operations_group"] = HOME_OPS
-        st.session_state["workspace_mode"] = HOME_WORKSPACE
+        queue_workspace_navigation(
+            st.session_state,
+            group=HOME_OPS,
+            workspace=HOME_WORKSPACE,
+        )
         _safe_rerun()
     st.stop()
 
@@ -8217,8 +8223,11 @@ if section == "📊 Inventory Dashboard":
         st.sidebar.markdown("### Data readiness")
         st.sidebar.caption("Upload and validate operational files in one guided workspace.")
         if st.sidebar.button("Open Data Import Center", key="open_data_hub_from_buyer", width="stretch"):
-            st.session_state["operations_group"] = DATA_OPERATIONS
-            st.session_state["workspace_mode"] = DATA_HUB_WORKSPACE
+            queue_workspace_navigation(
+                st.session_state,
+                group=DATA_OPERATIONS,
+                workspace=DATA_HUB_WORKSPACE,
+            )
             _safe_rerun()
 
         # Persist file caches to the daily store so they survive session timeouts
