@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from modules.navigation.role_home import activate_home_action, actions_for_role
+from services.workspace_navigation import apply_pending_workspace_navigation
 from services.tenant_guard import TenantContext, tenant_access_issue
 from services.upload_cache import load_cached_upload
 from services.workspace_navigation import (
@@ -32,6 +33,8 @@ def test_role_home_actions_are_filtered_and_navigate_atomically():
     target = next(action for action in buyer_actions if action.workspace == DATA_HUB_WORKSPACE)
     state = {"operations_group": "old", "workspace_mode": "old"}
     activate_home_action(state, target)
+    assert state["operations_group"] == "old"
+    assert apply_pending_workspace_navigation(state) is True
     assert state["operations_group"] == target.group
     assert state["workspace_mode"] == target.workspace
 

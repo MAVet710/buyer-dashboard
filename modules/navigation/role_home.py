@@ -19,6 +19,7 @@ from services.workspace_navigation import (
     EXTRACTION_WORKSPACE,
     PRODUCTION_OPS,
     RETAIL_OPS,
+    queue_workspace_navigation,
 )
 
 
@@ -51,10 +52,12 @@ def actions_for_role(role: str) -> tuple[HomeAction, ...]:
 
 
 def activate_home_action(state: MutableMapping[str, Any], action: HomeAction) -> None:
-    state["operations_group"] = action.group
-    state["workspace_mode"] = action.workspace
-    if action.section:
-        state["buyer_section"] = action.section
+    queue_workspace_navigation(
+        state,
+        group=action.group,
+        workspace=action.workspace,
+        buyer_section=action.section,
+    )
 
 
 def render_role_home(
