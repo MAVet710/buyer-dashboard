@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 import re
 import json
@@ -103,7 +103,7 @@ class MenuCaptureSession:
 
     def start(self, url: str) -> dict[str, Any]:
         self.current_url = url.strip()
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
         self.started = True
         try:
             import playwright  # noqa: F401
@@ -125,7 +125,7 @@ class MenuCaptureSession:
         self.categories_captured.append(category)
         return {
             "category": category,
-            "captured_at": datetime.utcnow().isoformat(),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
             "message": "Category checkpoint captured. Paste/upload visible product data for extraction.",
         }
 
@@ -173,7 +173,7 @@ class MenuCaptureSession:
                 "promo_text": row.get("promo_text", ""),
                 "product_url": row.get("product_url", ""),
                 "raw_text": row.get("raw_text", ""),
-                "captured_at": datetime.utcnow().isoformat(),
+                "captured_at": datetime.now(timezone.utc).isoformat(),
             }
             missing = [k for k in ["product_name", "effective_price", "category"] if not fields.get(k)]
             if not missing and (fields.get("package_size_label") or fields.get("subcategory")):

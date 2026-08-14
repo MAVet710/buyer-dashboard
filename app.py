@@ -10,7 +10,7 @@ import hashlib
 import requests
 from collections.abc import Mapping
 from typing import Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from dotenv import load_dotenv
 
@@ -57,6 +57,8 @@ from services.auth_workflow import (
     apply_authenticated_session,
     authenticate_any_role,
     clear_authenticated_session,
+    mark_session_activity,
+    session_is_expired,
 )
 from services.workspace_navigation import (
     AI_INTEGRATIONS_SECTION,
@@ -66,6 +68,8 @@ from services.workspace_navigation import (
     DATA_HUB_WORKSPACE,
     DATA_OPERATIONS,
     EXTRACTION_WORKSPACE,
+    HOME_OPS,
+    HOME_WORKSPACE,
     INVENTORY_COUNTS_SECTION,
     MA_FLOWER_EQUIVALENCY_SECTION,
     METRC_INTEGRATIONS_SECTION,
@@ -75,6 +79,7 @@ from services.workspace_navigation import (
     buyer_section_groups,
     can_manage_ai_integrations,
     workspace_options as build_workspace_options,
+    workspace_groups as build_workspace_groups,
 )
 from modules.commercial.ui import render_commercial_workspace
 from modules.coman.ui import render_coman_workspace
@@ -89,11 +94,16 @@ from modules.inventory_audit.ui import render_inventory_audit_workspace
 from modules.ma_flower_equivalency.ui import render_ma_flower_equivalency
 from modules.repack.ui import render_white_label_repack_workspace
 from services.legal_acceptance_store import LegalAcceptanceStore
+from services.tenant_guard import resolve_tenant_context, tenant_access_issue
+from services.upload_cache import load_cached_upload
 from modules.legal_acceptance.ui import render_legal_acceptance_gate
 from modules.admin.user_management import render_admin_user_management
 from modules.admin.integrations import render_admin_integrations_page
 from modules.authentication.access_context import render_access_context
+from modules.authentication.login_page import render_login_page
 from modules.navigation.workspace_shell import render_workspace_selector
+from modules.navigation.role_home import render_role_home
+from modules.navigation.help_center import render_help_center
 
 load_dotenv()
 
@@ -2108,7 +2118,7 @@ def _extract_delivery_from_pdf(uploaded_file):
     """
     Best-effort PDF parsing:
     - Tries pdfplumber tables first (works if the PDF has selectable text tables).
-    - Falls back to PyPDF2 text extraction and simple row heuristics.
+    - Falls back to pypdf text extraction and simple row heuristics.
     """
     uploaded_file.seek(0)
     pdf_bytes = uploaded_file.read()
@@ -2131,9 +2141,9 @@ def _extract_delivery_from_pdf(uploaded_file):
     except Exception:
         pass
 
-    # 2) PyPDF2 text extraction
+    # 2) pypdf text extraction
     try:
-        from PyPDF2 import PdfReader  # type: ignore
+        from services.pdf_compat import PdfReader
         reader = PdfReader(BytesIO(pdf_bytes))
         text = ""
         for p in reader.pages:
@@ -2679,7 +2689,7 @@ def _build_copilot_context(app_mode, section):
     context_lines = [
         f"App mode: {app_mode}",
         f"Section: {section}",
-        f"Date: {datetime.utcnow().date().isoformat()}",
+        f"Date: {datetime.now(timezone.utc).date().isoformat()}",
     ]
 
     inv_df = st.session_state.get("inv_raw_df")
@@ -3342,42 +3352,65 @@ if APP_USER_STORE.configured:
 else:
     st.sidebar.warning("Supabase storage is not configured")
 
-st.sidebar.markdown("### Account")
-
 _signed_in = st.session_state.is_admin or st.session_state.user_authenticated
-if not _signed_in:
+if _signed_in:
+    _idle_minutes = int(os.getenv("DOOBIE_SESSION_IDLE_MINUTES", "90"))
+    if session_is_expired(st.session_state, idle_minutes=_idle_minutes):
+        clear_authenticated_session(st.session_state)
+        st.session_state["_auth_notice"] = "Your secure session expired after a period of inactivity. Sign in again."
+        _safe_rerun()
+    mark_session_activity(st.session_state)
+if not _signed_in and st.session_state.trial_start is None:
     _locked_until = max(
         [value for value in [st.session_state._admin_lockout_until, st.session_state._user_lockout_until] if value],
         default=None,
     )
+    _lockout_message = ""
     if _locked_until and datetime.now() < _locked_until:
         remaining_s = int((_locked_until - datetime.now()).total_seconds())
-        st.sidebar.error(f"Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s.")
-    else:
-        login_user = st.sidebar.text_input("Username", key="unified_login_username")
-        login_pass = st.sidebar.text_input("Password", type="password", key="unified_login_password")
-        if st.sidebar.button("Sign in", type="primary", key="unified_login_btn", width="stretch"):
-            authenticated, account_name, is_admin_account = authenticate_any_role(
-                lambda username, password, require_admin: _authenticate_account(
-                    username, password, require_admin=require_admin
-                ),
-                login_user,
-                login_pass,
-            )
-            if authenticated:
-                apply_authenticated_session(st.session_state, account_name, is_admin_account)
-                _safe_rerun()
+        _lockout_message = (
+            f"Too many failed attempts. Try again in {remaining_s // 60}m {remaining_s % 60}s."
+        )
+    submission = render_login_page(
+        brand_image_url=background_url,
+        storage_connected=bool(APP_USER_STORE.configured),
+        lockout_message=_lockout_message,
+        notice_message=str(st.session_state.pop("_auth_notice", "")),
+    )
+    if submission.action == "login" and not _lockout_message:
+        authenticated, account_name, is_admin_account = authenticate_any_role(
+            lambda username, password, require_admin: _authenticate_account(
+                username, password, require_admin=require_admin
+            ),
+            submission.username,
+            submission.password,
+        )
+        if authenticated:
+            apply_authenticated_session(st.session_state, account_name, is_admin_account)
+            st.session_state["operations_group"] = "Home"
+            st.session_state["workspace_mode"] = "Operations Home"
+            _safe_rerun()
+        else:
+            st.session_state._user_fail_count += 1
+            remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._user_fail_count
+            if remaining_attempts <= 0:
+                lock_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
+                st.session_state._admin_lockout_until = lock_until
+                st.session_state._user_lockout_until = lock_until
+                st.error(f"Login locked for {_LOCKOUT_MINUTES} minutes.")
             else:
-                st.session_state._user_fail_count += 1
-                remaining_attempts = _LOCKOUT_MAX_ATTEMPTS - st.session_state._user_fail_count
-                if remaining_attempts <= 0:
-                    lock_until = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
-                    st.session_state._admin_lockout_until = lock_until
-                    st.session_state._user_lockout_until = lock_until
-                    st.sidebar.error(f"Login locked for {_LOCKOUT_MINUTES} minutes.")
-                else:
-                    st.sidebar.error(f"Invalid username or password. {remaining_attempts} attempt(s) remaining.")
-else:
+                st.error(f"Invalid username or password. {remaining_attempts} attempt(s) remaining.")
+    elif submission.action == "trial":
+        if _check_trial_key(submission.trial_key):
+            st.session_state.trial_start = datetime.now().isoformat()
+            st.success("Trial activated for 24 hours.")
+            _safe_rerun()
+        else:
+            st.error("Invalid trial key.")
+    st.stop()
+
+if _signed_in:
+    st.sidebar.markdown("### Account")
     account_name = st.session_state.admin_user if st.session_state.is_admin else st.session_state.user_user
     account_role = str(st.session_state.get("auth_user_role") or "trial").upper().replace("_", " ")
     st.sidebar.success(f"{account_name} · {account_role}")
@@ -3429,18 +3462,7 @@ if st.session_state.is_admin or st.session_state.user_authenticated:
 trial_now = datetime.now()
 
 if (not st.session_state.is_admin) and (not st.session_state.user_authenticated):
-    if st.session_state.trial_start is None:
-        with st.sidebar.expander("Trial access", expanded=False):
-            trial_key_input = st.text_input("Trial key", type="password", key="trial_key_input")
-            if st.button("Activate trial", key="activate_trial", width="stretch"):
-                if _check_trial_key(trial_key_input.strip()):
-                    st.session_state.trial_start = trial_now.isoformat()
-                    st.success("Trial activated for 24 hours.")
-                else:
-                    st.error("Invalid trial key.")
-        st.info("Sign in with your account, or expand Trial access if you were issued a trial key.")
-        st.stop()
-    else:
+    if st.session_state.trial_start is not None:
         try:
             started_at = datetime.fromisoformat(st.session_state.trial_start)
         except Exception:
@@ -3461,6 +3483,7 @@ if (not st.session_state.is_admin) and (not st.session_state.user_authenticated)
 
 if st.session_state.is_admin or st.session_state.user_authenticated:
     render_access_context(user_store=APP_USER_STORE, rerun=_safe_rerun)
+    render_help_center()
     if st.session_state.get("auth_user_role") == "dev":
         st.sidebar.caption(
             "LEVEL DEV · Platform-wide access. Choose the company and facility above."
@@ -3660,35 +3683,13 @@ _display_user = _current_authenticated_identity()[0] or "Trial User"
 _buyer_export_payload = st.session_state.get("buyer_export_payload")
 _buyer_report_file_pdf = f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf"
 workspace_options = build_workspace_options(_feature_enabled)
-workspace_groups = {
-    RETAIL_OPS: [
-        workspace
-        for workspace in workspace_options
-        if workspace not in {COMAN_WORKSPACE, COMMERCIAL_WORKSPACE, EXTRACTION_WORKSPACE, DATA_HUB_WORKSPACE}
-    ],
-    PRODUCTION_OPS: [
-        workspace
-        for workspace in workspace_options
-        if workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
-    ],
-    COMMERCIAL_OPS: [
-        workspace
-        for workspace in workspace_options
-        if workspace == COMMERCIAL_WORKSPACE
-    ],
-    DATA_OPERATIONS: [
-        workspace
-        for workspace in workspace_options
-        if workspace == DATA_HUB_WORKSPACE
-    ],
-}
-workspace_groups = {
-    group: options for group, options in workspace_groups.items() if options
-}
+workspace_groups = build_workspace_groups(_feature_enabled)
 operation_groups = list(workspace_groups)
 saved_workspace = st.session_state.get("workspace_mode")
 saved_group = (
-    PRODUCTION_OPS
+    HOME_OPS
+    if saved_workspace == HOME_WORKSPACE
+    else PRODUCTION_OPS
     if saved_workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}
     else COMMERCIAL_OPS
     if saved_workspace == COMMERCIAL_WORKSPACE
@@ -3696,6 +3697,8 @@ saved_group = (
     if saved_workspace == DATA_HUB_WORKSPACE
     else RETAIL_OPS
 )
+if not saved_workspace:
+    saved_group = HOME_OPS
 if operation_groups and st.session_state.get("operations_group") not in operation_groups:
     st.session_state["operations_group"] = (
         saved_group if saved_group in operation_groups else operation_groups[0]
@@ -8037,6 +8040,29 @@ if not workspace_options:
     st.error("Your license does not include any enabled workspace modules.")
     st.stop()
 
+_tenant_context = resolve_tenant_context(st.session_state)
+_tenant_issue = tenant_access_issue(app_mode, _tenant_context)
+if _tenant_issue:
+    st.error(_tenant_issue)
+    st.caption(
+        "Tenant-owned production and commercial records are never opened without an explicit organization and facility context."
+    )
+    if st.button("Return to Operations Home", key="tenant_guard_home", type="primary"):
+        st.session_state["operations_group"] = HOME_OPS
+        st.session_state["workspace_mode"] = HOME_WORKSPACE
+        _safe_rerun()
+    st.stop()
+
+if app_mode == HOME_WORKSPACE:
+    render_role_home(
+        user_name=str(_display_user),
+        role=str(st.session_state.get("auth_user_role") or "trial"),
+        organization_name=str(st.session_state.get("active_organization_name") or ""),
+        facility_name=str(st.session_state.get("active_facility_name") or ""),
+        ai_connected=bool(_doobie_ai_access_enabled()),
+    )
+    st.stop()
+
 if app_mode == DATA_HUB_WORKSPACE:
     render_hero(
         "Data Hub",
@@ -8184,61 +8210,16 @@ if section == "📊 Inventory Dashboard":
     # DATA SOURCE: UPLOADS vs DUTCHIE LIVE
     # ------------------------------------------------------------
     if data_mode == "📁 Uploads":
-        st.sidebar.header("📂 Upload Core Reports")
-        inv_file = st.sidebar.file_uploader(
-            "Inventory File (CSV or Excel)", type=["csv", "xlsx", "xls"], key="inv_upload"
-        )
-        product_sales_file = st.sidebar.file_uploader(
-            "Product Sales Report (qty-based Excel)", type=["xlsx", "xls"], key="sales_upload"
-        )
-        extra_sales_file = st.sidebar.file_uploader(
-            "Optional Extra Sales Detail (revenue)",
-            type=["xlsx", "xls"],
-            help="Optional: revenue detail. Can be used for pricing trends.",
-            key="extra_sales_upload",
-        )
-        quarantine_file = st.sidebar.file_uploader(
-            "Quarantine List (CSV or Excel)",
-            type=["csv", "xlsx", "xls"],
-            help="Optional: list of items in quarantine to exclude from slow movers analysis.",
-            key="quarantine_upload",
-        )
-
-        # ------------------------------------------------------------
-        # UPLOAD CACHE (prevents uploads from wiping when switching tabs)
-        # ------------------------------------------------------------
-        class _UploadedFileLike(BytesIO):
-            def __init__(self, b: bytes, name: str):
-                super().__init__(b)
-                self.name = name
-
-        def _cache_upload(file_obj, cache_key: str):
-            if file_obj is None:
-                return
-            try:
-                file_obj.seek(0)
-                b = file_obj.read()
-                file_obj.seek(0)
-            except Exception:
-                return
-            if len(b) > MAX_UPLOAD_BYTES:
-                st.error(
-                    f"❌ File '{getattr(file_obj, 'name', 'upload')}' exceeds the "
-                    f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB size limit and was not processed."
-                )
-                return
-            st.session_state[cache_key] = {"name": getattr(file_obj, "name", "upload"), "bytes": b}
-
-        def _load_cached(cache_key: str):
-            obj = st.session_state.get(cache_key)
-            if isinstance(obj, dict) and obj.get("bytes"):
-                return _UploadedFileLike(obj["bytes"], obj.get("name", "cached_upload"))
-            return None
-
-        _cache_upload(inv_file, "_cache_inv")
-        _cache_upload(product_sales_file, "_cache_sales")
-        _cache_upload(extra_sales_file, "_cache_extra_sales")
-        _cache_upload(quarantine_file, "_cache_quarantine")
+        inv_file = None
+        product_sales_file = None
+        extra_sales_file = None
+        quarantine_file = None
+        st.sidebar.markdown("### Data readiness")
+        st.sidebar.caption("Upload and validate operational files in one guided workspace.")
+        if st.sidebar.button("Open Data Import Center", key="open_data_hub_from_buyer", width="stretch"):
+            st.session_state["operations_group"] = DATA_OPERATIONS
+            st.session_state["workspace_mode"] = DATA_HUB_WORKSPACE
+            _safe_rerun()
 
         # Persist file caches to the daily store so they survive session timeouts
         _ds_user = (
@@ -8249,21 +8230,18 @@ if section == "📊 Inventory Dashboard":
             _save_to_daily_store(_ds_user)
 
         if inv_file is None:
-            inv_file = _load_cached("_cache_inv")
-            if inv_file is not None:
-                st.sidebar.caption(f"Using cached Inventory file: {inv_file.name}")
+            inv_file = load_cached_upload(st.session_state, "_cache_inv")
         if product_sales_file is None:
-            product_sales_file = _load_cached("_cache_sales")
-            if product_sales_file is not None:
-                st.sidebar.caption(f"Using cached Product Sales file: {product_sales_file.name}")
+            product_sales_file = load_cached_upload(st.session_state, "_cache_sales")
         if extra_sales_file is None:
-            extra_sales_file = _load_cached("_cache_extra_sales")
-            if extra_sales_file is not None:
-                st.sidebar.caption(f"Using cached Extra Sales file: {extra_sales_file.name}")
+            extra_sales_file = load_cached_upload(st.session_state, "_cache_extra_sales")
         if quarantine_file is None:
-            quarantine_file = _load_cached("_cache_quarantine")
-            if quarantine_file is not None:
-                st.sidebar.caption(f"Using cached Quarantine file: {quarantine_file.name}")
+            quarantine_file = load_cached_upload(st.session_state, "_cache_quarantine")
+        _ready_source_count = sum(
+            source is not None
+            for source in [inv_file, product_sales_file, extra_sales_file, quarantine_file]
+        )
+        st.sidebar.success(f"{_ready_source_count}/4 retail sources ready")
 
         if st.sidebar.button("🧹 Clear uploads (today & session)"):
             _ds_user_clear = (

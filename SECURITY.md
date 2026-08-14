@@ -1,104 +1,76 @@
-# Security Configuration Guide
+# Security Policy and Deployment Guide
 
-This document explains how to configure credentials, bcrypt password hashing,
-and environment-variable fallbacks for the Cannabis Buyer Dashboard.
+## Reporting a vulnerability
 
----
+Do not open a public GitHub issue containing credentials, customer data, exploit details, or production URLs. Report the issue privately to the repository owner and rotate any possibly exposed credential immediately.
 
-## 1. Configuring `st.secrets` (recommended for Streamlit Cloud)
+## Secrets
 
-Create a `.streamlit/secrets.toml` file in the project root (never commit this
-file – it is already in `.gitignore`).
+- Never commit `.env`, `.streamlit/secrets.toml`, database URLs, API keys, access tokens, customer exports, manifests, or production screenshots.
+- Use Streamlit Cloud secrets or environment variables.
+- Examples must use obvious placeholders such as `REPLACE_WITH_BCRYPT_HASH`; never paste a real username/hash pair into documentation.
+- Rotate secrets after accidental disclosure, even when the disclosed value is hashed.
+
+## Durable application users
+
+Production users live in PostgreSQL/Supabase and are managed by authorized administrators.
+
+- Passwords are bcrypt-hashed.
+- Temporary passwords require change on first use.
+- Roles and organization/facility assignments limit application access.
+- Production and commercial workspaces fail closed without complete tenant context.
+- Durable sessions expire after `DOOBIE_SESSION_IDLE_MINUTES` of inactivity (default 90).
+
+Legacy `[auth.admins]` and `[auth.users]` secrets are supported only as a recovery/transition path. Do not use plaintext mode in production.
+
+Placeholder-only example:
 
 ```toml
 [auth]
-# Set to true ONLY for local development / legacy plaintext mode.
-# Omit or set to false in production so that bcrypt hashes are required.
 use_plaintext = false
+trial_key_hash = "REPLACE_WITH_BCRYPT_HASH"
 
-# Admin credentials: username -> bcrypt hash
 [auth.admins]
-God  = "$2b$12$I9nkXct74SUatWQTBRqPcOZ8SQppWtwpZqAVoUukKPDw0/GnhaW6C"
-Jwin = "$2b$12$OyO.TB8qakOYdadkzzdzRekFnYlxl7Lx4M3bAo0Rw8.c49S/YQA7G"
-
-# Standard user credentials: username -> bcrypt hash
-[auth.users]
-Jwin = "$2b$12$OyO.TB8qakOYdadkzzdzRekFnYlxl7Lx4M3bAo0Rw8.c49S/YQA7G"
-
-[auth]
-
-# Bcrypt hash of the trial key
-trial_key_hash = "$2b$12$EXAMPLE_HASH_FOR_TRIAL_KEY_REPLACE_ME"
+recovery_admin = "REPLACE_WITH_BCRYPT_HASH"
 ```
 
-> **Important:** Replace every `EXAMPLE_HASH_*` placeholder with a real bcrypt
-> hash generated with the snippet below. Never put plaintext passwords in this
-> file unless `use_plaintext = true` is explicitly set (dev/legacy only).
+## Database and tenant isolation
 
----
+- Configure `COMAN_DATABASE_URL` with the Supabase session-pooler connection string.
+- RLS must remain enabled on tenant-owned tables.
+- Server-side connections can bypass end-user RLS; every repository query and mutation must therefore carry an explicit organization and, when applicable, facility identifier.
+- LEVEL DEV access is platform-wide but still requires an explicit tenant context before opening tenant-owned production or commercial records.
+- Migrations must be transaction-safe, idempotent where runtime repair is supported, and verified against staging before production.
 
-## 2. Generating bcrypt hashes locally
+### Planned authentication upgrade
 
-Run the following one-liner in any Python 3 environment that has `bcrypt`
-installed (`pip install bcrypt`):
+Before broad multi-company onboarding, migrate to Supabase Auth or another token-based identity provider with JWT-aware RLS policies. The transition must include account linking, password-reset flow, owner recovery, tenant claims, staged rollout, and rollback. Do not remove the current login path until those controls pass staging tests.
 
-```python
-import bcrypt
-# Replace "your_password_here" with the actual password or trial key.
-print(bcrypt.hashpw(b"your_password_here", bcrypt.gensalt()).decode())
-```
+## Uploads
 
-Or use the helper function already present in `app.py`:
+- Retail and production imports must go through the guided review/publish flow.
+- Enforce upload size and extension limits.
+- Treat uploaded spreadsheets, HTML, PDFs, CSVs, and QR/barcode values as untrusted input.
+- Never execute formulas, macros, scripts, links, or instructions embedded in uploaded content.
+- Do not use production customer data in the DEV Sandbox.
 
-```python
-from app import hash_password
-print(hash_password("your_password_here"))
-```
+## Integrations
 
-Copy the printed `$2b$12$...` string into the relevant field in
-`.streamlit/secrets.toml`.
+- AI credentials are visible and editable only to LEVEL DEV.
+- Company users see METRC integration controls appropriate to their role.
+- Integration secrets must never be rendered back in full after saving.
+- Health checks should return status without echoing secret values.
 
----
+## Repository visibility
 
-## 3. Environment variable fallback
+This repository currently contains proprietary operational workflows. Before changing public/private visibility, confirm Streamlit Cloud deployment access, collaborator access, license terms, and any external automation that reads the repository. Changing visibility is a major production decision and requires owner approval.
 
-If Streamlit secrets are not available (e.g., running locally without a
-`secrets.toml`), the app falls back to the following environment variables:
+## Release checklist
 
-| Variable              | Description                                  |
-|-----------------------|----------------------------------------------|
-| `ADMIN_USERNAME`      | Username of the single fallback admin        |
-| `ADMIN_PASSWORD_HASH` | Bcrypt hash of the admin password            |
-| `USER_USERNAME`       | Username of the single fallback regular user |
-| `USER_PASSWORD_HASH`  | Bcrypt hash of the user password             |
-| `TRIAL_KEY_HASH`      | Bcrypt hash of the trial key                 |
-
-Example (Linux / macOS):
-
-```bash
-export ADMIN_USERNAME="God"
-export ADMIN_PASSWORD_HASH="$(python -c "import bcrypt; print(bcrypt.hashpw(b'YourAdminPassword', bcrypt.gensalt()).decode())")"
-```
-
----
-
-## 4. Secrets file hygiene
-
-- Add `.streamlit/secrets.toml` to `.gitignore` so it is never committed.
-- Rotate credentials immediately if they are accidentally exposed.
-- Do **not** enable `use_plaintext = true` in production environments.
-
----
-
-## 5. Upload size limit
-
-Files larger than **50 MB** are rejected at runtime with a clear error message.
-This limit is controlled by the `MAX_UPLOAD_BYTES` constant in `app.py`.
-
----
-
-## 6. Login brute-force protection
-
-After **5** consecutive failed login attempts, the login form is locked for
-**10 minutes**. The counters are stored in `st.session_state` and reset on
-successful login or server restart.
+1. Full test suite passes.
+2. Compilation and repository quality gate pass.
+3. Dependency consistency passes.
+4. Database migration is applied and verified when required.
+5. Desktop and phone smoke tests pass for login, navigation, imports, tenant selection, and critical workflows.
+6. No secrets or customer files are present in the diff.
+7. Pull request is reviewed before merge.

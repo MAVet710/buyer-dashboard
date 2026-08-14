@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from io import BytesIO
 import json
 import logging
@@ -223,7 +223,7 @@ def _ensure_competitor_snapshot_schema(df: pd.DataFrame) -> pd.DataFrame:
     out.loc[missing_norm, "normalized_product_name"] = out.loc[missing_norm, "product_name"].fillna("").astype(str).str.strip().str.lower()
     out["captured_at"] = out["captured_at"].fillna("")
     missing_captured_at = out["captured_at"].astype(str).str.strip().eq("")
-    out.loc[missing_captured_at, "captured_at"] = datetime.utcnow().isoformat() + "Z"
+    out.loc[missing_captured_at, "captured_at"] = datetime.now(timezone.utc).isoformat()
     return out[required_columns]
 
 
@@ -249,7 +249,7 @@ def _merge_into_competitor_snapshot(new_rows_df, source_label: str = "unknown", 
     dedupe_cols = ["competitor_name", "snapshot_date", "category", "subcategory", "normalized_product_name", "brand", "package_size_label", "effective_price"]
     completeness_cols = ["product_name", "normalized_product_name", "brand", "package_size_label", "effective_price", "raw_text", "product_url", "source_file_name"]
     incoming["source_type"] = incoming["source_type"].fillna("").replace("", source_label)
-    incoming["captured_at"] = incoming["captured_at"].fillna(datetime.utcnow().isoformat() + "Z")
+    incoming["captured_at"] = incoming["captured_at"].fillna(datetime.now(timezone.utc).isoformat())
 
     base = existing.copy()
     if mode == "replace_entire":
@@ -299,7 +299,7 @@ def _merge_into_competitor_snapshot(new_rows_df, source_label: str = "unknown", 
     deduped = deduped.drop(columns=[c for c in ["_dedupe_key", "_completeness", "_dup_size"] if c in deduped.columns], errors="ignore")
     deduped = _ensure_competitor_snapshot_schema(deduped)
     st.session_state["competitor_menu_snapshots_df"] = deduped
-    st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    st.session_state["competitor_last_processed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     st.session_state["competitor_snapshot_dirty"] = True
     return deduped
 
@@ -642,7 +642,7 @@ def render_competitor_intelligence_center() -> None:
             st.write(f"Product rows extracted: {len(st.session_state.get('competitor_menu_snapshots_df', pd.DataFrame()))}")
             if bundle.get("warnings"):
                 st.warning("\n".join(bundle["warnings"]))
-            manifest = {"parent_files": [p["source_file_name"] for p in bundle.get("parents", [])], "companion_files": [c["source_file_name"] for c in bundle.get("companions", [])], "matched_pairs": bundle.get("matches", []), "created_at": datetime.utcnow().isoformat() + "Z"}
+            manifest = {"parent_files": [p["source_file_name"] for p in bundle.get("parents", [])], "companion_files": [c["source_file_name"] for c in bundle.get("companions", [])], "matched_pairs": bundle.get("matches", []), "created_at": datetime.now(timezone.utc).isoformat()}
             zbuf = BytesIO()
             with zipfile.ZipFile(zbuf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 for p in bundle.get("parents", []):
@@ -682,7 +682,7 @@ def render_competitor_intelligence_center() -> None:
                 st.session_state["competitor_file_processing_results"] = payload["file_df"].to_dict("records")
                 st.session_state["competitor_data_quality"] = payload["dq"]
                 st.session_state["competitor_category_summary_df"] = payload["cat_summary"]
-                st.session_state["competitor_last_processed_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+                st.session_state["competitor_last_processed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
                 if not st.session_state.get("competitor_last_merge_skipped", False):
                     _build_analysis_tables()
             except Exception as ex:
@@ -773,7 +773,7 @@ def render_competitor_intelligence_center() -> None:
             if isinstance(source_df, pd.DataFrame) and not source_df.empty:
                 st.session_state["competitor_our_inventory_df"] = normalize_inventory_for_competitor_comparison(source_df)
                 st.session_state["competitor_our_inventory_source_name"] = source_meta.get("source_name") or "Buyer Dashboard Session"
-                st.session_state["competitor_our_inventory_uploaded_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+                st.session_state["competitor_our_inventory_uploaded_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
                 st.success(f"Using active inventory: {st.session_state['competitor_our_inventory_source_name']}")
             else:
                 st.warning("No active buyer inventory found. Upload inventory in Buyer Dashboard Inventory Upload first.")
@@ -782,7 +782,7 @@ def render_competitor_intelligence_center() -> None:
             raw_inv = load_inventory_file(inv_upload)
             st.session_state["competitor_our_inventory_df"] = normalize_inventory_for_competitor_comparison(raw_inv)
             st.session_state["competitor_our_inventory_source_name"] = inv_upload.name
-            st.session_state["competitor_our_inventory_uploaded_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+            st.session_state["competitor_our_inventory_uploaded_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         if st.button("Clear Inventory Comparison File"):
             st.session_state["competitor_our_inventory_df"] = pd.DataFrame()
         if not isinstance(comp_snapshot, pd.DataFrame) or comp_snapshot.empty:
@@ -879,4 +879,4 @@ def render_competitor_intelligence_center() -> None:
             }
             competitor_report_bytes = _build_competitor_intelligence_report_pdf(payload)
             st.session_state["retail_ops_competitor_report_bytes"] = competitor_report_bytes
-            st.download_button("Export Retail Ops Intelligence Report", data=competitor_report_bytes, file_name=f"retail_ops_competitor_intelligence_{datetime.utcnow().strftime('%Y%m%d')}.pdf", mime="application/pdf")
+            st.download_button("Export Retail Ops Intelligence Report", data=competitor_report_bytes, file_name=f"retail_ops_competitor_intelligence_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf", mime="application/pdf")

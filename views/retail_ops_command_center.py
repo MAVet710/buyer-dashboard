@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
@@ -361,7 +361,7 @@ def _build_retail_ops_executive_report_pdf(payload: dict) -> bytes:
     w, h = letter
     c.setFillColor(colors.HexColor("#111827")); c.rect(0, 0, w, h, stroke=0, fill=1)
     c.setFillColor(colors.white); c.setFont("Helvetica-Bold", 22); c.drawString(36, h - 70, "Retail Ops Executive Report")
-    c.setFont("Helvetica", 11); c.drawString(36, h - 95, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+    c.setFont("Helvetica", 11); c.drawString(36, h - 95, f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
     c.setFillColor(colors.HexColor("#F97316")); c.rect(36, h-120, w-72, 4, stroke=0, fill=1)
     y = h - 160
     c.setFillColor(colors.white); c.setFont("Helvetica", 10)
@@ -560,4 +560,4 @@ def render_retail_ops_command_center():
         }
         pdf_bytes = _build_retail_ops_executive_report_pdf(payload)
         st.session_state["retail_ops_labor_report_bytes"] = pdf_bytes
-        st.download_button("Export Retail Ops Report", data=pdf_bytes, file_name=f"retail_ops_labor_report_{datetime.utcnow().strftime('%Y-%m-%d')}.pdf", mime="application/pdf")
+        st.download_button("Export Retail Ops Report", data=pdf_bytes, file_name=f"retail_ops_labor_report_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.pdf", mime="application/pdf")

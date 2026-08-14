@@ -6,12 +6,14 @@ from collections.abc import Callable
 
 
 BUYER_WORKSPACE = "🛒 Buyer Operations"
+HOME_WORKSPACE = "Operations Home"
 WHITE_LABEL_WORKSPACE = "🏷️ White Label / Repack"
 COMAN_WORKSPACE = "🏭 Co-Man Production"
 EXTRACTION_WORKSPACE = "🧪 Extraction Command Center"
 COMMERCIAL_WORKSPACE = "📦 Orders & Fulfillment"
 DATA_HUB_WORKSPACE = "📥 Data Hub"
 RETAIL_OPS = "🛍️ Retail Ops"
+HOME_OPS = "Home"
 PRODUCTION_OPS = "🏭 Production Ops"
 COMMERCIAL_OPS = "🤝 Commercial Ops"
 DATA_OPERATIONS = "🗂️ Data & Integrations"
@@ -29,6 +31,7 @@ def can_manage_ai_integrations(user_role: str | None) -> bool:
 def workspace_groups(feature_enabled: Callable[..., bool]) -> dict[str, list[str]]:
     """Return licensed workspaces grouped by the operation they support."""
     groups = {
+        HOME_OPS: [HOME_WORKSPACE],
         RETAIL_OPS: [],
         PRODUCTION_OPS: [],
         COMMERCIAL_OPS: [],
@@ -58,6 +61,8 @@ def workspace_options(feature_enabled: Callable[..., bool]) -> list[str]:
 
 def workspace_group(workspace: str) -> str | None:
     """Resolve a saved workspace to its top-level operations group."""
+    if workspace == HOME_WORKSPACE:
+        return HOME_OPS
     if workspace in {BUYER_WORKSPACE, WHITE_LABEL_WORKSPACE}:
         return RETAIL_OPS
     if workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}:

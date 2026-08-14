@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import re
+import warnings
 from typing import Any
 from html import unescape
 from pathlib import Path
 
 import pandas as pd
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 
 from services.category_normalizer import normalize_competitor_category
 
@@ -21,6 +22,12 @@ NORMALIZED_SCHEMA = [
     "capture_confidence","needs_review","missing_fields","duplicate_count","captured_at",
 ]
 BAD_NAME_TOKENS = ["add to cart", "featured", "special offer", "staff pick", "thc potency", "price range", "sort by", "filter", "clear filters", "product type", "brand", "categories"]
+
+
+def _parse_html(value: str) -> BeautifulSoup:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MarkupResemblesLocatorWarning)
+        return BeautifulSoup(value or "", "html.parser")
 
 
 def _norm(s: Any) -> str:
@@ -86,7 +93,7 @@ def detect_competitor(html_text: str, file_name: str, source_url: str | None = N
     if competitor_override:
         return competitor_override
 
-    soup = BeautifulSoup(html_text or "", "html.parser")
+    soup = _parse_html(html_text)
     og_site = soup.select_one('meta[property="og:site_name"]')
     if og_site and og_site.get("content"):
         return og_site.get("content").strip()
@@ -156,7 +163,7 @@ def parse_potency_fields(text: str) -> dict[str, Any]:
 
 def _base_row(meta: dict[str, Any]) -> dict[str, Any]:
     row = {k: None for k in NORMALIZED_SCHEMA}
-    row.update({"competitor_name": meta.get("competitor_name", "Unknown"), "snapshot_date": meta.get("snapshot_date"), "menu_platform": meta.get("menu_platform"), "source_type": "html", "source_file_name": meta.get("source_file_name"), "source_url": meta.get("source_url", ""), "category": meta.get("category", "Unspecified"), "duplicate_count": 1, "captured_at": datetime.utcnow().isoformat()})
+    row.update({"competitor_name": meta.get("competitor_name", "Unknown"), "snapshot_date": meta.get("snapshot_date"), "menu_platform": meta.get("menu_platform"), "source_type": "html", "source_file_name": meta.get("source_file_name"), "source_url": meta.get("source_url", ""), "category": meta.get("category", "Unspecified"), "duplicate_count": 1, "captured_at": datetime.now(timezone.utc).isoformat()})
     return row
 
 
@@ -196,7 +203,7 @@ def validate_cleaned_product_row(row: dict[str, Any]) -> tuple[bool, list[str]]:
 
 
 def parse_sunnyside_html(html: str, meta: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _parse_html(html)
     cards = soup.select('[data-cy="ProductListItem"], .product-details')
     if not cards:
         cards = [x.parent for x in soup.select('.brand-name + .product-name') if x.parent]
@@ -228,7 +235,7 @@ def parse_joint_ecommerce_html(html: str, meta: dict[str, Any]) -> tuple[list[di
             r.update(parse_package_size(str(p.get("size") or ""))); r.update(parse_potency_fields(json.dumps(p))); r["raw_text"] = json.dumps(p); r["capture_confidence"] = "High"
             ok, rs = validate_cleaned_product_row(r)
             (rows if ok else candidates).append(r if ok else {"source_file_name": meta["source_file_name"], "raw_product_block": r["raw_text"], "extracted_product_name": r["product_name"], "rejection_reason": ",".join(rs)})
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _parse_html(html)
     for c in soup.select("[class*='product'], [class*='card']"):
         name = _txt(c.select_one("[class*='name'], h2, h3"))
         if not name: continue
@@ -242,7 +249,7 @@ def parse_joint_ecommerce_html(html: str, meta: dict[str, Any]) -> tuple[list[di
 
 
 def parse_leafbridge_html(html: str, meta: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _parse_html(html)
     rows, candidates = [], []
     for c in soup.select('.leafbridge_product_card'):
         name = _txt(c.select_one('.leafbridge_product_name'))
@@ -291,14 +298,14 @@ def parse_leafbridge_html(html: str, meta: dict[str, Any]) -> tuple[list[dict[st
 
 
 def parse_dutchie_embedded_html(html: str, meta: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _parse_html(html)
     if soup.select_one("iframe") and not soup.select("[class*='product-card'], [data-testid*='product']"):
         return [], [], "needs_companion_iframe_file"
     return [], [], None
 
 
 def parse_dutchie_iframe_saved_html(html: str, meta: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    soup = BeautifulSoup(html, "html.parser")
+    soup = _parse_html(html)
     rows, candidates = [], []
     for c in soup.select("[class*='product-card'], [data-testid*='product'], [class*='product']"):
         name = _txt(c.select_one("[class*='name'], h2, h3"))

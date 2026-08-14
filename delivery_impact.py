@@ -3,7 +3,7 @@ Delivery Impact – core analytics module.
 
 Provides pure-Python helpers for:
   • Parsing order-level sales reports (CSV / XLSX) with preamble skipping
-  • Parsing delivery manifest PDFs (pdfplumber → PyPDF2 fallback)
+  • Parsing delivery manifest PDFs (pdfplumber → pypdf fallback)
   • Normalising and matching product names
   • Computing 14-day before/after KPIs
   • Building daily / hourly time-series DataFrames for charting
@@ -403,9 +403,9 @@ def parse_manifest_pdf_bytes(
     except Exception:
         pass
 
-    # ── Strategy 2: PyPDF2 text extraction ──────────────────────────────────
+    # ── Strategy 2: pypdf text extraction ───────────────────────────────────
     try:
-        from PyPDF2 import PdfReader  # type: ignore
+        from services.pdf_compat import PdfReader
 
         reader = PdfReader(BytesIO(pdf_bytes))
         text_parts: List[str] = []

@@ -5,7 +5,11 @@ from dataclasses import dataclass
 import pandas as pd
 import pytest
 
-from modules.data_hub import build_data_hub_status, stage_uploaded_dataset
+from modules.data_hub import (
+    build_data_hub_status,
+    inspect_uploaded_dataset,
+    stage_uploaded_dataset,
+)
 
 
 @dataclass
@@ -78,3 +82,32 @@ def test_data_hub_status_reflects_retail_extraction_and_facility_state():
     assert by_name["Nomenclature Catalog"]["Rows"] == 1
     assert by_name["Production Capacity"]["Rows"] == 1
     assert by_name["Compliance Sources"]["Status"] == "Ready"
+
+
+def test_guided_import_inspects_required_inventory_fields():
+    inspection = inspect_uploaded_dataset(
+        Upload(
+            "inventory.csv",
+            b"Product Name,Category,On Hand,Brand\nBlue Dream,Flower,12,Doobie\n",
+        ),
+        "Inventory",
+    )
+
+    assert inspection["rows"] == 1
+    assert inspection["columns"] == 4
+    assert inspection["quality"] == "Ready"
+    assert inspection["matches"] == {
+        "Product": "Product Name",
+        "Category": "Category",
+        "On hand": "On Hand",
+    }
+
+
+def test_guided_import_surfaces_mapping_review_without_silent_correction():
+    inspection = inspect_uploaded_dataset(
+        Upload("sales.csv", b"Product Name,Unknown Metric\nBlue Dream,10\n"),
+        "Product Sales",
+    )
+
+    assert inspection["quality"] == "Review mapping"
+    assert inspection["missing"] == ["Units sold"]

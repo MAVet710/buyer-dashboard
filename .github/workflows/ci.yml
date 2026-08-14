@@ -33,6 +33,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
 
+      - name: Verify dependency consistency
+        run: python -m pip check
+
+      - name: Compile application sources
+        run: python -m compileall -q app.py modules services reports views tests
+
+      - name: Run repository quality gate
+        run: python scripts/quality_gate.py
+
       - name: Run full test suite
         env:
           PYTHONHASHSEED: "0"

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+from io import BytesIO
+from pathlib import Path
+import re
 from typing import Any, MutableMapping
 
 import pandas as pd
@@ -44,6 +47,73 @@ RETAIL_DATASETS = (
         "description": "Optional held inventory that should be excluded from purchasing decisions.",
     },
 )
+
+DATASET_REQUIREMENTS = {
+    "Inventory": {
+        "Product": ("product", "product name", "item", "item name", "name", "sku name"),
+        "Category": ("category", "subcategory", "master category", "department"),
+        "On hand": ("available", "on hand", "quantity", "qty", "inventory available"),
+    },
+    "Product Sales": {
+        "Product": ("product", "product name", "item", "item name", "name"),
+        "Units sold": ("quantity sold", "qty sold", "units sold", "items sold", "total inventory sold"),
+    },
+    "Sales / Pricing Detail": {
+        "Product": ("product", "product name", "item", "item name", "name"),
+        "Revenue": ("net sales", "gross sales", "revenue", "total sales"),
+    },
+    "Quarantine": {
+        "Product": ("product", "product name", "item", "item name", "name", "sku name"),
+    },
+}
+
+
+def _normalize_column(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().casefold()).strip()
+
+
+def inspect_uploaded_dataset(uploaded_file: Any, dataset_label: str) -> dict[str, Any]:
+    """Read a staged file and return a lightweight, user-facing quality preview."""
+
+    payload = _file_bytes(uploaded_file)
+    name = str(getattr(uploaded_file, "name", dataset_label))
+    extension = Path(name).suffix.casefold()
+    if extension == ".csv":
+        frame = pd.read_csv(BytesIO(payload))
+    elif extension in {".xlsx", ".xls"}:
+        frame = pd.read_excel(BytesIO(payload))
+    else:
+        raise ValueError("Use a CSV, XLSX, or XLS file.")
+    if frame.empty:
+        raise ValueError("The selected file contains no data rows.")
+
+    normalized_columns = {_normalize_column(column): str(column) for column in frame.columns}
+    requirements = DATASET_REQUIREMENTS.get(dataset_label, {})
+    matches: dict[str, str] = {}
+    missing: list[str] = []
+    for purpose, aliases in requirements.items():
+        match = next(
+            (
+                normalized_columns[normalized]
+                for alias in aliases
+                if (normalized := _normalize_column(alias)) in normalized_columns
+            ),
+            "",
+        )
+        if match:
+            matches[purpose] = match
+        else:
+            missing.append(purpose)
+
+    return {
+        "name": name,
+        "rows": int(len(frame)),
+        "columns": int(len(frame.columns)),
+        "matches": matches,
+        "missing": missing,
+        "preview": frame.head(8),
+        "quality": "Ready" if not missing else "Review mapping",
+    }
 
 
 def _file_bytes(uploaded_file: Any) -> bytes:
@@ -218,6 +288,89 @@ def _render_upload_slot(spec: dict[str, Any]) -> None:
             st.error(f"{spec['label']} could not be staged: {exc}")
 
 
+def _render_guided_retail_import() -> None:
+    """Render one focused upload flow instead of four persistent upload widgets."""
+
+    st.markdown("### Import retail data")
+    st.caption("Choose one source, upload it, review the detected structure, then publish it for reuse.")
+
+    labels = [spec["label"] for spec in RETAIL_DATASETS]
+    selected_label = st.selectbox(
+        "1. Choose the dataset",
+        labels,
+        key="data_hub_selected_retail_dataset",
+    )
+    spec = next(item for item in RETAIL_DATASETS if item["label"] == selected_label)
+    st.info(spec["description"])
+
+    cached = st.session_state.get(spec["cache_key"])
+    if isinstance(cached, dict) and cached.get("bytes"):
+        st.success(f"Current source: {cached.get('name', selected_label)}")
+
+    uploaded = st.file_uploader(
+        "2. Upload the source file",
+        type=spec["types"],
+        key=f"guided_{spec['widget_key']}",
+        help="The file remains in review until you explicitly publish it.",
+    )
+    if uploaded is None:
+        st.caption("Nothing changes until a file is uploaded and published.")
+        return
+
+    try:
+        inspection = inspect_uploaded_dataset(uploaded, selected_label)
+    except Exception as exc:
+        st.error(f"The file could not be inspected: {exc}")
+        return
+
+    st.markdown("#### 3. Review detected structure")
+    metrics = st.columns(3)
+    metrics[0].metric("Rows", f"{inspection['rows']:,}")
+    metrics[1].metric("Columns", inspection["columns"])
+    metrics[2].metric("Quality", inspection["quality"])
+
+    mapping_rows = [
+        {
+            "Required field": purpose,
+            "Detected column": inspection["matches"].get(purpose, "Not detected"),
+            "Status": "Matched" if purpose in inspection["matches"] else "Review",
+        }
+        for purpose in DATASET_REQUIREMENTS.get(selected_label, {})
+    ]
+    if mapping_rows:
+        st.dataframe(pd.DataFrame(mapping_rows), width="stretch", hide_index=True)
+    if inspection["missing"]:
+        st.warning(
+            "These fields were not detected automatically: "
+            + ", ".join(inspection["missing"])
+            + ". You can still publish the source and confirm the mapping in Buyer Operations."
+        )
+    with st.expander("Preview first 8 rows", expanded=not inspection["missing"]):
+        st.dataframe(inspection["preview"], width="stretch", hide_index=True)
+
+    confirmed = st.checkbox(
+        "I reviewed the source and want it available to Retail Operations.",
+        key=f"confirm_{spec['widget_key']}",
+    )
+    publish_label = "Replace current source" if cached else "Publish source"
+    if st.button(
+        f"4. {publish_label}",
+        type="primary",
+        disabled=not confirmed,
+        key=f"publish_{spec['widget_key']}",
+    ):
+        try:
+            staged = stage_uploaded_dataset(
+                st.session_state,
+                uploaded,
+                cache_key=spec["cache_key"],
+                dataset_label=selected_label,
+            )
+            st.success(f"{staged['name']} is now available across Retail Operations.")
+        except Exception as exc:
+            st.error(f"{selected_label} could not be published: {exc}")
+
+
 def render_data_hub_workspace() -> None:
     """Render the shared Connect / Upload / Review / Publish intake experience."""
     st.markdown("## Data Hub")
@@ -254,7 +407,7 @@ def render_data_hub_workspace() -> None:
     )
 
     overview_tab, retail_tab, production_tab, history_tab = st.tabs(
-        ["Source Status", "Retail Ops Intake", "Production Ops Intake", "Import History"]
+        ["Readiness", "Import Retail Data", "Import Production Data", "History"]
     )
 
     with overview_tab:
@@ -270,15 +423,7 @@ def render_data_hub_workspace() -> None:
         )
 
     with retail_tab:
-        st.markdown("### Retail Ops source intake")
-        st.caption(
-            "Files staged here are automatically reused by Buyer Operations. "
-            "You do not need to upload them again in the sidebar."
-        )
-        left, right = st.columns(2)
-        for index, spec in enumerate(RETAIL_DATASETS):
-            with left if index % 2 == 0 else right:
-                _render_upload_slot(spec)
+        _render_guided_retail_import()
 
         staged_retail = [
             spec for spec in RETAIL_DATASETS if st.session_state.get(spec["cache_key"])
@@ -288,6 +433,12 @@ def render_data_hub_workspace() -> None:
                 f"{len(staged_retail)} retail source(s) staged. "
                 "Open Buyer Operations to validate columns and refresh analytics."
             )
+            if st.button("Open Retail Operations", key="data_hub_open_retail", type="secondary"):
+                st.session_state["operations_group"] = "🛍️ Retail Ops"
+                st.session_state["workspace_mode"] = "🛒 Buyer Operations"
+                st.session_state["buyer_section_group"] = "Overview"
+                st.session_state["buyer_section"] = "📊 Inventory Dashboard"
+                st.rerun()
         with st.expander("Manage staged retail files", expanded=False):
             if st.button(
                 "Clear staged retail files",
