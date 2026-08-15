@@ -10,6 +10,34 @@ import pandas as pd
 STRAIN_FAMILIES = ("indica", "sativa", "hybrid", "cbd")
 
 
+def coalesce_duplicate_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Normalize and safely merge duplicate export columns.
+
+    POS exports occasionally contain columns that differ only by capitalization
+    or whitespace (for example ``Category`` and ``category``). Pandas then
+    returns a DataFrame instead of a Series for ``frame["category"]``, which can
+    trigger the ambiguous-Series truth-value error in Buyer Intelligence.
+    """
+
+    if not isinstance(frame, pd.DataFrame):
+        raise TypeError("Buyer Intelligence requires a pandas DataFrame.")
+
+    normalized = frame.copy()
+    normalized.columns = [str(column).strip().casefold() for column in normalized.columns]
+    if not normalized.columns.duplicated().any():
+        return normalized
+
+    merged: dict[str, pd.Series] = {}
+    for column in dict.fromkeys(normalized.columns):
+        matches = normalized.loc[:, normalized.columns == column]
+        if matches.shape[1] == 1:
+            merged[column] = matches.iloc[:, 0]
+            continue
+        usable = matches.replace(r"^\s*$", pd.NA, regex=True)
+        merged[column] = usable.bfill(axis=1).iloc[:, 0]
+    return pd.DataFrame(merged, index=normalized.index)
+
+
 def _strain_family(value: object) -> str:
     normalized = str(value or "").strip().casefold()
     return next((family for family in STRAIN_FAMILIES if family in normalized), "unspecified")

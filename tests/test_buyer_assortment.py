@@ -1,6 +1,22 @@
 import pandas as pd
 
-from modules.buyer_assortment import build_assortment_priorities
+from modules.buyer_assortment import build_assortment_priorities, coalesce_duplicate_columns
+
+
+def test_duplicate_export_columns_are_coalesced_without_ambiguous_series():
+    frame = pd.DataFrame(
+        [
+            ["Blue Dream", "", "Flower", "", 12],
+            ["GMO", "GMO", "", "Flower", 8],
+        ],
+        columns=["Product", " product ", "Category", "category", "Quantity"],
+    )
+
+    result = coalesce_duplicate_columns(frame)
+
+    assert result.columns.tolist() == ["product", "category", "quantity"]
+    assert result["product"].tolist() == ["Blue Dream", "GMO"]
+    assert result["category"].tolist() == ["Flower", "Flower"]
 
 
 def test_priorities_name_size_strain_and_product_format_at_a_glance():

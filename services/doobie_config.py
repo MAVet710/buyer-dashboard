@@ -14,6 +14,7 @@ DOOBIE_SERVICE_API_KEY = "DOOBIE_SERVICE_API_KEY"
 DOOBIE_LICENSE_KEY = "DOOBIE_LICENSE_KEY"
 DOOBIE_ADMIN_API_KEY = "DOOBIE_ADMIN_API_KEY"
 METRC_API_KEY = "METRC_API_KEY"
+DEFAULT_DOOBIE_BASE_URL = "https://doobie-api.onrender.com"
 
 
 def _safe_secret(*keys: str) -> str:
@@ -39,9 +40,10 @@ def mask_api_key(api_key: str, visible: int = 4) -> str:
 def get_default_doobie_config() -> dict[str, str]:
     base_url = (
         os.environ.get("DOOBIE_BASE_URL")
+        or os.environ.get("DOOBIE_AI_BASE_URL")
         or os.environ.get("DOOBIELOGIC_URL")
-        or _safe_secret("DOOBIE_BASE_URL", "DOOBIELOGIC_URL")
-        or ""
+        or _safe_secret("DOOBIE_BASE_URL", "DOOBIE_AI_BASE_URL", "DOOBIELOGIC_URL")
+        or DEFAULT_DOOBIE_BASE_URL
     ).strip()
     api_key = (
         os.environ.get("DOOBIE_SERVICE_API_KEY")
@@ -114,12 +116,12 @@ def resolve_doobie_config() -> dict[str, str | bool]:
         }
 
     default_cfg = get_default_doobie_config()
-    if default_cfg.get("base_url") and default_cfg.get("api_key"):
+    if default_cfg.get("base_url"):
         return {
             "base_url": str(default_cfg.get("base_url") or ""),
             "api_key": str(default_cfg.get("api_key") or ""),
             "source": "env_or_secrets",
-            "connected": True,
+            "connected": bool(default_cfg.get("api_key")),
             "available": True,
         }
 
@@ -152,20 +154,38 @@ def test_doobie_connection(base_url: str, api_key: str, timeout_seconds: int = 4
 
     if not base:
         return {"ok": False, "status": "invalid_url", "message": "Doobie base URL is required."}
-    if not key:
-        return {"ok": False, "status": "missing_key", "message": "Doobie API key is required."}
-
     parsed = urlparse(base)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return {"ok": False, "status": "invalid_url", "message": "Invalid URL. Include http:// or https://."}
 
-    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers.update({"Authorization": f"Bearer {key}", "x-api-key": key})
 
     try:
         auth_resp = requests.get(f"{base}/api/v1/auth/check", headers=headers, timeout=timeout_seconds)
         if auth_resp.status_code in {200, 204}:
-            return {"ok": True, "status": "connected", "message": "Connected", "validated_at": _utc_now_iso()}
+            try:
+                payload = auth_resp.json()
+            except (ValueError, AttributeError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            return {
+                "ok": True,
+                "status": "connected",
+                "message": "Connected to Doobie AI",
+                "validated_at": _utc_now_iso(),
+                "api_version": str(payload.get("api_version") or ""),
+                "authenticated": bool(payload.get("authenticated", True)),
+            }
         if auth_resp.status_code in {401, 403}:
+            if not key:
+                return {
+                    "ok": False,
+                    "status": "missing_key",
+                    "message": "Doobie is reachable but requires a service API key.",
+                }
             return {"ok": False, "status": "unauthorized", "message": "Unauthorized: API key was rejected."}
         if auth_resp.status_code >= 500:
             return {"ok": False, "status": "server_unavailable", "message": "Server unavailable. Please retry."}
