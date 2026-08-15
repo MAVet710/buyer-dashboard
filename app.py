@@ -23,6 +23,7 @@ from services.doobie_config import (
     get_default_doobie_config,
     mask_api_key,
     resolve_doobie_config,
+    sync_doobie_service_connection,
     test_doobie_connection,
 )
 from services.metrc_client import get_default_metrc_integrator_key, test_metrc_connection
@@ -3187,9 +3188,7 @@ def _try_revalidate_cached_license(session_data: dict[str, Any]) -> tuple[bool, 
 
 
 def _refresh_doobie_connection_state() -> None:
-    session_cfg = resolve_doobie_config()
-    if session_cfg.get("source") == "session":
-        st.session_state.doobie_status = "connected" if bool(st.session_state.get("doobie_connected")) else "not_connected"
+    if sync_doobie_service_connection() is not None:
         return
 
     cached_session = load_local_license_session()

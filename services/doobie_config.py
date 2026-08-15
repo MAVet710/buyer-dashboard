@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -203,6 +204,52 @@ def test_doobie_connection(base_url: str, api_key: str, timeout_seconds: int = 4
         return {"ok": False, "status": "timeout", "message": "Connection timed out."}
     except requests.RequestException:
         return {"ok": False, "status": "server_unavailable", "message": "Server unavailable or unreachable."}
+
+
+def sync_doobie_service_connection(
+    timeout_seconds: int = 4,
+    cache_seconds: int = 300,
+) -> dict[str, str | bool] | None:
+    """Authenticate configured app-to-Doobie credentials once per session window."""
+
+    config = resolve_doobie_config()
+    base_url = str(config.get("base_url") or "").strip().rstrip("/")
+    api_key = str(config.get("api_key") or "").strip()
+    if config.get("source") == "session":
+        connected = bool(st.session_state.get("doobie_connected"))
+        return {
+            "ok": connected,
+            "status": str(st.session_state.get("doobie_status") or ("connected" if connected else "not_connected")),
+            "message": "Connected to Doobie AI" if connected else "Doobie is not connected.",
+        }
+    if not base_url or not api_key:
+        return None
+
+    fingerprint = hashlib.sha256(f"{base_url}\0{api_key}".encode("utf-8")).hexdigest()
+    now_epoch = datetime.now(timezone.utc).timestamp()
+    cached = st.session_state.get("_doobie_service_connection_cache")
+    if (
+        isinstance(cached, dict)
+        and cached.get("fingerprint") == fingerprint
+        and now_epoch - float(cached.get("checked_at") or 0) < max(1, int(cache_seconds))
+    ):
+        result = dict(cached.get("result") or {})
+    else:
+        result = test_doobie_connection(base_url, api_key, timeout_seconds=timeout_seconds)
+        st.session_state["_doobie_service_connection_cache"] = {
+            "fingerprint": fingerprint,
+            "checked_at": now_epoch,
+            "result": dict(result),
+        }
+
+    connected = bool(result.get("ok"))
+    st.session_state.doobie_status = str(result.get("status") or "not_connected")
+    st.session_state.doobie_connected = connected
+    if connected:
+        st.session_state.doobie_base_url = base_url
+        st.session_state.doobie_api_key = api_key
+        st.session_state.doobie_last_validated = result.get("validated_at")
+    return result
 
 
 def clear_session_doobie_config() -> None:
