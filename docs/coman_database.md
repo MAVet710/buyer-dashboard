@@ -27,6 +27,13 @@ Dutchie catalog and confirmed METRC nomenclature mapping tables. These tables
 use the same durable Supabase/PostgreSQL connection and organization boundary
 as the rest of the operations platform.
 
+Migration `0016_durable_data_hub_imports` adds versioned retail source files
+for Data Hub. Published files are compressed before storage, limited to 10 MB,
+scoped to one organization and facility, and restored after a Streamlit restart.
+The current source and two prior versions are retained per dataset so the free
+database is protected from unbounded file growth. Older versions are removed
+inside the same publish transaction.
+
 The first migration creates tenant-scoped organizations, facilities,
 customers, machine models, facility machines, production orders, and audit
 events. It seeds verified reference entries for the IMA C-1 FILLER, IMA C-1
@@ -40,4 +47,6 @@ values; facility-specific effective rates belong on `coman_facility_machines`.
 - Use migrations for schema changes; do not call `create_all` from Streamlit.
 - Every operational query must be scoped to an organization and, when
   applicable, a facility.
+- A DEV organization switch must clear file caches before the newly selected
+  facility's sources are restored; tenant files must never cross selectors.
 - Every material status change should append an audit event.

@@ -85,7 +85,8 @@ from services.workspace_navigation import (
 )
 from modules.commercial.ui import render_commercial_workspace
 from modules.coman.ui import render_coman_workspace
-from modules.data_hub import render_data_hub_workspace
+from modules.buyer_assortment import build_assortment_priorities
+from modules.data_hub import render_data_hub_workspace, restore_durable_retail_sources
 from modules.extraction_quick_entry import (
     build_quick_run_record,
     quick_stage_weight_updates,
@@ -972,8 +973,14 @@ def _get_daily_store() -> dict:
 
 
 def _daily_store_key(username: str) -> str:
-    # Use | as delimiter since it cannot appear in typical usernames
-    return f"{datetime.now().strftime('%Y-%m-%d')}|{username}"
+    # Tenant scope prevents a LEVEL DEV user from replaying one company's file
+    # after switching the organization selector to another company.
+    organization_id = str(st.session_state.get("active_organization_id") or "no-org")
+    facility_id = str(st.session_state.get("active_facility_id") or "no-facility")
+    return (
+        f"{datetime.now().strftime('%Y-%m-%d')}|{username}|"
+        f"{organization_id}|{facility_id}"
+    )
 
 
 def _save_to_daily_store(username: str) -> None:
@@ -2721,6 +2728,23 @@ def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
     sales_qty_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
     sales_cat_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_CAT_ALIASES])
     sales_rev_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_REV_ALIASES])
+    sales_strain_col = detect_column(
+        sales.columns, [normalize_col(a) for a in INV_STRAIN_TYPE_ALIASES]
+    )
+    sales_size_col = detect_column(
+        sales.columns,
+        [
+            normalize_col(a)
+            for a in (
+                "package size",
+                "packagesize",
+                "unit size",
+                "product size",
+                "size",
+                "weight",
+            )
+        ],
+    )
 
     if not (sales_name_col and sales_qty_col and sales_cat_col):
         raise ValueError("Could not detect required sales columns (name, quantity, category).")
@@ -2734,6 +2758,26 @@ def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
         rename_map[sales_rev_col] = "revenue"
 
     sales = sales.rename(columns=rename_map)
+    sales["category"] = sales["category"].map(normalize_rebelle_category)
+    sales["strain_type"] = sales.apply(
+        lambda row: extract_strain_type(row.get("product_name", ""), row.get("category", "")),
+        axis=1,
+    )
+    if sales_strain_col and sales_strain_col in sales.columns:
+        explicit_strain = sales[sales_strain_col].fillna("").astype(str).str.strip().str.casefold()
+        valid_strain = explicit_strain.str.contains(
+            r"\b(?:indica|sativa|hybrid|cbd)\b", regex=True, na=False
+        )
+        sales.loc[valid_strain, "strain_type"] = explicit_strain[valid_strain]
+    if sales_size_col and sales_size_col in sales.columns:
+        explicit_size = sales[sales_size_col].fillna("").astype(str).str.strip().str.casefold()
+        normalized_size = explicit_size.map(extract_size)
+        sales["package_size"] = normalized_size.where(
+            normalized_size.ne("unspecified"),
+            sales["product_name"].map(extract_size),
+        )
+    else:
+        sales["package_size"] = sales["product_name"].map(extract_size)
     sales["units_sold"] = pd.to_numeric(sales["units_sold"], errors="coerce").fillna(0)
     if "revenue" in sales.columns:
         sales["revenue"] = pd.to_numeric(sales["revenue"], errors="coerce").fillna(0)
@@ -2741,7 +2785,11 @@ def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
         sales["revenue"] = 0.0
 
     by_product = (
-        sales.groupby(["product_name", "category"], as_index=False)[["units_sold", "revenue"]]
+        sales.groupby(
+            ["product_name", "category", "strain_type", "package_size"],
+            as_index=False,
+            dropna=False,
+        )[["units_sold", "revenue"]]
         .sum()
         .sort_values("units_sold", ascending=False)
     )
@@ -2751,12 +2799,83 @@ def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
     if inv is not None:
         inv_name_col = detect_column(inv.columns, [normalize_col(a) for a in INV_NAME_ALIASES])
         inv_qty_col = detect_column(inv.columns, [normalize_col(a) for a in INV_QTY_ALIASES])
+        inv_cat_col = detect_column(inv.columns, [normalize_col(a) for a in INV_CAT_ALIASES])
+        inv_strain_col = detect_column(
+            inv.columns, [normalize_col(a) for a in INV_STRAIN_TYPE_ALIASES]
+        )
+        inv_size_col = detect_column(
+            inv.columns,
+            [
+                normalize_col(a)
+                for a in (
+                    "package size",
+                    "packagesize",
+                    "unit size",
+                    "product size",
+                    "size",
+                    "weight",
+                )
+            ],
+        )
         if inv_name_col and inv_qty_col:
             inv = inv.rename(columns={inv_name_col: "product_name", inv_qty_col: "on_hand_units"})
             inv["on_hand_units"] = pd.to_numeric(inv["on_hand_units"], errors="coerce").fillna(0)
-            inv_rollup = inv.groupby("product_name", as_index=False)["on_hand_units"].sum()
+            inv["inventory_category"] = (
+                inv[inv_cat_col].map(normalize_rebelle_category)
+                if inv_cat_col and inv_cat_col in inv.columns
+                else "unknown"
+            )
+            inv["inventory_strain_type"] = inv.apply(
+                lambda row: extract_strain_type(
+                    row.get("product_name", ""), row.get("inventory_category", "")
+                ),
+                axis=1,
+            )
+            if inv_strain_col and inv_strain_col in inv.columns:
+                explicit_strain = inv[inv_strain_col].fillna("").astype(str).str.strip().str.casefold()
+                valid_strain = explicit_strain.str.contains(
+                    r"\b(?:indica|sativa|hybrid|cbd)\b", regex=True, na=False
+                )
+                inv.loc[valid_strain, "inventory_strain_type"] = explicit_strain[valid_strain]
+            if inv_size_col and inv_size_col in inv.columns:
+                explicit_size = inv[inv_size_col].fillna("").astype(str).str.strip().str.casefold()
+                normalized_size = explicit_size.map(extract_size)
+                inv["inventory_package_size"] = normalized_size.where(
+                    normalized_size.ne("unspecified"), inv["product_name"].map(extract_size)
+                )
+            else:
+                inv["inventory_package_size"] = inv["product_name"].map(extract_size)
+            inv_rollup = (
+                inv.groupby("product_name", as_index=False)
+                .agg(
+                    on_hand_units=("on_hand_units", "sum"),
+                    inventory_category=("inventory_category", "first"),
+                    inventory_strain_type=("inventory_strain_type", "first"),
+                    inventory_package_size=("inventory_package_size", "first"),
+                )
+            )
             by_product = by_product.merge(inv_rollup, on="product_name", how="left")
             by_product["on_hand_units"] = by_product["on_hand_units"].fillna(0)
+            by_product["category"] = by_product["category"].where(
+                by_product["category"].ne("unknown"),
+                by_product["inventory_category"],
+            )
+            by_product["strain_type"] = by_product["strain_type"].where(
+                by_product["strain_type"].ne("unspecified"),
+                by_product["inventory_strain_type"],
+            )
+            by_product["package_size"] = by_product["package_size"].where(
+                by_product["package_size"].ne("unspecified"),
+                by_product["inventory_package_size"],
+            )
+            by_product = by_product.drop(
+                columns=[
+                    "inventory_category",
+                    "inventory_strain_type",
+                    "inventory_package_size",
+                ],
+                errors="ignore",
+            )
             by_product["days_of_cover"] = np.where(
                 by_product["avg_daily_units"] > 0,
                 by_product["on_hand_units"] / by_product["avg_daily_units"],
@@ -2799,6 +2918,7 @@ def _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days):
 
     top_categories = by_category.head(8).to_dict(orient="records")
     top_risks = by_product[by_product["risk_flag"] == "Reorder Risk"].head(20).to_dict(orient="records")
+    purchase_priorities = build_assortment_priorities(by_product).to_dict(orient="records")
 
     prompt = f"""
 Create a concise weekly buyer brief for a cannabis retail team.
@@ -2807,12 +2927,15 @@ Lookback window: {lookback_days} days
 Summary: {json.dumps(summary, indent=2)}
 Top categories: {json.dumps(top_categories, indent=2)}
 At-risk SKUs: {json.dumps(top_risks, indent=2)}
+Assortment purchase priorities: {json.dumps(purchase_priorities, indent=2)}
 
 Output sections:
 1) Executive summary (3 bullets)
-2) Reorder now (top 5)
+2) What to buy now (top 5). Name the package size, strain family, and product format in every line, such as "14g Hybrid Flower" or "2g Sativa Disposable Vape". Include recommended units and the demand/coverage reason.
 3) Overstock/monitor watchouts
 4) Suggested buyer actions for next 7 days
+
+Use only the supplied store data. Never invent a package size, strain family, product format, or SKU.
 """
     try:
         client = _get_doobie_ai_client()
@@ -2821,6 +2944,7 @@ Output sections:
                 "summary": summary,
                 "top_categories": top_categories,
                 "at_risk_skus": top_risks,
+                "purchase_priorities": purchase_priorities,
                 "lookback_days": lookback_days,
                 "prompt": prompt,
             },
@@ -3516,6 +3640,13 @@ if not st.session_state._daily_restored:
         st.session_state._daily_restored = True
         if _restored_any:
             st.session_state._daily_restore_msg = True
+
+# Supabase is the permanent source of truth for reviewed retail files. The
+# process-local daily cache remains a non-blocking fallback during outages.
+if st.session_state.get("active_organization_id") and st.session_state.get(
+    "active_facility_id"
+):
+    restore_durable_retail_sources(st.session_state)
 
 # =========================
 # HEADER
@@ -9873,6 +10004,28 @@ elif section == "🧠 Buyer Intelligence":
                 by_product.head(200),
                 width="stretch",
                 hide_index=True,
+            )
+
+        st.markdown("---")
+        st.markdown("### What to Buy")
+        st.caption(
+            "At-a-glance replenishment by package size, strain family, and product format. "
+            "Recommended units target 28 days of cover using the selected sales window."
+        )
+        purchase_priorities = build_assortment_priorities(by_product)
+        if purchase_priorities.empty:
+            st.success("No assortment-level replenishment gaps were found in the loaded data.")
+        else:
+            st.dataframe(
+                purchase_priorities,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Recommended units": st.column_config.NumberColumn(format="%d"),
+                    "Current on hand": st.column_config.NumberColumn(format="%.1f"),
+                    "Days of cover": st.column_config.NumberColumn(format="%.1f"),
+                    "Units sold": st.column_config.NumberColumn(format="%d"),
+                },
             )
 
         st.markdown("---")
