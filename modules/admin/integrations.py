@@ -4,7 +4,12 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from services.doobie_config import mask_api_key, test_doobie_connection
+from services.doobie_client import DoobieClient
+from services.doobie_config import (
+    DEFAULT_DOOBIE_BASE_URL,
+    mask_api_key,
+    test_doobie_connection,
+)
 from services.metrc_client import get_default_metrc_integrator_key, test_metrc_connection
 from services.workspace_navigation import can_manage_ai_integrations
 
@@ -175,9 +180,12 @@ def render_admin_integrations_page(*, user_integrations_store, current_identity,
         st.caption("Shared default connection used when session override is not present.")
         st.text_input(
             "Doobie Base URL",
-            value=str(st.session_state.get("global_doobie_base_url") or ""),
+            value=str(
+                st.session_state.get("global_doobie_base_url")
+                or DEFAULT_DOOBIE_BASE_URL
+            ),
             key="admin_global_doobie_base_url_input",
-            placeholder="https://doobie.yourdomain.com",
+            placeholder=DEFAULT_DOOBIE_BASE_URL,
         )
         st.text_input(
             "Doobie Service API Key",
@@ -206,9 +214,33 @@ def render_admin_integrations_page(*, user_integrations_store, current_identity,
             st.session_state.global_doobie_status = str(result.get("status") or "not_connected")
             if result.get("ok"):
                 st.session_state.global_doobie_last_validated = result.get("validated_at")
+                st.session_state.doobie_capabilities = DoobieClient(
+                    candidate_url,
+                    candidate_key,
+                    timeout_seconds=8,
+                ).capability_snapshot()
                 st.success(str(result.get("message") or "Connected"))
             else:
+                st.session_state.doobie_capabilities = {}
                 st.warning(str(result.get("message") or "Connection failed"))
+
+        capabilities = st.session_state.get("doobie_capabilities") or {}
+        if isinstance(capabilities, dict) and capabilities:
+            st.markdown("#### Detected Doobie capabilities")
+            cap_cols = st.columns(4)
+            cap_cols[0].metric("API", capabilities.get("api_version") or "Unknown")
+            cap_cols[1].metric("Knowledge modules", len(capabilities.get("modules") or []))
+            cap_cols[2].metric(
+                "Professional domains", len(capabilities.get("professional_domains") or [])
+            )
+            cap_cols[3].metric("Jurisdictions", capabilities.get("jurisdiction_count") or 0)
+            provider = capabilities.get("ai_provider") or "rules"
+            model = capabilities.get("ai_model") or "deterministic fallback"
+            st.caption(
+                f"Conversation provider: **{provider}** · Model: **{model}** · "
+                f"Ready: **{'yes' if capabilities.get('conversation_ready') else 'no'}** · "
+                f"Build: **{capabilities.get('app_version') or 'unknown'}**"
+            )
 
         if col_save.button("Save", key="admin_global_doobie_save_btn", type="primary"):
             candidate_url = str(st.session_state.get("admin_global_doobie_base_url_input") or "").strip().rstrip("/")

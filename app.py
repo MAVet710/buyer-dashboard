@@ -85,7 +85,8 @@ from services.workspace_navigation import (
 )
 from modules.commercial.ui import render_commercial_workspace
 from modules.coman.ui import render_coman_workspace
-from modules.buyer_assortment import build_assortment_priorities
+from modules.buyer_assortment import build_assortment_priorities, coalesce_duplicate_columns
+from modules.doobie_response import format_doobie_response
 from modules.data_hub import render_data_hub_workspace, restore_durable_retail_sources
 from modules.extraction_quick_entry import (
     build_quick_run_record,
@@ -2684,10 +2685,7 @@ def _generate_ai_with_quota_fallback(system_prompt, user_prompt, max_tokens=700)
     if str(result.get("mode", "")).lower() == "fallback":
         raise RuntimeError("Doobie AI is currently unavailable.")
 
-    answer = str(result.get("answer") or "").strip()
-    recommendations = result.get("recommendations", [])
-    if isinstance(recommendations, list) and recommendations:
-        answer = f"{answer}\n\n" + "\n".join(f"- {rec}" for rec in recommendations)
+    answer = format_doobie_response(result)
 
     if not answer:
         answer = "Doobie AI is currently unavailable."
@@ -2716,13 +2714,11 @@ def _build_copilot_context(app_mode, section):
 
 def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
     """Compute buyer-focused demand and risk signals from uploaded data."""
-    sales = sales_df_raw.copy()
-    sales.columns = sales.columns.astype(str).str.lower()
+    sales = coalesce_duplicate_columns(sales_df_raw)
 
     inv = None
     if isinstance(inv_df_raw, pd.DataFrame):
-        inv = inv_df_raw.copy()
-        inv.columns = inv.columns.astype(str).str.lower()
+        inv = coalesce_duplicate_columns(inv_df_raw)
 
     sales_name_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_NAME_ALIASES])
     sales_qty_col = detect_column(sales.columns, [normalize_col(a) for a in SALES_QTY_ALIASES])
@@ -2748,13 +2744,21 @@ def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
 
     if not (sales_name_col and sales_qty_col and sales_cat_col):
         raise ValueError("Could not detect required sales columns (name, quantity, category).")
+    if len({sales_name_col, sales_qty_col, sales_cat_col}) != 3:
+        raise ValueError(
+            "Product, quantity, and category must map to three different sales columns."
+        )
 
     rename_map = {
         sales_name_col: "product_name",
         sales_qty_col: "units_sold",
         sales_cat_col: "category",
     }
-    if sales_rev_col:
+    if sales_rev_col and sales_rev_col not in {
+        sales_name_col,
+        sales_qty_col,
+        sales_cat_col,
+    }:
         rename_map[sales_rev_col] = "revenue"
 
     sales = sales.rename(columns=rename_map)
@@ -2952,12 +2956,12 @@ Use only the supplied store data. Never invent a package size, strain family, pr
         )
         if str(resp.get("mode", "")).lower() == "fallback":
             return "Doobie AI is currently unavailable."
-        return str(resp.get("answer") or "Doobie AI is currently unavailable.")
+        return format_doobie_response(resp)
     except Exception as exc:
         return f"Doobie buyer brief failed: {exc}"
 
 
-def _run_main_ai_copilot(question, app_mode, section):
+def _run_main_ai_copilot(question, app_mode, section, history=None):
     if not _doobie_ai_access_enabled():
         return "Connect Doobie AI to enable this feature."
     if _doobie_ai_status() != "connected":
@@ -2974,10 +2978,13 @@ def _run_main_ai_copilot(question, app_mode, section):
                 "section": section,
             },
             persona=None,
+            state=str(st.session_state.get("doobie_jurisdiction") or "MA"),
+            department=str(section or app_mode or "operations"),
+            history=history or [],
         )
         if str(result.get("mode", "")).lower() == "fallback":
             raise RuntimeError("Doobie AI is currently unavailable.")
-        return str(result.get("answer") or "Doobie AI is currently unavailable.")
+        return format_doobie_response(result)
     except Exception as exc:
         return f"AI copilot failed: {exc}"
 
@@ -2991,6 +2998,14 @@ def render_main_ai_copilot(app_mode, section):
         st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
         st.write(f"Status: {_doobie_ai_status()}")
 
+        history_key = "doobie_copilot_history"
+        history = st.session_state.setdefault(history_key, [])
+        if history:
+            with st.expander("Recent conversation", expanded=False):
+                for item in history[-8:]:
+                    speaker = "You" if item.get("role") == "user" else "Doobie"
+                    st.markdown(f"**{speaker}:** {item.get('content', '')}")
+
         if st.button("Refresh Doobie Status", key="refresh_doobie_ai_status"):
             _refresh_doobie_connection_state()
             _safe_rerun()
@@ -3002,8 +3017,23 @@ def render_main_ai_copilot(app_mode, section):
             height=100,
         )
         if st.button("Run Copilot", key="run_main_ai_copilot"):
-            answer = _run_main_ai_copilot(question, app_mode, section)
+            answer = _run_main_ai_copilot(
+                question,
+                app_mode,
+                section,
+                history=history,
+            )
+            history.extend(
+                [
+                    {"role": "user", "content": str(question or "").strip()},
+                    {"role": "assistant", "content": str(answer or "").strip()},
+                ]
+            )
+            st.session_state[history_key] = history[-20:]
             st.markdown(answer)
+        if st.button("Clear Doobie conversation", key="clear_main_ai_copilot_history"):
+            st.session_state[history_key] = []
+            _safe_rerun()
 
 
 def ai_inventory_check(detail_view, doh_threshold, data_source):
@@ -3075,7 +3105,7 @@ Tasks:
         )
         if str(response.get("mode", "")).lower() == "fallback":
             return "Doobie AI is currently unavailable."
-        return str(response.get("answer") or "Doobie AI is currently unavailable.")
+        return format_doobie_response(response)
     except Exception as e:
         return f"Doobie inventory check failed: {e}"
 
@@ -3337,11 +3367,11 @@ def _render_doobie_ai_panel() -> None:
             placeholder="https://doobie.yourdomain.com",
         )
         api_key_input = st.text_input(
-            "Doobie License Key",
+            "Doobie Service API Key",
             value="",
             type="password",
             key="doobie_api_key_input",
-            help="Saved keys are masked for safety.",
+            help="DEV-managed service key used for Buyer Dash to call Doobie. Saved keys are masked.",
         )
 
         if st.button("Test Connection", key="doobie_test_connection_button"):
@@ -4232,7 +4262,7 @@ Output sections:
         )
         if str(resp.get("mode", "")).lower() == "fallback":
             return "Doobie AI is currently unavailable."
-        return str(resp.get("answer") or "Doobie AI is currently unavailable.")
+        return format_doobie_response(resp)
     except Exception as exc:
         return f"Doobie extraction brief failed: {exc}"
 

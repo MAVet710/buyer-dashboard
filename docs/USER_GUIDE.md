@@ -40,6 +40,20 @@ so they return after sign-out, a Streamlit restart, or a deployment. Data Hub ke
 the active file plus two prior versions for each dataset. Files must be 10 MB or less.
 The History tab shows who published each version and whether it is active or archived.
 
+## Doobie AI
+
+Doobie is Buyer Dash's cannabis-operations AI. When the DEV team has connected
+the shared service, its status appears as **Doobie Connected**. Buyer briefs,
+inventory checks, extraction briefs, and the Main AI Copilot use the same
+grounded Doobie API. Responses can include recommended actions, risk flags,
+inefficiencies, confidence, sources, and a request for missing jurisdictional
+context. If Doobie cannot verify an exact compliance rule, Buyer Dash shows that
+limitation instead of presenting the answer as confirmed law.
+
+Only LEVEL DEV users can view or change Doobie service credentials. Company
+users see METRC integration controls and the enabled AI experiences, but never
+the shared API key.
+
 ### Production data flow
 
 - Extraction imports support automatic header detection, mapping, preview, and deduplication.

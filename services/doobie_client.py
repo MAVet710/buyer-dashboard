@@ -15,6 +15,11 @@ FALLBACK_RESPONSE: dict[str, Any] = {
     "mode": "fallback",
     "risk_flags": [],
     "inefficiencies": [],
+    "routed_mode": "fallback",
+    "routed_by": "",
+    "ai": {},
+    "needs_clarification": False,
+    "missing_context": [],
 }
 
 MODE_ALIASES = {
@@ -35,6 +40,12 @@ VALID_MODES = {
     "cultivation",
     "kitchen",
     "packaging",
+    "laboratory",
+    "quality",
+    "security",
+    "finance",
+    "sales",
+    "distribution",
 }
 
 
@@ -50,14 +61,24 @@ class DoobieClient:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.base_url and self.api_key)
+        # Development deployments may intentionally run without service auth.
+        # Production will still reject unauthenticated calls with a clear 401.
+        return bool(self.base_url)
+
+    @property
+    def authenticated(self) -> bool:
+        return bool(self.api_key)
 
     def _headers(self) -> dict[str, str]:
-        return {
-            "x-api-key": self.api_key,
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers.update(
+                {
+                    "x-api-key": self.api_key,
+                    "Authorization": f"Bearer {self.api_key}",
+                }
+            )
+        return headers
 
     def _fallback(self, reason: str | None = None, status_code: int | None = None) -> dict[str, Any]:
         response = dict(FALLBACK_RESPONSE)
@@ -84,8 +105,48 @@ class DoobieClient:
         out["sources"] = out["sources"] if isinstance(out.get("sources"), list) else []
         out["risk_flags"] = out["risk_flags"] if isinstance(out.get("risk_flags"), list) else []
         out["inefficiencies"] = out["inefficiencies"] if isinstance(out.get("inefficiencies"), list) else []
+        out["missing_context"] = out["missing_context"] if isinstance(out.get("missing_context"), list) else []
+        out["ai"] = out["ai"] if isinstance(out.get("ai"), dict) else {}
         out["mode"] = str(out.get("mode") or "live")
+        out["routed_mode"] = str(out.get("routed_mode") or out["mode"])
+        out["routed_by"] = str(out.get("routed_by") or "")
+        out["needs_clarification"] = bool(out.get("needs_clarification"))
         return out
+
+    def _get_json(self, endpoint: str, *, protected: bool = True) -> dict[str, Any]:
+        if not self.base_url:
+            return {"ok": False, "error": "disabled", "status_code": None, "data": {}}
+        path = endpoint if str(endpoint).startswith("/") else f"/{endpoint}"
+        try:
+            resp = requests.get(
+                f"{self.base_url}{path}",
+                headers=self._headers() if protected else {"Accept": "application/json"},
+                timeout=self.timeout_seconds,
+            )
+            if resp.status_code in {401, 403}:
+                return {
+                    "ok": False,
+                    "error": "service_key_rejected" if self.api_key else "missing_service_key",
+                    "status_code": int(resp.status_code),
+                    "data": {},
+                }
+            if resp.status_code >= 400:
+                return {
+                    "ok": False,
+                    "error": "http_error",
+                    "status_code": int(resp.status_code),
+                    "data": {},
+                }
+            payload = resp.json()
+            if not isinstance(payload, dict):
+                return {"ok": False, "error": "invalid_response", "status_code": int(resp.status_code), "data": {}}
+            return {"ok": True, "error": "", "status_code": int(resp.status_code), "data": payload}
+        except requests.Timeout:
+            return {"ok": False, "error": "timeout", "status_code": None, "data": {}}
+        except requests.RequestException:
+            return {"ok": False, "error": "request_error", "status_code": None, "data": {}}
+        except (ValueError, TypeError):
+            return {"ok": False, "error": "invalid_json", "status_code": None, "data": {}}
 
     @staticmethod
     def _brief_payload(
@@ -116,7 +177,8 @@ class DoobieClient:
                 timeout=self.timeout_seconds,
             )
             if resp.status_code in {401, 403}:
-                return self._fallback("service_key_rejected", status_code=resp.status_code)
+                reason = "service_key_rejected" if self.api_key else "missing_service_key"
+                return self._fallback(reason, status_code=resp.status_code)
             if resp.status_code >= 400:
                 return self._fallback("http_error", status_code=resp.status_code)
             return self._standardize_response(resp.json())
@@ -210,6 +272,14 @@ class DoobieClient:
         mode = MODE_ALIASES.get(requested_mode, requested_mode)
         if mode not in VALID_MODES | {"auto"}:
             mode = "auto"
+        clean_history = [
+            {
+                "role": str(item.get("role") or "user"),
+                "content": str(item.get("content") or "").strip(),
+            }
+            for item in (history or [])[-20:]
+            if isinstance(item, dict) and str(item.get("content") or "").strip()
+        ]
         return self.call_endpoint(
             "/api/v1/support/copilot",
             {
@@ -219,9 +289,98 @@ class DoobieClient:
                 "state": state,
                 "department": department,
                 "data": data,
-                "history": history or [],
+                "history": clean_history,
             },
         )
+
+    def health(self) -> dict[str, Any]:
+        """Return the public Doobie API build and provider diagnostics."""
+
+        return self._get_json("/health", protected=False)
+
+    def auth_check(self) -> dict[str, Any]:
+        return self._get_json("/api/v1/auth/check")
+
+    def knowledge_modules(self) -> dict[str, Any]:
+        return self._get_json("/api/v1/knowledge/modules")
+
+    def professional_domains(self) -> dict[str, Any]:
+        return self._get_json("/api/v1/knowledge/professional-domains")
+
+    def compliance_jurisdictions(self) -> dict[str, Any]:
+        return self._get_json("/api/v1/compliance/jurisdictions")
+
+    def capability_snapshot(self) -> dict[str, Any]:
+        """Discover the updated Doobie API without exposing credentials."""
+
+        health = self.health()
+        auth = self.auth_check()
+        modules = self.knowledge_modules() if auth.get("ok") else {"ok": False, "data": {}}
+        domains = self.professional_domains() if auth.get("ok") else {"ok": False, "data": {}}
+        jurisdictions = (
+            self.compliance_jurisdictions() if auth.get("ok") else {"ok": False, "data": {}}
+        )
+        health_data = health.get("data") if isinstance(health.get("data"), dict) else {}
+        module_data = modules.get("data") if isinstance(modules.get("data"), dict) else {}
+        domain_data = domains.get("data") if isinstance(domains.get("data"), dict) else {}
+        jurisdiction_data = (
+            jurisdictions.get("data") if isinstance(jurisdictions.get("data"), dict) else {}
+        )
+        return {
+            "ok": bool(health.get("ok") and auth.get("ok")),
+            "health": health_data,
+            "authenticated": bool(auth.get("ok")),
+            "api_version": str((auth.get("data") or {}).get("api_version") or ""),
+            "modules": sorted((module_data.get("modules") or {}).keys()),
+            "professional_domains": sorted((domain_data.get("domains") or {}).keys()),
+            "jurisdiction_count": int(jurisdiction_data.get("count") or 0),
+            "ai_provider": str(health_data.get("ai_provider") or ""),
+            "ai_model": str(health_data.get("ai_model") or ""),
+            "ai_enabled": str(health_data.get("ai_enabled") or "").lower() == "true",
+            "conversation_ready": str(health_data.get("conversation_ready") or "").lower() == "true",
+            "app_version": str(health_data.get("app_version") or ""),
+            "git_commit": str(health_data.get("git_commit_short") or ""),
+            "error": str(auth.get("error") or health.get("error") or ""),
+        }
+
+    def buyer_intelligence(
+        self, question: str, inventory: dict[str, Any], state: str | None = None
+    ) -> dict[str, Any]:
+        return self.call_endpoint(
+            "/buyer/intelligence",
+            {"question": str(question or "").strip(), "state": state, "inventory": inventory},
+        )
+
+    def extraction_intelligence(
+        self, question: str, run_data: dict[str, Any], state: str | None = None
+    ) -> dict[str, Any]:
+        return self.call_endpoint(
+            "/extraction/intelligence",
+            {"question": str(question or "").strip(), "state": state, "run_data": run_data},
+        )
+
+    def learning_feedback(
+        self,
+        *,
+        mode: str,
+        question: str,
+        outcome: str,
+        state: str | None = None,
+        recommendation: str | None = None,
+    ) -> dict[str, Any]:
+        return self.call_endpoint(
+            "/learning/feedback",
+            {
+                "mode": str(mode or "copilot"),
+                "question": str(question or ""),
+                "state": state,
+                "outcome": str(outcome or ""),
+                "recommendation": recommendation,
+            },
+        )
+
+    def learning_summary(self) -> dict[str, Any]:
+        return self._get_json("/learning/summary")
 
     def support_copilot_health_check(self) -> dict[str, Any]:
         """Run a dedicated readiness check against the support copilot endpoint."""
