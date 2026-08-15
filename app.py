@@ -3097,6 +3097,7 @@ def _doobie_status_message(status: str) -> str:
         "connected": "Connected",
         "service_only": "Service Only",
         "ai_unavailable": "AI Unavailable",
+        "waking_up": "Waking Up",
         "invalid_license": "Invalid License",
         "unavailable": "Unavailable",
         "not_connected": "Not Connected",
@@ -3395,7 +3396,10 @@ def _resolve_metrc_integrator_key() -> str:
 # =========================
 # INIT DOOBIE CONNECTION + SHOW DEBUG (admin-only)
 # =========================
-_refresh_doobie_connection_state()
+with st.spinner(
+    "Checking Doobie AI. The free service may need up to a minute to wake after being idle..."
+):
+    _refresh_doobie_connection_state()
 
 # Diagnostics are platform-owner tools; ordinary company admins do not need
 # them in their day-to-day sidebar.
@@ -4037,6 +4041,8 @@ if _is_dev_session:
     _doobie_header_status = _doobie_ai_status()
     if _doobie_header_status == "connected":
         st.caption("🟢 Doobie Connected")
+    elif _doobie_header_status == "waking_up":
+        st.caption("🟠 Doobie is waking up — refresh in a moment")
     elif _doobie_header_status in {
         "invalid",
         "revoked",
@@ -4057,6 +4063,8 @@ if st.session_state.get("_daily_restore_msg"):
 if _is_dev_session:
     if _doobie_ai_status() == "connected":
         st.markdown("✅ AI buyer-assist is **ON** for this session.")
+    elif _doobie_ai_status() == "waking_up":
+        st.markdown("🟠 AI buyer-assist is waiting for Doobie AI to finish waking up.")
     elif not _doobie_ai_access_enabled():
         st.markdown("🟡 AI buyer-assist is **OFF** until Doobie AI is connected.")
     else:
@@ -8189,6 +8197,7 @@ if app_mode == HOME_WORKSPACE:
         organization_name=str(st.session_state.get("active_organization_name") or ""),
         facility_name=str(st.session_state.get("active_facility_name") or ""),
         ai_connected=bool(_doobie_ai_access_enabled()),
+        ai_status=_doobie_ai_status(),
     )
     st.stop()
 
