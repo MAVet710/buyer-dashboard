@@ -67,6 +67,7 @@ def render_role_home(
     organization_name: str = "",
     facility_name: str = "",
     ai_connected: bool = False,
+    ai_status: str = "not_connected",
 ) -> None:
     """Render a concise role-specific landing page and task launcher."""
 
@@ -97,7 +98,16 @@ def render_role_home(
     metrics[0].metric("Data sources ready", f"{ready_sources}/{len(status_rows)}")
     metrics[1].metric("Retail sources", retail_ready)
     metrics[2].metric("Facility", facility_name or "Not selected")
-    metrics[3].metric("Doobie AI", "Connected" if ai_connected else "Not connected")
+    normalized_ai_status = str(ai_status or "not_connected").strip().lower()
+    if ai_connected:
+        ai_status_label = "Connected"
+    elif normalized_ai_status == "waking_up":
+        ai_status_label = "Waking up"
+    elif normalized_ai_status == "unavailable":
+        ai_status_label = "Unavailable"
+    else:
+        ai_status_label = "Not connected"
+    metrics[3].metric("Doobie AI", ai_status_label)
 
     st.markdown("### Start a task")
     st.caption("Open the right workspace without searching through menus.")

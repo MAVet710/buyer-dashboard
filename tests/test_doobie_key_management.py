@@ -102,3 +102,76 @@ def test_service_authentication_result_is_cached(monkeypatch):
 
     assert len(calls) == 1
     assert session_state["doobie_connected"] is False
+
+
+def test_transient_timeout_is_labeled_waking_up_and_cached_briefly(monkeypatch):
+    from types import SimpleNamespace
+    import services.doobie_config as config
+
+    session_state = _State()
+    calls = []
+    monkeypatch.setattr(config, "st", SimpleNamespace(session_state=session_state))
+    monkeypatch.setattr(
+        config,
+        "resolve_doobie_config",
+        lambda: {
+            "base_url": "https://doobie.example.com",
+            "api_key": "service-secret",
+            "source": "env_or_secrets",
+        },
+    )
+
+    def _check(*args, **kwargs):
+        calls.append(kwargs.get("timeout_seconds"))
+        return {"ok": False, "status": "timeout", "message": "Connection timed out."}
+
+    monkeypatch.setattr(config, "test_doobie_connection", _check)
+
+    config.sync_doobie_service_connection(
+        timeout_seconds=75,
+        cache_seconds=300,
+        transient_failure_cache_seconds=5,
+    )
+    config.sync_doobie_service_connection(
+        timeout_seconds=75,
+        cache_seconds=300,
+        transient_failure_cache_seconds=5,
+    )
+    session_state["_doobie_service_connection_cache"]["checked_at"] -= 6
+    config.sync_doobie_service_connection(
+        timeout_seconds=75,
+        cache_seconds=300,
+        transient_failure_cache_seconds=5,
+    )
+
+    assert calls == [75, 75]
+    assert session_state["doobie_connected"] is False
+    assert session_state["doobie_status"] == "waking_up"
+
+
+def test_service_auth_uses_cold_start_timeout_by_default(monkeypatch):
+    from types import SimpleNamespace
+    import services.doobie_config as config
+
+    session_state = _State()
+    captured = {}
+    monkeypatch.delenv("DOOBIE_SERVICE_AUTH_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setattr(config, "st", SimpleNamespace(session_state=session_state))
+    monkeypatch.setattr(
+        config,
+        "resolve_doobie_config",
+        lambda: {
+            "base_url": "https://doobie.example.com",
+            "api_key": "service-secret",
+            "source": "env_or_secrets",
+        },
+    )
+
+    def _check(*args, **kwargs):
+        captured["timeout_seconds"] = kwargs["timeout_seconds"]
+        return {"ok": True, "status": "connected"}
+
+    monkeypatch.setattr(config, "test_doobie_connection", _check)
+    config.sync_doobie_service_connection()
+
+    assert captured["timeout_seconds"] == config.DEFAULT_SERVICE_AUTH_TIMEOUT_SECONDS
