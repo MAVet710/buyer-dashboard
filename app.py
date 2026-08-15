@@ -86,6 +86,7 @@ from services.workspace_navigation import (
 from modules.commercial.ui import render_commercial_workspace
 from modules.coman.ui import render_coman_workspace
 from modules.buyer_assortment import build_assortment_priorities, coalesce_duplicate_columns
+from modules.doobie_copilot_ui import render_doobie_sidebar_copilot
 from modules.doobie_response import format_doobie_response
 from modules.data_hub import render_data_hub_workspace, restore_durable_retail_sources
 from modules.extraction_quick_entry import (
@@ -2990,50 +2991,12 @@ def _run_main_ai_copilot(question, app_mode, section, history=None):
 
 
 def render_main_ai_copilot(app_mode, section):
-    with st.sidebar.expander("🧠 Main AI Copilot", expanded=False):
-        if not _doobie_ai_access_enabled():
-            st.caption("Connect Doobie AI to enable this feature.")
-            return
-        st.caption("Use this assistant across buyer, compliance, and extraction workflows.")
-        st.write(f"AI Provider: {DOOBIE_PROVIDER_NAME}")
-        st.write(f"Status: {_doobie_ai_status()}")
-
-        history_key = "doobie_copilot_history"
-        history = st.session_state.setdefault(history_key, [])
-        if history:
-            with st.expander("Recent conversation", expanded=False):
-                for item in history[-8:]:
-                    speaker = "You" if item.get("role") == "user" else "Doobie"
-                    st.markdown(f"**{speaker}:** {item.get('content', '')}")
-
-        if st.button("Refresh Doobie Status", key="refresh_doobie_ai_status"):
-            _refresh_doobie_connection_state()
-            _safe_rerun()
-
-        question = st.text_area(
-            "Ask the AI copilot",
-            value="What should I focus on next in this section?",
-            key="main_ai_copilot_question",
-            height=100,
-        )
-        if st.button("Run Copilot", key="run_main_ai_copilot"):
-            answer = _run_main_ai_copilot(
-                question,
-                app_mode,
-                section,
-                history=history,
-            )
-            history.extend(
-                [
-                    {"role": "user", "content": str(question or "").strip()},
-                    {"role": "assistant", "content": str(answer or "").strip()},
-                ]
-            )
-            st.session_state[history_key] = history[-20:]
-            st.markdown(answer)
-        if st.button("Clear Doobie conversation", key="clear_main_ai_copilot_history"):
-            st.session_state[history_key] = []
-            _safe_rerun()
+    render_doobie_sidebar_copilot(
+        app_mode=app_mode, section=section, provider_name=DOOBIE_PROVIDER_NAME,
+        access_enabled=_doobie_ai_access_enabled, status=_doobie_ai_status,
+        refresh=_refresh_doobie_connection_state, rerun=_safe_rerun,
+        run_copilot=_run_main_ai_copilot,
+    )
 
 
 def ai_inventory_check(detail_view, doh_threshold, data_source):
