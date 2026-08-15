@@ -23,7 +23,13 @@ def render_doobie_sidebar_copilot(
 
     with st.sidebar.expander("🧠 Main AI Copilot", expanded=False):
         if not access_enabled():
-            st.caption("Connect Doobie AI to enable this feature.")
+            if status() == "waking_up":
+                st.caption("Doobie AI is waking up. Retry in a moment.")
+            else:
+                st.caption("Connect Doobie AI to enable this feature.")
+            if st.button("Retry Doobie Connection", key="retry_doobie_ai_status"):
+                refresh()
+                rerun()
             return
         st.caption("Use this assistant across buyer, compliance, and extraction workflows.")
         st.write(f"AI Provider: {provider_name}")
