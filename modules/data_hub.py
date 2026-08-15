@@ -2,24 +2,27 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 from io import BytesIO
 from pathlib import Path
 import re
-from typing import Any, MutableMapping
+from typing import Any, Mapping, MutableMapping
 
 import pandas as pd
 import streamlit as st
 
 from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
+from modules.coman.db import create_coman_engine
+from modules.data_hub_repository import DataHubRepository, hydrate_durable_sources
 
 
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 RETAIL_DATASETS = (
     {
         "label": "Inventory",
+        "dataset_key": "inventory",
         "cache_key": "_cache_inv",
         "widget_key": "data_hub_inventory_upload",
         "types": ["csv", "xlsx", "xls"],
@@ -27,6 +30,7 @@ RETAIL_DATASETS = (
     },
     {
         "label": "Product Sales",
+        "dataset_key": "product_sales",
         "cache_key": "_cache_sales",
         "widget_key": "data_hub_sales_upload",
         "types": ["csv", "xlsx", "xls"],
@@ -34,6 +38,7 @@ RETAIL_DATASETS = (
     },
     {
         "label": "Sales / Pricing Detail",
+        "dataset_key": "sales_pricing_detail",
         "cache_key": "_cache_extra_sales",
         "widget_key": "data_hub_extra_sales_upload",
         "types": ["csv", "xlsx", "xls"],
@@ -41,6 +46,7 @@ RETAIL_DATASETS = (
     },
     {
         "label": "Quarantine",
+        "dataset_key": "quarantine",
         "cache_key": "_cache_quarantine",
         "widget_key": "data_hub_quarantine_upload",
         "types": ["csv", "xlsx", "xls"],
@@ -66,6 +72,107 @@ DATASET_REQUIREMENTS = {
         "Product": ("product", "product name", "item", "item name", "name", "sku name"),
     },
 }
+
+RETAIL_CACHE_KEYS = tuple(str(spec["cache_key"]) for spec in RETAIL_DATASETS)
+
+
+@st.cache_resource
+def get_data_hub_repository() -> DataHubRepository:
+    """Reuse one pooled database engine for Data Hub operations."""
+
+    return DataHubRepository(create_coman_engine())
+
+
+def restore_durable_retail_sources(
+    state: MutableMapping[str, Any], *, force: bool = False
+) -> tuple[int, str]:
+    """Hydrate the selected tenant's active files without blocking the app."""
+
+    organization_id = str(state.get("active_organization_id") or "").strip()
+    facility_id = str(state.get("active_facility_id") or "").strip()
+    if not organization_id or not facility_id:
+        return 0, ""
+    scope = f"{organization_id}|{facility_id}"
+    if state.get("_durable_data_hub_scope") != scope:
+        for cache_key in RETAIL_CACHE_KEYS:
+            state.pop(cache_key, None)
+        state["_durable_data_hub_scope"] = scope
+        state.pop("_durable_data_hub_restored_scope", None)
+    retry_after_raw = str(state.get("_durable_data_hub_retry_after") or "")
+    if retry_after_raw and not force:
+        try:
+            if datetime.fromisoformat(retry_after_raw) > datetime.now(timezone.utc):
+                return 0, str(
+                    state.get("_durable_data_hub_error")
+                    or "Durable data storage is temporarily unavailable."
+                )
+        except ValueError:
+            state.pop("_durable_data_hub_retry_after", None)
+    if not force and state.get("_durable_data_hub_restored_scope") == scope:
+        return sum(
+            bool(isinstance(state.get(key), dict) and state[key].get("durable"))
+            for key in RETAIL_CACHE_KEYS
+        ), ""
+    try:
+        restored = hydrate_durable_sources(
+            state,
+            get_data_hub_repository(),
+            organization_id=organization_id,
+            facility_id=facility_id,
+            cache_keys=RETAIL_CACHE_KEYS,
+        )
+        state.pop("_durable_data_hub_error", None)
+        state.pop("_durable_data_hub_retry_after", None)
+        return restored, ""
+    except Exception as exc:
+        # Session uploads remain usable while a migration or connection is unavailable.
+        message = str(exc).strip() or "Durable data storage is unavailable."
+        state["_durable_data_hub_error"] = message
+        state["_durable_data_hub_retry_after"] = (
+            datetime.now(timezone.utc) + timedelta(seconds=60)
+        ).isoformat()
+        return 0, message
+
+
+def _publish_durable_source(
+    spec: Mapping[str, Any], staged: dict[str, Any], inspection: Mapping[str, Any]
+) -> None:
+    organization_id = str(st.session_state.get("active_organization_id") or "").strip()
+    facility_id = str(st.session_state.get("active_facility_id") or "").strip()
+    if not organization_id or not facility_id:
+        raise ValueError("Select an organization and facility before publishing data.")
+    actor = str(
+        st.session_state.get("admin_user")
+        or st.session_state.get("user_user")
+        or "system"
+    )
+    try:
+        record = get_data_hub_repository().publish_source(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            dataset_key=str(spec["dataset_key"]),
+            dataset_label=str(spec["label"]),
+            cache_key=str(spec["cache_key"]),
+            filename=str(staged["name"]),
+            fingerprint=str(staged["fingerprint"]),
+            payload=bytes(staged["bytes"]),
+            inspection=inspection,
+            content_type=str(staged.get("content_type") or ""),
+            imported_by_user_id=st.session_state.get("auth_user_id"),
+            imported_by=actor,
+        )
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(
+            "Supabase could not save this source. Verify the Data Hub migration and database connection."
+        ) from exc
+    staged["durable_id"] = record.id
+    staged["durable"] = True
+    st.session_state[spec["cache_key"]] = staged
+    st.session_state["_durable_data_hub_restored_scope"] = (
+        f"{organization_id}|{facility_id}"
+    )
 
 
 def _normalize_column(value: Any) -> str:
@@ -150,6 +257,7 @@ def stage_uploaded_dataset(
     staged = {
         "name": name,
         "bytes": payload,
+        "content_type": str(getattr(uploaded_file, "type", "") or ""),
         "fingerprint": fingerprint,
         "staged_at": staged_at,
         "dataset": dataset_label,
@@ -305,7 +413,8 @@ def _render_guided_retail_import() -> None:
 
     cached = st.session_state.get(spec["cache_key"])
     if isinstance(cached, dict) and cached.get("bytes"):
-        st.success(f"Current source: {cached.get('name', selected_label)}")
+        storage_note = " · saved to Supabase" if cached.get("durable") else " · session only"
+        st.success(f"Current source: {cached.get('name', selected_label)}{storage_note}")
 
     uploaded = st.file_uploader(
         "2. Upload the source file",
@@ -366,7 +475,10 @@ def _render_guided_retail_import() -> None:
                 cache_key=spec["cache_key"],
                 dataset_label=selected_label,
             )
-            st.success(f"{staged['name']} is now available across Retail Operations.")
+            _publish_durable_source(spec, staged, inspection)
+            st.success(
+                f"{staged['name']} is saved to Supabase and available across Retail Operations."
+            )
         except Exception as exc:
             st.error(f"{selected_label} could not be published: {exc}")
 
@@ -378,6 +490,18 @@ def render_data_hub_workspace() -> None:
         "Load operational data once, verify its status, and reuse it across Retail Ops "
         "and Production Ops. Existing workspace-specific uploaders remain available."
     )
+
+    _, durable_error = restore_durable_retail_sources(st.session_state)
+    if durable_error:
+        st.warning(
+            "Durable source storage is temporarily unavailable. You can still review files "
+            "in this session, but publishing requires the Data Hub database migration."
+        )
+    elif not (
+        st.session_state.get("active_organization_id")
+        and st.session_state.get("active_facility_id")
+    ):
+        st.info("Select an organization and facility to publish reusable retail sources.")
 
     status_rows = build_data_hub_status(st.session_state)
     ready_count = sum(row["Status"] == "Ready" for row in status_rows)
@@ -441,13 +565,13 @@ def render_data_hub_workspace() -> None:
                 st.rerun()
         with st.expander("Manage staged retail files", expanded=False):
             if st.button(
-                "Clear staged retail files",
+                "Clear files from this session",
                 key="data_hub_clear_retail",
                 type="secondary",
             ):
                 for spec in RETAIL_DATASETS:
                     st.session_state.pop(spec["cache_key"], None)
-                st.success("Staged retail files cleared.")
+                st.success("Session copies cleared. Published Supabase sources remain available.")
                 st.rerun()
 
     with production_tab:
@@ -476,9 +600,30 @@ def render_data_hub_workspace() -> None:
         )
 
     with history_tab:
-        history = list(st.session_state.get("data_hub_import_history", []))
+        durable_history: list[dict[str, Any]] = []
+        organization_id = str(st.session_state.get("active_organization_id") or "")
+        facility_id = str(st.session_state.get("active_facility_id") or "")
+        if organization_id and facility_id and not durable_error:
+            try:
+                durable_history = [
+                    {
+                        "Dataset": row.dataset_label,
+                        "File": row.filename,
+                        "Size": row.payload_size,
+                        "Status": row.status.title(),
+                        "Imported At": row.activated_at,
+                        "Imported By": row.imported_by,
+                        "Rows": row.row_count,
+                    }
+                    for row in get_data_hub_repository().list_history(
+                        organization_id, facility_id
+                    )
+                ]
+            except Exception:
+                durable_history = []
+        history = durable_history or list(st.session_state.get("data_hub_import_history", []))
         if not history:
-            st.info("No files have been staged through Data Hub in this session.")
+            st.info("No sources have been published for this facility yet.")
         else:
             history_frame = pd.DataFrame(history).drop(columns=["Fingerprint"], errors="ignore")
             if "Size" in history_frame.columns:

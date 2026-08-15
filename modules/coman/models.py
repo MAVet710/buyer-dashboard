@@ -14,9 +14,11 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -718,6 +720,7 @@ class AppUserFacilityRole(TimestampMixin, Base):
     )
     role: Mapped[str] = mapped_column(String(32), nullable=False)
 
+
 class LegalPolicyVersion(Base):
     """Immutable metadata for one published legal-policy document."""
 
@@ -782,3 +785,70 @@ class LegalAcceptanceEvent(Base):
         ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True
     )
 
+
+class DataHubImport(TimestampMixin, Base):
+    """Versioned source file published for one organization facility."""
+
+    __tablename__ = "data_hub_imports"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "facility_id",
+            "dataset_key",
+            "fingerprint",
+            name="uq_data_hub_import_scope_fingerprint",
+        ),
+        CheckConstraint(
+            "status in ('active', 'archived')",
+            name="ck_data_hub_import_status",
+        ),
+        CheckConstraint("payload_size >= 0", name="ck_data_hub_import_payload_size"),
+        CheckConstraint("compressed_size >= 0", name="ck_data_hub_import_compressed_size"),
+        Index(
+            "ix_data_hub_import_scope_status",
+            "organization_id",
+            "facility_id",
+            "dataset_key",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "uq_data_hub_import_one_active",
+            "organization_id",
+            "facility_id",
+            "dataset_key",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+            sqlite_where=text("status = 'active'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    facility_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    dataset_key: Mapped[str] = mapped_column(String(48), nullable=False)
+    dataset_label: Mapped[str] = mapped_column(String(120), nullable=False)
+    cache_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    filename: Mapped[str] = mapped_column(String(512), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_compressed: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    payload_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    compressed_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    column_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    quality: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    mapping_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    missing_fields_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="active")
+    imported_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    imported_by: Mapped[str] = mapped_column(String(255), nullable=False, default="system")
+    activated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )

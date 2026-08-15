@@ -8,6 +8,7 @@ import pytest
 from modules.data_hub import (
     build_data_hub_status,
     inspect_uploaded_dataset,
+    restore_durable_retail_sources,
     stage_uploaded_dataset,
 )
 
@@ -111,3 +112,24 @@ def test_guided_import_surfaces_mapping_review_without_silent_correction():
 
     assert inspection["quality"] == "Review mapping"
     assert inspection["missing"] == ["Units sold"]
+
+
+def test_durable_restore_clears_previous_tenant_files_before_failed_retry(monkeypatch):
+    def unavailable_repository():
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr("modules.data_hub.get_data_hub_repository", unavailable_repository)
+    state = {
+        "active_organization_id": "org-b",
+        "active_facility_id": "facility-b",
+        "_durable_data_hub_scope": "org-a|facility-a",
+        "_cache_inv": {"bytes": b"tenant-a"},
+    }
+
+    restored, error = restore_durable_retail_sources(state)
+
+    assert restored == 0
+    assert error == "offline"
+    assert "_cache_inv" not in state
+    assert state["_durable_data_hub_scope"] == "org-b|facility-b"
+    assert state["_durable_data_hub_retry_after"]

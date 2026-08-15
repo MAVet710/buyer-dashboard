@@ -61,7 +61,7 @@ def test_login_is_main_viewport_and_sidebar_uploaders_are_removed():
     app_source = (ROOT / "app.py").read_text(encoding="utf-8")
 
     assert "render_login_page(" in app_source
-    assert "Run cannabis operations with clarity." in login_source
+    assert "Keep shelves stocked, production moving, and chaos off the schedule." in login_source
     assert '[data-testid="stSidebar"]' in login_source
     assert 'st.sidebar.file_uploader(\n            "Inventory File' not in app_source
     assert '"Open Data Import Center"' in app_source

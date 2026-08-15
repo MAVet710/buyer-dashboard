@@ -28,7 +28,7 @@ def render_login_page(
     """Render login in the main viewport so it works naturally on phones."""
 
     safe_mark = html.escape(str(brand_image_url or ""), quote=True)
-    storage_label = "Secure cloud workspace available" if storage_connected else "Cloud storage needs configuration"
+    storage_label = "Cloud workspace connected" if storage_connected else "Cloud storage needs configuration"
     storage_tone = "ready" if storage_connected else "attention"
 
     st.markdown(
@@ -96,13 +96,13 @@ def render_login_page(
                 <img src="{safe_mark}" alt="DoobieLogic mark" />
                 <div><div class="dl-login-kicker">DOOBIELOGIC</div><div class="dl-login-brand-name">Operations Intelligence</div></div>
               </div>
-              <h1>Run cannabis operations with clarity.</h1>
-              <p>One secure workspace for retail inventory, purchasing, compliance, production, Co-Man execution, and commercial fulfillment.</p>
+              <h1>Keep shelves stocked, production moving, and chaos off the schedule.</h1>
+              <p>DoobieLogic connects buying, inventory, compliance, production, Co-Man, and fulfillment&mdash;so your team stays profitable and nobody has to ask which spreadsheet is the right one.</p>
               <div class="dl-login-points">
-                <div class="dl-login-point">Retail inventory intelligence</div>
-                <div class="dl-login-point">Mobile inventory audits</div>
-                <div class="dl-login-point">Co-Man capacity planning</div>
-                <div class="dl-login-point">Executive-ready reporting</div>
+                <div class="dl-login-point">Buy smarter. Stock cleaner.</div>
+                <div class="dl-login-point">Count inventory from the floor</div>
+                <div class="dl-login-point">Plan Co-Man without guesswork</div>
+                <div class="dl-login-point">Reports leadership will actually read</div>
               </div>
             </section>
             """,
@@ -113,7 +113,7 @@ def render_login_page(
     with login:
         with st.container(border=True):
             st.markdown("## Welcome back")
-            st.caption("Sign in to your company workspace.")
+            st.caption("Sign in. The inventory still refuses to count itself.")
             st.markdown(
                 f'<div class="dl-login-status {storage_tone}">{html.escape(storage_label)}</div>',
                 unsafe_allow_html=True,
@@ -133,7 +133,7 @@ def render_login_page(
                     password=str(password or ""),
                 )
 
-            with st.expander("Have a trial key?", expanded=False):
+            with st.expander("Kicking the tires? Enter a trial key", expanded=False):
                 with st.form("commercial_trial_form", clear_on_submit=False):
                     trial_key = st.text_input("Trial key", type="password", key="trial_key_input")
                     trial_submitted = st.form_submit_button("Activate 24-hour trial", width="stretch")
@@ -141,7 +141,7 @@ def render_login_page(
                     action = LoginSubmission(action="trial", trial_key=str(trial_key or "").strip())
 
             st.markdown(
-                '<div class="dl-login-help">Access is organization-scoped and activity is retained for operational accountability. Contact your company administrator if you need an account.</div>',
+                '<div class="dl-login-help">Each company gets its own secured workspace, and important actions keep receipts&mdash;the boring kind compliance teams love. Contact your administrator if you need an account.</div>',
                 unsafe_allow_html=True,
             )
     return action

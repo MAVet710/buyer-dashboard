@@ -35,6 +35,10 @@ Use **Data & Integrations → Data Hub** instead of searching for upload control
 5. Open Retail Operations. Published data is reused across compatible tools.
 
 Uploading a replacement does not become operational until it is reviewed and published.
+Published files are saved to Supabase for the selected organization and facility,
+so they return after sign-out, a Streamlit restart, or a deployment. Data Hub keeps
+the active file plus two prior versions for each dataset. Files must be 10 MB or less.
+The History tab shows who published each version and whether it is active or archived.
 
 ### Production data flow
 
