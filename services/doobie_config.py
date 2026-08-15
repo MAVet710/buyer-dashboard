@@ -16,6 +16,9 @@ DOOBIE_LICENSE_KEY = "DOOBIE_LICENSE_KEY"
 DOOBIE_ADMIN_API_KEY = "DOOBIE_ADMIN_API_KEY"
 METRC_API_KEY = "METRC_API_KEY"
 DEFAULT_DOOBIE_BASE_URL = "https://doobie-api.onrender.com"
+DEFAULT_SERVICE_AUTH_TIMEOUT_SECONDS = 75
+DEFAULT_TRANSIENT_FAILURE_CACHE_SECONDS = 5
+TRANSIENT_CONNECTION_STATUSES = {"timeout", "server_unavailable", "waking_up"}
 
 
 def _safe_secret(*keys: str) -> str:
@@ -207,10 +210,16 @@ def test_doobie_connection(base_url: str, api_key: str, timeout_seconds: int = 4
 
 
 def sync_doobie_service_connection(
-    timeout_seconds: int = 4,
+    timeout_seconds: int | None = None,
     cache_seconds: int = 300,
+    transient_failure_cache_seconds: int = DEFAULT_TRANSIENT_FAILURE_CACHE_SECONDS,
 ) -> dict[str, str | bool] | None:
-    """Authenticate configured app-to-Doobie credentials once per session window."""
+    """Authenticate configured app-to-Doobie credentials once per session window.
+
+    Render's free service can need roughly a minute to wake after an idle period.
+    Successful and credential failures may be cached normally, but transient
+    network/cold-start failures are cached only briefly so the app self-heals.
+    """
 
     config = resolve_doobie_config()
     base_url = str(config.get("base_url") or "").strip().rstrip("/")
@@ -225,15 +234,34 @@ def sync_doobie_service_connection(
     if not base_url or not api_key:
         return None
 
+    if timeout_seconds is None:
+        try:
+            timeout_seconds = int(
+                os.environ.get(
+                    "DOOBIE_SERVICE_AUTH_TIMEOUT_SECONDS",
+                    DEFAULT_SERVICE_AUTH_TIMEOUT_SECONDS,
+                )
+            )
+        except (TypeError, ValueError):
+            timeout_seconds = DEFAULT_SERVICE_AUTH_TIMEOUT_SECONDS
+    timeout_seconds = max(4, int(timeout_seconds))
+
     fingerprint = hashlib.sha256(f"{base_url}\0{api_key}".encode("utf-8")).hexdigest()
     now_epoch = datetime.now(timezone.utc).timestamp()
     cached = st.session_state.get("_doobie_service_connection_cache")
+    cached_result = dict(cached.get("result") or {}) if isinstance(cached, dict) else {}
+    cached_status = str(cached_result.get("status") or "").strip().lower()
+    cached_ttl = (
+        transient_failure_cache_seconds
+        if cached_status in TRANSIENT_CONNECTION_STATUSES
+        else cache_seconds
+    )
     if (
         isinstance(cached, dict)
         and cached.get("fingerprint") == fingerprint
-        and now_epoch - float(cached.get("checked_at") or 0) < max(1, int(cache_seconds))
+        and now_epoch - float(cached.get("checked_at") or 0) < max(1, int(cached_ttl))
     ):
-        result = dict(cached.get("result") or {})
+        result = cached_result
     else:
         result = test_doobie_connection(base_url, api_key, timeout_seconds=timeout_seconds)
         st.session_state["_doobie_service_connection_cache"] = {
@@ -243,7 +271,9 @@ def sync_doobie_service_connection(
         }
 
     connected = bool(result.get("ok"))
-    st.session_state.doobie_status = str(result.get("status") or "not_connected")
+    result_status = str(result.get("status") or "not_connected").strip().lower()
+    session_status = "waking_up" if result_status in TRANSIENT_CONNECTION_STATUSES else result_status
+    st.session_state.doobie_status = session_status
     st.session_state.doobie_connected = connected
     if connected:
         st.session_state.doobie_base_url = base_url
@@ -260,5 +290,6 @@ def clear_session_doobie_config() -> None:
         "doobie_status",
         "doobie_last_validated",
         "doobie_features",
+        "_doobie_service_connection_cache",
     ]:
         st.session_state.pop(key, None)
