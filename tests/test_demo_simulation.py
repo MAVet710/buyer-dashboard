@@ -164,3 +164,27 @@ def test_demo_company_is_profitable_with_a_believable_inventory_curve():
     assert product_detail["reorderpriority"].astype(str).str.contains("Dead Item").sum() <= 6
     assert payload["sales"]["Gross Margin %"].between(25, 75).all()
     assert payload["sales"]["Gross Profit"].gt(0).all()
+
+
+def test_demo_identity_and_readiness_are_unified():
+    payload = demo_data.build_demo_payload(date(2026, 8, 17), scale="small")
+    assert payload["company_profile"]["company_name"] == "DEV Sandbox"
+    assert payload["company_profile"]["store_name"] == "Sandbox Facility"
+    assert payload["company_profile"]["facility_name"] == "Sandbox Facility"
+    assert payload["sandbox_readiness"]["ready"] is True, payload["sandbox_readiness"]["issues"]
+
+
+def test_session_refresh_does_not_request_destructive_coman_reseed(monkeypatch):
+    calls = []
+
+    def fake_seed(*, state, actor, payload, force=False, **kwargs):
+        calls.append(force)
+        return {"seeded": False, "already_present": True}
+
+    import modules.coman.demo_data as coman_demo
+    monkeypatch.setattr(coman_demo, "ensure_coman_demo_dataset", fake_seed)
+    state = _state()
+    demo_data.ensure_full_app_demo_session(state, actor="safe-seed")
+    demo_data.regenerate_demo_company(state, actor="safe-refresh")
+    assert calls
+    assert calls == [False, False]

@@ -112,6 +112,7 @@ def test_extraction_session_gets_source_index_and_derived_data():
     assert "extraction_run_analysis" in datasets
     assert "extraction_method_summary" in datasets
     assert "extraction_qa_holds" in datasets
+    assert "extraction_data_availability" in datasets
 
 
 def test_extraction_profile_and_prompt_are_specialized_after_patch():

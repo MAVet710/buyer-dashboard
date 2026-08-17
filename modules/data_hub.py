@@ -15,6 +15,7 @@ import streamlit as st
 from extraction_partner_upload_upgrade import render_extraction_partner_upload_ui
 from modules.coman.db import create_coman_engine
 from modules.data_hub_repository import DataHubRepository, hydrate_durable_sources
+from services.data_mapping_agent import suggest_column_mapping
 
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -63,6 +64,7 @@ DATASET_REQUIREMENTS = {
     "Product Sales": {
         "Product": ("product", "product name", "item", "item name", "name"),
         "Units sold": ("quantity sold", "qty sold", "units sold", "items sold", "total inventory sold"),
+        "Category": ("category", "subcategory", "master category", "department"),
     },
     "Sales / Pricing Detail": {
         "Product": ("product", "product name", "item", "item name", "name"),
@@ -71,6 +73,17 @@ DATASET_REQUIREMENTS = {
     "Quarantine": {
         "Product": ("product", "product name", "item", "item name", "name", "sku name"),
     },
+}
+
+CANONICAL_COLUMN_NAMES = {
+    "Inventory": {"Product": "Product Name", "Category": "Category", "On hand": "On Hand"},
+    "Product Sales": {
+        "Product": "Product Name",
+        "Units sold": "Quantity Sold",
+        "Category": "Category",
+    },
+    "Sales / Pricing Detail": {"Product": "Product Name", "Revenue": "Net Sales"},
+    "Quarantine": {"Product": "Product Name"},
 }
 
 RETAIL_CACHE_KEYS = tuple(str(spec["cache_key"]) for spec in RETAIL_DATASETS)
@@ -230,6 +243,73 @@ def _file_bytes(uploaded_file: Any) -> bytes:
     payload = bytes(uploaded_file.read())
     uploaded_file.seek(0)
     return payload
+
+
+class _MappedUpload(BytesIO):
+    pass
+
+
+def build_mapped_upload(
+    uploaded_file: Any,
+    dataset_label: str,
+    matches: Mapping[str, str],
+) -> Any:
+    """Return a reviewed source rewritten to canonical Buyer Dashboard headers."""
+    requirements = DATASET_REQUIREMENTS.get(dataset_label, {})
+    canonical = CANONICAL_COLUMN_NAMES.get(dataset_label, {})
+    missing = [field for field in requirements if not str(matches.get(field) or "").strip()]
+    if missing:
+        raise ValueError("Required mapping is unresolved: " + ", ".join(missing))
+
+    payload = _file_bytes(uploaded_file)
+    name = str(getattr(uploaded_file, "name", dataset_label))
+    extension = Path(name).suffix.casefold()
+    if extension == ".csv":
+        frame = pd.read_csv(BytesIO(payload))
+    elif extension in {".xlsx", ".xls"}:
+        frame = pd.read_excel(BytesIO(payload))
+    else:
+        raise ValueError("Use a CSV, XLSX, or XLS file.")
+
+    columns = [str(column) for column in frame.columns]
+    invalid = [
+        f"{field} -> {source}"
+        for field, source in matches.items()
+        if field in requirements and str(source) not in columns
+    ]
+    if invalid:
+        raise ValueError("Mapped source column no longer exists: " + ", ".join(invalid))
+
+    selected_sources = {str(source) for source in matches.values() if source}
+    rename: dict[str, str] = {}
+    for field, source in matches.items():
+        if field not in canonical:
+            continue
+        source = str(source)
+        target = str(canonical[field])
+        if target in frame.columns and source != target and target not in selected_sources:
+            frame = frame.rename(columns={target: f"Unmapped {target}"})
+        rename[source] = target
+    frame = frame.rename(columns=rename)
+
+    output = BytesIO()
+    normalized_name = name
+    content_type = str(getattr(uploaded_file, "type", "") or "")
+    if extension == ".csv":
+        frame.to_csv(output, index=False)
+        content_type = "text/csv"
+    else:
+        frame.to_excel(output, index=False)
+        if extension == ".xls":
+            normalized_name = str(Path(name).with_suffix(".xlsx"))
+        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    mapped = _MappedUpload(output.getvalue())
+    mapped.name = normalized_name
+    mapped.type = content_type
+    mapped.source_name = name
+    mapped.column_mapping = dict(matches)
+    return mapped
 
 
 def stage_uploaded_dataset(
@@ -438,23 +518,103 @@ def _render_guided_retail_import() -> None:
     metrics[1].metric("Columns", inspection["columns"])
     metrics[2].metric("Quality", inspection["quality"])
 
-    mapping_rows = [
-        {
-            "Required field": purpose,
-            "Detected column": inspection["matches"].get(purpose, "Not detected"),
-            "Status": "Matched" if purpose in inspection["matches"] else "Review",
-        }
-        for purpose in DATASET_REQUIREMENTS.get(selected_label, {})
-    ]
-    if mapping_rows:
-        st.dataframe(pd.DataFrame(mapping_rows), width="stretch", hide_index=True)
+    requirements = DATASET_REQUIREMENTS.get(selected_label, {})
+    source_columns = list(dict.fromkeys(str(column) for column in inspection["preview"].columns))
+    file_token = hashlib.sha256(_file_bytes(uploaded)).hexdigest()[:12]
+    agent_state_key = f"data_hub_mapping_agent_{spec['dataset_key']}_{file_token}"
+    agent_result = st.session_state.get(agent_state_key)
+
     if inspection["missing"]:
         st.warning(
-            "These fields were not detected automatically: "
+            "These required fields were not detected automatically: "
             + ", ".join(inspection["missing"])
-            + ". You can still publish the source and confirm the mapping in Buyer Operations."
+            + ". Use the Mapping Agent or choose the source columns manually before publishing."
         )
-    with st.expander("Preview first 8 rows", expanded=not inspection["missing"]):
+        if st.button(
+            "Ask Mapping Agent",
+            key=f"ask_mapping_agent_{spec['dataset_key']}_{file_token}",
+            type="secondary",
+        ):
+            agent_result = suggest_column_mapping(
+                source_columns,
+                requirements,
+                existing_matches=inspection["matches"],
+                dataset_label=selected_label,
+            )
+            st.session_state[agent_state_key] = agent_result
+            for proposal in agent_result.get("proposals", []):
+                field = str(proposal.get("required_field") or "")
+                source = str(proposal.get("source_column") or "")
+                selector_key = (
+                    f"data_hub_map_{spec['dataset_key']}_{file_token}_{_normalize_column(field).replace(' ', '_')}"
+                )
+                if field in requirements and source in source_columns:
+                    st.session_state[selector_key] = source
+
+    agent_by_field: dict[str, dict[str, Any]] = {}
+    if isinstance(agent_result, dict):
+        proposals = [dict(row) for row in agent_result.get("proposals", []) if isinstance(row, dict)]
+        agent_by_field = {str(row.get("required_field") or ""): row for row in proposals}
+        if proposals:
+            st.markdown("##### Mapping Agent suggestions")
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Required field": row.get("required_field", ""),
+                            "Suggested column": row.get("source_column", ""),
+                            "Confidence": row.get("confidence", ""),
+                            "Why": row.get("reason", ""),
+                        }
+                        for row in proposals
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+        st.caption(
+            str(
+                agent_result.get("privacy_note")
+                or "The mapping assistant evaluates headers only; row values are not sent to Gemini."
+            )
+        )
+
+    st.markdown("##### Confirm column mapping")
+    confirmed_matches: dict[str, str] = {}
+    for purpose in requirements:
+        options = ["Not mapped", *source_columns]
+        suggested = str(
+            inspection["matches"].get(purpose)
+            or agent_by_field.get(purpose, {}).get("source_column")
+            or "Not mapped"
+        )
+        selector_key = (
+            f"data_hub_map_{spec['dataset_key']}_{file_token}_{_normalize_column(purpose).replace(' ', '_')}"
+        )
+        if selector_key not in st.session_state:
+            st.session_state[selector_key] = suggested if suggested in options else "Not mapped"
+        selected = st.selectbox(
+            purpose,
+            options,
+            key=selector_key,
+            help="Choose the source column that represents this required Buyer Dashboard field.",
+        )
+        if selected != "Not mapped":
+            confirmed_matches[purpose] = selected
+
+    duplicate_mapping = len(set(confirmed_matches.values())) != len(confirmed_matches)
+    inspection["matches"] = confirmed_matches
+    inspection["missing"] = [purpose for purpose in requirements if purpose not in confirmed_matches]
+    inspection["quality"] = "Ready" if not inspection["missing"] and not duplicate_mapping else "Review mapping"
+    inspection["mapping_provider"] = (
+        str(agent_result.get("provider") or "manual") if isinstance(agent_result, dict) else "manual"
+    )
+    if duplicate_mapping:
+        st.error("One source column is assigned to more than one required field. Choose a unique column for each field.")
+    elif not inspection["missing"]:
+        st.success("Required fields are mapped and ready to normalize for Buyer Dashboard.")
+
+    with st.expander("Preview first 8 rows", expanded=bool(inspection["missing"])):
         st.dataframe(inspection["preview"], width="stretch", hide_index=True)
 
     confirmed = st.checkbox(
@@ -465,16 +625,24 @@ def _render_guided_retail_import() -> None:
     if st.button(
         f"4. {publish_label}",
         type="primary",
-        disabled=not confirmed,
+        disabled=not confirmed or bool(inspection["missing"]) or duplicate_mapping,
         key=f"publish_{spec['widget_key']}",
     ):
         try:
+            mapped_upload = build_mapped_upload(
+                uploaded,
+                selected_label,
+                inspection["matches"],
+            )
             staged = stage_uploaded_dataset(
                 st.session_state,
-                uploaded,
+                mapped_upload,
                 cache_key=spec["cache_key"],
                 dataset_label=selected_label,
             )
+            staged["source_name"] = inspection["name"]
+            staged["column_mapping"] = dict(inspection["matches"])
+            staged["mapping_provider"] = inspection.get("mapping_provider", "manual")
             _publish_durable_source(spec, staged, inspection)
             st.success(
                 f"{staged['name']} is saved to Supabase and available across Retail Operations."

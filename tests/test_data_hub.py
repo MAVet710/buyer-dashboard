@@ -111,7 +111,7 @@ def test_guided_import_surfaces_mapping_review_without_silent_correction():
     )
 
     assert inspection["quality"] == "Review mapping"
-    assert inspection["missing"] == ["Units sold"]
+    assert inspection["missing"] == ["Units sold", "Category"]
 
 
 def test_durable_restore_clears_previous_tenant_files_before_failed_retry(monkeypatch):

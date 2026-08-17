@@ -42,10 +42,10 @@ def _scale(name: str) -> dict[str, int]:
 def _company_profile(rng: random.Random, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     overrides = overrides or {}
     return {
-        "company_name": overrides.get("company_name") or rng.choice(_COMPANIES),
-        "store_name": overrides.get("store_name") or "New Bedford Flagship",
-        "facility_name": overrides.get("facility_name") or "South Coast Production Campus",
-        "license_number": overrides.get("license_number") or "MP281999",
+        "company_name": overrides.get("company_name") or "DEV Sandbox",
+        "store_name": overrides.get("store_name") or "Sandbox Facility",
+        "facility_name": overrides.get("facility_name") or "Sandbox Facility",
+        "license_number": overrides.get("license_number") or "SANDBOX-MA-DEMO",
         "state": overrides.get("state") or "MA",
     }
 
@@ -109,6 +109,9 @@ def _catalog(product_count: int, rng: random.Random, profile: dict[str, Any]) ->
             "velocity_class": velocity_class,
             "room": "Vault",
             "company_name": profile["company_name"],
+            "store_name": profile["store_name"],
+            "facility_name": profile["facility_name"],
+            "license_number": profile["license_number"],
         })
     return rows
 
@@ -167,7 +170,7 @@ def _sales(catalog: list[dict[str, Any]], today: date, count: int, days: int,
             "Order ID": f"ORD-{idx // rng.choice([1, 1, 2, 3]) + 100000:07d}",
             "Order Time": order_time.isoformat(sep=" "), "SKU": p["sku"], "Batch ID": p["batch"],
             "Package ID": p["package_id"], "Brand": p["brand"],
-            "Store": "New Bedford Flagship",
+            "Store": p["store_name"],
             "Customer Type": rng.choice(["Adult Use", "Adult Use", "Medical"]),
             "Payment Type": rng.choice(["Cash", "Debit", "Cashless ATM"]),
             "Source Production Order": p["source_production_order"],
@@ -250,7 +253,7 @@ def _manifest(catalog: list[dict[str, Any]], today: date, rng: random.Random, pr
         rows.append({
             "Manifest #": "MAN-DEMO-2026-071", "Received Date": datetime.combine(row_received, time(10, 30)).isoformat(sep=" "),
             "Vendor": p["vendor"], "Product": p["product_name"], "Received Qty": qty,
-            "Package ID": p["package_id"], "Batch": p["batch"], "License Number": "MP281999",
+            "Package ID": p["package_id"], "Batch": p["batch"], "License Number": p["license_number"],
             "Location": "Vault", "SKU": p["sku"], "COA ID": p["coa_id"],
             "Unit Cost": p["unit_cost"], "Extended Cost": round(qty * p["unit_cost"], 2),
             "Expected Retail Value": round(qty * p["retail_price"], 2),

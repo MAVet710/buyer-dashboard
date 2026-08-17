@@ -19,8 +19,9 @@ import pandas as pd
 
 from services.demo_data_buyer import build_buyer_demo
 from services.demo_data_operations import build_operations_demo
+from services.sandbox_readiness import validate_sandbox_payload
 
-DEMO_DATA_VERSION = "full-app-simulation-v3"
+DEMO_DATA_VERSION = "full-app-simulation-v4-sandbox-grounded"
 PRIVILEGED_DEMO_ROLES = {"dev", "admin"}
 DATASET_SCALES = ("small", "medium", "enterprise")
 PERSONAS = (
@@ -81,6 +82,7 @@ DEMO_SESSION_KEYS = {
     "demo_event_log",
     "demo_training_history",
     "demo_selected_scenario",
+    "demo_sandbox_readiness",
     "_full_app_demo_version",
     "_full_app_demo_sections",
     "_coman_demo_seeded",
@@ -525,7 +527,7 @@ def build_demo_payload(
         problems=problem_set,
     )
     cross_workspace = _build_cross_workspace_demo(as_of, buyer, operations)
-    return {
+    payload = {
         **buyer,
         **operations,
         **cross_workspace,
@@ -534,6 +536,8 @@ def build_demo_payload(
         "scale": normalized_scale,
         "problems": sorted(problem_set),
     }
+    payload["sandbox_readiness"] = validate_sandbox_payload(payload)
+    return payload
 
 
 def _recompute_detail(inventory: pd.DataFrame, sales: pd.DataFrame, reporting_days: int) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -740,8 +744,10 @@ def _seed_coman(
     try:
         from modules.coman.demo_data import ensure_coman_demo_dataset
 
+        # Session simulation refreshes must never destroy durable QA work.
+        # Durable Co-Man data is replaced only through the explicit database-reset path.
         result = ensure_coman_demo_dataset(
-            state=state, actor=actor, payload=payload, force=force
+            state=state, actor=actor, payload=payload, force=False
         )
         return bool(result.get("seeded") or result.get("already_present")), ""
     except Exception as exc:
@@ -773,6 +779,7 @@ def _install_payload(
         state[state_key] = payload[payload_key].copy()
     state["demo_as_of_date"] = payload["as_of_date"]
     state["demo_problem_set"] = list(payload["problems"])
+    state["demo_sandbox_readiness"] = dict(payload.get("sandbox_readiness") or {})
     state["data_hub_import_history"] = [
         {
             "Dataset": source.replace("_", " ").title(),
