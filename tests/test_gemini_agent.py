@@ -1,7 +1,9 @@
+import inspect
+
 import pandas as pd
 
 from services.agent_registry import PROFILES
-from services.gemini_agent import ReadOnlyDataTools, datasets_from_session
+from services.gemini_agent import ReadOnlyDataTools, _gemini_tool_functions, datasets_from_session
 
 
 def test_sensitive_columns_are_not_exposed():
@@ -32,6 +34,18 @@ def test_reorder_candidates_are_read_only_calculation():
     assert result["candidates"]
     assert result["candidates"][0]["product"] == "Glue 3.5g"
     assert result["candidates"][0]["suggested_reorder"] > 0
+
+
+def test_gemini_tool_annotations_are_runtime_types():
+    functions = _gemini_tool_functions(ReadOnlyDataTools({}))
+    assert functions
+    for function in functions:
+        signature = inspect.signature(function)
+        for parameter in signature.parameters.values():
+            assert not isinstance(parameter.annotation, str)
+            if parameter.default is not inspect.Parameter.empty:
+                assert parameter.annotation is not inspect.Parameter.empty
+        assert not isinstance(signature.return_annotation, str)
 
 
 def test_extraction_agent_only_loads_extraction_session_data():
