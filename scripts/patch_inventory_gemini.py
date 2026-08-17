@@ -1,0 +1,515 @@
+from pathlib import Path
+
+APP_PATH = Path("app.py")
+WORKFLOW_PATH = Path(".github/workflows/patch-inventory-gemini.yml")
+SCRIPT_PATH = Path("scripts/patch_inventory_gemini.py")
+SERVICE_PATH = Path("services/inventory_check.py")
+TEST_PATH = Path("tests/test_inventory_check.py")
+
+text = APP_PATH.read_text(encoding="utf-8")
+
+import_anchor = """from services.buyer_intelligence_brief import (
+    buyer_intelligence_ai_enabled,
+    generate_buyer_intelligence_brief,
+)
+"""
+import_replacement = import_anchor + """from services.inventory_check import (
+    generate_inventory_check,
+    inventory_check_ai_enabled,
+)
+"""
+if import_anchor not in text:
+    raise SystemExit("buyer intelligence import anchor not found")
+text = text.replace(import_anchor, import_replacement, 1)
+
+start = text.index("def ai_inventory_check(detail_view, doh_threshold, data_source):")
+end = text.index("\ndef _feature_enabled(", start)
+new_function = '''def ai_inventory_check(detail_view, doh_threshold, data_source):
+    """Run a data-backed inventory check through the Gemini Inventory Agent."""
+    product_view = st.session_state.get("detail_product_cached_df")
+    if not isinstance(product_view, pd.DataFrame):
+        product_view = None
+    return generate_inventory_check(
+        detail_view=detail_view,
+        product_view=product_view,
+        doh_threshold=doh_threshold,
+        data_source=data_source,
+    )
+'''
+text = text[:start] + new_function + "\n" + text[end:]
+
+old_ui = '''        if not _doobie_ai_access_enabled():
+            st.info("Connect Doobie AI to enable this feature.")
+        elif _doobie_ai_status() == "connected":
+            if st.button("Run AI check on current view"):
+                with st.spinner("Having the AI look over this slice like a buyer..."):
+                    ai_summary = ai_inventory_check(detail_view, doh_threshold, data_source)
+                st.markdown(ai_summary)
+        else:
+            st.info("Doobie AI is currently unavailable.")
+'''
+new_ui = '''        if st.button("Run AI check on current view"):
+            with st.spinner("Checking SKU coverage, velocity, and overstock risk..."):
+                ai_summary = ai_inventory_check(detail_view, doh_threshold, data_source)
+            st.markdown(ai_summary)
+            if not inventory_check_ai_enabled():
+                st.caption("Gemini is unavailable, so this result is the deterministic data-backed inventory check.")
+'''
+if old_ui not in text:
+    raise SystemExit("legacy inventory AI UI block not found")
+text = text.replace(old_ui, new_ui, 1)
+APP_PATH.write_text(text, encoding="utf-8")
+
+SERVICE_PATH.write_text(r'''"""Data-backed Inventory Dashboard AI check.
+
+The Inventory Dashboard computes operational evidence first and uses Gemini only
+as a read-only interpreter of that evidence. Generic AI responses are rejected.
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Any, Mapping
+
+import pandas as pd
+
+from services.agent_registry import PROFILES
+from services.buyer_intelligence_brief import resolve_gemini_api_key
+from services.gemini_agent import GeminiWorkspaceAgent
+
+
+_GENERIC_MARKERS = (
+    "shopify",
+    "national retail federation",
+    "nrf.com",
+    "nacds",
+    "grounded source context",
+    "module curriculum",
+    "compliance context",
+    "[buyer:",
+    "mailto:",
+    "ai: rules",
+)
+
+
+def inventory_check_ai_enabled() -> bool:
+    return GeminiWorkspaceAgent(
+        api_key=resolve_gemini_api_key(), profile=PROFILES["inventory"]
+    ).enabled
+
+
+def _numeric(frame: pd.DataFrame, column: str, default: float = 0.0) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series(default, index=frame.index, dtype="float64")
+    return pd.to_numeric(frame[column], errors="coerce").fillna(default)
+
+
+def _first_column(frame: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
+    lookup = {str(column).strip().casefold(): str(column) for column in frame.columns}
+    for candidate in candidates:
+        match = lookup.get(candidate.casefold())
+        if match:
+            return match
+    return None
+
+
+def _normalize_product_view(product_view: pd.DataFrame | None, target_doh: int) -> pd.DataFrame:
+    if not isinstance(product_view, pd.DataFrame) or product_view.empty:
+        return pd.DataFrame()
+
+    source = product_view.copy()
+    name_col = _first_column(source, ("product_name", "itemname", "product", "name"))
+    on_hand_col = _first_column(source, ("onhandunits", "on_hand_units", "available", "quantity"))
+    sold_col = _first_column(source, ("unitssold", "units_sold", "total_sold"))
+    daily_col = _first_column(source, ("avgunitsperday", "avg_daily_units", "daily_run_rate"))
+    doh_col = _first_column(source, ("daysonhand", "days_of_cover", "days_of_supply"))
+    category_col = _first_column(source, ("subcategory", "mastercategory", "category"))
+    size_col = _first_column(source, ("packagesize", "package_size"))
+    strain_col = _first_column(source, ("strain_type",))
+    sku_col = _first_column(source, ("sku", "product_sku"))
+
+    if not name_col or not on_hand_col:
+        return pd.DataFrame()
+
+    out = pd.DataFrame(index=source.index)
+    out["product_name"] = source[name_col].fillna("").astype(str).str.strip()
+    out["on_hand_units"] = _numeric(source, on_hand_col)
+    out["units_sold"] = _numeric(source, sold_col) if sold_col else 0.0
+    out["avg_daily_units"] = _numeric(source, daily_col) if daily_col else 0.0
+    out["days_of_cover"] = _numeric(source, doh_col) if doh_col else 0.0
+
+    for target, column in (
+        ("category", category_col),
+        ("package_size", size_col),
+        ("strain_type", strain_col),
+        ("sku", sku_col),
+    ):
+        out[target] = source[column].fillna("").astype(str).str.strip() if column else ""
+
+    missing_daily = out["avg_daily_units"].le(0) & out["units_sold"].gt(0)
+    if missing_daily.any():
+        out.loc[missing_daily, "avg_daily_units"] = out.loc[missing_daily, "units_sold"] / 60.0
+
+    missing_doh = out["days_of_cover"].le(0) & out["avg_daily_units"].gt(0) & out["on_hand_units"].gt(0)
+    if missing_doh.any():
+        out.loc[missing_doh, "days_of_cover"] = (
+            out.loc[missing_doh, "on_hand_units"] / out.loc[missing_doh, "avg_daily_units"]
+        )
+
+    out["recommended_units"] = (
+        (float(target_doh) * out["avg_daily_units"] - out["on_hand_units"])
+        .clip(lower=0)
+        .map(lambda value: int(math.ceil(value)))
+    )
+    return out[out["product_name"].ne("")].reset_index(drop=True)
+
+
+def _normalize_aggregate_view(detail_view: pd.DataFrame | None, target_doh: int) -> pd.DataFrame:
+    if not isinstance(detail_view, pd.DataFrame) or detail_view.empty:
+        return pd.DataFrame()
+    source = detail_view.copy()
+    out = pd.DataFrame(index=source.index)
+    for target, candidates in {
+        "category": ("subcategory", "mastercategory", "category"),
+        "package_size": ("packagesize", "package_size"),
+        "strain_type": ("strain_type",),
+    }.items():
+        column = _first_column(source, candidates)
+        out[target] = source[column].fillna("").astype(str).str.strip() if column else ""
+    on_hand_col = _first_column(source, ("onhandunits", "on_hand_units"))
+    sold_col = _first_column(source, ("unitssold", "units_sold"))
+    daily_col = _first_column(source, ("avgunitsperday", "avg_daily_units", "daily_run_rate"))
+    doh_col = _first_column(source, ("daysonhand", "days_of_cover", "days_of_supply"))
+    reorder_col = _first_column(source, ("reorderqty", "recommended_units"))
+    priority_col = _first_column(source, ("reorderpriority", "priority"))
+    out["on_hand_units"] = _numeric(source, on_hand_col) if on_hand_col else 0.0
+    out["units_sold"] = _numeric(source, sold_col) if sold_col else 0.0
+    out["avg_daily_units"] = _numeric(source, daily_col) if daily_col else 0.0
+    out["days_of_cover"] = _numeric(source, doh_col) if doh_col else 0.0
+    if reorder_col:
+        out["recommended_units"] = _numeric(source, reorder_col).map(lambda value: int(math.ceil(max(value, 0))))
+    else:
+        out["recommended_units"] = (
+            (float(target_doh) * out["avg_daily_units"] - out["on_hand_units"])
+            .clip(lower=0)
+            .map(lambda value: int(math.ceil(value)))
+        )
+    out["priority"] = source[priority_col].fillna("").astype(str) if priority_col else ""
+    out["need"] = (
+        out["category"].replace("", "Unknown category")
+        + " · "
+        + out["package_size"].replace("", "unspecified size")
+        + " · "
+        + out["strain_type"].replace("", "unspecified type")
+    )
+    return out.reset_index(drop=True)
+
+
+def _risk_frames(products: pd.DataFrame, aggregate: pd.DataFrame, target_doh: int) -> dict[str, pd.DataFrame]:
+    datasets: dict[str, pd.DataFrame] = {}
+    if not products.empty:
+        risk = products[
+            products["avg_daily_units"].gt(0)
+            & (products["on_hand_units"].le(0) | products["days_of_cover"].le(float(target_doh)))
+        ].copy()
+        if not risk.empty:
+            risk["urgency"] = risk.apply(
+                lambda row: "Out of stock" if row["on_hand_units"] <= 0 else (
+                    "Critical" if row["days_of_cover"] <= 7 else "Reorder"
+                ),
+                axis=1,
+            )
+            risk = risk.sort_values(["days_of_cover", "units_sold"], ascending=[True, False]).head(12)
+            datasets["inventory_stockout_risk"] = risk
+
+        slow = products[
+            products["on_hand_units"].gt(0)
+            & (products["avg_daily_units"].le(0) | products["days_of_cover"].ge(60))
+        ].copy()
+        if not slow.empty:
+            slow = slow.sort_values(["units_sold", "on_hand_units"], ascending=[True, False]).head(12)
+            datasets["inventory_overstock_watch"] = slow
+
+        datasets["inventory_products"] = products.sort_values(
+            ["units_sold", "on_hand_units"], ascending=[False, True]
+        ).head(80)
+
+    if not aggregate.empty:
+        datasets["inventory_category_size_view"] = aggregate.head(80)
+    return datasets
+
+
+def _fmt(value: Any, decimals: int = 0) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    if pd.isna(number):
+        return "n/a"
+    return f"{number:,.{decimals}f}" if decimals else f"{number:,.0f}"
+
+
+def _deterministic_markdown(datasets: Mapping[str, pd.DataFrame], target_doh: int, data_source: str) -> str:
+    risk = datasets.get("inventory_stockout_risk", pd.DataFrame())
+    slow = datasets.get("inventory_overstock_watch", pd.DataFrame())
+    aggregate = datasets.get("inventory_category_size_view", pd.DataFrame())
+
+    sections = [
+        "**Inventory evidence**\n\n"
+        f"Target coverage: **{int(target_doh)} days** · Source: **{str(data_source or 'current inventory view')}**"
+    ]
+
+    if isinstance(risk, pd.DataFrame) and not risk.empty:
+        lines = []
+        for _, row in risk.head(6).iterrows():
+            lines.append(
+                f"- **{row['product_name']}**: {_fmt(row['on_hand_units'], 1)} on hand, "
+                f"{_fmt(row['units_sold'])} sold, {_fmt(row['days_of_cover'], 1)} days cover; "
+                f"target-fill estimate **{_fmt(row['recommended_units'])} units**."
+            )
+        sections.append("**Act first: stockout / low-cover risk**\n\n" + "\n".join(lines))
+    else:
+        sections.append("**Act first: stockout / low-cover risk**\n\nNo product-level low-cover risk is supported by the current rows.")
+
+    if isinstance(slow, pd.DataFrame) and not slow.empty:
+        lines = []
+        for _, row in slow.head(6).iterrows():
+            velocity = _fmt(row["units_sold"])
+            cover = "no demonstrated velocity" if row["avg_daily_units"] <= 0 else f"{_fmt(row['days_of_cover'], 1)} days cover"
+            lines.append(
+                f"- **{row['product_name']}**: {_fmt(row['on_hand_units'], 1)} on hand, {velocity} sold, {cover}."
+            )
+        sections.append(
+            "**Overstock / slow watch**\n\n" + "\n".join(lines)
+            + "\n\nReview incoming promotions, transfers, expiration, and open POs before markdown or disposition decisions."
+        )
+    else:
+        sections.append("**Overstock / slow watch**\n\nNo product-level 60+ day-cover or zero-velocity watch item was identified.")
+
+    if (not isinstance(risk, pd.DataFrame) or risk.empty) and isinstance(aggregate, pd.DataFrame) and not aggregate.empty:
+        urgent = aggregate[
+            aggregate["avg_daily_units"].gt(0) & aggregate["days_of_cover"].le(float(target_doh))
+        ].sort_values(["days_of_cover", "units_sold"], ascending=[True, False]).head(5)
+        if not urgent.empty:
+            lines = [
+                f"- **{row['need']}**: {_fmt(row['on_hand_units'], 1)} on hand, {_fmt(row['units_sold'])} sold, "
+                f"{_fmt(row['days_of_cover'], 1)} days cover, target-fill estimate {_fmt(row['recommended_units'])} units."
+                for _, row in urgent.iterrows()
+            ]
+            sections.append("**Category / size fallback**\n\n" + "\n".join(lines))
+
+    sections.append(
+        "**Data limits**\n\nTarget-fill quantities are coverage estimates from the current sales velocity and on-hand data. "
+        "Open POs, transfers, future promotions, and unrecorded deliveries can change the decision."
+    )
+    return "\n\n---\n\n".join(sections)
+
+
+def _anchors(datasets: Mapping[str, pd.DataFrame]) -> list[str]:
+    anchors: list[str] = []
+    products = datasets.get("inventory_products")
+    if isinstance(products, pd.DataFrame) and "product_name" in products.columns:
+        anchors.extend(
+            value for value in products["product_name"].head(20).fillna("").astype(str).str.strip() if value
+        )
+    aggregate = datasets.get("inventory_category_size_view")
+    if isinstance(aggregate, pd.DataFrame) and "need" in aggregate.columns:
+        anchors.extend(
+            value for value in aggregate["need"].head(20).fillna("").astype(str).str.strip() if value
+        )
+    return anchors
+
+
+def _acceptable_ai_answer(answer: str, datasets: Mapping[str, pd.DataFrame]) -> bool:
+    text = str(answer or "").strip()
+    folded = text.casefold()
+    if not text:
+        return False
+    if any(marker in folded for marker in _GENERIC_MARKERS):
+        return False
+    anchors = _anchors(datasets)
+    return any(anchor.casefold() in folded for anchor in anchors) if anchors else False
+
+
+def generate_inventory_check(
+    detail_view: pd.DataFrame | None,
+    *,
+    product_view: pd.DataFrame | None = None,
+    doh_threshold: int = 21,
+    data_source: str = "",
+) -> str:
+    """Return deterministic inventory evidence plus a specific Gemini interpretation."""
+    target_doh = max(1, int(doh_threshold))
+    products = _normalize_product_view(product_view, target_doh)
+    aggregate = _normalize_aggregate_view(detail_view, target_doh)
+    datasets = _risk_frames(products, aggregate, target_doh)
+    evidence = _deterministic_markdown(datasets, target_doh, data_source)
+
+    if not datasets:
+        return evidence
+
+    agent = GeminiWorkspaceAgent(
+        api_key=resolve_gemini_api_key(), profile=PROFILES["inventory"]
+    )
+    if not agent.enabled:
+        return evidence
+
+    prompt = f"""Analyze the current Inventory Dashboard using ONLY the supplied read-only datasets.
+
+Target days of cover: {target_doh}.
+
+You MUST inspect the datasets with tools before answering. Prefer `inventory_stockout_risk`, then `inventory_overstock_watch`, then `inventory_products`, then the category/size fallback.
+
+Output exactly these sections:
+1. **Do this first**: 3 to 5 ranked actions naming exact products (or exact category/size need when product data is unavailable) with on-hand, units sold, days cover, and target-fill units when available.
+2. **Why**: explain the strongest inventory risks using exact numbers.
+3. **Watch list**: name slow/overstock products and what operational evidence should be checked before markdown, transfer, or purchasing action.
+4. **Missing evidence**: note open POs, transfers, promotions, expiration, or other evidence not represented in these datasets.
+
+Hard rules:
+- No generic assortment or retail-strategy filler.
+- No NRF, Shopify, NACDS, external sources, compliance discussion, or legal content.
+- No internal rule IDs, source tokens, citation markup, mailto links, or implementation metadata.
+- Never invent products, inventory, sales, quantities, or actions.
+- Do not claim to place an order, transfer inventory, markdown a product, or modify records.
+"""
+    try:
+        answer = agent.run(
+            prompt,
+            datasets,
+            app_mode="🛒 Buyer Operations",
+            section="📦 Inventory Dashboard",
+            profile=PROFILES["inventory"],
+        )
+    except Exception:
+        return evidence
+
+    if not _acceptable_ai_answer(answer, datasets):
+        return evidence
+    return evidence + "\n\n---\n\n**Gemini inventory interpretation**\n\n" + answer.strip()
+''', encoding="utf-8")
+
+TEST_PATH.write_text(r'''from pathlib import Path
+
+import pandas as pd
+
+import services.inventory_check as inventory_check
+
+
+def _product_frame():
+    return pd.DataFrame(
+        [
+            {
+                "product_name": "Demo State Labs Orchard Haze Vape 1g (VP)",
+                "subcategory": "Vapes",
+                "packagesize": "1g",
+                "onhandunits": 2,
+                "unitssold": 64,
+                "avgunitsperday": 64 / 60,
+                "daysonhand": 1.875,
+            },
+            {
+                "product_name": "Test Batch Co. Sleep Mode Gummies 100mg (ED)",
+                "subcategory": "Edibles",
+                "packagesize": "100mg",
+                "onhandunits": 70,
+                "unitssold": 3,
+                "avgunitsperday": 3 / 60,
+                "daysonhand": 1400,
+            },
+        ]
+    )
+
+
+def _aggregate_frame():
+    return pd.DataFrame(
+        [
+            {
+                "subcategory": "Vapes",
+                "packagesize": "1g",
+                "strain_type": "sativa",
+                "onhandunits": 2,
+                "unitssold": 64,
+                "avgunitsperday": 64 / 60,
+                "daysonhand": 1.875,
+                "reorderqty": 21,
+                "reorderpriority": "1 – Reorder ASAP",
+            }
+        ]
+    )
+
+
+def test_deterministic_inventory_check_names_real_products(monkeypatch):
+    monkeypatch.setattr(inventory_check, "resolve_gemini_api_key", lambda: "")
+    result = inventory_check.generate_inventory_check(
+        _aggregate_frame(), product_view=_product_frame(), doh_threshold=21, data_source="Sandbox"
+    )
+    assert "Demo State Labs Orchard Haze Vape 1g (VP)" in result
+    assert "2.0 on hand" in result
+    assert "64 sold" in result
+    assert "Test Batch Co. Sleep Mode Gummies 100mg (ED)" in result
+    assert "Overstock / slow watch" in result
+
+
+def test_generic_rules_response_is_rejected(monkeypatch):
+    class FakeAgent:
+        def __init__(self, *args, **kwargs):
+            self.enabled = True
+
+        def run(self, *args, **kwargs):
+            return "Close assortment gaps. Shopify Retail Open-to-Buy Guide. [buyer:inventory_logic.metrics] AI: rules"
+
+    monkeypatch.setattr(inventory_check, "GeminiWorkspaceAgent", FakeAgent)
+    monkeypatch.setattr(inventory_check, "resolve_gemini_api_key", lambda: "sandbox-key")
+    result = inventory_check.generate_inventory_check(
+        _aggregate_frame(), product_view=_product_frame(), doh_threshold=21, data_source="Sandbox"
+    )
+    assert "Demo State Labs Orchard Haze Vape 1g (VP)" in result
+    assert "Shopify Retail Open-to-Buy Guide" not in result
+    assert "[buyer:" not in result
+    assert "AI: rules" not in result
+    assert "Gemini inventory interpretation" not in result
+
+
+def test_specific_gemini_response_is_appended(monkeypatch):
+    class FakeAgent:
+        def __init__(self, *args, **kwargs):
+            self.enabled = True
+
+        def run(self, *args, **kwargs):
+            return (
+                "**Do this first**\n"
+                "1. Demo State Labs Orchard Haze Vape 1g (VP): 2 on hand, 64 sold, 1.9 days cover."
+            )
+
+    monkeypatch.setattr(inventory_check, "GeminiWorkspaceAgent", FakeAgent)
+    monkeypatch.setattr(inventory_check, "resolve_gemini_api_key", lambda: "sandbox-key")
+    result = inventory_check.generate_inventory_check(
+        _aggregate_frame(), product_view=_product_frame(), doh_threshold=21, data_source="Sandbox"
+    )
+    assert "Gemini inventory interpretation" in result
+    assert "Demo State Labs Orchard Haze Vape 1g (VP)" in result
+
+
+def test_app_inventory_check_no_longer_calls_legacy_doobie_inventory_endpoint():
+    source = Path("app.py").read_text(encoding="utf-8")
+    start = source.index("def ai_inventory_check(")
+    end = source.index("\ndef _feature_enabled(", start)
+    block = source[start:end]
+    assert "generate_inventory_check(" in block
+    assert "client.inventory_check(" not in block
+
+
+def test_inventory_ui_no_longer_requires_doobie_connection():
+    source = Path("app.py").read_text(encoding="utf-8")
+    marker = 'st.markdown("### 🤖 AI Inventory Check (Optional)")'
+    start = source.index(marker)
+    block = source[start : start + 900]
+    assert 'st.button("Run AI check on current view")' in block
+    assert "_doobie_ai_access_enabled()" not in block
+    assert "_doobie_ai_status()" not in block
+''', encoding="utf-8")
+
+for cleanup in (WORKFLOW_PATH, SCRIPT_PATH):
+    if cleanup.exists():
+        cleanup.unlink()
