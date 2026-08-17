@@ -14,7 +14,7 @@ from io import BytesIO
 import json
 import os
 import re
-from typing import Any, Mapping
+from typing import Any, Mapping, get_type_hints
 
 import pandas as pd
 
@@ -195,6 +195,34 @@ def _coerce_frame(value: Any, name: str = "") -> pd.DataFrame | None:
         except Exception:
             return None
     return None
+
+
+def _runtime_typed_tool(function: Any) -> Any:
+    """Resolve deferred annotations before the Gemini SDK inspects a tool."""
+
+    target = getattr(function, "__func__", function)
+    try:
+        resolved = get_type_hints(function)
+    except Exception:
+        return function
+    if resolved and hasattr(target, "__annotations__"):
+        target.__annotations__ = dict(resolved)
+    return function
+
+
+def _gemini_tool_functions(tools: "ReadOnlyDataTools") -> list[Any]:
+    """Return SDK-facing tools with concrete runtime parameter annotations."""
+
+    return [
+        _runtime_typed_tool(tools.list_datasets),
+        _runtime_typed_tool(tools.preview_dataset),
+        _runtime_typed_tool(tools.search_dataset),
+        _runtime_typed_tool(tools.summarize_numeric),
+        _runtime_typed_tool(tools.top_rows),
+        _runtime_typed_tool(tools.group_summary),
+        _runtime_typed_tool(tools.numeric_exceptions),
+        _runtime_typed_tool(tools.inventory_reorder_candidates),
+    ]
 
 
 class ReadOnlyDataTools:
@@ -430,16 +458,7 @@ class GeminiWorkspaceAgent:
             raise RuntimeError("Gemini is not configured. Add GEMINI_API_KEY to app secrets/environment.")
         active = profile or self.profile or resolve_agent_profile(app_mode, section)
         tools = ReadOnlyDataTools(datasets)
-        functions = [
-            tools.list_datasets,
-            tools.preview_dataset,
-            tools.search_dataset,
-            tools.summarize_numeric,
-            tools.top_rows,
-            tools.group_summary,
-            tools.numeric_exceptions,
-            tools.inventory_reorder_candidates,
-        ]
+        functions = _gemini_tool_functions(tools)
         client = genai.Client(api_key=self.api_key)
         history_text = "\n".join(
             f"{item.get('role', 'user')}: {item.get('content', '')}"
