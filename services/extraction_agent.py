@@ -172,6 +172,16 @@ def _derived_runs(raw: pd.DataFrame) -> pd.DataFrame:
     )
     out["estimated_revenue_usd"] = _num(raw, ("estimated_revenue_usd", "est_revenue_usd", "revenue_usd"))
     out["cogs_usd"] = _num(raw, ("total_cogs_usd", "cogs_usd", "cogs"))
+    out["input_terpene_pct"] = _num(raw, ("input_terpene_pct", "starting_terpene_pct"))
+    out["finished_terpene_pct"] = _num(raw, ("finished_terpene_pct", "output_terpene_pct"))
+    out["terpene_retention_pct"] = _num(raw, ("terpene_retention_pct",))
+    out["turnaround_hours"] = _num(raw, ("turnaround_hours", "tat_hours"))
+    out["downtime_minutes"] = _num(raw, ("downtime_minutes",))
+    out["rework_required"] = _bool(raw, ("rework_required", "rework"))
+    out["rework_reason"] = _text(raw, ("rework_reason",))
+    out["residual_solvent_status"] = _text(raw, ("residual_solvent_status",))
+    out["settings_verified"] = _bool(raw, ("settings_verified",))
+    out["sop_reference"] = _text(raw, ("sop_reference", "validated_sop"))
 
     valid_input = out["input_weight_g"].gt(0)
     valid_intermediate = out["intermediate_output_g"].gt(0)
@@ -254,6 +264,21 @@ def build_extraction_derived_datasets(
 
     derived = _derived_runs(raw)
     output: dict[str, pd.DataFrame] = {"extraction_run_analysis": derived}
+    availability = pd.DataFrame([
+        {
+            "measurement": "terpene retention",
+            "available": bool(raw[[c for c in ("input_terpene_pct", "finished_terpene_pct", "terpene_retention_pct") if c in raw.columns]].shape[1] == 3),
+        },
+        {"measurement": "turnaround", "available": "turnaround_hours" in raw.columns},
+        {"measurement": "rework", "available": "rework_required" in raw.columns},
+        {"measurement": "residual solvent", "available": "residual_solvent_status" in raw.columns},
+        {"measurement": "downtime", "available": "downtime_minutes" in raw.columns},
+        {
+            "measurement": "validated run settings",
+            "available": {"settings_verified", "sop_reference"}.issubset(set(raw.columns)),
+        },
+    ])
+    output["extraction_data_availability"] = availability
 
     summary = _method_summary(derived)
     if not summary.empty:

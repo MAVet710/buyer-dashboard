@@ -223,7 +223,7 @@ def ensure_coman_demo_dataset(
                 )
             except (TypeError, ValueError, json.JSONDecodeError):
                 existing_version = ""
-        if existing_count and not force and existing_version == DEMO_DATA_VERSION:
+        if existing_count and not force:
             state["active_organization_id"] = organization.id
             state["active_facility_id"] = facility.id
             return {
@@ -231,8 +231,10 @@ def ensure_coman_demo_dataset(
                 "already_present": True,
                 "organization_id": organization.id,
                 "facility_id": facility.id,
+                "version": existing_version,
+                "refresh_available": existing_version != DEMO_DATA_VERSION,
             }
-        if existing_count:
+        if existing_count and force:
             _clear_demo_children(session, organization.id, facility.id)
             session.flush()
 

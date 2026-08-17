@@ -24,7 +24,7 @@ def build_operations_demo(today: date, *, catalog: Any = None, scale: str = "med
                           problems: set[str] | None = None) -> dict[str, Any]:
     rng, problems = random.Random(seed + 41), set(problems or set())
     products = _records(catalog)
-    company = company or {"company_name": "DoobieLogic Cannabis Group", "facility_name": "South Coast Production Campus", "license_number": "MP281999"}
+    company = company or {"company_name": "DEV Sandbox", "facility_name": "Sandbox Facility", "license_number": "SANDBOX-MA-DEMO"}
     run_ids = sorted({str(p.get("source_extraction_batch") or "") for p in products if p.get("source_extraction_batch")})
     if not run_ids:
         run_ids = [f"EXT-{i:04d}" for i in range(1, 8)]
@@ -74,6 +74,21 @@ def build_operations_demo(today: date, *, catalog: Any = None, scale: str = "med
             cogs = round(revenue * 1.12, 2)
         gross_profit = revenue - cogs
         run_date = today - timedelta(days=(idx * 5) % 90)
+        input_terpene_pct = round(rng.uniform(1.8, 4.8), 2)
+        retention_floor = {"BHO": 62.0, "Rosin": 70.0, "Ethanol": 28.0, "CO2": 48.0}[method]
+        terpene_retention_pct = round(min(96.0, max(20.0, rng.gauss(retention_floor, 7.5))), 1)
+        finished_terpene_pct = round(input_terpene_pct * terpene_retention_pct / 100.0, 2)
+        turnaround_hours = round({"BHO": 18.0, "Rosin": 14.0, "Ethanol": 30.0, "CO2": 26.0}[method] + rng.uniform(-3.0, 8.0), 1)
+        downtime_minutes = int(max(0, round(rng.gauss(24 + (idx % 4) * 9, 18))))
+        rework_required = bool(("low_yield" in problems and idx % 4 == 0) or idx % 11 == 7)
+        rework_reason = "Low yield / process review" if rework_required else ""
+        residual_solvent_status = (
+            "Not Applicable"
+            if method == "Rosin"
+            else ("Failed" if "failed_coa" in problems and idx % 7 == 0 else ("Pending" if coa_status == "Pending" else "Passed"))
+        )
+        settings_verified = True
+        sop_reference = f"SANDBOX-SOP-{method.upper()}-001"
         linked_products = [p for p in products if p.get("source_extraction_batch") == run_id]
         product_orders = sorted({p.get("source_production_order") for p in linked_products if p.get("source_production_order")})
         run_rows.append({
@@ -95,7 +110,14 @@ def build_operations_demo(today: date, *, catalog: Any = None, scale: str = "med
             "packaging_cogs_usd": round(output_g * 0.18, 2), "labor_cogs_usd": round(operational_cost * 0.42, 2),
             "overhead_cogs_usd": round(operational_cost * 0.21, 2), "unit_size_g": 1.0,
             "unit_price_usd": output_value_per_g, "units_per_batch": int(output_g), "packaging_yield_loss_g": round(output_g * 0.015, 2),
-            "coa_status": coa_status, "qa_hold": qa_hold, "notes": f"Feeds production orders: {', '.join(product_orders) or 'demo queue'}",
+            "coa_status": coa_status, "qa_hold": qa_hold,
+            "input_terpene_pct": input_terpene_pct, "finished_terpene_pct": finished_terpene_pct,
+            "terpene_retention_pct": terpene_retention_pct, "turnaround_hours": turnaround_hours,
+            "rework_required": rework_required, "rework_reason": rework_reason,
+            "residual_solvent_status": residual_solvent_status, "downtime_minutes": downtime_minutes,
+            "settings_verified": settings_verified, "sop_reference": sop_reference,
+            "run_settings_reference": "Validated facility SOP / equipment envelope; synthetic sandbox contains no operating setpoint recipe.",
+            "notes": f"Feeds production orders: {', '.join(product_orders) or 'demo queue'}",
             "source_inventory_batch_id": f"MAT-{idx + 1:04d}", "source_inventory_metrc_id": metrc_input,
             "source_material_name": f"{run_id} {_MATERIALS[method]}",
             "source_inventory_batch_ids": json.dumps([f"MAT-{idx + 1:04d}"]),

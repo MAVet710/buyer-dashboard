@@ -229,15 +229,12 @@ class DoobieClient:
         state: str | None = None,
         question: str | None = None,
     ) -> dict[str, Any]:
-        return self.call_endpoint(
-            "/api/v1/support/extraction_brief",
-            self._brief_payload(
-                data,
-                state=state,
-                question=question,
-                default_question="Which extraction risks and process opportunities matter most?",
-            ),
-        )
+        # Extraction is intentionally local/data-first. The remote rules endpoint
+        # produced generic curriculum text and could recommend measurements that
+        # were not present in the current run data.
+        from services.extraction_brief import generate_extraction_brief
+
+        return generate_extraction_brief(data, state=state, question=question)
 
     def ops_brief(
         self,
