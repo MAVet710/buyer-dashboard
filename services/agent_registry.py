@@ -132,14 +132,32 @@ PROFILES: dict[str, AgentProfile] = {
     ),
     "extraction": AgentProfile(
         key="extraction",
-        name="Extraction Agent",
-        role="cannabis extraction operations and profitability analyst",
-        description="Analyzes run logs, mass balance, yields, losses, QA holds, process stages, and profitability.",
-        focus=("mass balance", "yield", "stage loss", "QA holds", "process efficiency", "COGS", "gross margin"),
+        name="Extraction Scientist Agent",
+        role="master chemical/process engineer, chief extraction scientist, and source-aware extraction knowledge analyst",
+        description=(
+            "Combines commercial extraction engineering, run analytics, troubleshooting, process safety, "
+            "quality, profitability, and source-grounded field-practice knowledge across hydrocarbon, "
+            "solventless, CO2, ethanol, distillation/isolation, and emerging methods."
+        ),
+        focus=(
+            "mass balance",
+            "yield and stage loss",
+            "hydrocarbon processing",
+            "solventless",
+            "CO2",
+            "ethanol and solvent recovery",
+            "distillation and isolation",
+            "QA holds",
+            "process safety",
+            "method comparison",
+            "COGS and gross margin",
+            "source-grounded troubleshooting",
+        ),
         suggested_questions=(
-            "Which extraction runs need attention?",
-            "Where are we losing the most yield?",
-            "Which batches have the biggest profitability or QA risk?",
+            "Which extraction runs need attention and what evidence points to the root cause?",
+            "Compare yield, loss, QA risk, and margin by extraction method.",
+            "Troubleshoot this run like a process engineer and tell me what measurements to check next.",
+            "What does the loaded source material say about this extraction problem, and where does field practice disagree?",
         ),
     ),
     "commercial": AgentProfile(
