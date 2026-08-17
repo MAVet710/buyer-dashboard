@@ -1,0 +1,42 @@
+name: Apply durable sandbox patch
+
+on:
+  push:
+    branches:
+      - agent/durable-sandbox-supabase
+    paths:
+      - scripts/apply_durable_sandbox_patch.py
+      - .github/workflows/apply_durable_sandbox_patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/durable-sandbox-supabase
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+      - name: Apply patch
+        run: python scripts/apply_durable_sandbox_patch.py
+      - name: Validate durable sandbox
+        run: |
+          python -m compileall services modules >/dev/null
+          pytest -q tests/test_sandbox_persistence.py tests/test_sandbox_readiness.py tests/test_demo_simulation.py tests/test_data_hub_repository.py tests/test_data_hub.py
+      - name: Commit validated patch
+        run: |
+          git config user.name "MAVet710"
+          git config user.email "149276571+MAVet710@users.noreply.github.com"
+          git rm scripts/apply_durable_sandbox_patch.py .github/workflows/apply_durable_sandbox_patch.yml
+          git add services/demo_data.py services/sandbox_readiness.py services/sandbox_persistence.py tests/test_sandbox_persistence.py
+          git commit -m "Persist DEV Sandbox sources in Supabase"
+          git push origin HEAD:agent/durable-sandbox-supabase
