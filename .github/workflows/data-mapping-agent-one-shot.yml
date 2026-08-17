@@ -1,0 +1,45 @@
+name: Data mapping agent one-shot
+
+on:
+  push:
+    branches:
+      - agent/sandbox-readiness-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/sandbox-readiness-hardening
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pytest
+
+      - name: Apply Data Hub mapping patch
+        run: python scripts/apply_data_mapping_agent.py
+
+      - name: Validate mapping and sandbox paths
+        run: |
+          python -m compileall -q services modules tests
+          python -m pytest -q tests/test_data_mapping_agent.py tests/test_data_hub_mapping_flow.py tests/test_data_hub.py tests/test_sandbox_readiness.py tests/test_extraction_brief.py tests/test_extraction_agent.py tests/test_demo_simulation.py tests/test_coman_demo.py
+
+      - name: Commit clean patch
+        run: |
+          rm -f scripts/apply_data_mapping_agent.py .github/workflows/data-mapping-agent-one-shot.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git status --short
+          git commit -m "Add Data Hub mapping agent"
+          git push origin HEAD:agent/sandbox-readiness-hardening
