@@ -17,6 +17,7 @@ SANDBOX_FACILITY_CODE = "SANDBOX"
 SANDBOX_TIMEZONE = "America/New_York"
 
 REQUIRED_UPLOADS = {
+    "buyer_catalog",
     "buyer_inventory",
     "buyer_sales",
     "buyer_extra_sales",

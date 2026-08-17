@@ -92,7 +92,7 @@ def test_session_seed_preserves_real_upload_and_supports_reset(monkeypatch):
     assert result.coman_seeded is True
     assert state["inv_raw_df"].equals(uploaded)
     assert not state["sales_raw_df"].empty
-    assert len(state["data_hub_import_history"]) == 20
+    assert len(state["data_hub_import_history"]) == len(state["demo_upload_catalog"])
     assert state["_full_app_demo_version"] == demo_data.DEMO_DATA_VERSION
 
     demo_data.reset_demo_session(state, preserve_auth=True)
