@@ -43,3 +43,5 @@ jobs:
           git status --short
           git commit -m "Add Data Hub mapping agent"
           git push origin HEAD:agent/sandbox-readiness-hardening
+
+# one-shot validation trigger
