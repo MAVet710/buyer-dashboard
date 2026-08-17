@@ -2982,7 +2982,6 @@ def ai_inventory_check(detail_view, doh_threshold, data_source):
         data_source=data_source,
     )
 
-
 def _feature_enabled(feature_name: str, default_enabled: bool = True) -> bool:
     features = get_license_features(st.session_state.get("license_session_data"))
     if feature_name not in features:
