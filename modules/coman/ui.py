@@ -574,7 +574,7 @@ def render_coman_workspace() -> None:
                             "Published Max": model.published_max_rate,
                             "Rate Unit": model.rate_unit,
                             "Planning Utilization %": model.planning_utilization_pct,
-                            "Minimum Operators": model.minimum_operators,
+                            "Minimum Operators": model.published_min_operators,
                             "Source": model.source_url,
                         }
                         for model in machine_models

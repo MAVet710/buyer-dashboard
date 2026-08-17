@@ -11655,7 +11655,7 @@ elif section == "💰 Purchasing Budget":
         inv_cat_col = detect_column(active_inv_df.columns, [normalize_col(x) for x in ["mastercategory","subcategory","category"]])
         sales_cat_col = detect_column(sales_window_df.columns, [normalize_col(x) for x in ["mastercategory","subcategory","category"]])
         if inv_cat_col and sales_cat_col and sales_col is not None:
-            sales_cat = sales_window_df.groupby(sales_cat_col, dropna=False)[sales_col].sum().reset_index().rename(columns={sales_cat_col:"Category","%s":"Sales"%sales_col})
+            sales_cat = sales_window_df.groupby(sales_cat_col, dropna=False)[sales_col].sum().reset_index().rename(columns={sales_cat_col:"Category", sales_col:"Sales Window Retail Sales"})
             sales_cat = sales_cat.rename(columns={sales_col:"Sales Window Retail Sales"})
             inv_cat = active_inv_df.groupby(inv_cat_col, dropna=False)["_active_cost"].sum().reset_index().rename(columns={inv_cat_col:"Category","_active_cost":"Current Inventory at Cost"})
             cat_df = pd.merge(sales_cat, inv_cat, on="Category", how="outer").fillna(0)
