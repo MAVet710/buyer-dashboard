@@ -93,6 +93,10 @@ from services.buyer_intelligence_brief import (
     buyer_intelligence_ai_enabled,
     generate_buyer_intelligence_brief,
 )
+from services.inventory_check import (
+    generate_inventory_check,
+    inventory_check_ai_enabled,
+)
 from modules.data_hub import render_data_hub_workspace, restore_durable_retail_sources
 from modules.extraction_quick_entry import (
     build_quick_run_record,
@@ -2967,77 +2971,16 @@ def render_main_ai_copilot(app_mode, section):
 
 
 def ai_inventory_check(detail_view, doh_threshold, data_source):
-    """
-    Send a small slice of the current table to the AI so it can
-    comment on obvious issues: zero on-hand, crazy DOH, etc.
-    """
-    if not _doobie_ai_access_enabled():
-        return "Connect Doobie AI to enable this feature."
-    if _doobie_ai_status() != "connected":
-        return "Doobie AI is currently unavailable."
-
-    sample = detail_view.copy()
-    if "reorderpriority" in sample.columns:
-        sample = sample.sort_values(["reorderpriority", "daysonhand"], ascending=[True, True])
-    sample = sample.head(80)
-
-    cols = [
-        c
-        for c in [
-            "mastercategory",
-            "subcategory",
-            "strain_type",
-            "packagesize",
-            "onhandunits",
-            "unitssold",
-            "avgunitsperday",
-            "daysonhand",
-            "reorderqty",
-            "reorderpriority",
-        ]
-        if c in sample.columns
-    ]
-    sample_records = sample[cols].to_dict(orient="records")
-
-    prompt = f"""
-You are an expert cannabis retail buyer and inventory strategist.
-
-You are looking at a slice of an inventory dashboard for a store using {data_source}.
-Each row is a category/size/type combo with its sales and coverage.
-
-Fields:
-- mastercategory / subcategory
-- strain_type (stacked; e.g. indica live resin, hybrid gummy, indica popcorn, etc.)
-- packagesize (like 3.5g, 1g, 5mg, 28g, 500mg)
-- onhandunits (current inventory units)
-- unitssold (units sold in lookback window)
-- avgunitsperday
-- daysonhand
-- reorderqty
-- reorderpriority (1=ASAP, 2=Watch, 3=Comfortable, 4=Dead)
-
-Target days on hand: {doh_threshold}
-
-Data (JSON list of rows):
-{json.dumps(sample_records, indent=2)}
-
-Tasks:
-1. Call out any rows that look obviously wrong or risky (0 onhand but strong sales, etc.)
-2. Top 3 categories in danger + anything dead/overbought.
-3. Keep it short, punchy, buyer-friendly.
-"""
-
-    try:
-        client = _get_doobie_ai_client()
-        response = client.inventory_check(
-            data={"rows": sample_records, "doh_threshold": doh_threshold, "prompt": prompt},
-            state="MA",
-        )
-        if str(response.get("mode", "")).lower() == "fallback":
-            return "Doobie AI is currently unavailable."
-        return format_doobie_response(response)
-    except Exception as e:
-        return f"Doobie inventory check failed: {e}"
+    """Run a data-backed inventory check through the Gemini Inventory Agent."""
+    product_view = st.session_state.get("detail_product_cached_df")
+    if not isinstance(product_view, pd.DataFrame):
+        product_view = None
+    return generate_inventory_check(
+        detail_view=detail_view,
+        product_view=product_view,
+        doh_threshold=doh_threshold,
+        data_source=data_source,
+    )
 
 
 def _feature_enabled(feature_name: str, default_enabled: bool = True) -> bool:
@@ -9826,15 +9769,12 @@ if section == "📊 Inventory Dashboard":
         st.markdown("---")
         st.markdown("### 🤖 AI Inventory Check (Optional)")
 
-        if not _doobie_ai_access_enabled():
-            st.info("Connect Doobie AI to enable this feature.")
-        elif _doobie_ai_status() == "connected":
-            if st.button("Run AI check on current view"):
-                with st.spinner("Having the AI look over this slice like a buyer..."):
-                    ai_summary = ai_inventory_check(detail_view, doh_threshold, data_source)
-                st.markdown(ai_summary)
-        else:
-            st.info("Doobie AI is currently unavailable.")
+        if st.button("Run AI check on current view"):
+            with st.spinner("Checking SKU coverage, velocity, and overstock risk..."):
+                ai_summary = ai_inventory_check(detail_view, doh_threshold, data_source)
+            st.markdown(ai_summary)
+            if not inventory_check_ai_enabled():
+                st.caption("Gemini is unavailable, so this result is the deterministic data-backed inventory check.")
 
     except Exception as e:
         st.error(f"Error: {e}")
