@@ -1,0 +1,101 @@
+name: Apply Buyer Intelligence wiring
+
+on:
+  push:
+    branches:
+      - agent/useful-buyer-intelligence
+    paths:
+      - .github/workflows/apply-buyer-intelligence.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/useful-buyer-intelligence
+          fetch-depth: 0
+
+      - name: Wire data-backed Buyer Intelligence into app
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("app.py")
+          text = path.read_text(encoding="utf-8")
+
+          import_anchor = "from modules.doobie_response import format_doobie_response\n"
+          import_block = (
+              import_anchor
+              + "from services.buyer_intelligence_brief import (\n"
+              + "    buyer_intelligence_ai_enabled,\n"
+              + "    generate_buyer_intelligence_brief,\n"
+              + ")\n"
+          )
+          if "from services.buyer_intelligence_brief import" not in text:
+              if import_anchor not in text:
+                  raise SystemExit("Buyer Intelligence import anchor not found")
+              text = text.replace(import_anchor, import_block, 1)
+
+          pattern = re.compile(
+              r"def _generate_buyer_brief_ai\(summary, by_category, by_product, lookback_days\):\n.*?(?=\ndef _run_main_ai_copilot)",
+              re.S,
+          )
+          replacement = '''def _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days):
+              """Build a store-specific brief from deterministic evidence plus Gemini."""
+              return generate_buyer_intelligence_brief(
+                  summary=summary,
+                  by_category=by_category,
+                  by_product=by_product,
+                  lookback_days=lookback_days,
+              )
+
+          '''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"Expected one buyer brief function, replaced {count}")
+
+          old_gate = '''        st.markdown("### 🤖 AI Buyer Brief")
+                  if not _doobie_ai_access_enabled():
+                      st.info("Connect Doobie AI to enable this feature.")
+                  elif st.button("Generate AI Buyer Brief", key="buyer_intel_ai_brief"):
+                      with st.spinner("Generating buyer brief..."):
+                          brief = _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days)
+                      st.markdown(brief)
+          '''
+          new_gate = '''        st.markdown("### 🤖 Data-Backed Buyer Brief")
+                  st.caption("Starts with exact store evidence, then uses Gemini only for a data-specific interpretation. Generic AI filler is discarded.")
+                  if not buyer_intelligence_ai_enabled():
+                      st.info("Gemini is not configured. The deterministic Buyer Intelligence tables above remain available.")
+                  elif st.button("Generate Buyer Brief", key="buyer_intel_ai_brief"):
+                      with st.spinner("Analyzing the exact SKUs, coverage, and assortment gaps in this store..."):
+                          brief = _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days)
+                      st.markdown(brief)
+          '''
+          if old_gate not in text:
+              raise SystemExit("Buyer Intelligence page gate not found")
+          text = text.replace(old_gate, new_gate, 1)
+
+          old_caption = '    st.caption("Demand, risk, and AI buyer brief generated from your uploaded sales/inventory data.")'
+          new_caption = '    st.caption("Demand, coverage, and ranked buyer actions grounded in the sales and inventory data loaded for this store.")'
+          if old_caption in text:
+              text = text.replace(old_caption, new_caption, 1)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Remove one-time workflow
+        run: rm .github/workflows/apply-buyer-intelligence.yml
+
+      - name: Commit wiring
+        run: |
+          git config user.name "MAVet710"
+          git config user.email "149276571+MAVet710@users.noreply.github.com"
+          git add app.py .github/workflows/apply-buyer-intelligence.yml
+          git commit -m "Wire Gemini into Buyer Intelligence brief"
+          git push origin agent/useful-buyer-intelligence
