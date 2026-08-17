@@ -19,6 +19,12 @@ from typing import Any, Mapping, get_type_hints
 import pandas as pd
 
 from services.agent_registry import AgentProfile, PROFILES, resolve_agent_profile
+from services.extraction_agent import (
+    EXTRACTION_SPECIALIST_INSTRUCTIONS,
+    build_extraction_derived_datasets,
+    extraction_method_scope_frame,
+    extraction_reference_index_frame,
+)
 
 try:
     from google import genai
@@ -472,6 +478,9 @@ class GeminiWorkspaceAgent:
             if active.compliance_grounded_only
             else "- Never infer cannabis regulations from model memory. For legal or regulatory conclusions, use the app's sourced compliance workflow.\n"
         )
+        specialist_instructions = (
+            EXTRACTION_SPECIALIST_INSTRUCTIONS if active.key == "extraction" else ""
+        )
         prompt = f"""You are {active.name}, the {active.role} inside Buyer Dashboard.
 
 Workspace: {app_mode}
@@ -479,6 +488,8 @@ Section: {section}
 Specialist focus: {focus}
 Read-only datasets currently available: {available}
 Recent conversation:\n{history_text or '(none)'}
+
+{specialist_instructions}
 
 User request: {question}
 
@@ -552,6 +563,16 @@ def _load_extraction_datasets(session_state: Mapping[str, Any]) -> dict[str, pd.
     output: dict[str, pd.DataFrame] = {}
     for public_name, session_key in EXTRACTION_SESSION_DATASETS.items():
         _put_frame(output, public_name, session_state.get(session_key))
+
+    # Optional curated excerpts/notes can be loaded by future or tenant-specific
+    # extraction workflows. The agent must not claim forum sourcing without them.
+    for session_key in ("extraction_reference_notes", "ecc_reference_notes"):
+        if "extraction_reference_notes" not in output:
+            _put_frame(output, "extraction_reference_notes", session_state.get(session_key))
+
+    output["extraction_method_scope"] = extraction_method_scope_frame()
+    output["extraction_reference_index"] = extraction_reference_index_frame()
+    output.update(build_extraction_derived_datasets(output))
     return output
 
 
