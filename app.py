@@ -89,6 +89,10 @@ from modules.coman.ui import render_coman_workspace
 from modules.buyer_assortment import build_assortment_priorities, coalesce_duplicate_columns
 from modules.doobie_copilot_ui import render_doobie_sidebar_copilot
 from modules.doobie_response import format_doobie_response
+from services.buyer_intelligence_brief import (
+    buyer_intelligence_ai_enabled,
+    generate_buyer_intelligence_brief,
+)
 from modules.data_hub import render_data_hub_workspace, restore_durable_retail_sources
 from modules.extraction_quick_entry import (
     build_quick_run_record,
@@ -2917,50 +2921,13 @@ def _compute_buyer_intelligence(inv_df_raw, sales_df_raw, lookback_days=60):
 
 
 def _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days):
-    if not _doobie_ai_access_enabled():
-        return "Connect Doobie AI to enable this feature."
-    if _doobie_ai_status() != "connected":
-        return "Doobie AI is currently unavailable."
-
-    top_categories = by_category.head(8).to_dict(orient="records")
-    top_risks = by_product[by_product["risk_flag"] == "Reorder Risk"].head(20).to_dict(orient="records")
-    purchase_priorities = build_assortment_priorities(by_product).to_dict(orient="records")
-
-    prompt = f"""
-Create a concise weekly buyer brief for a cannabis retail team.
-
-Lookback window: {lookback_days} days
-Summary: {json.dumps(summary, indent=2)}
-Top categories: {json.dumps(top_categories, indent=2)}
-At-risk SKUs: {json.dumps(top_risks, indent=2)}
-Assortment purchase priorities: {json.dumps(purchase_priorities, indent=2)}
-
-Output sections:
-1) Executive summary (3 bullets)
-2) What to buy now (top 5). Name the package size, strain family, and product format in every line, such as "14g Hybrid Flower" or "2g Sativa Disposable Vape". Include recommended units and the demand/coverage reason.
-3) Overstock/monitor watchouts
-4) Suggested buyer actions for next 7 days
-
-Use only the supplied store data. Never invent a package size, strain family, product format, or SKU.
-"""
-    try:
-        client = _get_doobie_ai_client()
-        resp = client.buyer_brief(
-            data={
-                "summary": summary,
-                "top_categories": top_categories,
-                "at_risk_skus": top_risks,
-                "purchase_priorities": purchase_priorities,
-                "lookback_days": lookback_days,
-                "prompt": prompt,
-            },
-            state="MA",
-        )
-        if str(resp.get("mode", "")).lower() == "fallback":
-            return "Doobie AI is currently unavailable."
-        return format_doobie_response(resp)
-    except Exception as exc:
-        return f"Doobie buyer brief failed: {exc}"
+    """Build a store-specific brief from deterministic evidence plus Gemini."""
+    return generate_buyer_intelligence_brief(
+        summary=summary,
+        by_category=by_category,
+        by_product=by_product,
+        lookback_days=lookback_days,
+    )
 
 
 def _run_main_ai_copilot(question, app_mode, section, history=None):
@@ -9952,7 +9919,7 @@ elif section == "🧭 Compliance Q&A":
 # ============================================================
 elif section == "🧠 Buyer Intelligence":
     st.subheader("🧠 Buyer Intelligence")
-    st.caption("Demand, risk, and AI buyer brief generated from your uploaded sales/inventory data.")
+    st.caption("Demand, coverage, and ranked buyer actions grounded in the sales and inventory data loaded for this store.")
     with st.expander("🌐 Optional live market references", expanded=False):
         st.caption(
             "Use these external sources as directional market context. "
@@ -10030,11 +9997,12 @@ elif section == "🧠 Buyer Intelligence":
             )
 
         st.markdown("---")
-        st.markdown("### 🤖 AI Buyer Brief")
-        if not _doobie_ai_access_enabled():
-            st.info("Connect Doobie AI to enable this feature.")
-        elif st.button("Generate AI Buyer Brief", key="buyer_intel_ai_brief"):
-            with st.spinner("Generating buyer brief..."):
+        st.markdown("### 🤖 Data-Backed Buyer Brief")
+        st.caption("Starts with exact store evidence, then uses Gemini only for a data-specific interpretation. Generic AI filler is discarded.")
+        if not buyer_intelligence_ai_enabled():
+            st.info("Gemini is not configured. The deterministic Buyer Intelligence tables above remain available.")
+        elif st.button("Generate Buyer Brief", key="buyer_intel_ai_brief"):
+            with st.spinner("Analyzing the exact SKUs, coverage, and assortment gaps in this store..."):
                 brief = _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days)
             st.markdown(brief)
 
