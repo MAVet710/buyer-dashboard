@@ -2929,7 +2929,6 @@ def _generate_buyer_brief_ai(summary, by_category, by_product, lookback_days):
         lookback_days=lookback_days,
     )
 
-
 def _run_main_ai_copilot(question, app_mode, section, history=None):
     if not _doobie_ai_access_enabled():
         return "Connect Doobie AI to enable this feature."
