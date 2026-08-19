@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from modules.navigation.product_360 import build_product_360_snapshot, search_buyer_dash
+from modules.navigation.product_360 import (
+    build_product_360_snapshot,
+    search_buyer_dash,
+    stage_product_for_po,
+)
 from services.workspace_navigation import (
     AI_INTEGRATIONS_SECTION,
     BUYER_WORKSPACE,
@@ -53,8 +57,8 @@ def test_flat_categories_use_plain_business_language():
     assert flat_category_for_route(BUYER_WORKSPACE, "📈 Trends") == "Reports"
 
 
-def test_product_360_uses_existing_inventory_and_sales_sources():
-    state = {
+def _product_state():
+    return {
         "active_inventory_df": pd.DataFrame(
             [
                 {
@@ -78,6 +82,10 @@ def test_product_360_uses_existing_inventory_and_sales_sources():
             ]
         ),
     }
+
+
+def test_product_360_uses_existing_inventory_and_sales_sources():
+    state = _product_state()
     snapshot = build_product_360_snapshot(state, "Demo State Labs Orchard Haze Vape 1g")
     assert snapshot["on_hand"] == 2
     assert snapshot["units_sold_30d"] == 64
@@ -89,19 +97,25 @@ def test_product_360_uses_existing_inventory_and_sales_sources():
     assert round(snapshot["margin_pct"], 1) == 54.8
 
 
+def test_product_360_add_to_po_uses_existing_po_builder_state():
+    state = _product_state()
+    snapshot = build_product_360_snapshot(state, "Demo State Labs Orchard Haze Vape 1g")
+    staged = stage_product_for_po(state, snapshot)
+
+    assert state["po_items"] == [staged]
+    assert staged["SKU"] == "DSL-VP-OH-10"
+    assert staged["Description"] == "Demo State Labs Orchard Haze Vape 1g"
+    assert staged["Quantity"] == 43
+    assert staged["Price"] == 19.0
+    assert staged["Total"] == 817.0
+
+    # A double-click / rerun must not create an identical duplicate line.
+    stage_product_for_po(state, snapshot)
+    assert len(state["po_items"]) == 1
+
+
 def test_global_search_finds_product_and_common_tool_without_ai():
-    state = {
-        "active_inventory_df": pd.DataFrame(
-            [
-                {
-                    "Product Name": "Demo State Labs Orchard Haze Vape 1g",
-                    "SKU": "DSL-VP-OH-10",
-                    "Brand": "Demo State Labs",
-                    "On Hand": 2,
-                }
-            ]
-        )
-    }
+    state = _product_state()
     product_results = search_buyer_dash(state, "Orchard Haze")
     assert product_results
     assert product_results[0].kind == "Product"
@@ -124,3 +138,11 @@ def test_flat_shell_never_owns_tenant_ids():
     assert 'state["active_organization_id"] =' not in source
     assert 'state["active_facility_id"] =' not in source
     assert "render_access_context" in source
+
+
+def test_flat_shell_hides_only_duplicate_buyer_navigation_controls():
+    source = Path("modules/navigation/workspace_shell.py").read_text(encoding="utf-8")
+    assert ".st-key-buyer_section_group" in source
+    assert ".st-key-buyer_section" in source
+    assert ".st-key-dev_org_context" not in source
+    assert ".st-key-facility_context" not in source
