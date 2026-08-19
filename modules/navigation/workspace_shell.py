@@ -58,10 +58,16 @@ def _workspace_set(groups: Mapping[str, Sequence[str]]) -> set[str]:
 
 
 def _buyer_groups_for_state(state: MutableMapping[str, Any]) -> dict[str, list[str]]:
+    # Match app.py's license gate exactly: missing feature flags default on,
+    # while an explicit false removes Admin Tools from the flat shell too.
+    from services.license_session import get_license_features
+
+    features = get_license_features(state.get("license_session_data"))
+    admin_exports_enabled = bool(features.get("admin_exports", True))
     return buyer_section_groups(
         is_admin=bool(state.get("is_admin", False)),
         user_role=str(state.get("auth_user_role") or "trial"),
-        admin_exports_enabled=True,
+        admin_exports_enabled=admin_exports_enabled,
     )
 
 
