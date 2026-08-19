@@ -60,6 +60,29 @@ SALES_QTY_ALIASES = (
     "total inventory sold",
     "qty sold",
 )
+SALES_DATE_ALIASES = (
+    "order time",
+    "order_time",
+    "sale date",
+    "sales date",
+    "transaction date",
+    "transaction_date",
+    "date",
+)
+REPORT_START_ALIASES = (
+    "report start",
+    "report_start",
+    "start date",
+    "start_date",
+    "reporting start",
+)
+REPORT_END_ALIASES = (
+    "report end",
+    "report_end",
+    "end date",
+    "end_date",
+    "reporting end",
+)
 CATEGORY_ALIASES = ("category", "subcategory", "master category", "mastercategory")
 BRAND_ALIASES = ("brand", "brand name", "vendor", "vendor name", "manufacturer", "producer")
 COST_ALIASES = ("unit cost", "unit_cost", "cost", "cogs", "wholesale")
@@ -136,6 +159,34 @@ def _sales_frame(state: MutableMapping[str, Any]) -> pd.DataFrame:
     )
 
 
+def _sales_window_days(sales_rows: pd.DataFrame) -> int:
+    """Infer the loaded reporting window without pretending all files are 30 days."""
+    if sales_rows is None or sales_rows.empty:
+        return 30
+
+    start_col = _column(sales_rows, REPORT_START_ALIASES)
+    end_col = _column(sales_rows, REPORT_END_ALIASES)
+    if start_col and end_col:
+        starts = pd.to_datetime(sales_rows[start_col], errors="coerce").dropna()
+        ends = pd.to_datetime(sales_rows[end_col], errors="coerce").dropna()
+        if not starts.empty and not ends.empty:
+            days = int((ends.max().normalize() - starts.min().normalize()).days) + 1
+            if days > 0:
+                return days
+
+    date_col = _column(sales_rows, SALES_DATE_ALIASES)
+    if date_col:
+        dates = pd.to_datetime(sales_rows[date_col], errors="coerce").dropna()
+        normalized = dates.dt.normalize() if not dates.empty else dates
+        if not dates.empty and normalized.nunique() >= 2:
+            return max(1, int((normalized.max() - normalized.min()).days) + 1)
+
+    # An aggregate export with no explicit start/end does not expose a reliable
+    # time window. Thirty days is the conservative compatibility fallback used
+    # only for display/velocity normalization, and Product 360 labels it.
+    return 30
+
+
 def _tool_results(query: str) -> list[SearchResult]:
     commands = (
         SearchResult("Tool", "Inventory", "Stock health, reorder risk, and aging", route_group=RETAIL_OPS, route_workspace=BUYER_WORKSPACE, route_section="📊 Inventory Dashboard"),
@@ -158,53 +209,75 @@ def _tool_results(query: str) -> list[SearchResult]:
     ][:5]
 
 
+def _search_product_frame(
+    frame: pd.DataFrame,
+    needle: str,
+    *,
+    seen: set[str],
+    limit: int,
+) -> list[SearchResult]:
+    product_col = _column(frame, PRODUCT_ALIASES)
+    if not product_col:
+        return []
+    sku_col = _column(frame, SKU_ALIASES)
+    brand_col = _column(frame, BRAND_ALIASES)
+    package_col = _column(frame, PACKAGE_ALIASES)
+    fields = [product_col]
+    for optional in (sku_col, brand_col, package_col):
+        if optional and optional not in fields:
+            fields.append(optional)
+    haystack = frame[fields].fillna("").astype(str).agg(" ".join, axis=1).map(_norm)
+    matches = frame[haystack.str.contains(re.escape(needle), regex=True, na=False)]
+    results: list[SearchResult] = []
+    for _, row in matches.head(limit * 3).iterrows():
+        product = str(row.get(product_col) or "").strip()
+        if not product or product in seen:
+            continue
+        seen.add(product)
+        subtitle_parts = []
+        if brand_col and str(row.get(brand_col) or "").strip():
+            subtitle_parts.append(str(row.get(brand_col)).strip())
+        if sku_col and str(row.get(sku_col) or "").strip():
+            subtitle_parts.append(f"SKU {str(row.get(sku_col)).strip()}")
+        results.append(
+            SearchResult(
+                "Product",
+                product,
+                " · ".join(subtitle_parts) or "Open Product 360",
+                product_name=product,
+            )
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
 def search_buyer_dash(
     state: MutableMapping[str, Any],
     query: str,
     *,
     limit: int = 8,
 ) -> list[SearchResult]:
-    """Search products and common tasks locally without sending row data to AI."""
+    """Search loaded products/packages and common tools without sending rows to AI."""
     needle = _norm(query)
     if len(needle) < 2:
         return []
 
     results: list[SearchResult] = []
-    inventory = _inventory_frame(state)
-    product_col = _column(inventory, PRODUCT_ALIASES)
-    sku_col = _column(inventory, SKU_ALIASES)
-    brand_col = _column(inventory, BRAND_ALIASES)
-    package_col = _column(inventory, PACKAGE_ALIASES)
-
-    if product_col:
-        searchable = inventory.copy()
-        fields = [product_col]
-        for optional in (sku_col, brand_col, package_col):
-            if optional and optional not in fields:
-                fields.append(optional)
-        haystack = searchable[fields].fillna("").astype(str).agg(" ".join, axis=1).map(_norm)
-        matches = searchable[haystack.str.contains(re.escape(needle), regex=True, na=False)]
-        seen: set[str] = set()
-        for _, row in matches.head(limit * 2).iterrows():
-            product = str(row.get(product_col) or "").strip()
-            if not product or product in seen:
-                continue
-            seen.add(product)
-            subtitle_parts = []
-            if brand_col and str(row.get(brand_col) or "").strip():
-                subtitle_parts.append(str(row.get(brand_col)).strip())
-            if sku_col and str(row.get(sku_col) or "").strip():
-                subtitle_parts.append(f"SKU {str(row.get(sku_col)).strip()}")
-            results.append(
-                SearchResult(
-                    "Product",
-                    product,
-                    " · ".join(subtitle_parts) or "Open Product 360",
-                    product_name=product,
-                )
+    seen: set[str] = set()
+    for frame in (_inventory_frame(state), _sales_frame(state)):
+        if len(results) >= limit:
+            break
+        if frame is None or frame.empty:
+            continue
+        results.extend(
+            _search_product_frame(
+                frame,
+                needle,
+                seen=seen,
+                limit=limit - len(results),
             )
-            if len(results) >= limit:
-                break
+        )
 
     remaining = max(0, limit - len(results))
     if remaining:
@@ -245,8 +318,10 @@ def build_product_360_snapshot(
     package_col = _column(inv_rows, PACKAGE_ALIASES)
 
     on_hand = float(_number(inv_rows[on_hand_col]).sum()) if on_hand_col else 0.0
-    sold = float(_number(sales_rows[sold_col]).sum()) if sold_col else 0.0
-    daily_velocity = sold / 30.0 if sold > 0 else 0.0
+    sold_window = float(_number(sales_rows[sold_col]).sum()) if sold_col else 0.0
+    sales_window_days = _sales_window_days(sales_rows)
+    daily_velocity = sold_window / max(sales_window_days, 1) if sold_window > 0 else 0.0
+    units_sold_30d = daily_velocity * 30.0
     days_on_hand = on_hand / daily_velocity if daily_velocity > 0 else math.inf
     target_units = max(0, math.ceil(daily_velocity * 21.0 - on_hand)) if daily_velocity > 0 else 0
 
@@ -274,7 +349,9 @@ def build_product_360_snapshot(
         "brand": first_value(brand_col),
         "category": first_value(category_col),
         "on_hand": on_hand,
-        "units_sold_30d": sold,
+        "units_sold_window": sold_window,
+        "sales_window_days": sales_window_days,
+        "units_sold_30d": units_sold_30d,
         "daily_velocity": daily_velocity,
         "days_on_hand": days_on_hand,
         "target_units": target_units,
@@ -364,11 +441,14 @@ def _render_product_body(state: MutableMapping[str, Any], snapshot: dict[str, An
 
     metrics = st.columns(4)
     metrics[0].metric("On hand", f"{snapshot['on_hand']:,.0f}")
-    metrics[1].metric("30d sold", f"{snapshot['units_sold_30d']:,.0f}")
+    metrics[1].metric("30d sold", f"{snapshot['units_sold_30d']:,.1f}")
     doh = snapshot["days_on_hand"]
     metrics[2].metric("Days on hand", "∞" if not math.isfinite(doh) else f"{doh:,.1f}")
     margin = snapshot.get("margin_pct")
     metrics[3].metric("Margin", "—" if margin is None else f"{margin:,.1f}%")
+    st.caption(
+        f"Sales velocity normalized from the loaded {snapshot['sales_window_days']}-day reporting window."
+    )
 
     overview_tab, inventory_tab, sales_tab, purchasing_tab, packages_tab, audits_tab = st.tabs(
         ["Overview", "Inventory", "Sales", "Purchasing", "Packages", "Audits"]
@@ -376,7 +456,7 @@ def _render_product_body(state: MutableMapping[str, Any], snapshot: dict[str, An
     with overview_tab:
         if snapshot["target_units"] > 0:
             st.error(
-                f"Low-cover signal: current 30-day velocity suggests approximately "
+                f"Low-cover signal: current normalized velocity suggests approximately "
                 f"{snapshot['target_units']:,} units to reach a 21-day target."
             )
         elif snapshot["daily_velocity"] <= 0 and snapshot["on_hand"] > 0:
@@ -394,6 +474,10 @@ def _render_product_body(state: MutableMapping[str, Any], snapshot: dict[str, An
         else:
             st.dataframe(snapshot["inventory_rows"], width="stretch", hide_index=True)
     with sales_tab:
+        st.caption(
+            f"Raw loaded sales: {snapshot['units_sold_window']:,.0f} units across the inferred "
+            f"{snapshot['sales_window_days']}-day window."
+        )
         if snapshot["sales_rows"].empty:
             st.info("No sales rows are loaded for this product.")
         else:
@@ -402,8 +486,11 @@ def _render_product_body(state: MutableMapping[str, Any], snapshot: dict[str, An
         st.metric("Suggested 21-day fill", f"{snapshot['target_units']:,} units")
         st.metric("Estimated cost", f"${snapshot['estimated_reorder_cost']:,.2f}")
         st.caption("The quantity is a draft recommendation. The existing PO Builder remains the final review/export workflow.")
-        if st.button("Add to PO", type="primary", width="stretch", key="product_360_add_to_po"):
-            stage_product_for_po(state, snapshot)
+        if snapshot["target_units"] > 0:
+            if st.button("Add to PO", type="primary", width="stretch", key="product_360_add_to_po"):
+                stage_product_for_po(state, snapshot)
+                _route(state, group=RETAIL_OPS, workspace=BUYER_WORKSPACE, section="🧾 PO Builder")
+        elif st.button("Open PO Builder", width="stretch", key="product_360_open_po"):
             _route(state, group=RETAIL_OPS, workspace=BUYER_WORKSPACE, section="🧾 PO Builder")
     with packages_tab:
         packages = snapshot.get("packages") or []
@@ -456,15 +543,15 @@ def render_global_search(state: MutableMapping[str, Any]) -> None:
         query = st.text_input(
             "Search Buyer Dash",
             key="buyer_dash_global_search_query",
-            placeholder="Search products, packages, vendors, orders, tools…",
+            placeholder="Search products, packages, and tools…",
             label_visibility="collapsed",
-            help="Local search across loaded operational data and Buyer Dash tools. Row data is not sent to AI.",
+            help="Local search across loaded product/package data and Buyer Dash tools. Row data is not sent to AI.",
         )
         if len(_norm(query)) >= 2:
             results = search_buyer_dash(state, query)
             with st.container(border=True):
                 if not results:
-                    st.caption("No matching products or tools found.")
+                    st.caption("No matching products, packages, or tools found.")
                 for index, result in enumerate(results):
                     label_col, action_col = st.columns([5, 1])
                     with label_col:
