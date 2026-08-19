@@ -1,19 +1,20 @@
 """Authenticated organization and facility context selector.
 
-The selected tenant is operational state, not navigation state.  Keep it available
-in the desktop sidebar and expose the same controls in the main column on narrow
-screens so mobile users never have to hunt for a collapsed Streamlit sidebar.
+Tenant context is operational state, not navigation state. Keep it available in
+the desktop sidebar and expose the same controls in the main column on narrow
+screens so mobile users never depend on a collapsed Streamlit sidebar.
 """
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from typing import Any
 
 import streamlit as st
 
 
-# Session data that must never survive an organization/facility switch.  The
-# durable repositories can repopulate these caches for the newly-selected tenant.
+# Session data that must never survive an organization/facility switch. Durable
+# repositories repopulate these caches for the newly selected tenant.
 _TENANT_CACHE_KEYS = {
     "inv_raw_df",
     "sales_raw_df",
@@ -65,35 +66,49 @@ _TENANT_CACHE_KEYS = {
 }
 
 
-def _clear_tenant_cache() -> None:
+def clear_tenant_cache(state: MutableMapping[str, Any]) -> None:
     """Drop tenant-scoped session cache before a context switch."""
 
     for key in _TENANT_CACHE_KEYS:
-        st.session_state.pop(key, None)
-    st.session_state.pop("_context_hydrated_scope", None)
+        state.pop(key, None)
+    state.pop("_context_hydrated_scope", None)
 
 
-def _set_active_organization(organization: Any) -> None:
+def set_active_organization(state: MutableMapping[str, Any], organization: Any) -> bool:
+    """Set the active organization and return True when its ID changed."""
+
     new_id = str(getattr(organization, "id", "") or "")
-    current_id = str(st.session_state.get("active_organization_id") or "")
-    if current_id and current_id != new_id:
-        _clear_tenant_cache()
-        st.session_state.active_facility_id = None
-        st.session_state.active_facility_name = ""
-    st.session_state.active_organization_id = getattr(organization, "id", None)
-    st.session_state.active_organization_name = str(getattr(organization, "name", "") or "")
+    current_id = str(state.get("active_organization_id") or "")
+    changed = bool(current_id and current_id != new_id)
+    if changed:
+        clear_tenant_cache(state)
+        state["active_facility_id"] = None
+        state["active_facility_name"] = ""
+    state["active_organization_id"] = getattr(organization, "id", None)
+    state["active_organization_name"] = str(getattr(organization, "name", "") or "")
+    return changed
 
 
-def _set_active_facility(facility: Any) -> None:
+def set_active_facility(state: MutableMapping[str, Any], facility: Any) -> bool:
+    """Set the active facility and return True when its ID changed."""
+
     new_id = str(getattr(facility, "id", "") or "")
-    current_id = str(st.session_state.get("active_facility_id") or "")
-    if current_id and current_id != new_id:
-        _clear_tenant_cache()
-    st.session_state.active_facility_id = getattr(facility, "id", None)
-    st.session_state.active_facility_name = str(getattr(facility, "name", "") or "")
+    current_id = str(state.get("active_facility_id") or "")
+    changed = bool(current_id and current_id != new_id)
+    if changed:
+        clear_tenant_cache(state)
+    state["active_facility_id"] = getattr(facility, "id", None)
+    state["active_facility_name"] = str(getattr(facility, "name", "") or "")
+    return changed
 
 
-def _hydrate_selected_context(*, organization: Any, facility: Any, role: str) -> tuple[bool, str]:
+def hydrate_selected_context(
+    state: MutableMapping[str, Any],
+    *,
+    organization: Any,
+    facility: Any,
+    role: str,
+) -> tuple[bool, str]:
     """Hydrate durable tenant data once the organization/facility is known."""
 
     organization_id = str(getattr(organization, "id", "") or "")
@@ -104,49 +119,51 @@ def _hydrate_selected_context(*, organization: Any, facility: Any, role: str) ->
     scope = f"{organization_id}|{facility_id}"
     is_sandbox = str(getattr(organization, "slug", "") or "").strip().casefold() == "dev-sandbox"
 
-    # DEV Sandbox is special: its 20+ linked source datasets are versioned in
-    # Supabase and must rebuild the whole living demo, not just the four retail
-    # Data Hub caches. ensure_full_app_demo_session restores Supabase first and
-    # only generates/persists a baseline when no durable source set exists.
+    # DEV Sandbox has 20+ linked datasets. Rebuild the whole living demo from
+    # the durable Supabase source set, not only the four retail Data Hub caches.
     if is_sandbox:
-        has_loaded_inventory = getattr(st.session_state.get("inv_raw_df"), "empty", True) is False
-        has_loaded_sales = getattr(st.session_state.get("sales_raw_df"), "empty", True) is False
+        inventory = state.get("inv_raw_df")
+        sales = state.get("sales_raw_df")
+        has_inventory = bool(inventory is not None and not getattr(inventory, "empty", True))
+        has_sales = bool(sales is not None and not getattr(sales, "empty", True))
         needs_hydration = (
-            st.session_state.get("_context_hydrated_scope") != scope
-            or not has_loaded_inventory
-            or not has_loaded_sales
-            or not st.session_state.get("_sandbox_supabase_restored")
+            state.get("_context_hydrated_scope") != scope
+            or not has_inventory
+            or not has_sales
+            or not state.get("_sandbox_supabase_restored")
         )
         if needs_hydration:
             try:
                 from services.demo_data import ensure_full_app_demo_session
 
                 actor = str(
-                    st.session_state.get("admin_user")
-                    or st.session_state.get("user_user")
-                    or st.session_state.get("auth_user_id")
+                    state.get("admin_user")
+                    or state.get("user_user")
+                    or state.get("auth_user_id")
                     or role
                     or "system"
                 )
-                result = ensure_full_app_demo_session(st.session_state, actor=actor)
-                st.session_state["_context_hydrated_scope"] = scope
+                result = ensure_full_app_demo_session(state, actor=actor)
+                state["_context_hydrated_scope"] = scope
+                if result.seeded and state.get("_sandbox_supabase_restored"):
+                    return True, "DEV Sandbox restored from Supabase."
                 if result.seeded:
-                    return True, "DEV Sandbox loaded from its durable Supabase source set."
+                    return True, "DEV Sandbox baseline loaded and persisted to Supabase."
             except Exception as exc:
                 message = str(exc).strip() or "DEV Sandbox could not hydrate from Supabase."
-                st.session_state["_sandbox_supabase_error"] = message
+                state["_sandbox_supabase_error"] = message
                 return False, message
-        return bool(st.session_state.get("_sandbox_supabase_restored")), ""
+        return bool(state.get("_sandbox_supabase_restored") or has_inventory), ""
 
-    # Real tenants use the normal Data Hub active-source hydration path.
-    if st.session_state.get("_context_hydrated_scope") != scope:
+    # Real tenants use the normal active Data Hub source hydration path.
+    if state.get("_context_hydrated_scope") != scope:
         try:
             from modules.data_hub import restore_durable_retail_sources
 
-            _count, error = restore_durable_retail_sources(st.session_state, force=True)
+            _count, error = restore_durable_retail_sources(state, force=True)
             if error:
                 return False, error
-            st.session_state["_context_hydrated_scope"] = scope
+            state["_context_hydrated_scope"] = scope
         except Exception as exc:
             return False, str(exc).strip() or "Durable tenant data could not be restored."
     return True, ""
@@ -160,11 +177,12 @@ def _mobile_context_css() -> None:
         @media (max-width: 768px) {
           .st-key-mobile_access_context {
             display: block !important;
-            margin: .15rem 0 .65rem !important;
-            padding: .55rem .65rem .25rem !important;
+            margin: .15rem 0 .55rem !important;
+            padding: .5rem .62rem .18rem !important;
             border: 1px solid rgba(255,255,255,.10) !important;
             border-radius: 14px !important;
-            background: rgba(17,20,18,.94) !important;
+            background: linear-gradient(145deg,rgba(24,28,25,.96),rgba(17,20,18,.94)) !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,.18) !important;
           }
           .st-key-mobile_access_context [data-testid="stExpander"] {
             border: 0 !important;
@@ -181,9 +199,10 @@ def _mobile_context_css() -> None:
 
 
 def render_access_context(*, user_store, rerun) -> None:
-    role = str(st.session_state.get("auth_user_role") or "trial")
-    user_id = st.session_state.get("auth_user_id")
-    assigned_org_id = st.session_state.get("auth_organization_id")
+    state = st.session_state
+    role = str(state.get("auth_user_role") or "trial")
+    user_id = state.get("auth_user_id")
+    assigned_org_id = state.get("auth_organization_id")
 
     organizations = user_store.list_organizations(active_only=False)
     organizations_by_id = {str(item.id): item for item in organizations}
@@ -202,34 +221,34 @@ def render_access_context(*, user_store, rerun) -> None:
         visible_organizations = [
             item
             for item in organizations
-            if not (
-                sandbox_exists
-                and item.slug == "doobielogic-demo-simulation"
-            )
+            if not (sandbox_exists and item.slug == "doobielogic-demo-simulation")
         ]
         if not visible_organizations:
             st.sidebar.warning("No organizations are available. Check the Supabase connection.")
             return
 
-        current_org_id = str(st.session_state.get("active_organization_id") or "")
+        current_org_id = str(state.get("active_organization_id") or "")
         selected_org = next(
             (item for item in visible_organizations if str(item.id) == current_org_id),
-            next((item for item in visible_organizations if item.slug == "dev-sandbox"), visible_organizations[0]),
+            next(
+                (item for item in visible_organizations if item.slug == "dev-sandbox"),
+                visible_organizations[0],
+            ),
         )
-        _set_active_organization(selected_org)
+        set_active_organization(state, selected_org)
     else:
         if not assigned_org_id:
             st.sidebar.warning("This account is not assigned to an organization.")
-            st.session_state.active_organization_id = None
-            st.session_state.active_organization_name = ""
-            st.session_state.active_facility_id = None
-            st.session_state.active_facility_name = ""
+            state["active_organization_id"] = None
+            state["active_organization_name"] = ""
+            state["active_facility_id"] = None
+            state["active_facility_name"] = ""
             return
         selected_org = organizations_by_id.get(str(assigned_org_id))
         if selected_org is None:
             st.sidebar.warning("Your assigned organization could not be loaded.")
             return
-        _set_active_organization(selected_org)
+        set_active_organization(state, selected_org)
         visible_organizations = [selected_org]
 
     facilities = user_store.list_facilities(
@@ -238,16 +257,19 @@ def render_access_context(*, user_store, rerun) -> None:
     )
     if not facilities:
         st.sidebar.caption("No accessible facilities")
-        st.session_state.active_facility_id = None
-        st.session_state.active_facility_name = ""
+        state["active_facility_id"] = None
+        state["active_facility_name"] = ""
         return
 
-    current_facility_id = str(st.session_state.get("active_facility_id") or "")
+    current_facility_id = str(state.get("active_facility_id") or "")
     selected_facility = next(
         (item for item in facilities if str(item.id) == current_facility_id),
-        next((item for item in facilities if str(item.code).casefold() == "sandbox"), facilities[0]),
+        next(
+            (item for item in facilities if str(item.code).casefold() == "sandbox"),
+            facilities[0],
+        ),
     )
-    _set_active_facility(selected_facility)
+    set_active_facility(state, selected_facility)
 
     org_labels = {
         (
@@ -258,32 +280,36 @@ def render_access_context(*, user_store, rerun) -> None:
         for item in visible_organizations
     }
     facility_labels = {f"{item.name} ({item.code})": item for item in facilities}
-    active_org_label = next(label for label, item in org_labels.items() if str(item.id) == str(selected_org.id))
+    active_org_label = next(
+        label for label, item in org_labels.items() if str(item.id) == str(selected_org.id)
+    )
     active_facility_label = next(
-        label for label, item in facility_labels.items() if str(item.id) == str(selected_facility.id)
+        label
+        for label, item in facility_labels.items()
+        if str(item.id) == str(selected_facility.id)
     )
 
     def sync_org(widget_key: str) -> None:
-        label = str(st.session_state.get(widget_key) or "")
+        label = str(state.get(widget_key) or "")
         item = org_labels.get(label)
         if item is not None:
-            _set_active_organization(item)
-            st.session_state.pop("_context_hydrated_scope", None)
+            set_active_organization(state, item)
+            state.pop("_context_hydrated_scope", None)
 
     def sync_facility(widget_key: str) -> None:
-        label = str(st.session_state.get(widget_key) or "")
+        label = str(state.get(widget_key) or "")
         item = facility_labels.get(label)
         if item is not None:
-            _set_active_facility(item)
-            st.session_state.pop("_context_hydrated_scope", None)
+            set_active_facility(state, item)
+            state.pop("_context_hydrated_scope", None)
 
-    # Initialize both widget surfaces to the same tenant before either renders.
+    # Both desktop and mobile widget surfaces always mirror the actual tenant.
     for key in ("dev_org_context", "mobile_dev_org_context"):
-        if role == "dev" and st.session_state.get(key) not in org_labels:
-            st.session_state[key] = active_org_label
+        if role == "dev" and state.get(key) != active_org_label:
+            state[key] = active_org_label
     for key in ("facility_context", "mobile_facility_context"):
-        if st.session_state.get(key) not in facility_labels:
-            st.session_state[key] = active_facility_label
+        if state.get(key) != active_facility_label:
+            state[key] = active_facility_label
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Workspace Context")
@@ -307,8 +333,8 @@ def render_access_context(*, user_store, rerun) -> None:
     )
     st.sidebar.caption(f"Timezone: {selected_facility.timezone_name}")
 
-    # Main-column fallback for phones. CSS keeps this hidden on desktop, while
-    # the same underlying active IDs continue driving all tenant-scoped queries.
+    # Main-column fallback for phones. CSS keeps this hidden on desktop while
+    # the same active IDs continue driving all tenant-scoped queries.
     _mobile_context_css()
     with st.container(key="mobile_access_context"):
         with st.expander(
@@ -334,7 +360,8 @@ def render_access_context(*, user_store, rerun) -> None:
                 args=("mobile_facility_context",),
             )
 
-    hydrated, hydration_message = _hydrate_selected_context(
+    hydrated, hydration_message = hydrate_selected_context(
+        state,
         organization=selected_org,
         facility=selected_facility,
         role=role,
