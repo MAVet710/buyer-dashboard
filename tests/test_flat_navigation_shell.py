@@ -1,7 +1,14 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
+from modules.authentication.access_context import (
+    clear_tenant_cache,
+    hydrate_selected_context,
+    set_active_facility,
+    set_active_organization,
+)
 from modules.navigation.product_360 import (
     build_product_360_snapshot,
     search_buyer_dash,
@@ -147,7 +154,6 @@ def test_product_360_add_to_po_uses_existing_po_builder_state():
     assert staged["Price"] == 19.0
     assert staged["Total"] == 817.0
 
-    # A double-click / rerun must not create an identical duplicate line.
     stage_product_for_po(state, snapshot)
     assert len(state["po_items"]) == 1
 
@@ -186,24 +192,129 @@ def test_global_search_finds_sales_only_product_by_sku_and_package():
     assert package_results[0].product_name == "Sold Out Search Test Vape 1g"
 
 
-def test_access_context_stays_a_sidebar_org_and_facility_switcher():
+def test_tenant_switch_clears_old_tenant_cached_data():
+    state = {
+        "active_organization_id": "org-a",
+        "active_organization_name": "A",
+        "active_facility_id": "fac-a",
+        "active_facility_name": "A Facility",
+        "inv_raw_df": pd.DataFrame([{"sku": "A"}]),
+        "sales_raw_df": pd.DataFrame([{"sku": "A"}]),
+        "_cache_inv": {"bytes": b"old"},
+        "_sandbox_supabase_restored": True,
+        "_context_hydrated_scope": "org-a|fac-a",
+    }
+    changed = set_active_organization(
+        state,
+        SimpleNamespace(id="org-b", name="B"),
+    )
+    assert changed is True
+    assert state["active_organization_id"] == "org-b"
+    assert state["active_facility_id"] is None
+    assert "inv_raw_df" not in state
+    assert "sales_raw_df" not in state
+    assert "_cache_inv" not in state
+    assert "_sandbox_supabase_restored" not in state
+    assert "_context_hydrated_scope" not in state
+
+
+def test_facility_switch_clears_old_facility_cached_data():
+    state = {
+        "active_organization_id": "org-a",
+        "active_facility_id": "fac-a",
+        "inv_raw_df": pd.DataFrame([{"sku": "A"}]),
+        "_context_hydrated_scope": "org-a|fac-a",
+    }
+    changed = set_active_facility(
+        state,
+        SimpleNamespace(id="fac-b", name="Second Facility"),
+    )
+    assert changed is True
+    assert state["active_facility_id"] == "fac-b"
+    assert "inv_raw_df" not in state
+    assert "_context_hydrated_scope" not in state
+
+
+def test_clear_tenant_cache_leaves_auth_identity_intact():
+    state = {
+        "auth_user_id": "user-1",
+        "auth_user_role": "dev",
+        "active_organization_id": "org-a",
+        "inv_raw_df": pd.DataFrame([{"sku": "A"}]),
+        "ecc_run_log": pd.DataFrame([{"run": "A"}]),
+    }
+    clear_tenant_cache(state)
+    assert state["auth_user_id"] == "user-1"
+    assert state["auth_user_role"] == "dev"
+    assert state["active_organization_id"] == "org-a"
+    assert "inv_raw_df" not in state
+    assert "ecc_run_log" not in state
+
+
+def test_selecting_dev_sandbox_auto_hydrates_full_supabase_source_set(monkeypatch):
+    state = {
+        "active_organization_id": "org-sandbox",
+        "active_facility_id": "fac-sandbox",
+        "auth_user_role": "dev",
+    }
+    calls = []
+
+    def fake_seed(target_state, *, actor, force=False, today=None):
+        calls.append(actor)
+        target_state["inv_raw_df"] = pd.DataFrame([{"Product Name": "Sandbox Item"}])
+        target_state["sales_raw_df"] = pd.DataFrame([{"Product Name": "Sandbox Item"}])
+        target_state["_sandbox_supabase_restored"] = True
+        return SimpleNamespace(seeded=True)
+
+    monkeypatch.setattr("services.demo_data.ensure_full_app_demo_session", fake_seed)
+    hydrated, message = hydrate_selected_context(
+        state,
+        organization=SimpleNamespace(id="org-sandbox", name="DEV Sandbox", slug="dev-sandbox"),
+        facility=SimpleNamespace(id="fac-sandbox", name="Sandbox Facility", code="SANDBOX"),
+        role="dev",
+    )
+
+    assert hydrated is True
+    assert calls
+    assert state["_context_hydrated_scope"] == "org-sandbox|fac-sandbox"
+    assert state["_sandbox_supabase_restored"] is True
+    assert not state["inv_raw_df"].empty
+    assert "Supabase" in message
+
+
+def test_access_context_exposes_desktop_and_mobile_org_facility_controls():
     source = Path("modules/authentication/access_context.py").read_text(encoding="utf-8")
-    assert 'st.sidebar.selectbox("Organization"' in source
-    assert 'st.sidebar.selectbox("Facility"' in source
-    assert "active_organization_id" in source
-    assert "active_facility_id" in source
+    assert "dev_org_context" in source
+    assert "facility_context" in source
+    assert "mobile_dev_org_context" in source
+    assert "mobile_facility_context" in source
+    assert "mobile_access_context" in source
+    assert "hydrate_selected_context" in source
 
 
 def test_flat_shell_never_owns_tenant_ids():
     source = Path("modules/navigation/workspace_shell.py").read_text(encoding="utf-8")
     assert 'state["active_organization_id"] =' not in source
     assert 'state["active_facility_id"] =' not in source
-    assert "render_access_context" in source
+    assert "access_context.py" in source
 
 
-def test_flat_shell_hides_only_duplicate_buyer_navigation_controls():
+def test_flat_shell_has_mobile_navigation_and_true_drawer_overrides():
     source = Path("modules/navigation/workspace_shell.py").read_text(encoding="utf-8")
+    assert "mobile_flat_navigation" in source
+    assert "@media (max-width:768px)" in source
     assert ".st-key-buyer_section_group" in source
     assert ".st-key-buyer_section" in source
+    assert ".st-key-data_mode" in source
+    assert 'body div[data-testid="stDialog"] > div[role="dialog"]' in source
+    assert "width:100vw !important" in source
     assert ".st-key-dev_org_context" not in source
     assert ".st-key-facility_context" not in source
+
+
+def test_operations_home_contains_approved_attention_and_task_sections():
+    source = Path("modules/navigation/role_home.py").read_text(encoding="utf-8")
+    assert "NEEDS ATTENTION" in source
+    assert "START A TASK" in source
+    assert "home_task_card_" in source
+    assert "home_metric_" in source
