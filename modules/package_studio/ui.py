@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Any, MutableMapping
 
 import pandas as pd
@@ -244,12 +243,17 @@ def _render_new_run(
 
     source_to_use = source_total + float(loss_quantity or 0.0)
     difference = source.balance - source_to_use
+    balance_text = (
+        f"Source selected: {source_to_use:,.2f} {source.unit} · "
+        f"Outputs: {source_total:,.2f} {source.unit} · "
+        f"Loss: {float(loss_quantity or 0.0):,.2f} {source.unit} · "
+        f"Remaining source: {difference:,.2f} {source.unit}"
+    )
     st.markdown(
         f"""
         <div class="ps-balance">
           <strong>Mass balance preview</strong><br/>
-          <span>Source selected: {source_to_use:,.2f} {source.unit} · Outputs: {source_total:,.2f} {source.unit} · "
-          f"Loss: {float(loss_quantity or 0.0):,.2f} {source.unit} · Remaining source: {difference:,.2f} {source.unit}</span>
+          <span>{balance_text}</span>
         </div>
         """,
         unsafe_allow_html=True,
