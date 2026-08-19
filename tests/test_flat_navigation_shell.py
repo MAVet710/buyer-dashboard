@@ -7,6 +7,7 @@ from modules.navigation.product_360 import (
     search_buyer_dash,
     stage_product_for_po,
 )
+from modules.navigation.workspace_shell import _buyer_groups_for_state
 from services.workspace_navigation import (
     AI_INTEGRATIONS_SECTION,
     BUYER_WORKSPACE,
@@ -39,6 +40,22 @@ def test_flat_navigation_preserves_non_dev_metrc_route():
     assert ok, missing
     assert METRC_INTEGRATIONS_SECTION in flat_buyer_sections("Data & Settings", groups)
     assert AI_INTEGRATIONS_SECTION not in flat_buyer_sections("Data & Settings", groups)
+
+
+def test_flat_shell_respects_admin_exports_license_gate(monkeypatch):
+    monkeypatch.setattr(
+        "services.license_session.get_license_features",
+        lambda _session: {"admin_exports": False},
+    )
+    groups = _buyer_groups_for_state(
+        {
+            "is_admin": True,
+            "auth_user_role": "admin",
+            "license_session_data": {"features": {"admin_exports": False}},
+        }
+    )
+    assert "🛠️ Admin Tools" not in flat_buyer_sections("Data & Settings", groups)
+    assert METRC_INTEGRATIONS_SECTION in flat_buyer_sections("Data & Settings", groups)
 
 
 def test_flat_categories_use_plain_business_language():
