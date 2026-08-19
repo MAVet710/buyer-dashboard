@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, MutableMapping, Sequence
 from typing import Any
 
 
@@ -23,6 +23,53 @@ METRC_INTEGRATIONS_SECTION = "🔗 METRC Integrations"
 INVENTORY_COUNTS_SECTION = "📋 Inventory Counts"
 MA_FLOWER_EQUIVALENCY_SECTION = "🌿 MA Flower Equivalency"
 
+# The flat shell is presentation-only. Every entry resolves to the same legacy
+# route identifiers used by the existing application, so pages and permissions
+# remain backwards compatible.
+FLAT_NAV_ORDER = (
+    "Home",
+    "Inventory",
+    "Purchasing",
+    "Orders",
+    "Production",
+    "Reports",
+    "Compliance",
+    "Data & Settings",
+)
+
+BUYER_SECTION_FLAT_CATEGORY = {
+    "📊 Inventory Dashboard": "Inventory",
+    INVENTORY_COUNTS_SECTION: "Inventory",
+    "🐢 Slow Movers": "Inventory",
+    MA_FLOWER_EQUIVALENCY_SECTION: "Inventory",
+    "🧠 Buyer Intelligence": "Purchasing",
+    "🚚 Delivery Impact": "Purchasing",
+    "🧾 PO Builder": "Purchasing",
+    "💰 Purchasing Budget": "Purchasing",
+    "📈 Trends": "Reports",
+    "🧭 Compliance Q&A": "Compliance",
+    "🏷️ Nomenclature Mapper": "Compliance",
+    "🛠️ Admin Tools": "Data & Settings",
+    AI_INTEGRATIONS_SECTION: "Data & Settings",
+    METRC_INTEGRATIONS_SECTION: "Data & Settings",
+}
+
+BUYER_SECTION_DISPLAY_NAME = {
+    "📊 Inventory Dashboard": "Inventory Overview",
+    INVENTORY_COUNTS_SECTION: "Inventory Audits",
+    "🐢 Slow Movers": "Slow Movers",
+    MA_FLOWER_EQUIVALENCY_SECTION: "MA Flower Equivalency",
+    "🧠 Buyer Intelligence": "Buying Recommendations",
+    "🚚 Delivery Impact": "Delivery Performance",
+    "🧾 PO Builder": "Purchase Orders",
+    "💰 Purchasing Budget": "Buying Budget",
+    "📈 Trends": "Sales & Category Trends",
+    "🧭 Compliance Q&A": "Compliance Q&A",
+    "🏷️ Nomenclature Mapper": "Product Name Mapper",
+    "🛠️ Admin Tools": "Admin Tools",
+    AI_INTEGRATIONS_SECTION: "AI & METRC Integrations",
+    METRC_INTEGRATIONS_SECTION: "METRC Integrations",
+}
 
 PENDING_NAVIGATION_KEY = "_pending_workspace_navigation"
 
@@ -110,6 +157,48 @@ def workspace_group(workspace: str) -> str | None:
     if workspace == DATA_HUB_WORKSPACE:
         return DATA_OPERATIONS
     return None
+
+
+def flat_category_for_route(workspace: str, buyer_section: str = "") -> str:
+    """Resolve an existing workspace/page route to its user-facing flat category."""
+    if workspace == HOME_WORKSPACE:
+        return "Home"
+    if workspace == BUYER_WORKSPACE:
+        return BUYER_SECTION_FLAT_CATEGORY.get(str(buyer_section or ""), "Inventory")
+    if workspace == COMMERCIAL_WORKSPACE:
+        return "Orders"
+    if workspace in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE}:
+        return "Production"
+    if workspace == DATA_HUB_WORKSPACE:
+        return "Data & Settings"
+    return "Home"
+
+
+def flat_buyer_sections(
+    category: str,
+    section_groups: dict[str, Sequence[str]],
+) -> list[str]:
+    """Return allowed Buyer pages for one flat navigation category."""
+    allowed = [section for sections in section_groups.values() for section in sections]
+    return [
+        section
+        for section in allowed
+        if BUYER_SECTION_FLAT_CATEGORY.get(section) == str(category)
+    ]
+
+
+def buyer_section_display_name(section: str) -> str:
+    """Return plain-language navigation text without changing the legacy route key."""
+    return BUYER_SECTION_DISPLAY_NAME.get(str(section), str(section))
+
+
+def flat_navigation_parity(
+    section_groups: dict[str, Sequence[str]],
+) -> tuple[bool, tuple[str, ...]]:
+    """Verify every role-visible Buyer page has a flat-shell home."""
+    visible = [section for sections in section_groups.values() for section in sections]
+    missing = tuple(section for section in visible if section not in BUYER_SECTION_FLAT_CATEGORY)
+    return not missing, missing
 
 
 def buyer_section_options(
