@@ -117,25 +117,23 @@ def _number(series: pd.Series | Any) -> pd.Series:
 
 
 def _inventory_frame(state: MutableMapping[str, Any]) -> pd.DataFrame:
-    return _first_frame(state, "active_inventory_df", "inv_raw_df", "demo_catalog_df")
+    return _first_frame(
+        state,
+        "active_inventory_df",
+        "inv_raw_df",
+        "demo_inventory_df",
+        "demo_catalog_df",
+    )
 
 
 def _sales_frame(state: MutableMapping[str, Any]) -> pd.DataFrame:
-    return _first_frame(state, "active_sales_df", "sales_raw_df", "extra_sales_df")
-
-
-def _product_names(state: MutableMapping[str, Any]) -> list[str]:
-    names: list[str] = []
-    for frame in (_inventory_frame(state), _sales_frame(state)):
-        product_col = _column(frame, PRODUCT_ALIASES)
-        if not product_col:
-            continue
-        names.extend(
-            value
-            for value in frame[product_col].dropna().astype(str).str.strip().tolist()
-            if value
-        )
-    return list(dict.fromkeys(names))
+    return _first_frame(
+        state,
+        "active_sales_df",
+        "sales_raw_df",
+        "demo_sales_df",
+        "extra_sales_df",
+    )
 
 
 def _tool_results(query: str) -> list[SearchResult]:
@@ -290,9 +288,46 @@ def build_product_360_snapshot(
     }
 
 
+def stage_product_for_po(
+    state: MutableMapping[str, Any],
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Add one Product 360 recommendation to the existing PO Builder state."""
+    quantity = max(1, int(snapshot.get("target_units") or 0))
+    unit_cost = max(0.0, float(snapshot.get("unit_cost") or 0.0))
+    item = {
+        "SKU": str(snapshot.get("sku") or ""),
+        "Description": str(snapshot.get("product_name") or "").strip(),
+        "Strain": "",
+        "Size": "",
+        "Quantity": quantity,
+        "Price": unit_cost,
+        "Total": quantity * unit_cost,
+    }
+    items = state.setdefault("po_items", [])
+    if not isinstance(items, list):
+        items = []
+        state["po_items"] = items
+
+    duplicate = next(
+        (
+            row
+            for row in items
+            if isinstance(row, dict)
+            and _norm(row.get("Description")) == _norm(item["Description"])
+            and int(row.get("Quantity") or 0) == quantity
+        ),
+        None,
+    )
+    if duplicate is None:
+        items.append(item)
+        return item
+    return dict(duplicate)
+
+
 def _route(state: MutableMapping[str, Any], *, group: str, workspace: str, section: str = "") -> None:
     queue_workspace_navigation(state, group=group, workspace=workspace, buyer_section=section)
-    state["_product_360_dialog_pending"] = False
+    state["product_360_open"] = False
     st.rerun()
 
 
@@ -316,7 +351,12 @@ def _drawer_css() -> None:
 
 def _render_product_body(state: MutableMapping[str, Any], snapshot: dict[str, Any]) -> None:
     product = snapshot["product_name"]
-    st.caption("PRODUCT 360 · read-only operational context")
+    close_col, _ = st.columns([1, 5])
+    if close_col.button("Close", key="product_360_close"):
+        state["product_360_open"] = False
+        st.rerun()
+
+    st.caption("PRODUCT 360 · operational context")
     st.markdown(f"## {product}")
     identity = " · ".join(value for value in [snapshot.get("brand"), snapshot.get("sku")] if value)
     if identity:
@@ -361,14 +401,9 @@ def _render_product_body(state: MutableMapping[str, Any], snapshot: dict[str, An
     with purchasing_tab:
         st.metric("Suggested 21-day fill", f"{snapshot['target_units']:,} units")
         st.metric("Estimated cost", f"${snapshot['estimated_reorder_cost']:,.2f}")
+        st.caption("The quantity is a draft recommendation. The existing PO Builder remains the final review/export workflow.")
         if st.button("Add to PO", type="primary", width="stretch", key="product_360_add_to_po"):
-            state["product_360_po_seed"] = {
-                "product_name": product,
-                "sku": snapshot.get("sku", ""),
-                "quantity": int(snapshot["target_units"]),
-                "unit_cost": float(snapshot["unit_cost"]),
-                "estimated_cost": float(snapshot["estimated_reorder_cost"]),
-            }
+            stage_product_for_po(state, snapshot)
             _route(state, group=RETAIL_OPS, workspace=BUYER_WORKSPACE, section="🧾 PO Builder")
     with packages_tab:
         packages = snapshot.get("packages") or []
@@ -437,10 +472,9 @@ def render_global_search(state: MutableMapping[str, Any]) -> None:
                         st.caption(f"{result.kind} · {result.subtitle}")
                     with action_col:
                         if st.button("Open", key=f"global_search_open_{index}_{_norm(result.label)}", width="stretch"):
-                            state["buyer_dash_global_search_query"] = ""
                             if result.kind == "Product" and result.product_name:
                                 state["product_360_selected_name"] = result.product_name
-                                state["_product_360_dialog_pending"] = True
+                                state["product_360_open"] = True
                                 st.rerun()
                             elif result.route_workspace:
                                 _route(
@@ -451,5 +485,5 @@ def render_global_search(state: MutableMapping[str, Any]) -> None:
                                 )
 
     selected = str(state.get("product_360_selected_name") or "").strip()
-    if selected and bool(state.pop("_product_360_dialog_pending", False)):
+    if selected and bool(state.get("product_360_open", False)):
         render_product_360_dialog(state, selected)
