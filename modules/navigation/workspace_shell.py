@@ -317,7 +317,12 @@ def render_workspace_selector(
     *,
     preferred_group: str | None = None,
 ) -> tuple[str, str]:
-    """Render flat task navigation while preserving the legacy route contract."""
+    """Render flat task navigation while preserving the legacy route contract.
+
+    Organization and facility selection remain owned by render_access_context,
+    which renders above this shell in the sidebar. The flat shell never mutates
+    active_organization_id or active_facility_id.
+    """
 
     import streamlit as st
     from modules.navigation.product_360 import render_global_search
@@ -332,6 +337,18 @@ def render_workspace_selector(
         with st.sidebar.expander("Navigation options", expanded=False):
             st.toggle("Use classic navigation", key="legacy_navigation_enabled")
         return result
+
+    # app.py still owns the legacy Buyer Retail Area/Tool widgets. Hide those
+    # two controls only while the flat shell is active; classic-navigation mode
+    # leaves them untouched. No page or route is removed.
+    st.markdown(
+        """
+        <style>
+        .st-key-buyer_section_group, .st-key-buyer_section {display:none !important;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     section_groups = _buyer_groups_for_state(state)
     available = _available_flat_categories(groups, section_groups)
@@ -352,7 +369,12 @@ def render_workspace_selector(
             _default_route_for_category(state, selected, groups, section_groups)
         state["workspace_navigation_revision"] = int(state.get("workspace_navigation_revision", 0)) + 1
 
+    # Access Context (Organization + Facility) is intentionally rendered by
+    # app.py immediately before this block, so the tenant switcher stays fixed
+    # above the simplified navigation.
     st.sidebar.markdown("### Buyer Dash")
+    if state.get("active_facility_name"):
+        st.sidebar.caption(f"Active facility: {state.get('active_facility_name')}")
     st.sidebar.caption("Choose the work, not the architecture.")
     category = st.sidebar.radio(
         "Navigate",
