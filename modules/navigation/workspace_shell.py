@@ -1,4 +1,9 @@
-"""Reliable, compatibility-safe navigation for the Streamlit shell."""
+"""Responsive, compatibility-safe navigation for the Buyer Dash shell.
+
+The shell presents the simple business-language navigation approved for Buyer
+Dash while continuing to route into the existing workspace/page identifiers.
+Organization and facility selection remain owned by access_context.py.
+"""
 
 from __future__ import annotations
 
@@ -100,13 +105,21 @@ def _available_flat_categories(
         if category == "Home":
             include = HOME_WORKSPACE in workspaces
         elif category in {"Inventory", "Purchasing", "Reports", "Compliance"}:
-            include = BUYER_WORKSPACE in workspaces and bool(flat_buyer_sections(category, dict(section_groups)))
+            include = BUYER_WORKSPACE in workspaces and bool(
+                flat_buyer_sections(category, dict(section_groups))
+            )
         elif category == "Orders":
             include = COMMERCIAL_WORKSPACE in workspaces
         elif category == "Production":
-            include = bool(workspaces.intersection({COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE}))
+            include = bool(
+                workspaces.intersection(
+                    {COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE}
+                )
+            )
         elif category == "Data & Settings":
-            include = DATA_HUB_WORKSPACE in workspaces or bool(flat_buyer_sections(category, dict(section_groups)))
+            include = DATA_HUB_WORKSPACE in workspaces or bool(
+                flat_buyer_sections(category, dict(section_groups))
+            )
         if include:
             available.append(category)
     return available
@@ -140,11 +153,19 @@ def _default_route_for_category(
         state["workspace_mode"] = COMMERCIAL_WORKSPACE
         return
     if category == "Production":
-        preferred = [COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE]
-        workspace = next((value for value in preferred if value in workspaces), "")
+        workspace = next(
+            (
+                value
+                for value in (COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE)
+                if value in workspaces
+            ),
+            "",
+        )
         if workspace:
             state["workspace_mode"] = workspace
-            state["operations_group"] = PRODUCTION_OPS if workspace != WHITE_LABEL_WORKSPACE else RETAIL_OPS
+            state["operations_group"] = (
+                PRODUCTION_OPS if workspace != WHITE_LABEL_WORKSPACE else RETAIL_OPS
+            )
         return
     if category == "Data & Settings":
         if DATA_HUB_WORKSPACE in workspaces:
@@ -154,6 +175,85 @@ def _default_route_for_category(
         sections = flat_buyer_sections(category, dict(section_groups))
         if sections:
             _set_buyer_route(state, sections[0], section_groups)
+
+
+def _secondary_choices(
+    category: str,
+    groups: Mapping[str, Sequence[str]],
+    section_groups: Mapping[str, Sequence[str]],
+) -> list[tuple[str, str, str]]:
+    """Return user-facing secondary choices for one flat category."""
+
+    workspaces = _workspace_set(groups)
+    if category in {"Inventory", "Purchasing", "Reports", "Compliance"}:
+        return [
+            (buyer_section_display_name(section), "section", section)
+            for section in flat_buyer_sections(category, dict(section_groups))
+        ]
+    if category == "Production":
+        display = {
+            COMAN_WORKSPACE: "Co-Man Production",
+            EXTRACTION_WORKSPACE: "Extraction",
+            WHITE_LABEL_WORKSPACE: "White Label / Repack",
+        }
+        return [
+            (display[workspace], "workspace", workspace)
+            for workspace in (COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE)
+            if workspace in workspaces
+        ]
+    if category == "Data & Settings":
+        choices: list[tuple[str, str, str]] = []
+        if DATA_HUB_WORKSPACE in workspaces:
+            choices.append(("Imports & Data", "workspace", DATA_HUB_WORKSPACE))
+        choices.extend(
+            (buyer_section_display_name(section), "section", section)
+            for section in flat_buyer_sections(category, dict(section_groups))
+        )
+        return choices
+    return []
+
+
+def _current_secondary_label(
+    state: MutableMapping[str, Any],
+    choices: Sequence[tuple[str, str, str]],
+) -> str:
+    current_workspace = str(state.get("workspace_mode") or "")
+    current_section = str(state.get("buyer_section") or "")
+    return next(
+        (
+            label
+            for label, kind, value in choices
+            if (kind == "workspace" and value == current_workspace)
+            or (
+                kind == "section"
+                and value == current_section
+                and current_workspace == BUYER_WORKSPACE
+            )
+        ),
+        choices[0][0] if choices else "",
+    )
+
+
+def _apply_secondary_choice(
+    state: MutableMapping[str, Any],
+    selected_label: str,
+    choices: Sequence[tuple[str, str, str]],
+    section_groups: Mapping[str, Sequence[str]],
+) -> None:
+    selected = next((choice for choice in choices if choice[0] == selected_label), None)
+    if not selected:
+        return
+    _, kind, value = selected
+    if kind == "section":
+        _set_buyer_route(state, value, section_groups)
+        return
+    state["workspace_mode"] = value
+    if value == DATA_HUB_WORKSPACE:
+        state["operations_group"] = DATA_OPERATIONS
+    elif value == WHITE_LABEL_WORKSPACE:
+        state["operations_group"] = RETAIL_OPS
+    elif value in {COMAN_WORKSPACE, EXTRACTION_WORKSPACE}:
+        state["operations_group"] = PRODUCTION_OPS
 
 
 def _render_legacy_selector(
@@ -206,116 +306,284 @@ def _render_legacy_selector(
     return operation_group, workspace
 
 
-def _render_flat_secondary(
-    groups: Mapping[str, Sequence[str]],
-    category: str,
+def _shell_css() -> str:
+    """CSS for the approved dark/copper desktop shell and mobile layout."""
+
+    return """
+    <style>
+    /* Old Buyer widgets remain available only in classic navigation mode. */
+    .st-key-buyer_section_group, .st-key-buyer_section {display:none !important;}
+
+    /* Desktop Option-B navigation. */
+    .st-key-flat_navigation_section [role="radiogroup"] {
+        display:flex !important;
+        flex-direction:column !important;
+        gap:.28rem !important;
+    }
+    .st-key-flat_navigation_section [role="radiogroup"] label {
+        min-height:40px !important;
+        margin:0 !important;
+        padding:.48rem .62rem !important;
+        border:1px solid transparent !important;
+        border-radius:10px !important;
+        background:transparent !important;
+        transition:background .15s ease,border-color .15s ease,transform .15s ease !important;
+    }
+    .st-key-flat_navigation_section [role="radiogroup"] label:hover {
+        background:rgba(255,255,255,.045) !important;
+        border-color:rgba(255,255,255,.075) !important;
+    }
+    .st-key-flat_navigation_section [role="radiogroup"] label:has(input:checked) {
+        background:linear-gradient(90deg,rgba(231,152,78,.18),rgba(231,152,78,.055)) !important;
+        border-color:rgba(231,152,78,.34) !important;
+        box-shadow:inset 3px 0 #E7984E !important;
+    }
+    .st-key-flat_navigation_section [role="radiogroup"] label:has(input:checked) p {
+        color:#F4B36F !important;
+        font-weight:780 !important;
+    }
+    .st-key-flat_nav_secondary [role="radiogroup"] {
+        gap:.18rem !important;
+    }
+    .st-key-flat_nav_secondary [role="radiogroup"] label {
+        min-height:34px !important;
+        padding:.35rem .58rem !important;
+        border-radius:9px !important;
+    }
+    .st-key-flat_nav_secondary [role="radiogroup"] label:has(input:checked) {
+        background:rgba(231,152,78,.09) !important;
+    }
+
+    .dl-nav-context {
+        margin:.15rem 0 .55rem;
+        padding:.52rem .62rem;
+        color:var(--dl-text-soft,#AAB4AC) !important;
+        background:rgba(255,255,255,.025);
+        border:1px solid rgba(255,255,255,.07);
+        border-radius:10px;
+        font-size:.72rem;
+        line-height:1.35;
+    }
+    .dl-nav-context strong { color:var(--dl-text,#F5F7F4) !important; }
+
+    /* Main-column mobile controls are intentionally absent from desktop. */
+    .st-key-mobile_flat_navigation {display:none;}
+
+    /* Approved global search bar. */
+    .st-key-buyer_dash_global_search {
+        position:relative;
+        z-index:30;
+        margin:0 0 1rem !important;
+        padding:.2rem !important;
+        border:1px solid rgba(255,255,255,.08);
+        border-radius:15px;
+        background:linear-gradient(145deg,rgba(24,28,25,.96),rgba(17,20,18,.92));
+        box-shadow:0 12px 36px rgba(0,0,0,.20);
+    }
+    .st-key-buyer_dash_global_search [data-baseweb="input"] > div {
+        min-height:48px !important;
+        background:rgba(5,7,6,.55) !important;
+        border-color:rgba(255,255,255,.10) !important;
+        border-radius:12px !important;
+    }
+    .st-key-buyer_dash_global_search input {
+        font-size:.95rem !important;
+        padding-left:.3rem !important;
+    }
+
+    @media (max-width: 768px) {
+        .block-container {
+            width:100% !important;
+            padding:.65rem .65rem 4.5rem !important;
+        }
+        .premium-commandbar {
+            min-height:52px !important;
+            margin-bottom:.55rem !important;
+            padding:.5rem .58rem !important;
+            border-radius:14px !important;
+        }
+        .premium-commandbar__context {display:none !important;}
+        .premium-commandbar__mark {width:34px !important;height:34px !important;}
+
+        .st-key-mobile_flat_navigation {
+            display:block !important;
+            margin:.2rem 0 .55rem !important;
+            padding:.62rem !important;
+            border:1px solid rgba(255,255,255,.09) !important;
+            border-radius:14px !important;
+            background:linear-gradient(145deg,rgba(24,28,25,.96),rgba(17,20,18,.94)) !important;
+            box-shadow:0 10px 30px rgba(0,0,0,.20) !important;
+        }
+        .st-key-mobile_flat_navigation [data-testid="stCaptionContainer"] {
+            margin-bottom:.25rem !important;
+        }
+        .st-key-buyer_dash_global_search {
+            position:sticky !important;
+            top:.35rem !important;
+            z-index:999 !important;
+            margin-bottom:.65rem !important;
+            border-radius:13px !important;
+        }
+        .st-key-buyer_dash_global_search [data-baseweb="input"] > div {
+            min-height:46px !important;
+        }
+
+        /* Streamlit columns are desktop-first. Wrap them into useful mobile cards. */
+        div[data-testid="stHorizontalBlock"] {
+            flex-wrap:wrap !important;
+            gap:.55rem !important;
+        }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            min-width:min(100%,220px) !important;
+            flex:1 1 220px !important;
+        }
+        div[data-testid="stDataFrame"] {
+            max-width:100% !important;
+            overflow-x:auto !important;
+        }
+        .stButton > button, .stDownloadButton > button {
+            min-height:44px !important;
+        }
+        h1 {font-size:clamp(1.75rem,9vw,2.35rem) !important;}
+        h2 {font-size:clamp(1.35rem,7vw,1.8rem) !important;}
+    }
+    </style>
+    """
+
+
+def _render_secondary_sidebar(
+    state: MutableMapping[str, Any],
+    choices: Sequence[tuple[str, str, str]],
     section_groups: Mapping[str, Sequence[str]],
 ) -> None:
     import streamlit as st
 
-    workspaces = _workspace_set(groups)
-    state = st.session_state
-
-    if category in {"Inventory", "Purchasing", "Reports", "Compliance"}:
-        sections = flat_buyer_sections(category, dict(section_groups))
-        if not sections:
-            return
-        current = str(state.get("buyer_section") or "")
-        if current not in sections:
-            current = sections[0]
-            _set_buyer_route(state, current, section_groups)
-        state["flat_nav_tool"] = current
-
-        def sync_buyer_tool() -> None:
-            selected = str(state.get("flat_nav_tool") or "")
-            if selected in sections:
-                _set_buyer_route(state, selected, section_groups)
-
-        st.sidebar.radio(
-            "Tools",
-            sections,
-            key="flat_nav_tool",
-            format_func=buyer_section_display_name,
-            on_change=sync_buyer_tool,
-            label_visibility="collapsed",
-        )
+    if not choices:
         return
+    current_label = _current_secondary_label(state, choices)
+    if state.get("flat_nav_tool_label") != current_label:
+        state["flat_nav_tool_label"] = current_label
 
-    if category == "Production":
-        options = [
-            workspace
-            for workspace in (COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE)
-            if workspace in workspaces
-        ]
-        if not options:
-            return
-        current = str(state.get("workspace_mode") or "")
-        if current not in options:
-            current = options[0]
-            state["workspace_mode"] = current
-            state["operations_group"] = PRODUCTION_OPS if current != WHITE_LABEL_WORKSPACE else RETAIL_OPS
-        state["flat_nav_production_tool"] = current
-        display = {
-            COMAN_WORKSPACE: "Co-Man Production",
-            EXTRACTION_WORKSPACE: "Extraction",
-            WHITE_LABEL_WORKSPACE: "White Label / Repack",
-        }
+    def sync_secondary() -> None:
+        _apply_secondary_choice(
+            state,
+            str(state.get("flat_nav_tool_label") or ""),
+            choices,
+            section_groups,
+        )
 
-        def sync_production_tool() -> None:
-            selected = str(state.get("flat_nav_production_tool") or "")
-            if selected in options:
-                state["workspace_mode"] = selected
-                state["operations_group"] = PRODUCTION_OPS if selected != WHITE_LABEL_WORKSPACE else RETAIL_OPS
-
+    with st.container(key="flat_nav_secondary"):
         st.sidebar.radio(
-            "Production tools",
-            options,
-            key="flat_nav_production_tool",
-            format_func=lambda value: display.get(value, value),
-            on_change=sync_production_tool,
+            "Current area",
+            [label for label, _, _ in choices],
+            key="flat_nav_tool_label",
+            on_change=sync_secondary,
             label_visibility="collapsed",
         )
-        return
 
-    if category == "Data & Settings":
-        choices: list[tuple[str, str, str]] = []
-        if DATA_HUB_WORKSPACE in workspaces:
-            choices.append(("Imports & Data", "workspace", DATA_HUB_WORKSPACE))
-        for section in flat_buyer_sections(category, dict(section_groups)):
-            choices.append((buyer_section_display_name(section), "section", section))
-        if not choices:
-            return
-        current_workspace = str(state.get("workspace_mode") or "")
-        current_section = str(state.get("buyer_section") or "")
-        current_label = next(
-            (
-                label
-                for label, kind, value in choices
-                if (kind == "workspace" and value == current_workspace)
-                or (kind == "section" and value == current_section and current_workspace == BUYER_WORKSPACE)
-            ),
-            choices[0][0],
-        )
-        labels = [label for label, _, _ in choices]
-        state["flat_nav_data_tool"] = current_label
 
-        def sync_data_tool() -> None:
-            selected_label = str(state.get("flat_nav_data_tool") or "")
-            selected = next((row for row in choices if row[0] == selected_label), choices[0])
-            _, kind, value = selected
-            if kind == "workspace":
-                state["operations_group"] = DATA_OPERATIONS
-                state["workspace_mode"] = value
-            else:
-                _set_buyer_route(state, value, section_groups)
+def _render_data_mode_sidebar(state: MutableMapping[str, Any]) -> None:
+    """Keep the old data-mode capability without cluttering primary nav."""
+    import streamlit as st
 
-        st.sidebar.radio(
-            "Data and settings tools",
-            labels,
-            key="flat_nav_data_tool",
-            on_change=sync_data_tool,
+    modes = ["📁 Uploads", "🔴 Dutchie Live"]
+    current = str(state.get("data_mode") or modes[0])
+    if current not in modes:
+        current = modes[0]
+        state["data_mode"] = current
+    if state.get("flat_nav_data_mode") != current:
+        state["flat_nav_data_mode"] = current
+
+    def sync_data_mode() -> None:
+        selected = str(state.get("flat_nav_data_mode") or modes[0])
+        if selected in modes:
+            state["data_mode"] = selected
+
+    with st.sidebar.expander("Data source", expanded=False):
+        st.selectbox(
+            "Buyer data mode",
+            modes,
+            key="flat_nav_data_mode",
+            on_change=sync_data_mode,
             label_visibility="collapsed",
         )
+
+
+def _render_mobile_navigation(
+    state: MutableMapping[str, Any],
+    available: Sequence[str],
+    groups: Mapping[str, Sequence[str]],
+    section_groups: Mapping[str, Sequence[str]],
+    category: str,
+) -> None:
+    import streamlit as st
+
+    if state.get("mobile_flat_navigation_section") != category:
+        state["mobile_flat_navigation_section"] = category
+
+    def sync_mobile_category() -> None:
+        selected = str(state.get("mobile_flat_navigation_section") or "")
+        if selected in available:
+            _default_route_for_category(state, selected, groups, section_groups)
+            state["flat_navigation_section"] = selected
+        state["workspace_navigation_revision"] = int(
+            state.get("workspace_navigation_revision", 0)
+        ) + 1
+
+    with st.container(key="mobile_flat_navigation"):
+        st.caption("BUYER DASH")
+        st.selectbox(
+            "Navigate",
+            list(available),
+            key="mobile_flat_navigation_section",
+            on_change=sync_mobile_category,
+            label_visibility="collapsed",
+        )
+
+        mobile_category = str(state.get("mobile_flat_navigation_section") or category)
+        choices = _secondary_choices(mobile_category, groups, section_groups)
+        if choices:
+            current_label = _current_secondary_label(state, choices)
+            if state.get("mobile_flat_nav_tool_label") != current_label:
+                state["mobile_flat_nav_tool_label"] = current_label
+
+            def sync_mobile_secondary() -> None:
+                _apply_secondary_choice(
+                    state,
+                    str(state.get("mobile_flat_nav_tool_label") or ""),
+                    choices,
+                    section_groups,
+                )
+
+            st.selectbox(
+                "Tool",
+                [label for label, _, _ in choices],
+                key="mobile_flat_nav_tool_label",
+                on_change=sync_mobile_secondary,
+                label_visibility="collapsed",
+            )
+
+        modes = ["📁 Uploads", "🔴 Dutchie Live"]
+        current_mode = str(state.get("data_mode") or modes[0])
+        if current_mode not in modes:
+            current_mode = modes[0]
+        if state.get("mobile_flat_nav_data_mode") != current_mode:
+            state["mobile_flat_nav_data_mode"] = current_mode
+
+        def sync_mobile_data_mode() -> None:
+            selected = str(state.get("mobile_flat_nav_data_mode") or modes[0])
+            if selected in modes:
+                state["data_mode"] = selected
+                state["flat_nav_data_mode"] = selected
+
+        with st.expander("Data source", expanded=False):
+            st.selectbox(
+                "Buyer data mode",
+                modes,
+                key="mobile_flat_nav_data_mode",
+                on_change=sync_mobile_data_mode,
+                label_visibility="collapsed",
+            )
 
 
 def render_workspace_selector(
@@ -323,13 +591,9 @@ def render_workspace_selector(
     *,
     preferred_group: str | None = None,
 ) -> tuple[str, str]:
-    """Render flat task navigation while preserving the legacy route contract.
+    """Render the approved flat shell while preserving every legacy route."""
 
-    Organization and facility selection remain owned by render_access_context,
-    which renders above this shell in the sidebar. The flat shell never mutates
-    active_organization_id or active_facility_id.
-    """
-
+    import html
     import streamlit as st
     from modules.navigation.product_360 import render_global_search
 
@@ -344,17 +608,7 @@ def render_workspace_selector(
             st.toggle("Use classic navigation", key="legacy_navigation_enabled")
         return result
 
-    # app.py still owns the legacy Buyer Retail Area/Tool widgets. Hide those
-    # two controls only while the flat shell is active; classic-navigation mode
-    # leaves them untouched. No page or route is removed.
-    st.markdown(
-        """
-        <style>
-        .st-key-buyer_section_group, .st-key-buyer_section {display:none !important;}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(_shell_css(), unsafe_allow_html=True)
 
     section_groups = _buyer_groups_for_state(state)
     available = _available_flat_categories(groups, section_groups)
@@ -367,20 +621,27 @@ def render_workspace_selector(
     )
     if inferred not in available:
         inferred = available[0]
-    state["flat_navigation_section"] = inferred
+    if state.get("flat_navigation_section") != inferred:
+        state["flat_navigation_section"] = inferred
 
     def sync_flat_category() -> None:
         selected = str(state.get("flat_navigation_section") or "")
         if selected in available:
             _default_route_for_category(state, selected, groups, section_groups)
-        state["workspace_navigation_revision"] = int(state.get("workspace_navigation_revision", 0)) + 1
+            state["mobile_flat_navigation_section"] = selected
+        state["workspace_navigation_revision"] = int(
+            state.get("workspace_navigation_revision", 0)
+        ) + 1
 
-    # Access Context (Organization + Facility) is intentionally rendered by
-    # app.py immediately before this block, so the tenant switcher stays fixed
-    # above the simplified navigation.
     st.sidebar.markdown("### Buyer Dash")
-    if state.get("active_facility_name"):
-        st.sidebar.caption(f"Active facility: {state.get('active_facility_name')}")
+    org_name = str(state.get("active_organization_name") or "")
+    facility_name = str(state.get("active_facility_name") or "")
+    context_text = " · ".join(value for value in [org_name, facility_name] if value)
+    if context_text:
+        st.sidebar.markdown(
+            f'<div class="dl-nav-context"><strong>Active</strong><br>{html.escape(context_text)}</div>',
+            unsafe_allow_html=True,
+        )
     st.sidebar.caption("Choose the work, not the architecture.")
     category = st.sidebar.radio(
         "Navigate",
@@ -389,17 +650,28 @@ def render_workspace_selector(
         on_change=sync_flat_category,
         label_visibility="collapsed",
     )
-    _render_flat_secondary(groups, category, section_groups)
+
+    choices = _secondary_choices(category, groups, section_groups)
+    _render_secondary_sidebar(state, choices, section_groups)
+    _render_data_mode_sidebar(state)
 
     with st.sidebar.expander("Navigation options", expanded=False):
         st.toggle(
             "Use classic navigation",
             key="legacy_navigation_enabled",
-            help="Temporary compatibility fallback. No legacy pages are removed by the flat shell.",
+            help="Compatibility fallback. No legacy pages are removed by the flat shell.",
         )
 
-    # Search is intentionally rendered before expensive workspace content so a
-    # user can jump directly to a product or task from anywhere in the app.
+    _render_mobile_navigation(
+        state,
+        available,
+        groups,
+        section_groups,
+        category,
+    )
+
+    # Search appears above the workspace content on every screen, as in the
+    # approved hybrid concept.
     render_global_search(state)
 
     normalize_workspace_state(state, groups, preferred_group=preferred_group)
