@@ -105,6 +105,8 @@ def test_product_360_uses_existing_inventory_and_sales_sources():
     state = _product_state()
     snapshot = build_product_360_snapshot(state, "Demo State Labs Orchard Haze Vape 1g")
     assert snapshot["on_hand"] == 2
+    assert snapshot["units_sold_window"] == 64
+    assert snapshot["sales_window_days"] == 30
     assert snapshot["units_sold_30d"] == 64
     assert round(snapshot["days_on_hand"], 1) == 0.9
     assert snapshot["target_units"] == 43
@@ -112,6 +114,25 @@ def test_product_360_uses_existing_inventory_and_sales_sources():
     assert snapshot["sku"] == "DSL-VP-OH-10"
     assert snapshot["packages"] == ["1A406030000TEST000001"]
     assert round(snapshot["margin_pct"], 1) == 54.8
+
+
+def test_product_360_normalizes_sales_to_loaded_transaction_window():
+    state = _product_state()
+    product = "Demo State Labs Orchard Haze Vape 1g"
+    state["active_sales_df"] = pd.DataFrame(
+        [
+            {"Product Name": product, "Quantity Sold": 30, "Order Time": "2026-06-20 10:00"},
+            {"Product Name": product, "Quantity Sold": 30, "Order Time": "2026-08-18 10:00"},
+        ]
+    )
+
+    snapshot = build_product_360_snapshot(state, product)
+    assert snapshot["sales_window_days"] == 60
+    assert snapshot["units_sold_window"] == 60
+    assert snapshot["units_sold_30d"] == 30
+    assert snapshot["daily_velocity"] == 1
+    assert snapshot["days_on_hand"] == 2
+    assert snapshot["target_units"] == 19
 
 
 def test_product_360_add_to_po_uses_existing_po_builder_state():
@@ -140,6 +161,29 @@ def test_global_search_finds_product_and_common_tool_without_ai():
 
     tool_results = search_buyer_dash(state, "purchase order")
     assert any(result.label == "Purchase Orders" for result in tool_results)
+
+
+def test_global_search_finds_sales_only_product_by_sku_and_package():
+    state = {
+        "active_sales_df": pd.DataFrame(
+            [
+                {
+                    "Product Name": "Sold Out Search Test Vape 1g",
+                    "Quantity Sold": 10,
+                    "SKU": "SOLD-1",
+                    "Package ID": "PKG-SOLD-1",
+                }
+            ]
+        )
+    }
+    sku_results = search_buyer_dash(state, "SOLD-1")
+    assert sku_results
+    assert sku_results[0].kind == "Product"
+    assert sku_results[0].product_name == "Sold Out Search Test Vape 1g"
+
+    package_results = search_buyer_dash(state, "PKG-SOLD-1")
+    assert package_results
+    assert package_results[0].product_name == "Sold Out Search Test Vape 1g"
 
 
 def test_access_context_stays_a_sidebar_org_and_facility_switcher():
