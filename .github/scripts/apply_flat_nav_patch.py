@@ -106,3 +106,4 @@ raw = raw.replace(po_anchor, po_insert, 1)
 
 APP.write_text(raw, encoding="utf-8", newline="")
 print("Applied flat navigation compatibility patch to app.py")
+# trigger after workflow exists
