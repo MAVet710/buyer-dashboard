@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import html
-import math
 from typing import Any, MutableMapping
 
 import pandas as pd
@@ -29,15 +28,22 @@ from services.workspace_navigation import (
 class HomeAction:
     label: str
     description: str
-    group: str
-    workspace: str
+    group: str = ""
+    workspace: str = ""
     section: str = ""
     roles: tuple[str, ...] = ()
+    intent: str = ""
 
 
 HOME_ACTIONS = (
     HomeAction("Review inventory", "Stock health, reorders, and aging risk.", RETAIL_OPS, BUYER_WORKSPACE, "📊 Inventory Dashboard", ("dev", "admin", "buyer", "read_only")),
     HomeAction("Start inventory audit", "Scan, pause, resume, and reconcile counts.", RETAIL_OPS, BUYER_WORKSPACE, "📋 Inventory Counts", ("dev", "admin", "buyer", "supervisor", "operator", "qa")),
+    HomeAction(
+        "Open Package Studio",
+        "Break down, pack down, build, sample, correct, and trace packages.",
+        roles=("dev", "admin", "buyer", "planner", "supervisor", "operator", "qa"),
+        intent="package_studio",
+    ),
     HomeAction("Build purchasing decisions", "Recommendations, budget, deliveries, and POs.", RETAIL_OPS, BUYER_WORKSPACE, "🧾 PO Builder", ("dev", "admin", "buyer")),
     HomeAction("Plan Co-Man production", "Balance orders, machines, crews, and hand labor.", PRODUCTION_OPS, COMAN_WORKSPACE, roles=("dev", "admin", "planner", "supervisor", "operator", "qa")),
     HomeAction("Review extraction", "Inspect run performance, yields, QA, and production risks.", PRODUCTION_OPS, EXTRACTION_WORKSPACE, roles=("dev", "admin", "planner", "supervisor", "operator", "qa")),
@@ -52,6 +58,9 @@ def actions_for_role(role: str) -> tuple[HomeAction, ...]:
 
 
 def activate_home_action(state: MutableMapping[str, Any], action: HomeAction) -> None:
+    if action.intent == "package_studio":
+        state["package_studio_open"] = True
+        return
     queue_workspace_navigation(
         state,
         group=action.group,
@@ -276,12 +285,17 @@ def render_role_home(
                     st.caption(action.description)
                     if st.button(
                         "Open",
-                        key=f"home_action_{card_index}_{action.workspace}_{action.section}",
+                        key=f"home_action_{card_index}_{action.intent or action.workspace}_{action.section}",
                         width="stretch",
                         type="primary" if card_index == 0 else "secondary",
                     ):
                         activate_home_action(st.session_state, action)
                         st.rerun()
+
+    if bool(st.session_state.get("package_studio_open", False)):
+        from modules.package_studio.ui import render_package_studio_dialog
+
+        render_package_studio_dialog(st.session_state)
 
     normalized_ai_status = str(ai_status or "not_connected").strip().lower()
     ai_label = "Connected" if ai_connected else ("Waking up" if normalized_ai_status == "waking_up" else "Not connected")
