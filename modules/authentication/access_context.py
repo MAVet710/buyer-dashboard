@@ -170,27 +170,315 @@ def hydrate_selected_context(
 
 
 def _mobile_context_css() -> None:
+    """Inject the approved Option-B chrome plus mobile tenant controls.
+
+    This layer intentionally styles existing Streamlit widgets rather than
+    replacing underlying business pages. It gives Buyer Dash the dense dark
+    command-center feel from the approved mockup while preserving all routes,
+    forms, tables, and data logic.
+    """
+
     st.markdown(
         """
         <style>
+        :root {
+          --bdb-bg: #090909;
+          --bdb-panel: #0f0f0f;
+          --bdb-panel-2: #151310;
+          --bdb-border: rgba(255,255,255,.08);
+          --bdb-border-strong: rgba(255,255,255,.13);
+          --bdb-text: #f6f5f2;
+          --bdb-muted: #aaa49e;
+          --bdb-dim: #77716c;
+          --bdb-orange: #ff9a3c;
+          --bdb-orange-soft: rgba(255,154,60,.12);
+        }
+
+        /* Overall desktop canvas from the approved Option B mockup. */
+        .stApp {
+          background:
+            radial-gradient(circle at 82% -10%, rgba(255,154,60,.07), transparent 28rem),
+            linear-gradient(145deg,#0b0b0b,#070707 62%) !important;
+        }
+        .block-container {
+          width: min(100%, 1540px) !important;
+          max-width: 1540px !important;
+          padding: 1rem 1.25rem 4rem !important;
+          background: transparent !important;
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+
+        /* Fixed dark rail like the reference. Tenant selector remains above nav. */
+        [data-testid="stSidebar"] {
+          width: 248px !important;
+          background: linear-gradient(180deg,#0c0c0c,#090909) !important;
+          border-right: 1px solid var(--bdb-border) !important;
+          box-shadow: 18px 0 45px rgba(0,0,0,.24) !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+          padding: .8rem .72rem 3rem !important;
+        }
+        [data-testid="stSidebar"] h3 {
+          margin-top: .7rem !important;
+          color: var(--bdb-muted) !important;
+          font-size: .68rem !important;
+          letter-spacing: .12em !important;
+          text-transform: uppercase !important;
+        }
+        [data-testid="stSidebar"] [data-baseweb="select"] > div {
+          min-height: 38px !important;
+          border-radius: 9px !important;
+          background: #111 !important;
+        }
+
+        /* Reference-B page headings are simple, not giant glass cards. */
+        .hero {
+          margin: .2rem 0 .7rem !important;
+          padding: .15rem .05rem .45rem !important;
+          background: transparent !important;
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          backdrop-filter: none !important;
+        }
+        .hero h3 {
+          font-size: clamp(1.85rem,3vw,2.45rem) !important;
+          letter-spacing: -.045em !important;
+        }
+        .hero p {
+          color: var(--bdb-muted) !important;
+          font-size: .86rem !important;
+        }
+        .hero-user {
+          padding: .3rem .55rem !important;
+          border: 1px solid var(--bdb-border) !important;
+          border-radius: 999px !important;
+          background: #111 !important;
+        }
+
+        /* KPI cards: compact, dark, slightly raised. */
+        div[data-testid="stMetric"] {
+          position: relative !important;
+          min-height: 102px !important;
+          padding: .72rem .78rem .68rem !important;
+          background: linear-gradient(145deg,#171512,#101010) !important;
+          border: 1px solid var(--bdb-border) !important;
+          border-radius: 13px !important;
+          box-shadow: 0 10px 24px rgba(0,0,0,.17) !important;
+          overflow: hidden !important;
+        }
+        div[data-testid="stMetric"]::before {
+          content: "";
+          position: absolute;
+          left: 0;
+          right: 0;
+          top: 0;
+          height: 3px;
+          background: var(--bdb-orange);
+          opacity: .92;
+        }
+        div[data-testid="stMetricLabel"] {
+          color: var(--bdb-muted) !important;
+          text-transform: uppercase !important;
+          letter-spacing: .08em !important;
+          font-size: .66rem !important;
+          font-weight: 760 !important;
+        }
+        div[data-testid="stMetricValue"] {
+          color: var(--bdb-text) !important;
+          font-size: 1.55rem !important;
+          font-weight: 820 !important;
+        }
+
+        /* Filters/actions read as one work strip instead of scattered widgets. */
+        [data-testid="stForm"],
+        .st-key-filter_bar,
+        .st-key-action_bar {
+          padding: .62rem .68rem !important;
+          background: #0f0f0f !important;
+          border: 1px solid var(--bdb-border) !important;
+          border-radius: 12px !important;
+          box-shadow: none !important;
+        }
+        [data-baseweb="input"] > div,
+        [data-baseweb="select"] > div,
+        [data-baseweb="textarea"] > div,
+        [data-testid="stNumberInput"] > div > div,
+        [data-testid="stDateInput"] > div > div {
+          min-height: 40px !important;
+          background: #101010 !important;
+          border: 1px solid var(--bdb-border-strong) !important;
+          border-radius: 9px !important;
+          box-shadow: none !important;
+        }
+        [data-baseweb="input"] > div:focus-within,
+        [data-baseweb="select"] > div:focus-within,
+        [data-baseweb="textarea"] > div:focus-within {
+          border-color: rgba(255,154,60,.66) !important;
+          box-shadow: 0 0 0 3px rgba(255,154,60,.10) !important;
+        }
+
+        /* Dense operational table like the screenshot. */
+        [data-testid="stDataFrame"],
+        [data-testid="stDataEditor"] {
+          background: #0e0e0e !important;
+          border: 1px solid var(--bdb-border) !important;
+          border-radius: 13px !important;
+          box-shadow: 0 10px 28px rgba(0,0,0,.14) !important;
+          overflow: hidden !important;
+        }
+        [data-testid="stDataFrame"] [role="columnheader"],
+        [data-testid="stDataEditor"] [role="columnheader"] {
+          background: #111 !important;
+          color: var(--bdb-muted) !important;
+          font-size: .72rem !important;
+          font-weight: 760 !important;
+        }
+
+        /* Buttons use the compact controls from the mockup. */
+        .stButton > button,
+        .stDownloadButton > button,
+        [data-testid="stFormSubmitButton"] > button {
+          min-height: 38px !important;
+          padding: .4rem .72rem !important;
+          border-radius: 9px !important;
+          border: 1px solid var(--bdb-border-strong) !important;
+          background: linear-gradient(180deg,#181818,#111) !important;
+          box-shadow: none !important;
+          font-size: .78rem !important;
+          font-weight: 740 !important;
+        }
+        .stButton > button[kind="primary"],
+        [data-testid="stFormSubmitButton"] > button[kind="primary"] {
+          color: #1c1208 !important;
+          background: linear-gradient(135deg,#ffb66e,#ff9a3c) !important;
+          border-color: #ff9a3c !important;
+        }
+        .stButton > button:hover,
+        .stDownloadButton > button:hover {
+          transform: none !important;
+          border-color: rgba(255,154,60,.52) !important;
+          box-shadow: 0 0 0 3px rgba(255,154,60,.09) !important;
+        }
+
+        /* Work cards become true raised windows/panels. */
+        .chart-card,
+        .section-header-card,
+        [data-testid="stExpander"] {
+          background: linear-gradient(145deg,#131210,#0d0d0d) !important;
+          border: 1px solid var(--bdb-border) !important;
+          border-radius: 13px !important;
+          box-shadow: 0 12px 30px rgba(0,0,0,.15) !important;
+        }
+        .chart-card {
+          padding: .8rem .82rem .55rem !important;
+          margin: .35rem 0 .75rem !important;
+        }
+        [data-testid="stTabs"] [data-baseweb="tab-list"] {
+          gap: .2rem !important;
+          border-bottom: 1px solid var(--bdb-border) !important;
+        }
+        [data-testid="stTabs"] [data-baseweb="tab"] {
+          min-height: 38px !important;
+          padding: .35rem .62rem !important;
+          border-radius: 9px 9px 0 0 !important;
+          font-size: .78rem !important;
+        }
+
+        /* Desktop Product 360 / action dialog resembles the screenshot's drawer. */
+        body div[data-testid="stDialog"] {
+          align-items: stretch !important;
+          justify-content: flex-end !important;
+          padding: 0 !important;
+        }
+        body div[data-testid="stDialog"] > div[role="dialog"] {
+          position: fixed !important;
+          top: 12px !important;
+          right: 12px !important;
+          bottom: 12px !important;
+          left: auto !important;
+          width: min(470px, 88vw) !important;
+          max-width: 470px !important;
+          height: calc(100dvh - 24px) !important;
+          max-height: calc(100dvh - 24px) !important;
+          margin: 0 !important;
+          padding: .85rem .88rem 1.5rem !important;
+          overflow-y: auto !important;
+          border: 1px solid rgba(255,154,60,.20) !important;
+          border-radius: 16px !important;
+          background: linear-gradient(155deg,#171512,#0d0d0d) !important;
+          box-shadow: -20px 20px 70px rgba(0,0,0,.54) !important;
+        }
+
+        /* Mobile tenant switcher: visible in main content, desktop stays sidebar-first. */
         .st-key-mobile_access_context { display: none; }
+
         @media (max-width: 768px) {
+          [data-testid="stSidebar"] {
+            width: min(86vw, 310px) !important;
+          }
+          .block-container {
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: .6rem .62rem 4.6rem !important;
+          }
           .st-key-mobile_access_context {
             display: block !important;
-            margin: .15rem 0 .55rem !important;
-            padding: .5rem .62rem .18rem !important;
-            border: 1px solid rgba(255,255,255,.10) !important;
-            border-radius: 14px !important;
-            background: linear-gradient(145deg,rgba(24,28,25,.96),rgba(17,20,18,.94)) !important;
-            box-shadow: 0 10px 30px rgba(0,0,0,.18) !important;
+            margin: .1rem 0 .5rem !important;
+            padding: .45rem .58rem .16rem !important;
+            border: 1px solid var(--bdb-border) !important;
+            border-radius: 12px !important;
+            background: linear-gradient(145deg,#151310,#0f0f0f) !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,.18) !important;
           }
           .st-key-mobile_access_context [data-testid="stExpander"] {
             border: 0 !important;
             background: transparent !important;
+            box-shadow: none !important;
           }
           .st-key-mobile_access_context [data-testid="stExpander"] details summary {
-            padding: .35rem .1rem !important;
+            padding: .3rem .05rem !important;
           }
+          .hero {
+            align-items: flex-start !important;
+            gap: .4rem !important;
+          }
+          .hero-user { display: none !important; }
+          div[data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+            gap: .5rem !important;
+          }
+          div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            min-width: min(100%, 150px) !important;
+            flex: 1 1 150px !important;
+          }
+          div[data-testid="stMetric"] {
+            min-height: 88px !important;
+            padding: .58rem .62rem !important;
+          }
+          div[data-testid="stMetricValue"] {
+            font-size: 1.28rem !important;
+          }
+          [data-testid="stDataFrame"], [data-testid="stDataEditor"] {
+            max-width: 100% !important;
+            overflow-x: auto !important;
+          }
+          body div[data-testid="stDialog"] > div[role="dialog"] {
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            width: 100vw !important;
+            max-width: 100vw !important;
+            height: 100dvh !important;
+            max-height: 100dvh !important;
+            padding: .68rem .65rem 4rem !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+          }
+          h1 { font-size: clamp(1.7rem, 9vw, 2.2rem) !important; }
+          h2 { font-size: clamp(1.3rem, 7vw, 1.72rem) !important; }
         }
         </style>
         """,
@@ -333,8 +621,6 @@ def render_access_context(*, user_store, rerun) -> None:
     )
     st.sidebar.caption(f"Timezone: {selected_facility.timezone_name}")
 
-    # Main-column fallback for phones. CSS keeps this hidden on desktop while
-    # the same active IDs continue driving all tenant-scoped queries.
     _mobile_context_css()
     with st.container(key="mobile_access_context"):
         with st.expander(
