@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -58,6 +59,13 @@ class ProductVendorLink(TimestampMixin, Base):
         CheckConstraint("minimum_order_quantity >= 0", name="ck_product_vendor_moq"),
         CheckConstraint("case_pack >= 0", name="ck_product_vendor_case_pack"),
         Index("ix_product_vendor_org_active", "organization_id", "active"),
+        Index(
+            "uq_product_vendor_active_primary",
+            "product_id",
+            unique=True,
+            postgresql_where=text("is_primary and active"),
+            sqlite_where=text("is_primary = 1 and active = 1"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
