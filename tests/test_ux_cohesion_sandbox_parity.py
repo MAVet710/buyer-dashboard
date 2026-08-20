@@ -154,25 +154,19 @@ def _sandbox_env():
     return engine, sessions, ids
 
 
-def test_products_is_a_first_class_inventory_destination():
+def test_products_is_a_first_class_inventory_destination_in_both_operation_modes():
     base = [
         ("Inventory", "section", "inventory_dashboard"),
         ("Inventory Audits", "section", "inventory_counts"),
     ]
-    choices = product_master_secondary_choices(
-        base,
-        category="Inventory",
-        operation_mode="Retail Ops",
-    )
-    assert choices[1] == ("Products", "virtual", PRODUCT_MASTER_SURFACE)
-    assert sum(value == PRODUCT_MASTER_SURFACE for _, _, value in choices) == 1
-
-    production = product_master_secondary_choices(
-        [],
-        category="Inventory",
-        operation_mode="Production Ops",
-    )
-    assert production == [("Products", "virtual", PRODUCT_MASTER_SURFACE)]
+    for operation_mode in ("Retail Ops", "Production Ops"):
+        choices = product_master_secondary_choices(
+            base,
+            category="Inventory",
+            operation_mode=operation_mode,
+        )
+        assert choices[1] == ("Products", "virtual", PRODUCT_MASTER_SURFACE)
+        assert sum(value == PRODUCT_MASTER_SURFACE for _, _, value in choices) == 1
 
 
 def test_extraction_routine_stage_update_has_one_deterministic_next_step():
