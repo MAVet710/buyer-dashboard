@@ -12,7 +12,7 @@ Jwin = "$2b$12$your_real_hash_here"
 Run:
 
 ```
-streamlit run hash_test.py
+streamlit run scripts/hash_test.py
 ```
 
 Enter your password and copy the hash.
