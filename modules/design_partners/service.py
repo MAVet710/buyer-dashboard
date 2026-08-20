@@ -45,9 +45,14 @@ class DesignPartnerService:
                 raise ValueError("Organization was not found.")
             row = session.scalar(select(DesignPartnerAccount).where(DesignPartnerAccount.organization_id == organization_id))
             if row is None:
-                row = DesignPartnerAccount(organization_id=organization_id, updated_by=actor)
+                row = DesignPartnerAccount(
+                    organization_id=organization_id,
+                    status="pilot",
+                    updated_by=actor,
+                )
                 session.add(row)
-            row.status = "pilot" if row.status == "prospect" else row.status
+            elif row.status == "prospect":
+                row.status = "pilot"
             row.champion_name = str(champion_name or row.champion_name or "")
             row.champion_email = str(champion_email or row.champion_email or "")
             row.pain_profile = str(pain_profile or row.pain_profile or "")
