@@ -52,12 +52,19 @@ AVAILABLE_ALIASES = (
     "on hand",
     "onhand",
     "on hand units",
+    "on hand total",
     "quantity",
     "qty",
 )
 COST_ALIASES = ("unit cost", "unit_cost", "cost", "cogs", "wholesale")
-ATTENTION_ALIASES = ("attention", "risk", "inventory risk", "alert")
-EXPIRY_DAYS_ALIASES = ("days to expiry", "days_to_expiry", "days until expiration")
+ATTENTION_ALIASES = ("attention", "risk", "inventory risk", "alert", "status")
+EXPIRY_DAYS_ALIASES = (
+    "days to expiry",
+    "days_to_expiry",
+    "days until expiration",
+    "days to expire",
+    "days_to_expire",
+)
 EXPIRY_DATE_ALIASES = (
     "expiration date",
     "expiration",
@@ -108,9 +115,11 @@ def _norm(value: Any) -> str:
 def _column(frame: pd.DataFrame, aliases: tuple[str, ...]) -> str | None:
     if frame is None or frame.empty:
         return None
-    lookup = {_norm(column): str(column) for column in frame.columns}
+    normalized = {_norm(column): str(column) for column in frame.columns}
+    compact = {key.replace(" ", ""): value for key, value in normalized.items()}
     for alias in aliases:
-        found = lookup.get(_norm(alias))
+        key = _norm(alias)
+        found = normalized.get(key) or compact.get(key.replace(" ", ""))
         if found:
             return found
     return None
