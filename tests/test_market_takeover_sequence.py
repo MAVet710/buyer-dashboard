@@ -11,13 +11,13 @@ from sqlalchemy.orm import sessionmaker
 from modules.benchmarks import BenchmarkObservation, BenchmarkService
 from modules.coman.models import (
     Base,
+    BomComponent,
     Facility,
     InventoryLot,
     InventoryTransaction,
     Organization,
     Product,
     ProductBom,
-    BomComponent,
     ProductionOrder,
     TradePartner,
 )
@@ -26,7 +26,6 @@ from modules.commercial_finance import CommercialFinanceService
 from modules.design_partners import DEFAULT_SUCCESS_TARGETS, DesignPartnerService
 from modules.doobie_actions import DoobieActionService
 from modules.migration_center import MigrationCenterService, detect_source_system, normalize_import_row
-from modules.migration_center.models import MigrationRecord
 from modules.production_erp import ProductionERPService
 
 
@@ -37,7 +36,11 @@ def market_env():
     sessions = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     with sessions.begin() as session:
         org = Organization(name="Market Labs", slug="market-labs")
-        facility = Facility(organization=org, name="Main Lab", code="MAIN")
+        session.add(org)
+        session.flush()
+        facility = Facility(organization_id=org.id, name="Main Lab", code="MAIN")
+        session.add(facility)
+        session.flush()
         product = Product(
             organization_id=org.id,
             sku="GMO-BULK",
@@ -59,7 +62,7 @@ def market_env():
         )
         vendor = TradePartner(organization_id=org.id, name="Vendor One", partner_type="vendor")
         customer = TradePartner(organization_id=org.id, name="Customer One", partner_type="customer")
-        session.add_all([org, facility, product, finished, vendor, customer])
+        session.add_all([product, finished, vendor, customer])
         session.flush()
         ids = {
             "org": org.id,
@@ -132,7 +135,8 @@ def test_production_erp_reserves_bom_posts_output_and_requires_qa_release(market
             status="draft", source_lot_reference="", material_owner="internal", packaging_owner="internal", notes="", created_by="planner", updated_by="planner",
         )
         bom = ProductBom(organization_id=ids["org"], output_product_id=ids["finished"], version=1, output_quantity=100, expected_loss_pct=0, active=True, notes="")
-        session.add_all([lot, order, bom]); session.flush()
+        session.add_all([lot, order, bom])
+        session.flush()
         session.add(InventoryTransaction(organization_id=ids["org"], facility_id=ids["facility"], lot_id=lot.id, transaction_type="receipt", quantity_delta=500, unit="g", actor="receiver", reason="test"))
         session.add(BomComponent(organization_id=ids["org"], bom_id=bom.id, input_product_id=ids["bulk"], quantity=350, unit="g", scrap_pct=0))
         order_id = order.id
@@ -193,12 +197,14 @@ def test_benchmark_network_is_opt_in_and_cohort_suppressed(market_env):
     benchmark = BenchmarkService(engine)
     benchmark.set_opt_in(organization_id=ids["org"], share=True, actor="admin", minimum_cohort_size=3)
     with sessions.begin() as session:
-        # Add two more opted-in organizations/facilities; no identities are returned by network_summary.
+        from modules.benchmarks.models import BenchmarkSetting
         for index, value in enumerate((80.0, 90.0), start=2):
             org = Organization(name=f"Peer {index}", slug=f"peer-{index}")
-            fac = Facility(organization=org, name="Lab", code=f"P{index}")
-            session.add_all([org, fac]); session.flush()
-            from modules.benchmarks.models import BenchmarkSetting
+            session.add(org)
+            session.flush()
+            fac = Facility(organization_id=org.id, name="Lab", code=f"P{index}")
+            session.add(fac)
+            session.flush()
             session.add(BenchmarkSetting(organization_id=org.id, share_anonymized_aggregates=True, minimum_cohort_size=3, updated_by="peer"))
             session.add(BenchmarkObservation(organization_id=org.id, facility_id=fac.id, metric_key="production_attainment_pct", cohort_key="production:all", value=value, unit="pct", sample_count=10, period_start=date.today()-timedelta(days=30), period_end=date.today()))
         session.add(BenchmarkObservation(organization_id=ids["org"], facility_id=ids["facility"], metric_key="production_attainment_pct", cohort_key="production:all", value=95.0, unit="pct", sample_count=10, period_start=date.today()-timedelta(days=30), period_end=date.today()))
