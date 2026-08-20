@@ -20,9 +20,9 @@ def product_master_secondary_choices(
     category: str,
     operation_mode: str,
 ) -> list[tuple[str, str, str]]:
-    """Insert Products beside Inventory without exposing implementation architecture."""
+    """Insert Products beside Inventory in both retail and production modes."""
     result = list(choices)
-    if category != "Inventory" or operation_mode == "Production Ops":
+    if category != "Inventory":
         return result
     if any(kind == "virtual" and value == PRODUCT_MASTER_SURFACE for _, kind, value in result):
         return result
@@ -39,10 +39,11 @@ def prepare_ux_cohesion_runtime(st: Any) -> None:
     st._buyer_dash_ux_cohesion_installed = True
 
     from modules.navigation import workspace_shell as shell
-    from modules.navigation.operation_context_bar import PRODUCTION_OPERATION
     from services.workspace_navigation import EXTRACTION_WORKSPACE
 
-    # Make Product Master a normal Inventory destination on desktop and mobile.
+    # Make Product Master a normal Inventory destination on desktop and mobile
+    # for both Retail Ops and Production Ops. Product identity is shared truth,
+    # not a retail-only concern.
     original_secondary = shell._secondary_choices
     if not getattr(original_secondary, "_ux_cohesion_wrapper", False):
         @wraps(original_secondary)
@@ -83,10 +84,7 @@ def prepare_ux_cohesion_runtime(st: Any) -> None:
                 operation_mode: str = "Retail Ops",
                 **kwargs: Any,
             ) -> Any:
-                if (
-                    operation_mode != PRODUCTION_OPERATION
-                    and str(state.get("flat_virtual_surface") or "") == PRODUCT_MASTER_SURFACE
-                ):
+                if str(state.get("flat_virtual_surface") or "") == PRODUCT_MASTER_SURFACE:
                     from modules.product_master.ui import render_product_master_workspace
 
                     return render_product_master_workspace(state)
