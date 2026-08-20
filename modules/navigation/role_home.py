@@ -10,6 +10,8 @@ import pandas as pd
 import streamlit as st
 
 from modules.data_hub import build_data_hub_status
+from services.operations_inbox import InboxItem, build_operations_inbox
+from services.traceability_inbox import build_traceability_inbox
 from services.workspace_navigation import (
     BUYER_WORKSPACE,
     COMAN_WORKSPACE,
@@ -18,6 +20,7 @@ from services.workspace_navigation import (
     DATA_HUB_WORKSPACE,
     DATA_OPERATIONS,
     EXTRACTION_WORKSPACE,
+    METRC_INTEGRATIONS_SECTION,
     PRODUCTION_OPS,
     RETAIL_OPS,
     queue_workspace_navigation,
@@ -38,6 +41,12 @@ class HomeAction:
 HOME_ACTIONS = (
     HomeAction("Review inventory", "Stock health, reorders, and aging risk.", RETAIL_OPS, BUYER_WORKSPACE, "📊 Inventory Dashboard", ("dev", "admin", "buyer", "read_only")),
     HomeAction("Start inventory audit", "Scan, pause, resume, and reconcile counts.", RETAIL_OPS, BUYER_WORKSPACE, "📋 Inventory Counts", ("dev", "admin", "buyer", "supervisor", "operator", "qa")),
+    HomeAction(
+        "Traceability queue",
+        "Review pending, rejected, and reconciliation-required state-system actions.",
+        roles=("dev", "admin", "buyer", "supervisor", "operator", "qa", "read_only"),
+        intent="traceability_console",
+    ),
     HomeAction(
         "Open Package Studio",
         "Break down, pack down, build, sample, correct, and trace packages.",
@@ -61,12 +70,38 @@ def activate_home_action(state: MutableMapping[str, Any], action: HomeAction) ->
     if action.intent == "package_studio":
         state["package_studio_open"] = True
         return
+    if action.intent == "traceability_console":
+        state["traceability_console_open"] = True
+        return
     queue_workspace_navigation(
         state,
         group=action.group,
         workspace=action.workspace,
         buyer_section=action.section,
     )
+
+
+def activate_inbox_item(state: MutableMapping[str, Any], item: InboxItem) -> None:
+    """Open the closest authoritative workflow for one Operations Inbox item."""
+
+    if item.product_name and item.area == "Inventory":
+        state["product_360_selected_name"] = item.product_name
+        state["product_360_open"] = True
+        return
+    if (
+        item.route_section == METRC_INTEGRATIONS_SECTION
+        or item.key.startswith("metrc-")
+        or item.key.startswith("traceability:")
+    ):
+        state["traceability_console_open"] = True
+        return
+    if item.route_group and item.route_workspace:
+        queue_workspace_navigation(
+            state,
+            group=item.route_group,
+            workspace=item.route_workspace,
+            buyer_section=item.route_section,
+        )
 
 
 def _home_css() -> None:
@@ -143,6 +178,24 @@ def _home_css() -> None:
             color:#AAB4AC !important;
             font-size:.75rem;
         }
+        .dl-home-severity {
+            display:inline-flex;
+            margin-top:.15rem;
+            padding:.12rem .36rem;
+            border-radius:999px;
+            border:1px solid rgba(255,255,255,.09);
+            color:#B8C0BA !important;
+            background:rgba(255,255,255,.03);
+            font-size:.58rem;
+            font-weight:820;
+            letter-spacing:.08em;
+            text-transform:uppercase;
+        }
+        .dl-home-evidence {
+            margin-top:.16rem;
+            color:#7F8982 !important;
+            font-size:.65rem;
+        }
         @media (max-width:768px) {
             .dl-role-home { margin-top:.05rem; }
             .dl-role-home h1 { font-size:2rem !important; }
@@ -190,28 +243,47 @@ def _open_purchase_orders() -> tuple[int, float]:
     return int(len(local)), total
 
 
-def _attention_rows(status_rows: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
-    rows: list[tuple[str, str, str]] = []
-    low_stock = _inventory_risk_count()
-    if low_stock:
-        rows.append(("Inventory", f"{low_stock} critical low-cover SKU(s)", "Open Inventory to review replenishment risk."))
+def _render_operations_inbox(items: list[InboxItem]) -> None:
+    st.markdown('<div class="dl-home-section-label">NEEDS ATTENTION · OPERATIONS INBOX</div>', unsafe_allow_html=True)
+    if not items:
+        st.success("No high-priority operational exceptions are visible from the loaded facility data.")
+        st.caption("Start from a task below or use global search.")
+        return
 
-    open_po_count, open_po_total = _open_purchase_orders()
-    if open_po_count:
-        rows.append(("Purchasing", f"{open_po_count} open purchase order(s)", f"${open_po_total:,.0f} currently represented in the loaded order data."))
-
-    missing = [row for row in status_rows if row.get("Status") != "Ready"]
-    if missing:
-        labels = ", ".join(str(row.get("Source") or row.get("Dataset") or "source") for row in missing[:3])
-        rows.append(("Data", f"{len(missing)} source(s) need attention", labels))
-
-    audit_state = st.session_state.get("inventory_audit_active") or st.session_state.get("active_inventory_audit")
-    if audit_state:
-        rows.append(("Audit", "Inventory audit in progress", "Resume the current count instead of starting over."))
-
-    if not rows:
-        rows.append(("Ready", "No high-priority operational exceptions detected", "Start from a task below or use global search."))
-    return rows[:4]
+    for idx, item in enumerate(items):
+        with st.container(key=f"home_alert_{idx}"):
+            area_col, body_col, action_col = st.columns([1.1, 5.2, 1.45])
+            with area_col:
+                st.caption(item.area.upper())
+                st.markdown(
+                    f'<span class="dl-home-severity">{html.escape(item.severity)}</span>',
+                    unsafe_allow_html=True,
+                )
+            with body_col:
+                st.markdown(
+                    f'<div class="dl-home-alert-title">{html.escape(item.title)}</div>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f'<div class="dl-home-alert-detail">{html.escape(item.detail)}</div>',
+                    unsafe_allow_html=True,
+                )
+                evidence = " · ".join(item.evidence)
+                if evidence:
+                    st.markdown(
+                        f'<div class="dl-home-evidence">{html.escape(evidence)}</div>',
+                        unsafe_allow_html=True,
+                    )
+            with action_col:
+                if item.route_workspace or item.product_name:
+                    if st.button(
+                        item.action_label,
+                        key=f"home_inbox_action_{idx}_{item.key}",
+                        width="stretch",
+                        type="primary" if item.severity == "critical" else "secondary",
+                    ):
+                        activate_inbox_item(st.session_state, item)
+                        st.rerun()
 
 
 def render_role_home(
@@ -247,13 +319,27 @@ def render_role_home(
     ready_sources = sum(row.get("Status") == "Ready" for row in status_rows)
     low_stock = _inventory_risk_count()
     open_po_count, open_po_total = _open_purchase_orders()
+    base_inbox_items = build_operations_inbox(
+        st.session_state,
+        status_rows=status_rows,
+        limit=12,
+    )
+    traceability_items = build_traceability_inbox(st.session_state, limit=6)
+    if traceability_items:
+        base_inbox_items = [item for item in base_inbox_items if item.key != "metrc-sync-failures"]
+    inbox_items = sorted(
+        [*traceability_items, *base_inbox_items],
+        key=lambda item: item.score,
+        reverse=True,
+    )[:8]
+    high_priority = sum(item.severity in {"critical", "high"} for item in inbox_items)
 
     metric_columns = st.columns(4)
     metric_values = (
-        ("Data sources ready", f"{ready_sources}/{len(status_rows)}", "Sources available to workspaces"),
+        ("Needs attention", str(len(inbox_items)), f"{high_priority} high-priority item(s)"),
         ("Low stock", str(low_stock), "Critical cover signal"),
         ("Open POs", str(open_po_count), f"${open_po_total:,.0f} represented"),
-        ("Facility", facility_name or "Not selected", "Tenant-scoped workspace"),
+        ("Data sources ready", f"{ready_sources}/{len(status_rows)}", "Sources available to workspaces"),
     )
     for idx, (column, metric) in enumerate(zip(metric_columns, metric_values)):
         label, value, caption = metric
@@ -262,15 +348,7 @@ def render_role_home(
                 st.metric(label, value)
                 st.caption(caption)
 
-    st.markdown('<div class="dl-home-section-label">NEEDS ATTENTION</div>', unsafe_allow_html=True)
-    for idx, (area, title, detail) in enumerate(_attention_rows(status_rows)):
-        with st.container(key=f"home_alert_{idx}"):
-            left, right = st.columns([1, 5])
-            with left:
-                st.caption(area.upper())
-            with right:
-                st.markdown(f'<div class="dl-home-alert-title">{html.escape(title)}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="dl-home-alert-detail">{html.escape(detail)}</div>', unsafe_allow_html=True)
+    _render_operations_inbox(inbox_items)
 
     st.markdown('<div class="dl-home-section-label" style="margin-top:1rem">START A TASK</div>', unsafe_allow_html=True)
     actions = actions_for_role(normalized_role)
@@ -297,6 +375,11 @@ def render_role_home(
 
         render_package_studio_dialog(st.session_state)
 
+    if bool(st.session_state.get("traceability_console_open", False)):
+        from modules.traceability.ui import render_traceability_console_dialog
+
+        render_traceability_console_dialog(st.session_state)
+
     normalized_ai_status = str(ai_status or "not_connected").strip().lower()
     ai_label = "Connected" if ai_connected else ("Waking up" if normalized_ai_status == "waking_up" else "Not connected")
-    st.caption(f"Doobie AI: {ai_label} · Global search and all task routes remain usable without AI.")
+    st.caption(f"Doobie AI: {ai_label} · Operations Inbox and all task routes remain usable without AI.")
