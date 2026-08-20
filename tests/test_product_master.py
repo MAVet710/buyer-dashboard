@@ -32,6 +32,13 @@ def product_master_env():
             unit_cost=3.0,
             retail_price=12.0,
         )
+        same_org_product = Product(
+            organization_id=org.id,
+            sku="GMO-PR-5PK",
+            name="GMO Pre-Roll 5pk",
+            item_type="finished_good",
+            base_unit="unit",
+        )
         other_product = Product(
             organization_id=other_org.id,
             sku="OTHER-1",
@@ -54,12 +61,13 @@ def product_master_env():
             name="Retail Customer",
             partner_type="customer",
         )
-        session.add_all([product, other_product, vendor, vendor_two, customer])
+        session.add_all([product, same_org_product, other_product, vendor, vendor_two, customer])
         session.flush()
         ids = {
             "org": org.id,
             "other_org": other_org.id,
             "product": product.id,
+            "same_org_product": same_org_product.id,
             "other_product": other_product.id,
             "vendor": vendor.id,
             "vendor_two": vendor_two.id,
@@ -141,7 +149,7 @@ def test_vendor_links_enforce_vendor_role_and_single_primary(product_master_env)
         )
 
 
-def test_external_mappings_and_aliases_are_collision_safe(product_master_env):
+def test_external_mappings_and_aliases_are_collision_safe_and_tenant_scoped(product_master_env):
     engine, _sessions, ids = product_master_env
     repo = ProductMasterRepository(engine)
 
@@ -168,7 +176,7 @@ def test_external_mappings_and_aliases_are_collision_safe(product_master_env):
     with pytest.raises(ValueError, match="different Buyer Dash product"):
         repo.map_external(
             ids["org"],
-            ids["other_product"],
+            ids["same_org_product"],
             system_name="Metrc",
             external_id="ITEM-123",
             actor="buyer",
@@ -176,11 +184,20 @@ def test_external_mappings_and_aliases_are_collision_safe(product_master_env):
 
     with pytest.raises(ValueError, match="different Buyer Dash product"):
         repo.add_alias(
-            ids["other_org"],
-            ids["other_product"],
+            ids["org"],
+            ids["same_org_product"],
             "GMO PR 1 Gram",
             actor="buyer",
         )
+
+    other_alias = repo.add_alias(
+        ids["other_org"],
+        ids["other_product"],
+        "GMO PR 1 Gram",
+        actor="other-buyer",
+    )
+    assert other_alias.product_id == ids["other_product"]
+    assert repo.resolve_alias(ids["other_org"], "gmo pr 1 gram").id == ids["other_product"]
 
 
 def test_value_history_is_append_only_and_mirrors_current_product_values(product_master_env):
