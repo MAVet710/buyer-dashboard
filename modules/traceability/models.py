@@ -2,8 +2,8 @@
 
 These tables are provider-neutral infrastructure for Metrc, BioTrack, or future
 state systems. They record Buyer Dash intent, validation/submission state,
-provider responses, retry/reconciliation state, and immutable attempts. They do
-not store API keys or other credentials.
+provider responses, retry/reconciliation state, immutable attempts, and an
+append-only lifecycle history. They do not store API keys or other credentials.
 """
 
 from __future__ import annotations
@@ -131,3 +131,41 @@ class TraceabilityTransactionAttempt(Base):
     error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TraceabilityStatusEvent(Base):
+    """Append-only evidence of every traceability lifecycle decision."""
+
+    __tablename__ = "traceability_status_events"
+    __table_args__ = (
+        CheckConstraint(
+            "from_status in ('requested','validated','queued','submitted','accepted','rejected','verified','reconciliation_required','cancelled')",
+            name="ck_traceability_event_from_status",
+        ),
+        CheckConstraint(
+            "to_status in ('requested','validated','queued','submitted','accepted','rejected','verified','reconciliation_required','cancelled')",
+            name="ck_traceability_event_to_status",
+        ),
+        Index(
+            "ix_traceability_status_event_tx_time",
+            "transaction_id",
+            "occurred_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    facility_id: Mapped[str] = mapped_column(
+        ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    transaction_id: Mapped[str] = mapped_column(
+        ForeignKey("traceability_transactions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    from_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    to_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    reason: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="system")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
