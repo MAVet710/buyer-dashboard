@@ -226,7 +226,7 @@ def _open_purchase_orders() -> tuple[int, float]:
 
 
 def _render_operations_inbox(items: list[InboxItem]) -> None:
-    st.markdown('<div class="dl-home-section-label">OPERATIONS INBOX</div>', unsafe_allow_html=True)
+    st.markdown('<div class="dl-home-section-label">NEEDS ATTENTION · OPERATIONS INBOX</div>', unsafe_allow_html=True)
     if not items:
         st.success("No high-priority operational exceptions are visible from the loaded facility data.")
         st.caption("Start from a task below or use global search.")
