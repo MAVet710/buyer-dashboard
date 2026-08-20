@@ -9,7 +9,9 @@ import pandas as pd
 import streamlit as st
 
 from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engine
+from modules.inventory_receiving import resolve_traceability_credentials
 from .backoffice import MANUAL_TRACEABILITY_ROLES, TraceabilityBackofficeRepository
+from .processor import TraceabilityCredentials, process_queued
 
 
 STATUS_LABELS = {
@@ -245,6 +247,55 @@ def _render_transaction_detail(
         execute("cancel")
 
 
+def _drain_queue(
+    state: MutableMapping[str, Any],
+    repository: TraceabilityBackofficeRepository,
+    organization_id: str,
+    facility_id: str,
+) -> None:
+    """Opportunistically submit queued transactions when this screen is opened.
+
+    Buyer Dash has no background worker (Streamlit Cloud + Supabase free tier
+    don't run one), so the queue is drained on the visits that already happen
+    rather than on a schedule. process_queued only touches rows still in the
+    'queued' status, so repeated reruns of this page are self-limiting and
+    never resubmit an item that already moved to a terminal-ish status.
+    """
+
+    credentials_source = resolve_traceability_credentials(state)
+    if not credentials_source.configured:
+        return
+
+    credentials = TraceabilityCredentials(
+        provider="metrc",
+        state=credentials_source.state,
+        user_api_key=credentials_source.user_api_key,
+        integrator_api_key=credentials_source.integrator_api_key,
+        license_number=credentials_source.license_number,
+    )
+    try:
+        processed = process_queued(
+            repository,
+            organization_id=organization_id,
+            facility_id=facility_id,
+            credentials=credentials,
+            actor=_actor(state),
+        )
+    except Exception:
+        return
+
+    if not processed:
+        return
+    accepted = sum(1 for transaction in processed if transaction.status == "accepted")
+    needs_review = len(processed) - accepted
+    message = f"Synced {len(processed)} queued Metrc action(s)"
+    if accepted:
+        message += f" · {accepted} accepted"
+    if needs_review:
+        message += f" · {needs_review} need review"
+    st.toast(message, icon="🔄")
+
+
 def render_traceability_console(state: MutableMapping[str, Any]) -> None:
     st.caption("TRACEABILITY OPERATIONS · BACKOFFICE")
     st.markdown("## Queue & Reconciliation")
@@ -254,6 +305,8 @@ def render_traceability_console(state: MutableMapping[str, Any]) -> None:
 
     try:
         repository, organization_id, facility_id = _repository_and_scope(state)
+        if can_manage_traceability(state):
+            _drain_queue(state, repository, organization_id, facility_id)
         summary = repository.summary(organization_id, facility_id)
     except ComanDatabaseConfigurationError:
         st.warning("The Backoffice database is not configured in this environment.")
