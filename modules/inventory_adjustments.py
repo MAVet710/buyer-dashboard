@@ -14,11 +14,9 @@ from sqlalchemy.orm import sessionmaker
 from modules.coman.db import create_coman_engine
 from modules.coman.models import InventoryLot, InventoryTransaction
 from modules.data_hub_repository import DataHubRepository
+from modules.traceability.inventory_adjustment import run_tracked_metrc_adjustment
 from services.inventory_state import get_active_inventory_df, set_active_inventory_df
-from services.metrc_inventory_adjustments import (
-    fetch_package_adjustment_reasons,
-    submit_package_adjustment,
-)
+from services.metrc_inventory_adjustments import fetch_package_adjustment_reasons
 
 
 LOCAL_REASONS = (
@@ -304,40 +302,42 @@ def apply_inventory_adjustment(
     if abs(delta) <= 1e-9:
         raise ValueError("The adjustment does not change the current quantity.")
 
+    def apply_local(external_status: str) -> tuple[float, str]:
+        if is_production:
+            return _apply_production_local(
+                state,
+                durable_lot_id,
+                final_quantity=final_quantity,
+                reason=reason,
+                note=reason_note,
+                external_status=external_status,
+            )
+        return _apply_retail_local(state, package_id, final_quantity)
+
     credentials = _credentials(state)
     metrc_status = "not_configured"
+    traceability_transaction_id = ""
     if sync_to_metrc and not bypass_state_system:
         if credentials is None or not getattr(credentials, "configured", False):
             raise ValueError("Metrc sync was requested, but this user/facility does not have a complete Metrc connection.")
-        result = submit_package_adjustment(
-            state=credentials.state,
-            user_api_key=credentials.user_api_key,
-            integrator_api_key=credentials.integrator_api_key,
-            license_number=credentials.license_number,
-            package_label=package_id,
+        local_delta, local_unit, traceability_transaction_id = run_tracked_metrc_adjustment(
+            organization_id=_clean(state.get("active_organization_id")),
+            facility_id=_clean(state.get("active_facility_id")),
+            actor=_actor(state),
+            credentials=credentials,
+            package_id=package_id,
             adjustment_type="incremental" if mode.startswith("increment") else "absolute",
             quantity=delta if mode.startswith("increment") else final_quantity,
             unit=unit,
             reason=reason,
             reason_note=reason_note,
+            local_apply=lambda: apply_local("synced"),
         )
-        if not result.get("ok"):
-            raise RuntimeError(str(result.get("message") or "Metrc rejected the inventory adjustment."))
         metrc_status = "synced"
-    elif bypass_state_system:
-        metrc_status = "bypassed"
-
-    if is_production:
-        local_delta, local_unit = _apply_production_local(
-            state,
-            durable_lot_id,
-            final_quantity=final_quantity,
-            reason=reason,
-            note=reason_note,
-            external_status=metrc_status,
-        )
     else:
-        local_delta, local_unit = _apply_retail_local(state, package_id, final_quantity)
+        if bypass_state_system:
+            metrc_status = "bypassed"
+        local_delta, local_unit = apply_local(metrc_status)
 
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -353,6 +353,7 @@ def apply_inventory_adjustment(
         "reason": _clean(reason),
         "reason_note": _clean(reason_note),
         "metrc_status": metrc_status,
+        "traceability_transaction_id": traceability_transaction_id,
     }
     try:
         _append_journal(state, entry)
