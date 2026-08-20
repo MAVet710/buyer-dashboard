@@ -10,11 +10,9 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import sessionmaker
 
 from modules.coman.models import InventoryLot
+from modules.product_master.models import ProductExternalMapping
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
-from modules.traceability.processor import (
-    TraceabilityCredentials,
-    process_transaction,
-)
+from modules.traceability.processor import TraceabilityCredentials, process_transaction
 
 from .models import ExtractionRun, ExtractionRunInput, ExtractionRunOutput
 
@@ -42,9 +40,9 @@ class ExtractionTraceabilityService:
         expiration_date: date | None = None,
     ):
         new_tag = str(new_tag or "").strip()
-        metrc_item_name = str(metrc_item_name or "").strip()
-        if not new_tag or not metrc_item_name:
-            raise ValueError("A new Metrc tag and Metrc Item name are required.")
+        requested_item_name = str(metrc_item_name or "").strip()
+        if not new_tag:
+            raise ValueError("A new Metrc tag is required.")
 
         with self._session_factory() as session:
             run = session.get(ExtractionRun, run_id)
@@ -61,6 +59,27 @@ class ExtractionTraceabilityService:
                 raise ValueError("Extraction run/output was not found in the active facility.")
             if output.compliance_package_id and output.compliance_package_id != new_tag:
                 raise ValueError("This extraction output is already linked to a different compliance package.")
+
+            resolved_item_name = requested_item_name
+            if not resolved_item_name and str(run.compliance_provider or "metrc").strip().casefold() == "metrc":
+                mapping = session.scalar(
+                    select(ProductExternalMapping)
+                    .where(
+                        ProductExternalMapping.organization_id == organization_id,
+                        ProductExternalMapping.product_id == output.product_id,
+                        ProductExternalMapping.system_name == "metrc",
+                        ProductExternalMapping.active.is_(True),
+                    )
+                    .order_by(ProductExternalMapping.updated_at.desc())
+                    .limit(1)
+                )
+                if mapping:
+                    resolved_item_name = str(mapping.external_name or "").strip()
+            if not resolved_item_name:
+                raise ValueError(
+                    "A Metrc Item name is required. Map the canonical output product to Metrc in Product Master, "
+                    "or enter the exact Item name for this package creation."
+                )
 
             inputs = list(
                 session.scalars(
@@ -92,7 +111,7 @@ class ExtractionTraceabilityService:
 
             payload = {
                 "tag": new_tag,
-                "item": metrc_item_name,
+                "item": resolved_item_name,
                 "quantity": float(output.quantity),
                 "unit": output.unit,
                 "ingredients": ingredients,
@@ -104,6 +123,7 @@ class ExtractionTraceabilityService:
                 "expiration_date": expiration_date.isoformat() if expiration_date else "",
                 "run_id": run.id,
                 "output_id": output.id,
+                "item_resolution": "manual" if requested_item_name else "product_master",
             }
             provider = str(run.compliance_provider or "metrc").strip().casefold()
             license_number = str(run.license_number or "").strip()
