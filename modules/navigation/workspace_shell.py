@@ -1,8 +1,9 @@
 """Responsive, compatibility-safe navigation for the Buyer Dash shell.
 
-The shell presents the simple business-language navigation approved for Buyer
-Dash while continuing to route into the existing workspace/page identifiers.
-Organization and facility selection remain owned by access_context.py.
+The shell presents simple business-language navigation while continuing to route
+into the existing workspace/page identifiers. Flat mode adds a persistent
+organization/facility/operation bar and intercepts only the primary Inventory
+Dashboard route for Inventory v2; legacy pages remain intact.
 """
 
 from __future__ import annotations
@@ -29,6 +30,9 @@ from services.workspace_navigation import (
     flat_buyer_sections,
     flat_category_for_route,
 )
+
+
+INVENTORY_DASHBOARD_SECTION = "📊 Inventory Dashboard"
 
 
 def normalize_workspace_state(
@@ -113,6 +117,19 @@ def _available_flat_categories(
     return available
 
 
+def _categories_for_operation(categories: Sequence[str], operation_mode: str) -> list[str]:
+    """Keep navigation focused on the selected Retail/Production operating mode."""
+
+    from modules.navigation.operation_context_bar import PRODUCTION_OPERATION
+
+    if operation_mode == PRODUCTION_OPERATION:
+        allowed = {"Home", "Inventory", "Production", "Orders", "Compliance", "Data & Settings"}
+    else:
+        allowed = {"Home", "Inventory", "Purchasing", "Orders", "Reports", "Compliance", "Data & Settings"}
+    scoped = [category for category in categories if category in allowed]
+    return scoped or list(categories)
+
+
 def _default_route_for_category(
     state: MutableMapping[str, Any],
     category: str,
@@ -128,7 +145,7 @@ def _default_route_for_category(
     if category in {"Inventory", "Purchasing", "Reports", "Compliance"} and BUYER_WORKSPACE in workspaces:
         sections = flat_buyer_sections(category, dict(section_groups))
         preferred = {
-            "Inventory": "📊 Inventory Dashboard",
+            "Inventory": INVENTORY_DASHBOARD_SECTION,
             "Purchasing": "🧾 PO Builder",
             "Reports": "📈 Trends",
             "Compliance": "🧭 Compliance Q&A",
@@ -171,8 +188,14 @@ def _secondary_choices(
     category: str,
     groups: Mapping[str, Sequence[str]],
     section_groups: Mapping[str, Sequence[str]],
+    *,
+    operation_mode: str = "Retail Ops",
 ) -> list[tuple[str, str, str]]:
+    from modules.navigation.operation_context_bar import PRODUCTION_OPERATION
+
     workspaces = _workspace_set(groups)
+    if category == "Inventory" and operation_mode == PRODUCTION_OPERATION:
+        return []
     if category in {"Inventory", "Purchasing", "Reports", "Compliance"}:
         return [
             (buyer_section_display_name(section), "section", section)
@@ -274,8 +297,6 @@ def _render_legacy_selector(
 def _shell_css() -> str:
     return """
     <style>
-    /* The old Buyer widgets still exist underneath for compatibility. Flat mode
-       removes them from the presentation so there is only one visible shell. */
     .st-key-buyer_section_group,
     .st-key-buyer_section,
     .st-key-data_mode { display:none !important; }
@@ -348,8 +369,6 @@ def _shell_css() -> str:
         border-radius:12px !important;
     }
 
-    /* Higher specificity than Product 360's legacy dialog CSS. This makes the
-       same dialog behave as the approved right drawer without duplicating data. */
     body div[data-testid="stDialog"] {
         align-items:stretch !important;
         justify-content:flex-end !important;
@@ -500,6 +519,8 @@ def _render_mobile_navigation(
     groups: Mapping[str, Sequence[str]],
     section_groups: Mapping[str, Sequence[str]],
     category: str,
+    *,
+    operation_mode: str,
 ) -> None:
     import streamlit as st
 
@@ -523,7 +544,12 @@ def _render_mobile_navigation(
         )
 
         mobile_category = str(state.get("mobile_flat_navigation_section") or category)
-        choices = _secondary_choices(mobile_category, groups, section_groups)
+        choices = _secondary_choices(
+            mobile_category,
+            groups,
+            section_groups,
+            operation_mode=operation_mode,
+        )
         if choices:
             current_label = _current_secondary_label(state, choices)
             if state.get("mobile_flat_nav_tool_label") != current_label:
@@ -545,27 +571,28 @@ def _render_mobile_navigation(
                 label_visibility="collapsed",
             )
 
-        modes = ["📁 Uploads", "🔴 Dutchie Live"]
-        current_mode = str(state.get("data_mode") or modes[0])
-        if current_mode not in modes:
-            current_mode = modes[0]
-        if state.get("mobile_flat_nav_data_mode") != current_mode:
-            state["mobile_flat_nav_data_mode"] = current_mode
+        if operation_mode != "Production Ops":
+            modes = ["📁 Uploads", "🔴 Dutchie Live"]
+            current_mode = str(state.get("data_mode") or modes[0])
+            if current_mode not in modes:
+                current_mode = modes[0]
+            if state.get("mobile_flat_nav_data_mode") != current_mode:
+                state["mobile_flat_nav_data_mode"] = current_mode
 
-        def sync_mobile_data_mode() -> None:
-            selected = str(state.get("mobile_flat_nav_data_mode") or modes[0])
-            if selected in modes:
-                state["data_mode"] = selected
-                state["flat_nav_data_mode"] = selected
+            def sync_mobile_data_mode() -> None:
+                selected = str(state.get("mobile_flat_nav_data_mode") or modes[0])
+                if selected in modes:
+                    state["data_mode"] = selected
+                    state["flat_nav_data_mode"] = selected
 
-        with st.expander("Data source", expanded=False):
-            st.selectbox(
-                "Buyer data mode",
-                modes,
-                key="mobile_flat_nav_data_mode",
-                on_change=sync_mobile_data_mode,
-                label_visibility="collapsed",
-            )
+            with st.expander("Data source", expanded=False):
+                st.selectbox(
+                    "Buyer data mode",
+                    modes,
+                    key="mobile_flat_nav_data_mode",
+                    on_change=sync_mobile_data_mode,
+                    label_visibility="collapsed",
+                )
 
 
 def render_workspace_selector(
@@ -573,6 +600,7 @@ def render_workspace_selector(
 ) -> tuple[str, str]:
     import html
     import streamlit as st
+    from modules.navigation.operation_context_bar import render_operation_context_bar
     from modules.navigation.product_360 import render_global_search
 
     normalize_workspace_state(st.session_state, groups, preferred_group=preferred_group)
@@ -588,16 +616,23 @@ def render_workspace_selector(
 
     st.markdown(_shell_css(), unsafe_allow_html=True)
     section_groups = _buyer_groups_for_state(state)
-    available = _available_flat_categories(groups, section_groups)
+    operation_mode = render_operation_context_bar(groups, state)
+    available = _categories_for_operation(
+        _available_flat_categories(groups, section_groups),
+        operation_mode,
+    )
     if not available:
         return _render_legacy_selector(groups, preferred_group=preferred_group)
 
-    inferred = flat_category_for_route(
+    raw_inferred = flat_category_for_route(
         str(state.get("workspace_mode") or ""),
         str(state.get("buyer_section") or ""),
     )
-    if inferred not in available:
-        inferred = available[0]
+    if raw_inferred not in available:
+        inferred = "Inventory" if "Inventory" in available else available[0]
+        _default_route_for_category(state, inferred, groups, section_groups)
+    else:
+        inferred = raw_inferred
     if state.get("flat_navigation_section") != inferred:
         state["flat_navigation_section"] = inferred
 
@@ -613,6 +648,7 @@ def render_workspace_selector(
         for value in [
             str(state.get("active_organization_name") or ""),
             str(state.get("active_facility_name") or ""),
+            operation_mode,
         ]
         if value
     )
@@ -630,12 +666,15 @@ def render_workspace_selector(
         label_visibility="collapsed",
     )
 
-    _render_secondary_sidebar(
-        state,
-        _secondary_choices(category, groups, section_groups),
+    secondary = _secondary_choices(
+        category,
+        groups,
         section_groups,
+        operation_mode=operation_mode,
     )
-    _render_data_mode_sidebar(state)
+    _render_secondary_sidebar(state, secondary, section_groups)
+    if operation_mode != "Production Ops":
+        _render_data_mode_sidebar(state)
 
     with st.sidebar.expander("Navigation options", expanded=False):
         st.toggle(
@@ -644,8 +683,27 @@ def render_workspace_selector(
             help="Compatibility fallback. No legacy pages are removed by the flat shell.",
         )
 
-    _render_mobile_navigation(state, available, groups, section_groups, category)
+    _render_mobile_navigation(
+        state,
+        available,
+        groups,
+        section_groups,
+        category,
+        operation_mode=operation_mode,
+    )
     render_global_search(state)
+
+    # Inventory v2 replaces only the primary Inventory Dashboard presentation.
+    # All other legacy Buyer sections continue through app.py unchanged.
+    if (
+        category == "Inventory"
+        and str(state.get("workspace_mode") or "") == BUYER_WORKSPACE
+        and str(state.get("buyer_section") or "") == INVENTORY_DASHBOARD_SECTION
+    ):
+        from modules.inventory_command_center import render_inventory_command_center
+
+        render_inventory_command_center(state, operation_mode=operation_mode)
+        st.stop()
 
     normalize_workspace_state(state, groups, preferred_group=preferred_group)
     return str(state["operations_group"]), str(state["workspace_mode"])
