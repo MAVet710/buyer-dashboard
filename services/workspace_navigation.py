@@ -55,7 +55,7 @@ BUYER_SECTION_FLAT_CATEGORY = {
 }
 
 BUYER_SECTION_DISPLAY_NAME = {
-    "📊 Inventory Dashboard": "Inventory Overview",
+    "📊 Inventory Dashboard": "Inventory",
     INVENTORY_COUNTS_SECTION: "Inventory Audits",
     "🐢 Slow Movers": "Slow Movers",
     MA_FLOWER_EQUIVALENCY_SECTION: "MA Flower Equivalency",

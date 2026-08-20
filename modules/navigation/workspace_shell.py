@@ -172,7 +172,11 @@ def _default_route_for_category(
             _set_production_route(state, workspace)
         return
 
-    if category in {"Inventory", "Purchasing", "Reports", "Compliance"} and BUYER_WORKSPACE in workspaces:
+    if category == "Purchasing" and BUYER_WORKSPACE in workspaces:
+        _set_buyer_route(state, INVENTORY_DASHBOARD_SECTION, section_groups)
+        return
+
+    if category in {"Inventory", "Reports", "Compliance"} and BUYER_WORKSPACE in workspaces:
         sections = flat_buyer_sections(category, dict(section_groups))
         preferred = {
             "Inventory": INVENTORY_DASHBOARD_SECTION,
@@ -218,7 +222,12 @@ def _secondary_choices(
     workspaces = _workspace_set(groups)
     if category == "Inventory" and operation_mode == PRODUCTION_OPERATION:
         return []
-    if category in {"Inventory", "Purchasing", "Reports", "Compliance"}:
+    if category == "Purchasing":
+        return [("Overview", "section", INVENTORY_DASHBOARD_SECTION)] + [
+            (buyer_section_display_name(section), "section", section)
+            for section in flat_buyer_sections(category, dict(section_groups))
+        ]
+    if category in {"Inventory", "Reports", "Compliance"}:
         return [
             (buyer_section_display_name(section), "section", section)
             for section in flat_buyer_sections(category, dict(section_groups))
@@ -669,6 +678,14 @@ def render_workspace_selector(
     ):
         inferred = "Inventory"
         _default_route_for_category(state, "Inventory", groups, section_groups)
+    elif (
+        operation_mode != PRODUCTION_OPERATION
+        and requested_category == "Purchasing"
+        and str(state.get("workspace_mode") or "") == BUYER_WORKSPACE
+        and str(state.get("buyer_section") or "") == INVENTORY_DASHBOARD_SECTION
+        and "Purchasing" in available
+    ):
+        inferred = "Purchasing"
     elif requested_category == "Data & Settings" and state.get("flat_virtual_surface") == LOCATION_SETTINGS_SURFACE:
         inferred = "Data & Settings"
     elif raw_inferred not in available:
