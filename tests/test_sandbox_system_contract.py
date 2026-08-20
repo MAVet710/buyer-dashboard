@@ -39,7 +39,7 @@ def _session_state_from_payload() -> dict:
         "detail_cached_df": payload["detail"].copy(),
         "detail_product_cached_df": payload["detail_product"].copy(),
         "delivery_manifest_df": payload["manifest"].copy(),
-        "delivery_sales_df": payload["delivery_sales"].copy(),
+        "delivery_sales_df": payload["sales"].copy(),
         "compliance_sources_df": payload["compliance"].copy(),
         "demo_nomenclature_catalog_df": payload["nomenclature_catalog"].copy(),
         "demo_nomenclature_manifest_df": payload["nomenclature_manifest"].copy(),
