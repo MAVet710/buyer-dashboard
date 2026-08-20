@@ -19,6 +19,7 @@ from services.workspace_navigation import (
     DATA_HUB_WORKSPACE,
     DATA_OPERATIONS,
     EXTRACTION_WORKSPACE,
+    METRC_INTEGRATIONS_SECTION,
     PRODUCTION_OPS,
     RETAIL_OPS,
     queue_workspace_navigation,
@@ -39,6 +40,12 @@ class HomeAction:
 HOME_ACTIONS = (
     HomeAction("Review inventory", "Stock health, reorders, and aging risk.", RETAIL_OPS, BUYER_WORKSPACE, "📊 Inventory Dashboard", ("dev", "admin", "buyer", "read_only")),
     HomeAction("Start inventory audit", "Scan, pause, resume, and reconcile counts.", RETAIL_OPS, BUYER_WORKSPACE, "📋 Inventory Counts", ("dev", "admin", "buyer", "supervisor", "operator", "qa")),
+    HomeAction(
+        "Traceability queue",
+        "Review pending, rejected, and reconciliation-required state-system actions.",
+        roles=("dev", "admin", "buyer", "supervisor", "operator", "qa", "read_only"),
+        intent="traceability_console",
+    ),
     HomeAction(
         "Open Package Studio",
         "Break down, pack down, build, sample, correct, and trace packages.",
@@ -62,6 +69,9 @@ def activate_home_action(state: MutableMapping[str, Any], action: HomeAction) ->
     if action.intent == "package_studio":
         state["package_studio_open"] = True
         return
+    if action.intent == "traceability_console":
+        state["traceability_console_open"] = True
+        return
     queue_workspace_navigation(
         state,
         group=action.group,
@@ -76,6 +86,9 @@ def activate_inbox_item(state: MutableMapping[str, Any], item: InboxItem) -> Non
     if item.product_name and item.area == "Inventory":
         state["product_360_selected_name"] = item.product_name
         state["product_360_open"] = True
+        return
+    if item.route_section == METRC_INTEGRATIONS_SECTION or item.key.startswith("metrc-"):
+        state["traceability_console_open"] = True
         return
     if item.route_group and item.route_workspace:
         queue_workspace_navigation(
@@ -348,6 +361,11 @@ def render_role_home(
         from modules.package_studio.ui import render_package_studio_dialog
 
         render_package_studio_dialog(st.session_state)
+
+    if bool(st.session_state.get("traceability_console_open", False)):
+        from modules.traceability.ui import render_traceability_console_dialog
+
+        render_traceability_console_dialog(st.session_state)
 
     normalized_ai_status = str(ai_status or "not_connected").strip().lower()
     ai_label = "Connected" if ai_connected else ("Waking up" if normalized_ai_status == "waking_up" else "Not connected")
