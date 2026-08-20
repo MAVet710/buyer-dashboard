@@ -40,6 +40,9 @@ create index if not exists ix_product_vendor_links_organization_id on public.pro
 create index if not exists ix_product_vendor_links_product_id on public.product_vendor_links(product_id);
 create index if not exists ix_product_vendor_links_partner_id on public.product_vendor_links(partner_id);
 create index if not exists ix_product_vendor_org_active on public.product_vendor_links(organization_id, active);
+create unique index if not exists uq_product_vendor_active_primary
+    on public.product_vendor_links(product_id)
+    where is_primary and active;
 
 create table if not exists public.product_external_mappings (
     id varchar(36) primary key,
