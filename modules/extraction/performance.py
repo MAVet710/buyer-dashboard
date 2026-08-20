@@ -7,7 +7,8 @@ operator can compare a run against its real peers and act from Run 360.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import json
+from datetime import timezone
 from statistics import median
 from typing import Any, Iterable
 
@@ -223,14 +224,20 @@ class ExtractionPerformanceService:
             session.add(
                 AuditEvent(
                     organization_id=organization_id,
-                    facility_id=facility_id,
                     entity_type="extraction_run",
                     entity_id=run.id,
                     action="resource_usage_recorded",
                     actor=clean_actor,
-                    changes_json=(
-                        f'{{"resource_type":"{kind}","resource_name":"{name}",'
-                        f'"quantity":{qty},"unit":"{clean_unit}","cost_usd":{amount}}}'
+                    changes_json=json.dumps(
+                        {
+                            "facility_id": facility_id,
+                            "resource_type": kind,
+                            "resource_name": name,
+                            "quantity": qty,
+                            "unit": clean_unit,
+                            "cost_usd": amount,
+                        },
+                        sort_keys=True,
                     ),
                 )
             )
