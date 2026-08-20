@@ -8,12 +8,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Engine, func, or_, select
+from sqlalchemy import Engine, and_, func, or_, select
 from sqlalchemy.orm import sessionmaker
 
-from modules.coman.models import Product
+from modules.coman.models import Product, TradePartner
 
-from .models import ProductAlias, ProductExternalMapping, ProductMasterProfile
+from .models import (
+    ProductAlias,
+    ProductExternalMapping,
+    ProductMasterProfile,
+    ProductVendorLink,
+)
 from .repository import ProductMasterRepository, normalize_alias
 
 
@@ -181,6 +186,10 @@ def resolve_product_master(
     return flatten_product_master_snapshot(snapshot)
 
 
+def _token_match(column: Any, tokens: list[str]) -> Any:
+    return and_(*[func.lower(column).like(f"%{token}%") for token in tokens])
+
+
 def search_product_master(
     engine: Engine,
     organization_id: str,
@@ -191,7 +200,9 @@ def search_product_master(
     needle = normalize_alias(query)
     if len(needle) < 2:
         return []
-    like = f"%{needle}%"
+    tokens = [token for token in needle.split() if token]
+    alias_like = f"%{needle}%"
+    raw_like = f"%{_clean(query).casefold()}%"
     sessions = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     product_ids: list[str] = []
 
@@ -212,9 +223,9 @@ def search_product_master(
                         Product.organization_id == organization_id,
                         Product.active.is_(True),
                         or_(
-                            func.lower(Product.name).like(like),
-                            func.lower(Product.sku).like(like),
-                            func.lower(Product.upc).like(like),
+                            _token_match(Product.name, tokens),
+                            _token_match(Product.sku, tokens),
+                            _token_match(Product.upc, tokens),
                         ),
                     )
                     .order_by(Product.name)
@@ -230,7 +241,7 @@ def search_product_master(
                         .where(
                             ProductAlias.organization_id == organization_id,
                             ProductAlias.active.is_(True),
-                            ProductAlias.normalized_alias.like(like),
+                            ProductAlias.normalized_alias.like(alias_like),
                         )
                         .limit(limit)
                     )
@@ -245,8 +256,8 @@ def search_product_master(
                             ProductExternalMapping.organization_id == organization_id,
                             ProductExternalMapping.active.is_(True),
                             or_(
-                                func.lower(ProductExternalMapping.external_id).like(like),
-                                func.lower(ProductExternalMapping.external_name).like(like),
+                                func.lower(ProductExternalMapping.external_id).like(raw_like),
+                                _token_match(ProductExternalMapping.external_name, tokens),
                             ),
                         )
                         .limit(limit)
@@ -261,11 +272,29 @@ def search_product_master(
                         .where(
                             ProductMasterProfile.organization_id == organization_id,
                             or_(
-                                func.lower(ProductMasterProfile.brand).like(like),
-                                func.lower(ProductMasterProfile.category).like(like),
-                                func.lower(ProductMasterProfile.subcategory).like(like),
-                                func.lower(ProductMasterProfile.strain).like(like),
-                                func.lower(ProductMasterProfile.manufacturer).like(like),
+                                _token_match(ProductMasterProfile.brand, tokens),
+                                _token_match(ProductMasterProfile.category, tokens),
+                                _token_match(ProductMasterProfile.subcategory, tokens),
+                                _token_match(ProductMasterProfile.strain, tokens),
+                                _token_match(ProductMasterProfile.manufacturer, tokens),
+                            ),
+                        )
+                        .limit(limit)
+                    )
+                )
+            )
+        if len(product_ids) < limit:
+            add(
+                list(
+                    session.scalars(
+                        select(ProductVendorLink.product_id)
+                        .join(TradePartner, TradePartner.id == ProductVendorLink.partner_id)
+                        .where(
+                            ProductVendorLink.organization_id == organization_id,
+                            ProductVendorLink.active.is_(True),
+                            or_(
+                                _token_match(TradePartner.name, tokens),
+                                _token_match(ProductVendorLink.vendor_sku, tokens),
                             ),
                         )
                         .limit(limit)
