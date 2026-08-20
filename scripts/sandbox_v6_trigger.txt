@@ -1,1 +1,0 @@
-Trigger the branch-local Sandbox v6 upgrade workflow.
