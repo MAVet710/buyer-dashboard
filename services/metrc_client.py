@@ -130,6 +130,149 @@ def _facility_label(facility: Any) -> str:
     return str(label or license_number or "").strip()
 
 
+def _metrc_get(
+    *,
+    state: str,
+    user_api_key: str,
+    integrator_api_key: str,
+    path: str,
+    params: dict[str, Any] | None = None,
+    timeout_seconds: int = 12,
+) -> dict[str, Any]:
+    """Perform one authenticated, read-only Metrc v2 request."""
+
+    base_url, state_code = resolve_metrc_base_url(state)
+    user_api_key = str(user_api_key or "").strip()
+    integrator_api_key = str(integrator_api_key or "").strip()
+    if not base_url:
+        return {"ok": False, "status": "missing_state", "message": "Enter a valid Metrc state or API base URL."}
+    if not integrator_api_key:
+        return {"ok": False, "status": "missing_integrator_key", "message": "METRC_INTEGRATOR_API_KEY is not configured.", "state": state_code, "base_url": base_url}
+    if not user_api_key:
+        return {"ok": False, "status": "missing_user_key", "message": "A Metrc user API key is required.", "state": state_code, "base_url": base_url}
+
+    try:
+        response = requests.get(
+            f"{base_url}/{str(path).lstrip('/')}",
+            auth=(integrator_api_key, user_api_key),
+            params=params or {},
+            timeout=timeout_seconds,
+            headers={"Accept": "application/json"},
+        )
+    except requests.Timeout:
+        return {"ok": False, "status": "timeout", "message": "Metrc did not respond before the timeout.", "state": state_code, "base_url": base_url}
+    except requests.RequestException as exc:
+        return {"ok": False, "status": "request_error", "message": f"Metrc request failed: {type(exc).__name__}.", "state": state_code, "base_url": base_url}
+
+    result: dict[str, Any] = {
+        "ok": response.status_code == 200,
+        "http_status": int(response.status_code),
+        "state": state_code,
+        "base_url": base_url,
+    }
+    if response.status_code == 401:
+        result.update(status="auth_failed", message="Metrc rejected the integrator/user API key pair.")
+        return result
+    if response.status_code == 403:
+        result.update(status="forbidden", message="Metrc authenticated the keys, but this user does not have permission for this transfer endpoint.")
+        return result
+    if response.status_code == 429:
+        result.update(status="rate_limited", message="Metrc rate limited the request.", retry_after=response.headers.get("Retry-After", ""))
+        return result
+    if response.status_code >= 400:
+        result.update(status="http_error", message=f"Metrc returned HTTP {response.status_code}.")
+        return result
+    try:
+        payload = response.json()
+    except ValueError:
+        result.update(ok=False, status="invalid_json", message="Metrc returned an invalid JSON response.")
+        return result
+    result.update(status="connected", message="Metrc request succeeded.", payload=payload)
+    return result
+
+
+def _payload_rows(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [dict(row) for row in payload if isinstance(row, dict)]
+    if isinstance(payload, dict):
+        data = payload.get("Data")
+        if isinstance(data, list):
+            return [dict(row) for row in data if isinstance(row, dict)]
+    return []
+
+
+def fetch_metrc_incoming_transfers(
+    *,
+    state: str,
+    user_api_key: str,
+    integrator_api_key: str,
+    license_number: str,
+    timeout_seconds: int = 12,
+) -> dict[str, Any]:
+    """Fetch the facility's current incoming transfer queue without mutating Metrc."""
+
+    license_number = str(license_number or "").strip()
+    if not license_number:
+        return {"ok": False, "status": "missing_license", "message": "A Metrc facility license is required."}
+    result = _metrc_get(
+        state=state,
+        user_api_key=user_api_key,
+        integrator_api_key=integrator_api_key,
+        path="transfers/v2/incoming",
+        params={"licenseNumber": license_number, "pageSize": 20, "pageNumber": 1},
+        timeout_seconds=timeout_seconds,
+    )
+    if result.get("ok"):
+        result["transfers"] = _payload_rows(result.get("payload"))
+    return result
+
+
+def fetch_metrc_transfer_deliveries(
+    *,
+    state: str,
+    user_api_key: str,
+    integrator_api_key: str,
+    transfer_id: int | str,
+    timeout_seconds: int = 12,
+) -> dict[str, Any]:
+    """Fetch deliveries associated with one inbound transfer."""
+
+    result = _metrc_get(
+        state=state,
+        user_api_key=user_api_key,
+        integrator_api_key=integrator_api_key,
+        path=f"transfers/v2/{transfer_id}/deliveries",
+        params={"pageSize": 20, "pageNumber": 1},
+        timeout_seconds=timeout_seconds,
+    )
+    if result.get("ok"):
+        result["deliveries"] = _payload_rows(result.get("payload"))
+    return result
+
+
+def fetch_metrc_delivery_packages(
+    *,
+    state: str,
+    user_api_key: str,
+    integrator_api_key: str,
+    delivery_id: int | str,
+    timeout_seconds: int = 12,
+) -> dict[str, Any]:
+    """Fetch package details for one inbound transfer delivery."""
+
+    result = _metrc_get(
+        state=state,
+        user_api_key=user_api_key,
+        integrator_api_key=integrator_api_key,
+        path=f"transfers/v2/deliveries/{delivery_id}/packages",
+        params={"pageSize": 20, "pageNumber": 1},
+        timeout_seconds=timeout_seconds,
+    )
+    if result.get("ok"):
+        result["packages"] = _payload_rows(result.get("payload"))
+    return result
+
+
 def test_metrc_connection(
     *,
     state: str,
