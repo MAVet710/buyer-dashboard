@@ -120,3 +120,27 @@ def test_operations_inbox_preserves_resume_audit_route_and_limit():
     )
     assert audit_items[0].route_section == INVENTORY_COUNTS_SECTION
     assert audit_items[0].action_label == "Resume Audit"
+
+
+def test_operations_inbox_supports_legacy_compact_buyer_cache_columns():
+    state = {
+        "detail_product_cached_df": pd.DataFrame(
+            [
+                {
+                    "product_name": "Legacy Cache Flower 3.5g",
+                    "onhandunits": 12,
+                    "avgunitsperday": 2.0,
+                    "daysonhand": 6.0,
+                    "unit_cost": 20.0,
+                    "days_to_expire": 20,
+                }
+            ]
+        )
+    }
+
+    items = build_operations_inbox(state, today=date(2026, 8, 20))
+    keys = {item.key for item in items}
+
+    assert "stockout:legacy cache flower 3 5g" not in keys
+    assert "low-cover:legacy cache flower 3 5g" in keys
+    assert "expiry:legacy cache flower 3 5g" in keys
