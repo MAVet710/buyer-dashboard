@@ -1,6 +1,6 @@
 """Canonical Product Master enrichment for the existing Product 360 experience.
 
-The existing Product 360 module remains the compatibility fallback.  This module
+The existing Product 360 module remains the compatibility fallback. This module
 wraps its read/search/render functions at package import time so mastered products
 receive durable identity, vendor, external mapping, and value-history context
 without duplicating the existing inventory/sales/PO action implementation.
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import math
+import re
 from typing import Any, MutableMapping
 
 import pandas as pd
@@ -23,7 +24,7 @@ def _clean(value: Any) -> str:
 
 
 def _norm(value: Any) -> str:
-    return " ".join(_clean(value).casefold().split())
+    return re.sub(r"[^a-z0-9]+", " ", _clean(value).casefold()).strip()
 
 
 def _load_master_context(
@@ -71,7 +72,7 @@ def _apply_vendor_constraints(quantity: int, *, moq: float, case_pack: float) ->
     if moq > 0:
         value = max(value, int(math.ceil(moq)))
     if case_pack > 0:
-        value = int(math.ceil(value / case_pack) * case_pack)
+        value = int(math.ceil(math.ceil(value / case_pack) * case_pack))
     return max(0, value)
 
 
@@ -134,7 +135,8 @@ def enrich_product_360_snapshot(
         0.0, retail_price - unit_cost
     )
 
-    days_on_hand = float(enriched.get("days_on_hand") or math.inf)
+    raw_doh = enriched.get("days_on_hand")
+    days_on_hand = float(raw_doh) if raw_doh is not None else math.inf
     lead_time = enriched["vendor_lead_time_days"]
     safety_days = 2
     if lead_time > 0 and math.isfinite(days_on_hand):
