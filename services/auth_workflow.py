@@ -29,13 +29,15 @@ def apply_authenticated_session(state: MutableMapping, account_name: str, is_adm
     state["_admin_lockout_until"] = None
     state["_user_lockout_until"] = None
     mark_session_activity(state)
-    try:
-        from services.demo_data import ensure_full_app_demo_session
 
-        ensure_full_app_demo_session(state, actor=account_name)
-    except Exception:
-        # Authentication must never fail merely because optional demo data could not seed.
-        pass
+    # Do not seed the demo before organization/facility selection. Sandbox
+    # persistence is tenant-scoped; hydrating here can mark the in-memory demo
+    # current before a real Supabase scope exists, preventing the selected DEV
+    # Sandbox from restoring its durable source set. The access-context hydrator
+    # owns this work once the organization and facility are known.
+    state.pop("_full_app_demo_version", None)
+    state.pop("_sandbox_supabase_restored", None)
+    state.pop("_context_hydrated_scope", None)
 
 
 def mark_session_activity(state: MutableMapping, *, now: datetime | None = None) -> None:
