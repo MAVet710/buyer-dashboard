@@ -11,6 +11,7 @@ import streamlit as st
 
 from modules.data_hub import build_data_hub_status
 from services.operations_inbox import InboxItem, build_operations_inbox
+from services.traceability_inbox import build_traceability_inbox
 from services.workspace_navigation import (
     BUYER_WORKSPACE,
     COMAN_WORKSPACE,
@@ -87,7 +88,11 @@ def activate_inbox_item(state: MutableMapping[str, Any], item: InboxItem) -> Non
         state["product_360_selected_name"] = item.product_name
         state["product_360_open"] = True
         return
-    if item.route_section == METRC_INTEGRATIONS_SECTION or item.key.startswith("metrc-"):
+    if (
+        item.route_section == METRC_INTEGRATIONS_SECTION
+        or item.key.startswith("metrc-")
+        or item.key.startswith("traceability:")
+    ):
         state["traceability_console_open"] = True
         return
     if item.route_group and item.route_workspace:
@@ -314,11 +319,19 @@ def render_role_home(
     ready_sources = sum(row.get("Status") == "Ready" for row in status_rows)
     low_stock = _inventory_risk_count()
     open_po_count, open_po_total = _open_purchase_orders()
-    inbox_items = build_operations_inbox(
+    base_inbox_items = build_operations_inbox(
         st.session_state,
         status_rows=status_rows,
-        limit=8,
+        limit=12,
     )
+    traceability_items = build_traceability_inbox(st.session_state, limit=6)
+    if traceability_items:
+        base_inbox_items = [item for item in base_inbox_items if item.key != "metrc-sync-failures"]
+    inbox_items = sorted(
+        [*traceability_items, *base_inbox_items],
+        key=lambda item: item.score,
+        reverse=True,
+    )[:8]
     high_priority = sum(item.severity in {"critical", "high"} for item in inbox_items)
 
     metric_columns = st.columns(4)
