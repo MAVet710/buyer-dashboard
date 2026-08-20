@@ -12,6 +12,7 @@ from datetime import date
 import json
 from typing import Any, Mapping
 
+from modules.coman.models import Facility, Organization
 from services.metrc_inventory_adjustments import submit_package_adjustment
 from services.metrc_packages import submit_package_creation
 from .backoffice import TraceabilityBackofficeRepository
@@ -65,6 +66,24 @@ def _optional_date(value: Any) -> date | None:
         return date.fromisoformat(text[:10])
     except ValueError as exc:
         raise ValueError(f"Traceability transaction payload has invalid date {text!r}.") from exc
+
+
+def _is_dev_sandbox_scope(
+    repository: TraceabilityBackofficeRepository,
+    organization_id: str,
+    facility_id: str,
+) -> bool:
+    """Return whether provider execution is targeting the isolated DEV Sandbox."""
+    with repository._session_factory() as session:
+        organization = session.get(Organization, organization_id)
+        facility = session.get(Facility, facility_id)
+        return bool(
+            organization
+            and facility
+            and facility.organization_id == organization.id
+            and str(organization.slug or "").strip().casefold() == "dev-sandbox"
+            and str(facility.code or "").strip().casefold() == "sandbox"
+        )
 
 
 def _submit_metrc_adjustment(transaction, credentials: TraceabilityCredentials, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -173,6 +192,10 @@ def process_transaction(
     provider = str(transaction.provider or "").strip().casefold()
     if provider != str(credentials.provider or "").strip().casefold():
         raise ValueError("Runtime credentials do not match the transaction provider.")
+    if _is_dev_sandbox_scope(repository, organization_id, facility_id):
+        raise ValueError(
+            "DEV Sandbox traceability is simulation-only and cannot submit writes to external providers."
+        )
 
     transaction = repository.transition_logged(
         organization_id=organization_id,
