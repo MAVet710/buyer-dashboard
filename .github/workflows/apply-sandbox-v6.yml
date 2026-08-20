@@ -1,0 +1,35 @@
+name: Apply Sandbox v6 Upgrade
+
+on:
+  push:
+    branches:
+      - agent/sandbox-complete-120d
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/sandbox-complete-120d
+          fetch-depth: 0
+
+      - name: Apply sandbox v6 patch
+        run: python scripts/apply_sandbox_v6_upgrade.py
+
+      - name: Commit functional changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- services/demo_data_buyer.py services/demo_data_operations.py services/demo_data.py services/sandbox_readiness.py modules/inventory_command_center.py modules/coman/demo_data.py
+          if git diff --cached --quiet; then
+            echo "No patch changes to commit."
+            exit 0
+          fi
+          git commit -m "Upgrade DEV Sandbox to 120-day complete dataset"
+          git push origin HEAD:agent/sandbox-complete-120d
