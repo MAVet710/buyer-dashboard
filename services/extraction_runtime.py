@@ -1,30 +1,21 @@
-"""Compatibility bridge between the legacy Extraction command center and durable ERP.
+"""Compatibility bridge between legacy Extraction UI and durable Extraction ERP.
 
-This module lets the existing giant ``app.py`` remain a fallback while durable
-Extraction becomes the source of truth. It runs before/after ``import app`` from
-the Streamlit entrypoint:
-
-* durable runs hydrate the legacy session DataFrame before rendering;
-* the legacy Extraction Inventory tab is hydrated from the shared lot ledger;
-* newly-created/edited legacy run rows are captured back into durable run/stage
-  history after the page executes;
-* known seed/demo rows are never imported into production tenants.
+The legacy Streamlit command center remains a compatibility surface while durable
+Extraction owns run history and the shared Co-Man lot ledger owns inventory.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 import hashlib
 import json
 from typing import Any, MutableMapping
 
 import pandas as pd
-from sqlalchemy import inspect, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import sessionmaker
 
 from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engine
-from modules.coman.models import Customer, Facility, InventoryLot, Product
-from modules.coman.repository import ComanRepository
+from modules.coman.models import InventoryLot
 from modules.extraction.models import (
     ExtractionCostEvent,
     ExtractionRun,
@@ -36,7 +27,6 @@ from modules.extraction.repository import ExtractionRepository
 from modules.extraction.workflows import get_extraction_workflow
 
 
-_RUNTIME_MARKER = "_extraction_durable_runtime_v1"
 _BEFORE_ROWS = "_extraction_durable_before_rows"
 
 
@@ -58,9 +48,9 @@ def _actor(state: MutableMapping[str, Any]) -> str:
 
 def _sandbox_active(state: MutableMapping[str, Any]) -> bool:
     return bool(
-        state.get("_sandbox_contract_version")
+        state.get("demo_mode_enabled")
+        or state.get("_full_app_demo_version")
         or state.get("_sandbox_supabase_restored")
-        or state.get("demo_selected_scenario")
     )
 
 
@@ -70,18 +60,20 @@ def _engine_if_ready(state: MutableMapping[str, Any]):
         return None
     try:
         engine = create_coman_engine()
-    except ComanDatabaseConfigurationError:
-        return None
-    try:
         if not inspect(engine).has_table("extraction_runs"):
             return None
-    except Exception:
+        return engine
+    except (ComanDatabaseConfigurationError, Exception):
         return None
-    return engine
+
+
+def _safe_float(value: Any) -> float:
+    parsed = pd.to_numeric(value, errors="coerce")
+    return float(parsed) if pd.notna(parsed) else 0.0
 
 
 def _row_hash(row: pd.Series | dict[str, Any]) -> str:
-    record = dict(row) if not isinstance(row, pd.Series) else row.to_dict()
+    record = row.to_dict() if isinstance(row, pd.Series) else dict(row)
     keys = (
         "process_stage",
         "status",
@@ -102,11 +94,13 @@ def _row_hash(row: pd.Series | dict[str, Any]) -> str:
         "overhead_cogs_usd",
     )
     payload = {key: record.get(key) for key in keys}
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
 
 
 def _is_known_seed_row(row: pd.Series | dict[str, Any]) -> bool:
-    record = dict(row) if not isinstance(row, pd.Series) else row.to_dict()
+    record = row.to_dict() if isinstance(row, pd.Series) else dict(row)
     batch = str(record.get("batch_id_internal") or "").strip()
     license_name = str(record.get("license_name") or "").strip()
     notes = str(record.get("notes") or "").casefold()
@@ -205,12 +199,13 @@ def _legacy_status(run: ExtractionRun) -> str:
 
 
 def _legacy_coa(outputs: list[ExtractionRunOutput]) -> str:
-    if not outputs:
+    active = [output for output in outputs if output.status not in {"waste", "destroyed"}]
+    if not active:
         return "Pending"
-    statuses = {output.coa_status for output in outputs if output.status not in {"waste", "destroyed"}}
+    statuses = {output.coa_status for output in active}
     if "failed" in statuses:
         return "Failed"
-    if statuses and statuses <= {"passed"}:
+    if statuses <= {"passed"}:
         return "Passed"
     if statuses == {"not_submitted"}:
         return "Not Submitted"
@@ -232,8 +227,12 @@ def _durable_run_frame(engine, organization_id: str, facility_id: str) -> pd.Dat
         )
         rows: list[dict[str, Any]] = []
         for run in runs:
-            inputs = list(session.scalars(select(ExtractionRunInput).where(ExtractionRunInput.run_id == run.id)))
-            outputs = list(session.scalars(select(ExtractionRunOutput).where(ExtractionRunOutput.run_id == run.id)))
+            inputs = list(
+                session.scalars(select(ExtractionRunInput).where(ExtractionRunInput.run_id == run.id))
+            )
+            outputs = list(
+                session.scalars(select(ExtractionRunOutput).where(ExtractionRunOutput.run_id == run.id))
+            )
             stages = list(
                 session.scalars(
                     select(ExtractionStageEvent)
@@ -252,16 +251,16 @@ def _durable_run_frame(engine, organization_id: str, facility_id: str) -> pd.Dat
             cost_map = {str(category): float(amount or 0.0) for category, amount in cost_rows}
             source_lots = [session.get(InventoryLot, item.lot_id) for item in inputs]
             source_lots = [lot for lot in source_lots if lot is not None]
-            consumed = float(sum(float(item.consumed_quantity) for item in inputs))
-            reserved = float(sum(float(item.reserved_quantity) for item in inputs))
-            finished = float(sum(float(item.quantity) for item in outputs if item.status != "destroyed"))
+            consumed = sum(float(item.consumed_quantity) for item in inputs)
+            reserved = sum(float(item.reserved_quantity) for item in inputs)
+            finished = sum(float(item.quantity) for item in outputs if item.status != "destroyed")
             yield_pct = finished / consumed * 100.0 if consumed > 0 else 0.0
             last_stage = stages[-1] if stages else None
             workflow = get_extraction_workflow(run.workflow_key)
             source_package_ids = [lot.compliance_package_id for lot in source_lots if lot.compliance_package_id]
             source_batch_ids = [lot.lot_code for lot in source_lots if lot.lot_code]
             output_package_ids = [item.compliance_package_id for item in outputs if item.compliance_package_id]
-            total_cogs = float(sum(cost_map.values()))
+            total_cogs = sum(cost_map.values())
             rows.append(
                 {
                     "run_date": (run.started_at or run.created_at).date().isoformat(),
@@ -325,9 +324,8 @@ def _durable_run_frame(engine, organization_id: str, facility_id: str) -> pd.Dat
 
 def _durable_inventory_frame(engine, organization_id: str, facility_id: str) -> pd.DataFrame:
     repo = ExtractionRepository(engine)
-    rows = repo.list_available_lots(organization_id, facility_id)
-    values = []
-    for row in rows:
+    values: list[dict[str, Any]] = []
+    for row in repo.list_available_lots(organization_id, facility_id):
         values.append(
             {
                 "received_date": "",
@@ -347,7 +345,7 @@ def _durable_inventory_frame(engine, organization_id: str, facility_id: str) -> 
                 "cost_per_g": row["unit_cost"],
                 "total_cost": row["balance"] * row["unit_cost"],
                 "status": row["status"].title(),
-                "lab_status": "Passed" if row["status"] in {"available", "reserved"} else "Pending",
+                "lab_status": "Passed",
                 "storage_location": row["location"],
                 "source_extraction_batch": "",
                 "facility_name": facility_id,
@@ -371,7 +369,7 @@ def prepare_extraction_runtime(streamlit_module) -> None:
         durable_runs = _durable_run_frame(engine, organization_id, facility_id)
         durable_inventory = _durable_inventory_frame(engine, organization_id, facility_id)
     except Exception as exc:
-        state["_extraction_runtime_error"] = f"prepare:{type(exc).__name__}"
+        state["_extraction_runtime_error"] = f"prepare:{type(exc).__name__}:{exc}"
         return
 
     current_runs = state.get("ecc_run_log")
@@ -383,11 +381,8 @@ def prepare_extraction_runtime(streamlit_module) -> None:
     if not durable_runs.empty:
         state["ecc_run_log"] = durable_runs
     elif not has_non_seed_current:
-        # Prevent app.py from installing its old sample seed rows in a real tenant.
         state["ecc_run_log"] = pd.DataFrame()
 
-    # Old Extraction Inventory becomes a compatibility projection of the shared
-    # lot ledger rather than a second inventory source of truth.
     state["ecc_inventory_log"] = durable_inventory
     state.setdefault("ecc_client_jobs", pd.DataFrame())
     frame = state.get("ecc_run_log")
@@ -398,7 +393,6 @@ def prepare_extraction_runtime(streamlit_module) -> None:
             if batch:
                 before[batch] = _row_hash(row)
     state[_BEFORE_ROWS] = before
-    state[_RUNTIME_MARKER] = True
     state.pop("_extraction_runtime_error", None)
 
 
@@ -420,7 +414,7 @@ def _import_costs_once(
         "overhead": "overhead_cogs_usd",
     }
     for category, field in mapping.items():
-        amount = float(pd.to_numeric(record.get(field), errors="coerce") or 0.0)
+        amount = _safe_float(record.get(field))
         if amount > 0:
             repository.add_cost_event(
                 organization_id=organization_id,
@@ -430,7 +424,7 @@ def _import_costs_once(
                 amount_usd=amount,
                 actor=actor,
                 source_type="legacy_import",
-                notes="Imported once from the legacy Extraction command center.",
+                notes="Imported once from legacy Extraction compatibility view.",
             )
 
 
@@ -474,33 +468,34 @@ def finalize_extraction_runtime(streamlit_module) -> None:
                     ),
                     strain=str(record.get("strain") or ""),
                     operator=str(record.get("operator") or ""),
-                    license_number=str(record.get("license_name") or state.get("metrc_license_number") or ""),
+                    license_number=str(
+                        record.get("license_name")
+                        or state.get("metrc_license_number")
+                        or ""
+                    ),
                     toll_processing=bool(record.get("toll_processing") or False),
                     notes=str(record.get("notes") or ""),
                 )
                 created = True
                 _import_costs_once(repository, organization_id, facility_id, run.id, record, actor)
 
-            current_hash = _row_hash(row)
-            if created or before.get(batch) != current_hash:
-                process_stage = str(record.get("process_stage") or "")
-                stage_key = _legacy_stage_key(run.workflow_key, process_stage)
+            if created or before.get(batch) != _row_hash(row):
+                stage_key = _legacy_stage_key(run.workflow_key, str(record.get("process_stage") or ""))
                 qa_hold = bool(record.get("qa_hold") or False)
                 status_text = str(record.get("status") or "").casefold()
                 event_type = "hold" if qa_hold or "hold" in status_text else "measurement"
-                input_weight = float(pd.to_numeric(record.get("input_weight_g"), errors="coerce") or 0.0)
-                output_candidates = [
-                    record.get("final_output_g"),
-                    record.get("distillation_output_g"),
-                    record.get("post_process_output_g"),
-                    record.get("extraction_output_g"),
-                    record.get("finished_output_g"),
-                ]
+                input_weight = _safe_float(record.get("input_weight_g"))
                 output_weight = next(
                     (
-                        float(value)
-                        for value in (pd.to_numeric(value, errors="coerce") for value in output_candidates)
-                        if pd.notna(value) and float(value) > 0
+                        value
+                        for value in (
+                            _safe_float(record.get("final_output_g")),
+                            _safe_float(record.get("distillation_output_g")),
+                            _safe_float(record.get("post_process_output_g")),
+                            _safe_float(record.get("extraction_output_g")),
+                            _safe_float(record.get("finished_output_g")),
+                        )
+                        if value > 0
                     ),
                     0.0,
                 )
@@ -527,6 +522,4 @@ def finalize_extraction_runtime(streamlit_module) -> None:
                     )
         state.pop("_extraction_runtime_error", None)
     except Exception as exc:
-        # Never crash the whole Streamlit app because the compatibility bridge
-        # could not persist one row. Run 360 remains the authoritative editor.
         state["_extraction_runtime_error"] = f"finalize:{type(exc).__name__}:{exc}"
