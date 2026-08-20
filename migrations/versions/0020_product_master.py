@@ -63,6 +63,13 @@ def upgrade() -> None:
     op.create_index("ix_product_vendor_links_product_id", "product_vendor_links", ["product_id"])
     op.create_index("ix_product_vendor_links_partner_id", "product_vendor_links", ["partner_id"])
     op.create_index("ix_product_vendor_org_active", "product_vendor_links", ["organization_id", "active"])
+    op.create_index(
+        "uq_product_vendor_active_primary",
+        "product_vendor_links",
+        ["product_id"],
+        unique=True,
+        postgresql_where=sa.text("is_primary and active"),
+    )
 
     op.create_table(
         "product_external_mappings",
