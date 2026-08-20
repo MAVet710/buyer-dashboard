@@ -76,13 +76,50 @@ create index if not exists ix_traceability_transaction_attempts_transaction_id
 create index if not exists ix_traceability_attempt_tx_time
     on public.traceability_transaction_attempts(transaction_id, started_at);
 
+create table if not exists public.traceability_status_events (
+    id varchar(36) primary key,
+    organization_id varchar(36) not null references public.coman_organizations(id) on delete cascade,
+    facility_id varchar(36) not null references public.coman_facilities(id) on delete restrict,
+    transaction_id varchar(36) not null references public.traceability_transactions(id) on delete cascade,
+    from_status varchar(32) not null,
+    to_status varchar(32) not null,
+    actor varchar(255) not null,
+    reason varchar(512) not null default '',
+    source varchar(32) not null default 'system',
+    occurred_at timestamptz not null default now(),
+    constraint ck_traceability_event_from_status check (
+        from_status in (
+            'requested','validated','queued','submitted','accepted','rejected',
+            'verified','reconciliation_required','cancelled'
+        )
+    ),
+    constraint ck_traceability_event_to_status check (
+        to_status in (
+            'requested','validated','queued','submitted','accepted','rejected',
+            'verified','reconciliation_required','cancelled'
+        )
+    )
+);
+
+create index if not exists ix_traceability_status_events_organization_id
+    on public.traceability_status_events(organization_id);
+create index if not exists ix_traceability_status_events_facility_id
+    on public.traceability_status_events(facility_id);
+create index if not exists ix_traceability_status_events_transaction_id
+    on public.traceability_status_events(transaction_id);
+create index if not exists ix_traceability_status_event_tx_time
+    on public.traceability_status_events(transaction_id, occurred_at);
+
 alter table public.traceability_transactions enable row level security;
 alter table public.traceability_transaction_attempts enable row level security;
+alter table public.traceability_status_events enable row level security;
 
 comment on table public.traceability_transactions is
     'Provider-neutral Buyer Dash state-traceability action ledger with idempotency, lifecycle, retry, and reconciliation state.';
 comment on table public.traceability_transaction_attempts is
     'Immutable external submission attempt history for Buyer Dash traceability actions; credentials are never stored here.';
+comment on table public.traceability_status_events is
+    'Append-only lifecycle decision history for Buyer Dash traceability actions.';
 
 update public.alembic_version
 set version_num = '0018_traceability_transactions'
