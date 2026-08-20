@@ -8,10 +8,12 @@ attempt results, and deterministic lifecycle transitions.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import json
 from typing import Any, Mapping
 
 from services.metrc_inventory_adjustments import submit_package_adjustment
+from services.metrc_packages import submit_package_creation
 from .backoffice import TraceabilityBackofficeRepository
 
 
@@ -55,21 +57,17 @@ def _require(value: Any, field: str) -> Any:
     return value
 
 
-def _submit_metrc(transaction, credentials: TraceabilityCredentials) -> dict[str, Any]:
-    if not credentials.configured:
-        return {
-            "ok": False,
-            "status": "missing_credentials",
-            "message": "Complete Metrc runtime credentials are required to process this transaction.",
-        }
-    if transaction.operation_type != "package_adjustment":
-        return {
-            "ok": False,
-            "status": "unsupported_operation",
-            "message": f"Metrc provider worker does not support {transaction.operation_type!r} yet.",
-        }
+def _optional_date(value: Any) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError as exc:
+        raise ValueError(f"Traceability transaction payload has invalid date {text!r}.") from exc
 
-    payload = _payload(transaction.request_payload_json)
+
+def _submit_metrc_adjustment(transaction, credentials: TraceabilityCredentials, payload: Mapping[str, Any]) -> dict[str, Any]:
     try:
         package_label = str(_require(payload.get("package_label"), "package_label"))
         adjustment_type = str(_require(payload.get("adjustment_type"), "adjustment_type"))
@@ -95,6 +93,63 @@ def _submit_metrc(transaction, credentials: TraceabilityCredentials) -> dict[str
         reason=reason,
         reason_note=str(payload.get("reason_note") or ""),
     )
+
+
+def _submit_metrc_package_create(transaction, credentials: TraceabilityCredentials, payload: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        tag = str(_require(payload.get("tag"), "tag"))
+        item = str(_require(payload.get("item"), "item"))
+        quantity = float(_require(payload.get("quantity"), "quantity"))
+        unit = str(_require(payload.get("unit"), "unit"))
+        ingredients = payload.get("ingredients")
+        if not isinstance(ingredients, list) or not ingredients:
+            raise ValueError("Traceability transaction payload is missing ingredients.")
+        actual_date = _optional_date(payload.get("actual_date"))
+        expiration_date = _optional_date(payload.get("expiration_date"))
+    except (TypeError, ValueError) as exc:
+        return {
+            "ok": False,
+            "status": "invalid_payload",
+            "message": str(exc),
+        }
+
+    return submit_package_creation(
+        state=credentials.state,
+        user_api_key=credentials.user_api_key,
+        integrator_api_key=credentials.integrator_api_key,
+        license_number=credentials.license_number,
+        tag=tag,
+        item=item,
+        quantity=quantity,
+        unit=unit,
+        ingredients=ingredients,
+        actual_date=actual_date,
+        location=str(payload.get("location") or "") or None,
+        note=str(payload.get("note") or ""),
+        production_batch_number=str(payload.get("production_batch_number") or ""),
+        is_finished_good=payload.get("is_finished_good") if isinstance(payload.get("is_finished_good"), bool) else None,
+        expiration_date=expiration_date,
+    )
+
+
+def _submit_metrc(transaction, credentials: TraceabilityCredentials) -> dict[str, Any]:
+    if not credentials.configured:
+        return {
+            "ok": False,
+            "status": "missing_credentials",
+            "message": "Complete Metrc runtime credentials are required to process this transaction.",
+        }
+
+    payload = _payload(transaction.request_payload_json)
+    if transaction.operation_type == "package_adjustment":
+        return _submit_metrc_adjustment(transaction, credentials, payload)
+    if transaction.operation_type == "package_create":
+        return _submit_metrc_package_create(transaction, credentials, payload)
+    return {
+        "ok": False,
+        "status": "unsupported_operation",
+        "message": f"Metrc provider worker does not support {transaction.operation_type!r} yet.",
+    }
 
 
 def process_transaction(
