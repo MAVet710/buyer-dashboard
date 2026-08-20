@@ -202,6 +202,7 @@ def build_retail_inventory_table(
     normalized["Product"] = source[product_col].fillna("").astype(str).str.strip()
     normalized["Strain"] = _text(source, STRAIN_ALIASES)
     normalized["Package ID"] = _text(source, PACKAGE_ALIASES)
+    normalized["External Package ID"] = normalized["Package ID"]
     normalized["Vendor"] = _text(source, VENDOR_ALIASES)
     normalized["Room"] = _text(source, ROOM_ALIASES)
     normalized["Category"] = _text(source, CATEGORY_ALIASES)
@@ -243,6 +244,7 @@ def build_retail_inventory_table(
         }
         normalized = normalized.groupby(["Product", "_product_key"], as_index=False).agg(aggregations)
         normalized["Package ID"] = ""
+        normalized["External Package ID"] = ""
         normalized["Durable Lot ID"] = ""
 
     velocity = pd.to_numeric(normalized["Daily Velocity"], errors="coerce").fillna(0.0)
@@ -281,6 +283,7 @@ def build_production_inventory_table(state: MutableMapping[str, Any]) -> pd.Data
                 "Product": lot.product_name,
                 "Strain": "",
                 "Package ID": lot.compliance_package_id or lot.lot_code,
+                "External Package ID": lot.compliance_package_id or lot.lot_code,
                 "Lot": lot.lot_code,
                 "Vendor": "",
                 "Room": lot.location_code,
@@ -323,7 +326,7 @@ def apply_inventory_filters(
     if needle:
         searchable = [
             column
-            for column in ("SKU", "Product", "Strain", "Package ID", "Vendor", "Room", "Category", "Tags")
+            for column in ("SKU", "Product", "Strain", "External Package ID", "Package ID", "Vendor", "Room", "Category", "Tags")
             if column in filtered.columns
         ]
         haystack = filtered[searchable].fillna("").astype(str).agg(" ".join, axis=1).map(_norm)
@@ -400,6 +403,26 @@ def _route_audit(state: MutableMapping[str, Any], products: list[str]) -> None:
 def _open_receive_inventory(state: MutableMapping[str, Any]) -> None:
     state["inventory_receive_open"] = True
     st.rerun()
+
+
+def _package_rows_for_selected(
+    state: MutableMapping[str, Any],
+    selected: pd.DataFrame,
+    *,
+    is_production: bool,
+    grain: str,
+) -> pd.DataFrame:
+    if selected is None or selected.empty:
+        return pd.DataFrame()
+    if is_production or str(grain).casefold() == "packages":
+        return selected.copy()
+    packages = build_retail_inventory_table(state, grain="Packages")
+    if packages.empty:
+        return pd.DataFrame()
+    product_keys = {_norm(value) for value in selected.get("Product", pd.Series(dtype=str)).tolist() if _norm(value)}
+    if not product_keys:
+        return pd.DataFrame()
+    return packages[packages["Product"].map(_norm).isin(product_keys)].reset_index(drop=True)
 
 
 def _add_products_to_po(state: MutableMapping[str, Any], products: list[str]) -> int:
@@ -638,12 +661,12 @@ def render_inventory_command_center(
                 st.rerun()
 
     display_columns = (
-        ["SKU", "Product", "Package ID", "Category", "Room", "Available", "Unit", "Status", "Attention"]
+        ["SKU", "Product", "External Package ID", "Category", "Room", "Available", "Unit", "Status", "Attention"]
         if is_production
         else (
             ["SKU", "Product", "Strain", "Vendor", "Room", "Available", "Reserved", "30d Sold", "DOH", "Cost", "Retail", "Margin", "Age", "Attention"]
             if grain == "Products"
-            else ["SKU", "Product", "Package ID", "Strain", "Vendor", "Room", "Available", "Unit", "Reserved", "30d Sold", "DOH", "Category", "Status", "Attention"]
+            else ["SKU", "Product", "External Package ID", "Strain", "Vendor", "Room", "Available", "Unit", "Reserved", "30d Sold", "DOH", "Category", "Status", "Attention"]
         )
     )
     display_columns = [column for column in display_columns if column in filtered.columns]
@@ -670,11 +693,18 @@ def render_inventory_command_center(
     positions = _selected_rows(event)
     selected = filtered.iloc[positions].copy() if positions else pd.DataFrame(columns=filtered.columns)
 
+    adjustment_flash = state.pop("inventory_adjustment_flash", "")
+    if adjustment_flash:
+        st.success(str(adjustment_flash))
+
     if not selected.empty:
         with st.container(key="inv2_selection_bar"):
             st.caption(f"{len(selected)} selected")
-            cols = st.columns([1.1, 1.1, 1.1, 1.1, 1.3])
+            cols = st.columns([1.0, 1.0, 1.0, 1.15, 1.0, 1.0, 1.15])
             products = [str(value) for value in selected["Product"].dropna().tolist() if str(value).strip()]
+            package_rows = _package_rows_for_selected(
+                state, selected, is_production=is_production, grain=grain
+            )
             if len(selected) == 1 and cols[0].button(
                 "Product 360", type="primary", width="stretch", key="inv2_open_product"
             ):
@@ -700,7 +730,36 @@ def render_inventory_command_center(
                 state["package_studio_prefill_action"] = "Pack Down"
                 state["package_studio_open"] = True
                 st.rerun()
-            cols[4].download_button(
+            external_ids = (
+                package_rows.get("External Package ID", pd.Series(dtype=str)).fillna("").astype(str).str.strip()
+                if not package_rows.empty
+                else pd.Series(dtype=str)
+            )
+            print_disabled = package_rows.empty or not external_ids.ne("").any()
+            if cols[4].button(
+                "Print labels", width="stretch", key="inv2_print_labels", disabled=print_disabled
+            ):
+                from modules.inventory_labels import open_inventory_label_dialog
+
+                if open_inventory_label_dialog(state, package_rows):
+                    st.rerun()
+            try:
+                from modules.inventory_adjustments import can_adjust_inventory
+
+                adjust_allowed = can_adjust_inventory(state)
+            except Exception:
+                adjust_allowed = False
+            if cols[5].button(
+                "Adjust",
+                width="stretch",
+                key="inv2_adjust_inventory",
+                disabled=print_disabled or not adjust_allowed,
+            ):
+                from modules.inventory_adjustments import open_inventory_adjustment_dialog
+
+                if open_inventory_adjustment_dialog(state, package_rows, operation_mode=operation_mode):
+                    st.rerun()
+            cols[6].download_button(
                 "Export selected",
                 data=selected[display_columns].to_csv(index=False).encode("utf-8"),
                 file_name="buyer_dash_inventory_selected.csv",
@@ -730,3 +789,11 @@ def render_inventory_command_center(
         from modules.package_studio.ui import render_package_studio_dialog
 
         render_package_studio_dialog(state)
+    if bool(state.get("inventory_label_open", False)):
+        from modules.inventory_labels import render_inventory_label_dialog
+
+        render_inventory_label_dialog(state)
+    if bool(state.get("inventory_adjustment_open", False)):
+        from modules.inventory_adjustments import render_inventory_adjustment_dialog
+
+        render_inventory_adjustment_dialog(state)
