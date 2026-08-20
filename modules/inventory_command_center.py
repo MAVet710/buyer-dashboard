@@ -1,9 +1,9 @@
 """Table-first Inventory v2 command center.
 
 Inventory v2 is additive: retail rows are built from the same loaded Buyer Dash
-sources, while production rows are read from the durable Co-Man inventory ledger
-through Package Studio. Existing audits, PO Builder, Data Hub, Product 360, and
-Package Studio remain the action destinations.
+sources, while production rows are read from the durable Co-Man inventory ledger.
+Existing audits, PO Builder, Product 360, Package Studio, and Data Hub remain the
+underlying action destinations and sources of truth.
 """
 
 from __future__ import annotations
@@ -22,8 +22,6 @@ from modules.navigation.product_360 import build_product_360_snapshot, stage_pro
 from modules.package_studio.service import PackageStudioService
 from services.workspace_navigation import (
     BUYER_WORKSPACE,
-    DATA_HUB_WORKSPACE,
-    DATA_OPERATIONS,
     INVENTORY_COUNTS_SECTION,
     RETAIL_OPS,
     queue_workspace_navigation,
@@ -87,7 +85,12 @@ def _first_frame(state: MutableMapping[str, Any], *keys: str) -> pd.DataFrame:
 def _numeric(series: pd.Series | Any) -> pd.Series:
     if not isinstance(series, pd.Series):
         return pd.Series(dtype=float)
-    clean = series.astype(str).str.replace("$", "", regex=False).str.replace(",", "", regex=False).str.replace("%", "", regex=False)
+    clean = (
+        series.astype(str)
+        .str.replace("$", "", regex=False)
+        .str.replace(",", "", regex=False)
+        .str.replace("%", "", regex=False)
+    )
     return pd.to_numeric(clean, errors="coerce").fillna(0.0)
 
 
@@ -129,10 +132,12 @@ def _sales_summary(state: MutableMapping[str, Any]) -> pd.DataFrame:
     qty_col = _column(sales, SALES_QTY_ALIASES)
     if sales.empty or not product_col or not qty_col:
         return pd.DataFrame(columns=["_product_key", "30d Sold", "Daily Velocity"])
-    local = pd.DataFrame({
-        "_product_key": sales[product_col].fillna("").astype(str).map(_norm),
-        "_sold": _numeric(sales[qty_col]),
-    })
+    local = pd.DataFrame(
+        {
+            "_product_key": sales[product_col].fillna("").astype(str).map(_norm),
+            "_sold": _numeric(sales[qty_col]),
+        }
+    )
     grouped = local.groupby("_product_key", as_index=False)["_sold"].sum()
     window = _sales_window_days(sales)
     grouped["Daily Velocity"] = grouped["_sold"] / max(window, 1)
@@ -148,13 +153,16 @@ def _derive_attention(frame: pd.DataFrame) -> pd.Series:
     doh = pd.to_numeric(frame["DOH"], errors="coerce")
     age = pd.to_numeric(frame["Age"], errors="coerce").fillna(0.0)
     sold = pd.to_numeric(frame["30d Sold"], errors="coerce").fillna(0.0)
-    expiring = pd.to_numeric(frame.get("Days to Expiry", pd.Series(math.inf, index=frame.index)), errors="coerce")
+    expiry = pd.to_numeric(
+        frame.get("Days to Expiry", pd.Series(math.inf, index=frame.index)),
+        errors="coerce",
+    )
 
-    attention[(status.str.contains("quarantine|hold|failed", regex=True, na=False))] = "Hold"
+    attention[status.str.contains("quarantine|hold|failed", regex=True, na=False)] = "Hold"
     attention[(available <= 0) & ~status.str.contains("quarantine|hold|failed", regex=True, na=False)] = "Out of stock"
     attention[(reserved > available) & (available > 0)] = "Over-reserved"
     attention[(doh <= 7) & (available > 0)] = "Reorder now"
-    attention[(expiring <= 90) & (expiring >= 0) & (available > 0)] = "Expiring"
+    attention[(expiry <= 90) & (expiry >= 0) & (available > 0)] = "Expiring"
     attention[(age >= 60) & (sold <= 2) & (available > 0)] = "Aging"
     return attention
 
@@ -164,7 +172,13 @@ def build_retail_inventory_table(
 ) -> pd.DataFrame:
     """Normalize loaded retail inventory into one table-first operating model."""
 
-    source = _first_frame(state, "active_inventory_df", "inv_raw_df", "demo_inventory_df", "demo_catalog_df")
+    source = _first_frame(
+        state,
+        "active_inventory_df",
+        "inv_raw_df",
+        "demo_inventory_df",
+        "demo_catalog_df",
+    )
     product_col = _column(source, PRODUCT_ALIASES)
     if source.empty or not product_col:
         return pd.DataFrame()
@@ -172,8 +186,16 @@ def build_retail_inventory_table(
     received_col = _column(source, RECEIVED_ALIASES)
     expiry_col = _column(source, EXPIRATION_ALIASES)
     now = pd.Timestamp.now().normalize()
-    received = pd.to_datetime(source[received_col], errors="coerce") if received_col else pd.Series(pd.NaT, index=source.index)
-    expiry = pd.to_datetime(source[expiry_col], errors="coerce") if expiry_col else pd.Series(pd.NaT, index=source.index)
+    received = (
+        pd.to_datetime(source[received_col], errors="coerce")
+        if received_col
+        else pd.Series(pd.NaT, index=source.index)
+    )
+    expiry = (
+        pd.to_datetime(source[expiry_col], errors="coerce")
+        if expiry_col
+        else pd.Series(pd.NaT, index=source.index)
+    )
 
     normalized = pd.DataFrame(index=source.index)
     normalized["SKU"] = _text(source, SKU_ALIASES)
@@ -192,7 +214,7 @@ def build_retail_inventory_table(
     normalized["Age"] = (now - received.dt.normalize()).dt.days.clip(lower=0).fillna(0).astype(int)
     normalized["Days to Expiry"] = (expiry.dt.normalize() - now).dt.days
     normalized["Durable Lot ID"] = ""
-    normalized["Unit"] = "unit"
+    normalized["Unit"] = _text(source, ("inventory unit", "unit", "uom"), "unit").replace("", "unit")
     normalized["_product_key"] = normalized["Product"].map(_norm)
 
     sales = _sales_summary(state)
@@ -226,7 +248,11 @@ def build_retail_inventory_table(
     velocity = pd.to_numeric(normalized["Daily Velocity"], errors="coerce").fillna(0.0)
     available = pd.to_numeric(normalized["Available"], errors="coerce").fillna(0.0)
     normalized["DOH"] = (available / velocity.replace(0, pd.NA)).astype("Float64")
-    normalized["Margin"] = ((normalized["Retail"] - normalized["Cost"]) / normalized["Retail"].replace(0, pd.NA) * 100).astype("Float64")
+    normalized["Margin"] = (
+        (normalized["Retail"] - normalized["Cost"])
+        / normalized["Retail"].replace(0, pd.NA)
+        * 100
+    ).astype("Float64")
     normalized["Attention"] = _derive_attention(normalized)
     return normalized.reset_index(drop=True)
 
@@ -295,7 +321,11 @@ def apply_inventory_filters(
     filtered = frame.copy()
     needle = _norm(search)
     if needle:
-        searchable = [c for c in ("SKU", "Product", "Strain", "Package ID", "Vendor", "Room", "Category", "Tags") if c in filtered.columns]
+        searchable = [
+            column
+            for column in ("SKU", "Product", "Strain", "Package ID", "Vendor", "Room", "Category", "Tags")
+            if column in filtered.columns
+        ]
         haystack = filtered[searchable].fillna("").astype(str).agg(" ".join, axis=1).map(_norm)
         filtered = filtered[haystack.str.contains(re.escape(needle), regex=True, na=False)]
 
@@ -322,7 +352,10 @@ def apply_inventory_filters(
     elif view == "Expiring 90 Days":
         filtered = filtered[(expiry >= 0) & (expiry <= 90)]
     elif view == "Bulk Packages":
-        filtered = filtered[unit_text.isin({"g", "gram", "grams", "kg", "oz", "lb"}) | category_text.str.contains("bulk|flower|material", regex=True, na=False)]
+        filtered = filtered[
+            unit_text.isin({"g", "gram", "grams", "kg", "oz", "ounce", "ounces", "lb", "pound", "pounds"})
+            | category_text.str.contains("bulk|flower|material", regex=True, na=False)
+        ]
     elif view == "Quarantine / Hold":
         filtered = filtered[status_text.str.contains("quarantine|hold|failed", regex=True, na=False)]
     return filtered.reset_index(drop=True)
@@ -364,9 +397,8 @@ def _route_audit(state: MutableMapping[str, Any], products: list[str]) -> None:
     st.rerun()
 
 
-def _route_data_hub(state: MutableMapping[str, Any]) -> None:
-    state["data_hub_target_dataset"] = "Inventory"
-    queue_workspace_navigation(state, group=DATA_OPERATIONS, workspace=DATA_HUB_WORKSPACE)
+def _open_receive_inventory(state: MutableMapping[str, Any]) -> None:
+    state["inventory_receive_open"] = True
     st.rerun()
 
 
@@ -397,26 +429,20 @@ def _inventory_css() -> None:
     st.markdown(
         """
         <style>
-        .inv2-title-row {display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;margin:.2rem 0 .7rem}
         .inv2-kicker {color:#ff9a3c !important;font-size:.66rem;font-weight:820;letter-spacing:.14em;text-transform:uppercase}
         .inv2-title {margin:.2rem 0 .18rem;color:#f6f5f2 !important;font-size:2rem;font-weight:820;letter-spacing:-.045em}
         .inv2-subtitle {color:#aaa49e !important;font-size:.83rem}
         .inv2-count {color:#aaa49e !important;font-size:.73rem;white-space:nowrap}
-        .st-key-inv2_toolbar,
-        .st-key-inv2_filters,
-        .st-key-inv2_selection_bar {
+        .st-key-inv2_toolbar,.st-key-inv2_filters,.st-key-inv2_selection_bar {
           padding:.58rem .62rem !important;border:1px solid rgba(255,255,255,.08) !important;
           border-radius:12px !important;background:#0f0f0f !important;margin-bottom:.55rem !important;
         }
-        .st-key-inv2_toolbar [data-testid="stHorizontalBlock"],
-        .st-key-inv2_filters [data-testid="stHorizontalBlock"] {align-items:end !important;gap:.45rem !important;}
-        .st-key-inv2_table {margin-top:.15rem !important;}
+        .st-key-inv2_toolbar [data-testid="stHorizontalBlock"],.st-key-inv2_filters [data-testid="stHorizontalBlock"] {align-items:end !important;gap:.45rem !important;}
         .inv2-legend {display:flex;gap:.55rem;flex-wrap:wrap;margin:.55rem 0;color:#8e8882 !important;font-size:.7rem}
         .inv2-legend span {padding:.2rem .42rem;border:1px solid rgba(255,255,255,.07);border-radius:999px;background:#0d0d0d}
         @media (max-width:768px) {
-          .inv2-title-row {align-items:flex-start;flex-direction:column;gap:.25rem}
           .inv2-title {font-size:1.7rem}
-          .st-key-inv2_toolbar [data-testid="column"], .st-key-inv2_filters [data-testid="column"] {min-width:min(100%,135px) !important;flex:1 1 135px !important;}
+          .st-key-inv2_toolbar [data-testid="column"],.st-key-inv2_filters [data-testid="column"] {min-width:min(100%,135px) !important;flex:1 1 135px !important;}
         }
         </style>
         """,
@@ -436,8 +462,7 @@ def _render_receive_history(state: MutableMapping[str, Any], operation_mode: str
         st.markdown("## Receive / source history")
         if operation_mode == PRODUCTION_OPERATION:
             try:
-                service = PackageStudioService(create_coman_engine())
-                rows = service.recent_runs(
+                rows = PackageStudioService(create_coman_engine()).recent_runs(
                     str(state.get("active_organization_id") or ""),
                     str(state.get("active_facility_id") or ""),
                     limit=50,
@@ -450,13 +475,34 @@ def _render_receive_history(state: MutableMapping[str, Any], operation_mode: str
                 st.info("Durable production activity is not available yet.")
                 st.caption(str(exc))
         else:
-            history = state.get("data_hub_import_history")
-            if isinstance(history, pd.DataFrame) and not history.empty:
-                st.dataframe(history, width="stretch", hide_index=True)
-            elif isinstance(history, list) and history:
-                st.dataframe(pd.DataFrame(history), width="stretch", hide_index=True)
-            else:
-                st.info("No inventory import / receive history is loaded for this session.")
+            try:
+                from modules.data_hub_repository import DataHubRepository
+
+                history = DataHubRepository(create_coman_engine()).list_history(
+                    str(state.get("active_organization_id") or ""),
+                    str(state.get("active_facility_id") or ""),
+                    limit=100,
+                )
+                rows = [
+                    {
+                        "Dataset": item.dataset_label,
+                        "File": item.filename,
+                        "Rows": item.row_count,
+                        "Quality": item.quality,
+                        "Imported by": item.imported_by,
+                        "Activated": item.activated_at,
+                        "Status": item.status,
+                    }
+                    for item in history
+                    if str(item.dataset_key) == "inventory"
+                ]
+                if rows:
+                    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+                else:
+                    st.info("No durable inventory receive/import history was found for this facility.")
+            except Exception as exc:
+                st.info("Durable inventory history is not available yet.")
+                st.caption(str(exc))
 
     if hasattr(st, "dialog"):
         @st.dialog("Inventory history", width="large")
@@ -479,16 +525,13 @@ def render_inventory_command_center(
     if grain not in {"Products", "Packages"}:
         grain = "Products"
 
-    if is_production:
-        base = build_production_inventory_table(state)
-    else:
-        base = build_retail_inventory_table(state, grain=grain)
+    base = build_production_inventory_table(state) if is_production else build_retail_inventory_table(state, grain=grain)
 
     left, right = st.columns([4.4, 1.6])
     with left:
         st.markdown(
             f'<div class="inv2-kicker">{operation_mode.upper()}</div><div class="inv2-title">Inventory</div>'
-            '<div class="inv2-subtitle">Search, decide, and act without leaving the inventory workspace.</div>',
+            '<div class="inv2-subtitle">Search, decide, receive, transform, and audit without leaving Inventory.</div>',
             unsafe_allow_html=True,
         )
     with right:
@@ -497,10 +540,10 @@ def render_inventory_command_center(
     with st.container(key="inv2_toolbar"):
         cols = st.columns([1.2, 1.0, 1.0, 1.0])
         if not is_production:
-            grain = cols[0].segmented_control("View", ["Products", "Packages"], default=grain, key="inventory_v2_grain") or grain
-            rebuilt = build_retail_inventory_table(state, grain=grain)
-            if not rebuilt.equals(base):
-                base = rebuilt
+            grain = cols[0].segmented_control(
+                "View", ["Products", "Packages"], default=grain, key="inventory_v2_grain"
+            ) or grain
+            base = build_retail_inventory_table(state, grain=grain)
         else:
             cols[0].text_input("View", value="Packages", disabled=True, key="inv2_production_grain")
         if cols[1].button("Actions", width="stretch", key="inv2_actions"):
@@ -508,8 +551,15 @@ def render_inventory_command_center(
         if cols[2].button("Receive history", width="stretch", key="inv2_receive_history"):
             state["inventory_receive_history_open"] = True
             st.rerun()
-        if cols[3].button("Receive inventory", type="primary", width="stretch", key="inv2_receive_inventory"):
-            _route_data_hub(state)
+        if cols[3].button(
+            "Receive inventory",
+            type="primary",
+            width="stretch",
+            key="inv2_receive_inventory",
+            disabled=is_production,
+            help="Retail inbound receiving uses the Inbound Queue. Production materials use the durable production/package workflows.",
+        ):
+            _open_receive_inventory(state)
 
     saved_views = state.setdefault("inventory_saved_views", {})
     saved_names = list(BUILTIN_VIEWS) + [name for name in saved_views if name not in BUILTIN_VIEWS]
@@ -519,12 +569,22 @@ def render_inventory_command_center(
 
     with st.container(key="inv2_filters"):
         cols = st.columns([2.6, 1.05, 1.05, 1.05, 1.05, 1.15])
-        search = cols[0].text_input("Search inventory", key="inventory_v2_search", placeholder="Product, SKU, package, strain, vendor…", label_visibility="collapsed")
+        search = cols[0].text_input(
+            "Search inventory",
+            key="inventory_v2_search",
+            placeholder="Product, SKU, package, strain, vendor…",
+            label_visibility="collapsed",
+        )
         status = cols[1].selectbox("Status", _option_values(base, "Status"), key="inventory_v2_status")
         vendor = cols[2].selectbox("Vendor", _option_values(base, "Vendor"), key="inventory_v2_vendor")
         room = cols[3].selectbox("Room", _option_values(base, "Room"), key="inventory_v2_room")
         category = cols[4].selectbox("Category", _option_values(base, "Category"), key="inventory_v2_category")
-        view = cols[5].selectbox("Saved view", saved_names, index=saved_names.index(current_view), key="inventory_saved_view")
+        view = cols[5].selectbox(
+            "Saved view",
+            saved_names,
+            index=saved_names.index(current_view),
+            key="inventory_saved_view",
+        )
 
     if view in saved_views:
         payload = saved_views.get(view) or {}
@@ -552,12 +612,28 @@ def render_inventory_command_center(
                 state["package_studio_open"] = True
                 st.rerun()
             if action_cols[2].button("Reset filters", width="stretch", key="inv2_reset_filters"):
-                for key in ("inventory_v2_search", "inventory_v2_status", "inventory_v2_vendor", "inventory_v2_room", "inventory_v2_category", "inventory_saved_view"):
+                for key in (
+                    "inventory_v2_search",
+                    "inventory_v2_status",
+                    "inventory_v2_vendor",
+                    "inventory_v2_room",
+                    "inventory_v2_category",
+                    "inventory_saved_view",
+                ):
                     state.pop(key, None)
                 st.rerun()
-            new_name = action_cols[3].text_input("Save current view", key="inventory_v2_save_name", placeholder="My low-stock flower")
+            new_name = action_cols[3].text_input(
+                "Save current view",
+                key="inventory_v2_save_name",
+                placeholder="My low-stock flower",
+            )
             if new_name and st.button("Save view", key="inventory_v2_save_view"):
-                saved_views[str(new_name).strip()] = {"status": status, "vendor": vendor, "room": room, "category": category}
+                saved_views[str(new_name).strip()] = {
+                    "status": status,
+                    "vendor": vendor,
+                    "room": room,
+                    "category": category,
+                }
                 state["inventory_saved_view"] = str(new_name).strip()
                 st.rerun()
 
@@ -567,14 +643,16 @@ def render_inventory_command_center(
         else (
             ["SKU", "Product", "Strain", "Vendor", "Room", "Available", "Reserved", "30d Sold", "DOH", "Cost", "Retail", "Margin", "Age", "Attention"]
             if grain == "Products"
-            else ["SKU", "Product", "Package ID", "Strain", "Vendor", "Room", "Available", "Reserved", "30d Sold", "DOH", "Category", "Status", "Attention"]
+            else ["SKU", "Product", "Package ID", "Strain", "Vendor", "Room", "Available", "Unit", "Reserved", "30d Sold", "DOH", "Category", "Status", "Attention"]
         )
     )
     display_columns = [column for column in display_columns if column in filtered.columns]
     display = filtered[display_columns].copy()
     for column in ("30d Sold", "DOH", "Cost", "Retail", "Margin"):
         if column in display.columns:
-            display[column] = pd.to_numeric(display[column], errors="coerce").round(1 if column in {"30d Sold", "DOH", "Margin"} else 2)
+            display[column] = pd.to_numeric(display[column], errors="coerce").round(
+                1 if column in {"30d Sold", "DOH", "Margin"} else 2
+            )
 
     st.markdown(
         '<div class="inv2-legend"><span>Reorder now</span><span>Aging</span><span>Expiring</span><span>Hold</span><span>Production ready</span></div>',
@@ -597,32 +675,58 @@ def render_inventory_command_center(
             st.caption(f"{len(selected)} selected")
             cols = st.columns([1.1, 1.1, 1.1, 1.1, 1.3])
             products = [str(value) for value in selected["Product"].dropna().tolist() if str(value).strip()]
-            if len(selected) == 1 and cols[0].button("Product 360", type="primary", width="stretch", key="inv2_open_product"):
+            if len(selected) == 1 and cols[0].button(
+                "Product 360", type="primary", width="stretch", key="inv2_open_product"
+            ):
                 _open_product(state, products[0])
             if cols[1].button("Audit", width="stretch", key="inv2_audit_selected"):
                 _route_audit(state, list(dict.fromkeys(products)))
             if not is_production and cols[2].button("Add to PO", width="stretch", key="inv2_add_po"):
-                added = _add_products_to_po(state, products)
-                if added:
+                if _add_products_to_po(state, products):
                     st.rerun()
-            durable_ids = [str(value) for value in selected.get("Durable Lot ID", pd.Series(dtype=str)).dropna().tolist() if str(value).strip()]
+            durable_ids = [
+                str(value)
+                for value in selected.get("Durable Lot ID", pd.Series(dtype=str)).dropna().tolist()
+                if str(value).strip()
+            ]
             studio_disabled = len(selected) != 1 or not durable_ids
-            if cols[3].button("Work on package", width="stretch", key="inv2_work_package", disabled=studio_disabled):
+            if cols[3].button(
+                "Work on package",
+                width="stretch",
+                key="inv2_work_package",
+                disabled=studio_disabled,
+            ):
                 state["package_studio_prefill_lot_id"] = durable_ids[0]
                 state["package_studio_prefill_action"] = "Pack Down"
                 state["package_studio_open"] = True
                 st.rerun()
-            csv_bytes = selected[display_columns].to_csv(index=False).encode("utf-8")
-            cols[4].download_button("Export selected", data=csv_bytes, file_name="buyer_dash_inventory_selected.csv", mime="text/csv", width="stretch")
+            cols[4].download_button(
+                "Export selected",
+                data=selected[display_columns].to_csv(index=False).encode("utf-8"),
+                file_name="buyer_dash_inventory_selected.csv",
+                mime="text/csv",
+                width="stretch",
+            )
 
     if filtered.empty:
         st.info("No inventory matches the current view and filters.")
     else:
         total_available = pd.to_numeric(filtered["Available"], errors="coerce").fillna(0).sum()
-        at_risk = int(filtered["Attention"].isin({"Reorder now", "Out of stock", "Hold", "Expiring", "Aging"}).sum()) if "Attention" in filtered.columns else 0
-        st.caption(f"Displaying {len(filtered):,} row(s) · {total_available:,.1f} available · {at_risk:,} need attention")
+        at_risk = (
+            int(filtered["Attention"].isin({"Reorder now", "Out of stock", "Hold", "Expiring", "Aging"}).sum())
+            if "Attention" in filtered.columns
+            else 0
+        )
+        st.caption(
+            f"Displaying {len(filtered):,} row(s) · {total_available:,.1f} available · {at_risk:,} need attention"
+        )
 
     _render_receive_history(state, operation_mode)
+    if bool(state.get("inventory_receive_open", False)):
+        from modules.inventory_receiving import render_receive_inventory_dialog
+
+        render_receive_inventory_dialog(state)
     if bool(state.get("package_studio_open", False)):
         from modules.package_studio.ui import render_package_studio_dialog
+
         render_package_studio_dialog(state)
