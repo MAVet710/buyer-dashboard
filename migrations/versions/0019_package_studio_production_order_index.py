@@ -1,12 +1,12 @@
 """Add the missing Package Studio production-order foreign-key index.
 
-Revision ID: 0019_package_studio_production_order_index
+Revision ID: 0019_pkgstudio_po_index
 Revises: 0018_traceability_transactions
 """
 
 from alembic import op
 
-revision = "0019_package_studio_production_order_index"
+revision = "0019_pkgstudio_po_index"
 down_revision = "0018_traceability_transactions"
 branch_labels = None
 depends_on = None
