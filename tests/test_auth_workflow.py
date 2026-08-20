@@ -26,7 +26,7 @@ def test_authenticate_any_role_identifies_admin_and_standard_accounts():
     )
 
 
-def test_auth_session_helpers_seed_and_clear_demo_context(monkeypatch):
+def test_auth_session_helpers_defer_demo_hydration_and_clear_context(monkeypatch):
     seeded = []
 
     def fake_seed(state, *, actor="demo", force=False, today=None):
@@ -45,10 +45,13 @@ def test_auth_session_helpers_seed_and_clear_demo_context(monkeypatch):
     state = {"auth_user_role": "dev", "active_facility_id": "facility-1"}
     apply_authenticated_session(state, "God", True)
 
-    assert seeded == [("God", False)]
+    # Authentication establishes identity only. Tenant-scoped sandbox hydration
+    # happens after Organization + Facility are selected by access context.
+    assert seeded == []
     assert state["is_admin"] is True
     assert state["admin_user"] == "God"
-    assert state["demo_mode_enabled"] is True
+    assert "_full_app_demo_version" not in state
+    assert "demo_mode_enabled" not in state
 
     clear_authenticated_session(state)
 
