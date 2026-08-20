@@ -7,13 +7,14 @@ organization's raw value or identity and are suppressed below the cohort floor.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from statistics import median
 from typing import Any, Iterable
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import sessionmaker
 
+from modules.coman.models import ProductionOrder
 from modules.extraction.models import ExtractionRun
 from modules.extraction.performance import ExtractionPerformanceService
 from modules.migration_center.models import MigrationSalesHistory
@@ -62,17 +63,28 @@ class BenchmarkService:
             row.share_anonymized_aggregates = bool(share)
             row.minimum_cohort_size = minimum
             row.updated_by = actor
-            session.flush(); return row
+            session.flush()
+            return row
 
     def capture_facility(self, *, organization_id: str, facility_id: str, days: int = 30) -> list[BenchmarkObservation]:
         period_end = date.today()
         period_start = period_end - timedelta(days=max(7, min(int(days), 365)))
+        cutoff = datetime.combine(period_start, time.min, tzinfo=timezone.utc)
         metrics: list[tuple[str, str, float, str, int]] = []
 
         # Extraction metrics are grouped by workflow so BHO is not benchmarked against rosin.
         extraction = ExtractionPerformanceService(self.engine)
         with self._sessions() as session:
-            runs = list(session.scalars(select(ExtractionRun).where(ExtractionRun.organization_id == organization_id, ExtractionRun.facility_id == facility_id, ExtractionRun.status.notin_(("cancelled","failed")))))
+            runs = list(
+                session.scalars(
+                    select(ExtractionRun).where(
+                        ExtractionRun.organization_id == organization_id,
+                        ExtractionRun.facility_id == facility_id,
+                        ExtractionRun.status.notin_(("cancelled", "failed")),
+                        ExtractionRun.updated_at >= cutoff,
+                    )
+                )
+            )
         by_workflow: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for run in runs:
             try:
@@ -80,21 +92,39 @@ class BenchmarkService:
             except Exception:
                 continue
         for workflow, rows in by_workflow.items():
-            if not rows:
-                continue
             cohort = f"extraction:{workflow}"
-            for key, unit in (("yield_pct","pct"),("cost_per_output","usd_per_output"),("cycle_hours","hours"),("solvent_recovery_pct","pct")):
+            for key, unit in (("yield_pct", "pct"), ("cost_per_output", "usd_per_output"), ("cycle_hours", "hours"), ("solvent_recovery_pct", "pct")):
                 values = [float(row.get(key) or 0) for row in rows if float(row.get(key) or 0) > 0]
                 if values:
                     metrics.append((f"extraction_{key}", cohort, sum(values) / len(values), unit, len(values)))
 
-        # Production aggregates deliberately avoid SKU/product/customer detail.
-        try:
-            production_rows = ProductionERPService(self.engine).queue_summary(organization_id, facility_id)
-        except Exception:
-            production_rows = []
-        attainments = [float(row.get("Attainment %") or 0) for row in production_rows if float(row.get("Attainment %") or 0) > 0]
-        cpu = [float(row.get("Cost / Unit") or 0) for row in production_rows if float(row.get("Cost / Unit") or 0) > 0]
+        # Production metrics use only orders active/updated inside the same window.
+        production = ProductionERPService(self.engine)
+        with self._sessions() as session:
+            production_ids = list(
+                session.scalars(
+                    select(ProductionOrder.id).where(
+                        ProductionOrder.organization_id == organization_id,
+                        ProductionOrder.facility_id == facility_id,
+                        ProductionOrder.updated_at >= cutoff,
+                        ProductionOrder.status != "cancelled",
+                    )
+                )
+            )
+        production_rows: list[dict[str, float]] = []
+        for order_id in production_ids:
+            try:
+                snapshot = production.order_360(organization_id, facility_id, order_id)
+            except Exception:
+                continue
+            actual = float(snapshot["actual_output"] or 0)
+            cogs = float(snapshot["cogs"].get("total", 0) or 0)
+            production_rows.append({
+                "attainment": float(snapshot["attainment_pct"] or 0),
+                "cost_per_unit": cogs / actual if actual > 0 else 0.0,
+            })
+        attainments = [row["attainment"] for row in production_rows if row["attainment"] > 0]
+        cpu = [row["cost_per_unit"] for row in production_rows if row["cost_per_unit"] > 0]
         if attainments:
             metrics.append(("production_attainment_pct", "production:all", sum(attainments) / len(attainments), "pct", len(attainments)))
         if cpu:
@@ -102,7 +132,16 @@ class BenchmarkService:
 
         # Historical sales becomes a facility-level velocity metric only.
         with self._sessions() as session:
-            sales = list(session.scalars(select(MigrationSalesHistory).where(MigrationSalesHistory.organization_id == organization_id, MigrationSalesHistory.facility_id == facility_id, MigrationSalesHistory.sale_date >= period_start, MigrationSalesHistory.sale_date <= period_end)))
+            sales = list(
+                session.scalars(
+                    select(MigrationSalesHistory).where(
+                        MigrationSalesHistory.organization_id == organization_id,
+                        MigrationSalesHistory.facility_id == facility_id,
+                        MigrationSalesHistory.sale_date >= period_start,
+                        MigrationSalesHistory.sale_date <= period_end,
+                    )
+                )
+            )
         if sales:
             units = sum(float(row.units or 0) for row in sales)
             revenue = sum(float(row.revenue or 0) for row in sales)
@@ -114,12 +153,32 @@ class BenchmarkService:
         captured: list[BenchmarkObservation] = []
         with self._sessions.begin() as session:
             for metric_key, cohort_key, value, unit, sample_count in metrics:
-                row = session.scalar(select(BenchmarkObservation).where(BenchmarkObservation.facility_id == facility_id, BenchmarkObservation.metric_key == metric_key, BenchmarkObservation.cohort_key == cohort_key, BenchmarkObservation.period_start == period_start, BenchmarkObservation.period_end == period_end))
+                row = session.scalar(
+                    select(BenchmarkObservation).where(
+                        BenchmarkObservation.facility_id == facility_id,
+                        BenchmarkObservation.metric_key == metric_key,
+                        BenchmarkObservation.cohort_key == cohort_key,
+                        BenchmarkObservation.period_start == period_start,
+                        BenchmarkObservation.period_end == period_end,
+                    )
+                )
                 if row is None:
-                    row = BenchmarkObservation(organization_id=organization_id, facility_id=facility_id, metric_key=metric_key, cohort_key=cohort_key, value=float(value), unit=unit, sample_count=int(sample_count), period_start=period_start, period_end=period_end)
+                    row = BenchmarkObservation(
+                        organization_id=organization_id,
+                        facility_id=facility_id,
+                        metric_key=metric_key,
+                        cohort_key=cohort_key,
+                        value=float(value),
+                        unit=unit,
+                        sample_count=int(sample_count),
+                        period_start=period_start,
+                        period_end=period_end,
+                    )
                     session.add(row)
                 else:
-                    row.value = float(value); row.unit = unit; row.sample_count = int(sample_count)
+                    row.value = float(value)
+                    row.unit = unit
+                    row.sample_count = int(sample_count)
                 captured.append(row)
             session.flush()
         return captured
@@ -128,6 +187,13 @@ class BenchmarkService:
         cutoff = date.today() - timedelta(days=max_age_days)
         own_setting = self.setting(organization_id)
         minimum = int(getattr(own_setting, "minimum_cohort_size", 5) or 5)
+        if own_setting is None or not own_setting.share_anonymized_aggregates:
+            return {
+                "available": False,
+                "cohort_organizations": 0,
+                "minimum_cohort_size": minimum,
+                "message": "Opt in to anonymized aggregate sharing to unlock network comparisons.",
+            }
         with self._sessions() as session:
             rows = session.execute(
                 select(BenchmarkObservation, BenchmarkSetting)
@@ -140,7 +206,16 @@ class BenchmarkService:
                 )
                 .order_by(BenchmarkObservation.captured_at.desc())
             ).all()
-            own_rows = list(session.scalars(select(BenchmarkObservation).where(BenchmarkObservation.organization_id == organization_id, BenchmarkObservation.facility_id == facility_id, BenchmarkObservation.metric_key == metric_key, BenchmarkObservation.cohort_key == cohort_key).order_by(BenchmarkObservation.captured_at.desc()).limit(1)))
+            own_rows = list(
+                session.scalars(
+                    select(BenchmarkObservation).where(
+                        BenchmarkObservation.organization_id == organization_id,
+                        BenchmarkObservation.facility_id == facility_id,
+                        BenchmarkObservation.metric_key == metric_key,
+                        BenchmarkObservation.cohort_key == cohort_key,
+                    ).order_by(BenchmarkObservation.captured_at.desc()).limit(1)
+                )
+            )
 
         latest_by_facility: dict[str, BenchmarkObservation] = {}
         organizations: set[str] = set()
@@ -150,7 +225,12 @@ class BenchmarkService:
                 organizations.add(observation.organization_id)
         values = [float(row.value) for row in latest_by_facility.values()]
         if len(organizations) < minimum:
-            return {"available": False, "cohort_organizations": len(organizations), "minimum_cohort_size": minimum, "message": f"Network benchmark unlocks at {minimum} opted-in organizations."}
+            return {
+                "available": False,
+                "cohort_organizations": len(organizations),
+                "minimum_cohort_size": minimum,
+                "message": f"Network benchmark unlocks at {minimum} opted-in organizations.",
+            }
         current = float(own_rows[0].value) if own_rows else None
         return {
             "available": True,
@@ -166,13 +246,33 @@ class BenchmarkService:
 
     def facility_dashboard(self, organization_id: str, facility_id: str) -> list[dict[str, Any]]:
         with self._sessions() as session:
-            rows = list(session.scalars(select(BenchmarkObservation).where(BenchmarkObservation.organization_id == organization_id, BenchmarkObservation.facility_id == facility_id).order_by(BenchmarkObservation.captured_at.desc())))
+            rows = list(
+                session.scalars(
+                    select(BenchmarkObservation).where(
+                        BenchmarkObservation.organization_id == organization_id,
+                        BenchmarkObservation.facility_id == facility_id,
+                    ).order_by(BenchmarkObservation.captured_at.desc())
+                )
+            )
         latest: dict[tuple[str, str], BenchmarkObservation] = {}
         for row in rows:
             latest.setdefault((row.metric_key, row.cohort_key), row)
         output = []
         lower_better = {"extraction_cost_per_output", "extraction_cycle_hours", "production_cost_per_unit"}
         for (metric, cohort), row in latest.items():
-            network = self.network_summary(organization_id=organization_id, facility_id=facility_id, metric_key=metric, cohort_key=cohort, higher_is_better=metric not in lower_better)
-            output.append({"metric_key": metric, "cohort_key": cohort, "value": float(row.value), "unit": row.unit, "sample_count": row.sample_count, "network": network})
+            network = self.network_summary(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                metric_key=metric,
+                cohort_key=cohort,
+                higher_is_better=metric not in lower_better,
+            )
+            output.append({
+                "metric_key": metric,
+                "cohort_key": cohort,
+                "value": float(row.value),
+                "unit": row.unit,
+                "sample_count": row.sample_count,
+                "network": network,
+            })
         return output
