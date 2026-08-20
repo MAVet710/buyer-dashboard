@@ -2,13 +2,14 @@
 
 This module is intentionally additive: it reads the same session DataFrames used
 by the existing workspaces and routes actions back to existing page identifiers.
-It does not create a second inventory, sales, purchasing, or audit source of
-truth.
+It does not create a second inventory, sales, purchasing, audit, or compliance
+source of truth.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, timedelta
 import math
 import re
 from typing import Any, MutableMapping
@@ -26,6 +27,7 @@ from services.workspace_navigation import (
     HOME_OPS,
     HOME_WORKSPACE,
     INVENTORY_COUNTS_SECTION,
+    METRC_INTEGRATIONS_SECTION,
     PRODUCTION_OPS,
     RETAIL_OPS,
     queue_workspace_navigation,
@@ -52,6 +54,7 @@ ON_HAND_ALIASES = (
     "quantity",
     "qty",
 )
+RESERVED_ALIASES = ("reserved", "reserved quantity", "allocated", "committed")
 SALES_QTY_ALIASES = (
     "quantity sold",
     "quantity_sold",
@@ -84,7 +87,8 @@ REPORT_END_ALIASES = (
     "reporting end",
 )
 CATEGORY_ALIASES = ("category", "subcategory", "master category", "mastercategory")
-BRAND_ALIASES = ("brand", "brand name", "vendor", "vendor name", "manufacturer", "producer")
+BRAND_ALIASES = ("brand", "brand name")
+VENDOR_ALIASES = ("vendor", "vendor name", "supplier", "manufacturer", "producer")
 COST_ALIASES = ("unit cost", "unit_cost", "cost", "cogs", "wholesale")
 PRICE_ALIASES = ("retail price", "retail_price", "price", "med price", "msrp")
 PACKAGE_ALIASES = (
@@ -96,6 +100,12 @@ PACKAGE_ALIASES = (
     "lot number",
     "lot",
 )
+ROOM_ALIASES = ("room", "location", "location name", "storage location", "sales floor")
+STATUS_ALIASES = ("status", "inventory status", "package status")
+RECEIVED_ALIASES = ("received date", "received_at", "received", "inventory date", "created date")
+EXPIRATION_ALIASES = ("expiration date", "expires", "expiration", "expiry date", "expiry")
+LAB_STATUS_ALIASES = ("lab status", "testing status", "test status", "lab_state", "lab state")
+COA_ALIASES = ("coa", "coa url", "coa_url", "certificate of analysis")
 
 
 @dataclass(frozen=True)
@@ -134,7 +144,12 @@ def _first_frame(state: MutableMapping[str, Any], *keys: str) -> pd.DataFrame:
 
 def _number(series: pd.Series | Any) -> pd.Series:
     if isinstance(series, pd.Series):
-        cleaned = series.astype(str).str.replace("$", "", regex=False).str.replace(",", "", regex=False)
+        cleaned = (
+            series.astype(str)
+            .str.replace("$", "", regex=False)
+            .str.replace(",", "", regex=False)
+            .str.replace("%", "", regex=False)
+        )
         return pd.to_numeric(cleaned, errors="coerce").fillna(0.0)
     return pd.Series(dtype=float)
 
@@ -181,10 +196,39 @@ def _sales_window_days(sales_rows: pd.DataFrame) -> int:
         if not dates.empty and normalized.nunique() >= 2:
             return max(1, int((normalized.max() - normalized.min()).days) + 1)
 
-    # An aggregate export with no explicit start/end does not expose a reliable
-    # time window. Thirty days is the conservative compatibility fallback used
-    # only for display/velocity normalization, and Product 360 labels it.
     return 30
+
+
+def _sales_periods(
+    sales_rows: pd.DataFrame,
+    *,
+    sold_col: str | None,
+    daily_velocity: float,
+) -> tuple[dict[int, float], str]:
+    """Return 7/30/60/90-day sold units using transactions when possible."""
+
+    periods = (7, 30, 60, 90)
+    if sales_rows is None or sales_rows.empty or not sold_col:
+        return {days: 0.0 for days in periods}, "No sales rows"
+
+    date_col = _column(sales_rows, SALES_DATE_ALIASES)
+    if date_col:
+        local = sales_rows[[date_col, sold_col]].copy()
+        local["__date"] = pd.to_datetime(local[date_col], errors="coerce").dt.normalize()
+        local["__qty"] = _number(local[sold_col])
+        local = local.dropna(subset=["__date"])
+        if not local.empty:
+            anchor = local["__date"].max()
+            values: dict[int, float] = {}
+            for days in periods:
+                floor = anchor - pd.Timedelta(days=days - 1)
+                values[days] = float(local.loc[local["__date"] >= floor, "__qty"].sum())
+            return values, f"Transaction trailing windows ending {anchor.date().isoformat()}"
+
+    return (
+        {days: max(0.0, float(daily_velocity)) * days for days in periods},
+        "Normalized from loaded aggregate sales velocity",
+    )
 
 
 def _tool_results(query: str) -> list[SearchResult]:
@@ -197,6 +241,7 @@ def _tool_results(query: str) -> list[SearchResult]:
         SearchResult("Tool", "Orders", "Customer orders and fulfillment", route_group=COMMERCIAL_OPS, route_workspace=COMMERCIAL_WORKSPACE),
         SearchResult("Tool", "Extraction", "Extraction runs, yield, QA, and economics", route_group=PRODUCTION_OPS, route_workspace=EXTRACTION_WORKSPACE),
         SearchResult("Tool", "Compliance Q&A", "Reviewed compliance source workflow", route_group=RETAIL_OPS, route_workspace=BUYER_WORKSPACE, route_section="🧭 Compliance Q&A"),
+        SearchResult("Tool", "Metrc", "Traceability connections and reconciliation", route_group=RETAIL_OPS, route_workspace=BUYER_WORKSPACE, route_section=METRC_INTEGRATIONS_SECTION),
         SearchResult("Tool", "Product Name Mapper", "Map METRC items to facility nomenclature", route_group=RETAIL_OPS, route_workspace=BUYER_WORKSPACE, route_section="🏷️ Nomenclature Mapper"),
         SearchResult("Tool", "Imports & Data", "Upload, map, review, and publish operational files", route_group=DATA_OPERATIONS, route_workspace=DATA_HUB_WORKSPACE),
         SearchResult("Tool", "Home", "Role-aware operations command center", route_group=HOME_OPS, route_workspace=HOME_WORKSPACE),
@@ -221,9 +266,10 @@ def _search_product_frame(
         return []
     sku_col = _column(frame, SKU_ALIASES)
     brand_col = _column(frame, BRAND_ALIASES)
+    vendor_col = _column(frame, VENDOR_ALIASES)
     package_col = _column(frame, PACKAGE_ALIASES)
     fields = [product_col]
-    for optional in (sku_col, brand_col, package_col):
+    for optional in (sku_col, brand_col, vendor_col, package_col):
         if optional and optional not in fields:
             fields.append(optional)
     haystack = frame[fields].fillna("").astype(str).agg(" ".join, axis=1).map(_norm)
@@ -237,6 +283,8 @@ def _search_product_frame(
         subtitle_parts = []
         if brand_col and str(row.get(brand_col) or "").strip():
             subtitle_parts.append(str(row.get(brand_col)).strip())
+        elif vendor_col and str(row.get(vendor_col) or "").strip():
+            subtitle_parts.append(str(row.get(vendor_col)).strip())
         if sku_col and str(row.get(sku_col) or "").strip():
             subtitle_parts.append(f"SKU {str(row.get(sku_col)).strip()}")
         results.append(
@@ -289,7 +337,8 @@ def build_product_360_snapshot(
     state: MutableMapping[str, Any],
     product_name: str,
 ) -> dict[str, Any]:
-    """Build a read-only Product 360 snapshot from the existing session sources."""
+    """Build a read-only Product 360 decision snapshot from existing sources."""
+
     inventory = _inventory_frame(state)
     sales = _sales_frame(state)
     inv_name = _column(inventory, PRODUCT_ALIASES)
@@ -309,30 +358,64 @@ def build_product_360_snapshot(
         ].copy()
 
     on_hand_col = _column(inv_rows, ON_HAND_ALIASES)
+    reserved_col = _column(inv_rows, RESERVED_ALIASES)
     sold_col = _column(sales_rows, SALES_QTY_ALIASES)
     cost_col = _column(inv_rows, COST_ALIASES)
     price_col = _column(inv_rows, PRICE_ALIASES)
     sku_col = _column(inv_rows, SKU_ALIASES)
     brand_col = _column(inv_rows, BRAND_ALIASES)
+    vendor_col = _column(inv_rows, VENDOR_ALIASES)
     category_col = _column(inv_rows, CATEGORY_ALIASES)
     package_col = _column(inv_rows, PACKAGE_ALIASES)
+    room_col = _column(inv_rows, ROOM_ALIASES)
+    status_col = _column(inv_rows, STATUS_ALIASES)
+    received_col = _column(inv_rows, RECEIVED_ALIASES)
+    expiration_col = _column(inv_rows, EXPIRATION_ALIASES)
+    lab_status_col = _column(inv_rows, LAB_STATUS_ALIASES)
+    coa_col = _column(inv_rows, COA_ALIASES)
 
     on_hand = float(_number(inv_rows[on_hand_col]).sum()) if on_hand_col else 0.0
+    reserved = float(_number(inv_rows[reserved_col]).sum()) if reserved_col else 0.0
+    on_hand_is_available = bool(on_hand_col and _norm(on_hand_col) == _norm("available"))
+    available_after_reserved = on_hand if on_hand_is_available else max(0.0, on_hand - reserved)
     sold_window = float(_number(sales_rows[sold_col]).sum()) if sold_col else 0.0
     sales_window_days = _sales_window_days(sales_rows)
     daily_velocity = sold_window / max(sales_window_days, 1) if sold_window > 0 else 0.0
     units_sold_30d = daily_velocity * 30.0
     days_on_hand = on_hand / daily_velocity if daily_velocity > 0 else math.inf
-    target_units = max(0, math.ceil(daily_velocity * 21.0 - on_hand)) if daily_velocity > 0 else 0
+    target_days = 21
+    target_units = max(0, math.ceil(daily_velocity * target_days - on_hand)) if daily_velocity > 0 else 0
 
     unit_cost = float(_number(inv_rows[cost_col]).median()) if cost_col and not inv_rows.empty else 0.0
     retail_price = float(_number(inv_rows[price_col]).median()) if price_col and not inv_rows.empty else 0.0
     margin_pct = ((retail_price - unit_cost) / retail_price * 100.0) if retail_price > 0 else None
+    inventory_value = max(0.0, on_hand) * max(0.0, unit_cost)
+    retail_value = max(0.0, on_hand) * max(0.0, retail_price)
+    gross_profit_value = max(0.0, on_hand) * max(0.0, retail_price - unit_cost)
+    reorder_cost = target_units * max(0.0, unit_cost)
+    reorder_retail_value = target_units * max(0.0, retail_price)
+    reorder_gross_profit = target_units * max(0.0, retail_price - unit_cost)
+    sell_through_denominator = units_sold_30d + on_hand
+    sell_through_pct = (
+        units_sold_30d / sell_through_denominator * 100.0
+        if sell_through_denominator > 0
+        else 0.0
+    )
+
+    sales_periods, sales_period_source = _sales_periods(
+        sales_rows,
+        sold_col=sold_col,
+        daily_velocity=daily_velocity,
+    )
+    pace_7 = sales_periods[7] / 7.0
+    pace_30 = sales_periods[30] / 30.0
+    sales_trend_pct = ((pace_7 / pace_30) - 1.0) * 100.0 if pace_30 > 0 else None
 
     def first_value(column: str | None) -> str:
         if not column or inv_rows.empty:
             return ""
         values = inv_rows[column].dropna().astype(str).str.strip()
+        values = values[values.ne("")]
         return str(values.iloc[0]) if not values.empty else ""
 
     package_values: list[str] = []
@@ -343,23 +426,120 @@ def build_product_360_snapshot(
             if value
         ]
 
+    received_dates = (
+        pd.to_datetime(inv_rows[received_col], errors="coerce").dropna()
+        if received_col and not inv_rows.empty
+        else pd.Series(dtype="datetime64[ns]")
+    )
+    expiration_dates = (
+        pd.to_datetime(inv_rows[expiration_col], errors="coerce").dropna()
+        if expiration_col and not inv_rows.empty
+        else pd.Series(dtype="datetime64[ns]")
+    )
+    today_ts = pd.Timestamp(date.today())
+    oldest_age_days = (
+        max(0, int((today_ts - received_dates.min().normalize()).days))
+        if not received_dates.empty
+        else None
+    )
+    nearest_expiration_days = (
+        int((expiration_dates.min().normalize() - today_ts).days)
+        if not expiration_dates.empty
+        else None
+    )
+    last_received_date = (
+        received_dates.max().date().isoformat()
+        if not received_dates.empty
+        else ""
+    )
+
+    stockout_date = ""
+    if math.isfinite(days_on_hand) and days_on_hand >= 0:
+        stockout_date = (date.today() + timedelta(days=max(0, math.ceil(days_on_hand)))).isoformat()
+
+    if daily_velocity <= 0 and on_hand > 0:
+        decision_signal = "SELL-THROUGH REVIEW"
+        decision_reason = "Inventory is on hand but no recent unit velocity is visible."
+    elif target_units > 0 and math.isfinite(days_on_hand) and days_on_hand <= 7:
+        decision_signal = "ORDER NOW"
+        decision_reason = (
+            f"Coverage is {days_on_hand:.1f} days; {target_units:,} units are needed "
+            f"to reach the {target_days}-day target."
+        )
+    elif target_units > 0:
+        decision_signal = "REORDER"
+        decision_reason = (
+            f"Current normalized velocity supports a {target_units:,}-unit draft reorder "
+            f"to reach {target_days} days of supply."
+        )
+    else:
+        decision_signal = "HEALTHY"
+        decision_reason = f"No immediate {target_days}-day replenishment gap is visible."
+
+    package_display_columns = [
+        column
+        for column in (
+            package_col,
+            on_hand_col,
+            reserved_col,
+            room_col,
+            status_col,
+            received_col,
+            expiration_col,
+            lab_status_col,
+            coa_col,
+        )
+        if column and column in inv_rows.columns
+    ]
+    package_details = (
+        inv_rows.loc[:, list(dict.fromkeys(package_display_columns))].copy()
+        if package_display_columns
+        else pd.DataFrame()
+    )
+
     return {
         "product_name": product_name,
         "sku": first_value(sku_col),
         "brand": first_value(brand_col),
+        "vendor": first_value(vendor_col),
         "category": first_value(category_col),
         "on_hand": on_hand,
+        "reserved": reserved,
+        "available_after_reserved": available_after_reserved,
         "units_sold_window": sold_window,
         "sales_window_days": sales_window_days,
-        "units_sold_30d": units_sold_30d,
+        "units_sold_7d": sales_periods[7],
+        "units_sold_30d": sales_periods[30] if sales_period_source.startswith("Transaction") else units_sold_30d,
+        "units_sold_60d": sales_periods[60],
+        "units_sold_90d": sales_periods[90],
+        "sales_period_source": sales_period_source,
+        "sales_trend_pct": sales_trend_pct,
         "daily_velocity": daily_velocity,
         "days_on_hand": days_on_hand,
+        "stockout_date": stockout_date,
+        "target_days": target_days,
         "target_units": target_units,
         "unit_cost": unit_cost,
         "retail_price": retail_price,
         "margin_pct": margin_pct,
-        "estimated_reorder_cost": target_units * unit_cost,
+        "inventory_value": inventory_value,
+        "retail_value": retail_value,
+        "gross_profit_value": gross_profit_value,
+        "sell_through_pct": sell_through_pct,
+        "estimated_reorder_cost": reorder_cost,
+        "estimated_reorder_retail_value": reorder_retail_value,
+        "estimated_reorder_gross_profit": reorder_gross_profit,
         "packages": package_values,
+        "package_count": len(package_values),
+        "oldest_age_days": oldest_age_days,
+        "nearest_expiration_days": nearest_expiration_days,
+        "last_received_date": last_received_date,
+        "room": first_value(room_col),
+        "status": first_value(status_col),
+        "lab_status": first_value(lab_status_col),
+        "decision_signal": decision_signal,
+        "decision_reason": decision_reason,
+        "package_details": package_details,
         "inventory_rows": inv_rows,
         "sales_rows": sales_rows,
     }
@@ -369,7 +549,8 @@ def stage_product_for_po(
     state: MutableMapping[str, Any],
     snapshot: dict[str, Any],
 ) -> dict[str, Any]:
-    """Add one Product 360 recommendation to the existing PO Builder state."""
+    """Upsert one Product 360 recommendation into the existing PO Builder state."""
+
     quantity = max(1, int(snapshot.get("target_units") or 0))
     unit_cost = max(0.0, float(snapshot.get("unit_cost") or 0.0))
     item = {
@@ -386,20 +567,21 @@ def stage_product_for_po(
         items = []
         state["po_items"] = items
 
-    duplicate = next(
+    duplicate_index = next(
         (
-            row
-            for row in items
+            index
+            for index, row in enumerate(items)
             if isinstance(row, dict)
             and _norm(row.get("Description")) == _norm(item["Description"])
-            and int(row.get("Quantity") or 0) == quantity
         ),
         None,
     )
-    if duplicate is None:
+    if duplicate_index is None:
         items.append(item)
         return item
-    return dict(duplicate)
+
+    items[duplicate_index] = item
+    return item
 
 
 def _route(state: MutableMapping[str, Any], *, group: str, workspace: str, section: str = "") -> None:
@@ -420,6 +602,15 @@ def _drawer_css() -> None:
             border-radius: 18px 0 0 18px !important;
             border-left: 1px solid rgba(255,154,60,.28) !important;
         }
+        .p360-decision {
+            margin:.45rem 0 .8rem;
+            padding:.75rem .82rem;
+            border:1px solid rgba(231,152,78,.22);
+            border-radius:12px;
+            background:rgba(231,152,78,.06);
+        }
+        .p360-decision strong {color:#F4B36F!important;letter-spacing:.05em}
+        .p360-decision span {color:#B9C0BB!important;font-size:.82rem}
         </style>
         """,
         unsafe_allow_html=True,
@@ -433,9 +624,17 @@ def _render_product_body(state: MutableMapping[str, Any], snapshot: dict[str, An
         state["product_360_open"] = False
         st.rerun()
 
-    st.caption("PRODUCT 360 · operational context")
+    st.caption("PRODUCT 360 · operational decision object")
     st.markdown(f"## {product}")
-    identity = " · ".join(value for value in [snapshot.get("brand"), snapshot.get("sku")] if value)
+    identity = " · ".join(
+        value
+        for value in [
+            snapshot.get("brand") or snapshot.get("vendor"),
+            snapshot.get("sku"),
+            snapshot.get("category"),
+        ]
+        if value
+    )
     if identity:
         st.caption(identity)
 
@@ -446,58 +645,120 @@ def _render_product_body(state: MutableMapping[str, Any], snapshot: dict[str, An
     metrics[2].metric("Days on hand", "∞" if not math.isfinite(doh) else f"{doh:,.1f}")
     margin = snapshot.get("margin_pct")
     metrics[3].metric("Margin", "—" if margin is None else f"{margin:,.1f}%")
-    st.caption(
-        f"Sales velocity normalized from the loaded {snapshot['sales_window_days']}-day reporting window."
+
+    st.markdown(
+        f"""
+        <div class="p360-decision">
+          <strong>{snapshot['decision_signal']}</strong><br/>
+          <span>{snapshot['decision_reason']}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    overview_tab, inventory_tab, sales_tab, purchasing_tab, packages_tab, audits_tab = st.tabs(
-        ["Overview", "Inventory", "Sales", "Purchasing", "Packages", "Audits"]
+    (
+        overview_tab,
+        inventory_tab,
+        sales_tab,
+        purchasing_tab,
+        packages_tab,
+        compliance_tab,
+        audits_tab,
+    ) = st.tabs(
+        ["Overview", "Inventory", "Sales", "Purchasing", "Packages", "Compliance", "Audits"]
     )
+
     with overview_tab:
-        if snapshot["target_units"] > 0:
-            st.error(
-                f"Low-cover signal: current normalized velocity suggests approximately "
-                f"{snapshot['target_units']:,} units to reach a 21-day target."
-            )
-        elif snapshot["daily_velocity"] <= 0 and snapshot["on_hand"] > 0:
-            st.warning("No recent unit velocity was detected for the current on-hand inventory.")
-        else:
-            st.success("No immediate 21-day replenishment gap is visible from the loaded data.")
+        overview_metrics = st.columns(3)
+        overview_metrics[0].metric("Inventory cost", f"${snapshot['inventory_value']:,.2f}")
+        overview_metrics[1].metric("Retail value", f"${snapshot['retail_value']:,.2f}")
+        overview_metrics[2].metric("Sell-through", f"{snapshot['sell_through_pct']:,.1f}%")
         st.write(
-            f"**Category:** {snapshot.get('category') or 'Not available'}  \n"
-            f"**Unit cost:** ${snapshot['unit_cost']:,.2f}  \n"
-            f"**Retail price:** ${snapshot['retail_price']:,.2f}"
+            f"**Vendor:** {snapshot.get('vendor') or snapshot.get('brand') or 'Not available'}  \n"
+            f"**Reserved:** {snapshot['reserved']:,.0f}  \n"
+            f"**Available after reserved:** {snapshot['available_after_reserved']:,.0f}  \n"
+            f"**Packages:** {snapshot['package_count']}  \n"
+            f"**Last received:** {snapshot.get('last_received_date') or 'Not available'}  \n"
+            f"**Oldest package age:** "
+            f"{str(snapshot['oldest_age_days']) + ' days' if snapshot['oldest_age_days'] is not None else 'Not available'}  \n"
+            f"**Nearest expiration:** "
+            f"{str(snapshot['nearest_expiration_days']) + ' days' if snapshot['nearest_expiration_days'] is not None else 'Not available'}  \n"
+            f"**Projected stockout:** {snapshot.get('stockout_date') or 'No velocity-based date'}"
         )
+
     with inventory_tab:
         if snapshot["inventory_rows"].empty:
             st.info("No inventory rows are loaded for this product.")
         else:
             st.dataframe(snapshot["inventory_rows"], width="stretch", hide_index=True)
+
     with sales_tab:
-        st.caption(
-            f"Raw loaded sales: {snapshot['units_sold_window']:,.0f} units across the inferred "
-            f"{snapshot['sales_window_days']}-day window."
-        )
+        sales_metrics = st.columns(4)
+        sales_metrics[0].metric("7d", f"{snapshot['units_sold_7d']:,.1f}")
+        sales_metrics[1].metric("30d", f"{snapshot['units_sold_30d']:,.1f}")
+        sales_metrics[2].metric("60d", f"{snapshot['units_sold_60d']:,.1f}")
+        sales_metrics[3].metric("90d", f"{snapshot['units_sold_90d']:,.1f}")
+        trend = snapshot.get("sales_trend_pct")
+        if trend is not None:
+            direction = "faster" if trend >= 0 else "slower"
+            st.caption(f"Recent 7-day pace is {abs(trend):.1f}% {direction} than the 30-day pace.")
+        st.caption(snapshot["sales_period_source"])
         if snapshot["sales_rows"].empty:
             st.info("No sales rows are loaded for this product.")
         else:
             st.dataframe(snapshot["sales_rows"].head(250), width="stretch", hide_index=True)
+
     with purchasing_tab:
-        st.metric("Suggested 21-day fill", f"{snapshot['target_units']:,} units")
-        st.metric("Estimated cost", f"${snapshot['estimated_reorder_cost']:,.2f}")
-        st.caption("The quantity is a draft recommendation. The existing PO Builder remains the final review/export workflow.")
+        purchase_metrics = st.columns(3)
+        purchase_metrics[0].metric(
+            f"Suggested {snapshot['target_days']}-day fill",
+            f"{snapshot['target_units']:,} units",
+        )
+        purchase_metrics[1].metric("Estimated cost", f"${snapshot['estimated_reorder_cost']:,.2f}")
+        purchase_metrics[2].metric(
+            "Projected gross profit",
+            f"${snapshot['estimated_reorder_gross_profit']:,.2f}",
+        )
+        st.caption(
+            "This is a deterministic draft based on loaded sales velocity and current on-hand. "
+            "PO Builder remains the final review/export workflow."
+        )
         if snapshot["target_units"] > 0:
-            if st.button("Add to PO", type="primary", width="stretch", key="product_360_add_to_po"):
+            if st.button("Add / update in PO", type="primary", width="stretch", key="product_360_add_to_po"):
                 stage_product_for_po(state, snapshot)
                 _route(state, group=RETAIL_OPS, workspace=BUYER_WORKSPACE, section="🧾 PO Builder")
         elif st.button("Open PO Builder", width="stretch", key="product_360_open_po"):
             _route(state, group=RETAIL_OPS, workspace=BUYER_WORKSPACE, section="🧾 PO Builder")
+
     with packages_tab:
-        packages = snapshot.get("packages") or []
-        if packages:
-            st.write("\n".join(f"• {value}" for value in packages[:50]))
+        if snapshot["package_details"].empty:
+            packages = snapshot.get("packages") or []
+            if packages:
+                st.write("\n".join(f"• {value}" for value in packages[:50]))
+            else:
+                st.info("No package / batch identifiers were detected in the current inventory source.")
         else:
-            st.info("No package / batch identifiers were detected in the current inventory source.")
+            st.dataframe(snapshot["package_details"].head(100), hide_index=True, width="stretch")
+        if snapshot.get("oldest_age_days") is not None:
+            st.caption(f"Oldest detected package age: {snapshot['oldest_age_days']} days.")
+
+    with compliance_tab:
+        st.caption(
+            "This tab reflects traceability/compliance fields present in the current Buyer Dash source. "
+            "It does not claim live external parity unless the state-system workflow verifies it."
+        )
+        compliance_metrics = st.columns(3)
+        compliance_metrics[0].metric("Packages", str(snapshot["package_count"]))
+        compliance_metrics[1].metric("Status", snapshot.get("status") or "Not available")
+        compliance_metrics[2].metric("Lab", snapshot.get("lab_status") or "Not available")
+        if st.button("Open traceability", width="stretch", key="product_360_metrc"):
+            _route(
+                state,
+                group=RETAIL_OPS,
+                workspace=BUYER_WORKSPACE,
+                section=METRC_INTEGRATIONS_SECTION,
+            )
+
     with audits_tab:
         st.caption("Keep the Product 360 context and open the existing durable audit workflow.")
         if st.button("Audit this SKU", width="stretch", key="product_360_audit"):
