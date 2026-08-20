@@ -115,6 +115,24 @@ def _render_new_run(
     lot_by_label = {_lot_label(item): item for item in lots}
     product_by_label = {_product_label(item): item for item in products}
 
+    # Inventory v2 can open Package Studio already focused on the selected source.
+    prefill_action = str(state.pop("package_studio_prefill_action", "") or "")
+    if prefill_action in ACTION_LABELS:
+        state["ps_action"] = prefill_action
+    if state.get("ps_action") not in ACTION_LABELS:
+        state["ps_action"] = next(iter(ACTION_LABELS))
+
+    prefill_lot_id = str(state.pop("package_studio_prefill_lot_id", "") or "")
+    if prefill_lot_id:
+        prefill_label = next(
+            (label for label, lot in lot_by_label.items() if str(lot.lot_id) == prefill_lot_id),
+            "",
+        )
+        if prefill_label:
+            state["ps_source_lot"] = prefill_label
+    if state.get("ps_source_lot") not in lot_by_label:
+        state["ps_source_lot"] = next(iter(lot_by_label))
+
     action_label = st.selectbox("Package action", list(ACTION_LABELS), key="ps_action")
     action_type = ACTION_LABELS[action_label]
     source_label = st.selectbox("Source package", list(lot_by_label), key="ps_source_lot")
