@@ -10,7 +10,7 @@
 These four phases are **not fully complete yet**. The modular app has the architecture and Doobie integration, but the original `app.py` still contains the most complete operational logic.
 
 ## What is complete already
-- Modular shell app exists (`app_v5.py`)
+- Modular shell app existed as `app_v5.py` (removed as dead code — the modular-shell approach described here was not carried forward; `app.py` retains the operational logic directly)
 - Doobie-only intelligence routes exist
 - Command Center, Extraction Analytics, Smart PO, and Learning views exist
 - Migration parity tracker exists
@@ -50,4 +50,4 @@ These four phases are **not fully complete yet**. The modular app has the archit
 - smart PO merged in without removing original capabilities
 
 ## Safe implementation rule
-Do **not** rename `app_v5.py` to `app.py` until all four phases above are complete and verified against the original workflow.
+This rule is now moot: `app_v5.py` was removed as dead code, and the modular-shell migration path it described was not carried forward. `app.py` remains the live implementation; any future re-attempt at a modular shell should not be promoted to `app.py` until it reaches parity with all four phases above, verified against the original workflow.
