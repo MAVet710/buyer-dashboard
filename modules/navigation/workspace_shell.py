@@ -35,6 +35,7 @@ from services.workspace_navigation import (
 
 INVENTORY_DASHBOARD_SECTION = "📊 Inventory Dashboard"
 PRODUCTION_WORKSPACES = (COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE)
+LOCATION_SETTINGS_SURFACE = "location_settings"
 
 
 def normalize_workspace_state(
@@ -157,6 +158,9 @@ def _default_route_for_category(
 
     workspaces = _workspace_set(groups)
     operation_mode = str(state.get("active_operation_mode") or "")
+    if category != "Data & Settings":
+        state.pop("flat_virtual_surface", None)
+
     if category == "Home" and HOME_WORKSPACE in workspaces:
         state["operations_group"] = HOME_OPS
         state["workspace_mode"] = HOME_WORKSPACE
@@ -231,7 +235,9 @@ def _secondary_choices(
             if workspace in workspaces
         ]
     if category == "Data & Settings":
-        choices: list[tuple[str, str, str]] = []
+        choices: list[tuple[str, str, str]] = [
+            ("Location", "virtual", LOCATION_SETTINGS_SURFACE),
+        ]
         if DATA_HUB_WORKSPACE in workspaces:
             choices.append(("Imports & Data", "workspace", DATA_HUB_WORKSPACE))
         choices.extend(
@@ -247,11 +253,13 @@ def _current_secondary_label(
 ) -> str:
     current_workspace = str(state.get("workspace_mode") or "")
     current_section = str(state.get("buyer_section") or "")
+    current_virtual = str(state.get("flat_virtual_surface") or "")
     return next(
         (
             label
             for label, kind, value in choices
-            if (kind == "workspace" and value == current_workspace)
+            if (kind == "virtual" and value == current_virtual)
+            or (kind == "workspace" and value == current_workspace)
             or (
                 kind == "section"
                 and value == current_section
@@ -272,6 +280,10 @@ def _apply_secondary_choice(
     if not selected:
         return
     _, kind, value = selected
+    if kind == "virtual":
+        state["flat_virtual_surface"] = value
+        return
+    state.pop("flat_virtual_surface", None)
     if kind == "section":
         _set_buyer_route(state, value, section_groups)
     elif value == DATA_HUB_WORKSPACE:
@@ -650,12 +662,15 @@ def render_workspace_selector(
         str(state.get("workspace_mode") or ""),
         str(state.get("buyer_section") or ""),
     )
-    # Production Inventory is a shell-level surface backed by the production
-    # ledger, so its underlying workspace may legitimately remain Co-Man or
-    # Extraction. Preserve the explicit Inventory selection in that case.
-    if operation_mode == PRODUCTION_OPERATION and requested_category == "Inventory" and "Inventory" in available:
+    if (
+        operation_mode == PRODUCTION_OPERATION
+        and requested_category == "Inventory"
+        and "Inventory" in available
+    ):
         inferred = "Inventory"
         _default_route_for_category(state, "Inventory", groups, section_groups)
+    elif requested_category == "Data & Settings" and state.get("flat_virtual_surface") == LOCATION_SETTINGS_SURFACE:
+        inferred = "Data & Settings"
     elif raw_inferred not in available:
         inferred = "Inventory" if "Inventory" in available else available[0]
         _default_route_for_category(state, inferred, groups, section_groups)
@@ -720,6 +735,12 @@ def render_workspace_selector(
         operation_mode=operation_mode,
     )
     render_global_search(state)
+
+    if category == "Data & Settings" and state.get("flat_virtual_surface") == LOCATION_SETTINGS_SURFACE:
+        from modules.location_settings import render_location_settings
+
+        render_location_settings(state)
+        st.stop()
 
     retail_inventory = (
         operation_mode != PRODUCTION_OPERATION
