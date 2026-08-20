@@ -29,17 +29,19 @@ VALID_TRANSITIONS: dict[str, frozenset[str]] = {
     "cancelled": frozenset(),
 }
 
-SENSITIVE_KEYS = {
+# Compare normalized alphanumeric key names so UserApiKey, user_api_key,
+# user-api-key, and USER API KEY are treated identically before persistence.
+SENSITIVE_KEY_TOKENS = {
     "authorization",
-    "api_key",
     "apikey",
-    "integrator_api_key",
-    "user_api_key",
+    "integratorapikey",
+    "userapikey",
+    "clientsecret",
     "secret",
     "password",
     "token",
-    "access_token",
-    "refresh_token",
+    "accesstoken",
+    "refreshtoken",
 }
 
 
@@ -47,12 +49,16 @@ def _clean(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _key_token(value: Any) -> str:
+    return "".join(character for character in str(value).casefold() if character.isalnum())
+
+
 def _sanitize_payload(value: Any) -> Any:
     """Recursively strip credentials before durable request/response storage."""
 
     if isinstance(value, Mapping):
         return {
-            str(key): "[REDACTED]" if str(key).strip().casefold() in SENSITIVE_KEYS else _sanitize_payload(item)
+            str(key): "[REDACTED]" if _key_token(key) in SENSITIVE_KEY_TOKENS else _sanitize_payload(item)
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
