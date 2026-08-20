@@ -182,7 +182,8 @@ def test_operation_mode_changes_the_flat_navigation_surface():
     assert "Production" not in retail
     assert "Production" in production
     assert "Purchasing" not in production
-    assert "Inventory" in both
+    assert "Inventory" in retail
+    assert "Inventory" in production
 
 
 def test_production_only_role_gets_first_class_inventory_route():
