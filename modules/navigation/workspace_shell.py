@@ -1,8 +1,10 @@
 """Responsive, compatibility-safe navigation for the Buyer Dash shell.
 
-The shell presents the simple business-language navigation approved for Buyer
-Dash while continuing to route into the existing workspace/page identifiers.
-Organization and facility selection remain owned by access_context.py.
+The shell presents simple business-language navigation while continuing to route
+into the existing workspace/page identifiers. Organization/facility authority
+and durable tenant hydration remain owned by access_context.py. Flat mode adds a
+persistent operation bar and intercepts only the primary Inventory presentation
+for Inventory v2; legacy pages remain intact.
 """
 
 from __future__ import annotations
@@ -31,6 +33,11 @@ from services.workspace_navigation import (
 )
 
 
+INVENTORY_DASHBOARD_SECTION = "📊 Inventory Dashboard"
+PRODUCTION_WORKSPACES = (COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE)
+LOCATION_SETTINGS_SURFACE = "location_settings"
+
+
 def normalize_workspace_state(
     state: MutableMapping[str, Any],
     groups: Mapping[str, Sequence[str]],
@@ -56,6 +63,10 @@ def normalize_workspace_state(
 
 def _workspace_set(groups: Mapping[str, Sequence[str]]) -> set[str]:
     return {workspace for options in groups.values() for workspace in options}
+
+
+def _production_workspace(workspaces: set[str]) -> str:
+    return next((workspace for workspace in PRODUCTION_WORKSPACES if workspace in workspaces), "")
 
 
 def _buyer_groups_for_state(state: MutableMapping[str, Any]) -> dict[str, list[str]]:
@@ -87,23 +98,34 @@ def _set_buyer_route(
     state["buyer_section_group"] = _buyer_group_for_section(section_groups, section)
 
 
+def _set_production_route(state: MutableMapping[str, Any], workspace: str) -> None:
+    state["workspace_mode"] = workspace
+    state["operations_group"] = PRODUCTION_OPS if workspace != WHITE_LABEL_WORKSPACE else RETAIL_OPS
+
+
 def _available_flat_categories(
     groups: Mapping[str, Sequence[str]],
     section_groups: Mapping[str, Sequence[str]],
 ) -> list[str]:
     workspaces = _workspace_set(groups)
+    has_production = bool(workspaces.intersection(PRODUCTION_WORKSPACES))
     available: list[str] = []
     for category in FLAT_NAV_ORDER:
         if category == "Home" and HOME_WORKSPACE in workspaces:
             available.append(category)
-        elif category in {"Inventory", "Purchasing", "Reports", "Compliance"}:
+        elif category == "Inventory":
+            has_retail_inventory = (
+                BUYER_WORKSPACE in workspaces
+                and bool(flat_buyer_sections("Inventory", dict(section_groups)))
+            )
+            if has_retail_inventory or has_production:
+                available.append(category)
+        elif category in {"Purchasing", "Reports", "Compliance"}:
             if BUYER_WORKSPACE in workspaces and flat_buyer_sections(category, dict(section_groups)):
                 available.append(category)
         elif category == "Orders" and COMMERCIAL_WORKSPACE in workspaces:
             available.append(category)
-        elif category == "Production" and workspaces.intersection(
-            {COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE}
-        ):
+        elif category == "Production" and has_production:
             available.append(category)
         elif category == "Data & Settings" and (
             DATA_HUB_WORKSPACE in workspaces
@@ -113,22 +135,47 @@ def _available_flat_categories(
     return available
 
 
+def _categories_for_operation(categories: Sequence[str], operation_mode: str) -> list[str]:
+    """Keep navigation focused on the selected Retail/Production operating mode."""
+
+    from modules.navigation.operation_context_bar import PRODUCTION_OPERATION
+
+    if operation_mode == PRODUCTION_OPERATION:
+        allowed = {"Home", "Inventory", "Production", "Orders", "Compliance", "Data & Settings"}
+    else:
+        allowed = {"Home", "Inventory", "Purchasing", "Orders", "Reports", "Compliance", "Data & Settings"}
+    scoped = [category for category in categories if category in allowed]
+    return scoped or list(categories)
+
+
 def _default_route_for_category(
     state: MutableMapping[str, Any],
     category: str,
     groups: Mapping[str, Sequence[str]],
     section_groups: Mapping[str, Sequence[str]],
 ) -> None:
+    from modules.navigation.operation_context_bar import PRODUCTION_OPERATION
+
     workspaces = _workspace_set(groups)
+    operation_mode = str(state.get("active_operation_mode") or "")
+    if category != "Data & Settings":
+        state.pop("flat_virtual_surface", None)
+
     if category == "Home" and HOME_WORKSPACE in workspaces:
         state["operations_group"] = HOME_OPS
         state["workspace_mode"] = HOME_WORKSPACE
         return
 
+    if category == "Inventory" and operation_mode == PRODUCTION_OPERATION:
+        workspace = _production_workspace(workspaces)
+        if workspace:
+            _set_production_route(state, workspace)
+        return
+
     if category in {"Inventory", "Purchasing", "Reports", "Compliance"} and BUYER_WORKSPACE in workspaces:
         sections = flat_buyer_sections(category, dict(section_groups))
         preferred = {
-            "Inventory": "📊 Inventory Dashboard",
+            "Inventory": INVENTORY_DASHBOARD_SECTION,
             "Purchasing": "🧾 PO Builder",
             "Reports": "📈 Trends",
             "Compliance": "🧭 Compliance Q&A",
@@ -144,17 +191,9 @@ def _default_route_for_category(
         return
 
     if category == "Production":
-        workspace = next(
-            (
-                value
-                for value in (COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE)
-                if value in workspaces
-            ),
-            "",
-        )
+        workspace = _production_workspace(workspaces)
         if workspace:
-            state["workspace_mode"] = workspace
-            state["operations_group"] = PRODUCTION_OPS if workspace != WHITE_LABEL_WORKSPACE else RETAIL_OPS
+            _set_production_route(state, workspace)
         return
 
     if category == "Data & Settings":
@@ -171,8 +210,14 @@ def _secondary_choices(
     category: str,
     groups: Mapping[str, Sequence[str]],
     section_groups: Mapping[str, Sequence[str]],
+    *,
+    operation_mode: str = "Retail Ops",
 ) -> list[tuple[str, str, str]]:
+    from modules.navigation.operation_context_bar import PRODUCTION_OPERATION
+
     workspaces = _workspace_set(groups)
+    if category == "Inventory" and operation_mode == PRODUCTION_OPERATION:
+        return []
     if category in {"Inventory", "Purchasing", "Reports", "Compliance"}:
         return [
             (buyer_section_display_name(section), "section", section)
@@ -186,11 +231,13 @@ def _secondary_choices(
         }
         return [
             (display[workspace], "workspace", workspace)
-            for workspace in (COMAN_WORKSPACE, EXTRACTION_WORKSPACE, WHITE_LABEL_WORKSPACE)
+            for workspace in PRODUCTION_WORKSPACES
             if workspace in workspaces
         ]
     if category == "Data & Settings":
-        choices: list[tuple[str, str, str]] = []
+        choices: list[tuple[str, str, str]] = [
+            ("Location", "virtual", LOCATION_SETTINGS_SURFACE),
+        ]
         if DATA_HUB_WORKSPACE in workspaces:
             choices.append(("Imports & Data", "workspace", DATA_HUB_WORKSPACE))
         choices.extend(
@@ -206,11 +253,13 @@ def _current_secondary_label(
 ) -> str:
     current_workspace = str(state.get("workspace_mode") or "")
     current_section = str(state.get("buyer_section") or "")
+    current_virtual = str(state.get("flat_virtual_surface") or "")
     return next(
         (
             label
             for label, kind, value in choices
-            if (kind == "workspace" and value == current_workspace)
+            if (kind == "virtual" and value == current_virtual)
+            or (kind == "workspace" and value == current_workspace)
             or (
                 kind == "section"
                 and value == current_section
@@ -231,6 +280,10 @@ def _apply_secondary_choice(
     if not selected:
         return
     _, kind, value = selected
+    if kind == "virtual":
+        state["flat_virtual_surface"] = value
+        return
+    state.pop("flat_virtual_surface", None)
     if kind == "section":
         _set_buyer_route(state, value, section_groups)
     elif value == DATA_HUB_WORKSPACE:
@@ -274,8 +327,6 @@ def _render_legacy_selector(
 def _shell_css() -> str:
     return """
     <style>
-    /* The old Buyer widgets still exist underneath for compatibility. Flat mode
-       removes them from the presentation so there is only one visible shell. */
     .st-key-buyer_section_group,
     .st-key-buyer_section,
     .st-key-data_mode { display:none !important; }
@@ -348,8 +399,6 @@ def _shell_css() -> str:
         border-radius:12px !important;
     }
 
-    /* Higher specificity than Product 360's legacy dialog CSS. This makes the
-       same dialog behave as the approved right drawer without duplicating data. */
     body div[data-testid="stDialog"] {
         align-items:stretch !important;
         justify-content:flex-end !important;
@@ -500,6 +549,8 @@ def _render_mobile_navigation(
     groups: Mapping[str, Sequence[str]],
     section_groups: Mapping[str, Sequence[str]],
     category: str,
+    *,
+    operation_mode: str,
 ) -> None:
     import streamlit as st
 
@@ -523,7 +574,12 @@ def _render_mobile_navigation(
         )
 
         mobile_category = str(state.get("mobile_flat_navigation_section") or category)
-        choices = _secondary_choices(mobile_category, groups, section_groups)
+        choices = _secondary_choices(
+            mobile_category,
+            groups,
+            section_groups,
+            operation_mode=operation_mode,
+        )
         if choices:
             current_label = _current_secondary_label(state, choices)
             if state.get("mobile_flat_nav_tool_label") != current_label:
@@ -545,27 +601,28 @@ def _render_mobile_navigation(
                 label_visibility="collapsed",
             )
 
-        modes = ["📁 Uploads", "🔴 Dutchie Live"]
-        current_mode = str(state.get("data_mode") or modes[0])
-        if current_mode not in modes:
-            current_mode = modes[0]
-        if state.get("mobile_flat_nav_data_mode") != current_mode:
-            state["mobile_flat_nav_data_mode"] = current_mode
+        if operation_mode != "Production Ops":
+            modes = ["📁 Uploads", "🔴 Dutchie Live"]
+            current_mode = str(state.get("data_mode") or modes[0])
+            if current_mode not in modes:
+                current_mode = modes[0]
+            if state.get("mobile_flat_nav_data_mode") != current_mode:
+                state["mobile_flat_nav_data_mode"] = current_mode
 
-        def sync_mobile_data_mode() -> None:
-            selected = str(state.get("mobile_flat_nav_data_mode") or modes[0])
-            if selected in modes:
-                state["data_mode"] = selected
-                state["flat_nav_data_mode"] = selected
+            def sync_mobile_data_mode() -> None:
+                selected = str(state.get("mobile_flat_nav_data_mode") or modes[0])
+                if selected in modes:
+                    state["data_mode"] = selected
+                    state["flat_nav_data_mode"] = selected
 
-        with st.expander("Data source", expanded=False):
-            st.selectbox(
-                "Buyer data mode",
-                modes,
-                key="mobile_flat_nav_data_mode",
-                on_change=sync_mobile_data_mode,
-                label_visibility="collapsed",
-            )
+            with st.expander("Data source", expanded=False):
+                st.selectbox(
+                    "Buyer data mode",
+                    modes,
+                    key="mobile_flat_nav_data_mode",
+                    on_change=sync_mobile_data_mode,
+                    label_visibility="collapsed",
+                )
 
 
 def render_workspace_selector(
@@ -573,6 +630,10 @@ def render_workspace_selector(
 ) -> tuple[str, str]:
     import html
     import streamlit as st
+    from modules.navigation.operation_context_bar import (
+        PRODUCTION_OPERATION,
+        render_operation_context_bar,
+    )
     from modules.navigation.product_360 import render_global_search
 
     normalize_workspace_state(st.session_state, groups, preferred_group=preferred_group)
@@ -588,16 +649,33 @@ def render_workspace_selector(
 
     st.markdown(_shell_css(), unsafe_allow_html=True)
     section_groups = _buyer_groups_for_state(state)
-    available = _available_flat_categories(groups, section_groups)
+    operation_mode = render_operation_context_bar(groups, state)
+    available = _categories_for_operation(
+        _available_flat_categories(groups, section_groups),
+        operation_mode,
+    )
     if not available:
         return _render_legacy_selector(groups, preferred_group=preferred_group)
 
-    inferred = flat_category_for_route(
+    requested_category = str(state.get("flat_navigation_section") or "")
+    raw_inferred = flat_category_for_route(
         str(state.get("workspace_mode") or ""),
         str(state.get("buyer_section") or ""),
     )
-    if inferred not in available:
-        inferred = available[0]
+    if (
+        operation_mode == PRODUCTION_OPERATION
+        and requested_category == "Inventory"
+        and "Inventory" in available
+    ):
+        inferred = "Inventory"
+        _default_route_for_category(state, "Inventory", groups, section_groups)
+    elif requested_category == "Data & Settings" and state.get("flat_virtual_surface") == LOCATION_SETTINGS_SURFACE:
+        inferred = "Data & Settings"
+    elif raw_inferred not in available:
+        inferred = "Inventory" if "Inventory" in available else available[0]
+        _default_route_for_category(state, inferred, groups, section_groups)
+    else:
+        inferred = raw_inferred
     if state.get("flat_navigation_section") != inferred:
         state["flat_navigation_section"] = inferred
 
@@ -613,6 +691,7 @@ def render_workspace_selector(
         for value in [
             str(state.get("active_organization_name") or ""),
             str(state.get("active_facility_name") or ""),
+            operation_mode,
         ]
         if value
     )
@@ -630,12 +709,15 @@ def render_workspace_selector(
         label_visibility="collapsed",
     )
 
-    _render_secondary_sidebar(
-        state,
-        _secondary_choices(category, groups, section_groups),
+    secondary = _secondary_choices(
+        category,
+        groups,
         section_groups,
+        operation_mode=operation_mode,
     )
-    _render_data_mode_sidebar(state)
+    _render_secondary_sidebar(state, secondary, section_groups)
+    if operation_mode != PRODUCTION_OPERATION:
+        _render_data_mode_sidebar(state)
 
     with st.sidebar.expander("Navigation options", expanded=False):
         st.toggle(
@@ -644,8 +726,33 @@ def render_workspace_selector(
             help="Compatibility fallback. No legacy pages are removed by the flat shell.",
         )
 
-    _render_mobile_navigation(state, available, groups, section_groups, category)
+    _render_mobile_navigation(
+        state,
+        available,
+        groups,
+        section_groups,
+        category,
+        operation_mode=operation_mode,
+    )
     render_global_search(state)
+
+    if category == "Data & Settings" and state.get("flat_virtual_surface") == LOCATION_SETTINGS_SURFACE:
+        from modules.location_settings import render_location_settings
+
+        render_location_settings(state)
+        st.stop()
+
+    retail_inventory = (
+        operation_mode != PRODUCTION_OPERATION
+        and str(state.get("workspace_mode") or "") == BUYER_WORKSPACE
+        and str(state.get("buyer_section") or "") == INVENTORY_DASHBOARD_SECTION
+    )
+    production_inventory = operation_mode == PRODUCTION_OPERATION and category == "Inventory"
+    if category == "Inventory" and (retail_inventory or production_inventory):
+        from modules.inventory_command_center import render_inventory_command_center
+
+        render_inventory_command_center(state, operation_mode=operation_mode)
+        st.stop()
 
     normalize_workspace_state(state, groups, preferred_group=preferred_group)
     return str(state["operations_group"]), str(state["workspace_mode"])
