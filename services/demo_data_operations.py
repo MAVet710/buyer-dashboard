@@ -19,17 +19,29 @@ def _records(catalog: Any) -> list[dict[str, Any]]:
     return list(catalog or [])
 
 
-def build_operations_demo(today: date, *, catalog: Any = None, scale: str = "medium",
-                          seed: int = 710, company: dict[str, Any] | None = None,
-                          problems: set[str] | None = None) -> dict[str, Any]:
+def build_operations_demo(
+    today: date,
+    *,
+    catalog: Any = None,
+    scale: str = "medium",
+    seed: int = 710,
+    company: dict[str, Any] | None = None,
+    problems: set[str] | None = None,
+) -> dict[str, Any]:
+    del scale
     rng, problems = random.Random(seed + 41), set(problems or set())
     products = _records(catalog)
-    company = company or {"company_name": "DEV Sandbox", "facility_name": "Sandbox Facility", "license_number": "SANDBOX-MA-DEMO"}
+    company = company or {
+        "company_name": "DEV Sandbox",
+        "facility_name": "Sandbox Facility",
+        "license_number": "SANDBOX-MA-DEMO",
+    }
     run_ids = sorted({str(p.get("source_extraction_batch") or "") for p in products if p.get("source_extraction_batch")})
     if not run_ids:
         run_ids = [f"EXT-{i:04d}" for i in range(1, 8)]
 
-    inventory_rows, run_rows = [], []
+    inventory_rows: list[dict[str, Any]] = []
+    run_rows: list[dict[str, Any]] = []
     for idx, run_id in enumerate(run_ids):
         method = _METHODS[idx % len(_METHODS)]
         input_g = float(rng.randint(2600, 14500))
@@ -47,28 +59,43 @@ def build_operations_demo(today: date, *, catalog: Any = None, scale: str = "med
         metrc_input = f"1A406030000EXT{idx + 100000:08d}"
         metrc_output = f"1A406030000OUT{idx + 100000:08d}"
         cost_per_g = round(rng.uniform(0.65, 2.25), 2)
+        qa_hold = "qa_hold" in problems and idx % 5 == 0
         inventory_rows.append({
-            "received_date": received.isoformat(), "material_name": f"{run_id} {_MATERIALS[method]}",
-            "material_type": _MATERIALS[method], "strain": products[idx % len(products)].get("strain", "Mixed") if products else "Mixed",
+            "received_date": received.isoformat(),
+            "material_name": f"{run_id} {_MATERIALS[method]}",
+            "material_type": _MATERIALS[method],
+            "inventory_class": "Bulk / WIP",
+            "item_type": "cannabis",
+            "inventory_unit": "g",
+            "strain": products[idx % len(products)].get("strain", "Mixed") if products else "Mixed",
             "source_vendor": products[idx % len(products)].get("vendor", "Demo Cultivation") if products else "Demo Cultivation",
-            "batch_id_internal": f"MAT-{idx + 1:04d}", "metrc_package_id": metrc_input,
-            "input_category": "Cannabis Input", "current_weight_g": input_g, "reserved_weight_g": reserved,
-            "available_weight_g": available, "cost_per_g": cost_per_g, "total_cost": round(input_g * cost_per_g, 2),
-            "status": "Quarantine" if "qa_hold" in problems and idx % 5 == 0 else ("Reserved" if reserved else "Available"),
+            "batch_id_internal": f"MAT-{idx + 1:04d}",
+            "metrc_package_id": metrc_input,
+            "input_category": "Cannabis Input",
+            "current_weight_g": input_g,
+            "reserved_weight_g": reserved,
+            "available_weight_g": available,
+            "cost_per_g": cost_per_g,
+            "total_cost": round(input_g * cost_per_g, 2),
+            "status": "Quarantine" if qa_hold else ("Reserved" if reserved else "Available"),
+            "lab_status": "Pending" if qa_hold else "Passed",
             "storage_location": f"Freezer-{idx % 4 + 1}" if method in {"BHO", "Rosin"} else f"Vault-{idx % 3 + 1}",
-            "intended_method": method, "notes": f"Synthetic demo lot linked to {run_id}",
+            "source_extraction_batch": run_id,
+            "facility_name": company["facility_name"],
+            "license_number": company["license_number"],
+            "tags": "bulk;production;metrc-linked",
+            "intended_method": method,
+            "notes": f"Synthetic demo lot linked to {run_id}",
         })
-        output_value_per_g = {"Live Resin": 20.0, "Hash Rosin": 42.0, "Distillate": 9.0, "CO2 Oil": 10.0}[_OUTPUTS[method]]
+
+        output_name = _OUTPUTS[method]
+        output_value_per_g = {"Live Resin": 20.0, "Hash Rosin": 42.0, "Distillate": 9.0, "CO2 Oil": 10.0}[output_name]
         operational_cost = round(rng.uniform(240, 1150), 2)
         cogs = round(input_g * cost_per_g + operational_cost, 2)
         revenue = round(output_g * output_value_per_g, 2)
-        # Healthy sandbox scenarios model a viable operator. Market pricing is
-        # floored at a 32% run-level gross margin so every method demonstrates
-        # profitable planning without hiding the true material and labor cost.
         if "negative_margin" not in problems and output_g > 0:
             revenue = round(max(revenue, cogs / 0.68), 2)
             output_value_per_g = round(revenue / output_g, 2)
-        qa_hold = "qa_hold" in problems and idx % 5 == 0
         coa_status = "Failed" if "failed_coa" in problems and idx % 7 == 0 else ("Pending" if qa_hold or idx % 6 == 0 else "Passed")
         if "negative_margin" in problems and idx % 8 == 0:
             cogs = round(revenue * 1.12, 2)
@@ -81,82 +108,130 @@ def build_operations_demo(today: date, *, catalog: Any = None, scale: str = "med
         turnaround_hours = round({"BHO": 18.0, "Rosin": 14.0, "Ethanol": 30.0, "CO2": 26.0}[method] + rng.uniform(-3.0, 8.0), 1)
         downtime_minutes = int(max(0, round(rng.gauss(24 + (idx % 4) * 9, 18))))
         rework_required = bool(("low_yield" in problems and idx % 4 == 0) or idx % 11 == 7)
-        rework_reason = "Low yield / process review" if rework_required else ""
         residual_solvent_status = (
-            "Not Applicable"
-            if method == "Rosin"
-            else ("Failed" if "failed_coa" in problems and idx % 7 == 0 else ("Pending" if coa_status == "Pending" else "Passed"))
+            "Not Applicable" if method == "Rosin"
+            else "Failed" if "failed_coa" in problems and idx % 7 == 0
+            else "Pending" if coa_status == "Pending"
+            else "Passed"
         )
-        settings_verified = True
-        sop_reference = f"SANDBOX-SOP-{method.upper()}-001"
         linked_products = [p for p in products if p.get("source_extraction_batch") == run_id]
         product_orders = sorted({p.get("source_production_order") for p in linked_products if p.get("source_production_order")})
         run_rows.append({
-            "run_date": run_date.isoformat(), "state": "MA", "license_name": company["facility_name"],
+            "run_date": run_date.isoformat(),
+            "state": "MA",
+            "license_name": company["facility_name"],
             "client_name": "In House" if idx % 4 else "Atlantic Toll Processing Client",
-            "batch_id_internal": run_id, "metrc_package_id_input": metrc_input, "metrc_package_id_output": metrc_output,
-            "metrc_manifest_or_transfer_id": f"MAN-EXT-{idx + 1:05d}", "method": method,
-            "product_type": _OUTPUTS[method], "downstream_product": _OUTPUTS[method],
-            "finished_product_type": _OUTPUTS[method], "final_product_type": _OUTPUTS[method],
+            "batch_id_internal": run_id,
+            "metrc_package_id_input": metrc_input,
+            "metrc_package_id_output": metrc_output,
+            "metrc_manifest_or_transfer_id": f"MAN-EXT-{idx + 1:05d}",
+            "method": method,
+            "product_type": output_name,
+            "downstream_product": output_name,
+            "finished_product_type": output_name,
+            "final_product_type": output_name,
             "process_stage": "QA Hold" if qa_hold else ("Final Output" if idx % 3 else "Filling / Packaging"),
-            "input_material_type": _MATERIALS[method], "input_weight_g": input_g,
-            "intermediate_output_g": round(output_g * 1.08, 2), "finished_output_g": output_g,
-            "residual_loss_g": round(max(0.0, input_g - output_g), 2), "yield_pct": yield_pct,
-            "post_process_efficiency_pct": round(rng.uniform(86, 98), 2), "operator": f"Operator {idx % 6 + 1}",
-            "machine_line": f"Line {idx % 3 + 1}", "status": "Hold" if qa_hold else ("Complete" if idx % 3 else "Packaging"),
-            "toll_processing": idx % 4 == 0, "processing_fee_usd": 1800.0 if idx % 4 == 0 else 0.0,
-            "est_revenue_usd": revenue, "estimated_revenue_usd": revenue, "cogs_usd": cogs, "total_cogs_usd": cogs,
-            "raw_material_cogs_usd": round(input_g * cost_per_g, 2), "processing_cogs_usd": operational_cost,
-            "packaging_cogs_usd": round(output_g * 0.18, 2), "labor_cogs_usd": round(operational_cost * 0.42, 2),
-            "overhead_cogs_usd": round(operational_cost * 0.21, 2), "unit_size_g": 1.0,
-            "unit_price_usd": output_value_per_g, "units_per_batch": int(output_g), "packaging_yield_loss_g": round(output_g * 0.015, 2),
-            "coa_status": coa_status, "qa_hold": qa_hold,
-            "input_terpene_pct": input_terpene_pct, "finished_terpene_pct": finished_terpene_pct,
-            "terpene_retention_pct": terpene_retention_pct, "turnaround_hours": turnaround_hours,
-            "rework_required": rework_required, "rework_reason": rework_reason,
-            "residual_solvent_status": residual_solvent_status, "downtime_minutes": downtime_minutes,
-            "settings_verified": settings_verified, "sop_reference": sop_reference,
+            "input_material_type": _MATERIALS[method],
+            "input_weight_g": input_g,
+            "intermediate_output_g": round(output_g * 1.08, 2),
+            "finished_output_g": output_g,
+            "residual_loss_g": round(max(0.0, input_g - output_g), 2),
+            "yield_pct": yield_pct,
+            "post_process_efficiency_pct": round(rng.uniform(86, 98), 2),
+            "operator": f"Operator {idx % 6 + 1}",
+            "machine_line": f"Line {idx % 3 + 1}",
+            "status": "Hold" if qa_hold else ("Complete" if idx % 3 else "Packaging"),
+            "toll_processing": idx % 4 == 0,
+            "processing_fee_usd": 1800.0 if idx % 4 == 0 else 0.0,
+            "est_revenue_usd": revenue,
+            "estimated_revenue_usd": revenue,
+            "cogs_usd": cogs,
+            "total_cogs_usd": cogs,
+            "raw_material_cogs_usd": round(input_g * cost_per_g, 2),
+            "processing_cogs_usd": operational_cost,
+            "packaging_cogs_usd": round(output_g * 0.18, 2),
+            "labor_cogs_usd": round(operational_cost * 0.42, 2),
+            "overhead_cogs_usd": round(operational_cost * 0.21, 2),
+            "unit_size_g": 1.0,
+            "unit_price_usd": output_value_per_g,
+            "units_per_batch": int(output_g),
+            "packaging_yield_loss_g": round(output_g * 0.015, 2),
+            "coa_status": coa_status,
+            "qa_hold": qa_hold,
+            "input_terpene_pct": input_terpene_pct,
+            "finished_terpene_pct": finished_terpene_pct,
+            "terpene_retention_pct": terpene_retention_pct,
+            "turnaround_hours": turnaround_hours,
+            "rework_required": rework_required,
+            "rework_reason": "Low yield / process review" if rework_required else "",
+            "residual_solvent_status": residual_solvent_status,
+            "downtime_minutes": downtime_minutes,
+            "settings_verified": True,
+            "sop_reference": f"SANDBOX-SOP-{method.upper()}-001",
             "run_settings_reference": "Validated facility SOP / equipment envelope; synthetic sandbox contains no operating setpoint recipe.",
             "notes": f"Feeds production orders: {', '.join(product_orders) or 'demo queue'}",
-            "source_inventory_batch_id": f"MAT-{idx + 1:04d}", "source_inventory_metrc_id": metrc_input,
+            "source_inventory_batch_id": f"MAT-{idx + 1:04d}",
+            "source_inventory_metrc_id": metrc_input,
             "source_material_name": f"{run_id} {_MATERIALS[method]}",
             "source_inventory_batch_ids": json.dumps([f"MAT-{idx + 1:04d}"]),
-            "source_inventory_metrc_ids": json.dumps([metrc_input]), "inventory_linked": True,
-            "allocated_input_weight_g": input_g, "allocated_input_cost_total": round(input_g * cost_per_g, 2),
-            "input_cost_total": round(input_g * cost_per_g, 2), "operational_cost_total": operational_cost,
-            "total_cost": cogs, "cost_per_gram": round(cogs / output_g, 2) if output_g else 0.0,
-            "market_price_per_gram": output_value_per_g, "estimated_value_usd": revenue,
+            "source_inventory_metrc_ids": json.dumps([metrc_input]),
+            "inventory_linked": True,
+            "allocated_input_weight_g": input_g,
+            "allocated_input_cost_total": round(input_g * cost_per_g, 2),
+            "input_cost_total": round(input_g * cost_per_g, 2),
+            "operational_cost_total": operational_cost,
+            "total_cost": cogs,
+            "cost_per_gram": round(cogs / output_g, 2) if output_g else 0.0,
+            "market_price_per_gram": output_value_per_g,
+            "estimated_value_usd": revenue,
             "margin_per_gram": round(gross_profit / output_g, 2) if output_g else 0.0,
-            "total_profit_usd": gross_profit, "margin_pct_est": round(gross_profit / revenue * 100, 2) if revenue else 0.0,
+            "total_profit_usd": gross_profit,
+            "margin_pct_est": round(gross_profit / revenue * 100, 2) if revenue else 0.0,
             "value_risk_flag": "Critical" if gross_profit < 0 else ("Warning" if gross_profit / max(revenue, 1) < 0.10 else "Healthy"),
-            "unmapped_output_type": False, "output_mapping_warning": "", "normalized_output_type": _OUTPUTS[method],
-            "usable_output_g": round(output_g * 0.985, 2), "bulk_estimated_value_usd": revenue,
-            "packaged_estimated_revenue_usd": revenue, "revenue_per_gram_realized": output_value_per_g,
-            "cost_per_unit": round(cogs / max(int(output_g), 1), 2), "gross_profit_usd": gross_profit,
+            "unmapped_output_type": False,
+            "output_mapping_warning": "",
+            "normalized_output_type": output_name,
+            "usable_output_g": round(output_g * 0.985, 2),
+            "bulk_estimated_value_usd": revenue,
+            "packaged_estimated_revenue_usd": revenue,
+            "revenue_per_gram_realized": output_value_per_g,
+            "cost_per_unit": round(cogs / max(int(output_g), 1), 2),
+            "gross_profit_usd": gross_profit,
             "gross_margin_pct": round(gross_profit / revenue * 100, 2) if revenue else 0.0,
-            "packaging_mode": "Concentrate / Dabs", "packaging_warning": "",
-            "metrc_input_package_id": metrc_input, "metrc_final_package_id": metrc_output,
-            "metrc_stage_input_id": metrc_input, "metrc_stage_output_id": metrc_output,
+            "packaging_mode": "Concentrate / Dabs",
+            "packaging_warning": "",
+            "metrc_input_package_id": metrc_input,
+            "metrc_final_package_id": metrc_output,
+            "metrc_stage_input_id": metrc_input,
+            "metrc_stage_output_id": metrc_output,
         })
 
-    jobs = []
+    jobs: list[dict[str, Any]] = []
     for idx in range(max(4, len(run_rows) // 4)):
         promised = today + timedelta(days=idx * 3 - (2 if "late_jobs" in problems and idx == 0 else 0))
         method = _METHODS[idx % len(_METHODS)]
         jobs.append({
             "client_name": ["Atlantic Wellness", "Cape Craft", "Berkshire Brands", "Merrimack Medicinals"][idx % 4],
-            "state": "MA", "license_or_registration": f"MC281{idx + 100:03d}",
-            "metrc_transfer_id": f"XFER-{idx + 1:05d}", "material_received_date": (today - timedelta(days=8 + idx)).isoformat(),
-            "promised_completion_date": promised.isoformat(), "method": method, "input_weight_g": 4500 + idx * 500,
-            "expected_output_g": 650 + idx * 60, "actual_output_g": 0 if idx % 3 == 0 else 620 + idx * 55,
+            "state": "MA",
+            "license_or_registration": f"MC281{idx + 100:03d}",
+            "metrc_transfer_id": f"XFER-{idx + 1:05d}",
+            "material_received_date": (today - timedelta(days=8 + idx)).isoformat(),
+            "promised_completion_date": promised.isoformat(),
+            "method": method,
+            "input_weight_g": 4500 + idx * 500,
+            "expected_output_g": 650 + idx * 60,
+            "actual_output_g": 0 if idx % 3 == 0 else 620 + idx * 55,
             "sla_status": "At Risk" if promised < today or ("late_jobs" in problems and idx == 0) else "On Track",
             "invoice_status": "Overdue" if "overdue_invoice" in problems and idx == 1 else ("Paid" if idx % 3 == 2 else "Sent"),
-            "payment_status": "Pending" if idx % 3 == 0 else "Paid", "coa_status": "Pending" if idx % 3 == 0 else "Passed",
+            "payment_status": "Pending" if idx % 3 == 0 else "Paid",
+            "coa_status": "Pending" if idx % 3 == 0 else "Passed",
             "job_status": "Processing" if idx % 3 == 0 else "Complete",
         })
 
+    production_inventory = pd.DataFrame(inventory_rows)
     return {
-        "extraction_inventory": pd.DataFrame(inventory_rows),
+        "production_inventory": production_inventory.copy(),
+        "extraction_inventory": production_inventory.copy(),
         "extraction_runs": pd.DataFrame(run_rows),
         "extraction_jobs": pd.DataFrame(jobs),
     }
