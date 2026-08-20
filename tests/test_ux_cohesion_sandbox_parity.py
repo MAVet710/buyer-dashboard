@@ -168,11 +168,11 @@ def test_products_is_a_first_class_inventory_destination():
     assert sum(value == PRODUCT_MASTER_SURFACE for _, _, value in choices) == 1
 
     production = product_master_secondary_choices(
-        base,
+        [],
         category="Inventory",
         operation_mode="Production Ops",
     )
-    assert all(value != PRODUCT_MASTER_SURFACE for _, _, value in production)
+    assert production == [("Products", "virtual", PRODUCT_MASTER_SURFACE)]
 
 
 def test_extraction_routine_stage_update_has_one_deterministic_next_step():
