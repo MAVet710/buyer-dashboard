@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import hashlib
+import logging
 import math
 import os
 import random
@@ -18,6 +19,8 @@ from typing import Any
 import pandas as pd
 
 from services.demo_data_buyer import build_buyer_demo
+
+logger = logging.getLogger(__name__)
 from services.demo_data_operations import build_operations_demo
 from services.sandbox_readiness import validate_sandbox_payload
 from services.sandbox_persistence import persist_sandbox_sources, restore_sandbox_sources
@@ -1188,8 +1191,15 @@ def reset_demo_session(
             from modules.coman.demo_data import reset_coman_demo_dataset
 
             reset_coman_demo_dataset()
-        except Exception:
-            pass
+            state.pop("_coman_demo_reset_error", None)
+        except Exception as exc:
+            # Deleting the durable sandbox org/facility must not crash the reset
+            # button, but silently swallowing this used to mean a failed reset
+            # left the sandbox destroyed with no visible reason why nothing
+            # loaded afterward. Surface it instead.
+            detail = f"{type(exc).__name__}: {exc}"
+            logger.exception("Durable sandbox reset failed: %s", detail)
+            state["_coman_demo_reset_error"] = detail
 
 
 def demo_company_summary(state: MutableMapping[str, Any]) -> dict[str, Any]:

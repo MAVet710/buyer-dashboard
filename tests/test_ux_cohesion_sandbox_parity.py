@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 from modules.benchmarks.models import BenchmarkSetting
@@ -20,6 +20,7 @@ from modules.coman.models import (
 from modules.commercial.repository import CommercialRepository
 from modules.extraction.low_click_runtime import quick_stage_transition
 from modules.extraction.workflows import get_extraction_workflow
+from modules.package_studio.models import PackageStudioInput, PackageStudioOutput, PackageStudioRun
 from modules.product_master.ui import PRODUCT_MASTER_SURFACE
 from services.sandbox_market_seed import (
     market_sandbox_readiness,
@@ -31,6 +32,15 @@ from services.ux_cohesion_runtime import product_master_secondary_choices
 
 def _sandbox_env():
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+
+    # SQLite ignores foreign key constraints by default -- without this, a test
+    # named "...fk_safe" can pass even when a real Postgres RESTRICT constraint
+    # would reject the same deletes. This is what let the Package Studio gap in
+    # reset_market_sandbox_dataset reach production undetected.
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_fk_enforcement(dbapi_connection, _record):
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     with sessions.begin() as session:
@@ -130,6 +140,7 @@ def _sandbox_env():
             "finished": finished.id,
             "vendor": vendor.id,
             "customer": customer.id,
+            "lot": lot.id,
         }
 
     commercial = CommercialRepository(engine)
@@ -239,9 +250,52 @@ def test_market_sandbox_refuses_to_seed_a_real_tenant():
 
 
 def test_market_extension_cleanup_makes_canonical_sandbox_reset_fk_safe():
-    engine, _sessions, ids = _sandbox_env()
+    engine, sessions, ids = _sandbox_env()
     readiness = seed_market_sandbox(engine, ids["org"], ids["facility"], actor="sandbox", state={})
     assert readiness["ready"] is True
+
+    # A real Package Studio action (breakdown/build_run/etc.) creates rows that
+    # hold RESTRICT foreign keys straight to coman_products and
+    # coman_inventory_lots -- exactly the tables the canonical sandbox reset
+    # deletes from below. seed_market_sandbox itself never creates these, so
+    # without this fixture the test cannot exercise the scenario that broke
+    # reset_market_sandbox_dataset in production.
+    with sessions.begin() as session:
+        run = PackageStudioRun(
+            organization_id=ids["org"],
+            facility_id=ids["facility"],
+            run_number="PS-SBX-001",
+            action_type="pack_down",
+            status="committed",
+            source_quantity=100.0,
+            source_unit="g",
+            created_by="sandbox",
+        )
+        session.add(run)
+        session.flush()
+        session.add(
+            PackageStudioInput(
+                organization_id=ids["org"],
+                facility_id=ids["facility"],
+                run_id=run.id,
+                lot_id=ids["lot"],
+                position=1,
+                quantity=50.0,
+                unit="g",
+            )
+        )
+        session.add(
+            PackageStudioOutput(
+                organization_id=ids["org"],
+                facility_id=ids["facility"],
+                run_id=run.id,
+                product_id=ids["finished"],
+                position=1,
+                lot_code="PS-SBX-OUT-001",
+                inventory_quantity=10.0,
+                inventory_unit="unit",
+            )
+        )
 
     result = reset_market_sandbox_dataset(engine=engine)
     assert result["deleted"] is True

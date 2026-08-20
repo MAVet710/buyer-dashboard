@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 import json
+import logging
 from typing import Any, Mapping, MutableMapping
 
 import pandas as pd
@@ -58,6 +59,11 @@ from modules.migration_center.models import (
     MigrationRecord,
     MigrationSalesHistory,
 )
+from modules.package_studio.models import (
+    PackageStudioInput,
+    PackageStudioOutput,
+    PackageStudioRun,
+)
 from modules.product_master.models import (
     ProductAlias,
     ProductExternalMapping,
@@ -77,6 +83,8 @@ from modules.traceability.models import (
     TraceabilityTransaction,
     TraceabilityTransactionAttempt,
 )
+
+logger = logging.getLogger(__name__)
 
 SANDBOX_MARKET_VERSION = "ux-cohesion-market-parity-v1"
 
@@ -1075,6 +1083,16 @@ def reset_market_sandbox_dataset(
             return {"deleted": False, "reason": "facility_not_found"}
         _assert_sandbox_scope(session, organization.id, facility.id)
         models = (
+            # Package Studio holds RESTRICT foreign keys straight to coman_products
+            # (PackageStudioOutput.product_id) and coman_inventory_lots
+            # (PackageStudioInput.lot_id). If these rows survive, the core Co-Man
+            # reseed's plain DELETE FROM coman_products/coman_inventory_lots fails
+            # with a foreign-key violation and the whole rebuild transaction rolls
+            # back silently, leaving stale pre-rebuild data in place with no error
+            # surfaced to the operator.
+            PackageStudioOutput,
+            PackageStudioInput,
+            PackageStudioRun,
             TraceabilityStatusEvent,
             TraceabilityTransactionAttempt,
             TraceabilityTransaction,
@@ -1131,10 +1149,17 @@ def _install_reset_guard() -> None:
         engine = kwargs.get("engine")
         try:
             reset_market_sandbox_dataset(database_url=database_url, engine=engine)
-        except Exception:
+        except Exception as exc:
             # Let the canonical reset report its own result; a failed extension
             # cleanup should not turn the reset button into an app-start crash.
-            pass
+            # It must not be invisible either -- log it so a stuck/incomplete
+            # sandbox rebuild has a traceable cause instead of just silently
+            # not finishing.
+            logger.exception(
+                "Market extension cleanup failed before canonical sandbox reset: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
         return original(*args, **kwargs)
 
     reset_with_extensions._market_sandbox_wrapper = True
