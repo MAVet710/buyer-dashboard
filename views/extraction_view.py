@@ -12,11 +12,15 @@ import streamlit as st
 
 from doobie_panels import run_extraction_doobie
 from modules.extraction.elite_runtime import install_extraction_performance_ui
+from modules.extraction.low_click_runtime import install_extraction_low_click_ui
 from modules.extraction.ui import render_extraction_workspace
 
 
 def render_extraction_view(run_df: pd.DataFrame | None = None) -> None:
+    # Performance intelligence wraps the durable Overview first; the low-click
+    # layer then places the routine floor action above that richer context.
     install_extraction_performance_ui()
+    install_extraction_low_click_ui()
     render_extraction_workspace(st.session_state)
 
     organization_id = str(st.session_state.get("active_organization_id") or "").strip()
