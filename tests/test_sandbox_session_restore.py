@@ -74,9 +74,16 @@ def test_fresh_session_restores_sandbox_from_durable_sources(monkeypatch):
     assert "restored from Supabase" in fresh_state["demo_data_banner"]
     assert not fresh_state["inv_raw_df"].empty
     assert not fresh_state["sales_raw_df"].empty
+    assert not fresh_state["ecc_inventory_log"].empty
     assert not fresh_state["ecc_run_log"].empty
     assert not fresh_state["demo_commercial_orders_df"].empty
     assert fresh_state["_cache_inv"]["durable"] is True
     assert fresh_state["_cache_sales"]["durable"] is True
     assert fresh_state["_full_app_demo_version"] == demo_data.DEMO_DATA_VERSION
-    assert len(fresh_state["data_hub_import_history"]) == len(payload["uploads"])
+    # Production inventory is a first-class durable source in addition to the
+    # legacy 21 uploaded source types.
+    assert len(fresh_state["data_hub_import_history"]) == len(payload["uploads"]) + 1
+    assert any(
+        item["Dataset"] == "Production Inventory"
+        for item in fresh_state["data_hub_import_history"]
+    )
