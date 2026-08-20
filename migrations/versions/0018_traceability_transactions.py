@@ -6,7 +6,11 @@ Revises: 0017_package_studio
 
 from alembic import op
 
-from modules.traceability.models import TraceabilityTransaction, TraceabilityTransactionAttempt
+from modules.traceability.models import (
+    TraceabilityStatusEvent,
+    TraceabilityTransaction,
+    TraceabilityTransactionAttempt,
+)
 
 revision = "0018_traceability_transactions"
 down_revision = "0017_package_studio"
@@ -18,11 +22,14 @@ def upgrade() -> None:
     bind = op.get_bind()
     TraceabilityTransaction.__table__.create(bind=bind, checkfirst=True)
     TraceabilityTransactionAttempt.__table__.create(bind=bind, checkfirst=True)
+    TraceabilityStatusEvent.__table__.create(bind=bind, checkfirst=True)
     if bind.dialect.name == "postgresql":
         op.execute("alter table traceability_transactions enable row level security")
         op.execute("alter table traceability_transaction_attempts enable row level security")
+        op.execute("alter table traceability_status_events enable row level security")
 
 
 def downgrade() -> None:
+    op.drop_table("traceability_status_events")
     op.drop_table("traceability_transaction_attempts")
     op.drop_table("traceability_transactions")
