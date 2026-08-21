@@ -543,11 +543,25 @@ def render_inventory_command_center(state: MutableMapping[str, Any], *, operatio
                     if save_cols[1].button("Cancel", key="inv2_save_view_cancel"):
                         state["inventory_save_view_open"] = False
 
-    display_columns = ["SKU", "Product", "External Package ID", "Material Type", "Room", "Available", "Unit", "Status", "Attention"] if is_production else (
+    default_columns = ["SKU", "Product", "External Package ID", "Material Type", "Room", "Available", "Unit", "Status", "Attention"] if is_production else (
         ["SKU", "Product", "Strain", "Vendor", "Room", "Available", "Reserved", "30d Sold", "DOH", "Cost", "Retail", "Margin", "Age", "Attention"] if grain == "Products" else
         ["SKU", "Product", "External Package ID", "Strain", "Vendor", "Room", "Available", "Unit", "Reserved", "30d Sold", "DOH", "Category", "Status", "Attention"]
     )
-    display_columns = [column for column in display_columns if column in filtered.columns]
+    saved_columns = state.get("inventory_display_columns", {}).get(operation_mode, default_columns)
+    available_columns = [col for col in filtered.columns if col not in {"_product_key", "Durable Lot ID"}]
+    with st.expander("📊 Columns", expanded=False):
+        cols = st.columns(3)
+        if cols[0].button("Show all", width="stretch", key="inv2_show_all_cols"):
+            state["inventory_display_columns"] = state.get("inventory_display_columns", {})
+            state["inventory_display_columns"][operation_mode] = available_columns
+        if cols[1].button("Show defaults", width="stretch", key="inv2_show_default_cols"):
+            state["inventory_display_columns"] = state.get("inventory_display_columns", {})
+            state["inventory_display_columns"][operation_mode] = default_columns
+        if cols[2].button("Compact (essentials only)", width="stretch", key="inv2_show_compact_cols"):
+            compact = ["SKU", "Product", "Available", "Room"] if is_production else ["SKU", "Product", "Available", "Vendor"]
+            state["inventory_display_columns"] = state.get("inventory_display_columns", {})
+            state["inventory_display_columns"][operation_mode] = [c for c in compact if c in filtered.columns]
+    display_columns = [column for column in saved_columns if column in filtered.columns]
     display = filtered[display_columns].copy()
     for column in ("30d Sold", "DOH", "Cost", "Retail", "Margin"):
         if column in display.columns:
