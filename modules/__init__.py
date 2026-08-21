@@ -1,0 +1,7 @@
+"""Buyer Dash application modules.
+
+This file intentionally makes ``modules`` an explicit Python package.  The app
+runs on Streamlit Community Cloud where source watching and repeated script
+execution can otherwise leave PEP 420 namespace-package children in an unstable
+import state during deploy/reload cycles.
+"""
