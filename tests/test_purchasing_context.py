@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pandas as pd
 
 from services.purchasing_context import prepare_purchasing_context, purchasing_frame
+from services.purchasing_context_runtime import _clear_purchasing_scope
 
 
 def _state() -> dict:
@@ -77,6 +78,22 @@ def test_purchasing_runtime_is_installed_after_sandbox_hydration():
     sandbox = source.index("install_sandbox_market_hydration_runtime(st)")
     purchasing = source.index("install_purchasing_context_runtime()")
     assert sandbox < purchasing
+
+
+def test_purchasing_scope_cleanup_prevents_cross_tenant_carryover():
+    state = {
+        "purchasing_ready_df": pd.DataFrame([{"sku": "SBX"}]),
+        "purchasing_budget_df": pd.DataFrame([{"Budget": 1000}]),
+        "purchasing_context_source": "active_app_data",
+        "purchasing_delivery_ready": True,
+        "unrelated_key": "keep-me",
+    }
+    _clear_purchasing_scope(state)
+    assert "purchasing_ready_df" not in state
+    assert "purchasing_budget_df" not in state
+    assert "purchasing_context_source" not in state
+    assert "purchasing_delivery_ready" not in state
+    assert state["unrelated_key"] == "keep-me"
 
 
 def test_po_builder_no_longer_requires_inventory_prep():
