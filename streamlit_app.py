@@ -7,6 +7,7 @@ from services.extraction_runtime import (
     finalize_extraction_runtime,
     prepare_extraction_runtime,
 )
+from services.inventory_selection_guard import install_inventory_selection_guard
 from services.market_takeover_runtime import prepare_market_takeover_runtime
 from services.purchasing_context_runtime import install_purchasing_context_runtime
 from services.sandbox_market_runtime import install_sandbox_market_hydration_runtime
@@ -22,6 +23,9 @@ install_sandbox_market_hydration_runtime(st)
 # after sandbox parity so Overview / recommendations / PO / budget screens see
 # the exact same active company data before the workspace renders.
 install_purchasing_context_runtime()
+# Inventory tables can retain stale positional selections across a rerun. Guard
+# those positions before the command center can hand them to Pandas iloc.
+install_inventory_selection_guard()
 prepare_extraction_runtime(st)
 prepare_market_takeover_runtime(st)
 prepare_ux_cohesion_runtime(st)
