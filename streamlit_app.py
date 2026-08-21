@@ -8,6 +8,7 @@ from services.extraction_runtime import (
     prepare_extraction_runtime,
 )
 from services.market_takeover_runtime import prepare_market_takeover_runtime
+from services.purchasing_context_runtime import install_purchasing_context_runtime
 from services.sandbox_market_runtime import install_sandbox_market_hydration_runtime
 from services.sandbox_scope_guard import install_dev_sandbox_scope_guard
 from services.ux_cohesion_runtime import prepare_ux_cohesion_runtime
@@ -17,6 +18,10 @@ from services.ux_cohesion_runtime import prepare_ux_cohesion_runtime
 install_dev_sandbox_scope_guard()
 install_demo_runtime(st)
 install_sandbox_market_hydration_runtime(st)
+# Purchasing is a downstream consumer of the hydrated tenant. Install this
+# after sandbox parity so Overview / recommendations / PO / budget screens see
+# the exact same active company data before the workspace renders.
+install_purchasing_context_runtime()
 prepare_extraction_runtime(st)
 prepare_market_takeover_runtime(st)
 prepare_ux_cohesion_runtime(st)
