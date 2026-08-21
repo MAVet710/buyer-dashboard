@@ -226,6 +226,9 @@ def build_retail_inventory_table(state: MutableMapping[str, Any], *, grain: str 
 
 def build_production_inventory_table(state: MutableMapping[str, Any]) -> pd.DataFrame:
     """Read durable cannabis-material packages only from the active facility/license."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     organization_id = str(state.get("active_organization_id") or "")
     facility_id = str(state.get("active_facility_id") or "")
     if not organization_id or not facility_id:
@@ -234,7 +237,9 @@ def build_production_inventory_table(state: MutableMapping[str, Any]) -> pd.Data
         service = PackageStudioService(create_coman_engine())
         lots = service.list_available_lots(organization_id, facility_id)
         products = {item.product_id: item for item in service.list_products(organization_id)}
-    except (ComanDatabaseConfigurationError, Exception):
+    except (ComanDatabaseConfigurationError, Exception) as e:
+        logger.exception("Failed to load production inventory: %s", str(e))
+        state["_inventory_load_error"] = f"Failed to load inventory: {type(e).__name__}"
         return pd.DataFrame()
     rows: list[dict[str, Any]] = []
     for lot in lots:
@@ -433,6 +438,10 @@ def _is_cultivation_facility(state: MutableMapping[str, Any]) -> bool:
 
 def render_inventory_command_center(state: MutableMapping[str, Any], *, operation_mode: str = RETAIL_OPERATION) -> None:
     _inventory_css()
+    if error := state.get("_inventory_load_error"):
+        st.error(f"⚠️ {error}. Try refreshing the page or contact support if this persists.")
+        state.pop("_inventory_load_error", None)
+        return
     is_production = operation_mode == PRODUCTION_OPERATION
     cultivation = is_production and _is_cultivation_facility(state)
     if is_production:
@@ -468,8 +477,7 @@ def render_inventory_command_center(state: MutableMapping[str, Any], *, operatio
         if cols[1].button("Actions", width="stretch", key="inv2_actions"):
             state["inventory_actions_open"] = not bool(state.get("inventory_actions_open"))
         if cols[2].button("Receive history", width="stretch", key="inv2_receive_history"):
-            state["inventory_receive_history_open"] = True
-            st.rerun()
+            state["inventory_receive_history_open"] = not bool(state.get("inventory_receive_history_open"))
         if cols[3].button("Receive inventory", type="primary", width="stretch", key="inv2_receive_inventory"):
             state["inventory_receive_open"] = True
             st.rerun()
@@ -487,15 +495,21 @@ def render_inventory_command_center(state: MutableMapping[str, Any], *, operatio
         current_view = default_view
 
     with st.container(key="inv2_filters"):
-        cols = st.columns([2.6, 1.05, 1.05, 1.05, 1.05, 1.15])
-        search = cols[0].text_input("Search inventory", key="inventory_v2_search", placeholder=("Material, package, lot, room…" if is_production else "Product, SKU, package, strain, vendor…"), label_visibility="collapsed")
-        status = cols[1].selectbox("Status", _option_values(base, "Status"), key="inventory_v2_status")
+        cols = st.columns([2, 0.9, 0.9, 1])
+        search = cols[0].text_input("Search", key="inventory_v2_search", placeholder=("Material, package, lot, room…" if is_production else "Product, SKU, package, strain, vendor…"), label_visibility="collapsed")
+        status = cols[1].selectbox("Status", _option_values(base, "Status"), key="inventory_v2_status", label_visibility="collapsed")
         source_col = "Source / Supplier" if is_production else "Vendor"
         material_col = "Material Type" if is_production else "Category"
-        vendor = cols[2].selectbox("Source / Supplier" if is_production else "Vendor", _option_values(base, source_col), key="inventory_v2_vendor")
-        room = cols[3].selectbox("Room", _option_values(base, "Room"), key="inventory_v2_room")
-        category = cols[4].selectbox("Material Type" if is_production else "Category", _option_values(base, material_col), key="inventory_v2_category")
-        view = cols[5].selectbox("Saved view", saved_names, index=saved_names.index(current_view), key="inventory_saved_view")
+        vendor = cols[2].selectbox("Vendor" if not is_production else "Source", _option_values(base, source_col), key="inventory_v2_vendor", label_visibility="collapsed")
+        view = cols[3].selectbox("View", saved_names, index=saved_names.index(current_view), key="inventory_saved_view", label_visibility="collapsed")
+
+        cols2 = st.columns([0.9, 0.9, 1.2])
+        room = cols2[0].selectbox("Room", _option_values(base, "Room"), key="inventory_v2_room", label_visibility="collapsed")
+        category = cols2[1].selectbox("Type", _option_values(base, material_col), key="inventory_v2_category", label_visibility="collapsed")
+        if cols2[2].button("Clear filters", width="stretch", key="inv2_clear_filters_quick"):
+            for key in ("inventory_v2_search", "inventory_v2_status", "inventory_v2_vendor", "inventory_v2_room", "inventory_v2_category", "inventory_saved_view"):
+                state.pop(key, None)
+            st.rerun()
 
     filtered = apply_inventory_filters(base, search=search, saved_view=view if view in builtins else default_view, status=status, vendor=vendor, room=room, category=category)
 
@@ -510,12 +524,24 @@ def render_inventory_command_center(state: MutableMapping[str, Any], *, operatio
             if action_cols[2].button("Reset filters", width="stretch", key="inv2_reset_filters"):
                 for key in ("inventory_v2_search", "inventory_v2_status", "inventory_v2_vendor", "inventory_v2_room", "inventory_v2_category", "inventory_saved_view"):
                     state.pop(key, None)
-                st.rerun()
-            new_name = action_cols[3].text_input("Save current view", key="inventory_v2_save_name", placeholder="My production-ready flower" if is_production else "My low-stock flower")
-            if new_name and st.button("Save view", key="inventory_v2_save_view"):
-                saved_views[str(new_name).strip()] = {"status": status, "vendor": vendor, "room": room, "category": category}
-                state["inventory_saved_view"] = str(new_name).strip()
-                st.rerun()
+            with action_cols[3]:
+                if st.button("💾 Save current view", key="inv2_open_save_dialog", width="stretch", use_container_width=True):
+                    state["inventory_save_view_open"] = True
+            if state.get("inventory_save_view_open"):
+                with st.container(border=True):
+                    st.markdown("**Save this view for quick access**")
+                    view_name = st.text_input("View name", placeholder="My production-ready flower" if is_production else "My low-stock flower", key="inventory_v2_save_name_modal")
+                    save_cols = st.columns([1, 1])
+                    if save_cols[0].button("Save", key="inv2_save_view_confirm", type="primary"):
+                        if view_name and view_name.strip():
+                            saved_views[view_name.strip()] = {"status": status, "vendor": vendor, "room": room, "category": category}
+                            state["inventory_saved_view"] = view_name.strip()
+                            state["inventory_save_view_open"] = False
+                            st.success(f"✓ Saved view '{view_name.strip()}'")
+                        else:
+                            st.warning("Enter a name for this view")
+                    if save_cols[1].button("Cancel", key="inv2_save_view_cancel"):
+                        state["inventory_save_view_open"] = False
 
     display_columns = ["SKU", "Product", "External Package ID", "Material Type", "Room", "Available", "Unit", "Status", "Attention"] if is_production else (
         ["SKU", "Product", "Strain", "Vendor", "Room", "Available", "Reserved", "30d Sold", "DOH", "Cost", "Retail", "Margin", "Age", "Attention"] if grain == "Products" else

@@ -221,7 +221,7 @@ def _secondary_choices(
 
     workspaces = _workspace_set(groups)
     if category == "Inventory" and operation_mode == PRODUCTION_OPERATION:
-        return []
+        return [("Materials", "section", INVENTORY_DASHBOARD_SECTION)]
     if category == "Purchasing":
         return [("Overview", "section", INVENTORY_DASHBOARD_SECTION)] + [
             (buyer_section_display_name(section), "section", section)
