@@ -46,3 +46,33 @@ jobs:
         env:
           PYTHONHASHSEED: "0"
         run: python -m pytest -q
+
+  cloud-startup-python313:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Community Cloud Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install production dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+
+      - name: Verify dependency consistency
+        run: python -m pip check
+
+      - name: Compile startup graph on Python 3.13
+        run: python -m compileall -q streamlit_app.py app.py modules services
+
+      - name: Exercise Community Cloud startup imports
+        env:
+          PYTHONHASHSEED: "0"
+        run: python -m pytest -q tests/test_streamlit_cloud_startup.py
