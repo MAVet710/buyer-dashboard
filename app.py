@@ -8099,14 +8099,8 @@ if _tenant_issue:
     st.stop()
 
 if app_mode == HOME_WORKSPACE:
-    render_role_home(
-        user_name=str(_display_user),
-        role=str(st.session_state.get("auth_user_role") or "trial"),
-        organization_name=str(st.session_state.get("active_organization_name") or ""),
-        facility_name=str(st.session_state.get("active_facility_name") or ""),
-        ai_connected=bool(_doobie_ai_access_enabled()),
-        ai_status=_doobie_ai_status(),
-    )
+    from modules.dashboard_kpis import render_dashboard
+    render_dashboard(st.session_state)
     st.stop()
 
 if app_mode == DATA_HUB_WORKSPACE:
