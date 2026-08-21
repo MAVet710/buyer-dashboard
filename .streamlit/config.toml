@@ -7,3 +7,10 @@ font = "sans serif"
 
 [client]
 toolbarMode = "minimal"
+
+[server]
+# Community Cloud redeploys when Git changes. Disabling the in-process source
+# watcher avoids sys.modules eviction races while the large app import graph is
+# booting under Python 3.13.
+fileWatcherType = "none"
+headless = true
