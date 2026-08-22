@@ -165,8 +165,14 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Results metrics/table, three charts and compliance checklist labels/status rules match.
 - [x] Export Retail Ops Report uses the retained `reports/white_label_report.py` builder with the active scenario payload.
 - [ ] White Label / Repack desktop and mobile rendering has been accepted side-by-side against Streamlit.
-- [ ] Package Studio remains available where Streamlit exposes it.
-- [ ] Package Studio dialogs/actions match.
+- [x] Package Studio remains separate and opens from Inventory in the Streamlit right-side work-window pattern with the selected source package prefilled.
+- [x] New Run, Source Trail and Recent Runs tabs match source order and labels.
+- [x] Breakdown, Pack Down, Build Run, Multi-Build, Sample Pull, Rework and Source Correction actions use the existing durable Package Studio service.
+- [x] Source metrics, output-count defaults, loss/work note, per-output product/lot/METRC/quantity/unit/source-equivalent/purpose controls and mass-balance messages match.
+- [x] Review confirmation, role-based commit restriction, exact commit labels and durable inventory/lineage writes match.
+- [x] Source Trail parent/downstream tables and expanders use the tenant/facility-scoped durable lineage service.
+- [x] Recent Runs columns and status/action presentation match the Streamlit dataframe.
+- [ ] Package Studio desktop/mobile drawer rendering has been accepted side-by-side against Streamlit.
 
 ## Commercial Ops
 
