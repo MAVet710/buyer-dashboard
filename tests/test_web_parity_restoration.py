@@ -1,5 +1,6 @@
-from services.trial_access import issue_trial_token, verify_trial_token
 from backend.app.routers.po_parity import POLine, POPdfRequest, _best_match, _pdf
+from services.license_validation import validate_license_key
+from services.trial_access import issue_trial_token, verify_trial_token
 
 
 def test_trial_token_is_signed_scoped_and_expires():
@@ -16,6 +17,34 @@ def test_trial_token_is_signed_scoped_and_expires():
     assert payload["role"] == "trial"
     assert verify_trial_token(token, secret="wrong-secret", now=expires - 1) is None
     assert verify_trial_token(token, secret="test-secret", now=expires) is None
+
+
+def test_trial_license_validation_is_ui_independent(monkeypatch):
+    captured = {}
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"valid": True, "plan": "trial", "features": ["retail"]}
+
+    def fake_post(url, *, json, headers, timeout):
+        captured.update(url=url, json=json, headers=headers, timeout=timeout)
+        return Response()
+
+    monkeypatch.setattr("services.license_validation.requests.post", fake_post)
+    result = validate_license_key(
+        "trial-key",
+        base_url="https://doobie.example/",
+        api_key="service-key",
+    )
+    assert result["ok"] is True
+    assert result["valid"] is True
+    assert result["payload"]["plan"] == "trial"
+    assert captured["url"] == "https://doobie.example/api/v1/license/validate"
+    assert captured["headers"]["Authorization"] == "Bearer service-key"
+    assert captured["json"] == {"license_key": "trial-key"}
 
 
 def test_po_inventory_cross_check_prefers_exact_sku_then_product_name():
