@@ -1,4 +1,7 @@
 steps:
+  - name: python:3.12-slim
+    entrypoint: python
+    args: ["scripts/verify_streamlit_parity.py"]
   - name: gcr.io/cloud-builders/docker
     args: ["build", "-f", "Dockerfile.api", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$BUILD_ID", "."]
   - name: gcr.io/cloud-builders/docker
