@@ -16,13 +16,20 @@ from .buyer_parity import _model
 router = APIRouter(prefix="/buyer-parity", tags=["buyer-parity"], dependencies=[Depends(get_retail_context)])
 
 
-class InventoryCheckRequest(BaseModel):
+class BuyerSliceRequest(BaseModel):
     categories: list[str] = Field(default_factory=list, max_length=64)
     target_doh: int = Field(default=21, ge=1, le=120)
     velocity_adjustment: float = Field(default=0.5, ge=0.01, le=5.0)
     sales_days: int = Field(default=60, ge=7, le=120)
     state: str = Field(default="MA", max_length=64)
+
+
+class InventoryCheckRequest(BuyerSliceRequest):
     question: str = Field(default="Which inventory risks need immediate attention?", max_length=2000)
+
+
+class BuyerBriefRequest(BuyerSliceRequest):
+    question: str = Field(default="What should I reorder right now with quantities?", max_length=2000)
 
 
 def _platform_doobie(engine: Engine, settings: Settings) -> DoobieClient:
@@ -39,6 +46,31 @@ def _platform_doobie(engine: Engine, settings: Settings) -> DoobieClient:
         api_key=service.secret(row),
         timeout_seconds=12,
     )
+
+
+def _buyer_slice(payload: BuyerSliceRequest, context: RequestContext, engine: Engine):
+    _detail, product, _inventory, _sales, inventory_source, sales_source = _model(
+        context,
+        engine,
+        payload.target_doh,
+        payload.velocity_adjustment,
+        payload.sales_days,
+    )
+    selected = {value.casefold() for value in payload.categories if value.strip()}
+    filtered = product.copy()
+    if selected:
+        filtered = filtered[filtered["subcategory"].astype(str).str.casefold().isin(selected)].copy()
+    if filtered.empty:
+        raise HTTPException(422, "No Buyer rows match the selected inventory slice.")
+    source = {
+        "inventory_filename": inventory_source.filename,
+        "sales_filename": sales_source.filename,
+        "selected_categories": payload.categories,
+        "target_doh": payload.target_doh,
+        "velocity_adjustment": payload.velocity_adjustment,
+        "sales_days": payload.sales_days,
+    }
+    return filtered, source
 
 
 @router.get("/drilldown")
@@ -118,32 +150,27 @@ def inventory_check(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    _detail, product, _inventory, _sales, inventory_source, sales_source = _model(
-        context,
-        engine,
-        payload.target_doh,
-        payload.velocity_adjustment,
-        payload.sales_days,
-    )
-    selected = {value.casefold() for value in payload.categories if value.strip()}
-    filtered = product.copy()
-    if selected:
-        filtered = filtered[filtered["subcategory"].astype(str).str.casefold().isin(selected)].copy()
-    if filtered.empty:
-        raise HTTPException(422, "No Buyer rows match the selected inventory slice.")
-
+    filtered, source = _buyer_slice(payload, context, engine)
     response = _platform_doobie(engine, settings).inventory_check(
-        {
-            "inventory": records(filtered, limit=2000),
-            "source": {
-                "inventory_filename": inventory_source.filename,
-                "sales_filename": sales_source.filename,
-                "selected_categories": payload.categories,
-                "target_doh": payload.target_doh,
-                "velocity_adjustment": payload.velocity_adjustment,
-                "sales_days": payload.sales_days,
-            },
-        },
+        {"inventory": records(filtered, limit=2000), "source": source},
+        state=payload.state,
+        question=payload.question,
+    )
+    if response.get("mode") == "fallback":
+        raise HTTPException(503, str(response.get("answer") or response.get("error") or "Doobie is unavailable."))
+    return response
+
+
+@router.post("/buyer-brief")
+def buyer_brief(
+    payload: BuyerBriefRequest,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    filtered, source = _buyer_slice(payload, context, engine)
+    response = _platform_doobie(engine, settings).buyer_brief(
+        {"inventory": records(filtered, limit=2000), "source": source},
         state=payload.state,
         question=payload.question,
     )
