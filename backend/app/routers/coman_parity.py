@@ -5,8 +5,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
 
+from modules.coman.models import BomComponent, ProductBom
 from modules.coman.repository import ComanRepository
 from ..auth import RequestContext, get_production_context, get_request_context
 from ..database import get_engine
@@ -41,12 +43,19 @@ def workspace(context: RequestContext = Depends(get_request_context), engine: En
         lots = repo.list_inventory_lots(context.organization_id, context.facility_id)
         transactions = repo.list_inventory_transactions(context.organization_id, context.facility_id, limit=250)
         reservations = repo.list_material_reservations(context.organization_id, context.facility_id)
+        with Session(engine) as session:
+            boms = list(session.scalars(select(ProductBom).where(ProductBom.organization_id == context.organization_id).order_by(ProductBom.created_at.desc())))
+            bom_ids = [row.id for row in boms]
+            components = list(session.scalars(select(BomComponent).where(BomComponent.bom_id.in_(bom_ids)))) if bom_ids else []
     except Exception as exc:
         raise HTTPException(422, str(exc)) from exc
 
     customers_by_id = {str(row.id): row for row in customers}
     products_by_id = {str(row.id): row for row in products}
     models_by_id = {str(row.id): row for row in machine_models}
+    components_by_bom: dict[str, list[Any]] = {}
+    for component in components:
+        components_by_bom.setdefault(str(component.bom_id), []).append(component)
     open_orders = [row for row in orders if str(row.status) not in {"complete", "cancelled"}]
     return {
         "summary": {
@@ -78,6 +87,7 @@ def workspace(context: RequestContext = Depends(get_request_context), engine: En
         "lots": [{"id": str(row.id), "product_id": str(row.product_id), "product_name": _value(products_by_id.get(str(row.product_id)), "name", "Unknown"), "lot_code": row.lot_code, "location_code": row.location_code, "compliance_package_id": _value(row, "compliance_package_id", ""), "status": _value(row, "status", "available"), "received_at": _iso(_value(row, "received_at")), "balance": repo.inventory_balance(context.organization_id, str(row.id))} for row in lots],
         "transactions": [{"id": str(row.id), "lot_id": str(row.lot_id), "transaction_type": row.transaction_type, "quantity_delta": float(row.quantity_delta), "unit": row.unit, "reason": _value(row, "reason", ""), "reference": _value(row, "reference", ""), "actor": _value(row, "actor", ""), "occurred_at": _iso(_value(row, "occurred_at"))} for row in transactions],
         "reservations": [{"id": str(row.id), "production_order_id": str(row.production_order_id), "lot_id": str(row.lot_id), "quantity": float(row.quantity), "unit": row.unit, "status": row.status} for row in reservations],
+        "boms": [{"id": str(row.id), "output_product_id": str(row.output_product_id), "output_product_name": _value(products_by_id.get(str(row.output_product_id)), "name", "Unknown"), "version": int(row.version), "output_quantity": float(row.output_quantity), "expected_loss_pct": float(row.expected_loss_pct), "notes": _value(row, "notes", ""), "components": [{"id": str(component.id), "input_product_id": str(component.input_product_id), "input_product_name": _value(products_by_id.get(str(component.input_product_id)), "name", "Unknown"), "quantity": float(component.quantity), "unit": component.unit, "scrap_pct": float(component.scrap_pct)} for component in components_by_bom.get(str(row.id), [])]} for row in boms],
         "actuals": [{"id": str(row.id), "production_order_id": str(row.production_order_id), "actual_units": int(row.actual_units), "scrap_units": int(row.scrap_units), "rework_units": int(row.rework_units), "actual_machine_hours": float(row.actual_machine_hours), "actual_labor_hours": float(row.actual_labor_hours), "completed_at": _iso(row.completed_at), "notes": _value(row, "notes", "")} for row in actuals],
     }
 
@@ -149,6 +159,23 @@ def create_customer(payload: CustomerCreate, context: RequestContext = Depends(g
         raise HTTPException(422, str(exc)) from exc
 
 
+class ProductCreate(BaseModel):
+    sku: str
+    name: str
+    item_type: str = "cannabis"
+    base_unit: str = "g"
+    unit_cost: float = Field(ge=0, default=0)
+
+
+@router.post("/products", status_code=201)
+def create_product(payload: ProductCreate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    try:
+        row = _repo(engine).create_product(context.organization_id, actor=context.user_id, **payload.model_dump())
+        return {"id": str(row.id), "sku": row.sku, "name": row.name}
+    except Exception as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 class MachineCreate(BaseModel):
     machine_model_id: str
     asset_code: str
@@ -202,6 +229,66 @@ def create_lot(payload: LotCreate, context: RequestContext = Depends(get_request
     try:
         row = _repo(engine).create_inventory_lot(context.organization_id, context.facility_id, actor=context.user_id, **payload.model_dump())
         return {"id": str(row.id), "lot_code": row.lot_code}
+    except Exception as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class InventoryTransactionCreate(BaseModel):
+    lot_id: str
+    transaction_type: str
+    quantity_delta: float
+    unit: str
+    production_order_id: str | None = None
+    reason: str = ""
+    reference: str = ""
+
+
+@router.post("/transactions", status_code=201)
+def post_transaction(payload: InventoryTransactionCreate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    try:
+        row = _repo(engine).post_inventory_transaction(context.organization_id, context.facility_id, actor=context.user_id, **payload.model_dump())
+        return {"id": str(row.id)}
+    except Exception as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class ReservationCreate(BaseModel):
+    production_order_id: str
+    lot_id: str
+    quantity: float = Field(gt=0)
+    unit: str
+
+
+@router.post("/reservations", status_code=201)
+def create_reservation(payload: ReservationCreate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    try:
+        row = _repo(engine).reserve_material(context.organization_id, context.facility_id, actor=context.user_id, **payload.model_dump())
+        return {"id": str(row.id)}
+    except Exception as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class BomComponentCreate(BaseModel):
+    input_product_id: str
+    quantity: float = Field(gt=0)
+    unit: str
+    scrap_pct: float = Field(ge=0, default=0)
+
+
+class BomCreate(BaseModel):
+    output_product_id: str
+    output_quantity: float = Field(gt=0)
+    expected_loss_pct: float = Field(ge=0, default=0)
+    notes: str = ""
+    components: list[BomComponentCreate]
+
+
+@router.post("/boms", status_code=201)
+def create_bom(payload: BomCreate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    try:
+        body = payload.model_dump()
+        row = _repo(engine).create_bom(context.organization_id, actor=context.user_id, **body)
+        return {"id": str(row.id), "version": int(row.version)}
     except Exception as exc:
         raise HTTPException(422, str(exc)) from exc
 
