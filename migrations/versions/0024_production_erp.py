@@ -124,8 +124,9 @@ def upgrade() -> None:
         op.create_index(f"ix_production_qa_events_{col}", "production_qa_events", [col])
     op.create_index("ix_production_qa_order_time", "production_qa_events", ["production_order_id","occurred_at"])
 
-    for table in ("production_run_events","production_run_outputs","production_cost_events","production_qa_events"):
-        op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+    if op.get_bind().dialect.name == "postgresql":
+        for table in ("production_run_events","production_run_outputs","production_cost_events","production_qa_events"):
+            op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:

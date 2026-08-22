@@ -79,8 +79,9 @@ def upgrade() -> None:
     op.create_index("ix_design_partner_feedback_account_id", "design_partner_feedback", ["account_id"])
     op.create_index("ix_design_partner_feedback_account_status", "design_partner_feedback", ["account_id","status","created_at"])
 
-    for table in ("design_partner_accounts","design_partner_metrics","design_partner_feedback"):
-        op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+    if op.get_bind().dialect.name == "postgresql":
+        for table in ("design_partner_accounts","design_partner_metrics","design_partner_feedback"):
+            op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:

@@ -10,7 +10,15 @@ from datetime import datetime, timezone
 
 from alembic import op
 
-from modules.coman.models import Base, MachineModel
+from modules.coman.models import (
+    AuditEvent,
+    Customer,
+    Facility,
+    FacilityMachine,
+    MachineModel,
+    Organization,
+    ProductionOrder,
+)
 
 revision = "0001_coman_foundation"
 down_revision = None
@@ -20,7 +28,19 @@ depends_on = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    Base.metadata.create_all(bind=bind, checkfirst=True)
+    # Keep the foundation revision historically bounded. Using Base.metadata
+    # here would create every table known by today's application and make the
+    # later additive revisions fail on a brand-new database.
+    for model in (
+        Organization,
+        Facility,
+        Customer,
+        MachineModel,
+        FacilityMachine,
+        ProductionOrder,
+        AuditEvent,
+    ):
+        model.__table__.create(bind=bind, checkfirst=True)
     if bind.dialect.name == "postgresql":
         for table_name in [
             "coman_organizations",

@@ -64,6 +64,12 @@ class Facility(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     code: Mapped[str] = mapped_column(String(64), nullable=False)
     timezone_name: Mapped[str] = mapped_column(String(64), nullable=False, default="America/New_York")
+    license_number: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    license_type: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    retail_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    production_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    cultivation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    commercial_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     organization: Mapped[Organization] = relationship(back_populates="facilities")
@@ -171,6 +177,31 @@ class InventoryTransaction(Base):
     reference: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class RetailSale(Base):
+    """Immutable normalized retail sale line used for inventory velocity."""
+
+    __tablename__ = "retail_sales"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "facility_id", "source_system", "source_record_id", name="uq_retail_sale_source_record"),
+        Index("ix_retail_sales_facility_time", "facility_id", "sold_at"),
+        Index("ix_retail_sales_product_time", "product_id", "sold_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
+    product_id: Mapped[str | None] = mapped_column(ForeignKey("coman_products.id", ondelete="SET NULL"), nullable=True, index=True)
+    source_system: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_record_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    import_batch_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    sku: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    product_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    net_sales: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    sold_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    imported_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
 class InventoryAudit(TimestampMixin, Base):

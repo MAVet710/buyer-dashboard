@@ -1,0 +1,7 @@
+vulnerabilities:
+  - id: GHSA-6v7p-g79w-8964
+    expired_at: 2026-09-30
+    statement: The finding is vendored metadata from the removed base-image pip installer; the runtime package is msgpack 1.2.1 and pip is absent from the final image.
+  - id: CVE-2025-47273
+    expired_at: 2026-09-30
+    statement: The finding is vendored metadata from the removed base-image installer; setuptools and pip are absent from the final runtime image.

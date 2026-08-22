@@ -69,8 +69,9 @@ def upgrade() -> None:
         op.create_index(f"ix_action_executions_{col}", "action_executions", [col])
     op.create_index("ix_action_execution_proposal_time", "action_executions", ["proposal_id","started_at"])
 
-    op.execute("ALTER TABLE action_proposals ENABLE ROW LEVEL SECURITY")
-    op.execute("ALTER TABLE action_executions ENABLE ROW LEVEL SECURITY")
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("ALTER TABLE action_proposals ENABLE ROW LEVEL SECURITY")
+        op.execute("ALTER TABLE action_executions ENABLE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:
