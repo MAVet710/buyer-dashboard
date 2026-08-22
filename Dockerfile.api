@@ -20,7 +20,7 @@ COPY services services
 COPY reports reports
 COPY migrations migrations
 COPY alembic.ini ./
-COPY compliance_engine.py ai_providers.py doobielogic_client.py delivery_impact.py ./
+COPY compliance_engine.py doobielogic_client.py delivery_impact.py ./
 USER buyer
 EXPOSE 8080
 CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips='*'"]
