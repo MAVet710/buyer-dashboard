@@ -1,0 +1,6 @@
+{
+  "release": "react-fastapi-parity-2026-08-22",
+  "source_commit": "138b958d9ad00d745ed3150a7ca1f48da4ff7006",
+  "schema": "0037_function_acl_hardening",
+  "purpose": "production deployment marker"
+}
