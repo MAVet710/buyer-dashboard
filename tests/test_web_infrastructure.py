@@ -90,6 +90,15 @@ def test_api_container_is_non_root_and_frontend_supports_spa_fallback():
     assert "try_files $uri $uri/ /index.html" in nginx
 
 
+def test_fastapi_routes_use_ui_independent_shared_modules():
+    data_hub_router = (ROOT / "backend/app/routers/data_hub.py").read_text(encoding="utf-8")
+    integrations_router = (ROOT / "backend/app/routers/integrations.py").read_text(encoding="utf-8")
+    assert "modules.data_hub_core" in data_hub_router
+    assert "modules.data_hub import" not in data_hub_router
+    assert "services.doobie_connection" in integrations_router
+    assert "services.doobie_config" not in integrations_router
+
+
 def test_fresh_database_migrates_to_head_and_latest_revision_rolls_back(tmp_path, monkeypatch):
     database_url = f"sqlite+pysqlite:///{(tmp_path / 'migration-gate.db').as_posix()}"
     monkeypatch.setenv("COMAN_DATABASE_URL", database_url)

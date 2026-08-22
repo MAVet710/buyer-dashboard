@@ -34,6 +34,8 @@ jobs:
       - run: docker build -f Dockerfile.api -t buyer-dash-api:ci .
       - name: Verify the API image can run production migrations
         run: docker run --rm buyer-dash-api:ci alembic --version
+      - name: Verify the API image starts without Streamlit
+        run: docker run --rm -e APP_ENV=production -e DATABASE_URL=sqlite+pysqlite:///:memory: -e SUPABASE_URL=https://example.supabase.co -e SUPABASE_JWKS_URL=https://example.supabase.co/auth/v1/.well-known/jwks.json -e SUPABASE_SERVICE_ROLE_KEY=test -e INTEGRATION_ENCRYPTION_KEY=test -e CORS_ORIGINS=https://ops.doobielogic.io -e ALLOWED_HOSTS=api.doobielogic.io buyer-dash-api:ci python -c "import backend.app.main"
       - run: docker build -f frontend/Dockerfile -t buyer-dash-web:ci --build-arg VITE_API_URL=https://api.doobielogic.io --build-arg VITE_SUPABASE_URL=https://example.supabase.co --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=test frontend
       - name: Scan API image for fixable high and critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

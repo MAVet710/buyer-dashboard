@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import Engine
 
-from modules.data_hub import RETAIL_DATASETS, inspect_uploaded_dataset
+from modules.data_hub_core import RETAIL_DATASETS, inspect_uploaded_dataset
 from modules.data_hub_repository import DataHubRepository, MAX_DURABLE_UPLOAD_BYTES
 from ..auth import RequestContext, get_request_context
 from ..database import get_engine
