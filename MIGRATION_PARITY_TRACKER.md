@@ -69,6 +69,22 @@ Acceptance note: the charting implementation intentionally changes from Streamli
 - [x] Discount tier summary
 - [x] Excel export
 
+## Inventory Audits workspace
+- [x] Durable independent audit sessions
+- [x] Uploaded Dutchie inventory and active Buyer Ops source selection
+- [x] Explicit source-column mapping and facility-scoped durable import
+- [x] Camera, Bluetooth/USB, typed-code and manual-item scanning
+- [x] Blind first count and tolerance-based recount
+- [x] Pause, resume, stop, reopen and complete lifecycle
+- [x] Partial and completed report review
+- [x] CSV and multi-sheet Excel exports
+- [x] Retail and Production operation/facility isolation
+- [x] Desktop right-side count drawer and full-screen mobile count workflow
+
+Acceptance notes:
+- Streamlit navigation to Inventory Counts is preserved as the standalone Retail Scan Audit workspace; Commercial embeds the same durable engine as Inventory Audit & Reconciliation for Production Ops.
+- Audit history, counts, scan evidence, events, discrepancy reasons and optional ledger corrections persist in SQL and remain resumable across sessions.
+
 ## PO Builder workspace
 - [x] Reorder cross-reference from Inventory Dashboard
 - [x] Add all reorder ASAP lines

@@ -400,22 +400,71 @@ def test_react_audit_api_preserves_resumable_lifecycle_and_completion():
             "audit_number": "RTL-001", "scope_label": "Retail vault", "blind_count": True,
             "recount_tolerance": 10, "lot_ids": ["lot-1"],
         })
+        duplicate = client.post("/api/v1/inventory/retail/audits", headers=headers, json={
+            "audit_number": "RTL-001", "scope_label": "Retail vault", "blind_count": True,
+            "recount_tolerance": 10, "lot_ids": ["lot-1"],
+        })
         audit_id = created.json()["id"]
         initial = client.get(f"/api/v1/inventory/retail/audits/{audit_id}", headers=headers)
-        line_id = initial.json()["lines"][0]["id"]
-        counted = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/counts", headers=headers, json={"counts": [{"line_id": line_id, "counted_quantity": 95, "reason": "Physical count"}]})
+        preview = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/scan/preview", headers=headers, json={"raw_code": "1A406000000001", "recount": False})
+        counted = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/scan/count", headers=headers, json={"raw_code": "1A406000000001", "quantity": 95, "reason": "Physical count", "recount": False})
         paused = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/status", headers=headers, json={"status": "paused"})
         resumed = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/status", headers=headers, json={"status": "in_progress"})
         completed = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/complete", headers=headers, json={"post_adjustments": False})
+        csv_report = client.get(f"/api/v1/inventory/retail/audits/{audit_id}/report.csv", headers=headers)
+        excel_report = client.get(f"/api/v1/inventory/retail/audits/{audit_id}/report.xlsx", headers=headers)
+        wrong_operation = client.get(f"/api/v1/inventory/production/audits/{audit_id}", headers=headers)
+        isolated = client.get(f"/api/v1/inventory/retail/audits/{audit_id}", headers={**headers, "X-Facility-Id": "other-facility"})
     finally:
         app.dependency_overrides.clear()
     assert created.status_code == 201
+    assert duplicate.status_code == 422
+    assert "already exists" in duplicate.json()["detail"]
+    assert created.json()["status"] == "in_progress"
     assert initial.json()["lines"][0]["expected_quantity"] is None
+    assert preview.json()["lot_code"] == "LOT-100"
+    assert preview.json()["primary_code"] == "1A406000000001"
     assert counted.json()["lines"][0]["variance_quantity"] == -5
     assert counted.json()["lines"][0]["recount_required"] is False
+    assert counted.json()["scans"][0]["match_status"] == "matched"
     assert paused.json()["status"] == "paused"
     assert resumed.json()["status"] == "in_progress"
     assert completed.json()["status"] == "completed"
+    assert b"Product Name" in csv_report.content
+    assert excel_report.content.startswith(b"PK")
+    assert wrong_operation.status_code == 404
+    assert isolated.status_code == 403
+
+
+def test_retail_audit_snapshot_preview_mapping_and_import_are_durable():
+    engine = _engine()
+    app.dependency_overrides[get_engine] = lambda: engine
+    client = TestClient(app)
+    headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1", "X-User-Id": "buyer@example.com", "X-User-Role": "buyer"}
+    try:
+        preview = client.post(
+            "/api/v1/inventory/retail/audits/retail-snapshot/preview",
+            headers=headers,
+            files={"file": ("dutchie-inventory.csv", b"Product Name,Quantity,SKU,Lot,Location,Unit\nSour Diesel,12,SD-1,LOT-SD-1,Sales Floor,unit\n", "text/csv")},
+        )
+        imported = client.post(
+            "/api/v1/inventory/retail/audits/retail-snapshot/import",
+            headers=headers,
+            json={
+                "reference": preview.json()["reference"],
+                "rows": preview.json()["rows"],
+                "mapping": {"product_name": "Product Name", "quantity": "Quantity", "sku": "SKU", "lot_code": "Lot", "location_code": "Location", "unit": "Unit"},
+            },
+        )
+        inventory = client.get("/api/v1/inventory/retail/packages?search=Sour%20Diesel", headers=headers)
+    finally:
+        app.dependency_overrides.clear()
+    assert preview.status_code == 200
+    assert preview.json()["columns"] == ["Product Name", "Quantity", "SKU", "Lot", "Location", "Unit"]
+    assert imported.status_code == 200
+    assert imported.json()["rows"] == 1
+    assert len(imported.json()["lot_ids"]) == 1
+    assert inventory.json()["items"][0]["available"] == 12
 
 
 def test_production_plants_have_durable_lifecycle_and_facility_isolation():

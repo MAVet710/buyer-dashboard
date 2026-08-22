@@ -3,6 +3,7 @@ import { lazy, Suspense, useState } from "react";
 
 const HomePage = lazy(() => import("./pages/HomePage").then(module => ({ default: module.HomePage })));
 const InventoryPage = lazy(() => import("./pages/InventoryPage").then(module => ({ default: module.InventoryPage })));
+const InventoryAudits = lazy(() => import("./components/InventoryAudits").then(module => ({ default: module.InventoryAudits })));
 const BuyerOperationsPage = lazy(() => import("./pages/BuyerOperationsPage").then(module => ({ default: module.BuyerOperationsPage })));
 const BuyerTrendsPage = lazy(() => import("./pages/BuyerTrendsPage").then(module => ({ default: module.BuyerTrendsPage })));
 const SlowMoversPage = lazy(() => import("./pages/SlowMoversPage").then(module => ({ default: module.SlowMoversPage })));
@@ -35,7 +36,7 @@ export default function App() {
     : page === "Buyer Operations" ? <BuyerOperationsPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={setPage} />
-    : page === "Inventory Audits" ? <InventoryPage initialOperation="retail" initialAudits onNavigate={setPage} />
+    : page === "Inventory Audits" ? <InventoryAudits operation="retail" />
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
     : page === "Delivery Performance" ? <DeliveryImpactPage />

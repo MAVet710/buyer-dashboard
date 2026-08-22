@@ -79,12 +79,14 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [ ] Receive history matches Streamlit source semantics for both operations.
 
 ### Inventory Audits
-- [ ] Start audit workflow matches Streamlit.
-- [ ] Uploaded/current source selection matches Streamlit.
-- [ ] Camera scanner behavior matches Streamlit mobile flow.
-- [ ] Pause/resume/stop/reopen audit lifecycle matches Streamlit.
-- [ ] Partial and completed reports match.
-- [ ] Audit dialogs/drawers and discrepancy resolution match.
+- [x] Start audit workflow matches Streamlit, including independent durable workspaces, scope, blind-count default, tolerance, selected inventory and immediate in-progress state.
+- [x] Uploaded/current source selection matches Streamlit, including CSV/XLSX/XLS preview, explicit field mapping, durable import, active Buyer Ops inventory and uploaded-lot audit scoping.
+- [x] Camera scanner behavior matches Streamlit mobile flow, with a persistent mounted camera stream plus Bluetooth/USB, typed-code and manual-item fallbacks.
+- [x] Pause/resume/stop/reopen audit lifecycle matches Streamlit; pausing returns to the dashboard and stopped work remains reviewable and reopenable.
+- [x] Partial and completed reports match, including unscanned rows, activity history, CSV and multi-sheet Excel exports.
+- [x] Audit dialogs/drawers and discrepancy resolution match, including blind first pass, recount, reason/note capture, correction posting and full-screen mobile count entry.
+- [x] Retail Scan Audit and the production Inventory Audit & Reconciliation embed are facility/capability scoped and use the same durable audit engine without cross-operation leakage.
+- [x] Audit acceptance covers 390, 430, 768, 1024 and 1440 px with no viewport overflow, horizontally scrollable reports, full-screen mobile count entry and a right-side desktop drawer.
 
 ### Slow Movers
 - [ ] Velocity/DOH windows, all filters, Top N, KPI strip, decision table, discount tiers and Excel export match.
@@ -192,7 +194,7 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Orders & Fulfillment preserves the Streamlit heading and exact six-tab order: Command Center, New Order, Allocate & Fulfill, Trade Partners, Inventory Audits, Inventory Ledger.
 - [x] Command Center KPIs, order search, incoming/outgoing columns, exception logic, status labels, ordering, and empty states match Streamlit.
 - [x] New Order, allocation/fulfillment, receiving-lot, partner, payment-status, and ledger/export controls use the existing durable tenant/facility-scoped repositories.
-- [ ] The shared Inventory Audits surface embedded in Commercial preserves the complete Streamlit scanner, resumable sessions, reports, and source-selection workflow.
+- [x] The shared Inventory Audits surface embedded in Commercial preserves the complete Streamlit scanner, resumable sessions, reports, and production source-selection workflow.
 - [x] Wholesale + Finance remains an additive right-side work window with exact A/R metrics, order selector, shipment/manifest, invoice/payment, and customer-pricing pop-outs.
 - [x] Commercial desktop/mobile acceptance covers 390, 430, 768, 1024, and 1440 px with no viewport overflow and full-screen mobile/right-side desktop finance behavior.
 
