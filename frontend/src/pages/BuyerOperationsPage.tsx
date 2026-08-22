@@ -29,7 +29,7 @@ type MetricFilter = "All" | "Reorder ASAP";
 
 const REB_CATEGORIES = ["flower", "pre rolls", "vapes", "edibles", "beverages", "concentrates", "tinctures", "topicals"];
 const FORECAST_COLUMNS = ["top_products","mastercategory","subcategory","strain_type","packagesize","onhandunits","unitssold","avgunitsperday","daysonhand","reorderqty","reorderpriority","product_count"];
-const PRODUCT_COLUMNS = ["product_name","subcategory","strain_type","packagesize","brand_vendor","sku","onhandunits","unitssold","avgunitsperday","daysonhand","expiration_date"];
+const PRODUCT_COLUMNS = ["product_name","subcategory","strain_type","packagesize","onhandunits","unitssold","avgunitsperday","daysonhand"];
 const SKU_COLUMNS = ["sku","product_name","brand_vendor","category","onhandunits","avg_weekly_sales","days_of_supply","weeks_of_supply","dollars_on_hand","retail_dollars_on_hand","expiration_date","days_to_expire","status"];
 
 export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => void }) {
@@ -96,6 +96,8 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
   const download = async (kind: "forecast" | "product" | "sku") => {
     const params = new URLSearchParams(query);
     params.set("kind", kind);
+    visibleCategories.forEach(category => params.append("category", category));
+    if (kind === "forecast" && metricFilter === "Reorder ASAP") params.set("reorder_only", "true");
     const names = { forecast: "forecast_table.xlsx", product: "product_level_forecast.xlsx", sku: "sku_inventory_buyer_view.xlsx" };
     downloadBlob(await apiDownload(`/api/v1/buyer-parity/export?${params}`), names[kind]);
   };
@@ -132,7 +134,7 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
 
       <section className="inventory-panel">
         <h3>Category DOS (at a glance)</h3>
-        <DataTable rows={categoryDosForVisible(dashboard.data.category_dos, visibleCategories, metricFilter)} columns={["subcategory","category_dos","reorder_lines","product_count","top_products"]}/>
+        <DataTable rows={categoryDosForForecast(metricRows)} columns={["subcategory","category_dos","reorder_lines","product_count","top_products"]}/>
       </section>
 
       <section className="inventory-panel">
@@ -216,8 +218,23 @@ function CategoryMultiSelect({ options, selected, onChange }: { options: string[
   return <details className="multi-select-control"><summary><span>Visible Categories</span><strong>{allSelected ? "All categories" : `${selected.length} selected`}</strong></summary><div className="multi-select-menu"><div className="heading-actions"><button className="link-button" type="button" onClick={event => { event.preventDefault(); onChange(options); }}>Select all</button><button className="link-button" type="button" onClick={event => { event.preventDefault(); onChange([]); }}>Clear</button></div>{options.map(option => <label key={option}><input type="checkbox" checked={selected.includes(option)} onChange={event => onChange(event.target.checked ? [...selected, option] : selected.filter(value => value !== option))}/><span>{option}</span></label>)}</div></details>;
 }
 
-function categoryDosForVisible(rows: Row[], categories: string[], filter: MetricFilter) {
-  return rows.filter(row => categories.includes(text(row.subcategory))).map(row => filter === "Reorder ASAP" ? { ...row, reorder_lines: number(row.reorder_lines) } : row);
+function categoryDosForForecast(rows: Row[]) {
+  const grouped = new Map<string, Row[]>();
+  rows.forEach(row => {
+    const category = text(row.subcategory);
+    grouped.set(category, [...(grouped.get(category) ?? []), row]);
+  });
+  return [...grouped.entries()].map(([subcategory, categoryRows]) => {
+    const onHand = categoryRows.reduce((sum, row) => sum + number(row.onhandunits), 0);
+    const daily = categoryRows.reduce((sum, row) => sum + number(row.avgunitsperday), 0);
+    return {
+      subcategory,
+      category_dos: daily > 0 ? Math.trunc(onHand / daily) : 0,
+      reorder_lines: categoryRows.filter(row => text(row.reorderpriority) === "1 – Reorder ASAP").length,
+      product_count: categoryRows.reduce((sum, row) => sum + number(row.product_count), 0),
+      top_products: categoryRows.map(row => text(row.top_products)).filter(Boolean).join(", "),
+    };
+  }).sort((a, b) => b.reorder_lines - a.reorder_lines || a.category_dos - b.category_dos);
 }
 
 function DataTable({ rows, columns }: { rows: Row[]; columns: string[] }) {

@@ -42,27 +42,27 @@ No item may be checked because of an intentional redesign. The requirement is **
 ## Retail / Buyer Operations
 
 ### Inventory Dashboard / Purchasing Overview
-- [ ] Target Days on Hand control (1-60, default 21).
-- [ ] Velocity Adjustment control (0.01-5.0, default 0.5).
-- [ ] Days in Sales Period slider (7-120, default 60).
-- [ ] Clickable Units Sold and Reorder ASAP KPI filters.
-- [ ] Current-filter indicator.
-- [ ] Visible Categories multiselect with Streamlit category ordering.
-- [ ] Show product-level rows checkbox (default off).
-- [ ] Tracked Categories / Forecast Rows / Reorder ASAP / Product Rows glass metrics.
-- [ ] Category DOS table.
-- [ ] Forecast Excel export and table.
-- [ ] One category expander per category, in Streamlit ordering.
-- [ ] Category DOS inside each expander.
-- [ ] Nested Reorder ASAP SKU expanders.
-- [ ] SKU sales + Batch/Lot evidence inside nested expanders.
-- [ ] Product-level rows section only when enabled; 2,000-row warning behavior.
-- [ ] Product-level Excel export.
-- [ ] SKU Inventory Buyer View velocity window 28/56/84 (default 56).
-- [ ] All Inventory / Reorder / Overstock / Expiring tabs and exact thresholds/status labels.
-- [ ] Inventory cross-reference status caption.
-- [ ] Doobie Inventory Check on the current filtered slice.
-- [ ] Generate Doobie Buyer Brief action.
+- [x] Target Days on Hand control (1-60, default 21).
+- [x] Velocity Adjustment control (0.01-5.0, default 0.5).
+- [x] Days in Sales Period slider (7-120, default 60).
+- [x] Clickable Units Sold and Reorder ASAP KPI filters.
+- [x] Current-filter indicator.
+- [x] Visible Categories multiselect with Streamlit category ordering.
+- [x] Show product-level rows checkbox (default off).
+- [x] Tracked Categories / Forecast Rows / Reorder ASAP / Product Rows glass metrics.
+- [x] Category DOS table.
+- [x] Forecast Excel export and table use the current metric/category slice.
+- [x] One category expander per category, in Streamlit ordering.
+- [x] Category DOS inside each expander.
+- [x] Nested Reorder ASAP SKU expanders.
+- [x] SKU sales + Batch/Lot evidence inside nested expanders.
+- [x] Product-level rows section only when enabled; 2,000-row warning behavior.
+- [x] Product-level Excel export.
+- [x] SKU Inventory Buyer View velocity window 28/56/84 (default 56).
+- [x] All Inventory / Reorder / Overstock / Expiring tabs and exact thresholds/status labels.
+- [x] Inventory cross-reference status caption.
+- [x] Doobie Inventory Check on the current filtered slice.
+- [x] Generate Doobie Buyer Brief action.
 
 ### Inventory Command Center
 - [x] Product Master has separate Retail and Production operation-scoped surfaces and routes.

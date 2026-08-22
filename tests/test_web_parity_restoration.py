@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from backend.app.routers.po_parity import POLine, POPdfRequest, _best_match, _pdf
+from backend.app.routers.buyer_parity import _filter_export_frame
 from services.doobie_client import DoobieClient
 from services.license_validation import validate_license_key
 from services.trial_access import issue_trial_token, verify_trial_token
@@ -125,3 +126,16 @@ def test_retail_and_production_product_master_are_reachable_without_flattening_n
     assert 'page === "Production Product Master"' in app
     assert 'workspace: "Retail Product Master"' in search
     assert 'workspace: "Production Product Master"' in search
+
+
+def test_buyer_forecast_export_uses_the_current_streamlit_filter_slice():
+    import pandas as pd
+
+    frame = pd.DataFrame([
+        {"subcategory": "flower", "reorderpriority": "1 – Reorder ASAP", "product_name": "Blue Dream"},
+        {"subcategory": "flower", "reorderpriority": "3 – Healthy", "product_name": "Day Glow"},
+        {"subcategory": "vapes", "reorderpriority": "1 – Reorder ASAP", "product_name": "Vape A"},
+    ])
+    filtered = _filter_export_frame(frame, ["flower"], reorder_only=True)
+
+    assert filtered["product_name"].tolist() == ["Blue Dream"]
