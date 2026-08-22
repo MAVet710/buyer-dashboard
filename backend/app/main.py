@@ -9,6 +9,7 @@ from .routers.inventory import router as inventory_router
 from .routers.audits import router as audit_router
 from .routers.plants import router as plants_router
 from .routers.production import router as production_router
+from .routers.coman_parity import router as coman_parity_router
 from .routers.commercial import router as commercial_router
 from .routers.compliance import router as compliance_router
 from .routers.compliance_qa import router as compliance_qa_router
@@ -74,6 +75,7 @@ app.include_router(inventory_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
+app.include_router(coman_parity_router, prefix=settings.api_prefix)
 app.include_router(commercial_router, prefix=settings.api_prefix)
 app.include_router(compliance_router, prefix=settings.api_prefix)
 app.include_router(compliance_qa_router, prefix=settings.api_prefix)
