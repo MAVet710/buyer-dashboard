@@ -81,6 +81,7 @@ jobs:
             pg_restore \
             --clean \
             --if-exists \
+            --schema=public \
             --no-owner \
             --no-acl \
             --exit-on-error \
