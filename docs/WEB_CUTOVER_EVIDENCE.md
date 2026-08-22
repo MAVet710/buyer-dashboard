@@ -39,6 +39,10 @@ acceptance evidence.
   audience, subject, and expiry. Operational tables have RLS enabled and direct
   Data API privileges are revoked from `anon` and `authenticated`; the browser
   must use the tenant- and facility-authorized FastAPI service.
+- GitHub PR #260: all eight required checks pass on the published branch,
+  including both backend suites, the merged repository suite, React lint/test/
+  build, both API and frontend container builds, and the Python 3.13 Streamlit
+  fallback startup check.
 
 ## Defects found and fixed during the gate
 
@@ -61,8 +65,8 @@ acceptance evidence.
   Supabase JWTs, RLS policies, representative roles, facilities, and licenses.
 - Verify invitation, sign-in, refresh, sign-out, and password recovery through
   the configured production Supabase project.
-- Build and scan both containers in CI; Docker is not installed on this local
-  workstation.
+- Run vulnerability scans on both CI-built containers and resolve any findings
+  above the approved production threshold.
 - Configure Google Secret Manager, deploy the zero-traffic Cloud Run revision,
   and verify health, logs, retry behavior, backups, restore, and rollback.
 - Deploy the Cloudflare Pages preview and repeat desktop/tablet/phone, scanning,
