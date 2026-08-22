@@ -1,0 +1,102 @@
+name: Deploy to DoobieLogic
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: us-east1-docker.pkg.dev
+  API_SERVICE: buyer-dash-api
+  WEB_SERVICE: buyer-dash-web
+  REGION: us-east1
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: gcloud auth configure-docker ${{ env.REGISTRY }}
+
+      - name: Build API image
+        run: |
+          docker build -f Dockerfile.api \
+            -t ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:latest \
+            .
+
+      - name: Push API image
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:latest
+
+      - name: Deploy API to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.API_SERVICE }} \
+            --image ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --min-instances 1 \
+            --max-instances 10 \
+            --concurrency 40 \
+            --cpu 1 \
+            --memory 1Gi \
+            --set-env-vars APP_ENV=production,CORS_ORIGINS=https://ops.doobielogic.io,ALLOWED_HOSTS=api.doobielogic.io \
+            --set-secrets DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest \
+            --service-account=${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+  deploy-web:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: gcloud auth configure-docker ${{ env.REGISTRY }}
+
+      - name: Build frontend image
+        run: |
+          docker build -f frontend/Dockerfile \
+            --build-arg VITE_API_URL=https://api.doobielogic.io \
+            --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
+            --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }} \
+            -t ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:latest \
+            frontend
+
+      - name: Push frontend image
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:latest
+
+      - name: Deploy frontend to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.WEB_SERVICE }} \
+            --image ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --min-instances 1 \
+            --max-instances 10 \
+            --service-account=${{ secrets.GCP_SERVICE_ACCOUNT }}
