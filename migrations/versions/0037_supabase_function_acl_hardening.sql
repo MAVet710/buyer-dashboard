@@ -1,5 +1,5 @@
 -- Close remaining callable/default ACL paths behind FastAPI.
--- Revision: 0037_supabase_function_acl_hardening
+-- Revision: 0037_function_acl_hardening
 -- Application-created objects are owned by postgres. Supabase platform-managed
 -- supabase_admin defaults are handled by disabling the unused Data API before
 -- public cutover; postgres cannot alter another role's default privileges.
