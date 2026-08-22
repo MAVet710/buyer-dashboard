@@ -31,13 +31,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest
+          python -m pip install -r requirements.txt -r backend/requirements.txt pytest httpx
 
       - name: Verify dependency consistency
         run: python -m pip check
 
       - name: Compile application sources
-        run: python -m compileall -q app.py modules services reports views tests
+        run: python -m compileall -q app.py backend modules services reports views tests
 
       - name: Run repository quality gate
         run: python scripts/quality_gate.py
