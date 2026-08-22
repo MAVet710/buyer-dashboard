@@ -200,13 +200,17 @@ No item may be checked because of an intentional redesign. The requirement is **
 
 ## Compliance / Traceability
 
-- [ ] Traceability queue/submission/reconciliation behavior matches.
-- [ ] Traceability dialogs and METRC actions match.
+- [x] Traceability queue views, provider filters, full evidence columns, status summaries and facility isolation match `modules/traceability/ui.py`.
+- [x] Transaction detail opens in the Streamlit right-side work-window pattern with Overview, Attempts, Lifecycle and Payloads tabs, sanitized payloads and audit history.
+- [x] Reconciliation reason/confirmation, role restrictions and Requeue / Mark verified / Cancel action lifecycle controls match and remain audit logged.
+- [x] Traceability desktop/mobile rendering and drawer geometry were verified at 390px, 430px, 768px, 1024px and 1440px; the drawer is full-screen through 768px and 570px right-side at desktop widths.
 
 ## Data & Settings
 
 - [ ] Location settings match Streamlit.
-- [ ] Imports & Data version history/publish/archive behavior matches.
+- [x] Imports & Data preserves the four source-order tabs, ten-source readiness table, reviewed retail inspect/map/preview/publish flow, durable version history and role-gated archive behavior.
+- [x] Production Data Input preserves raw extraction intake while adding reviewed CSV/XLS/XLSX normalization, safe alias mapping, defaults, mapped preview, calculated yields, durable append and exact duplicate protection against the existing extraction model.
+- [x] Data Hub publishing, history, archive and production import are tenant/facility scoped and covered by durable API tests; responsive rendering was verified at 390px, 430px, 768px, 1024px and 1440px without viewport overflow.
 - [ ] Data source state is reflected consistently across Buyer surfaces.
 
 ## Reports

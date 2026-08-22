@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from io import BytesIO
+import json
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -12,6 +14,8 @@ from modules.coman.models import Customer
 from modules.extraction.repository import ExtractionRepository
 from modules.extraction.performance import ExtractionPerformanceService
 from modules.extraction.workflows import default_workflow_for_method
+from modules.data_hub_repository import MAX_DURABLE_UPLOAD_BYTES
+from services.extraction_partner_import import DEFAULTS as PARTNER_DEFAULTS, TARGET_FIELDS as PARTNER_TARGET_FIELDS, apply_mapping as apply_partner_mapping, confidence as partner_confidence, normalize_workbook, suggestions as partner_suggestions
 from ..auth import RequestContext, get_request_context, get_production_context
 from ..database import get_engine
 
@@ -63,6 +67,7 @@ class ManualRunCreate(BaseModel):
     est_revenue_usd: float = Field(default=0, ge=0)
     cogs_usd: float = Field(default=0, ge=0)
     notes: str = ""
+    status: str = "Complete"
 
 
 def _repo(engine: Engine) -> ExtractionRepository:
@@ -163,6 +168,8 @@ def create_manual_run(payload: ManualRunCreate, context: RequestContext = Depend
     workflow = default_workflow_for_method(payload.method)
     durable_batch = f"MANUAL-{payload.run_date.strftime('%Y%m%d')}-{uuid4().hex[:8].upper()}"
     try:
+        status = {"processing": "active", "queued": "queued", "complete": "complete", "hold": "hold", "failed": "failed"}.get(payload.status.strip().casefold(), "complete")
+        release = "approved" if status == "complete" else "blocked" if status == "hold" else "rejected" if status == "failed" else "pending"
         row = _repo(engine).create_run(
             organization_id=context.organization_id, facility_id=context.facility_id,
             batch_number=durable_batch, method=workflow.method, workflow_key=workflow.key,
@@ -179,13 +186,101 @@ def create_manual_run(payload: ManualRunCreate, context: RequestContext = Depend
             manual_coa_status=payload.coa_status, manual_qa_hold=payload.qa_hold,
             processing_fee_usd=payload.processing_fee_usd, estimated_revenue_usd=payload.est_revenue_usd,
             manual_cogs_usd=payload.cogs_usd,
-            initial_status="complete", initial_release_status="approved",
+            initial_status=status, initial_release_status=release,
         )
         if payload.cogs_usd > 0:
             _repo(engine).add_cost_event(organization_id=context.organization_id, facility_id=context.facility_id, run_id=row.id, category="other", amount_usd=payload.cogs_usd, actor=context.user_id, notes="Manual Run Analytics entry")
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return {"id": row.id, "batch_id_internal": payload.batch_id_internal, "status": row.status.title()}
+
+
+def _partner_upload(payload: bytes, file: UploadFile):
+    if not payload:
+        raise HTTPException(422, "The extraction run file is empty.")
+    if len(payload) > MAX_DURABLE_UPLOAD_BYTES:
+        raise HTTPException(413, "Extraction run files must be 10 MB or smaller.")
+    wrapped = BytesIO(payload)
+    wrapped.name = file.filename or "extraction-runs.csv"
+    return wrapped
+
+
+@router.post("/partner-import/inspect")
+async def inspect_partner_import(file: UploadFile = File(...)):
+    wrapped = _partner_upload(await file.read(MAX_DURABLE_UPLOAD_BYTES + 1), file)
+    try:
+        frame, diagnostics = normalize_workbook(wrapped.getvalue(), wrapped.name)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(422, f"Could not read uploaded run log: {exc}") from exc
+    if frame.empty:
+        raise HTTPException(422, "No rows found in uploaded workbook.")
+    proposals = partner_suggestions([str(column) for column in frame.columns])
+    score = partner_confidence(proposals)
+    diagnostics["mapping_confidence"] = score
+    return {
+        "filename": wrapped.name,
+        "rows": len(frame),
+        "columns": [str(column) for column in frame.columns],
+        "suggestions": proposals,
+        "mapping_confidence": score,
+        "defaults": PARTNER_DEFAULTS,
+        "target_fields": PARTNER_TARGET_FIELDS,
+        "preview": json.loads(frame.head(100).to_json(orient="records", date_format="iso")),
+        "diagnostics": diagnostics,
+    }
+
+
+@router.post("/partner-import/publish")
+async def publish_partner_import(mapping_json: str = Form(...), defaults_json: str = Form(...), file: UploadFile = File(...), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    wrapped = _partner_upload(await file.read(MAX_DURABLE_UPLOAD_BYTES + 1), file)
+    try:
+        mapping = json.loads(mapping_json)
+        defaults = json.loads(defaults_json)
+        if not isinstance(mapping, dict) or not isinstance(defaults, dict):
+            raise ValueError("Partner mapping and defaults must be objects.")
+        frame, _diagnostics = normalize_workbook(wrapped.getvalue(), wrapped.name)
+        invalid = [source for source in mapping.values() if str(source) != "IGNORE" and str(source) not in frame.columns]
+        if invalid:
+            raise ValueError("Mapped source column no longer exists: " + ", ".join(str(value) for value in invalid))
+        mapped = apply_partner_mapping(frame, {str(key): str(value) for key, value in mapping.items()}, defaults)
+    except (json.JSONDecodeError, ValueError, OSError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    existing = {
+        f"{run.run_date.isoformat() if run.run_date else ''}|{str(run.manual_batch_id_internal or '')}|{run.method}"
+        for run in _repo(engine).list_runs(context.organization_id, context.facility_id, include_closed=True)
+    }
+    added = 0
+    duplicates = 0
+    for record in mapped.to_dict("records"):
+        run_date = date.fromisoformat(str(record.get("run_date"))) if str(record.get("run_date") or "") else date.today()
+        key = f"{run_date.isoformat()}|{str(record.get('batch_id_internal') or '')}|{str(record.get('method') or 'BHO')}"
+        if key in existing:
+            duplicates += 1
+            continue
+        payload = ManualRunCreate(
+            run_date=run_date,
+            state=str(record.get("state") or "MA"),
+            license_name=str(record.get("license_name") or ""),
+            client_name=str(record.get("client_name") or "In House"),
+            batch_id_internal=str(record.get("batch_id_internal") or ""),
+            method=str(record.get("method") or "BHO"),
+            product_type="Other",
+            input_material_type="Other",
+            input_weight_g=float(record.get("input_weight_g") or 0),
+            intermediate_output_g=float(record.get("intermediate_output_g") or 0),
+            finished_output_g=float(record.get("finished_output_g") or 0),
+            residual_loss_g=float(record.get("residual_loss_g") or 0),
+            operator=str(record.get("operator") or ""),
+            machine_line=str(record.get("machine_line") or ""),
+            coa_status=str(record.get("coa_status") or "Pending"),
+            qa_hold=bool(record.get("qa_hold")),
+            notes=str(record.get("notes") or ""),
+            status=str(record.get("status") or "Processing"),
+        )
+        create_manual_run(payload, context, engine)
+        existing.add(key)
+        added += 1
+    return {"added": added, "duplicates": duplicates, "rows": len(mapped), "filename": wrapped.name}
 
 
 @router.get("/customers")

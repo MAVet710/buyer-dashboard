@@ -61,7 +61,7 @@ export default function App() {
     : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <IntegrationsPage />
     : page === "Admin" || page === "Admin Tools" ? <AdminPage />
     : page === "Location Settings" ? <LocationSettingsPage />
-    : page === "Data & Settings" ? <DataSettingsPage />
+    : page === "Data & Settings" ? <DataSettingsPage onNavigate={setPage} />
     : <InventoryPage initialOperation="retail" />;
   return <AppShell active={page} onNavigate={setPage}><Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense></AppShell>;
 }

@@ -107,6 +107,18 @@ Acceptance notes:
 Acceptance notes:
 - Q&A only answers from the active reviewed facility source and returns citations/source metadata.
 - Reviewed-source publication is restricted to DEV, admin, QA and supervisor roles; other users retain read/query/template access.
+- Traceability Operations preserves the facility-scoped queue, provider filtering, sanitized evidence, lifecycle history and role-gated reconciliation controls in the exact right-side desktop/full-screen mobile work window.
+
+## Data Hub workspace
+- [x] Ten-source operational readiness table
+- [x] Retail source inspect, mapping, preview and durable publish/replace
+- [x] Production extraction CSV/XLS/XLSX inspect, mapping, preview and durable append
+- [x] Revision history and role-gated archive
+- [x] Tenant/facility isolation and responsive acceptance
+
+Acceptance notes:
+- Retail uploads retain reviewed source mappings and normalize canonical headers before durable publication.
+- Production partner imports prefer known extraction-field aliases, calculate missing yield/efficiency values, append to the existing extraction model and skip exact run-date/batch/method duplicates.
 
 ## Buyer Intelligence workspace
 - [x] KPI summary
