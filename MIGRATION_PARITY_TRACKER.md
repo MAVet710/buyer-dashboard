@@ -69,6 +69,12 @@ Acceptance note: the charting implementation intentionally changes from Streamli
 - [x] Discount tier summary
 - [x] Excel export
 
+Acceptance notes:
+- The web workflow now follows the canonical `app.py` version rather than the older separate view: 28/56/84-day velocity choices, 60-day default threshold, All default Top N, single category/vendor selectors, exact sort/toggles, five KPI snapshot, full-detail expander and the three-sheet dated workbook.
+- Buyer Intelligence restores the optional live-reference expander, exact lookback control, revenue evidence, Top Categories, SKU Risk, What to Buy and the original Buyer Brief placement.
+- Trends is again one continuous workflow with exact settings, tables and per-category expanders; the React-only five-tab layout was removed.
+- Slow Movers, Buyer Intelligence and Trends were visually accepted at 390px, 430px, 768px, 1024px and 1440px with contained table scrolling and no hidden actions.
+
 ## Inventory Audits workspace
 - [x] Durable independent audit sessions
 - [x] Uploaded Dutchie inventory and active Buyer Ops source selection

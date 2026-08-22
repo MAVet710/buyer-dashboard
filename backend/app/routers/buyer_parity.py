@@ -29,6 +29,8 @@ from services.web_buyer_parity import (
     sku_inventory_view,
     trends,
     xlsx_bytes,
+    exact_buyer_intelligence,
+    exact_trends,
 )
 from ..auth import RequestContext, get_request_context, get_retail_context
 from ..database import get_engine
@@ -80,15 +82,15 @@ def dashboard(target_doh: int = Query(21, ge=1, le=120), velocity_adjustment: fl
 
 
 @router.get("/trends")
-def buyer_trends(target_doh: int = Query(21, ge=1, le=120), velocity_adjustment: float = Query(0.5, ge=0.01, le=5.0), sales_days: int = Query(60, ge=7, le=120), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _detail, product, _inv, sales, _inventory_source, _sales_source = _model(context, engine, target_doh, velocity_adjustment, sales_days); output = trends(product, sales)
-    return {"sales_days":sales_days, **{name:records(frame,limit=500) for name,frame in output.items()}}
+def buyer_trends(trend_days: int = Query(30, ge=7, le=120), compare_days: int = Query(30, ge=7, le=120), run_rate_multiplier: float = Query(1.0, ge=0.1, le=3.0), top_n: int = Query(10, ge=1, le=50), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _detail, product, _inv, sales, _inventory_source, _sales_source = _model(context, engine, 21, run_rate_multiplier, trend_days); output = exact_trends(product,sales,trend_days,compare_days,run_rate_multiplier,top_n)
+    return {"controls":{"trend_days":trend_days,"compare_days":compare_days,"run_rate_multiplier":run_rate_multiplier,"top_n":top_n}, **{name:records(frame,limit=500) for name,frame in output.items()}}
 
 
 @router.get("/intelligence")
-def intelligence(target_doh: int = Query(21, ge=1, le=120), velocity_adjustment: float = Query(0.5, ge=0.01, le=5.0), sales_days: int = Query(60, ge=7, le=120), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _detail, product, _inv, _sales, _inventory_source, _sales_source = _model(context, engine, target_doh, velocity_adjustment, sales_days); result = buyer_intelligence(product)
-    return {"sales_days":sales_days,"summary":result["summary"],"purchase_priorities":records(result["purchase_priorities"]),"sku_risk":records(result["sku_risk"]),"overstock_watch":records(result["overstock_watch"]),"category_risk":records(result["category_risk"])}
+def intelligence(lookback_days: int = Query(60, ge=14, le=120), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _detail, product, _inv, sales, _inventory_source, _sales_source = _model(context, engine, 21, 1.0, lookback_days); result=exact_buyer_intelligence(product,sales,lookback_days)
+    return {"lookback_days":lookback_days,"summary":result["summary"],"by_category":records(result["by_category"],limit=20),"by_product":records(result["by_product"],limit=200),"purchase_priorities":records(result["purchase_priorities"])}
 
 
 def _filter_export_frame(frame: pd.DataFrame, categories: list[str], *, reorder_only: bool = False) -> pd.DataFrame:

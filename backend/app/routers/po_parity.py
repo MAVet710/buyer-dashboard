@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from difflib import SequenceMatcher
 from io import BytesIO
 import re
 from typing import Any
@@ -75,6 +76,23 @@ def _inventory_rows(context: RequestContext, engine: Engine, target_doh: int, ve
     if not sku.empty:
         xref = xref.merge(sku[[column for column in ["product_name", "days_of_supply", "status"] if column in sku.columns]], on="product_name", how="left")
     return detail, product, reorder, sku, xref
+
+
+def _best_match(item: POLine, inventory: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, str]:
+    """Retained for compatibility tests; the Streamlit-parity review route uses exact matching."""
+    sku = _norm(item.sku); description = _norm(item.description); size = _size_norm(item.size)
+    if sku:
+        matches = [row for row in inventory if _norm(row.get("sku")) == sku]
+        if matches:
+            sized = next((row for row in matches if not size or _size_norm(row.get("packagesize")) == size), matches[0])
+            return sized, 1.0, "SKU exact match"
+    best = None; score = 0.0
+    for row in inventory:
+        candidate = SequenceMatcher(None, description, _norm(row.get("product_name"))).ratio()
+        if description and (description in _norm(row.get("product_name")) or _norm(row.get("product_name")) in description): candidate = max(candidate, 0.92)
+        if size and _size_norm(row.get("packagesize")) == size: candidate = min(1.0, candidate + 0.08)
+        if candidate > score: best, score = row, candidate
+    return (best, score, "Product name match") if best is not None and score >= 0.72 else (None, score, "No confident inventory match")
 
 
 @router.get("/workspace")

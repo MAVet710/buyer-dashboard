@@ -89,14 +89,16 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Audit acceptance covers 390, 430, 768, 1024 and 1440 px with no viewport overflow, horizontally scrollable reports, full-screen mobile count entry and a right-side desktop drawer.
 
 ### Slow Movers
-- [ ] Velocity/DOH windows, all filters, Top N, KPI strip, decision table, discount tiers and Excel export match.
+- [x] Velocity/DOH windows, all filters/defaults, Top N including All, five-KPI snapshot, decision table, full-detail expander, discount tiers and three-sheet dated Excel export match.
+- [x] Slow Movers acceptance covers 390, 430, 768, 1024 and 1440 px with contained table scrolling and no hidden controls or export action.
 
 ### MA Flower Equivalency
 - [ ] Inputs, defaults, calculation, warnings and presentation match.
 
 ### Buyer Intelligence
-- [ ] Deterministic evidence tables match.
-- [ ] Doobie Buyer Brief action matches Streamlit.
+- [x] Optional market-reference expander, 14–120 day lookback, four exact KPIs, Top Categories, SKU Risk and What to Buy deterministic evidence tables match.
+- [x] Doobie Buyer Brief action retains the exact source placement/label and selected-lookback evidence context without replacing deterministic tables.
+- [x] Buyer Intelligence acceptance covers 390, 430, 768, 1024 and 1440 px with contained table scrolling and no hidden action.
 
 ### Delivery Impact
 - [ ] Manifest + sales upload workflow matches.
@@ -122,8 +124,9 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Purchasing Budget acceptance covers 390, 430, 768, 1024 and 1440 px with no viewport overflow and horizontally scrollable tables.
 
 ### Trends
-- [ ] Category mix, package size mix, top movers, best sellers and fast-mover/low-stock sections match.
-- [ ] Plot/chart behavior matches Streamlit.
+- [x] Trend/comparison/run-rate controls, Category Mix, Package Size Mix, Top Movers, per-category Best Seller expanders and Fast Movers + Low Stock sections match in one continuous workflow.
+- [x] Streamlit currently presents dataframe sections rather than chart tabs; React-only tabs/summary charts were removed and table behavior matches.
+- [x] Trends acceptance covers 390, 430, 768, 1024 and 1440 px with contained table scrolling and every continuous section reachable.
 
 ### Compliance Q&A
 - [ ] Source status/upload/template/query workflow matches.
