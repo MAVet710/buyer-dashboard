@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { apiPost } from "../lib/api";
 import type { InventoryAdjustment, InventoryPackage } from "../types/inventory";
+import { StreamlitDialog } from "./StreamlitPrimitives";
 
 const reasons = ["Inventory count correction", "Scale variance", "Damage / destruction", "Waste / disposal", "Found inventory", "Entry error", "Other"];
 
@@ -10,8 +11,8 @@ export function AdjustInventory({ operation, item, onClose }: { operation: "reta
   const client = useQueryClient();
   const mutation = useMutation({ mutationFn: () => apiPost(`/api/v1/inventory/${operation}/adjustments`, form), onSuccess: async () => { await client.invalidateQueries({ queryKey: ["inventory"] }); onClose(); } });
   const final = form.adjustment_type === "incremental" ? item.available + form.quantity : form.quantity;
-  return <div className="modal-backdrop"><section className="modal compact" role="dialog" aria-modal="true" aria-label="Adjust inventory">
-    <div className="modal-heading"><div><div className="eyebrow">Inventory control</div><h2>Adjust package</h2><p>{item.product_name} · {item.package_id}</p></div><button className="secondary" onClick={onClose}>Close</button></div>
+  return <StreamlitDialog title="Adjust package" subtitle="Inventory control" onClose={onClose} size="compact">
+    <p className="dialog-context">{item.product_name} · {item.package_id}</p>
     <div className="quantity-summary"><span>Current<strong>{item.available.toLocaleString()} {item.unit}</strong></span><span>Reserved<strong>{item.reserved.toLocaleString()} {item.unit}</strong></span><span>Final<strong>{final.toLocaleString()} {item.unit}</strong></span></div>
     <div className="form-grid">
       <label>Adjustment type<select value={form.adjustment_type} onChange={e => setForm({ ...form, adjustment_type: e.target.value as InventoryAdjustment["adjustment_type"], quantity: 0 })}><option value="incremental">Incremental (+ / −)</option><option value="set_quantity">Set quantity</option></select></label>
@@ -21,5 +22,5 @@ export function AdjustInventory({ operation, item, onClose }: { operation: "reta
     </div>
     {mutation.error ? <div className="form-error">{mutation.error.message}</div> : null}
     <button className="primary submit" disabled={final < item.reserved || final < 0 || mutation.isPending || (form.adjustment_type === "incremental" && form.quantity === 0) || (form.adjustment_type === "set_quantity" && form.quantity === item.available)} onClick={() => mutation.mutate()}>{mutation.isPending ? "Posting adjustment…" : "Post adjustment"}</button>
-  </section></div>;
+  </StreamlitDialog>;
 }

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { apiGet, apiPost } from "../lib/api";
 import type { InventoryReceipt, ProductOption } from "../types/inventory";
+import { StreamlitDialog } from "./StreamlitPrimitives";
 
 const empty: InventoryReceipt = { product_id: "", package_id: "", lot_code: "", quantity: 0, unit: "g", location: "RECEIVING", source_name: "", manifest_reference: "", lab_testing_state: "TestPassed", coa_reference: "", notes: "" };
 
@@ -9,13 +10,9 @@ export function ReceiveInventory({ operation, onClose }: { operation: "retail" |
   const [form, setForm] = useState(empty);
   const products = useQuery({ queryKey: ["inventory-products"], queryFn: ({ signal }) => apiGet<ProductOption[]>("/api/v1/inventory/products", signal) });
   const queryClient = useQueryClient();
-  const receive = useMutation({
-    mutationFn: () => apiPost(`/api/v1/inventory/${operation}/receipts`, form),
-    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ["inventory"] }); onClose(); },
-  });
+  const receive = useMutation({ mutationFn: () => apiPost(`/api/v1/inventory/${operation}/receipts`, form), onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ["inventory"] }); onClose(); } });
   const update = (key: keyof InventoryReceipt, value: string | number) => setForm(current => ({ ...current, [key]: value }));
-  return <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-label="Receive inventory">
-    <div className="modal-heading"><div><div className="eyebrow">{operation} receiving</div><h2>Receive inventory</h2></div><button className="secondary" onClick={onClose}>Close</button></div>
+  return <StreamlitDialog title="Receive inventory" subtitle={`${operation} receiving`} onClose={onClose}>
     <div className="form-grid">
       <label className="span-2">Product<select value={form.product_id} onChange={e => { const product = products.data?.find(p => p.id === e.target.value); update("product_id", e.target.value); if (product) update("unit", product.base_unit); }}><option value="">Select product…</option>{products.data?.map(p => <option value={p.id} key={p.id}>{p.name} · {p.sku}</option>)}</select></label>
       <label>Package ID<input value={form.package_id} onChange={e => update("package_id", e.target.value)} /></label>
@@ -31,5 +28,5 @@ export function ReceiveInventory({ operation, onClose }: { operation: "retail" |
     </div>
     {receive.error ? <div className="form-error">{receive.error.message}</div> : null}
     <button className="primary submit" disabled={!form.product_id || !form.quantity || (!form.package_id && !form.lot_code) || receive.isPending} onClick={() => receive.mutate()}>{receive.isPending ? "Receiving…" : "Receive inventory"}</button>
-  </section></div>;
+  </StreamlitDialog>;
 }

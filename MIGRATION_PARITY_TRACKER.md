@@ -22,7 +22,7 @@ Acceptance notes:
 - User-facing AI workflows route through Doobie contracts. Deterministic evidence remains first-class underneath Doobie rather than being replaced by generic model output.
 
 ## Buyer Operations workspace
-- [x] Inventory Dashboard full parity
+- [x] Inventory Dashboard full calculation parity
 - [x] Target DOH settings
 - [x] Velocity adjustment
 - [x] Sales period controls
@@ -51,12 +51,10 @@ Acceptance notes:
 - [x] Before/after analysis
 - [x] Same weekday WoW analysis
 - [x] KPI summary table
-- [x] Charting (responsive React SVG equivalent replacing Streamlit/Plotly rendering)
+- [x] Chart data parity
 - [x] Top delivered items by lift
 - [x] Unmatched item review
 - [x] PDF debug text dump
-
-Acceptance note: the charting implementation intentionally changes from Streamlit/Plotly to responsive React SVG while preserving the daily and same-weekday comparison series and point-level values. Plotly is not retained as a runtime dependency solely for implementation parity.
 
 ## Slow Movers workspace
 - [x] Full filter bar
@@ -78,26 +76,16 @@ Acceptance note: the charting implementation intentionally changes from Streamli
 - [x] PDF generation
 - [x] Smart PO merged without removing original capabilities
 
-Acceptance notes:
-- The original manual PO workflow remains intact: editable line items, store/vendor metadata, terms, fulfillment notes, tax, discount, shipping and PDF output.
-- Smart buying evidence is available alongside the manual workflow and can be added to the PO without replacing manual lines. The full Doobie Buyer Brief remains available as the interpretation layer over the same Buyer evidence.
-
 ## Compliance workspace
 - [x] Compliance source upload
 - [x] Template download
 - [x] Grounded Q&A
 - [x] Admin compliance QA tools
 
-Acceptance notes:
-- Q&A only answers from the active reviewed facility source and returns citations/source metadata.
-- Reviewed-source publication is restricted to DEV, admin, QA and supervisor roles; other users retain read/query/template access.
-
 ## Buyer Intelligence workspace
 - [x] KPI summary
 - [x] Category and SKU risk tables
 - [x] AI Buyer Brief replaced by Doobie while preserving section outputs
-
-Acceptance note: deterministic Buy First, SKU stockout risk, overstock/slow watch and category risk sections remain visible independently of the generated Doobie Buyer Brief.
 
 ## Extraction Command Center workspace
 - [x] Executive Overview
@@ -109,10 +97,45 @@ Acceptance note: deterministic Buy First, SKU stockout risk, overstock/slow watc
 - [x] Manual run entry preserved
 - [x] Manual toll job entry preserved
 
-Acceptance notes:
-- The grounded Doobie extraction brief consumes current run evidence and preserves explicit measurement-availability boundaries rather than inventing unsupported process metrics.
-- Run creation, workflow/stage events, loss recording, outputs, QA, mass balance, COGS, toll jobs and traceability remain available in React/FastAPI.
+## Exact Streamlit UI and interaction parity
+
+These gates are intentionally stricter than backend/calculation parity. They cover the operator experience the Streamlit application actually shipped. A React page with similar data is not sufficient if controls, workflows, dialogs/popovers, visual hierarchy, or workspace boundaries changed.
+
+### Global shell and visual system
+- [ ] Restore the Streamlit glass/translucent visual system across cards, metrics, tables, forms, sidebars and top bars
+- [ ] Restore the Streamlit fixed background/overlay depth, orange accent hierarchy, shadows, borders and hover/focus treatments
+- [ ] Restore all Streamlit popovers/expanders/dialog-like interactions as working React overlays/drawers/popovers rather than inline replacements
+- [ ] Match Streamlit role-aware navigation/workspace grouping and preserve every distinct workspace instead of collapsing routes
+- [ ] Match Streamlit responsive/mobile behavior and preserve usable overlays on phone/tablet
+
+### Retail / Buyer Operations exact experience
+- [ ] Inventory Dashboard control placement, KPI hierarchy, category DOS, forecast, product/SKU tabs and drill-down presentation match Streamlit
+- [ ] Buyer Inventory Check opens and displays as an in-context pop-out/overlay with the filtered evidence slice
+- [ ] Trends chart/table presentation and controls match Streamlit
+- [ ] Slow Movers filter/KPI/decision/discount presentation matches Streamlit
+- [ ] Delivery Impact uploads, KPI layout, charts, unmatched review and debug/download controls match Streamlit
+- [ ] Buyer Intelligence/Recommendations presentation and Doobie brief interaction match Streamlit
+- [ ] PO Builder layout and purchasing workflow match the original Streamlit builder, including reorder cross-reference, manual lines, inventory review, metadata, totals, clear/reset and PDF actions
+- [ ] Purchasing Budget layout, scenario controls and category current-vs-target presentation match Streamlit
+- [ ] MA Flower Equivalency interaction and results presentation match Streamlit
+- [ ] Product Name Mapper upload/review/confirmation/export workflow matches Streamlit
+- [ ] Compliance Q&A source/status/query/citation presentation matches Streamlit
+
+### Production exact experience
+- [ ] Co-Man Production workspace preserves every Streamlit tab, KPI, data-entry, run/order, capacity and report interaction
+- [ ] Extraction Command Center preserves all Streamlit tabs, KPI hierarchy, run analytics, toll processing, compliance/METRC, data input and Doobie Ops Brief interactions
+- [ ] White Label / Repack is restored as its own five-step scenario workspace and is not aliased to Package Studio
+- [ ] Package Studio remains available separately for inventory transformations
+- [ ] Production inventory/receiving/plant workflows preserve the Streamlit facility/license-aware behavior and interaction model
+
+### Commercial, Data, Admin and reporting exact experience
+- [ ] Orders & Fulfillment preserves the complete Streamlit commercial workspace behavior and presentation
+- [ ] Data Hub preserves upload, active-source, history, mapping/quality and operational restore interactions with Streamlit-equivalent hierarchy
+- [ ] Admin Tools preserves user/org/facility management and admin QA/integration interactions with Streamlit-equivalent presentation
+- [ ] AI/METRC Integrations preserves role-gated connection status, testing and configuration interactions
+- [ ] Executive Report Packs popover is restored with Retail Ops and Production Ops pack downloads and available individual reports
+- [ ] Role Home/help/command-center interactions and quick navigation match Streamlit
 
 ## Parity result
 
-The Streamlit product-parity contract is complete for the React/FastAPI application. This does **not** by itself authorize public DNS/traffic cutover. Production-clone validation, provider deployment gates, pilot acceptance, backup/restore and rollback rehearsal in `docs/WEB_CUTOVER_GATES.md` and `docs/PRODUCTION_DEPLOYMENT.md` remain mandatory before Streamlit is retired from public production traffic.
+Backend/calculation parity is substantially implemented, but **exact Streamlit UI, interaction and workspace parity is reopened and currently incomplete**. Production web deployment must remain blocked by `scripts/verify_streamlit_parity.py` until every unchecked item above is implemented and verified against the Streamlit source of truth.

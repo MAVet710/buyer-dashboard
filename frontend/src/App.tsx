@@ -12,9 +12,9 @@ const BuyingBudgetPage = lazy(() => import("./pages/BuyingBudgetPage").then(modu
 const PurchaseOrdersParityPage = lazy(() => import("./pages/PurchaseOrdersParityPage").then(module => ({ default: module.PurchaseOrdersParityPage })));
 const ProductMasterPage = lazy(() => import("./pages/ProductMasterPage").then(module => ({ default: module.ProductMasterPage })));
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
-const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
-const ProductionPage = lazy(() => import("./pages/ProductionPage").then(module => ({ default: module.ProductionPage })));
+const CoManProductionPage = lazy(() => import("./pages/CoManProductionPage").then(module => ({ default: module.CoManProductionPage })));
 const ExtractionCommandCenterPage = lazy(() => import("./pages/ExtractionCommandCenterPage").then(module => ({ default: module.ExtractionCommandCenterPage })));
+const WhiteLabelRepackPage = lazy(() => import("./pages/WhiteLabelRepackPage").then(module => ({ default: module.WhiteLabelRepackPage })));
 const PackageStudioPage = lazy(() => import("./pages/PackageStudioPage").then(module => ({ default: module.PackageStudioPage })));
 const OrdersPage = lazy(() => import("./pages/OrdersPage").then(module => ({ default: module.OrdersPage })));
 const CompliancePage = lazy(() => import("./pages/CompliancePage").then(module => ({ default: module.CompliancePage })));
@@ -38,14 +38,14 @@ export default function App() {
     : page === "Delivery Performance" ? <DeliveryImpactPage />
     : page === "Buying Recommendations" ? <BuyingRecommendationsPage onNavigate={setPage} />
     : page === "Buying Budget" ? <BuyingBudgetPage />
-    : page === "Purchase Orders" ? <PurchaseOrdersParityPage onNavigate={setPage} />
+    : page === "Purchase Orders" || page === "Purchasing" ? <PurchaseOrdersParityPage onNavigate={setPage} />
     : page === "Retail Product Master" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
-    : page === "Purchasing" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
-    : page === "Production" ? <ProductionPage />
+    : page === "Production" ? <CoManProductionPage />
     : page === "Extraction" ? <ExtractionCommandCenterPage onNavigate={setPage} />
-    : page === "Package Studio" || page === "White Label / Repack" ? <PackageStudioPage />
+    : page === "White Label / Repack" ? <WhiteLabelRepackPage />
+    : page === "Package Studio" ? <PackageStudioPage />
     : page === "Orders" ? <OrdersPage />
     : page === "Compliance" ? <CompliancePage />
     : page === "Compliance Q&A" ? <ComplianceQAPage />
