@@ -1,9 +1,14 @@
 FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PORT=8080
 WORKDIR /app
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 RUN addgroup --system buyer && adduser --system --ingroup buyer buyer
 COPY backend/requirements.txt /tmp/requirements.txt
-RUN pip install --upgrade pip "setuptools>=78.1.1" && pip install -r /tmp/requirements.txt
+RUN pip install --upgrade pip "setuptools>=78.1.1" \
+    && pip install -r /tmp/requirements.txt \
+    && pip uninstall -y setuptools
 COPY backend backend
 COPY modules modules
 COPY services services
