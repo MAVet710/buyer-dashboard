@@ -19,6 +19,8 @@ type Product360 = {
 
 const tools: SearchResult[] = [
   { kind: "tool", id: "inventory", title: "Inventory", subtitle: "Stock health, reorder risk, and aging", workspace: "Inventory" },
+  { kind: "tool", id: "retail-product-master", title: "Retail Product Master", subtitle: "Retail catalog identity, vendors, mappings, aliases, and values", workspace: "Retail Product Master" },
+  { kind: "tool", id: "production-product-master", title: "Production Product Master", subtitle: "Bulk material, WIP, and production catalog identity", workspace: "Production Product Master" },
   { kind: "tool", id: "inventory-audits", title: "Inventory Audits", subtitle: "Scan, pause, resume, and reconcile counts", workspace: "Inventory Audits" },
   { kind: "tool", id: "buying-recommendations", title: "Buying Recommendations", subtitle: "Buyer Intelligence recommendations and risks", workspace: "Buying Recommendations" },
   { kind: "tool", id: "purchase-orders", title: "Purchase Orders", subtitle: "Build and review purchase orders", workspace: "Purchase Orders" },

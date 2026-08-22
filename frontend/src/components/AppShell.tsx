@@ -46,6 +46,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
       { label: "Co-Man Production", page: "Production" },
       { label: "Extraction", page: "Extraction" },
       { label: "White Label / Repack", page: "White Label / Repack" },
+      { label: "Product Master", page: "Production Product Master" },
     ];
     if (category === "Orders") return [{ label: "Orders & Fulfillment", page: "Orders" }];
     if (category === "Compliance") return [{ label: "Traceability", page: "Compliance" }];
@@ -54,6 +55,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
   }
   if (category === "Inventory") return [
     { label: "Inventory", page: "Inventory" },
+    { label: "Product Master", page: "Retail Product Master" },
     { label: "Inventory Audits", page: "Inventory Audits" },
     { label: "Slow Movers", page: "Slow Movers" },
     { label: "MA Flower Equivalency", page: "MA Flower Equivalency" },
@@ -89,7 +91,7 @@ function dataSettingsItems(role: string): SecondaryItem[] {
 
 function categoryForPage(page: string, operation: OperationMode): PrimaryCategory {
   if (page === "Home") return "Home";
-  if (["Inventory", "Inventory Audits", "Slow Movers", "MA Flower Equivalency", "Production Inventory"].includes(page)) return "Inventory";
+  if (["Inventory", "Retail Product Master", "Inventory Audits", "Slow Movers", "MA Flower Equivalency", "Production Inventory"].includes(page)) return "Inventory";
   if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing"].includes(page)) return "Purchasing";
   if (page === "Orders") return "Orders";
   if (["Production", "Extraction", "White Label / Repack", "Package Studio", "Production Product Master"].includes(page)) return "Production";

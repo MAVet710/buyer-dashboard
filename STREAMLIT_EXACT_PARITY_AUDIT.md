@@ -65,6 +65,7 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [ ] Generate Doobie Buyer Brief action.
 
 ### Inventory Command Center
+- [x] Product Master has separate Retail and Production operation-scoped surfaces and routes.
 - [x] Retail Products / Packages grains and Production Packages / cultivation Plants grains are distinct.
 - [x] Retail built-in views match: All Inventory, Low Stock, Under 14 DOH, Slow Movers, Expiring 90 Days, Bulk Packages, Quarantine / Hold.
 - [x] Production built-in views match: All Material, Bulk Flower, Biomass / Trim, Extraction Input, WIP, Finished Bulk, Production Ready, Low Balance, Quarantine / Hold.
