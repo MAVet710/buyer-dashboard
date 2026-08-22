@@ -63,6 +63,7 @@ from services.auth_workflow import (
 )
 from services.workspace_navigation import (
     AI_INTEGRATIONS_SECTION,
+    ANALYTICS_WORKSPACE,
     COMAN_WORKSPACE,
     COMMERCIAL_OPS,
     COMMERCIAL_WORKSPACE,
@@ -8111,6 +8112,16 @@ if app_mode == DATA_HUB_WORKSPACE:
         "Data Operations",
     )
     render_data_hub_workspace()
+    st.stop()
+if app_mode == ANALYTICS_WORKSPACE:
+    from modules.analytics.ui import render_analytics_dashboard
+    render_hero(
+        "Profitability Analytics",
+        "Margin tracking across cultivation → processing → extraction → retail supply chain.",
+        _display_user,
+        "Analytics",
+    )
+    render_analytics_dashboard(st.session_state)
     st.stop()
 if app_mode == COMMERCIAL_WORKSPACE:
     render_commercial_workspace()

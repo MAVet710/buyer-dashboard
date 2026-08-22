@@ -13,6 +13,7 @@ COMAN_WORKSPACE = "🏭 Co-Man Production"
 EXTRACTION_WORKSPACE = "🧪 Extraction Command Center"
 COMMERCIAL_WORKSPACE = "📦 Orders & Fulfillment"
 DATA_HUB_WORKSPACE = "📥 Data Hub"
+ANALYTICS_WORKSPACE = "📊 Profitability Analytics"
 RETAIL_OPS = "🛍️ Retail Ops"
 HOME_OPS = "Home"
 PRODUCTION_OPS = "🏭 Production Ops"
@@ -131,7 +132,7 @@ def workspace_groups(feature_enabled: Callable[..., bool]) -> dict[str, list[str
         if COMMERCIAL_WORKSPACE not in groups[COMMERCIAL_OPS]:
             groups[COMMERCIAL_OPS].append(COMMERCIAL_WORKSPACE)
     if groups[RETAIL_OPS] or groups[PRODUCTION_OPS]:
-        groups[DATA_OPERATIONS].append(DATA_HUB_WORKSPACE)
+        groups[DATA_OPERATIONS].extend([DATA_HUB_WORKSPACE, ANALYTICS_WORKSPACE])
     return {group: options for group, options in groups.items() if options}
 
 
@@ -154,7 +155,7 @@ def workspace_group(workspace: str) -> str | None:
         return PRODUCTION_OPS
     if workspace == COMMERCIAL_WORKSPACE:
         return COMMERCIAL_OPS
-    if workspace == DATA_HUB_WORKSPACE:
+    if workspace in {DATA_HUB_WORKSPACE, ANALYTICS_WORKSPACE}:
         return DATA_OPERATIONS
     return None
 
