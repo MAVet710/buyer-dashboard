@@ -44,7 +44,7 @@ def order_360(order_id: str, context: RequestContext = Depends(get_request_conte
         "order": {key: getattr(order, key) for key in ("id", "order_number", "product_name", "sku", "product_format", "requested_units", "priority", "status", "notes", "due_at")},
         "requirements": snapshot["requirements"],
         "reservations": [{key: getattr(row, key) for key in ("id", "lot_id", "quantity", "unit", "status")} for row in snapshot["reservations"]],
-        "outputs": [{key: getattr(row, key) for key in ("id", "label", "planned_quantity", "actual_quantity", "unit", "status", "lot_id")} for row in snapshot["outputs"]],
+        "outputs": [{key: getattr(row, key) for key in ("id", "product_id", "position", "label", "planned_quantity", "actual_quantity", "unit", "status", "lot_id")} for row in snapshot["outputs"]],
         "events": [{key: getattr(row, key) for key in ("id", "stage_key", "event_type", "quantity", "unit", "waste_quantity", "labor_hours", "machine_hours", "notes", "actor", "occurred_at")} for row in snapshot["events"]],
         "qa_events": [{key: getattr(row, key) for key in ("id", "event_type", "result", "notes", "actor", "occurred_at")} for row in snapshot["qa_events"]],
         "cogs": snapshot["cogs"], "planned_output": snapshot["planned_output"], "actual_output": snapshot["actual_output"], "attainment_pct": snapshot["attainment_pct"],
@@ -69,14 +69,14 @@ def record_event(order_id: str, payload: RunEventCreate, context: RequestContext
 def add_output(order_id: str, payload: OutputCreate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     try:
         row = _service(engine).add_output(organization_id=context.organization_id, facility_id=context.facility_id, order_id=order_id, actor=context.user_id, **payload.model_dump())
-        return {key: getattr(row, key) for key in ("id", "label", "planned_quantity", "actual_quantity", "unit", "status", "lot_id")}
+        return {key: getattr(row, key) for key in ("id", "product_id", "position", "label", "planned_quantity", "actual_quantity", "unit", "status", "lot_id")}
     except ValueError as exc: raise HTTPException(422, str(exc)) from exc
 
 @router.post("/outputs/{output_id}/actual")
 def record_output(output_id: str, payload: OutputActual, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     try:
         row = _service(engine).record_output_actual(organization_id=context.organization_id, facility_id=context.facility_id, output_id=output_id, actor=context.user_id, **payload.model_dump())
-        return {key: getattr(row, key) for key in ("id", "label", "planned_quantity", "actual_quantity", "unit", "status", "lot_id")}
+        return {key: getattr(row, key) for key in ("id", "product_id", "position", "label", "planned_quantity", "actual_quantity", "unit", "status", "lot_id")}
     except ValueError as exc: raise HTTPException(422, str(exc)) from exc
 
 @router.post("/orders/{order_id}/qa", status_code=201)

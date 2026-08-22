@@ -142,8 +142,16 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [ ] Adjustments, lineage, holds and receiving history dialogs match.
 
 ### Co-Man Production
-- [ ] All planning/execution/material/QA/cost tabs and actions match Streamlit.
-- [ ] Production ERP dialogs match Streamlit.
+- [x] The seven Co-Man tabs and exact source order match: Dashboard, New Job, Schedule, Resources, Inventory & BOM, Customers and Performance.
+- [x] Dashboard setup-readiness, status/customer filters, KPI cards, durable job queue, status actions and job duplication match.
+- [x] New Job optimizer inputs/defaults, editable product mix, material/labor/machine/economic calculations, recommendation table, order prefill and committed-order form match.
+- [x] Schedule crew/capacity planning, single-machine context, downstream hand-labor context and end-to-end completion/shortage calculations match.
+- [x] Resources machine benchmark library/source links, machine models, machines, rates and hand-labor configuration match.
+- [x] Inventory & BOM products, lots, movements, reservations, ledger views and BOM editing match and use the existing durable Co-Man repository.
+- [x] Customers and Performance actual-entry, KPI, chart and plan-vs-actual behavior match.
+- [x] Production Control/Production 360 remains a separate right-side work window with BOM reservation, stage actuals, output creation, quarantine posting, QA disposition and COGS actions.
+- [x] Co-Man and Production Control writes are tenant/facility scoped and covered by durable API and facility-isolation tests.
+- [x] Co-Man desktop/mobile rendering and drawer geometry were verified at 390px, 430px, 768px, 1024px and 1440px.
 
 ### Extraction Command Center
 - [ ] Executive Overview matches.
@@ -194,7 +202,7 @@ No item may be checked because of an intentional redesign. The requirement is **
 
 - [ ] Every report exposed by Streamlit is present with the same data scope and output format.
 - [ ] Buyer executive report matches.
-- [ ] Production/Co-Man report matches.
+- [x] Production/Co-Man report uses the retained Streamlit `reports/coman_report.py` builder and current facility-scoped queue data.
 - [ ] Extraction report matches.
 - [x] White Label report uses the same Streamlit report builder and active scenario scope.
 - [ ] Retail Ops report matches if exposed.
