@@ -1,6 +1,6 @@
 """Close remaining callable/default ACL paths behind FastAPI.
 
-Revision ID: 0037_supabase_function_acl_hardening
+Revision ID: 0037_function_acl_hardening
 Revises: 0036_supabase_data_api_hardening
 
 Supabase-hosted projects keep platform-managed default ACLs for objects created
@@ -12,7 +12,7 @@ that is owned by the application migration role (postgres).
 
 from alembic import op
 
-revision = "0037_supabase_function_acl_hardening"
+revision = "0037_function_acl_hardening"
 down_revision = "0036_supabase_data_api_hardening"
 branch_labels = None
 depends_on = None
