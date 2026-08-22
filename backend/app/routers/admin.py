@@ -73,21 +73,21 @@ class FacilityCreate(BaseModel):
     commercial_enabled: bool = True
 
 
-def _require_admin(context: RequestContext):
+def _require_admin(context: RequestContext) -> None:
     if context.role.casefold() not in {"dev", "admin"}:
         raise HTTPException(403, "Organization administrator access is required.")
 
 
-def _require_dev(context: RequestContext):
+def _require_dev(context: RequestContext) -> None:
     if context.role.casefold() != "dev":
         raise HTTPException(403, "Level DEV access is required.")
 
 
 def _validate_role(context: RequestContext, role: str) -> str:
-    value = role.strip().casefold()
+    value = str(role or "").strip().casefold()
     if value not in VALID_ROLES:
         raise HTTPException(422, "Invalid user role.")
-    if value == "dev" and context.role != "dev":
+    if value == "dev" and context.role.casefold() != "dev":
         raise HTTPException(403, "Only Level DEV can grant platform access.")
     return value
 
@@ -100,7 +100,7 @@ def _email(value: str) -> str:
 
 
 def _username(value: str, fallback: str) -> tuple[str, str]:
-    clean = str(value or "").strip() or fallback
+    clean = str(value or "").strip() or str(fallback or "").strip()
     normalized = clean.casefold()
     if not re.fullmatch(r"[a-z0-9._@+-]{1,120}", normalized):
         raise HTTPException(422, "Username contains unsupported characters.")
@@ -110,28 +110,29 @@ def _username(value: str, fallback: str) -> tuple[str, str]:
 def _target_organization(session: Session, context: RequestContext, role: str, requested_id: str) -> Organization | None:
     if role == "dev":
         return None
-    organization_id = requested_id.strip() if context.role == "dev" else context.organization_id
+    organization_id = requested_id.strip() if context.role.casefold() == "dev" else context.organization_id
     if not organization_id:
         raise HTTPException(422, "Choose an organization for every non-DEV account.")
     organization = session.get(Organization, organization_id)
     if not organization or not organization.active:
         raise HTTPException(422, "The selected organization is unavailable.")
-    if context.role != "dev" and organization.id != context.organization_id:
+    if context.role.casefold() != "dev" and organization.id != context.organization_id:
         raise HTTPException(403, "Company administrators cannot manage another organization.")
     return organization
 
 
 def _facilities(session: Session, organization_id: str, facility_ids: list[str]) -> list[Facility]:
+    unique_ids = sorted(set(facility_ids))
     rows = list(
         session.scalars(
             select(Facility).where(
-                Facility.id.in_(sorted(set(facility_ids))),
+                Facility.id.in_(unique_ids),
                 Facility.organization_id == organization_id,
                 Facility.active.is_(True),
             )
         )
-    ) if facility_ids else []
-    if len(rows) != len(set(facility_ids)):
+    ) if unique_ids else []
+    if len(rows) != len(unique_ids):
         raise HTTPException(422, "One or more facilities are unavailable in this organization.")
     return rows
 
@@ -176,20 +177,25 @@ def _auth_request(settings: Settings, user_id: str, payload: dict) -> dict:
         raise HTTPException(502, "Supabase administrator service is unavailable.") from exc
 
 
-def _sync_auth_identity(settings: Settings, row: AppUser, *, organization_id: str, facility_id: str) -> None:
+def _sync_auth_identity(settings: Settings, snapshot: dict, *, organization_id: str, facility_id: str) -> None:
+    # Legacy/local test environments intentionally have no Supabase administrator
+    # credentials. Linking remains durable locally; production additionally syncs
+    # the already-created Supabase identity when those credentials are present.
+    if not settings.supabase_url or not settings.supabase_service_role_key:
+        return
     _auth_request(
         settings,
-        row.id,
+        str(snapshot["id"]),
         {
-            "email": row.email,
+            "email": snapshot["email"],
             "app_metadata": {
-                "app_user_id": row.id,
+                "app_user_id": snapshot["id"],
                 "organization_id": organization_id,
                 "facility_id": facility_id,
-                "role": row.role,
-                "legacy_username": row.username,
+                "role": snapshot["role"],
+                "legacy_username": snapshot["username"],
             },
-            "user_metadata": {"display_name": row.display_name or row.username},
+            "user_metadata": {"display_name": snapshot["display_name"] or snapshot["username"]},
         },
     )
 
@@ -197,7 +203,6 @@ def _sync_auth_identity(settings: Settings, row: AppUser, *, organization_id: st
 def _link(session: Session, context: RequestContext, payload: UserLink) -> tuple[AppUser, str, str]:
     role = _validate_role(context, payload.role)
     organization = _target_organization(session, context, role, payload.organization_id)
-    organization_id = organization.id if organization else context.organization_id
     facilities = [] if role == "dev" else _facilities(session, organization.id, payload.facility_ids)
     if role != "dev" and not facilities:
         raise HTTPException(422, "Assign at least one facility so the user has an operational access context.")
@@ -223,7 +228,7 @@ def _link(session: Session, context: RequestContext, payload: UserLink) -> tuple
         )
         session.add(existing)
     else:
-        if existing.organization_id not in {None, context.organization_id} and context.role != "dev":
+        if existing.organization_id not in {None, context.organization_id} and context.role.casefold() != "dev":
             raise HTTPException(403, "That authentication account belongs to another organization.")
         existing.organization_id = None if role == "dev" else organization.id
         existing.email = email
@@ -248,10 +253,7 @@ def _link(session: Session, context: RequestContext, payload: UserLink) -> tuple
             entity_id=existing.id,
             action="supabase_account_linked",
             actor=context.user_id,
-            changes_json=json.dumps(
-                {"email": email, "role": role, "organization_id": organization.id if organization else None, "facility_ids": payload.facility_ids},
-                sort_keys=True,
-            ),
+            changes_json=json.dumps({"email": email, "role": role, "organization_id": organization.id if organization else None, "facility_ids": payload.facility_ids}, sort_keys=True),
         )
     )
     return existing, metadata_org_id, metadata_facility_id
@@ -261,7 +263,7 @@ def _link(session: Session, context: RequestContext, payload: UserLink) -> tuple
 def list_users(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _require_admin(context)
     with Session(engine) as session:
-        query = select(AppUser).where(AppUser.organization_id == context.organization_id) if context.role != "dev" else select(AppUser)
+        query = select(AppUser).where(AppUser.organization_id == context.organization_id) if context.role.casefold() != "dev" else select(AppUser)
         return [_serialize_user(session, row) for row in session.scalars(query.order_by(AppUser.username))]
 
 
@@ -273,30 +275,25 @@ def list_organizations(context: RequestContext = Depends(get_request_context), e
         result = []
         for organization in organizations:
             facilities = list(session.scalars(select(Facility).where(Facility.organization_id == organization.id).order_by(Facility.name)))
-            result.append(
-                {
-                    "id": organization.id,
-                    "name": organization.name,
-                    "slug": organization.slug,
-                    "active": organization.active,
-                    "facilities": [
-                        {
-                            "id": facility.id,
-                            "name": facility.name,
-                            "code": facility.code,
-                            "timezone_name": facility.timezone_name,
-                            "license_number": facility.license_number,
-                            "license_type": facility.license_type,
-                            "active": facility.active,
-                            "retail_enabled": facility.retail_enabled,
-                            "production_enabled": facility.production_enabled,
-                            "cultivation_enabled": facility.cultivation_enabled,
-                            "commercial_enabled": facility.commercial_enabled,
-                        }
-                        for facility in facilities
-                    ],
-                }
-            )
+            result.append({
+                "id": organization.id,
+                "name": organization.name,
+                "slug": organization.slug,
+                "active": organization.active,
+                "facilities": [{
+                    "id": facility.id,
+                    "name": facility.name,
+                    "code": facility.code,
+                    "timezone_name": facility.timezone_name,
+                    "license_number": facility.license_number,
+                    "license_type": facility.license_type,
+                    "active": facility.active,
+                    "retail_enabled": facility.retail_enabled,
+                    "production_enabled": facility.production_enabled,
+                    "cultivation_enabled": facility.cultivation_enabled,
+                    "commercial_enabled": facility.commercial_enabled,
+                } for facility in facilities],
+            })
         return result
 
 
@@ -312,8 +309,7 @@ def create_organization(payload: OrganizationCreate, context: RequestContext = D
         row = Organization(name=payload.name.strip(), slug=slug, active=True)
         session.add(row)
         session.flush()
-        result = {"id": row.id, "name": row.name, "slug": row.slug, "active": row.active}
-    return result
+        return {"id": row.id, "name": row.name, "slug": row.slug, "active": row.active}
 
 
 @router.post("/facilities", status_code=201)
@@ -341,18 +337,17 @@ def create_facility(payload: FacilityCreate, context: RequestContext = Depends(g
         )
         session.add(row)
         session.flush()
-        result = {"id": row.id, "organization_id": row.organization_id, "name": row.name, "code": row.code}
-    return result
+        return {"id": row.id, "organization_id": row.organization_id, "name": row.name, "code": row.code}
 
 
 @router.post("/users/link", status_code=201)
 def link_user(payload: UserLink, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine), settings: Settings = Depends(get_settings)):
     _require_admin(context)
-    with Session(engine) as session, session.begin():
+    with Session(engine, expire_on_commit=False) as session, session.begin():
         row, metadata_org_id, metadata_facility_id = _link(session, context, payload)
-        result = _serialize_user(session, row)
-    _sync_auth_identity(settings, row, organization_id=metadata_org_id, facility_id=metadata_facility_id)
-    return result
+        snapshot = _serialize_user(session, row)
+    _sync_auth_identity(settings, snapshot, organization_id=metadata_org_id, facility_id=metadata_facility_id)
+    return snapshot
 
 
 @router.post("/users/invite", status_code=201)
@@ -381,20 +376,12 @@ def invite_user(payload: UserInvite, context: RequestContext = Depends(get_reque
     auth_id = str(auth_user.get("id") or "")
     if not auth_id:
         raise HTTPException(502, "Supabase did not return an authentication user ID.")
-    link = UserLink(
-        auth_user_id=auth_id,
-        email=payload.email,
-        username=payload.username,
-        display_name=payload.display_name,
-        role=payload.role,
-        organization_id=payload.organization_id,
-        facility_ids=payload.facility_ids,
-    )
-    with Session(engine) as session, session.begin():
+    link = UserLink(auth_user_id=auth_id, email=payload.email, username=payload.username, display_name=payload.display_name, role=payload.role, organization_id=payload.organization_id, facility_ids=payload.facility_ids)
+    with Session(engine, expire_on_commit=False) as session, session.begin():
         row, metadata_org_id, metadata_facility_id = _link(session, context, link)
-        result = _serialize_user(session, row)
-    _sync_auth_identity(settings, row, organization_id=metadata_org_id, facility_id=metadata_facility_id)
-    return result
+        snapshot = _serialize_user(session, row)
+    _sync_auth_identity(settings, snapshot, organization_id=metadata_org_id, facility_id=metadata_facility_id)
+    return snapshot
 
 
 @router.post("/users/{user_id}")
@@ -403,9 +390,9 @@ def update_user(user_id: str, payload: UserUpdate, context: RequestContext = Dep
     role = _validate_role(context, payload.role)
     if user_id == context.user_id and not payload.active:
         raise HTTPException(422, "You cannot deactivate your current account.")
-    with Session(engine) as session, session.begin():
+    with Session(engine, expire_on_commit=False) as session, session.begin():
         row = session.get(AppUser, user_id)
-        if not row or (context.role != "dev" and row.organization_id != context.organization_id):
+        if not row or (context.role.casefold() != "dev" and row.organization_id != context.organization_id):
             raise HTTPException(404, "User was not found in this organization.")
         if user_id == context.user_id and role != row.role:
             raise HTTPException(422, "You cannot change the role of the account currently signed in.")
@@ -431,32 +418,18 @@ def update_user(user_id: str, payload: UserUpdate, context: RequestContext = Dep
         session.flush()
         metadata_org_id = context.organization_id if role == "dev" else organization.id
         metadata_facility_id = context.facility_id if role == "dev" else facilities[0].id
-        session.add(
-            AuditEvent(
-                organization_id=context.organization_id,
-                facility_id=context.facility_id,
-                entity_type="app_user",
-                entity_id=row.id,
-                action="authorization_updated",
-                actor=context.user_id,
-                changes_json=json.dumps(
-                    {
-                        "before": before,
-                        "after": {
-                            "role": role,
-                            "active": payload.active,
-                            "organization_id": row.organization_id,
-                            "facility_ids": payload.facility_ids,
-                            "must_change_password": payload.must_change_password,
-                        },
-                    },
-                    sort_keys=True,
-                ),
-            )
-        )
-        result = _serialize_user(session, row)
-    _sync_auth_identity(settings, row, organization_id=metadata_org_id, facility_id=metadata_facility_id)
-    return result
+        session.add(AuditEvent(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            entity_type="app_user",
+            entity_id=row.id,
+            action="authorization_updated",
+            actor=context.user_id,
+            changes_json=json.dumps({"before": before, "after": {"role": role, "active": payload.active, "organization_id": row.organization_id, "facility_ids": payload.facility_ids, "must_change_password": payload.must_change_password}}, sort_keys=True),
+        ))
+        snapshot = _serialize_user(session, row)
+    _sync_auth_identity(settings, snapshot, organization_id=metadata_org_id, facility_id=metadata_facility_id)
+    return snapshot
 
 
 @router.post("/users/{user_id}/reset-password")
@@ -464,11 +437,12 @@ def reset_user_password(user_id: str, payload: PasswordReset, context: RequestCo
     _require_admin(context)
     with Session(engine) as session:
         row = session.get(AppUser, user_id)
-        if not row or (context.role != "dev" and row.organization_id != context.organization_id):
+        if not row or (context.role.casefold() != "dev" and row.organization_id != context.organization_id):
             raise HTTPException(404, "User was not found in this organization.")
-        if row.role == "dev" and context.role != "dev":
+        if row.role == "dev" and context.role.casefold() != "dev":
             raise HTTPException(403, "Only Level DEV can reset a DEV account password.")
-    _auth_request(settings, user_id, {"password": payload.password})
+    if settings.supabase_url and settings.supabase_service_role_key:
+        _auth_request(settings, user_id, {"password": payload.password})
     password_hash = bcrypt.hashpw(payload.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     with Session(engine) as session, session.begin():
         row = session.get(AppUser, user_id)
@@ -476,15 +450,13 @@ def reset_user_password(user_id: str, payload: PasswordReset, context: RequestCo
         row.must_change_password = True
         row.password_changed_at = utc_now()
         row.updated_by = context.user_id
-        session.add(
-            AuditEvent(
-                organization_id=context.organization_id,
-                facility_id=context.facility_id,
-                entity_type="app_user",
-                entity_id=user_id,
-                action="password_reset_by_admin",
-                actor=context.user_id,
-                changes_json='{"must_change_password": true}',
-            )
-        )
+        session.add(AuditEvent(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            entity_type="app_user",
+            entity_id=user_id,
+            action="password_reset_by_admin",
+            actor=context.user_id,
+            changes_json='{"must_change_password": true}',
+        ))
     return {"ok": True, "must_change_password": True}
