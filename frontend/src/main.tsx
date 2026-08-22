@@ -6,6 +6,7 @@ import { AuthGate } from "./components/AuthGate";
 import "./styles.css";
 import "./parity.css";
 import "./parity-workspaces.css";
+import "./streamlit-exact.css";
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
 
