@@ -12,7 +12,6 @@ const BuyingBudgetPage = lazy(() => import("./pages/BuyingBudgetPage").then(modu
 const PurchaseOrdersParityPage = lazy(() => import("./pages/PurchaseOrdersParityPage").then(module => ({ default: module.PurchaseOrdersParityPage })));
 const ProductMasterPage = lazy(() => import("./pages/ProductMasterPage").then(module => ({ default: module.ProductMasterPage })));
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
-const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
 const ProductionPage = lazy(() => import("./pages/ProductionPage").then(module => ({ default: module.ProductionPage })));
 const ExtractionCommandCenterPage = lazy(() => import("./pages/ExtractionCommandCenterPage").then(module => ({ default: module.ExtractionCommandCenterPage })));
 const WhiteLabelRepackPage = lazy(() => import("./pages/WhiteLabelRepackPage").then(module => ({ default: module.WhiteLabelRepackPage })));
@@ -39,10 +38,9 @@ export default function App() {
     : page === "Delivery Performance" ? <DeliveryImpactPage />
     : page === "Buying Recommendations" ? <BuyingRecommendationsPage onNavigate={setPage} />
     : page === "Buying Budget" ? <BuyingBudgetPage />
-    : page === "Purchase Orders" ? <PurchaseOrdersParityPage onNavigate={setPage} />
+    : page === "Purchase Orders" || page === "Purchasing" ? <PurchaseOrdersParityPage onNavigate={setPage} />
     : page === "Retail Product Master" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
-    : page === "Purchasing" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPage />
     : page === "Extraction" ? <ExtractionCommandCenterPage onNavigate={setPage} />
