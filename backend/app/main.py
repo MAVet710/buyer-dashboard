@@ -17,6 +17,7 @@ from .routers.data_hub import router as data_hub_router
 from .routers.home import router as home_router
 from .routers.doobie import router as doobie_router
 from .routers.extraction import router as extraction_router
+from .routers.extraction_parity import router as extraction_parity_router
 from .routers.package_studio import router as package_studio_router
 from .routers.product_master import router as product_master_router
 from .routers.retail_insights import router as retail_insights_router
@@ -75,6 +76,7 @@ app.include_router(data_hub_router, prefix=settings.api_prefix)
 app.include_router(home_router, prefix=settings.api_prefix)
 app.include_router(doobie_router, prefix=settings.api_prefix)
 app.include_router(extraction_router, prefix=settings.api_prefix)
+app.include_router(extraction_parity_router, prefix=settings.api_prefix)
 app.include_router(package_studio_router, prefix=settings.api_prefix)
 app.include_router(product_master_router, prefix=settings.api_prefix)
 app.include_router(retail_insights_router, prefix=settings.api_prefix)
