@@ -8,6 +8,9 @@ production-shaped database and facility permissions.
 
 - [ ] Supabase JWT authentication, sign-out, session refresh, and account recovery
 - [ ] Organization, facility, license, role, and feature authorization
+- [ ] Supabase Data API is disabled; browser data access is Supabase Auth plus FastAPI only
+- [ ] Production database is at Alembic `0037_function_acl_hardening`
+- [ ] `PUBLIC`, `anon`, and `authenticated` have no direct operational table/sequence/function privileges that bypass FastAPI
 - [ ] Stable API errors, audit metadata, request IDs, logging, and health checks
 - [ ] Durable uploads, exports, background jobs, retry behavior, and observability
 - [ ] Responsive desktop, tablet, phone, scanning, and accessibility checks
@@ -40,8 +43,12 @@ production-shaped database and facility permissions.
 
 ## Release
 
+- [ ] Encrypted production backup and isolated restore verification pass immediately before database changes
 - [ ] Database migrations pass on a production-shaped clone with rollback evidence
+- [ ] Legacy Supabase Auth migration dry-run passes before any Auth user is created
+- [ ] Imported legacy accounts pass username/password sign-in, refresh, sign-out, recovery and facility-switch checks
 - [ ] API unit/integration tests and React component/browser tests pass
 - [ ] Streamlit-to-React parity scripts pass for representative facility datasets
 - [ ] Security, tenant-isolation, mobile, performance, backup, and recovery checks pass
+- [ ] Zero-traffic Cloud Run candidate and Cloudflare preview pass production-shaped verification
 - [ ] Pilot facility acceptance and documented rollback plan are complete

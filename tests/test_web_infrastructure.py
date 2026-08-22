@@ -99,6 +99,16 @@ def test_fastapi_routes_use_ui_independent_shared_modules():
     assert "services.doobie_config" not in integrations_router
 
 
+def test_supabase_acl_hardening_covers_functions_and_future_app_objects():
+    migration = (ROOT / "migrations/versions/0037_supabase_function_acl_hardening.py").read_text(encoding="utf-8")
+    assert "REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC" in migration
+    assert "REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM %I" in migration
+    assert "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES" in migration
+    assert "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON SEQUENCES" in migration
+    assert "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON FUNCTIONS" in migration
+    assert "Public Data API must therefore also be disabled" in migration
+
+
 def test_fresh_database_migrates_to_head_and_latest_revision_rolls_back(tmp_path, monkeypatch):
     database_url = f"sqlite+pysqlite:///{(tmp_path / 'migration-gate.db').as_posix()}"
     monkeypatch.setenv("COMAN_DATABASE_URL", database_url)
@@ -107,13 +117,13 @@ def test_fresh_database_migrates_to_head_and_latest_revision_rolls_back(tmp_path
     command.upgrade(config, "head")
     engine = create_engine(database_url, future=True)
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0036_supabase_data_api_hardening"
+        assert MigrationContext.configure(connection).get_current_revision() == "0037_function_acl_hardening"
 
-    command.downgrade(config, "0035_facility_capabilities")
+    command.downgrade(config, "0036_supabase_data_api_hardening")
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0035_facility_capabilities"
+        assert MigrationContext.configure(connection).get_current_revision() == "0036_supabase_data_api_hardening"
 
     command.upgrade(config, "head")
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0036_supabase_data_api_hardening"
+        assert MigrationContext.configure(connection).get_current_revision() == "0037_function_acl_hardening"
     engine.dispose()

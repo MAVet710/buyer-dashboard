@@ -9,8 +9,8 @@ or pilot acceptance evidence.
 ## Proven in the current worktree
 
 - Streamlit product parity: `MIGRATION_PARITY_TRACKER.md` is fully closed and
-  `scripts/verify_streamlit_parity.py` is now enforced by normal PR CI as well as
-  the production Cloud Build path.
+  `scripts/verify_streamlit_parity.py` is enforced by normal PR CI as well as the
+  production Cloud Build path.
 - Auth parity: Supabase login preserves legacy username/password behavior,
   first-password-change state, role/facility authorization, DEV cross-company
   access, and a signed 24-hour trial session restricted to `dev-sandbox`.
@@ -35,43 +35,76 @@ or pilot acceptance evidence.
   and persisted in SQL with import history and publisher identity. Buyers,
   planners, supervisors, operators, QA, DEV and sandbox trial users may publish;
   `read_only` remains read-only and archive is elevated.
-- Backend suite: the migration branch is exercised on Python 3.12, including the
-  durable SQL/API parity tests and restored parity regression tests.
-- Frontend: TypeScript, ESLint, Vitest, and the Vite production build pass on the
-  parity branch.
 - Production API runtime boundary: the built API image starts with no Streamlit
   package installed/imported. The boundary check is part of `web-ci.yml`.
-- Database: a brand-new SQLite database upgrades from base through
-  `0036_supabase_data_api_hardening`, downgrades to
-  `0035_facility_capabilities`, and upgrades back to head. The cycle is covered
-  by `test_web_infrastructure.py`.
-- Desktop browser: all 15 original migration React workspaces load against a fully
-  migrated, production-shaped demo database with successful API responses and no
-  browser console errors.
-- Phone browser (390 x 844): the navigation drawer opens and closes, both Product
-  Master scopes are reachable when licensed, populated Production Product Master
-  has no page-level horizontal overflow, and the drawer remains keyboard-dismissible.
-- Facility authorization: a retail-only facility shows only the Retail Product
-  Master and Retail Inventory; Production, Extraction, Package Studio, Plants,
-  and Production Product Master are hidden. Direct access to the Production API
-  returns a structured `403` with a request ID.
+- Database worktree head is now `0037_function_acl_hardening`. A clean SQLite
+  database upgrades through 0037, rolls back to 0036, and upgrades to head again
+  in `test_web_infrastructure.py`.
+- Facility authorization: a retail-only facility hides Production, Extraction,
+  Package Studio, Plants and Production Product Master, and direct Production API
+  access returns a structured `403` with a request ID.
 - Facility context carries durable license metadata and independent retail,
-  production, cultivation, and commercial capabilities. Cultivation/Plants is
-  optional and enforced by both API and UI.
-- Representative local parity: `scripts/web_parity_check.py` passed all 22
-  direct-database versus live-API comparisons with zero mismatches against a
-  clean database migrated through `0036_supabase_data_api_hardening`. The checks
-  cover account capabilities, both Product Master scopes, both inventory scopes,
-  audits, retail sales, production orders, extraction, Package Studio, commercial
-  orders, and Data Hub history.
-- Supabase boundary: JWT verification requires the configured project issuer,
-  audience, subject, and expiry. Operational tables have RLS enabled and direct
-  Data API privileges are revoked from `anon` and `authenticated`; the browser
-  must use the tenant- and facility-authorized FastAPI service.
-- Original migration PR #260 passed its required backend, frontend, container and
-  vulnerability checks before merge. PR #268 is the subsequent exact product-
-  parity restoration pass and remains draft until its final branch checks are
-  green and environment-level cutover work begins.
+  production, cultivation and commercial capabilities.
+- Representative local parity previously passed all 22 direct-database versus
+  live-API comparisons with zero mismatches through schema 0036. Schema 0037 is
+  access-control-only and does not change operational table shape or calculations;
+  the parity runner must still be repeated against the production-shaped clone.
+- Supabase JWT verification requires configured issuer, audience, subject and
+  expiry. The browser is designed to use Supabase Auth plus the tenant/facility-
+  authorized FastAPI service, not direct operational PostgREST/GraphQL access.
+- Original migration PR #260 passed its backend/frontend/container/security gates.
+  PR #268 subsequently restored exact Streamlit product parity and merged only
+  after repository CI and React/FastAPI gates both passed.
+
+## Production Supabase read-only preflight — 2026-08-22
+
+- The connected `DoobieLogic` Supabase project is `ACTIVE_HEALTHY` on PostgreSQL
+  17 in `us-east-2`.
+- The LIVE production database remains at
+  `0036_supabase_data_api_hardening`. Schema 0037 exists only in the current PR
+  until it is merged and then deliberately applied after the backup/restore gate.
+- The Supabase migration ledger ending at `0029_dev_sandbox_ledger_reset` is a
+  separate migration history; the application schema source of truth is Alembic.
+- Every returned public application table has RLS enabled. Existing public tables
+  currently grant no direct table privileges to `anon` or `authenticated`.
+- A modern active Supabase publishable key exists for React. The legacy anon key
+  remains active for compatibility but is not needed by the new React data path.
+- `auth.users` currently contains zero users, proving the one-off legacy Auth
+  import has not been executed.
+- Six active durable `app_users` are ready for import and all six have portable
+  bcrypt hashes. Three DEV accounts intentionally have no stored organization and
+  bootstrap to DEV Sandbox; two buyer accounts are organization-scoped; one
+  operator already has an explicit facility assignment.
+- The earliest active facility is DEV Sandbox. Each current buyer/operator
+  organization has exactly one active facility, so the current migration plan
+  cannot accidentally broaden a non-DEV user across multiple operating sites.
+- `backend/scripts/migrate_legacy_auth.py` now supports `--dry-run`, which builds
+  and validates the full plan before the first external Auth mutation and reports
+  aggregate counts only.
+
+### ACL hardening finding
+
+The production audit found an important gap beyond existing table grants:
+
+- The existing public helper function `coman_prevent_inventory_ledger_mutation`
+  is currently executable by `PUBLIC`, `anon`, and `authenticated` while LIVE
+  production is still on 0036.
+- PostgreSQL default ACLs for objects owned by the application migration role
+  (`postgres`) no longer auto-grant future tables/sequences to browser roles, but
+  future public functions can still inherit execute access on 0036.
+- Supabase platform-managed defaults for objects created by `supabase_admin` still
+  include browser-role grants for tables, sequences and functions.
+- The application migration connection runs as `postgres` and is not a member of
+  `supabase_admin`, so it cannot truthfully or safely rewrite another role's
+  default ACLs.
+
+Schema `0037_function_acl_hardening` therefore closes every path the application
+migration role owns: it revokes existing public-function execution from `PUBLIC`,
+`anon`, and `authenticated`, and revokes future postgres-owned default
+table/sequence/function grants. The remaining platform-managed `supabase_admin`
+path is handled by a separate required cutover control: disable the unused
+Supabase Data API before public production cutover. Buyer Dash still uses Supabase
+Auth; disabling the Data API does not remove Auth.
 
 ## Defects found and fixed during the gate
 
@@ -87,34 +120,51 @@ or pilot acceptance evidence.
 - The initial browser fixture had not been migrated and produced hidden API
   errors; the browser gate was invalidated and repeated against a fully migrated
   database.
-- FastAPI trial activation indirectly imported `services/doobie_config.py`, which
-  imports Streamlit. Trial license validation was split into a UI-independent
-  service and the production API image boundary now passes.
-- React Buyer Operations omitted the original flagged SKU/batch drill-down and
-  filtered AI Inventory Check. Both were restored using the current durable Buyer
-  model and Doobie.
+- FastAPI trial activation indirectly imported Streamlit. Trial license validation
+  was split into a UI-independent service and the production API boundary passes.
+- React Buyer Operations omitted the flagged SKU/batch drill-down and filtered AI
+  Inventory Check. Both were restored using durable Buyer data and Doobie.
 - Buying Recommendations and Extraction initially linked to the general Doobie
-  page instead of generating their original workspace-specific briefs. Both now
-  generate grounded Doobie briefs from the active evidence.
-- Data & Settings was initially admin-only in React even though Streamlit Data Hub
-  was a normal licensed workspace. Operational publishing access was restored,
-  with archive and read-only permissions kept explicit.
+  page instead of generating workspace-specific briefs. Both now generate
+  grounded briefs from active evidence.
+- Data & Settings was initially admin-only even though Streamlit Data Hub was a
+  normal licensed workspace. Operational publishing access was restored while
+  archive and read-only permissions remain explicit.
+- The legacy Supabase Auth migration had no non-mutating production preflight.
+  `--dry-run` now validates all users and access-context decisions before the
+  first Auth API call.
+- Schema 0036 did not revoke public function execution and could not control
+  `supabase_admin` default ACLs. Schema 0037 closes the app-owned gap, and the
+  cutover contract now requires the unused Supabase Data API to be disabled.
+- The initial 0037 revision name exceeded the deployed Alembic `varchar(32)`
+  revision contract. The identifier was shortened to `0037_function_acl_hardening`
+  before merge; no production migration had been run with the oversized value.
 
 ## Still required before public cutover
 
-- Run the same suite against a sanitized production PostgreSQL clone with real
-  Supabase JWTs, RLS policies, representative roles, facilities, and licenses.
-- Verify invitation, sign-in, refresh, sign-out, password recovery, legacy-user
-  migration and facility switching through the configured production Supabase project.
-- Run/verify an encrypted production database backup and restore drill immediately
-  before any production migration/candidate deployment.
+- Merge this hardening PR after all CI gates pass.
+- Run and verify the encrypted production backup plus isolated restore drill
+  immediately before any production schema/Auth changes.
+- Apply Alembic `0037_function_acl_hardening` through the controlled one-shot
+  production migration path, then verify `public.alembic_version` reports 0037.
+- Verify no `PUBLIC`, `anon`, or `authenticated` execution remains on app-owned
+  public functions and no direct browser table/sequence grants exist.
+- Disable the Supabase Data API in project settings and verify operational data is
+  reachable only through FastAPI while Supabase Auth remains functional.
+- Run `python -m backend.scripts.migrate_legacy_auth --dry-run` from the production
+  deployment environment. With the current database state it should plan six Auth
+  creates and zero Auth refreshes; no execution may occur unless the plan matches
+  the expected access contexts.
+- Execute the legacy-user Auth import only after dry-run passes, then verify
+  username/password sign-in, refresh, sign-out, recovery behavior, role/facility
+  switching and DEV cross-company access.
+- Run the full suite against a sanitized production PostgreSQL clone with real
+  Supabase JWTs and representative roles/facilities/licenses.
 - Configure/verify Google Secret Manager, deploy the zero-traffic Cloud Run
-  candidate revision, and verify health, logs, retry behavior, backups, restore,
-  tenant isolation and rollback without assigning production traffic.
+  candidate, and verify health, logs, retry behavior, tenant isolation and rollback
+  without assigning production traffic.
 - Deploy the Cloudflare Pages preview and repeat desktop/tablet/phone, scanning,
-  accessibility, performance, upload/export and role/license checks on preview URLs.
-- Obtain provider-issued DNS targets, then configure `ops.doobielogic.io` and
-  `api.doobielogic.io` at Spaceship. Do not guess DNS values.
-- Repeat the 22-check parity runner against the sanitized production PostgreSQL
-  clone, then complete pilot-facility acceptance and a timed rollback rehearsal
-  before changing production DNS or retiring Streamlit.
+  accessibility, performance, upload/export and role/license checks.
+- Obtain provider-issued DNS targets and configure `ops.doobielogic.io` and
+  `api.doobielogic.io` at Spaceship only after pilot acceptance and a timed
+  rollback rehearsal. Do not guess DNS values and do not retire Streamlit early.
