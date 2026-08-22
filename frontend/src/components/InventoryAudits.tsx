@@ -3,7 +3,7 @@ import { useState } from "react";
 import { apiGet, apiPost } from "../lib/api";
 import type { AuditDetail, AuditSummary } from "../types/inventory";
 
-export function InventoryAudits({ operation, onClose }: { operation: "retail" | "production"; onClose: () => void }) {
+export function InventoryAudits({ operation, onClose, embedded = false }: { operation: "retail" | "production"; onClose?: () => void; embedded?: boolean }) {
   const client = useQueryClient();
   const [selectedId, setSelectedId] = useState("");
   const [number, setNumber] = useState(`${operation === "retail" ? "RTL" : "PRD"}-${new Date().toISOString().slice(0,10).replaceAll("-", "")}`);
@@ -16,8 +16,8 @@ export function InventoryAudits({ operation, onClose }: { operation: "retail" | 
   const transition = useMutation({ mutationFn: (status: string) => apiPost(`/api/v1/inventory/${operation}/audits/${selectedId}/status`, { status }), onSuccess: refresh });
   const complete = useMutation({ mutationFn: (post_adjustments: boolean) => apiPost(`/api/v1/inventory/${operation}/audits/${selectedId}/complete`, { post_adjustments }), onSuccess: refresh });
   const current = detail.data;
-  return <div className="modal-backdrop"><section className="modal wide" role="dialog" aria-modal="true" aria-label="Inventory audits">
-    <div className="modal-heading"><div><div className="eyebrow">{operation} inventory control</div><h2>Inventory audits</h2></div><button className="secondary" onClick={onClose}>Close</button></div>
+  const content = <section className={embedded ? "inventory-panel embedded-audits" : "modal wide"} role={embedded ? undefined : "dialog"} aria-modal={embedded ? undefined : "true"} aria-label="Inventory audits">
+    <div className="modal-heading"><div><div className="eyebrow">{operation} inventory control</div><h2>Inventory audits</h2></div>{onClose ? <button className="secondary" onClick={onClose}>Close</button> : null}</div>
     <div className="audit-layout"><aside className="audit-list">
       <div className="new-audit"><input value={number} onChange={e => setNumber(e.target.value)} /><button className="primary" disabled={!number || create.isPending} onClick={() => create.mutate()}>Start audit</button></div>
       {audits.data?.map(audit => <button key={audit.id} className={selectedId === audit.id ? "audit-card active" : "audit-card"} onClick={() => { setSelectedId(audit.id); setCounts({}); }}><strong>{audit.audit_number}</strong><span>{audit.scope_label}</span><small>{audit.status.replaceAll("_", " ")}</small></button>)}
@@ -28,5 +28,6 @@ export function InventoryAudits({ operation, onClose }: { operation: "retail" | 
         {!(["completed", "cancelled"].includes(current.audit.status)) ? <div className="audit-actions"><button className="secondary" disabled={!Object.keys(counts).length || save.isPending} onClick={() => save.mutate()}>Save counts</button><button className="secondary" onClick={() => complete.mutate(false)}>Complete without adjustments</button><button className="primary" onClick={() => complete.mutate(true)}>Complete & reconcile</button></div> : null}
       </> : null}
     </div></div>
-  </section></div>;
+  </section>;
+  return embedded ? content : <div className="modal-backdrop">{content}</div>;
 }

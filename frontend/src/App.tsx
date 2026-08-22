@@ -15,11 +15,13 @@ const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(
 const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
 const ProductionPage = lazy(() => import("./pages/ProductionPage").then(module => ({ default: module.ProductionPage })));
 const ExtractionCommandCenterPage = lazy(() => import("./pages/ExtractionCommandCenterPage").then(module => ({ default: module.ExtractionCommandCenterPage })));
+const WhiteLabelRepackPage = lazy(() => import("./pages/WhiteLabelRepackPage").then(module => ({ default: module.WhiteLabelRepackPage })));
 const PackageStudioPage = lazy(() => import("./pages/PackageStudioPage").then(module => ({ default: module.PackageStudioPage })));
 const OrdersPage = lazy(() => import("./pages/OrdersPage").then(module => ({ default: module.OrdersPage })));
 const CompliancePage = lazy(() => import("./pages/CompliancePage").then(module => ({ default: module.CompliancePage })));
 const DoobiePage = lazy(() => import("./pages/DoobiePage").then(module => ({ default: module.DoobiePage })));
 const DataSettingsPage = lazy(() => import("./pages/DataSettingsPage").then(module => ({ default: module.DataSettingsPage })));
+const LocationSettingsPage = lazy(() => import("./pages/LocationSettingsPage").then(module => ({ default: module.LocationSettingsPage })));
 const AdminPage = lazy(() => import("./pages/AdminPage").then(module => ({ default: module.AdminPage })));
 const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then(module => ({ default: module.IntegrationsPage })));
 const MAFlowerEquivalencyPage = lazy(() => import("./pages/MAFlowerEquivalencyPage").then(module => ({ default: module.MAFlowerEquivalencyPage })));
@@ -31,8 +33,9 @@ export default function App() {
   const [page, setPage] = useState("Home");
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
     : page === "Buyer Operations" ? <BuyerOperationsPage onNavigate={setPage} />
-    : page === "Inventory" ? <InventoryPage initialOperation="retail" />
-    : page === "Inventory Audits" ? <InventoryPage initialOperation="retail" initialAudits />
+    : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
+    : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={setPage} />
+    : page === "Inventory Audits" ? <InventoryPage initialOperation="retail" initialAudits onNavigate={setPage} />
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
     : page === "Delivery Performance" ? <DeliveryImpactPage />
@@ -45,7 +48,8 @@ export default function App() {
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPage />
     : page === "Extraction" ? <ExtractionCommandCenterPage onNavigate={setPage} />
-    : page === "Package Studio" || page === "White Label / Repack" ? <PackageStudioPage />
+    : page === "White Label / Repack" ? <WhiteLabelRepackPage />
+    : page === "Package Studio" ? <PackageStudioPage />
     : page === "Orders" ? <OrdersPage />
     : page === "Compliance" ? <CompliancePage />
     : page === "Compliance Q&A" ? <ComplianceQAPage />
@@ -55,6 +59,7 @@ export default function App() {
     : page === "Doobie" ? <DoobiePage />
     : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <IntegrationsPage />
     : page === "Admin" || page === "Admin Tools" ? <AdminPage />
+    : page === "Location Settings" ? <LocationSettingsPage />
     : page === "Data & Settings" ? <DataSettingsPage />
     : <InventoryPage initialOperation="retail" />;
   return <AppShell active={page} onNavigate={setPage}><Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense></AppShell>;

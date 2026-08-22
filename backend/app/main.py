@@ -14,6 +14,7 @@ from .routers.compliance import router as compliance_router
 from .routers.compliance_qa import router as compliance_qa_router
 from .routers.account import router as account_router
 from .routers.data_hub import router as data_hub_router
+from .routers.location_settings import router as location_settings_router
 from .routers.home import router as home_router
 from .routers.doobie import router as doobie_router
 from .routers.extraction import router as extraction_router
@@ -34,6 +35,7 @@ from .routers.buyer_parity import router as buyer_parity_router
 from .routers.buyer_parity_actions import router as buyer_parity_actions_router
 from .routers.slow_movers_parity import router as slow_movers_parity_router
 from .routers.executive_reports import router as executive_reports_router
+from .routers.coman_parity import router as coman_parity_router
 from .database import get_engine
 from .observability import install_observability
 
@@ -79,6 +81,7 @@ app.include_router(compliance_router, prefix=settings.api_prefix)
 app.include_router(compliance_qa_router, prefix=settings.api_prefix)
 app.include_router(account_router, prefix=settings.api_prefix)
 app.include_router(data_hub_router, prefix=settings.api_prefix)
+app.include_router(location_settings_router, prefix=settings.api_prefix)
 app.include_router(home_router, prefix=settings.api_prefix)
 app.include_router(doobie_router, prefix=settings.api_prefix)
 app.include_router(extraction_router, prefix=settings.api_prefix)
@@ -98,3 +101,4 @@ app.include_router(buyer_parity_router, prefix=settings.api_prefix)
 app.include_router(buyer_parity_actions_router, prefix=settings.api_prefix)
 app.include_router(slow_movers_parity_router, prefix=settings.api_prefix)
 app.include_router(executive_reports_router, prefix=settings.api_prefix)
+app.include_router(coman_parity_router, prefix=settings.api_prefix)

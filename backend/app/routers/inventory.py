@@ -19,6 +19,7 @@ def _list_packages(
     status: str,
     material_type: str,
     location: str,
+    source: str,
     view: str,
 ) -> InventoryResponse:
     require_facility_capability(context, engine, operation)
@@ -30,6 +31,7 @@ def _list_packages(
         status=status,
         material_type=material_type,
         location=location,
+        source=source,
         view=view,
     )
 
@@ -40,11 +42,12 @@ def list_production_packages(
     status: str = "",
     material_type: str = "",
     location: str = "",
+    source: str = "",
     view: str = "all",
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ) -> InventoryResponse:
-    return _list_packages("production", context, engine, search, status, material_type, location, view)
+    return _list_packages("production", context, engine, search, status, material_type, location, source, view)
 
 
 @router.get("/retail/packages", response_model=InventoryResponse)
@@ -53,11 +56,12 @@ def list_retail_packages(
     status: str = "",
     material_type: str = "",
     location: str = "",
+    source: str = "",
     view: str = "all",
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ) -> InventoryResponse:
-    return _list_packages("retail", context, engine, search, status, material_type, location, view)
+    return _list_packages("retail", context, engine, search, status, material_type, location, source, view)
 
 
 @router.get("/products", response_model=list[ProductOption])

@@ -8,6 +8,7 @@ export type InventoryFilters = {
   status: string;
   materialType: string;
   location: string;
+  source: string;
   view: string;
 };
 
@@ -20,6 +21,7 @@ export function useInventory(filters: InventoryFilters) {
         status: filters.status,
         material_type: filters.materialType,
         location: filters.location,
+        source: filters.source,
         view: filters.view,
       });
       return apiGet<InventoryResponse>(`/api/v1/inventory/${filters.operation}/packages?${params}`, signal);

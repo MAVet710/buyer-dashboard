@@ -91,11 +91,21 @@ def intelligence(target_doh: int = Query(21, ge=1, le=120), velocity_adjustment:
     return {"sales_days":sales_days,"summary":result["summary"],"purchase_priorities":records(result["purchase_priorities"]),"sku_risk":records(result["sku_risk"]),"overstock_watch":records(result["overstock_watch"]),"category_risk":records(result["category_risk"])}
 
 
+def _filter_export_frame(frame: pd.DataFrame, categories: list[str], *, reorder_only: bool = False) -> pd.DataFrame:
+    filtered = frame.copy()
+    selected = {str(value).strip().casefold() for value in categories if str(value).strip()}
+    if selected and "subcategory" in filtered:
+        filtered = filtered[filtered["subcategory"].astype(str).str.casefold().isin(selected)].copy()
+    if reorder_only and "reorderpriority" in filtered:
+        filtered = filtered[filtered["reorderpriority"] == "1 – Reorder ASAP"].copy()
+    return filtered
+
+
 @router.get("/export")
-def export(kind: str = Query("forecast", pattern="^(forecast|product|sku)$"), target_doh: int = Query(21, ge=1, le=120), velocity_adjustment: float = Query(0.5, ge=0.01, le=5.0), sales_days: int = Query(60, ge=7, le=120), sku_window: int = Query(56, ge=7, le=120), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+def export(kind: str = Query("forecast", pattern="^(forecast|product|sku)$"), target_doh: int = Query(21, ge=1, le=120), velocity_adjustment: float = Query(0.5, ge=0.01, le=5.0), sales_days: int = Query(60, ge=7, le=120), sku_window: int = Query(56, ge=7, le=120), category: list[str] = Query(default=[]), reorder_only: bool = False, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     detail, product, inv_normalized, sales_normalized, _inventory_source, _sales_source = _model(context, engine, target_doh, velocity_adjustment, sales_days)
-    if kind == "forecast": frame,filename,sheet = forecast_view(detail,product),"forecast_table.xlsx","Forecast"
-    elif kind == "product": frame,filename,sheet = (product.sort_values("unitssold",ascending=False).head(PRODUCT_TABLE_DISPLAY_LIMIT) if "unitssold" in product else product.head(PRODUCT_TABLE_DISPLAY_LIMIT)),"product_level_forecast.xlsx","Product Rows"
+    if kind == "forecast": frame,filename,sheet = _filter_export_frame(forecast_view(detail,product),category,reorder_only=reorder_only),"forecast_table.xlsx","Forecast"
+    elif kind == "product": frame,filename,sheet = _filter_export_frame((product.sort_values("unitssold",ascending=False).head(PRODUCT_TABLE_DISPLAY_LIMIT) if "unitssold" in product else product.head(PRODUCT_TABLE_DISPLAY_LIMIT)),category),"product_level_forecast.xlsx","Product Rows"
     else: frame,filename,sheet = sku_inventory_view(inv_normalized,sales_normalized,sku_window),"sku_inventory_buyer_view.xlsx","SKU Buyer View"
     return Response(content=xlsx_bytes(frame,sheet),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers={"Content-Disposition":f'attachment; filename="{filename}"'})
 
