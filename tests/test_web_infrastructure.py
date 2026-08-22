@@ -68,10 +68,13 @@ def test_supabase_tokens_require_the_configured_project_issuer():
 def test_deployment_artifacts_use_correct_io_domains_and_server_only_secrets():
     files = [ROOT / "deploy/cloudbuild-api.yaml", ROOT / "deploy/api.env.example", ROOT / "deploy/frontend.env.example", ROOT / "docs/PRODUCTION_DEPLOYMENT.md"]
     combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
+    api_deployment = (ROOT / "deploy/cloudbuild-api.yaml").read_text(encoding="utf-8")
     assert "ops.doobielogic.io" in combined
     assert "api.doobielogic.io" in combined
     assert "ops.doobielogic.com" not in combined
     assert "api.doobielogic.com" not in combined
+    assert "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=" in api_deployment
+    assert "^:^APP_ENV=" not in api_deployment
     assert "SUPABASE_SERVICE_ROLE_KEY" not in (ROOT / "deploy/frontend.env.example").read_text(encoding="utf-8")
 
 
