@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from modules.coman.db import create_coman_engine
+from modules.design.responsive import responsive_columns, is_mobile
 from modules.extraction.repository import ExtractionRepository
 from modules.production_erp.service import ProductionERPService
 
@@ -50,15 +51,19 @@ def render_analytics_dashboard(state: dict[str, Any]) -> None:
     try:
         margin_data = analytics.supply_chain_margin(org_id, facility_id, period_days)
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Revenue", f"${margin_data['total_revenue']:,.0f}")
-        col2.metric("Total COGS", f"${margin_data['total_cogs']:,.0f}")
-        col3.metric("Gross Margin", f"${margin_data['gross_margin']:,.0f}")
-        col4.metric(
-            "Margin %",
-            f"{margin_data['gross_margin_pct']:.1f}%",
-            delta=f"Target: 45%" if margin_data['gross_margin_pct'] < 45 else None,
-        )
+        cols = responsive_columns(4)
+        with cols[0]:
+            st.metric("Total Revenue", f"${margin_data['total_revenue']:,.0f}")
+        with cols[1 % len(cols)]:
+            st.metric("Total COGS", f"${margin_data['total_cogs']:,.0f}")
+        with cols[2 % len(cols)]:
+            st.metric("Gross Margin", f"${margin_data['gross_margin']:,.0f}")
+        with cols[3 % len(cols)]:
+            st.metric(
+                "Margin %",
+                f"{margin_data['gross_margin_pct']:.1f}%",
+                delta=f"Target: 45%" if margin_data['gross_margin_pct'] < 45 else None,
+            )
 
         st.caption(f"Period: Last {period_days} days")
 
@@ -141,10 +146,12 @@ def render_analytics_dashboard(state: dict[str, Any]) -> None:
         prod_data = analytics.production_cost_analysis(org_id, facility_id, period_days)
 
         if prod_data["breakdown"]:
-            col1, col2 = st.columns([1, 2])
-
-            with col1:
+            if is_mobile():
                 st.metric("Total Production Cost", f"${prod_data['total_production_cost']:,.0f}")
+            else:
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.metric("Total Production Cost", f"${prod_data['total_production_cost']:,.0f}")
 
             with col2:
                 # Cost breakdown pie chart
@@ -194,11 +201,15 @@ def render_analytics_dashboard(state: dict[str, Any]) -> None:
         extraction_data = analytics.extraction_efficiency(org_id, facility_id, period_days)
 
         if extraction_data["completed_runs"] > 0:
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Completed Runs", extraction_data["completed_runs"])
-            col2.metric("Avg Yield %", f"{extraction_data['avg_yield_pct']:.1f}%")
-            col3.metric("Best Yield %", f"{extraction_data['best_yield_pct']:.1f}%")
-            col4.metric("Avg Cost/Unit", f"${extraction_data['avg_cost_per_output_unit']:.2f}")
+            cols = responsive_columns(4)
+            with cols[0]:
+                st.metric("Completed Runs", extraction_data["completed_runs"])
+            with cols[1 % len(cols)]:
+                st.metric("Avg Yield %", f"{extraction_data['avg_yield_pct']:.1f}%")
+            with cols[2 % len(cols)]:
+                st.metric("Best Yield %", f"{extraction_data['best_yield_pct']:.1f}%")
+            with cols[3 % len(cols)]:
+                st.metric("Avg Cost/Unit", f"${extraction_data['avg_cost_per_output_unit']:.2f}")
 
             # Yield range indicator
             if extraction_data["avg_yield_pct"] > 70:
