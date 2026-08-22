@@ -13,6 +13,7 @@ type NavigationItem = { section: string } | { icon: typeof Gauge; label: string;
 const DEV = ["dev"] as const;
 const NON_DEV = ["admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] as const;
 const ADMIN = ["dev", "admin"] as const;
+const DATA_ACCESS = ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only", "trial"] as const;
 const PLANNING = ["dev", "admin", "buyer", "planner", "supervisor", "trial"] as const;
 const PRODUCTION = ["dev", "admin", "planner", "supervisor", "operator", "qa", "read_only", "trial"] as const;
 const QUALITY = ["dev", "admin", "supervisor", "operator", "qa", "read_only", "trial"] as const;
@@ -49,7 +50,7 @@ const navigation: NavigationItem[] = [
   { icon: Wrench, label: "Admin Tools", page: "Admin", roles: ADMIN },
   { icon: Plug, label: "AI & METRC Integrations", page: "Integrations", roles: DEV },
   { icon: Plug, label: "METRC Integrations", page: "Integrations", roles: NON_DEV },
-  { icon: Settings, label: "Data & Settings", page: "Data & Settings", roles: ADMIN },
+  { icon: Settings, label: "Data & Settings", page: "Data & Settings", roles: DATA_ACCESS },
   { icon: Users, label: "Users & Access", page: "Admin", roles: ADMIN },
 ];
 
