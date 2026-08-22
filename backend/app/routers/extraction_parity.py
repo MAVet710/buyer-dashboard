@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from modules.coman.models import Customer
 from modules.extraction.repository import ExtractionRepository
+from modules.extraction.performance import ExtractionPerformanceService
 from modules.extraction.workflows import default_workflow_for_method
 from ..auth import RequestContext, get_request_context, get_production_context
 from ..database import get_engine
@@ -20,6 +21,7 @@ router = APIRouter(prefix="/extraction-parity", tags=["extraction-parity"], depe
 
 class TollJobCreate(BaseModel):
     client_name: str = Field(min_length=1, max_length=255)
+    state: str = Field(default="MA", max_length=64)
     license_or_registration: str = Field(default="", max_length=255)
     method: str = "BHO"
     batch_id_internal: str = ""
@@ -57,6 +59,8 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
     qa_holds = 0
     toll_jobs = 0
     total_cogs = 0.0
+    total_revenue = 0.0
+    performance = ExtractionPerformanceService(engine)
     for run in runs:
         mass = repo.mass_balance(context.organization_id, context.facility_id, run.id)
         cogs = repo.cogs_summary(context.organization_id, context.facility_id, run.id)
@@ -66,6 +70,8 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
         finished += float(mass.get("recorded_output", 0))
         yields.append(float(mass.get("yield_pct", 0)))
         total_cogs += float(cogs.get("total", 0))
+        economics = performance.run_metrics(context.organization_id, context.facility_id, run.id)
+        total_revenue += float(economics.get("projected_output_value", 0))
         qa_hold = run.status == "hold" or any(event.result == "failed" for event in qa)
         qa_holds += int(qa_hold)
         toll_jobs += int(toll is not None or run.toll_processing)
@@ -87,6 +93,7 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
             "yield_pct": mass.get("yield_pct", 0),
             "cogs_usd": cogs.get("total", 0),
             "cost_per_output_unit": cogs.get("cost_per_output_unit", 0),
+            "est_revenue_usd": economics.get("projected_output_value", 0),
             "qa_hold": qa_hold,
             "coa_status": "failed" if any(event.result == "failed" for event in qa) else "passed" if any(event.result == "passed" for event in qa) else "pending",
             "traceability_count": len(trace),
@@ -101,7 +108,7 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
     pending = sum(1 for row in rows if row["coa_status"] in {"pending", "failed"})
     if pending:
         alerts.append(f"COA risk: {pending} run(s) pending/failed.")
-    return {"summary": {"runs": len(rows), "finished_output_g": finished, "avg_yield_pct": sum(yields) / len(yields) if yields else 0, "qa_holds": qa_holds, "total_cogs_usd": total_cogs, "toll_jobs": toll_jobs}, "alerts": alerts, "runs": rows}
+    return {"summary": {"runs": len(rows), "finished_output_g": finished, "avg_yield_pct": sum(yields) / len(yields) if yields else 0, "qa_holds": qa_holds, "total_revenue_usd": total_revenue, "total_cogs_usd": total_cogs, "toll_jobs": toll_jobs}, "alerts": alerts, "runs": rows}
 
 
 @router.get("/customers")
@@ -125,7 +132,7 @@ def create_toll_job(payload: TollJobCreate, context: RequestContext = Depends(ge
             customer.license_or_registration = payload.license_or_registration.strip()
         customer_id = customer.id
     batch = payload.batch_id_internal.strip() or f"TOLL-{datetime.utcnow().strftime('%Y%m%d')}-{uuid4().hex[:6].upper()}"
-    notes = json.dumps({"material_received_at": payload.material_received_at.isoformat() if payload.material_received_at else None, "input_weight_g": payload.input_weight_g, "expected_output_g": payload.expected_output_g, "actual_output_g": payload.actual_output_g, "coa_status": payload.coa_status, "job_status": payload.job_status, "notes": payload.notes}, sort_keys=True)
+    notes = json.dumps({"state": payload.state, "material_received_at": payload.material_received_at.isoformat() if payload.material_received_at else None, "input_weight_g": payload.input_weight_g, "expected_output_g": payload.expected_output_g, "actual_output_g": payload.actual_output_g, "coa_status": payload.coa_status, "job_status": payload.job_status, "notes": payload.notes}, sort_keys=True)
     try:
         run = repo.create_run(organization_id=context.organization_id, facility_id=context.facility_id, batch_number=batch, method=workflow.method, workflow_key=workflow.key, actor=context.user_id, product_family="Toll Processing", customer_id=customer_id, toll_processing=True, notes=payload.notes)
         toll = repo.upsert_toll_job(organization_id=context.organization_id, facility_id=context.facility_id, run_id=run.id, customer_id=customer_id, actor=context.user_id, promised_completion_at=payload.promised_completion_at, processing_fee_usd=payload.processing_fee_usd, invoice_status=payload.invoice_status, payment_status=payload.payment_status, external_reference=payload.metrc_transfer_id, notes=notes)

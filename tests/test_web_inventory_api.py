@@ -619,22 +619,34 @@ def test_extraction_run_preserves_reservations_mass_balance_cogs_and_qa_gate():
         reserved = client.post(f"/api/v1/extraction/runs/{run_id}/inputs", headers=headers, json={"lot_id": "lot-1", "quantity": 20, "unit": "g"})
         input_id = reserved.json()["id"]
         consumed = client.post(f"/api/v1/extraction/inputs/{input_id}/consume", headers=headers, json={"quantity": 20})
+        notes = client.post(f"/api/v1/extraction/runs/{run_id}/notes", headers=headers, json={"notes": "Run 360 operator note"})
         stage = client.post(f"/api/v1/extraction/runs/{run_id}/events", headers=headers, json={"stage_key": "intake", "event_type": "completed", "loss_weight_g": 2, "loss_reason": "Intake loss"})
         output = client.post(f"/api/v1/extraction/runs/{run_id}/outputs", headers=headers, json={"product_id": "product-1", "lot_code": "EXT-OUTPUT-1", "quantity": 8, "unit": "g"})
         output_id = output.json()["id"]
+        cost = client.post(f"/api/v1/extraction/runs/{run_id}/costs", headers=headers, json={"category": "labor", "amount_usd": 24, "notes": "Run labor"})
         coa = client.post(f"/api/v1/extraction/runs/{run_id}/qa", headers=headers, json={"event_type": "coa_attached", "result": "passed", "output_id": output_id, "coa_reference": "COA-1"})
         release = client.post(f"/api/v1/extraction/runs/{run_id}/qa", headers=headers, json={"event_type": "release", "result": "passed"})
+        products = client.get("/api/v1/extraction/products", headers=headers)
+        overview = client.get("/api/v1/extraction-parity/overview", headers=headers)
         detail = client.get(f"/api/v1/extraction/runs/{run_id}", headers=headers)
         isolated = client.get(f"/api/v1/extraction/runs/{run_id}", headers={**headers, "X-Facility-Id": "other-facility"})
     finally: app.dependency_overrides.clear()
     assert created.status_code == 201
     assert consumed.json()["status"] == "consumed"
+    assert notes.json()["notes"] == "Run 360 operator note"
     assert stage.status_code == 201
     assert output.json()["status"] == "quarantine"
+    assert output.json()["position"] == 1
+    assert cost.json()["amount_usd"] == 24
     assert coa.json()["result"] == "passed"
     assert release.json()["result"] == "passed"
+    assert products.json()[0]["id"] == "product-1"
+    assert overview.json()["summary"]["total_revenue_usd"] == 0
     assert detail.json()["run"]["status"] == "complete"
+    assert detail.json()["run"]["notes"] == "Run 360 operator note"
+    assert detail.json()["workflow"]["key"] == "bho_cured"
     assert detail.json()["outputs"][0]["status"] == "released"
+    assert any(row["category"] == "labor" and row["amount_usd"] == 24 for row in detail.json()["cost_events"])
     assert detail.json()["mass_balance"]["consumed_input"] == 20
     assert detail.json()["mass_balance"]["recorded_output"] == 8
     assert isolated.status_code == 403

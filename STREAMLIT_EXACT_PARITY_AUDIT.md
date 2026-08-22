@@ -154,13 +154,18 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Co-Man desktop/mobile rendering and drawer geometry were verified at 390px, 430px, 768px, 1024px and 1440px.
 
 ### Extraction Command Center
-- [ ] Executive Overview matches.
+- [x] Executive Overview metrics, deterministic alerts and output-by-method view match the six-area parity workspace and use current durable run evidence.
 - [ ] Run Analytics matches.
 - [ ] Toll Processing matches.
-- [ ] Compliance/METRC matches.
+- [x] Compliance/METRC required-field guidance plus facility-scoped output, QA and traceability evidence match.
 - [ ] Data Input/manual run matches.
-- [ ] Doobie Ops Brief matches.
-- [ ] Run/customer/detail dialogs match Streamlit.
+- [x] Doobie Ops Brief uses current filtered durable run evidence, preserves the exact action label and does not replace deterministic extraction calculations.
+- [x] Durable Extraction Operations run board, search/status/method/closed filters and KPI labels match `modules/extraction/ui.py`.
+- [x] New Extraction Run opens in the Streamlit right-side work-window pattern with the exact durable run controls and defaults.
+- [x] Run 360 opens in the right-side work-window pattern with the exact seven tabs: Overview, Inputs, Process, Outputs + QA, COGS, Traceability and History.
+- [x] Run 360 source reservation/consumption/release, stage events, output creation, QA/COA/release, cost events, package-creation queue and history actions use the existing tenant/facility-scoped durable extraction services.
+- [ ] Toll customer/job detail dialogs match Streamlit.
+- [x] Extraction desktop/mobile rendering and Run 360/New Run drawer geometry were verified at 390px, 430px, 768px, 1024px and 1440px.
 
 ### White Label / Repack
 - [x] White Label / Repack remains its own workspace and is not routed to Package Studio.
@@ -203,7 +208,7 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [ ] Every report exposed by Streamlit is present with the same data scope and output format.
 - [ ] Buyer executive report matches.
 - [x] Production/Co-Man report uses the retained Streamlit `reports/coman_report.py` builder and current facility-scoped queue data.
-- [ ] Extraction report matches.
+- [x] Extraction report uses the retained Streamlit `reports/extraction_report.py` builder and current facility-scoped durable run evidence.
 - [x] White Label report uses the same Streamlit report builder and active scenario scope.
 - [ ] Retail Ops report matches if exposed.
 - [ ] Competitor report matches if exposed.
