@@ -117,7 +117,7 @@ def test_fresh_database_migrates_to_head_and_latest_revision_rolls_back(tmp_path
     command.upgrade(config, "head")
     engine = create_engine(database_url, future=True)
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0037_supabase_function_acl_hardening"
+        assert MigrationContext.configure(connection).get_current_revision() == "0037_function_acl_hardening"
 
     command.downgrade(config, "0036_supabase_data_api_hardening")
     with engine.connect() as connection:
@@ -125,5 +125,5 @@ def test_fresh_database_migrates_to_head_and_latest_revision_rolls_back(tmp_path
 
     command.upgrade(config, "head")
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0037_supabase_function_acl_hardening"
+        assert MigrationContext.configure(connection).get_current_revision() == "0037_function_acl_hardening"
     engine.dispose()
