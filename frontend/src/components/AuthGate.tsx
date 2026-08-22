@@ -25,6 +25,10 @@ export function AuthGate({ children }: PropsWithChildren) {
     event.preventDefault(); setMessage(""); setSigningIn(true);
     const value = login.trim();
     const email = value.includes("@") ? value.toLocaleLowerCase() : `${value.toLocaleLowerCase()}@users.doobielogic.io`;
+    // Never let the last person who used this browser choose the next person's tenant.
+    // The new authenticated user's JWT metadata establishes the initial context.
+    localStorage.removeItem("buyer-dash-organization");
+    localStorage.removeItem("buyer-dash-facility");
     const result = await supabase!.auth.signInWithPassword({ email, password });
     if (result.error) setMessage(result.error.message);
     setSigningIn(false);
