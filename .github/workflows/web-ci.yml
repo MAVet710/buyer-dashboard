@@ -33,3 +33,19 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker build -f Dockerfile.api -t buyer-dash-api:ci .
       - run: docker build -f frontend/Dockerfile -t buyer-dash-web:ci --build-arg VITE_API_URL=https://api.doobielogic.io --build-arg VITE_SUPABASE_URL=https://example.supabase.co --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=test frontend
+      - name: Scan API image for fixable high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: buyer-dash-api:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+      - name: Scan frontend image for fixable high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: buyer-dash-web:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
