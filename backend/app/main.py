@@ -22,6 +22,7 @@ from .routers.package_studio import router as package_studio_router
 from .routers.product_master import router as product_master_router
 from .routers.retail_insights import router as retail_insights_router
 from .routers.purchasing import router as purchasing_router
+from .routers.buying_budget_parity import router as buying_budget_parity_router
 from .routers.legal import router as legal_router
 from .routers.admin import router as admin_router
 from .routers.integrations import router as integrations_router
@@ -81,6 +82,7 @@ app.include_router(package_studio_router, prefix=settings.api_prefix)
 app.include_router(product_master_router, prefix=settings.api_prefix)
 app.include_router(retail_insights_router, prefix=settings.api_prefix)
 app.include_router(purchasing_router, prefix=settings.api_prefix)
+app.include_router(buying_budget_parity_router, prefix=settings.api_prefix)
 app.include_router(legal_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.include_router(integrations_router, prefix=settings.api_prefix)
