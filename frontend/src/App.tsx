@@ -20,6 +20,7 @@ const OrdersPage = lazy(() => import("./pages/OrdersPage").then(module => ({ def
 const CompliancePage = lazy(() => import("./pages/CompliancePage").then(module => ({ default: module.CompliancePage })));
 const DoobiePage = lazy(() => import("./pages/DoobiePage").then(module => ({ default: module.DoobiePage })));
 const DataSettingsPage = lazy(() => import("./pages/DataSettingsPage").then(module => ({ default: module.DataSettingsPage })));
+const LocationSettingsPage = lazy(() => import("./pages/LocationSettingsPage").then(module => ({ default: module.LocationSettingsPage })));
 const AdminPage = lazy(() => import("./pages/AdminPage").then(module => ({ default: module.AdminPage })));
 const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then(module => ({ default: module.IntegrationsPage })));
 const MAFlowerEquivalencyPage = lazy(() => import("./pages/MAFlowerEquivalencyPage").then(module => ({ default: module.MAFlowerEquivalencyPage })));
@@ -32,6 +33,7 @@ export default function App() {
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
     : page === "Buyer Operations" ? <BuyerOperationsPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" />
+    : page === "Production Inventory" ? <InventoryPage initialOperation="production" />
     : page === "Inventory Audits" ? <InventoryPage initialOperation="retail" initialAudits />
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
@@ -55,6 +57,7 @@ export default function App() {
     : page === "Doobie" ? <DoobiePage />
     : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <IntegrationsPage />
     : page === "Admin" || page === "Admin Tools" ? <AdminPage />
+    : page === "Location Settings" ? <LocationSettingsPage />
     : page === "Data & Settings" ? <DataSettingsPage />
     : <InventoryPage initialOperation="retail" />;
   return <AppShell active={page} onNavigate={setPage}><Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense></AppShell>;
