@@ -49,6 +49,8 @@ class ProductMasterProfile(TimestampMixin, Base):
     manufacturer: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     product_format: Mapped[str] = mapped_column(String(160), nullable=False, default="")
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    retail_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    production_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class ProductVendorLink(TimestampMixin, Base):

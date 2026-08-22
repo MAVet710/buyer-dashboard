@@ -102,8 +102,9 @@ def upgrade() -> None:
     op.create_index("ix_migration_sales_product_date", "migration_sales_history", ["product_id", "sale_date"])
     op.create_index("ix_migration_sales_facility_date", "migration_sales_history", ["facility_id", "sale_date"])
 
-    for table in ("migration_batches", "migration_records", "migration_sales_history"):
-        op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+    if op.get_bind().dialect.name == "postgresql":
+        for table in ("migration_batches", "migration_records", "migration_sales_history"):
+            op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:

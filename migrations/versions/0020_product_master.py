@@ -142,14 +142,15 @@ def upgrade() -> None:
     op.create_index("ix_product_value_product_time", "product_value_events", ["product_id", "effective_at"])
     op.create_index("ix_product_value_org_type_time", "product_value_events", ["organization_id", "value_type", "effective_at"])
 
-    for table in (
-        "product_master_profiles",
-        "product_vendor_links",
-        "product_external_mappings",
-        "product_aliases",
-        "product_value_events",
-    ):
-        op.execute(f"alter table public.{table} enable row level security")
+    if op.get_bind().dialect.name == "postgresql":
+        for table in (
+            "product_master_profiles",
+            "product_vendor_links",
+            "product_external_mappings",
+            "product_aliases",
+            "product_value_events",
+        ):
+            op.execute(f"alter table public.{table} enable row level security")
 
 
 def downgrade() -> None:

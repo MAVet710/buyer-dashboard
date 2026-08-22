@@ -50,8 +50,9 @@ def upgrade() -> None:
     op.create_index("ix_benchmark_observations_facility_id", "benchmark_observations", ["facility_id"])
     op.create_index("ix_benchmark_metric_cohort_period", "benchmark_observations", ["metric_key","cohort_key","period_end"])
 
-    op.execute("ALTER TABLE benchmark_settings ENABLE ROW LEVEL SECURITY")
-    op.execute("ALTER TABLE benchmark_observations ENABLE ROW LEVEL SECURITY")
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("ALTER TABLE benchmark_settings ENABLE ROW LEVEL SECURITY")
+        op.execute("ALTER TABLE benchmark_observations ENABLE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:

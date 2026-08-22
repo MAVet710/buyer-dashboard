@@ -6,7 +6,7 @@ from datetime import date, datetime, time
 import json
 from typing import Any
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from modules.coman.models import (
@@ -581,6 +581,88 @@ class CommercialRepository:
                     "reference": transaction.reference,
                 },
             )
+            return transaction
+
+    def receive_purchase_line(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        order_line_id: str,
+        lot_code: str,
+        quantity: float,
+        actor: str,
+        package_id: str = "",
+        location_code: str = "RECEIVING",
+        reference: str = "",
+    ) -> InventoryTransaction:
+        """Create a received lot and post its PO receipt in one transaction."""
+        received = float(quantity)
+        clean_lot = str(lot_code or package_id).strip()
+        if received <= 0:
+            raise ValueError("Receipt quantity must be greater than zero.")
+        if not clean_lot:
+            raise ValueError("A lot or package code is required.")
+        with self._session_factory.begin() as session:
+            line = session.get(CommercialOrderLine, order_line_id)
+            if not line or line.organization_id != organization_id:
+                raise ValueError("Order line was not found.")
+            order = self._require_order(session, line.commercial_order_id, organization_id, facility_id)
+            if order.order_type != "purchase":
+                raise ValueError("Only purchase-order lines can be received.")
+            if order.status in {"draft", "cancelled", "fulfilled"}:
+                raise ValueError("Confirm the purchase order before receiving it.")
+            remaining = float(line.quantity) - float(line.fulfilled_quantity)
+            if received > remaining + 1e-9:
+                raise ValueError("Receipt exceeds the remaining order-line quantity.")
+            duplicate = session.scalar(
+                select(InventoryLot.id).where(
+                    InventoryLot.organization_id == organization_id,
+                    InventoryLot.facility_id == facility_id,
+                    or_(
+                        InventoryLot.lot_code == clean_lot,
+                        InventoryLot.compliance_package_id == str(package_id).strip(),
+                    ) if str(package_id).strip() else InventoryLot.lot_code == clean_lot,
+                )
+            )
+            if duplicate:
+                raise ValueError("That package or lot already exists in the active facility.")
+            lot = InventoryLot(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                product_id=line.product_id,
+                lot_code=clean_lot,
+                compliance_package_id=str(package_id).strip(),
+                external_inventory_id=str(package_id).strip(),
+                barcode_value=str(package_id or clean_lot).strip(),
+                location_code=str(location_code or "RECEIVING").strip(),
+                status="available",
+                received_at=utc_now(),
+                notes=json.dumps({"purchase_order": order.order_number}, sort_keys=True),
+            )
+            session.add(lot)
+            session.flush()
+            transaction = InventoryTransaction(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                lot_id=lot.id,
+                transaction_type="receipt",
+                quantity_delta=received,
+                unit=line.unit,
+                commercial_order_id=order.id,
+                commercial_order_line_id=line.id,
+                reason="Purchase order receipt",
+                reference=str(reference or order.order_number),
+                actor=actor,
+            )
+            session.add(transaction)
+            line.fulfilled_quantity += received
+            session.flush()
+            order_lines = list(session.scalars(select(CommercialOrderLine).where(CommercialOrderLine.commercial_order_id == order.id)))
+            all_fulfilled = all(item.fulfilled_quantity >= item.quantity - 1e-9 for item in order_lines)
+            order.status = "fulfilled" if all_fulfilled else "partially_fulfilled"
+            order.updated_by = actor
+            self._audit(session, organization_id, facility_id, "commercial_order", order.id, "purchase_received", actor, {"line_id": line.id, "lot_id": lot.id, "quantity": received, "package_id": lot.compliance_package_id})
             return transaction
 
     def list_commercial_transactions(
