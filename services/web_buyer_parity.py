@@ -298,4 +298,4 @@ def records(frame:pd.DataFrame,*,limit:int|None=None)->list[dict[str,Any]]:
     clean=frame.head(limit).copy() if limit else frame.copy()
     for column in clean.columns:
         if pd.api.types.is_datetime64_any_dtype(clean[column]):clean[column]=clean[column].dt.strftime("%Y-%m-%d")
-    clean=clean.replace([np.inf,-np.inf],np.nan).where(pd.notna(clean),None); return clean.to_dict("records")
+    clean=clean.replace([np.inf,-np.inf],np.nan).astype(object).where(pd.notna(clean),None); return clean.to_dict("records")

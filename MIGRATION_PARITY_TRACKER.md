@@ -95,8 +95,11 @@ Acceptance notes:
 - [x] Smart PO merged without removing original capabilities
 
 Acceptance notes:
-- The original manual PO workflow remains intact: editable line items, store/vendor metadata, terms, fulfillment notes, tax, discount, shipping and PDF output.
+- The original manual PO workflow remains intact in exact source order: reorder cross-reference, store/vendor/order metadata, manual line entry, read-only current-item review table, tax, discount, shipping and the legacy canvas PDF output.
+- Inventory review uses exact product name plus optional size matching and the Streamlit `>=15 on hand` threshold; bulk reorder additions intentionally retain the source workflow's zero stored line total until prices are filled.
 - Smart buying evidence is available alongside the manual workflow and can be added to the PO without replacing manual lines. The full Doobie Buyer Brief remains available as the interpretation layer over the same Buyer evidence.
+- Purchasing Budget retains the exact inputs/defaults, formulas, nine-column category table, two category charts, three scenarios and proposed-PO budget carryover.
+- PO Builder and Purchasing Budget were visually accepted at 390px, 430px, 768px, 1024px and 1440px with contained horizontal table scrolling and no hidden actions.
 
 ## Compliance workspace
 - [x] Compliance source upload

@@ -104,20 +104,22 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [ ] Chart presentation/interactions match Streamlit.
 
 ### PO Builder
-- [ ] Reorder cross-reference appears in the same location/order.
-- [ ] Add All Reorder ASAP Lines matches exactly.
-- [ ] Manual line form fields/defaults match.
-- [ ] Current PO item editing/removal matches.
-- [ ] Inventory cross-check reasons/thresholds match.
-- [ ] Store/vendor/order metadata fields and defaults match.
-- [ ] Tax/discount/shipping/subtotal/total math and presentation match.
-- [ ] Clear-all behavior matches.
-- [ ] Original PDF output and filename match.
-- [ ] Smart/Doobie PO remains additive and does not replace the original PO workflow.
+- [x] Reorder cross-reference appears in the same location/order.
+- [x] Add All Reorder ASAP Lines matches exactly, including source behavior that does not deduplicate additions and stores bulk-added line totals as zero.
+- [x] Manual line form fields/defaults match.
+- [x] Current PO item presentation matches the Streamlit read-only dataframe; React-only per-line editing/removal controls were removed.
+- [x] Inventory cross-check reasons/thresholds match, including exact product/optional-size matching and the `>=15 on hand` review threshold.
+- [x] Store/vendor/order metadata fields and defaults match.
+- [x] Tax/discount/shipping/subtotal/total math and presentation match.
+- [x] Clear-all behavior matches.
+- [x] Original canvas PDF output and `PO_{po_number}_{YYYYMMDD}.pdf` filename match.
+- [x] Smart/Doobie PO remains additive and does not replace or precede the original PO workflow.
+- [x] PO acceptance covers 390, 430, 768, 1024 and 1440 px with no viewport overflow and horizontally scrollable tables.
 
 ### Purchasing Budget
-- [ ] Sales window, DOS, COGS, safety, growth, exclusions and on-order inputs match.
-- [ ] Metrics, category table and Conservative/Balanced/Aggressive scenarios match.
+- [x] Sales window, DOS, COGS, safety, growth, exclusions and on-order inputs match, including current proposed-PO carryover.
+- [x] Metrics, the exact nine-column category table, both category charts and Conservative/Balanced/Aggressive scenarios match.
+- [x] Purchasing Budget acceptance covers 390, 430, 768, 1024 and 1440 px with no viewport overflow and horizontally scrollable tables.
 
 ### Trends
 - [ ] Category mix, package size mix, top movers, best sellers and fast-mover/low-stock sections match.

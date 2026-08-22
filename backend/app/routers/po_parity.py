@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from difflib import SequenceMatcher
+from datetime import date, datetime
 from io import BytesIO
 import re
 from typing import Any
@@ -8,12 +8,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.pdfgen import canvas
 from sqlalchemy import Engine
 
 from services.web_buyer_parity import buyer_intelligence, forecast_view, records, sku_inventory_view
@@ -31,6 +28,7 @@ class POLine(BaseModel):
     size: str = ""
     quantity: float = Field(gt=0)
     price: float = Field(default=0, ge=0)
+    total: float | None = Field(default=None, ge=0)
 
 
 class POReviewRequest(BaseModel):
@@ -42,6 +40,7 @@ class POPdfRequest(BaseModel):
     store_address: str = ""
     store_phone: str = ""
     store_contact: str = ""
+    store_number: str = ""
     vendor_name: str = ""
     vendor_license: str = ""
     vendor_address: str = ""
@@ -78,27 +77,6 @@ def _inventory_rows(context: RequestContext, engine: Engine, target_doh: int, ve
     return detail, product, reorder, sku, xref
 
 
-def _best_match(item: POLine, inventory: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, str]:
-    sku = _norm(item.sku); desc = _norm(item.description); size = _size_norm(item.size)
-    if sku:
-        sku_matches = [row for row in inventory if _norm(row.get("sku")) == sku]
-        if sku_matches:
-            if size:
-                sized = next((row for row in sku_matches if _size_norm(row.get("packagesize")) == size), None)
-                if sized is not None: return sized, 1.0, "SKU + size exact match"
-            return sku_matches[0], 1.0, "SKU exact match"
-    best: dict[str, Any] | None = None; best_score = 0.0; best_reason = "No inventory match"
-    for row in inventory:
-        name = _norm(row.get("product_name"))
-        if not name or not desc: continue
-        score = 1.0 if name == desc else SequenceMatcher(None, desc, name).ratio()
-        row_size = _size_norm(row.get("packagesize"))
-        if size and row_size: score += 0.08 if size == row_size else -0.06
-        if desc in name or name in desc: score = max(score, 0.92)
-        if score > best_score: best, best_score, best_reason = row, score, "Product name match"
-    return (best, min(best_score, 1.0), best_reason) if best_score >= 0.72 else (None, best_score, "No confident inventory match")
-
-
 @router.get("/workspace")
 def workspace(target_doh: int = Query(21, ge=1, le=120), velocity_adjustment: float = Query(0.5, ge=0.01, le=5.0), sales_days: int = Query(60, ge=7, le=120), sku_window: int = Query(56, ge=7, le=120), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _detail, product, reorder, sku, _xref = _inventory_rows(context, engine, target_doh, velocity_adjustment, sales_days, sku_window)
@@ -111,33 +89,67 @@ def review_lines(payload: POReviewRequest, target_doh: int = Query(21, ge=1, le=
     _detail, _product, _reorder, _sku, xref = _inventory_rows(context, engine, target_doh, velocity_adjustment, sales_days, sku_window)
     inventory = records(xref, limit=5000); result = []
     for item in payload.items:
-        match, score, reason = _best_match(item, inventory); on_hand = float((match or {}).get("onhandunits") or 0); days_supply = float((match or {}).get("days_of_supply") or 0); status = str((match or {}).get("status") or ""); review = match is None or item.quantity > on_hand or "Overstock" in status or "Expiring" in status; reasons: list[str] = []
-        if match is None: reasons.append("No confident inventory match")
-        else:
-            if item.quantity > on_hand: reasons.append(f"Order quantity exceeds current on-hand ({on_hand:,.0f})")
-            if "Overstock" in status: reasons.append("Matched SKU is currently overstocked")
-            if "Expiring" in status: reasons.append("Matched SKU is expiring soon")
-            if not reasons: reasons.append("Inventory cross-check passed")
-        result.append({"sku":item.sku,"description":item.description,"requested_quantity":item.quantity,"matched_product":(match or {}).get("product_name",""),"matched_sku":(match or {}).get("sku",""),"matched_size":(match or {}).get("packagesize",""),"on_hand":on_hand,"days_of_supply":days_supply,"inventory_status":status,"match_score":round(score,3),"match_method":reason,"review":review,"review_reason":"; ".join(reasons)})
+        normalized_name = _norm(item.description)
+        normalized_size = _size_norm(item.size)
+        matched = [row for row in inventory if _norm(row.get("product_name")) == normalized_name]
+        if item.size.strip():
+            matched = [row for row in matched if _size_norm(row.get("packagesize")) == normalized_size]
+        on_hand = int(sum(float(row.get("onhandunits") or 0) for row in matched))
+        review = on_hand >= 15
+        result.append({
+            "sku": item.sku,
+            "description": item.description,
+            "requested_quantity": item.quantity,
+            "matched_product": str(matched[0].get("product_name") or "") if matched else "",
+            "matched_sku": str(matched[0].get("sku") or "") if matched else "",
+            "matched_size": str(matched[0].get("packagesize") or "") if matched else "",
+            "on_hand": on_hand,
+            "days_of_supply": 0,
+            "inventory_status": "",
+            "match_score": 1.0 if matched else 0.0,
+            "match_method": "Product name + size exact match" if matched and item.size.strip() else "Product name exact match" if matched else "No exact inventory match",
+            "review": review,
+            "review_reason": ">=15 on hand" if review else "",
+        })
     return result
 
 
 def _pdf(payload: POPdfRequest) -> bytes:
-    buf = BytesIO(); doc = SimpleDocTemplate(buf,pagesize=letter,rightMargin=0.45*inch,leftMargin=0.45*inch,topMargin=0.45*inch,bottomMargin=0.45*inch); styles=getSampleStyleSheet(); title=ParagraphStyle("po-title",parent=styles["Title"],fontName="Helvetica-Bold",fontSize=20,leading=23,textColor=colors.HexColor("#111111")); small=ParagraphStyle("po-small",parent=styles["BodyText"],fontSize=8.5,leading=11); right=ParagraphStyle("po-right",parent=small,alignment=TA_RIGHT); story=[Paragraph("PURCHASE ORDER",title),Spacer(1,8)]
-    store="<b>FROM</b><br/>"+"<br/>".join(filter(None,[payload.store_name,payload.store_address.replace("\n","<br/>"),payload.store_phone,payload.store_contact])); vendor="<b>VENDOR</b><br/>"+"<br/>".join(filter(None,[payload.vendor_name,f"License #: {payload.vendor_license}" if payload.vendor_license else "",payload.vendor_address.replace("\n","<br/>"),payload.vendor_contact])); meta="<b>PO DETAILS</b><br/>"+"<br/>".join(filter(None,[f"PO #: {payload.po_number}" if payload.po_number else "",f"Date: {payload.po_date}" if payload.po_date else "",f"Terms: {payload.terms}" if payload.terms else ""])); header=Table([[Paragraph(store,small),Paragraph(vendor,small),Paragraph(meta,right)]],colWidths=[2.55*inch,2.55*inch,2.0*inch]); header.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),("BOX",(0,0),(-1,-1),0.5,colors.HexColor("#CCCCCC")),("INNERGRID",(0,0),(-1,-1),0.25,colors.HexColor("#E6E6E6")),("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#FAFAFA")),("LEFTPADDING",(0,0),(-1,-1),7),("RIGHTPADDING",(0,0),(-1,-1),7),("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),7)])); story += [header,Spacer(1,12)]
-    table_data=[["SKU","Description","Strain","Size","Qty","Price","Line Total"]]; subtotal=0.0
-    for item in payload.items:
-        total=float(item.quantity)*float(item.price); subtotal+=total; table_data.append([item.sku,item.description,item.strain,item.size,f"{item.quantity:,.2f}".rstrip("0").rstrip("."),f"${item.price:,.2f}",f"${total:,.2f}"])
-    lines=Table(table_data,repeatRows=1,colWidths=[0.72*inch,2.55*inch,0.9*inch,0.55*inch,0.55*inch,0.75*inch,0.9*inch]); lines.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#1A1A1A")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),7.4),("GRID",(0,0),(-1,-1),0.35,colors.HexColor("#D7D7D7")),("VALIGN",(0,0),(-1,-1),"TOP"),("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,colors.HexColor("#F8F8F8")]),("ALIGN",(4,1),(-1,-1),"RIGHT"),("LEFTPADDING",(0,0),(-1,-1),4),("RIGHTPADDING",(0,0),(-1,-1),4),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)])); story += [lines,Spacer(1,10)]
-    tax_amount=subtotal*(payload.tax_rate/100.0); total=subtotal+tax_amount-payload.discount+payload.shipping; totals=[["Subtotal",f"${subtotal:,.2f}"]]
-    if payload.discount>0: totals.append(["Discount",f"-${payload.discount:,.2f}"])
-    if payload.tax_rate>0: totals.append([f"Tax ({payload.tax_rate:g}%)",f"${tax_amount:,.2f}"])
-    if payload.shipping>0: totals.append(["Shipping / Fees",f"${payload.shipping:,.2f}"])
-    totals.append(["TOTAL",f"${total:,.2f}"]); total_table=Table(totals,colWidths=[1.55*inch,1.05*inch],hAlign="RIGHT"); total_table.setStyle(TableStyle([("ALIGN",(0,0),(-1,-1),"RIGHT"),("FONTNAME",(0,-1),(-1,-1),"Helvetica-Bold"),("LINEABOVE",(0,-1),(-1,-1),0.8,colors.black),("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3)])); story.append(total_table)
-    if payload.fulfillment_notes: story += [Spacer(1,12),Paragraph("<b>Fulfillment Notes</b>",small),Paragraph(payload.fulfillment_notes.replace("\n","<br/>"),small)]
-    doc.build(story); return buf.getvalue()
+    buffer = BytesIO(); pdf = canvas.Canvas(buffer, pagesize=letter); width, height = letter
+    left_margin = 0.7 * inch; right_margin = width - 0.7 * inch; top_margin = height - 0.75 * inch; y = top_margin
+    pdf.setFont("Helvetica-Bold", 16); pdf.drawString(left_margin, y, "MAVet710 - Purchase Order"); y -= 0.25 * inch
+    try: po_date = date.fromisoformat(payload.po_date).strftime("%m/%d/%Y")
+    except ValueError: po_date = payload.po_date
+    pdf.setFont("Helvetica", 10); pdf.drawString(left_margin, y, f"PO Number: {payload.po_number}"); pdf.drawRightString(right_margin, y, f"Date: {po_date}"); y -= 0.35 * inch
+    pdf.setFont("Helvetica-Bold", 11); pdf.drawString(left_margin, y, "Ship To:"); pdf.setFont("Helvetica", 10); y -= 0.18 * inch
+    pdf.drawString(left_margin, y, payload.store_name or ""); y -= 0.16 * inch
+    for value, prefix in ((payload.store_number,"Store #: "),(payload.store_address,""),(payload.store_phone,"Phone: "),(payload.store_contact,"Buyer: ")):
+        if value: pdf.drawString(left_margin, y, prefix + value); y -= 0.16 * inch
+    vend_y = top_margin - 0.35 * inch; pdf.setFont("Helvetica-Bold", 11); pdf.drawString(width / 2, vend_y, "Vendor:"); vend_y -= 0.18 * inch; pdf.setFont("Helvetica", 10)
+    for value, prefix in ((payload.vendor_name,""),(payload.vendor_license,"License #: "),(payload.vendor_address,""),(payload.vendor_contact,"Contact: ")):
+        if value: pdf.drawString(width / 2, vend_y, prefix + value); vend_y -= 0.16 * inch
+    y = min(y, vend_y) - 0.15 * inch
+    if payload.terms: pdf.setFont("Helvetica-Bold",10); pdf.drawString(left_margin,y,"Payment Terms:"); pdf.setFont("Helvetica",10); pdf.drawString(left_margin+90,y,payload.terms); y -= 0.25*inch
+    if payload.fulfillment_notes:
+        pdf.setFont("Helvetica-Bold",10); pdf.drawString(left_margin,y,"Notes:"); y -= 0.16*inch; pdf.setFont("Helvetica",9); text=pdf.beginText(); text.setTextOrigin(left_margin,y); text.setLeading(12)
+        for line in payload.fulfillment_notes.splitlines(): text.textLine(line)
+        pdf.drawText(text); y=text.getY()-0.25*inch
+    columns={"line":left_margin,"sku":left_margin+0.4*inch,"desc":left_margin+1.4*inch,"strain":left_margin+3.8*inch,"size":left_margin+4.6*inch,"qty":left_margin+5.2*inch,"unit":left_margin+6.0*inch,"total":left_margin+7.0*inch}
+    def header(current_y: float) -> float:
+        pdf.setFont("Helvetica-Bold",10); pdf.drawString(columns["line"],current_y,"Ln"); pdf.drawString(columns["sku"],current_y,"SKU"); pdf.drawString(columns["desc"],current_y,"Description"); pdf.drawString(columns["strain"],current_y,"Strain"); pdf.drawString(columns["size"],current_y,"Size"); pdf.drawRightString(columns["qty"]+0.3*inch,current_y,"Qty"); pdf.drawRightString(columns["unit"]+0.7*inch,current_y,"Unit Price"); pdf.drawRightString(columns["total"]+0.8*inch,current_y,"Line Total"); current_y-=0.2*inch; pdf.setLineWidth(0.5); pdf.line(left_margin,current_y,right_margin,current_y); return current_y-0.18*inch
+    if y < 2.5*inch: pdf.showPage(); y=height-1*inch; pdf.setFont("Helvetica-Bold",16); pdf.drawString(left_margin,y,"MAVet710 - Purchase Order"); y-=0.4*inch
+    y=header(y); pdf.setFont("Helvetica",9); subtotal=0.0
+    for index,item in enumerate(payload.items):
+        if y < 1.2*inch: pdf.showPage(); y=height-1*inch; pdf.setFont("Helvetica-Bold",10); pdf.drawString(left_margin,y,"SKU Line Items (cont.)"); y=header(y-0.25*inch); pdf.setFont("Helvetica",9)
+        line_total=item.total if item.total is not None else item.quantity*item.price; subtotal+=line_total; pdf.drawString(columns["line"],y,str(index+1)); pdf.drawString(columns["sku"],y,item.sku[:10]); pdf.drawString(columns["desc"],y,item.description[:30]); pdf.drawString(columns["strain"],y,item.strain[:10]); pdf.drawString(columns["size"],y,item.size[:8]); pdf.drawRightString(columns["qty"]+0.3*inch,y,f"{int(item.quantity)}"); pdf.drawRightString(columns["unit"]+0.7*inch,y,f"${item.price:,.2f}"); pdf.drawRightString(columns["total"]+0.8*inch,y,f"${line_total:,.2f}"); y-=0.18*inch
+    tax=subtotal*(payload.tax_rate/100); total=subtotal+tax-payload.discount+payload.shipping
+    if y < 1.8*inch: pdf.showPage(); y=height-1.5*inch
+    pdf.setFont("Helvetica-Bold",10); pdf.drawRightString(columns["total"]+0.8*inch,y,f"Subtotal: ${subtotal:,.2f}"); y-=0.2*inch
+    for condition,label,value in ((payload.discount>0,"Discount: -",payload.discount),(tax>0,"Tax: ",tax),(payload.shipping>0,"Shipping / Fees: ",payload.shipping)):
+        if condition: pdf.drawRightString(columns["total"]+0.8*inch,y,f"{label}${value:,.2f}"); y-=0.2*inch
+    pdf.setFont("Helvetica-Bold",11); pdf.drawRightString(columns["total"]+0.8*inch,y,f"TOTAL: ${total:,.2f}"); pdf.showPage(); pdf.save(); body=buffer.getvalue(); buffer.close(); return body
 
 
 @router.post("/pdf")
 def generate_pdf(payload: POPdfRequest):
-    body=_pdf(payload); name=re.sub(r"[^A-Za-z0-9._-]+","-",payload.po_number.strip() or "purchase-order"); return Response(content=body,media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="{name}.pdf"'})
+    body=_pdf(payload); name=re.sub(r"[^A-Za-z0-9._-]+","-",payload.po_number.strip() or "purchase-order"); return Response(content=body,media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="PO_{name}_{datetime.now():%Y%m%d}.pdf"'})

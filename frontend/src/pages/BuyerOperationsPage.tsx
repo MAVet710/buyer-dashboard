@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiGet, apiPost, downloadBlob } from "../lib/api";
 
 type Row = Record<string, unknown>;
@@ -42,6 +42,10 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
   const [categorySelectionTouched, setCategorySelectionTouched] = useState(false);
   const [showProductRows, setShowProductRows] = useState(false);
   const [skuTab, setSkuTab] = useState<SkuTab>("all");
+
+  useEffect(() => {
+    sessionStorage.setItem("buyer-dash-buyer-controls", JSON.stringify({ target_doh: targetDoh, velocity_adjustment: velocity, sales_days: salesDays, sku_window: skuWindow }));
+  }, [targetDoh, velocity, salesDays, skuWindow]);
 
   const query = useMemo(() => new URLSearchParams({
     target_doh: String(targetDoh),
