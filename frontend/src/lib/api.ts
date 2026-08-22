@@ -7,33 +7,33 @@ export function errorMessage(payload: { detail?: unknown; error?: { message?: st
   return `Request failed (${status})`;
 }
 
+export function trialToken(): string { return sessionStorage.getItem("buyer-dash-trial-token") ?? ""; }
+export function clearTrialSession(): void { sessionStorage.removeItem("buyer-dash-trial-token"); sessionStorage.removeItem("buyer-dash-trial-expires"); }
+
 async function requestHeaders(json = false): Promise<Record<string, string>> {
-  const session = (await supabase?.auth.getSession())?.data.session; const token = session?.access_token; const metadata = session?.user.app_metadata ?? {};
-  return { ...(json ? { "Content-Type": "application/json" } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), "X-Organization-Id": localStorage.getItem("buyer-dash-organization") ?? metadata.organization_id ?? import.meta.env.VITE_ORGANIZATION_ID ?? "", "X-Facility-Id": localStorage.getItem("buyer-dash-facility") ?? metadata.facility_id ?? import.meta.env.VITE_FACILITY_ID ?? "", ...(token ? {} : { "X-User-Id": "web-local-developer", "X-User-Role": "admin" }) };
+  const session = (await supabase?.auth.getSession())?.data.session;
+  const token = session?.access_token;
+  const trial = !token ? trialToken() : "";
+  const metadata = session?.user.app_metadata ?? {};
+  return {
+    ...(json ? { "Content-Type": "application/json" } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(trial ? { "X-Trial-Token": trial } : {}),
+    "X-Organization-Id": localStorage.getItem("buyer-dash-organization") ?? metadata.organization_id ?? import.meta.env.VITE_ORGANIZATION_ID ?? "",
+    "X-Facility-Id": localStorage.getItem("buyer-dash-facility") ?? metadata.facility_id ?? import.meta.env.VITE_FACILITY_ID ?? "",
+    ...(token || trial ? {} : { "X-User-Id": "web-local-developer", "X-User-Role": "admin" }),
+  };
 }
 
 export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    signal,
-    headers: await requestHeaders(),
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(errorMessage(payload, response.status));
-  }
+  const response = await fetch(`${API_URL}${path}`, { signal, headers: await requestHeaders() });
+  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload, response.status)); }
   return response.json() as Promise<T>;
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    method: "POST",
-    headers: await requestHeaders(true),
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(errorMessage(payload, response.status));
-  }
+  const response = await fetch(`${API_URL}${path}`, { method: "POST", headers: await requestHeaders(true), body: JSON.stringify(body) });
+  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload, response.status)); }
   return response.json() as Promise<T>;
 }
 
@@ -44,25 +44,11 @@ export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
 }
 
 export async function apiDownload(path: string, body?: unknown): Promise<Blob> {
-  const response = await fetch(`${API_URL}${path}`, {
-    method: body === undefined ? "GET" : "POST",
-    headers: await requestHeaders(body !== undefined),
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(errorMessage(payload, response.status));
-  }
+  const response = await fetch(`${API_URL}${path}`, { method: body === undefined ? "GET" : "POST", headers: await requestHeaders(body !== undefined), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload, response.status)); }
   return response.blob();
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+  const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
 }
