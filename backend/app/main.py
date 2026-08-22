@@ -11,6 +11,7 @@ from .routers.plants import router as plants_router
 from .routers.production import router as production_router
 from .routers.commercial import router as commercial_router
 from .routers.compliance import router as compliance_router
+from .routers.compliance_qa import router as compliance_qa_router
 from .routers.account import router as account_router
 from .routers.data_hub import router as data_hub_router
 from .routers.home import router as home_router
@@ -65,6 +66,7 @@ app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
 app.include_router(commercial_router, prefix=settings.api_prefix)
 app.include_router(compliance_router, prefix=settings.api_prefix)
+app.include_router(compliance_qa_router, prefix=settings.api_prefix)
 app.include_router(account_router, prefix=settings.api_prefix)
 app.include_router(data_hub_router, prefix=settings.api_prefix)
 app.include_router(home_router, prefix=settings.api_prefix)
