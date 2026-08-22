@@ -23,6 +23,7 @@ from .routers.purchasing import router as purchasing_router
 from .routers.legal import router as legal_router
 from .routers.admin import router as admin_router
 from .routers.integrations import router as integrations_router
+from .routers.parity_tools import router as parity_tools_router
 from .database import get_engine
 from .observability import install_observability
 
@@ -76,3 +77,4 @@ app.include_router(purchasing_router, prefix=settings.api_prefix)
 app.include_router(legal_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.include_router(integrations_router, prefix=settings.api_prefix)
+app.include_router(parity_tools_router, prefix=settings.api_prefix)
