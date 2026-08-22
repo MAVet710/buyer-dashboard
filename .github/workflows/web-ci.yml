@@ -32,6 +32,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f Dockerfile.api -t buyer-dash-api:ci .
+      - name: Verify the API image can run production migrations
+        run: docker run --rm buyer-dash-api:ci alembic --version
       - run: docker build -f frontend/Dockerfile -t buyer-dash-web:ci --build-arg VITE_API_URL=https://api.doobielogic.io --build-arg VITE_SUPABASE_URL=https://example.supabase.co --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=test frontend
       - name: Scan API image for fixable high and critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
