@@ -40,19 +40,21 @@ def main() -> None:
     engine = create_coman_engine(settings.database_url)
     migrated = 0
     with Session(engine) as session:
-        default_org = session.scalar(select(Organization).where(Organization.active.is_(True)).order_by(Organization.created_at))
+        default_facility = session.scalar(select(Facility).where(Facility.active.is_(True)).order_by(Facility.created_at))
+        default_org = session.get(Organization, default_facility.organization_id) if default_facility else None
         users = list(session.scalars(select(AppUser).where(AppUser.active.is_(True)).order_by(AppUser.username)))
         for user in users:
             if not user.password_hash.startswith(("$2a$", "$2b$", "$2y$")):
                 raise RuntimeError(f"{user.username} does not have a portable bcrypt password hash")
             organization_id = user.organization_id or (default_org.id if default_org else "")
             assignment = session.scalar(select(AppUserFacilityRole).where(AppUserFacilityRole.user_id == user.id).order_by(AppUserFacilityRole.created_at))
-            facility_id = assignment.facility_id if assignment else ""
-            if not facility_id and organization_id:
-                facility = session.scalar(select(Facility).where(Facility.organization_id == organization_id, Facility.active.is_(True)).order_by(Facility.created_at))
-                facility_id = facility.id if facility else ""
+            facilities = list(session.scalars(select(Facility).where(Facility.organization_id == organization_id, Facility.active.is_(True)).order_by(Facility.created_at))) if organization_id else []
+            facility_id = assignment.facility_id if assignment else (facilities[0].id if facilities else "")
             if not organization_id or not facility_id:
                 raise RuntimeError(f"{user.username} has no usable organization/facility context")
+            if user.role != "dev" and assignment is None:
+                for facility in facilities:
+                    session.add(AppUserFacilityRole(user_id=user.id, organization_id=organization_id, facility_id=facility.id, role=user.role))
             email = _login_email(user)
             _request(
                 f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users",
