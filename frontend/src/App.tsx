@@ -9,6 +9,7 @@ const SlowMoversPage = lazy(() => import("./pages/SlowMoversPage").then(module =
 const DeliveryImpactPage = lazy(() => import("./pages/DeliveryImpactPage").then(module => ({ default: module.DeliveryImpactPage })));
 const BuyingRecommendationsPage = lazy(() => import("./pages/BuyingRecommendationsPage").then(module => ({ default: module.BuyingRecommendationsPage })));
 const BuyingBudgetPage = lazy(() => import("./pages/BuyingBudgetPage").then(module => ({ default: module.BuyingBudgetPage })));
+const PurchaseOrdersParityPage = lazy(() => import("./pages/PurchaseOrdersParityPage").then(module => ({ default: module.PurchaseOrdersParityPage })));
 const ProductMasterPage = lazy(() => import("./pages/ProductMasterPage").then(module => ({ default: module.ProductMasterPage })));
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
 const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
@@ -35,9 +36,10 @@ export default function App() {
     : page === "Delivery Performance" ? <DeliveryImpactPage />
     : page === "Buying Recommendations" ? <BuyingRecommendationsPage onNavigate={setPage} />
     : page === "Buying Budget" ? <BuyingBudgetPage />
+    : page === "Purchase Orders" ? <PurchaseOrdersParityPage onNavigate={setPage} />
     : page === "Retail Product Master" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
-    : page === "Purchasing" || page === "Purchase Orders" ? <PurchasingPage />
+    : page === "Purchasing" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPage />
     : page === "Extraction" ? <ExtractionCommandCenterPage onNavigate={setPage} />
@@ -49,8 +51,8 @@ export default function App() {
     : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />
     : page === "Doobie" ? <DoobiePage />
-    : page === "Integrations" ? <IntegrationsPage />
-    : page === "Admin" ? <AdminPage />
+    : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <IntegrationsPage />
+    : page === "Admin" || page === "Admin Tools" ? <AdminPage />
     : page === "Data & Settings" ? <DataSettingsPage />
     : <InventoryPage />;
   return <AppShell active={page} onNavigate={setPage}><Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense></AppShell>;
