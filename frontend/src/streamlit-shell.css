@@ -1,0 +1,25 @@
+/* Navigation behavior parity layered after streamlit-exact.css. */
+.theme-toggle{display:inline-grid!important;place-items:center!important;width:36px!important;height:36px!important;border:1px solid var(--dl-border)!important;border-radius:10px!important;background:var(--dl-surface-soft)!important;color:var(--dl-text-soft)!important}
+.nav-toggle{display:none!important}
+.user-chip{margin-left:0!important;min-height:36px!important;padding:.35rem .65rem!important;border:1px solid var(--dl-border)!important;border-radius:999px!important;background:var(--dl-surface-soft)!important;color:var(--dl-text-soft)!important}
+.context-switchers{margin-left:auto!important;display:flex!important;gap:.48rem!important;align-items:center!important}
+.mobile-flat-navigation{display:none}
+.sidebar .compact-field select{width:100%;margin-top:.35rem}
+.sidebar .toggle{display:flex;align-items:center;gap:.45rem;color:var(--dl-text-soft);font-size:.75rem}
+.sidebar .toggle input{width:auto;min-height:auto}
+
+@media(max-width:900px){
+  .nav-toggle{display:inline-grid!important;place-items:center!important;width:36px!important;height:36px!important;border:1px solid var(--dl-border)!important;border-radius:10px!important;background:var(--dl-surface-soft)!important;color:var(--dl-text-soft)!important}
+  .context-status{display:none!important}
+  .user-chip{max-width:155px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mobile-flat-navigation{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.5rem;margin:.2rem 0 .55rem;padding:.62rem;border:1px solid rgba(255,255,255,.09);border-radius:14px;background:linear-gradient(145deg,rgba(24,28,25,.96),rgba(17,20,18,.94));box-shadow:0 10px 30px rgba(0,0,0,.20);backdrop-filter:blur(16px)}
+  .mobile-flat-navigation .eyebrow{grid-column:1/-1}
+  .mobile-flat-navigation select{width:100%;min-width:0;min-height:42px}
+}
+
+@media(max-width:620px){
+  .context-switchers{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));width:100%!important}
+  .organization-switch,.facility-switch,.operation-switch-select{min-width:0!important;width:100%!important}
+  .mobile-flat-navigation{grid-template-columns:1fr}
+  .mobile-flat-navigation .eyebrow{grid-column:1}
+}
