@@ -8,6 +8,7 @@ from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import AppUser, AppUserFacilityRole, Facility
+from services.trial_access import verify_trial_token
 
 from .config import Settings, get_settings
 from .database import get_engine as get_database_engine
@@ -69,8 +70,26 @@ def get_request_context(
     facility_id: str = Header(default="", alias="X-Facility-Id"),
     development_user: str = Header(default="", alias="X-User-Id"),
     development_role: str = Header(default="", alias="X-User-Role"),
+    trial_token: str = Header(default="", alias="X-Trial-Token"),
     engine: Engine | None = Depends(get_authorization_engine),
 ) -> RequestContext:
+    # Streamlit supported a 24-hour trial key. The web stack preserves that
+    # experience with a signed, non-persistent token restricted to DEV Sandbox.
+    if trial_token and not credentials:
+        signing_secret = settings.integration_encryption_key or ("buyer-dash-development-trial" if settings.is_development else "")
+        payload = verify_trial_token(trial_token, secret=signing_secret) if signing_secret else None
+        if payload is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Trial session is invalid or expired.")
+        if engine is None:
+            raise HTTPException(status_code=503, detail="Authorization database is not configured.")
+        trial_org = str(payload.get("organization_id") or "")
+        trial_facility = str(payload.get("facility_id") or "")
+        with Session(engine) as session:
+            facility = session.get(Facility, trial_facility)
+            if not facility or not facility.active or facility.organization_id != trial_org:
+                raise HTTPException(status_code=403, detail="Trial workspace is unavailable.")
+        return RequestContext(str(payload.get("sub")), trial_org, trial_facility, "trial")
+
     claims: dict = {}
     if credentials:
         if engine is None:
@@ -105,13 +124,11 @@ def get_request_context(
             if not facility or not facility.active or facility.organization_id != organization_id:
                 raise HTTPException(status_code=403, detail="The selected facility is not available in this organization.")
             if user.role == "dev":
-                # Level DEV remains platform-wide, matching the Streamlit access-context selector.
                 role = "dev"
             else:
                 if user.organization_id != organization_id:
                     raise HTTPException(status_code=403, detail="This account cannot access the selected organization.")
                 if user.role == "admin":
-                    # Organization admins historically opened every active company facility.
                     role = "admin"
                 else:
                     assignment = session.scalar(
