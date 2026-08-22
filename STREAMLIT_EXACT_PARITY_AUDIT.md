@@ -93,7 +93,8 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Slow Movers acceptance covers 390, 430, 768, 1024 and 1440 px with contained table scrolling and no hidden controls or export action.
 
 ### MA Flower Equivalency
-- [ ] Inputs, defaults, calculation, warnings and presentation match.
+- [x] All six product categories, category-specific blank/default text fields, decimal-safe calculations, exact validation, result cards, calculation breakdown, Dutchie entry value and copy action match.
+- [x] MA Flower Equivalency acceptance covers 390, 430, 768, 1024 and 1440 px with stacked mobile result/entry cards and no viewport overflow.
 
 ### Buyer Intelligence
 - [x] Optional market-reference expander, 14–120 day lookback, four exact KPIs, Top Categories, SKU Risk and What to Buy deterministic evidence tables match.

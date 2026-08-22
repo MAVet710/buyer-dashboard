@@ -1,46 +1,22 @@
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 import { apiPost } from "../lib/api";
 
-type Result = { per_unit: number; package_total: number; per_unit_display: string; package_total_display: string; flower_weight_per_joint?: number | null; infusion_equivalency_per_joint?: number | null };
-type Mode = "concentrate_vape" | "edible" | "infused_preroll";
+const CATEGORIES = ["Dabs / Concentrate", "Vape Cart", "Disposable Vape", "Edible", "Infused Edible / Beverage", "Infused Pre-Roll"] as const;
+const CONCENTRATE = new Set<string>(["Dabs / Concentrate", "Vape Cart", "Disposable Vape"]);
+const EDIBLE = new Set<string>(["Edible", "Infused Edible / Beverage"]);
+type Result = { quantity:number; per_unit_display:string; package_total_display:string; flower_weight_display?:string|null; infusion_equivalency_display?:string|null };
 
 export function MAFlowerEquivalencyPage() {
-  const [mode, setMode] = useState<Mode>("concentrate_vape");
-  const [quantity, setQuantity] = useState(1);
-  const [grams, setGrams] = useState(1);
-  const [thc, setThc] = useState(100);
-  const [finished, setFinished] = useState(1);
-  const [infusion, setInfusion] = useState(.1);
-  const [result, setResult] = useState<Result | null>(null);
-  const [error, setError] = useState("");
-
-  const calculate = async () => {
-    setError("");
-    try {
-      setResult(await apiPost<Result>("/api/v1/parity-tools/ma-flower-equivalency", {
-        mode, quantity,
-        grams: mode === "concentrate_vape" ? grams : null,
-        active_thc_mg: mode === "edible" ? thc : null,
-        finished_grams_per_joint: mode === "infused_preroll" ? finished : null,
-        infusion_grams_per_joint: mode === "infused_preroll" ? infusion : null,
-      }));
-    } catch (err) { setError(err instanceof Error ? err.message : "Calculation failed."); }
-  };
-
-  return <div className="page">
-    <div className="page-heading"><div><div className="eyebrow">Retail Operations</div><h1>MA Flower Equivalency</h1><p>Same Buyer Dash calculator, moved to the durable web workspace. Intermediate values remain full precision and round only for display.</p></div></div>
-    <section className="inventory-panel form-panel">
-      <div className="form-grid">
-        <label>Product type<select value={mode} onChange={event => { setMode(event.target.value as Mode); setResult(null); }}><option value="concentrate_vape">Concentrate / Vape</option><option value="edible">Edible / Beverage</option><option value="infused_preroll">Infused Pre-Roll</option></select></label>
-        <label>Package quantity<input type="number" min="1" step="1" value={quantity} onChange={event => setQuantity(Math.max(1, Number(event.target.value) || 1))} /></label>
-        {mode === "concentrate_vape" ? <label>Grams per unit<input type="number" min="0" step="0.001" value={grams} onChange={event => setGrams(Number(event.target.value))} /></label> : null}
-        {mode === "edible" ? <label>Active THC mg per unit<input type="number" min="0" step="0.1" value={thc} onChange={event => setThc(Number(event.target.value))} /></label> : null}
-        {mode === "infused_preroll" ? <><label>Finished grams per joint<input type="number" min="0" step="0.001" value={finished} onChange={event => setFinished(Number(event.target.value))} /></label><label>Infusion grams per joint<input type="number" min="0" step="0.001" value={infusion} onChange={event => setInfusion(Number(event.target.value))} /></label></> : null}
-      </div>
-      <div className="form-actions"><button className="primary" onClick={calculate}>Calculate equivalency</button></div>
-      {error ? <div className="form-error">{error}</div> : null}
-    </section>
-    {result ? <div className="metric-grid four"><div className="metric"><span>Per unit</span><strong>{result.per_unit_display} g</strong><small>Flower equivalency</small></div><div className="metric"><span>Package total</span><strong>{result.package_total_display} g</strong><small>{quantity} unit{quantity === 1 ? "" : "s"}</small></div>{result.flower_weight_per_joint != null ? <div className="metric"><span>Flower per joint</span><strong>{result.flower_weight_per_joint.toFixed(4)} g</strong><small>Finished minus infusion</small></div> : null}{result.infusion_equivalency_per_joint != null ? <div className="metric"><span>Infusion equivalent</span><strong>{result.infusion_equivalency_per_joint.toFixed(4)} g</strong><small>Per joint</small></div> : null}</div> : null}
-    <section className="inventory-panel"><h3>Calculator basis</h3><p className="muted">Concentrate/vape uses grams × 5.6. Edible/beverage uses active THC mg × 0.056. Infused pre-roll combines flower weight with the concentrate-equivalent infusion amount. Verify current Massachusetts requirements before using the result operationally.</p></section>
-  </div>;
+  const [category,setCategory]=useState<string>(CATEGORIES[0]);
+  const [grams,setGrams]=useState(""); const [quantity,setQuantity]=useState("1");
+  const [thc,setThc]=useState(""); const [finished,setFinished]=useState(""); const [infusion,setInfusion]=useState(""); const [joints,setJoints]=useState("");
+  const [result,setResult]=useState<Result|null>(null); const [error,setError]=useState(""); const [copied,setCopied]=useState(""); const [busy,setBusy]=useState(false);
+  const isConcentrate=CONCENTRATE.has(category),isEdible=EDIBLE.has(category);
+  const calculate=async(event:FormEvent)=>{event.preventDefault();setError("");setCopied("");setBusy(true);try{setResult(await apiPost<Result>("/api/v1/parity-tools/ma-flower-equivalency",{mode:isConcentrate?"concentrate_vape":isEdible?"edible":"infused_preroll",quantity:isConcentrate||isEdible?quantity:joints,grams:isConcentrate?grams:null,active_thc_mg:isEdible?thc:null,finished_grams_per_joint:!isConcentrate&&!isEdible?finished:null,infusion_grams_per_joint:!isConcentrate&&!isEdible?infusion:null}))}catch(reason){setResult(null);setError(reason instanceof Error?reason.message:"Calculation failed.")}finally{setBusy(false)}};
+  const copy=async()=>{if(!result)return;try{await navigator.clipboard.writeText(result.package_total_display)}catch{const area=document.createElement("textarea");area.value=result.package_total_display;document.body.appendChild(area);area.select();document.execCommand("copy");area.remove()}setCopied(`Copied ${result.package_total_display}`)};
+  return <div className="page exact-ma-equivalency"><div className="page-heading"><div><div className="eyebrow">RETAIL OPS · PACKAGE CONFIGURATION</div><h1>MA Flower Equivalency</h1><p>Calculate the Dutchie flower-equivalency value for one package.</p></div></div><div className="ma-equivalency-note"><strong>Operational package-entry calculator.</strong> This is not a consumer dosage calculator. For infused pre-rolls, the finished weight must include both flower and infusion material.</div><label>Product category<select value={category} onChange={event=>{setCategory(event.target.value);setResult(null);setError("");setCopied("")}}>{CATEGORIES.map(value=><option key={value}>{value}</option>)}</select></label><form className="inventory-panel ma-equivalency-form" onSubmit={calculate}>{isConcentrate?<div className="form-grid two"><Text label="Grams/concentration per unit (g)" value={grams} set={setGrams}/><Text label="Package quantity (whole units)" value={quantity} set={setQuantity}/></div>:isEdible?<div className="form-grid two"><Text label="Labeled active THC per unit (mg)" value={thc} set={setThc}/><Text label="Package quantity (whole units)" value={quantity} set={setQuantity}/></div>:<div className="form-grid three"><Text label="Finished weight per joint (g)" value={finished} set={setFinished}/><Text label="Infusion material per joint (g)" value={infusion} set={setInfusion}/><Text label="Joints in package (whole number)" value={joints} set={setJoints}/></div>}<button className="primary submit" type="submit" disabled={busy}>{busy?"Calculating…":"Calculate equivalency"}</button></form>{error?<div className="state error">⚠️ {error}</div>:result?<Results result={result} category={category} inputs={{grams,quantity,thc,finished,infusion,joints}} copied={copied} copy={copy}/>:<div className="info-banner">Complete the required fields, then calculate the package value.</div>}<p className="page-caption">For Massachusetts adult-use Dutchie package configuration. Confirm operational values with your compliance team before changing live inventory.</p></div>;
 }
+
+function Text({label,value,set}:{label:string;value:string;set:(value:string)=>void}){return <label>{label}<input type="text" inputMode="decimal" value={value} placeholder="Enter a value" onChange={event=>set(event.target.value)}/></label>}
+function Results({result,category,inputs,copied,copy}:{result:Result;category:string;inputs:Record<string,string>;copied:string;copy:()=>void}){const infused=category==="Infused Pre-Roll",perLabel=infused?"Per joint":"Per unit",totalLabel=infused?"Package flower equivalency":"Total package/cart flower equivalency";return <section className="ma-equivalency-results"><div className="ma-result-grid"><ResultCard label={perLabel} value={result.per_unit_display} help="Full precision retained until display."/><ResultCard label={totalLabel} value={result.package_total_display} help="Numeric value to enter in Dutchie."/></div><h4>Calculation breakdown</h4><div className="ma-breakdown">{CONCENTRATE.has(category)?<><p>{inputs.grams} g/concentration × 5.6 = <strong>{result.per_unit_display}</strong> per unit</p><p>{result.per_unit_display} × {result.quantity} package unit(s) = <strong>{result.package_total_display}</strong></p></>:EDIBLE.has(category)?<><p>{inputs.thc} mg active THC × 0.056 = <strong>{result.per_unit_display}</strong> per unit</p><p>{result.per_unit_display} × {result.quantity} package unit(s) = <strong>{result.package_total_display}</strong></p></>:<><p>Flower portion: {inputs.finished} g finished − {inputs.infusion} g infusion = <strong>{result.flower_weight_display} g</strong> per joint</p><p>Infusion equivalency: {inputs.infusion} g × 5.6 = <strong>{result.infusion_equivalency_display}</strong> per joint</p><p>Per-joint equivalency: {result.flower_weight_display} + {result.infusion_equivalency_display} = <strong>{result.per_unit_display}</strong></p><p>Package: {result.per_unit_display} × {result.quantity} joint(s) = <strong>{result.package_total_display}</strong></p></>}</div><h4>Dutchie entry value</h4><div className="ma-entry-grid"><label>Unformatted numeric result<input value={result.package_total_display} disabled/></label><div><button className="primary ma-copy" type="button" aria-label="Copy Dutchie flower equivalency value" onClick={copy}>Copy value</button><div className="copy-status" role="status" aria-live="polite">{copied}</div></div></div></section>}
+function ResultCard({label,value,help}:{label:string;value:string;help:string}){return <article className="ma-result-card"><div className="ma-result-label">{label}</div><div className="ma-result-value">{value}</div><div className="ma-result-help">{help}</div></article>}

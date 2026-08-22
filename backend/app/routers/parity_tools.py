@@ -6,7 +6,7 @@ from io import BytesIO
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import Engine
 
 from modules.ma_flower_equivalency.logic import (
@@ -26,11 +26,11 @@ router = APIRouter(prefix="/parity-tools", tags=["parity-tools"], dependencies=[
 
 class EquivalencyRequest(BaseModel):
     mode: str
-    quantity: int = Field(default=1, ge=1)
-    grams: float | None = Field(default=None, ge=0)
-    active_thc_mg: float | None = Field(default=None, ge=0)
-    finished_grams_per_joint: float | None = Field(default=None, ge=0)
-    infusion_grams_per_joint: float | None = Field(default=None, ge=0)
+    quantity: str | int | float | None = 1
+    grams: str | int | float | None = None
+    active_thc_mg: str | int | float | None = None
+    finished_grams_per_joint: str | int | float | None = None
+    infusion_grams_per_joint: str | int | float | None = None
 
 
 class MappingConfirmation(BaseModel):
@@ -88,6 +88,8 @@ def ma_flower_equivalency(payload: EquivalencyRequest):
         "package_total_display": format_equivalency(result.package_total),
         "flower_weight_per_joint": _decimal(result.flower_weight_per_joint),
         "infusion_equivalency_per_joint": _decimal(result.infusion_equivalency_per_joint),
+        "flower_weight_display": format_equivalency(result.flower_weight_per_joint) if result.flower_weight_per_joint is not None else None,
+        "infusion_equivalency_display": format_equivalency(result.infusion_equivalency_per_joint) if result.infusion_equivalency_per_joint is not None else None,
     }
 
 

@@ -142,6 +142,15 @@ Acceptance notes:
 
 Acceptance note: deterministic Buy First, SKU stockout risk, overstock/slow watch and category risk sections remain visible independently of the generated Doobie Buyer Brief.
 
+## MA Flower Equivalency workspace
+- [x] Six exact Dutchie product-category choices
+- [x] Category-specific inputs and defaults
+- [x] Decimal-safe concentrate, edible and infused pre-roll calculations
+- [x] Exact validation, calculation breakdown and Dutchie-ready output
+- [x] Copy-value action and responsive result cards
+
+Acceptance note: the React workflow now mirrors the Streamlit package-entry calculator in source order, retains operator-entered decimal text through the API, rounds only for display and passed browser acceptance at 390px, 430px, 768px, 1024px and 1440px.
+
 ## Extraction Command Center workspace
 - [x] Executive Overview
 - [x] Run Analytics
