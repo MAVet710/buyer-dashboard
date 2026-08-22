@@ -9,6 +9,7 @@ import "./parity-workspaces.css";
 import "./streamlit-exact.css";
 import "./streamlit-shell.css";
 import "./buyer-streamlit.css";
+import "./white-label-streamlit.css";
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
 
