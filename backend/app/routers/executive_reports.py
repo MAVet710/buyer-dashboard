@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -11,8 +11,9 @@ from modules.extraction.repository import ExtractionRepository
 from reports.buyer_report import _build_buyer_executive_report_pdf
 from reports.coman_report import _build_coman_executive_report_pdf
 from reports.extraction_report import _build_extraction_executive_report_pdf
+from reports.white_label_report import _build_white_label_repack_report_pdf
 from .buyer_parity import _model as buyer_model
-from ..auth import RequestContext, get_request_context
+from ..auth import RequestContext, get_request_context, get_retail_context
 from ..database import get_engine
 
 router = APIRouter(prefix="/executive-reports", tags=["executive-reports"])
@@ -34,6 +35,26 @@ def catalog(context: RequestContext = Depends(get_request_context)):
             {"key": "extraction", "label": "Extraction Operations Executive Report", "capability": "production"},
         ]
     }
+
+
+@router.post("/white-label.pdf")
+def white_label_report_pdf(
+    payload: dict = Body(...),
+    context: RequestContext = Depends(get_retail_context),
+    engine: Engine = Depends(get_engine),
+):
+    """Render the current White Label / Repack scenario with Streamlit's PDF builder."""
+
+    organization, facility = _context_names(context, engine)
+    report_payload = dict(payload)
+    report_payload["organization"] = organization
+    report_payload["facility"] = facility
+    pdf = _build_white_label_repack_report_pdf(report_payload)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="retail_ops_repack_report.pdf"'},
+    )
 
 
 @router.get("/{report_key}.pdf")

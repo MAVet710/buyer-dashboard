@@ -155,7 +155,16 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [ ] Run/customer/detail dialogs match Streamlit.
 
 ### White Label / Repack
-- [ ] Repack workspace matches `modules/repack/ui.py`; Package Studio must not replace it.
+- [x] White Label / Repack remains its own workspace and is not routed to Package Studio.
+- [x] Scenario Name, Save Scenario, Load Scenario, Duplicate Scenario, Clear Scenario and conditional Apply Loaded Scenario match source order and behavior.
+- [x] The five tabs and their exact labels/order match `modules/repack/ui.py`.
+- [x] Bulk Lot fields, defaults and Advanced Lot Details expander match.
+- [x] Costs fields, defaults and Advanced Costs expander match.
+- [x] Simple Mode, dynamic package-plan rows, packaging-cost details and allocation warnings match.
+- [x] Gram conversion, landed cost, modeled loss, usable weight, unit rounding, leftovers, revenue, gross profit, gross margin, break-even and readiness calculations are source-matched and tested.
+- [x] Results metrics/table, three charts and compliance checklist labels/status rules match.
+- [x] Export Retail Ops Report uses the retained `reports/white_label_report.py` builder with the active scenario payload.
+- [ ] White Label / Repack desktop and mobile rendering has been accepted side-by-side against Streamlit.
 - [ ] Package Studio remains available where Streamlit exposes it.
 - [ ] Package Studio dialogs/actions match.
 
@@ -181,7 +190,7 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [ ] Buyer executive report matches.
 - [ ] Production/Co-Man report matches.
 - [ ] Extraction report matches.
-- [ ] White Label report matches if exposed.
+- [x] White Label report uses the same Streamlit report builder and active scenario scope.
 - [ ] Retail Ops report matches if exposed.
 - [ ] Competitor report matches if exposed.
 
