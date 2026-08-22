@@ -37,9 +37,9 @@ or pilot acceptance evidence.
   `read_only` remains read-only and archive is elevated.
 - Production API runtime boundary: the built API image starts with no Streamlit
   package installed/imported. The boundary check is part of `web-ci.yml`.
-- Database worktree head is now `0037_supabase_function_acl_hardening`. A clean
-  SQLite database upgrades through 0037, rolls back to 0036, and upgrades to head
-  again in `test_web_infrastructure.py`.
+- Database worktree head is now `0037_function_acl_hardening`. A clean SQLite
+  database upgrades through 0037, rolls back to 0036, and upgrades to head again
+  in `test_web_infrastructure.py`.
 - Facility authorization: a retail-only facility hides Production, Extraction,
   Package Studio, Plants and Production Product Master, and direct Production API
   access returns a structured `403` with a request ID.
@@ -98,13 +98,13 @@ The production audit found an important gap beyond existing table grants:
   `supabase_admin`, so it cannot truthfully or safely rewrite another role's
   default ACLs.
 
-Schema `0037_supabase_function_acl_hardening` therefore closes every path the
-application migration role owns: it revokes existing public-function execution
-from `PUBLIC`, `anon`, and `authenticated`, and revokes future postgres-owned
-default table/sequence/function grants. The remaining platform-managed
-`supabase_admin` path is handled by a separate required cutover control: disable
-the unused Supabase Data API before public production cutover. Buyer Dash still
-uses Supabase Auth; disabling the Data API does not remove Auth.
+Schema `0037_function_acl_hardening` therefore closes every path the application
+migration role owns: it revokes existing public-function execution from `PUBLIC`,
+`anon`, and `authenticated`, and revokes future postgres-owned default
+table/sequence/function grants. The remaining platform-managed `supabase_admin`
+path is handled by a separate required cutover control: disable the unused
+Supabase Data API before public production cutover. Buyer Dash still uses Supabase
+Auth; disabling the Data API does not remove Auth.
 
 ## Defects found and fixed during the gate
 
@@ -136,14 +136,17 @@ uses Supabase Auth; disabling the Data API does not remove Auth.
 - Schema 0036 did not revoke public function execution and could not control
   `supabase_admin` default ACLs. Schema 0037 closes the app-owned gap, and the
   cutover contract now requires the unused Supabase Data API to be disabled.
+- The initial 0037 revision name exceeded the deployed Alembic `varchar(32)`
+  revision contract. The identifier was shortened to `0037_function_acl_hardening`
+  before merge; no production migration had been run with the oversized value.
 
 ## Still required before public cutover
 
 - Merge this hardening PR after all CI gates pass.
 - Run and verify the encrypted production backup plus isolated restore drill
   immediately before any production schema/Auth changes.
-- Apply Alembic 0037 through the controlled one-shot production migration path,
-  then verify `public.alembic_version` reports 0037.
+- Apply Alembic `0037_function_acl_hardening` through the controlled one-shot
+  production migration path, then verify `public.alembic_version` reports 0037.
 - Verify no `PUBLIC`, `anon`, or `authenticated` execution remains on app-owned
   public functions and no direct browser table/sequence grants exist.
 - Disable the Supabase Data API in project settings and verify operational data is
