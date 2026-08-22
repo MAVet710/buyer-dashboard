@@ -8,7 +8,8 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import Facility, Organization
-from services.license_client import validate_license_key
+from modules.integrations import IntegrationConfigurationService
+from services.license_validation import validate_license_key
 from services.trial_access import issue_trial_token
 from ..config import Settings, get_settings
 from ..database import get_engine
@@ -20,13 +21,30 @@ class TrialActivation(BaseModel):
     trial_key: str = Field(min_length=1, max_length=512)
 
 
+def _doobie_credentials(engine: Engine, settings: Settings) -> tuple[str, str]:
+    try:
+        service = IntegrationConfigurationService(engine, settings.integration_encryption_key)
+        row = service.get("platform", "global", "doobie")
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    if row is None:
+        raise HTTPException(503, "Doobie trial validation is not configured. Level DEV must configure the platform Doobie integration first.")
+    configuration = service.public(row).get("configuration") or {}
+    base_url = str(configuration.get("base_url") or "").strip().rstrip("/")
+    api_key = service.secret(row)
+    if not base_url:
+        raise HTTPException(503, "Doobie trial validation has no service URL configured.")
+    return base_url, api_key
+
+
 @router.post("/activate")
 def activate_trial(
     payload: TrialActivation,
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    result = validate_license_key(payload.trial_key)
+    base_url, api_key = _doobie_credentials(engine, settings)
+    result = validate_license_key(payload.trial_key, base_url=base_url, api_key=api_key)
     if not result.get("ok"):
         reason = str(result.get("reason") or "license_validation_unavailable")
         raise HTTPException(503, f"Trial validation is unavailable: {reason}")
