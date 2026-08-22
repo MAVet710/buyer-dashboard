@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from io import BytesIO
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
@@ -38,6 +40,10 @@ class MappingConfirmation(BaseModel):
 
 class MappingConfirmRequest(BaseModel):
     rows: list[MappingConfirmation]
+
+
+class NomenclatureExportRequest(BaseModel):
+    correct_names: list[str]
 
 
 class CatalogItemInput(BaseModel):
@@ -221,3 +227,18 @@ def nomenclature_confirm(
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return {"saved": saved}
+
+
+@router.post("/nomenclature/export")
+def nomenclature_export(payload: NomenclatureExportRequest):
+    if not payload.correct_names or any(not value.strip() for value in payload.correct_names):
+        raise HTTPException(422, "Every manifest row needs a confirmed Correct Item Name before export.")
+    output = BytesIO()
+    frame = pd.DataFrame({"Correct Item Name": payload.correct_names})
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        frame.to_excel(writer, index=False, sheet_name="Correct Item Names")
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="Correct_METRC_Item_Names.xlsx"'},
+    )
