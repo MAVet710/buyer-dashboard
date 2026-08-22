@@ -69,9 +69,38 @@ or pilot acceptance evidence.
   Data API privileges are revoked from `anon` and `authenticated`; the browser
   must use the tenant- and facility-authorized FastAPI service.
 - Original migration PR #260 passed its required backend, frontend, container and
-  vulnerability checks before merge. PR #268 is the subsequent exact product-
-  parity restoration pass and remains draft until its final branch checks are
-  green and environment-level cutover work begins.
+  vulnerability checks before merge. PR #268 subsequently restored exact product
+  parity and merged after its final repository CI and React/FastAPI gates passed.
+
+## Production Supabase read-only preflight — 2026-08-22
+
+- The connected `DoobieLogic` Supabase project is `ACTIVE_HEALTHY` on PostgreSQL
+  17 in `us-east-2`.
+- `public.alembic_version` is exactly `0036_supabase_data_api_hardening`. The
+  Supabase migration ledger ending at `0029_dev_sandbox_ledger_reset` is a
+  separate migration history and does not indicate schema drift; Alembic is the
+  application schema source of truth for revisions 0030-0036.
+- Every public application table returned by the project inspection has RLS
+  enabled. `anon` and `authenticated` currently have zero direct table grants in
+  `public`, matching the FastAPI-only Data API boundary. Supabase Advisor reports
+  informational `rls_enabled_no_policy` notices because these internal tables are
+  intentionally not granted to browser roles.
+- A modern active Supabase publishable key exists for the React client. The legacy
+  anon key remains active for compatibility but is not required by the new browser
+  configuration.
+- `auth.users` currently contains zero users, proving the one-off legacy-user Auth
+  import has not yet been executed.
+- Six durable active `app_users` are ready for import and all six have portable
+  bcrypt hashes. Three DEV accounts intentionally have no stored organization and
+  bootstrap to DEV Sandbox; two buyer accounts are organization-scoped; one
+  operator already has an explicit facility assignment.
+- The earliest active facility, used only as the DEV bootstrap context by the
+  migration script, is DEV Sandbox. Each current buyer/operator organization has
+  exactly one active facility, so the present import cannot accidentally grant a
+  non-DEV user access across multiple operating facilities.
+- `backend/scripts/migrate_legacy_auth.py` now supports `--dry-run`. The dry run
+  validates the complete account/context plan and existing Auth rows before any
+  external mutation and logs aggregate counts only.
 
 ## Defects found and fixed during the gate
 
@@ -99,13 +128,21 @@ or pilot acceptance evidence.
 - Data & Settings was initially admin-only in React even though Streamlit Data Hub
   was a normal licensed workspace. Operational publishing access was restored,
   with archive and read-only permissions kept explicit.
+- The legacy Supabase Auth migration had no non-mutating production preflight.
+  `--dry-run` now validates all users and access-context decisions before the
+  first Auth API call.
 
 ## Still required before public cutover
 
+- Run `python -m backend.scripts.migrate_legacy_auth --dry-run` from the production
+  deployment environment with the production database URL. The dry-run must show
+  the expected six-user create plan before execution.
 - Run the same suite against a sanitized production PostgreSQL clone with real
-  Supabase JWTs, RLS policies, representative roles, facilities, and licenses.
-- Verify invitation, sign-in, refresh, sign-out, password recovery, legacy-user
-  migration and facility switching through the configured production Supabase project.
+  Supabase JWTs, representative roles, facilities, and licenses.
+- Execute the legacy-user Supabase Auth import only after the dry-run passes, then
+  verify username/password sign-in, token refresh, sign-out, recovery behavior,
+  role/facility switching and DEV cross-company access through the configured
+  production project.
 - Run/verify an encrypted production database backup and restore drill immediately
   before any production migration/candidate deployment.
 - Configure/verify Google Secret Manager, deploy the zero-traffic Cloud Run
