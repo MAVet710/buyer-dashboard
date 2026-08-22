@@ -23,7 +23,8 @@ The production targets are `https://ops.doobielogic.io` and `https://api.doobiel
 - Add `https://ops.doobielogic.io` as the Site URL and allowed redirect origin.
 - Add password recovery and invitation redirect URLs under the same origin.
 - Keep the service-role key only in Cloud Run Secret Manager.
-- Back up the database and record the migration revision before applying migrations.
+- The DoobieLogic project currently remains on Supabase Free by owner decision. Configure `DATABASE_BACKUP_URL` and a unique 32+ character `DATABASE_BACKUP_ENCRYPTION_PASSPHRASE` as GitHub Actions secrets, then manually run `.github/workflows/database-backup.yml` before applying migrations. The workflow creates a custom-format dump, restores it into an isolated PostgreSQL 16 service, verifies the Alembic revision row, encrypts the dump with AES-256, records a SHA-256 checksum, and retains only encrypted artifacts for 30 days.
+- Confirm the scheduled backup succeeds daily and perform a documented manual decryption/restore drill before cutover. This compensating control does not provide Supabase Pro uptime, non-pausing, point-in-time recovery, or support guarantees; reconsider Pro before customer-critical operation.
 
 ## DNS cutover
 
