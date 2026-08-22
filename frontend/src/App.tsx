@@ -3,6 +3,11 @@ import { lazy, Suspense, useState } from "react";
 
 const HomePage = lazy(() => import("./pages/HomePage").then(module => ({ default: module.HomePage })));
 const InventoryPage = lazy(() => import("./pages/InventoryPage").then(module => ({ default: module.InventoryPage })));
+const BuyerOperationsPage = lazy(() => import("./pages/BuyerOperationsPage").then(module => ({ default: module.BuyerOperationsPage })));
+const BuyerTrendsPage = lazy(() => import("./pages/BuyerTrendsPage").then(module => ({ default: module.BuyerTrendsPage })));
+const SlowMoversPage = lazy(() => import("./pages/SlowMoversPage").then(module => ({ default: module.SlowMoversPage })));
+const DeliveryImpactPage = lazy(() => import("./pages/DeliveryImpactPage").then(module => ({ default: module.DeliveryImpactPage })));
+const BuyingRecommendationsPage = lazy(() => import("./pages/BuyingRecommendationsPage").then(module => ({ default: module.BuyingRecommendationsPage })));
 const ProductMasterPage = lazy(() => import("./pages/ProductMasterPage").then(module => ({ default: module.ProductMasterPage })));
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
 const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
@@ -23,9 +28,14 @@ const ComplianceQAPage = lazy(() => import("./pages/ComplianceQAPage").then(modu
 export default function App() {
   const [page, setPage] = useState("Home");
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
+    : page === "Buyer Operations" ? <BuyerOperationsPage onNavigate={setPage} />
+    : page === "Sales & Category Trends" ? <BuyerTrendsPage />
+    : page === "Slow Movers" ? <SlowMoversPage />
+    : page === "Delivery Performance" ? <DeliveryImpactPage />
+    : page === "Buying Recommendations" ? <BuyingRecommendationsPage onNavigate={setPage} />
     : page === "Retail Product Master" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
-    : page === "Purchasing" ? <PurchasingPage />
+    : page === "Purchasing" || page === "Purchase Orders" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPage />
     : page === "Extraction" ? <ExtractionPage />
@@ -34,7 +44,7 @@ export default function App() {
     : page === "Compliance" ? <CompliancePage />
     : page === "Compliance Q&A" ? <ComplianceQAPage />
     : page === "MA Flower Equivalency" ? <MAFlowerEquivalencyPage />
-    : page === "Nomenclature Mapper" ? <NomenclatureMapperPage />
+    : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />
     : page === "Doobie" ? <DoobiePage />
     : page === "Integrations" ? <IntegrationsPage />
