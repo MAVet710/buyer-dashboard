@@ -3,7 +3,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PORT=8080
 WORKDIR /app
 RUN addgroup --system buyer && adduser --system --ingroup buyer buyer
 COPY backend/requirements.txt /tmp/requirements.txt
-RUN pip install --upgrade pip && pip install -r /tmp/requirements.txt
+RUN pip install --upgrade pip "setuptools>=78.1.1" && pip install -r /tmp/requirements.txt
 COPY backend backend
 COPY modules modules
 COPY services services
