@@ -189,8 +189,12 @@ No item may be checked because of an intentional redesign. The requirement is **
 
 ## Commercial Ops
 
-- [ ] Orders & Fulfillment tabs, filters, order actions, allocation and dialogs match Streamlit.
-- [ ] Commercial finance surfaces/dialogs match where exposed.
+- [x] Orders & Fulfillment preserves the Streamlit heading and exact six-tab order: Command Center, New Order, Allocate & Fulfill, Trade Partners, Inventory Audits, Inventory Ledger.
+- [x] Command Center KPIs, order search, incoming/outgoing columns, exception logic, status labels, ordering, and empty states match Streamlit.
+- [x] New Order, allocation/fulfillment, receiving-lot, partner, payment-status, and ledger/export controls use the existing durable tenant/facility-scoped repositories.
+- [ ] The shared Inventory Audits surface embedded in Commercial preserves the complete Streamlit scanner, resumable sessions, reports, and source-selection workflow.
+- [x] Wholesale + Finance remains an additive right-side work window with exact A/R metrics, order selector, shipment/manifest, invoice/payment, and customer-pricing pop-outs.
+- [x] Commercial desktop/mobile acceptance covers 390, 430, 768, 1024, and 1440 px with no viewport overflow and full-screen mobile/right-side desktop finance behavior.
 
 ## Compliance / Traceability
 

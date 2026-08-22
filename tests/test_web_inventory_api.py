@@ -488,28 +488,42 @@ def test_commercial_orders_are_tenant_safe_and_actionable():
     headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1", "X-User-Id": "seller@example.com", "X-User-Role": "admin"}
     try:
         listing = client.get("/api/v1/commercial/orders", headers=headers)
+        workspace = client.get("/api/v1/commercial/workspace", headers=headers)
         detail = client.get("/api/v1/commercial/orders/sales-1", headers=headers)
         confirmed = client.post("/api/v1/commercial/orders/sales-1/actions/confirm", headers=headers, json={})
+        payment_status = client.post("/api/v1/commercial/orders/sales-1/payment", headers=headers, json={"payment_status": "sent"})
         invoiced = client.post("/api/v1/commercial/orders/sales-1/invoices", headers=headers, json={"invoice_number": "INV-100", "due_days": 30})
         invoice_id = invoiced.json()["id"]
         sent = client.post(f"/api/v1/commercial/invoices/{invoice_id}/send", headers=headers, json={})
         paid = client.post(f"/api/v1/commercial/invoices/{invoice_id}/payments", headers=headers, json={"amount_usd": 40, "method": "ach", "reference": "ACH-1"})
         shipped = client.post("/api/v1/commercial/orders/sales-1/shipments", headers=headers, json={"shipment_number": "SHIP-100", "manifest_reference": "MAN-100"})
+        customer_price = client.post("/api/v1/commercial/customer-prices", headers=headers, json={"partner_id": "partner-1", "product_id": "product-1", "price_usd": 18.5, "discount_pct": 0})
         ar = client.get("/api/v1/commercial/ar", headers=headers)
         isolated = client.get("/api/v1/commercial/orders/sales-1", headers={**headers, "X-Facility-Id": "other-facility"})
+        isolated_workspace = client.get("/api/v1/commercial/workspace", headers={**headers, "X-Facility-Id": "other-facility"})
     finally:
         app.dependency_overrides.clear()
     assert listing.status_code == 200
     assert listing.json()[0]["partner_name"] == "Retail Customer"
     assert listing.json()[0]["order_total"] == 100
+    assert workspace.status_code == 200
+    assert workspace.json()["facility_name"] == "Boston Production"
+    assert workspace.json()["metrics"]["open_sales_value"] == 100
+    assert workspace.json()["orders"][0]["requested_quantity"] == 5
+    assert workspace.json()["products"][0]["sku"] == "BD-BULK"
     assert detail.json()["lines"][0]["sku_snapshot"] == "BD-BULK"
+    assert detail.json()["lines"][0]["position"] == 1
     assert confirmed.json()["status"] == "confirmed"
+    assert payment_status.json()["payment_status"] == "sent"
     assert invoiced.json()["total_usd"] == 100
     assert sent.json()["status"] == "sent"
     assert paid.json()["amount_usd"] == 40
     assert shipped.json()["status"] == "planned"
+    assert customer_price.status_code == 201
+    assert customer_price.json()["price_usd"] == 18.5
     assert ar.json()["total_ar"] == 60
     assert isolated.status_code == 403
+    assert isolated_workspace.status_code == 403
 
 
 def test_production_auth_uses_database_facility_role_not_spoofable_headers(monkeypatch):
@@ -702,16 +716,20 @@ def test_purchase_order_receipt_atomically_creates_inventory_and_fulfills_line()
         order_id = order.json()["id"]
         confirmed = client.post(f"/api/v1/commercial/orders/{order_id}/actions/confirm", headers=headers, json={})
         line_id = client.get(f"/api/v1/commercial/orders/{order_id}", headers=headers).json()["lines"][0]["id"]
-        receipt = client.post(f"/api/v1/commercial/order-lines/{line_id}/receive", headers=headers, json={"lot_code": "PO-LOT-1", "package_id": "1A-PO-1", "quantity": 25, "location_code": "Retail Vault"})
+        lot = client.post("/api/v1/commercial/inventory-lots", headers=headers, json={"product_id": "product-1", "lot_code": "PO-LOT-1", "location": "Retail Vault", "unit": "g"})
+        receipt = client.post(f"/api/v1/commercial/order-lines/{line_id}/fulfill", headers=headers, json={"lot_id": lot.json()["id"], "quantity": 25, "reference": "PO-WEB-1"})
         detail = client.get(f"/api/v1/commercial/orders/{order_id}", headers=headers)
+        workspace = client.get("/api/v1/commercial/workspace", headers=headers)
         inventory = client.get("/api/v1/inventory/retail/packages", headers=headers)
     finally: app.dependency_overrides.clear()
     assert vendor.status_code == 201 and order.status_code == 201 and confirmed.status_code == 200
-    assert receipt.status_code == 201
+    assert lot.status_code == 201 and receipt.status_code == 201
     assert receipt.json()["quantity_delta"] == 25
     assert detail.json()["order"]["status"] == "fulfilled"
     assert detail.json()["lines"][0]["fulfilled_quantity"] == 25
-    received = next(row for row in inventory.json()["items"] if row["package_id"] == "1A-PO-1")
+    assert workspace.json()["transactions"][0]["order"] == "PO-WEB-1"
+    assert workspace.json()["transactions"][0]["type"] == "Receipt"
+    received = next(row for row in inventory.json()["items"] if row["lot_code"] == "PO-LOT-1")
     assert received["available"] == 25
 
 
