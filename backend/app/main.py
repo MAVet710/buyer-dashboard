@@ -64,8 +64,8 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
         revision = connection.execute(text("select version_num from alembic_version")).scalar_one_or_none() if "alembic_version" in tables else None
     required = {"coman_organizations", "coman_facilities", "coman_products", "coman_inventory_lots", "coman_inventory_transactions", "retail_sales", "inventory_audits", "data_hub_imports", "legal_acceptance_events", "cultivation_plants", "retail_planning_policies", "integration_configurations"}
     missing = sorted(required - tables)
-    revision_current = revision in {None, "0036_supabase_data_api_hardening"}
-    payload = {"status": "ready" if not missing and revision_current else "degraded", "service": "buyer-dash-api", "database": "connected", "schema_revision": revision, "expected_schema_revision": "0036_supabase_data_api_hardening", "missing_tables": missing}
+    revision_current = revision in {None, "0037_supabase_function_acl_hardening"}
+    payload = {"status": "ready" if not missing and revision_current else "degraded", "service": "buyer-dash-api", "database": "connected", "schema_revision": revision, "expected_schema_revision": "0037_supabase_function_acl_hardening", "missing_tables": missing}
     return payload if not missing and revision_current else JSONResponse(status_code=503, content=payload)
 
 
