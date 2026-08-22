@@ -5,7 +5,7 @@ The production targets are `https://ops.doobielogic.io` and `https://api.doobiel
 ## API
 
 1. Create a Google Artifact Registry repository named `buyer-dash` in `us-east1`.
-2. Store each value referenced by `deploy/cloudbuild-api.yaml` in Google Secret Manager and grant the Cloud Run service account `roles/secretmanager.secretAccessor` only for those secrets.
+2. Create dedicated `buyer-dash-api` and `buyer-dash-migrate` service accounts. Grant each identity `roles/secretmanager.secretAccessor` only on the secrets used by its manifest: the migration identity receives only `buyer-dash-database-url`; the API identity receives the six runtime secrets in `deploy/cloudbuild-api.yaml`. Grant the Cloud Build deployer `roles/iam.serviceAccountUser` on those two identities, not project-wide. Do not run either workload as the default Compute Engine service account.
 3. Back up the production database, then submit `deploy/cloudbuild-migrate.yaml`. It creates and waits for a one-shot Cloud Run job with retries disabled. Confirm the job reached Alembic `head` (currently `0036_supabase_data_api_hardening`) before deploying the API. Never run schema migration concurrently in web containers. This revision enables RLS and revokes direct Data API table and sequence access from `anon` and `authenticated`; Buyer Dash operational data remains available only through FastAPI.
 4. Submit `deploy/cloudbuild-api.yaml`. It deploys a tagged `candidate` revision with `--no-traffic`; do not remove that flag for the first production-shaped verification.
 5. Verify `/health`, `/health/ready`, authenticated tenant isolation, logs, and rollback against the candidate URL. Explicitly move traffic only after those checks pass.

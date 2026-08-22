@@ -14,6 +14,8 @@ steps:
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$BUILD_ID
       - --region
       - ${_REGION}
+      - --service-account
+      - buyer-dash-migrate@$PROJECT_ID.iam.gserviceaccount.com
       - --command
       - alembic
       - --args
