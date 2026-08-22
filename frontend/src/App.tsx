@@ -15,9 +15,31 @@ const DoobiePage = lazy(() => import("./pages/DoobiePage").then(module => ({ def
 const DataSettingsPage = lazy(() => import("./pages/DataSettingsPage").then(module => ({ default: module.DataSettingsPage })));
 const AdminPage = lazy(() => import("./pages/AdminPage").then(module => ({ default: module.AdminPage })));
 const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then(module => ({ default: module.IntegrationsPage })));
+const MAFlowerEquivalencyPage = lazy(() => import("./pages/MAFlowerEquivalencyPage").then(module => ({ default: module.MAFlowerEquivalencyPage })));
+const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage").then(module => ({ default: module.NomenclatureMapperPage })));
+const ExecutiveReportsPage = lazy(() => import("./pages/ExecutiveReportsPage").then(module => ({ default: module.ExecutiveReportsPage })));
+const ComplianceQAPage = lazy(() => import("./pages/ComplianceQAPage").then(module => ({ default: module.ComplianceQAPage })));
 
 export default function App() {
-  const [page, setPage] = useState("Inventory");
-  const content = page === "Home" ? <HomePage onNavigate={setPage} /> : page === "Retail Product Master" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" /> : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" /> : page === "Purchasing" ? <PurchasingPage /> : page === "Reports" ? <RetailInsightsPage /> : page === "Production" ? <ProductionPage /> : page === "Extraction" ? <ExtractionPage /> : page === "Package Studio" ? <PackageStudioPage /> : page === "Orders" ? <OrdersPage /> : page === "Compliance" ? <CompliancePage /> : page === "Doobie" ? <DoobiePage /> : page === "Integrations" ? <IntegrationsPage /> : page === "Admin" ? <AdminPage /> : page === "Data & Settings" ? <DataSettingsPage /> : <InventoryPage />;
+  const [page, setPage] = useState("Home");
+  const content = page === "Home" ? <HomePage onNavigate={setPage} />
+    : page === "Retail Product Master" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
+    : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
+    : page === "Purchasing" ? <PurchasingPage />
+    : page === "Reports" ? <RetailInsightsPage />
+    : page === "Production" ? <ProductionPage />
+    : page === "Extraction" ? <ExtractionPage />
+    : page === "Package Studio" || page === "White Label / Repack" ? <PackageStudioPage />
+    : page === "Orders" ? <OrdersPage />
+    : page === "Compliance" ? <CompliancePage />
+    : page === "Compliance Q&A" ? <ComplianceQAPage />
+    : page === "MA Flower Equivalency" ? <MAFlowerEquivalencyPage />
+    : page === "Nomenclature Mapper" ? <NomenclatureMapperPage />
+    : page === "Executive Reports" ? <ExecutiveReportsPage />
+    : page === "Doobie" ? <DoobiePage />
+    : page === "Integrations" ? <IntegrationsPage />
+    : page === "Admin" ? <AdminPage />
+    : page === "Data & Settings" ? <DataSettingsPage />
+    : <InventoryPage />;
   return <AppShell active={page} onNavigate={setPage}><Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense></AppShell>;
 }
