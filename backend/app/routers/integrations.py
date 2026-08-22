@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
 from modules.integrations import IntegrationConfigurationService
-from services.doobie_config import DEFAULT_DOOBIE_BASE_URL, test_doobie_connection
+from services.doobie_connection import DEFAULT_DOOBIE_BASE_URL, test_doobie_connection
 from services.metrc_client import test_metrc_connection
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
