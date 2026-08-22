@@ -8,7 +8,10 @@ RUN addgroup --system buyer && adduser --system --ingroup buyer buyer
 COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip "setuptools>=78.1.1" \
     && pip install -r /tmp/requirements.txt \
-    && pip uninstall -y setuptools
+    && pip uninstall -y setuptools \
+    && rm -rf /usr/local/lib/python3.12/site-packages/setuptools \
+        /usr/local/lib/python3.12/site-packages/setuptools-*.dist-info \
+        /usr/local/lib/python3.12/site-packages/pkg_resources
 COPY backend backend
 COPY modules modules
 COPY services services
