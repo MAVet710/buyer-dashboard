@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-REQUIRED_FILES = ["Dockerfile.api", "frontend/Dockerfile", "frontend/dist/index.html", "deploy/cloudbuild-api.yaml", "migrations/versions/0036_supabase_data_api_hardening.py"]
+REQUIRED_FILES = ["Dockerfile.api", "frontend/Dockerfile", "frontend/dist/index.html", "deploy/cloudbuild-api.yaml", "migrations/versions/0037_supabase_function_acl_hardening.py"]
 REQUIRED_ENV = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_JWKS_URL", "SUPABASE_SERVICE_ROLE_KEY", "INTEGRATION_ENCRYPTION_KEY"]
 
 def main() -> int:
