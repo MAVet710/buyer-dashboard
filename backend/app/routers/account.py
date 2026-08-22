@@ -27,7 +27,7 @@ def _facility_payload(row: Facility) -> dict:
 
 
 def _facilities_for_user(session: Session, context: RequestContext, organization_id: str) -> list[Facility]:
-    if context.role in {"dev", "admin"}:
+    if context.role in {"dev", "admin", "trial"}:
         return list(
             session.scalars(
                 select(Facility)
@@ -65,7 +65,7 @@ def account_context(context: RequestContext = Depends(get_request_context), engi
         return {
             "user": {
                 "id": context.user_id,
-                "display_name": user.display_name if user else context.user_id,
+                "display_name": "24-hour Trial" if context.role == "trial" else (user.display_name if user else context.user_id),
                 "email": user.email if user else "",
                 "role": context.role,
                 "must_change_password": bool(user and user.must_change_password),
@@ -80,12 +80,7 @@ def account_context(context: RequestContext = Depends(get_request_context), engi
 
 @router.get("/access-options")
 def access_options(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    """Return every organization/facility context the current account may open.
-
-    Streamlit exposed organization and facility context as first-class operational
-    state. The web client must preserve that behavior rather than pinning DEV or
-    admin users to the organization embedded in their first JWT.
-    """
+    """Return every organization/facility context the current account may open."""
     with Session(engine) as session:
         if context.role == "dev":
             organizations = list(session.scalars(select(Organization).where(Organization.active.is_(True)).order_by(Organization.name)))
@@ -109,6 +104,8 @@ def access_options(context: RequestContext = Depends(get_request_context), engin
 @router.post("/password-changed")
 def password_changed(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     """Clear the durable first-login password-change requirement after Supabase succeeds."""
+    if context.role == "trial":
+        return {"ok": True}
     with Session(engine) as session, session.begin():
         user = session.get(AppUser, context.user_id)
         if user:
