@@ -9,7 +9,7 @@ production-shaped database and facility permissions.
 - [ ] Supabase JWT authentication, sign-out, session refresh, and account recovery
 - [ ] Organization, facility, license, role, and feature authorization
 - [ ] Supabase Data API is disabled; browser data access is Supabase Auth plus FastAPI only
-- [ ] Production database is at Alembic `0037_supabase_function_acl_hardening`
+- [ ] Production database is at Alembic `0037_function_acl_hardening`
 - [ ] `PUBLIC`, `anon`, and `authenticated` have no direct operational table/sequence/function privileges that bypass FastAPI
 - [ ] Stable API errors, audit metadata, request IDs, logging, and health checks
 - [ ] Durable uploads, exports, background jobs, retry behavior, and observability
