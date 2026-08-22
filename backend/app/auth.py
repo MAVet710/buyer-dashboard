@@ -13,6 +13,7 @@ from .config import Settings, get_settings
 from .database import get_engine as get_database_engine
 from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engine
 
+
 def get_authorization_engine(settings: Settings = Depends(get_settings)) -> Engine | None:
     try:
         return create_coman_engine(settings.database_url or None)
@@ -104,14 +105,25 @@ def get_request_context(
             if not facility or not facility.active or facility.organization_id != organization_id:
                 raise HTTPException(status_code=403, detail="The selected facility is not available in this organization.")
             if user.role == "dev":
+                # Level DEV remains platform-wide, matching the Streamlit access-context selector.
                 role = "dev"
             else:
                 if user.organization_id != organization_id:
                     raise HTTPException(status_code=403, detail="This account cannot access the selected organization.")
-                assignment = session.scalar(select(AppUserFacilityRole).where(AppUserFacilityRole.user_id == user.id, AppUserFacilityRole.organization_id == organization_id, AppUserFacilityRole.facility_id == facility_id))
-                if not assignment:
-                    raise HTTPException(status_code=403, detail="This account is not assigned to the selected facility.")
-                role = assignment.role
+                if user.role == "admin":
+                    # Organization admins historically opened every active company facility.
+                    role = "admin"
+                else:
+                    assignment = session.scalar(
+                        select(AppUserFacilityRole).where(
+                            AppUserFacilityRole.user_id == user.id,
+                            AppUserFacilityRole.organization_id == organization_id,
+                            AppUserFacilityRole.facility_id == facility_id,
+                        )
+                    )
+                    if not assignment:
+                        raise HTTPException(status_code=403, detail="This account is not assigned to the selected facility.")
+                    role = assignment.role
             user_id = user.id
     return RequestContext(user_id, organization_id, facility_id, role)
 
