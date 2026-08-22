@@ -34,6 +34,7 @@ from .routers.buyer_parity import router as buyer_parity_router
 from .routers.buyer_parity_actions import router as buyer_parity_actions_router
 from .routers.slow_movers_parity import router as slow_movers_parity_router
 from .routers.executive_reports import router as executive_reports_router
+from .routers.analytics import router as analytics_router
 from .database import get_engine
 from .observability import install_observability
 
@@ -98,3 +99,4 @@ app.include_router(buyer_parity_router, prefix=settings.api_prefix)
 app.include_router(buyer_parity_actions_router, prefix=settings.api_prefix)
 app.include_router(slow_movers_parity_router, prefix=settings.api_prefix)
 app.include_router(executive_reports_router, prefix=settings.api_prefix)
+app.include_router(analytics_router, prefix=settings.api_prefix)
