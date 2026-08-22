@@ -31,6 +31,8 @@ export default function App() {
   const [page, setPage] = useState("Home");
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
     : page === "Buyer Operations" ? <BuyerOperationsPage onNavigate={setPage} />
+    : page === "Inventory" ? <InventoryPage initialOperation="retail" />
+    : page === "Inventory Audits" ? <InventoryPage initialOperation="retail" initialAudits />
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
     : page === "Delivery Performance" ? <DeliveryImpactPage />
@@ -54,6 +56,6 @@ export default function App() {
     : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <IntegrationsPage />
     : page === "Admin" || page === "Admin Tools" ? <AdminPage />
     : page === "Data & Settings" ? <DataSettingsPage />
-    : <InventoryPage />;
+    : <InventoryPage initialOperation="retail" />;
   return <AppShell active={page} onNavigate={setPage}><Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense></AppShell>;
 }
