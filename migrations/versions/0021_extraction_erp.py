@@ -252,16 +252,17 @@ def upgrade() -> None:
     op.create_index("ix_extraction_toll_jobs_run_id", "extraction_toll_jobs", ["run_id"])
     op.create_index("ix_extraction_toll_jobs_customer_id", "extraction_toll_jobs", ["customer_id"])
 
-    for table in (
-        "extraction_runs",
-        "extraction_run_inputs",
-        "extraction_stage_events",
-        "extraction_run_outputs",
-        "extraction_cost_events",
-        "extraction_qa_events",
-        "extraction_toll_jobs",
-    ):
-        op.execute(f"alter table public.{table} enable row level security")
+    if op.get_bind().dialect.name == "postgresql":
+        for table in (
+            "extraction_runs",
+            "extraction_run_inputs",
+            "extraction_stage_events",
+            "extraction_run_outputs",
+            "extraction_cost_events",
+            "extraction_qa_events",
+            "extraction_toll_jobs",
+        ):
+            op.execute(f"alter table public.{table} enable row level security")
 
 
 def downgrade() -> None:

@@ -141,8 +141,9 @@ def upgrade() -> None:
         op.create_index(f"ix_customer_price_rules_{col}", "customer_price_rules", [col])
     op.create_index("ix_customer_price_org_active", "customer_price_rules", ["organization_id","active"])
 
-    for table in ("commercial_shipments","commercial_invoices","commercial_invoice_lines","commercial_payments","customer_price_rules"):
-        op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+    if op.get_bind().dialect.name == "postgresql":
+        for table in ("commercial_shipments","commercial_invoices","commercial_invoice_lines","commercial_payments","customer_price_rules"):
+            op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:

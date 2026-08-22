@@ -1,0 +1,129 @@
+name: Encrypted production database backup
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup-and-restore-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      restore-postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: buyer_dash_restore
+          POSTGRES_PASSWORD: restore-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d buyer_dash_restore"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_BACKUP_URL: ${{ secrets.DATABASE_BACKUP_URL }}
+      DATABASE_BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.DATABASE_BACKUP_ENCRYPTION_PASSPHRASE }}
+      RESTORE_DATABASE_URL: postgresql://postgres:restore-test-only@127.0.0.1:5432/buyer_dash_restore
+    steps:
+      - name: Validate backup configuration
+        shell: bash
+        run: |
+          if [[ -z "$DATABASE_BACKUP_URL" || -z "$DATABASE_BACKUP_ENCRYPTION_PASSPHRASE" ]]; then
+            echo "DATABASE_BACKUP_URL and DATABASE_BACKUP_ENCRYPTION_PASSPHRASE must be configured as repository secrets."
+            exit 1
+          fi
+          if [[ ${#DATABASE_BACKUP_ENCRYPTION_PASSPHRASE} -lt 32 ]]; then
+            echo "The backup encryption passphrase must contain at least 32 characters."
+            exit 1
+          fi
+
+      - name: Install encryption client
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gnupg
+
+      - name: Create consistent production backup
+        shell: bash
+        run: |
+          backup_file="$RUNNER_TEMP/buyer-dash-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.dump"
+          echo "BACKUP_FILE=$backup_file" >> "$GITHUB_ENV"
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env DATABASE_BACKUP_URL \
+            --volume "$RUNNER_TEMP:/backup" \
+            postgres:17 \
+            pg_dump "$DATABASE_BACKUP_URL" \
+            --format=custom \
+            --compress=9 \
+            --no-owner \
+            --no-acl \
+            --file="/backup/$(basename "$backup_file")"
+          test -s "$backup_file"
+
+      - name: Prove the backup restores
+        shell: bash
+        run: |
+          docker run --rm \
+            --network host \
+            --env RESTORE_DATABASE_URL \
+            --volume "$RUNNER_TEMP:/backup" \
+            postgres:17 \
+            pg_restore \
+            --clean \
+            --if-exists \
+            --schema=public \
+            --no-owner \
+            --no-acl \
+            --exit-on-error \
+            --dbname="$RESTORE_DATABASE_URL" \
+            "/backup/$(basename "$BACKUP_FILE")"
+          migration_count="$(docker run --rm --network host --env RESTORE_DATABASE_URL postgres:17 \
+            psql "$RESTORE_DATABASE_URL" --tuples-only --no-align --command 'select count(*) from alembic_version')"
+          if [[ "$migration_count" != "1" ]]; then
+            echo "Restored database does not contain exactly one Alembic revision row."
+            exit 1
+          fi
+
+      - name: Encrypt and checksum backup
+        shell: bash
+        run: |
+          encrypted_file="$BACKUP_FILE.gpg"
+          passphrase_file="$RUNNER_TEMP/backup-passphrase"
+          printf '%s' "$DATABASE_BACKUP_ENCRYPTION_PASSPHRASE" > "$passphrase_file"
+          chmod 600 "$passphrase_file"
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+            --passphrase-file "$passphrase_file" \
+            --output "$encrypted_file" \
+            "$BACKUP_FILE"
+          sha256sum "$encrypted_file" > "$encrypted_file.sha256"
+          echo "ENCRYPTED_BACKUP_FILE=$encrypted_file" >> "$GITHUB_ENV"
+          shred --remove "$passphrase_file"
+          shred --remove "$BACKUP_FILE"
+
+      - name: Retain encrypted backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: buyer-dash-production-backup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.ENCRYPTED_BACKUP_FILE }}
+            ${{ env.ENCRYPTED_BACKUP_FILE }}.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove runner backup files
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${BACKUP_FILE:-}" && -f "$BACKUP_FILE" ]]; then shred --remove "$BACKUP_FILE"; fi
+          if [[ -n "${ENCRYPTED_BACKUP_FILE:-}" && -f "$ENCRYPTED_BACKUP_FILE" ]]; then shred --remove "$ENCRYPTED_BACKUP_FILE"; fi
+          if [[ -n "${ENCRYPTED_BACKUP_FILE:-}" && -f "$ENCRYPTED_BACKUP_FILE.sha256" ]]; then shred --remove "$ENCRYPTED_BACKUP_FILE.sha256"; fi

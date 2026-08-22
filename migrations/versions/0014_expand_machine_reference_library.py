@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from alembic import op
+import sqlalchemy as sa
 
 revision = "0014_machine_reference_library"
 down_revision = "0013_legal_acceptance"
@@ -27,6 +28,32 @@ ROWS = (
 
 def upgrade() -> None:
     checked_at = datetime(2026, 8, 2, tzinfo=timezone.utc)
+    statement = sa.text(
+        """
+        insert into coman_machine_models
+            (id, manufacturer, model, category, operations_json,
+             published_max_rate, rate_unit, published_min_operators,
+             published_max_operators, planning_utilization_pct, source_url,
+             source_checked_at, active, created_at, updated_at)
+        values
+            (:id, :manufacturer, :model, :category, :operations_json,
+             :rate, :rate_unit, :min_ops, :max_ops, :utilization, :source_url,
+             :checked_at, true, :checked_at, :checked_at)
+        on conflict (manufacturer, model) do update set
+            category = excluded.category,
+            operations_json = excluded.operations_json,
+            published_max_rate = excluded.published_max_rate,
+            rate_unit = excluded.rate_unit,
+            published_min_operators = excluded.published_min_operators,
+            published_max_operators = excluded.published_max_operators,
+            planning_utilization_pct = excluded.planning_utilization_pct,
+            source_url = excluded.source_url,
+            source_checked_at = excluded.source_checked_at,
+            active = true,
+            updated_at = excluded.updated_at
+        """
+    )
+    connection = op.get_bind()
     for row in ROWS:
         (
             machine_id,
@@ -41,30 +68,8 @@ def upgrade() -> None:
             utilization,
             source_url,
         ) = row
-        op.execute(
-            """
-            insert into coman_machine_models
-                (id, manufacturer, model, category, operations_json,
-                 published_max_rate, rate_unit, published_min_operators,
-                 published_max_operators, planning_utilization_pct, source_url,
-                 source_checked_at, active, created_at, updated_at)
-            values
-                (:id, :manufacturer, :model, :category, :operations_json,
-                 :rate, :rate_unit, :min_ops, :max_ops, :utilization, :source_url,
-                 :checked_at, true, :checked_at, :checked_at)
-            on conflict (manufacturer, model) do update set
-                category = excluded.category,
-                operations_json = excluded.operations_json,
-                published_max_rate = excluded.published_max_rate,
-                rate_unit = excluded.rate_unit,
-                published_min_operators = excluded.published_min_operators,
-                published_max_operators = excluded.published_max_operators,
-                planning_utilization_pct = excluded.planning_utilization_pct,
-                source_url = excluded.source_url,
-                source_checked_at = excluded.source_checked_at,
-                active = true,
-                updated_at = excluded.updated_at
-            """,
+        connection.execute(
+            statement,
             {
                 "id": machine_id,
                 "manufacturer": manufacturer,

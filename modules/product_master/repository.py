@@ -61,6 +61,8 @@ class ProductMasterRepository:
         manufacturer: str = "",
         product_format: str = "",
         description: str = "",
+        retail_enabled: bool | None = None,
+        production_enabled: bool | None = None,
     ) -> ProductMasterProfile:
         fields = {
             "brand": str(brand or "").strip(),
@@ -71,6 +73,10 @@ class ProductMasterRepository:
             "product_format": str(product_format or "").strip(),
             "description": str(description or "").strip(),
         }
+        if retail_enabled is not None:
+            fields["retail_enabled"] = bool(retail_enabled)
+        if production_enabled is not None:
+            fields["production_enabled"] = bool(production_enabled)
         with self._session_factory.begin() as session:
             self._product(session, organization_id, product_id)
             profile = session.get(ProductMasterProfile, product_id)

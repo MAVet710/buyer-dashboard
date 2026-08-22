@@ -558,6 +558,7 @@ class ExtractionRepository:
                             run.status = "qa"
                             run.release_status = "pending"
             run.updated_by = _clean(actor)
+            session.flush()
             self._audit(
                 session,
                 organization_id,

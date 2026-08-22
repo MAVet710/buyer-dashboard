@@ -1,0 +1,38 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "Dockerfile.api", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$BUILD_ID", "."]
+  - name: gcr.io/cloud-builders/docker
+    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$BUILD_ID"]
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - buyer-dash-migrate
+      - --image
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$BUILD_ID
+      - --region
+      - ${_REGION}
+      - --service-account
+      - buyer-dash-migrate@$PROJECT_ID.iam.gserviceaccount.com
+      - --command
+      - alembic
+      - --args
+      - upgrade,head
+      - --max-retries
+      - "0"
+      - --task-timeout
+      - 15m
+      - --set-env-vars
+      - APP_ENV=production
+      - --set-secrets
+      - DATABASE_URL=buyer-dash-database-url:latest
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args: ["run", "jobs", "execute", "buyer-dash-migrate", "--region", "${_REGION}", "--wait"]
+substitutions:
+  _REGION: us-east1
+  _REPOSITORY: buyer-dash
+options:
+  logging: CLOUD_LOGGING_ONLY
