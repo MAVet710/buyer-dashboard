@@ -8,22 +8,24 @@ export type InventoryPackage = {
   material_type: string;
   location: string;
   status: string;
+  source_name: string;
   available: number;
   reserved: number;
   usable: number;
   unit: string;
   received_at: string | null;
   expiration_at: string | null;
-  attention: "Hold" | "Empty" | "Low balance" | "Production ready";
+  attention: string;
   sold_30d: number; daily_velocity: number; days_on_hand: number | null;
   unit_cost: number; retail_price: number; margin_pct: number | null;
+  age_days: number | null; days_to_expiry: number | null;
 };
 
 export type InventoryResponse = {
   operation: "retail" | "production";
   grain: "packages";
   items: InventoryPackage[];
-  facets: { statuses: string[]; material_types: string[]; locations: string[] };
+  facets: { statuses: string[]; material_types: string[]; locations: string[]; sources: string[] };
   summary: {
     package_count: number;
     available_quantity: number;

@@ -16,6 +16,7 @@ from modules.coman.models import (
     MaterialReservation,
     Organization,
     Product,
+    RetailSale,
     ProductionOrder,
     TradePartner,
     CommercialOrder,
@@ -27,6 +28,7 @@ from modules.coman.models import (
 from backend.app.config import Settings, get_settings
 from backend.app.auth import get_authorization_engine
 from modules.integrations.models import IntegrationConfiguration
+from modules.product_master.models import ProductMasterProfile
 
 
 def _engine():
@@ -126,6 +128,86 @@ def test_retail_and_production_read_the_same_durable_package_ledger():
         assert payload["summary"]["reserved_quantity"] == 15
         assert payload["items"][0]["usable"] == 85
         assert payload["items"][0]["package_id"] == "1A406000000001"
+
+
+def test_inventory_api_matches_streamlit_builtin_views_and_source_facets():
+    engine = _engine()
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        lot = session.get(InventoryLot, "lot-1")
+        lot.received_at = now - timedelta(days=70)
+        lot.expiration_at = now + timedelta(days=60)
+        lot.notes = json.dumps({"source_name": "Atlantic Cultivation"})
+        session.add(ProductMasterProfile(
+            product_id="product-1",
+            organization_id="org-1",
+            category="Bulk Flower",
+            product_format="Flower",
+        ))
+        session.add(RetailSale(
+            organization_id="org-1",
+            facility_id="facility-1",
+            product_id="product-1",
+            source_system="dutchie",
+            source_record_id="view-test-sale",
+            import_batch_id="view-test",
+            sku="BD-BULK",
+            product_name="Blue Dream Bulk Flower",
+            quantity=300,
+            net_sales=3000,
+            sold_at=now,
+            imported_by="tester",
+        ))
+        session.commit()
+    app.dependency_overrides[get_engine] = lambda: engine
+    client = TestClient(app)
+    headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1"}
+    try:
+        all_inventory = client.get("/api/v1/inventory/retail/packages", headers=headers)
+        source = client.get("/api/v1/inventory/retail/packages?source=Atlantic%20Cultivation", headers=headers)
+        under_14 = client.get("/api/v1/inventory/retail/packages?view=under-14-doh", headers=headers)
+        expiring = client.get("/api/v1/inventory/retail/packages?view=expiring-90-days", headers=headers)
+        flower = client.get("/api/v1/inventory/production/packages?view=bulk-flower", headers=headers)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert all_inventory.status_code == 200
+    assert all_inventory.json()["facets"]["sources"] == ["Atlantic Cultivation"]
+    assert all_inventory.json()["facets"]["material_types"] == ["Bulk Flower"]
+    item = all_inventory.json()["items"][0]
+    assert item["source_name"] == "Atlantic Cultivation"
+    assert 69 <= item["age_days"] <= 71
+    assert 59 <= item["days_to_expiry"] <= 61
+    assert source.json()["summary"]["package_count"] == 1
+    assert under_14.json()["summary"]["package_count"] == 1
+    assert expiring.json()["summary"]["package_count"] == 1
+    assert flower.json()["summary"]["package_count"] == 1
+
+
+def test_retail_and_production_inventory_respect_product_operation_scope():
+    engine = _engine()
+    with Session(engine) as session:
+        session.add(ProductMasterProfile(
+            product_id="product-1",
+            organization_id="org-1",
+            category="Bulk Flower",
+            retail_enabled=False,
+            production_enabled=True,
+        ))
+        session.commit()
+    app.dependency_overrides[get_engine] = lambda: engine
+    client = TestClient(app)
+    headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1"}
+    try:
+        retail = client.get("/api/v1/inventory/retail/packages", headers=headers)
+        production = client.get("/api/v1/inventory/production/packages", headers=headers)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert retail.status_code == 200
+    assert retail.json()["items"] == []
+    assert production.status_code == 200
+    assert [row["package_id"] for row in production.json()["items"]] == ["1A406000000001"]
 
 
 def test_facility_capabilities_are_exposed_and_enforced_by_inventory_routes():

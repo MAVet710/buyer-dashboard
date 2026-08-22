@@ -64,6 +64,19 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [ ] Doobie Inventory Check on the current filtered slice.
 - [ ] Generate Doobie Buyer Brief action.
 
+### Inventory Command Center
+- [x] Retail Products / Packages grains and Production Packages / cultivation Plants grains are distinct.
+- [x] Retail built-in views match: All Inventory, Low Stock, Under 14 DOH, Slow Movers, Expiring 90 Days, Bulk Packages, Quarantine / Hold.
+- [x] Production built-in views match: All Material, Bulk Flower, Biomass / Trim, Extraction Input, WIP, Finished Bulk, Production Ready, Low Balance, Quarantine / Hold.
+- [x] Search plus status, vendor/source, room and category/material filters use the facility-scoped durable ledger.
+- [x] Saved views and clear/reset controls match the Streamlit command center.
+- [x] Show All / Show Defaults / Compact display-column controls match.
+- [x] Multi-row selection surface restores the Streamlit action labels and row/available totals.
+- [ ] Product 360, audit focus, Add to PO staging, Package Studio prefill, labels, adjustment and selected export have been source/visual verified end-to-end.
+- [ ] Retail receive drawer matches the full inbound queue → Receive Details Streamlit workflow.
+- [ ] Production receive drawer matches the bulk material Streamlit workflow.
+- [ ] Receive history matches Streamlit source semantics for both operations.
+
 ### Inventory Audits
 - [ ] Start audit workflow matches Streamlit.
 - [ ] Uploaded/current source selection matches Streamlit.

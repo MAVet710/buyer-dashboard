@@ -1,10 +1,11 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Engine, func, or_, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import AuditEvent, InventoryLot, InventoryTransaction, MaterialReservation, Product, RetailSale, utc_now
+from modules.coman.models import AuditEvent, InventoryLot, InventoryTransaction, MaterialReservation, Product, RetailSale, TradePartner, utc_now
+from modules.product_master.models import ProductMasterProfile, ProductVendorLink
 
 from ..schemas.inventory import (
     InventoryFacets,
@@ -38,6 +39,7 @@ class InventoryQueryService:
         status: str = "",
         material_type: str = "",
         location: str = "",
+        source: str = "",
         view: str = "all",
     ) -> InventoryResponse:
         balance = (
@@ -100,14 +102,62 @@ class InventoryQueryService:
         )
         with Session(self.engine) as session:
             rows = session.execute(query).all()
+            product_ids = {product.id for _, product, *_ in rows}
+            profiles = {
+                row.product_id: row
+                for row in session.scalars(
+                    select(ProductMasterProfile).where(
+                        ProductMasterProfile.organization_id == organization_id,
+                        ProductMasterProfile.product_id.in_(product_ids),
+                    )
+                )
+            } if product_ids else {}
+            vendor_rows = session.execute(
+                select(ProductVendorLink.product_id, TradePartner.name)
+                .join(TradePartner, TradePartner.id == ProductVendorLink.partner_id)
+                .where(
+                    ProductVendorLink.organization_id == organization_id,
+                    ProductVendorLink.product_id.in_(product_ids),
+                    ProductVendorLink.active.is_(True),
+                    ProductVendorLink.is_primary.is_(True),
+                )
+            ).all() if product_ids else []
+            primary_vendors = {product_id: name for product_id, name in vendor_rows}
 
-        items = [self._package(lot, product, float(available), float(reserved), float(sold_30d), operation) for lot, product, available, reserved, sold_30d in rows]
+        rows = [
+            row for row in rows
+            if row[1].id not in profiles
+            or (
+                operation == "retail" and profiles[row[1].id].retail_enabled
+            )
+            or (
+                operation == "production" and profiles[row[1].id].production_enabled
+            )
+        ]
+        items = [
+            self._package(
+                lot,
+                product,
+                float(available),
+                float(reserved),
+                float(sold_30d),
+                operation,
+                material_type=(
+                    profiles[product.id].category
+                    or profiles[product.id].product_format
+                    if product.id in profiles else ""
+                ),
+                primary_vendor=primary_vendors.get(product.id, ""),
+            )
+            for lot, product, available, reserved, sold_30d in rows
+        ]
         facets = InventoryFacets(
             statuses=sorted({item.status for item in items}),
             material_types=sorted({item.material_type for item in items}),
             locations=sorted({item.location for item in items}),
+            sources=sorted({item.source_name for item in items if item.source_name}),
         )
-        items = self._filter(items, search, status, material_type, location, view)
+        items = self._filter(items, search, status, material_type, location, source, view)
         return InventoryResponse(
             operation=operation,
             items=items,
@@ -144,7 +194,17 @@ class InventoryQueryService:
         )
 
     @staticmethod
-    def _package(lot: InventoryLot, product: Product, available: float, reserved: float, sold_30d: float, operation: str) -> InventoryPackage:
+    def _package(
+        lot: InventoryLot,
+        product: Product,
+        available: float,
+        reserved: float,
+        sold_30d: float,
+        operation: str,
+        *,
+        material_type: str = "",
+        primary_vendor: str = "",
+    ) -> InventoryPackage:
         usable = max(0.0, available - reserved)
         status = str(lot.status or "available")
         if any(token in status.casefold() for token in ("hold", "quarantine", "failed")):
@@ -158,6 +218,17 @@ class InventoryQueryService:
         velocity = sold_30d / 30.0 if operation == "retail" else 0.0
         price = float(product.retail_price or 0)
         cost = float(product.unit_cost or 0)
+        try:
+            metadata = json.loads(lot.notes or "{}")
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        now = datetime.now(timezone.utc)
+        received_at = lot.received_at
+        expiration_at = lot.expiration_at
+        if received_at is not None and received_at.tzinfo is None:
+            received_at = received_at.replace(tzinfo=timezone.utc)
+        if expiration_at is not None and expiration_at.tzinfo is None:
+            expiration_at = expiration_at.replace(tzinfo=timezone.utc)
         return InventoryPackage(
             id=lot.id,
             package_id=lot.compliance_package_id or lot.lot_code,
@@ -165,9 +236,10 @@ class InventoryQueryService:
             product_id=product.id,
             sku=product.sku,
             product_name=product.name,
-            material_type=product.item_type.replace("_", " ").title(),
+            material_type=(material_type or product.item_type.replace("_", " ")).title(),
             location=lot.location_code,
             status=status.replace("_", " ").title(),
+            source_name=str(metadata.get("source_name") or primary_vendor or ""),
             available=available,
             reserved=reserved,
             usable=usable,
@@ -181,6 +253,8 @@ class InventoryQueryService:
             unit_cost=cost,
             retail_price=price,
             margin_pct=((price - cost) / price * 100) if price > 0 else None,
+            age_days=max(0.0, (now - received_at).total_seconds() / 86400.0) if received_at else None,
+            days_to_expiry=(expiration_at - now).total_seconds() / 86400.0 if expiration_at else None,
         )
 
     @staticmethod
@@ -190,25 +264,49 @@ class InventoryQueryService:
         status: str,
         material_type: str,
         location: str,
+        source: str,
         view: str,
     ) -> list[InventoryPackage]:
         needle = search.strip().casefold()
         result = items
         if needle:
-            result = [item for item in result if needle in " ".join((item.product_name, item.sku, item.package_id, item.lot_code, item.location)).casefold()]
+            result = [item for item in result if needle in " ".join((item.product_name, item.sku, item.package_id, item.lot_code, item.location, item.source_name, item.material_type)).casefold()]
         if status:
             result = [item for item in result if item.status.casefold() == status.casefold()]
         if material_type:
             result = [item for item in result if item.material_type.casefold() == material_type.casefold()]
         if location:
             result = [item for item in result if item.location.casefold() == location.casefold()]
+        if source:
+            result = [item for item in result if item.source_name.casefold() == source.casefold()]
         view_key = view.casefold().replace("_", "-")
-        if view_key == "production-ready":
+        if view_key == "bulk-flower":
+            result = [item for item in result if "flower" in item.material_type.casefold()]
+        elif view_key == "biomass-trim":
+            result = [item for item in result if any(token in item.material_type.casefold() for token in ("biomass", "trim"))]
+        elif view_key == "extraction-input":
+            result = [item for item in result if any(token in item.material_type.casefold() for token in ("flower", "trim", "biomass", "fresh frozen", "material"))]
+        elif view_key == "wip":
+            result = [item for item in result if any(token in item.material_type.casefold() for token in ("wip", "work in process", "crude", "oil", "distillate", "concentrate"))]
+        elif view_key == "finished-bulk":
+            result = [item for item in result if any(token in item.material_type.casefold() for token in ("finished", "distillate", "rosin", "resin", "concentrate"))]
+        elif view_key == "production-ready":
             result = [item for item in result if item.attention == "Production ready"]
         elif view_key == "low-balance":
-            result = [item for item in result if item.attention == "Low balance"]
+            result = [item for item in result if 0 < item.available <= 10]
         elif view_key in {"hold", "quarantine-hold"}:
             result = [item for item in result if item.attention == "Hold"]
+        elif view_key == "low-stock":
+            result = [item for item in result if (item.days_on_hand is not None and item.days_on_hand <= 7) or item.available <= 0]
+        elif view_key == "under-14-doh":
+            result = [item for item in result if item.days_on_hand is not None and item.days_on_hand <= 14]
+        elif view_key == "slow-movers":
+            result = [item for item in result if item.available > 0 and (item.sold_30d <= 2 or (item.age_days is not None and item.age_days >= 60) or (item.days_on_hand is not None and item.days_on_hand >= 60))]
+        elif view_key == "expiring-90-days":
+            result = [item for item in result if item.days_to_expiry is not None and 0 <= item.days_to_expiry <= 90]
+        elif view_key == "bulk-packages":
+            bulk_units = {"g", "gram", "grams", "kg", "oz", "ounce", "ounces", "lb", "pound", "pounds"}
+            result = [item for item in result if item.unit.casefold() in bulk_units or any(token in item.material_type.casefold() for token in ("bulk", "flower", "material"))]
         return result
 
     def list_products(self, organization_id: str) -> list[ProductOption]:

@@ -14,6 +14,7 @@ class InventoryPackage(BaseModel):
     material_type: str
     location: str
     status: str
+    source_name: str = ""
     available: float
     reserved: float
     usable: float
@@ -27,12 +28,15 @@ class InventoryPackage(BaseModel):
     unit_cost: float = 0.0
     retail_price: float = 0.0
     margin_pct: float | None = None
+    age_days: float | None = None
+    days_to_expiry: float | None = None
 
 
 class InventoryFacets(BaseModel):
     statuses: list[str]
     material_types: list[str]
     locations: list[str]
+    sources: list[str] = []
 
 
 class InventorySummary(BaseModel):

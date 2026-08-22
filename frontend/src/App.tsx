@@ -33,9 +33,9 @@ export default function App() {
   const [page, setPage] = useState("Home");
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
     : page === "Buyer Operations" ? <BuyerOperationsPage onNavigate={setPage} />
-    : page === "Inventory" ? <InventoryPage initialOperation="retail" />
-    : page === "Production Inventory" ? <InventoryPage initialOperation="production" />
-    : page === "Inventory Audits" ? <InventoryPage initialOperation="retail" initialAudits />
+    : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
+    : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={setPage} />
+    : page === "Inventory Audits" ? <InventoryPage initialOperation="retail" initialAudits onNavigate={setPage} />
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
     : page === "Delivery Performance" ? <DeliveryImpactPage />
