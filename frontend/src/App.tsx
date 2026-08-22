@@ -15,6 +15,7 @@ const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(
 const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
 const ProductionPage = lazy(() => import("./pages/ProductionPage").then(module => ({ default: module.ProductionPage })));
 const ExtractionCommandCenterPage = lazy(() => import("./pages/ExtractionCommandCenterPage").then(module => ({ default: module.ExtractionCommandCenterPage })));
+const WhiteLabelRepackPage = lazy(() => import("./pages/WhiteLabelRepackPage").then(module => ({ default: module.WhiteLabelRepackPage })));
 const PackageStudioPage = lazy(() => import("./pages/PackageStudioPage").then(module => ({ default: module.PackageStudioPage })));
 const OrdersPage = lazy(() => import("./pages/OrdersPage").then(module => ({ default: module.OrdersPage })));
 const CompliancePage = lazy(() => import("./pages/CompliancePage").then(module => ({ default: module.CompliancePage })));
@@ -45,7 +46,8 @@ export default function App() {
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPage />
     : page === "Extraction" ? <ExtractionCommandCenterPage onNavigate={setPage} />
-    : page === "Package Studio" || page === "White Label / Repack" ? <PackageStudioPage />
+    : page === "White Label / Repack" ? <WhiteLabelRepackPage />
+    : page === "Package Studio" ? <PackageStudioPage />
     : page === "Orders" ? <OrdersPage />
     : page === "Compliance" ? <CompliancePage />
     : page === "Compliance Q&A" ? <ComplianceQAPage />
