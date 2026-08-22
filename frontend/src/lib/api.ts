@@ -42,3 +42,27 @@ export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
   if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload, response.status)); }
   return response.json() as Promise<T>;
 }
+
+export async function apiDownload(path: string, body?: unknown): Promise<Blob> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: await requestHeaders(body !== undefined),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(errorMessage(payload, response.status));
+  }
+  return response.blob();
+}
+
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
