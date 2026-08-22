@@ -1,13 +1,13 @@
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: ["build", "-f", "Dockerfile.api", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$COMMIT_SHA", "."]
+    args: ["build", "-f", "Dockerfile.api", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$BUILD_ID", "."]
   - name: gcr.io/cloud-builders/docker
-    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$COMMIT_SHA"]
+    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$BUILD_ID"]
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
-    args: ["run", "deploy", "buyer-dash-api", "--image", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$COMMIT_SHA", "--region", "${_REGION}", "--platform", "managed", "--allow-unauthenticated", "--port", "8080", "--min-instances", "1", "--max-instances", "10", "--concurrency", "40", "--cpu", "1", "--memory", "1Gi", "--set-env-vars", "^:^APP_ENV=production:CORS_ORIGINS=https://ops.doobielogic.io:ALLOWED_HOSTS=api.doobielogic.io,*.run.app", "--set-secrets", "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest,METRC_INTEGRATOR_KEY=buyer-dash-metrc-integrator-key:latest"]
+    args: ["run", "deploy", "buyer-dash-api", "--image", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$BUILD_ID", "--region", "${_REGION}", "--platform", "managed", "--allow-unauthenticated", "--no-traffic", "--tag", "candidate", "--port", "8080", "--min-instances", "1", "--max-instances", "10", "--concurrency", "40", "--cpu", "1", "--memory", "1Gi", "--set-env-vars", "^:^APP_ENV=production:CORS_ORIGINS=https://ops.doobielogic.io:ALLOWED_HOSTS=api.doobielogic.io,*.run.app", "--set-secrets", "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest,METRC_INTEGRATOR_KEY=buyer-dash-metrc-integrator-key:latest"]
 images:
-  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$COMMIT_SHA"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/buyer-dash-api:$BUILD_ID"
 substitutions:
   _REGION: us-east1
   _REPOSITORY: buyer-dash
