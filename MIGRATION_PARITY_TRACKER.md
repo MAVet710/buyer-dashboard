@@ -58,6 +58,12 @@ Acceptance notes:
 
 Acceptance note: the charting implementation intentionally changes from Streamlit/Plotly to responsive React SVG while preserving the daily and same-weekday comparison series and point-level values. Plotly is not retained as a runtime dependency solely for implementation parity.
 
+Acceptance notes:
+- Delivery Impact now restores Streamlit's multiple-manifest workflow, cached facility sales reuse or direct sales upload, exact comparison defaults, invalid-file exclusion, combined/individual manifest analysis, dynamic same-weekday KPI columns, exact four-metric summary, lift tables, unmatched review and all-file debug downloads.
+- Combined analysis applies the union of delivered product matches to every active manifest exactly as Streamlit does; individual selection recomputes from that manifest's own delivered-item evidence.
+- The responsive chart retains daily/hourly overlays, separate sales/order scaling, current/prior-week series, delivery markers and point-value hover evidence.
+- Browser acceptance passed at 390px, 430px, 768px, 1024px and 1440px with mobile navigation, contained table scrolling and no hidden controls.
+
 ## Slow Movers workspace
 - [x] Full filter bar
 - [x] Velocity window selector

@@ -26,10 +26,30 @@
 .chart-shell { width:100%; min-height:260px; }
 .parity-line-chart { width:100%; height:auto; overflow:visible; }
 .parity-line-chart line { stroke:rgba(255,255,255,.14); stroke-width:1.5; }
+.parity-line-chart .delivery-marker { stroke:#dc4a4a; stroke-width:2; stroke-dasharray:8 6; }
 .parity-line-chart polyline { fill:none; stroke-width:4; stroke-linecap:round; stroke-linejoin:round; }
 .parity-line-chart .current { stroke:var(--accent); }
 .parity-line-chart .prior { stroke:rgba(90,168,255,.82); stroke-dasharray:10 8; }
+.parity-line-chart .prior[data-series="delivered_net_sales"] { stroke:#70c99a; }
+.parity-line-chart .prior[data-series="non_delivered_net_sales"] { stroke:#b68cff; }
+.parity-line-chart .prior[data-series="order_count"] { stroke:#f0d26b; }
+.parity-line-chart .series-alt[data-series="delivered_net_sales"] { stroke:#70c99a; }
+.parity-line-chart .series-alt[data-series="non_delivered_net_sales"] { stroke:#b68cff; }
+.parity-line-chart .series-alt[data-series="order_count"] { stroke:#f0d26b; stroke-dasharray:7 6; }
+.delivery-chart-legend { display:flex; flex-wrap:wrap; gap:.55rem 1rem; margin:.15rem 0 .65rem; font-size:.78rem; color:var(--muted); }
+.delivery-chart-legend span::before { content:""; display:inline-block; width:1.25rem; height:3px; margin:0 .35rem .16rem 0; border-radius:999px; background:var(--accent); }
+.delivery-chart-legend span[data-series="delivered_net_sales"]::before { background:#70c99a; }
+.delivery-chart-legend span[data-series="non_delivered_net_sales"]::before { background:#b68cff; }
+.delivery-chart-legend span[data-series="order_count"]::before { background:#f0d26b; }
+.delivery-chart-legend .prior-key::before { background:repeating-linear-gradient(90deg,rgba(90,168,255,.82) 0 6px,transparent 6px 10px); }
 .parity-line-chart circle { fill:var(--accent); stroke:#111; stroke-width:2; }
+.parity-line-chart circle.prior { fill:rgba(90,168,255,.82); }
+.parity-line-chart circle[data-series="delivered_net_sales"] { fill:#70c99a; }
+.parity-line-chart circle[data-series="non_delivered_net_sales"] { fill:#b68cff; }
+.parity-line-chart circle[data-series="order_count"] { fill:#f0d26b; }
+.parity-line-chart text { fill:var(--muted); font-size:18px; text-anchor:middle; }
+.parity-line-chart .axis-left { text-anchor:start; }
+.parity-line-chart .axis-right { text-anchor:start; }
 .chart-legend { display:flex; gap:18px; color:var(--text-secondary); font-size:12px; }
 .chart-legend span::before { content:""; display:inline-block; width:18px; height:3px; margin-right:7px; vertical-align:middle; background:var(--accent); }
 .chart-legend span+span::before { background:#5aa8ff; }

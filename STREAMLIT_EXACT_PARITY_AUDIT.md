@@ -101,9 +101,10 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Buyer Intelligence acceptance covers 390, 430, 768, 1024 and 1440 px with contained table scrolling and no hidden action.
 
 ### Delivery Impact
-- [ ] Manifest + sales upload workflow matches.
-- [ ] Before/after, same-weekday, lift, unmatched review and debug output match.
-- [ ] Chart presentation/interactions match Streamlit.
+- [x] Multi-manifest upload, optional sales upload and facility-scoped Buyer Dashboard sales reuse match, including invalid-manifest exclusion without discarding valid files.
+- [x] Before/after and same-weekday modes, exact defaults, combined/individual selection, KPI labels/math, top-lift rows, unmatched review and every uploaded-file debug expander/download match.
+- [x] Daily/hourly chart overlays, delivery markers, prior-week series, point-value hover evidence and no-data behavior match in the responsive React SVG implementation.
+- [x] Delivery Impact acceptance covers 390, 430, 768, 1024 and 1440 px with mobile navigation, contained table scrolling and no hidden controls or debug actions.
 
 ### PO Builder
 - [x] Reorder cross-reference appears in the same location/order.
