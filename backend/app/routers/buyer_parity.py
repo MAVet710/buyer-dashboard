@@ -70,10 +70,11 @@ def _model(context: RequestContext, engine: Engine, target_doh: int, velocity_ad
 
 @router.get("/dashboard")
 def dashboard(target_doh: int = Query(21, ge=1, le=120), velocity_adjustment: float = Query(0.5, ge=0.01, le=5.0), sales_days: int = Query(60, ge=7, le=120), sku_window: int = Query(56, ge=7, le=120), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    detail, product, _inv, _sales, inventory_source, sales_source = _model(context, engine, target_doh, velocity_adjustment, sales_days)
-    _, sku_product, _inv2, _sales2, _, _ = _model(context, engine, target_doh, velocity_adjustment, sku_window)
-    categories = category_dos(detail, product); forecast = forecast_view(detail, product); sku = sku_inventory_view(sku_product)
-    reorder = sku[sku["status"].astype(str).str.contains("Reorder", regex=False)] if not sku.empty else sku; overstock = sku[sku["status"].astype(str).str.contains("Overstock", regex=False)] if not sku.empty else sku; expiring = sku[sku["status"].astype(str).str.contains("Expiring", regex=False)] if not sku.empty else sku
+    detail, product, inv_normalized, sales_normalized, inventory_source, sales_source = _model(context, engine, target_doh, velocity_adjustment, sales_days)
+    categories = category_dos(detail, product); forecast = forecast_view(detail, product); sku = sku_inventory_view(inv_normalized, sales_normalized, sku_window)
+    reorder = sku[sku["days_of_supply"] <= 21] if not sku.empty else sku
+    overstock = sku[sku["days_of_supply"] >= 90] if not sku.empty else sku
+    expiring = sku[sku["days_to_expire"].notna() & (sku["days_to_expire"] < 60)] if not sku.empty and "days_to_expire" in sku else sku.iloc[0:0]
     total_units = float(detail["unitssold"].sum()) if "unitssold" in detail else 0.0; reorder_asap = int((detail.get("reorderpriority") == "1 – Reorder ASAP").sum()) if "reorderpriority" in detail else 0
     return {"controls":{"target_doh":target_doh,"velocity_adjustment":velocity_adjustment,"sales_days":sales_days,"sku_window":sku_window},"summary":{"units_sold":total_units,"reorder_asap":reorder_asap,"tracked_products":int(len(product)),"categories":int(detail["subcategory"].nunique()) if "subcategory" in detail else 0},"sources":{"inventory":{"filename":inventory_source.filename,"rows":inventory_source.row_count,"activated_at":inventory_source.activated_at},"sales":{"filename":sales_source.filename,"rows":sales_source.row_count,"activated_at":sales_source.activated_at}},"category_dos":records(categories),"forecast":records(forecast),"product_rows":records(product.sort_values("unitssold",ascending=False) if "unitssold" in product else product,limit=PRODUCT_TABLE_DISPLAY_LIMIT),"product_rows_total":int(len(product)),"sku_views":{"all":records(sku),"reorder":records(reorder),"overstock":records(overstock),"expiring":records(expiring)}}
 
@@ -92,10 +93,10 @@ def intelligence(target_doh: int = Query(21, ge=1, le=120), velocity_adjustment:
 
 @router.get("/export")
 def export(kind: str = Query("forecast", pattern="^(forecast|product|sku)$"), target_doh: int = Query(21, ge=1, le=120), velocity_adjustment: float = Query(0.5, ge=0.01, le=5.0), sales_days: int = Query(60, ge=7, le=120), sku_window: int = Query(56, ge=7, le=120), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    detail, product, _inv, _sales, _inventory_source, _sales_source = _model(context, engine, target_doh, velocity_adjustment, sales_days if kind != "sku" else sku_window)
+    detail, product, inv_normalized, sales_normalized, _inventory_source, _sales_source = _model(context, engine, target_doh, velocity_adjustment, sales_days)
     if kind == "forecast": frame,filename,sheet = forecast_view(detail,product),"forecast_table.xlsx","Forecast"
     elif kind == "product": frame,filename,sheet = (product.sort_values("unitssold",ascending=False).head(PRODUCT_TABLE_DISPLAY_LIMIT) if "unitssold" in product else product.head(PRODUCT_TABLE_DISPLAY_LIMIT)),"product_level_forecast.xlsx","Product Rows"
-    else: frame,filename,sheet = sku_inventory_view(product),"sku_inventory_buyer_view.xlsx","SKU Buyer View"
+    else: frame,filename,sheet = sku_inventory_view(inv_normalized,sales_normalized,sku_window),"sku_inventory_buyer_view.xlsx","SKU Buyer View"
     return Response(content=xlsx_bytes(frame,sheet),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers={"Content-Disposition":f'attachment; filename="{filename}"'})
 
 
