@@ -628,6 +628,10 @@ def test_extraction_run_preserves_reservations_mass_balance_cogs_and_qa_gate():
         release = client.post(f"/api/v1/extraction/runs/{run_id}/qa", headers=headers, json={"event_type": "release", "result": "passed"})
         products = client.get("/api/v1/extraction/products", headers=headers)
         overview = client.get("/api/v1/extraction-parity/overview", headers=headers)
+        manual = client.post("/api/v1/extraction-parity/runs", headers=headers, json={"run_date": "2026-08-22", "state": "MA", "license_name": "Boston Production", "client_name": "In House", "batch_id_internal": "ROSIN-MANUAL-1", "method": "Rosin", "product_type": "Fresh Press", "input_material_type": "Hash", "input_weight_g": 100, "intermediate_output_g": 80, "finished_output_g": 72, "residual_loss_g": 8, "operator": "Operator A", "machine_line": "Press 1", "metrc_package_id_input": "INPUT-1", "metrc_package_id_output": "OUTPUT-1", "metrc_manifest_or_transfer_id": "TRANSFER-1", "coa_status": "Passed", "qa_hold": False, "toll_processing": False, "processing_fee_usd": 0, "est_revenue_usd": 1800, "cogs_usd": 400, "notes": "Legacy run analytics entry"})
+        blank_batch = client.post("/api/v1/extraction-parity/runs", headers=headers, json={"batch_id_internal": "", "method": "BHO"})
+        toll_job = client.post("/api/v1/extraction-parity/toll-jobs", headers=headers, json={"client_name": "Toll Client", "state": "MA", "license_or_registration": "LIC-TOLL", "method": "BHO", "batch_id_internal": "TOLL-DURABLE-1", "metrc_transfer_id": "TR-TOLL", "material_received_at": "2026-08-20T00:00:00", "promised_completion_at": "2026-08-30T00:00:00", "input_weight_g": 500, "expected_output_g": 80, "actual_output_g": 75, "processing_fee_usd": 1200, "invoice_status": "sent", "payment_status": "partial", "coa_status": "passed", "job_status": "processing", "notes": "Durable toll entry"})
+        updated_overview = client.get("/api/v1/extraction-parity/overview", headers=headers)
         detail = client.get(f"/api/v1/extraction/runs/{run_id}", headers=headers)
         isolated = client.get(f"/api/v1/extraction/runs/{run_id}", headers={**headers, "X-Facility-Id": "other-facility"})
     finally: app.dependency_overrides.clear()
@@ -642,6 +646,18 @@ def test_extraction_run_preserves_reservations_mass_balance_cogs_and_qa_gate():
     assert release.json()["result"] == "passed"
     assert products.json()[0]["id"] == "product-1"
     assert overview.json()["summary"]["total_revenue_usd"] == 0
+    assert manual.status_code == 201
+    assert blank_batch.status_code == 201 and blank_batch.json()["batch_id_internal"] == ""
+    assert toll_job.status_code == 201
+    manual_row = next(row for row in updated_overview.json()["runs"] if row["batch_id_internal"] == "ROSIN-MANUAL-1")
+    toll_row = next(row for row in updated_overview.json()["runs"] if row["batch_id_internal"] == "TOLL-DURABLE-1")
+    assert manual_row["state"] == "MA" and manual_row["finished_output_g"] == 72
+    assert manual_row["est_revenue_usd"] == 1800 and manual_row["cogs_usd"] == 400
+    assert manual_row["post_process_efficiency_pct"] == 90
+    assert manual_row["status"] == "Complete" and manual_row["coa_status"] == "Passed"
+    assert manual_row["notes"] == "Legacy run analytics entry"
+    assert toll_row["toll_job"]["client_license_snapshot"] == "LIC-TOLL"
+    assert toll_row["toll_job"]["input_weight_g"] == 500
     assert detail.json()["run"]["status"] == "complete"
     assert detail.json()["run"]["notes"] == "Run 360 operator note"
     assert detail.json()["workflow"]["key"] == "bho_cured"

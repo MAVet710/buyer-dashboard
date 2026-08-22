@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
-import json
+from datetime import date, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,6 +38,33 @@ class TollJobCreate(BaseModel):
     notes: str = ""
 
 
+class ManualRunCreate(BaseModel):
+    run_date: date = Field(default_factory=date.today)
+    state: str = "MA"
+    license_name: str = ""
+    client_name: str = "In House"
+    batch_id_internal: str = Field(default="", max_length=120)
+    method: str = "BHO"
+    product_type: str = "Sugar"
+    input_material_type: str = "Fresh Frozen"
+    input_weight_g: float = Field(default=0, ge=0)
+    intermediate_output_g: float = Field(default=0, ge=0)
+    finished_output_g: float = Field(default=0, ge=0)
+    residual_loss_g: float = Field(default=0, ge=0)
+    operator: str = ""
+    machine_line: str = ""
+    metrc_package_id_input: str = ""
+    metrc_package_id_output: str = ""
+    metrc_manifest_or_transfer_id: str = ""
+    coa_status: str = "Pending"
+    qa_hold: bool = False
+    toll_processing: bool = False
+    processing_fee_usd: float = Field(default=0, ge=0)
+    est_revenue_usd: float = Field(default=0, ge=0)
+    cogs_usd: float = Field(default=0, ge=0)
+    notes: str = ""
+
+
 def _repo(engine: Engine) -> ExtractionRepository:
     return ExtractionRepository(engine)
 
@@ -46,7 +72,10 @@ def _repo(engine: Engine) -> ExtractionRepository:
 def _toll(row):
     if row is None:
         return None
-    return {key: getattr(row, key) for key in ("id", "run_id", "customer_id", "promised_completion_at", "processing_fee_usd", "invoice_status", "payment_status", "external_reference", "notes", "created_at", "updated_at")}
+    result = {key: getattr(row, key) for key in ("id", "run_id", "customer_id", "promised_completion_at", "processing_fee_usd", "invoice_status", "payment_status", "external_reference", "notes", "jurisdiction", "client_license_snapshot", "material_received_at", "input_weight_g", "expected_output_g", "actual_output_g", "coa_status", "job_status", "created_at", "updated_at")}
+    for key in ("invoice_status", "payment_status", "coa_status", "job_status"):
+        result[key] = str(result[key] or "").title()
+    return result
 
 
 @router.get("/overview")
@@ -67,35 +96,53 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
         toll = repo.get_toll_job(context.organization_id, context.facility_id, run.id)
         qa = repo.list_qa_events(context.organization_id, context.facility_id, run.id)
         trace = repo.list_traceability_transactions(context.organization_id, context.facility_id, run.id)
-        finished += float(mass.get("recorded_output", 0))
-        yields.append(float(mass.get("yield_pct", 0)))
-        total_cogs += float(cogs.get("total", 0))
+        input_weight = float(mass.get("consumed_input", 0)) or float(run.manual_input_weight_g or 0)
+        output_weight = float(mass.get("recorded_output", 0)) or float(run.manual_finished_output_g or 0)
+        yield_pct = output_weight / input_weight * 100 if input_weight else 0.0
+        finished += output_weight
+        yields.append(yield_pct)
         economics = performance.run_metrics(context.organization_id, context.facility_id, run.id)
-        total_revenue += float(economics.get("projected_output_value", 0))
-        qa_hold = run.status == "hold" or any(event.result == "failed" for event in qa)
+        run_cogs = float(cogs.get("total", 0)) or float(run.manual_cogs_usd or 0)
+        run_revenue = float(economics.get("projected_output_value", 0)) or float(run.estimated_revenue_usd or 0)
+        total_cogs += run_cogs
+        total_revenue += run_revenue
+        qa_hold = bool(run.manual_qa_hold) or run.status == "hold" or any(event.result == "failed" for event in qa)
         qa_holds += int(qa_hold)
         toll_jobs += int(toll is not None or run.toll_processing)
         rows.append({
             "id": run.id,
-            "batch_id_internal": run.batch_number,
+            "batch_id_internal": run.manual_batch_id_internal if run.manual_batch_id_internal is not None else run.batch_number,
             "method": run.method,
             "product_type": run.product_family,
             "strain": run.strain,
             "operator": run.operator,
-            "status": run.status,
+            "status": run.status.title(),
             "release_status": run.release_status,
             "toll_processing": run.toll_processing,
             "started_at": run.started_at,
             "completed_at": run.completed_at,
-            "input_weight_g": mass.get("consumed_input", 0),
-            "finished_output_g": mass.get("recorded_output", 0),
-            "residual_loss_g": mass.get("unaccounted_balance", 0),
-            "yield_pct": mass.get("yield_pct", 0),
-            "cogs_usd": cogs.get("total", 0),
+            "run_date": run.run_date,
+            "state": run.jurisdiction,
+            "license_name": run.facility_license_name,
+            "client_name": run.client_name_snapshot,
+            "input_material_type": run.input_material_type,
+            "intermediate_output_g": run.intermediate_output_g,
+            "machine_line": run.machine_line,
+            "metrc_package_id_input": run.metrc_package_id_input,
+            "metrc_package_id_output": run.metrc_package_id_output,
+            "metrc_manifest_or_transfer_id": run.metrc_manifest_or_transfer_id,
+            "input_weight_g": input_weight,
+            "finished_output_g": output_weight,
+            "residual_loss_g": float(mass.get("unaccounted_balance", 0)) or float(run.residual_loss_g or 0),
+            "yield_pct": yield_pct,
+            "post_process_efficiency_pct": output_weight / float(run.intermediate_output_g or 0) * 100 if run.intermediate_output_g else 0.0,
+            "processing_fee_usd": run.processing_fee_usd,
+            "cogs_usd": run_cogs,
             "cost_per_output_unit": cogs.get("cost_per_output_unit", 0),
-            "est_revenue_usd": economics.get("projected_output_value", 0),
+            "est_revenue_usd": run_revenue,
             "qa_hold": qa_hold,
-            "coa_status": "failed" if any(event.result == "failed" for event in qa) else "passed" if any(event.result == "passed" for event in qa) else "pending",
+            "coa_status": ("failed" if any(event.result == "failed" for event in qa) else "passed" if any(event.result == "passed" for event in qa) else run.manual_coa_status).title(),
+            "notes": run.notes,
             "traceability_count": len(trace),
             "toll_job": _toll(toll),
         })
@@ -105,10 +152,40 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
         alerts.append(f"Low yield runs: {low} below 12% yield.")
     if qa_holds:
         alerts.append(f"QA holds active: {qa_holds} run(s).")
-    pending = sum(1 for row in rows if row["coa_status"] in {"pending", "failed"})
+    pending = sum(1 for row in rows if str(row["coa_status"]).casefold() in {"pending", "failed"})
     if pending:
         alerts.append(f"COA risk: {pending} run(s) pending/failed.")
     return {"summary": {"runs": len(rows), "finished_output_g": finished, "avg_yield_pct": sum(yields) / len(yields) if yields else 0, "qa_holds": qa_holds, "total_revenue_usd": total_revenue, "total_cogs_usd": total_cogs, "toll_jobs": toll_jobs}, "alerts": alerts, "runs": rows}
+
+
+@router.post("/runs", status_code=201)
+def create_manual_run(payload: ManualRunCreate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    workflow = default_workflow_for_method(payload.method)
+    durable_batch = f"MANUAL-{payload.run_date.strftime('%Y%m%d')}-{uuid4().hex[:8].upper()}"
+    try:
+        row = _repo(engine).create_run(
+            organization_id=context.organization_id, facility_id=context.facility_id,
+            batch_number=durable_batch, method=workflow.method, workflow_key=workflow.key,
+            actor=context.user_id, product_family=payload.product_type, operator=payload.operator,
+            license_number=payload.license_name, toll_processing=payload.toll_processing, notes=payload.notes,
+            run_date=payload.run_date, jurisdiction=payload.state, facility_license_name=payload.license_name,
+            client_name_snapshot=payload.client_name, input_material_type=payload.input_material_type,
+            manual_batch_id_internal=payload.batch_id_internal,
+            manual_input_weight_g=payload.input_weight_g, intermediate_output_g=payload.intermediate_output_g,
+            manual_finished_output_g=payload.finished_output_g, residual_loss_g=payload.residual_loss_g,
+            machine_line=payload.machine_line, metrc_package_id_input=payload.metrc_package_id_input,
+            metrc_package_id_output=payload.metrc_package_id_output,
+            metrc_manifest_or_transfer_id=payload.metrc_manifest_or_transfer_id,
+            manual_coa_status=payload.coa_status, manual_qa_hold=payload.qa_hold,
+            processing_fee_usd=payload.processing_fee_usd, estimated_revenue_usd=payload.est_revenue_usd,
+            manual_cogs_usd=payload.cogs_usd,
+            initial_status="complete", initial_release_status="approved",
+        )
+        if payload.cogs_usd > 0:
+            _repo(engine).add_cost_event(organization_id=context.organization_id, facility_id=context.facility_id, run_id=row.id, category="other", amount_usd=payload.cogs_usd, actor=context.user_id, notes="Manual Run Analytics entry")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"id": row.id, "batch_id_internal": payload.batch_id_internal, "status": row.status.title()}
 
 
 @router.get("/customers")
@@ -132,10 +209,9 @@ def create_toll_job(payload: TollJobCreate, context: RequestContext = Depends(ge
             customer.license_or_registration = payload.license_or_registration.strip()
         customer_id = customer.id
     batch = payload.batch_id_internal.strip() or f"TOLL-{datetime.utcnow().strftime('%Y%m%d')}-{uuid4().hex[:6].upper()}"
-    notes = json.dumps({"state": payload.state, "material_received_at": payload.material_received_at.isoformat() if payload.material_received_at else None, "input_weight_g": payload.input_weight_g, "expected_output_g": payload.expected_output_g, "actual_output_g": payload.actual_output_g, "coa_status": payload.coa_status, "job_status": payload.job_status, "notes": payload.notes}, sort_keys=True)
     try:
-        run = repo.create_run(organization_id=context.organization_id, facility_id=context.facility_id, batch_number=batch, method=workflow.method, workflow_key=workflow.key, actor=context.user_id, product_family="Toll Processing", customer_id=customer_id, toll_processing=True, notes=payload.notes)
-        toll = repo.upsert_toll_job(organization_id=context.organization_id, facility_id=context.facility_id, run_id=run.id, customer_id=customer_id, actor=context.user_id, promised_completion_at=payload.promised_completion_at, processing_fee_usd=payload.processing_fee_usd, invoice_status=payload.invoice_status, payment_status=payload.payment_status, external_reference=payload.metrc_transfer_id, notes=notes)
+        run = repo.create_run(organization_id=context.organization_id, facility_id=context.facility_id, batch_number=batch, method=workflow.method, workflow_key=workflow.key, actor=context.user_id, product_family="Toll Processing", customer_id=customer_id, toll_processing=True, notes=payload.notes, jurisdiction=payload.state, client_name_snapshot=payload.client_name, manual_input_weight_g=payload.input_weight_g, manual_finished_output_g=payload.actual_output_g, metrc_manifest_or_transfer_id=payload.metrc_transfer_id, manual_coa_status=payload.coa_status, processing_fee_usd=payload.processing_fee_usd)
+        toll = repo.upsert_toll_job(organization_id=context.organization_id, facility_id=context.facility_id, run_id=run.id, customer_id=customer_id, actor=context.user_id, promised_completion_at=payload.promised_completion_at, processing_fee_usd=payload.processing_fee_usd, invoice_status=payload.invoice_status, payment_status=payload.payment_status, external_reference=payload.metrc_transfer_id, notes=payload.notes, jurisdiction=payload.state, client_license_snapshot=payload.license_or_registration, material_received_at=payload.material_received_at, input_weight_g=payload.input_weight_g, expected_output_g=payload.expected_output_g, actual_output_g=payload.actual_output_g, coa_status=payload.coa_status, job_status=payload.job_status)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return {"run_id": run.id, "batch_id_internal": run.batch_number, "toll_job": _toll(toll)}

@@ -7,7 +7,7 @@ append-only inventory ledger.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 import json
 from typing import Any
 
@@ -78,6 +78,27 @@ class ExtractionRepository:
         machine_id: str | None = None,
         toll_processing: bool = False,
         notes: str = "",
+        run_date: date | None = None,
+        jurisdiction: str = "",
+        facility_license_name: str = "",
+        client_name_snapshot: str = "",
+        manual_batch_id_internal: str | None = None,
+        input_material_type: str = "",
+        manual_input_weight_g: float = 0.0,
+        intermediate_output_g: float = 0.0,
+        manual_finished_output_g: float = 0.0,
+        residual_loss_g: float = 0.0,
+        machine_line: str = "",
+        metrc_package_id_input: str = "",
+        metrc_package_id_output: str = "",
+        metrc_manifest_or_transfer_id: str = "",
+        manual_coa_status: str = "pending",
+        manual_qa_hold: bool = False,
+        processing_fee_usd: float = 0.0,
+        estimated_revenue_usd: float = 0.0,
+        manual_cogs_usd: float = 0.0,
+        initial_status: str = "queued",
+        initial_release_status: str = "blocked",
     ) -> ExtractionRun:
         workflow = get_extraction_workflow(workflow_key)
         clean_batch = _clean(batch_number)
@@ -86,6 +107,12 @@ class ExtractionRepository:
             raise ValueError("Batch number and actor are required.")
         if _clean(method).casefold() != workflow.method.casefold():
             raise ValueError("Run method must match the selected workflow template.")
+        clean_status = _clean(initial_status).casefold()
+        clean_release_status = _clean(initial_release_status).casefold()
+        if clean_status not in {"planned", "queued", "active", "hold", "qa", "complete", "cancelled", "failed"}:
+            raise ValueError("Unsupported initial run status.")
+        if clean_release_status not in {"blocked", "pending", "approved", "rejected"}:
+            raise ValueError("Unsupported initial release status.")
 
         run = ExtractionRun(
             organization_id=organization_id,
@@ -97,8 +124,8 @@ class ExtractionRepository:
             method=workflow.method,
             workflow_key=workflow.key,
             current_stage_key=workflow.first_stage,
-            status="queued",
-            release_status="blocked",
+            status=clean_status,
+            release_status=clean_release_status,
             product_family=_clean(product_family),
             strain=_clean(strain),
             toll_processing=bool(toll_processing),
@@ -106,6 +133,25 @@ class ExtractionRepository:
             license_number=_clean(license_number),
             operator=_clean(operator),
             notes=_clean(notes),
+            run_date=run_date,
+            jurisdiction=_clean(jurisdiction),
+            facility_license_name=_clean(facility_license_name),
+            client_name_snapshot=_clean(client_name_snapshot),
+            manual_batch_id_internal=None if manual_batch_id_internal is None else _clean(manual_batch_id_internal),
+            input_material_type=_clean(input_material_type),
+            manual_input_weight_g=max(0.0, float(manual_input_weight_g)),
+            intermediate_output_g=max(0.0, float(intermediate_output_g)),
+            manual_finished_output_g=max(0.0, float(manual_finished_output_g)),
+            residual_loss_g=max(0.0, float(residual_loss_g)),
+            machine_line=_clean(machine_line),
+            metrc_package_id_input=_clean(metrc_package_id_input),
+            metrc_package_id_output=_clean(metrc_package_id_output),
+            metrc_manifest_or_transfer_id=_clean(metrc_manifest_or_transfer_id),
+            manual_coa_status=_clean(manual_coa_status).casefold() or "pending",
+            manual_qa_hold=bool(manual_qa_hold),
+            processing_fee_usd=max(0.0, float(processing_fee_usd)),
+            estimated_revenue_usd=max(0.0, float(estimated_revenue_usd)),
+            manual_cogs_usd=max(0.0, float(manual_cogs_usd)),
             created_by=clean_actor,
             updated_by=clean_actor,
         )
@@ -965,6 +1011,14 @@ class ExtractionRepository:
         payment_status: str = "pending",
         external_reference: str = "",
         notes: str = "",
+        jurisdiction: str = "",
+        client_license_snapshot: str = "",
+        material_received_at: datetime | None = None,
+        input_weight_g: float = 0.0,
+        expected_output_g: float = 0.0,
+        actual_output_g: float = 0.0,
+        coa_status: str = "pending",
+        job_status: str = "queued",
     ) -> ExtractionTollJob:
         if float(processing_fee_usd) < 0:
             raise ValueError("Processing fee cannot be negative.")
@@ -986,6 +1040,14 @@ class ExtractionRepository:
                     payment_status=_clean(payment_status).casefold(),
                     external_reference=_clean(external_reference),
                     notes=_clean(notes),
+                    jurisdiction=_clean(jurisdiction),
+                    client_license_snapshot=_clean(client_license_snapshot),
+                    material_received_at=material_received_at,
+                    input_weight_g=max(0.0, float(input_weight_g)),
+                    expected_output_g=max(0.0, float(expected_output_g)),
+                    actual_output_g=max(0.0, float(actual_output_g)),
+                    coa_status=_clean(coa_status).casefold() or "pending",
+                    job_status=_clean(job_status).casefold() or "queued",
                     created_by=_clean(actor),
                 )
                 session.add(record)
@@ -997,6 +1059,14 @@ class ExtractionRepository:
                 record.payment_status = _clean(payment_status).casefold()
                 record.external_reference = _clean(external_reference)
                 record.notes = _clean(notes)
+                record.jurisdiction = _clean(jurisdiction)
+                record.client_license_snapshot = _clean(client_license_snapshot)
+                record.material_received_at = material_received_at
+                record.input_weight_g = max(0.0, float(input_weight_g))
+                record.expected_output_g = max(0.0, float(expected_output_g))
+                record.actual_output_g = max(0.0, float(actual_output_g))
+                record.coa_status = _clean(coa_status).casefold() or "pending"
+                record.job_status = _clean(job_status).casefold() or "queued"
             run.customer_id = customer.id
             run.toll_processing = True
             run.updated_by = _clean(actor)

@@ -155,16 +155,16 @@ No item may be checked because of an intentional redesign. The requirement is **
 
 ### Extraction Command Center
 - [x] Executive Overview metrics, deterministic alerts and output-by-method view match the six-area parity workspace and use current durable run evidence.
-- [ ] Run Analytics matches.
-- [ ] Toll Processing matches.
+- [x] Run Analytics retains the exact source-order table fields and collapsed `Add Run Record` expander, labels, choices, defaults, numeric steps, calculations and blank-batch behavior while persisting entries durably.
+- [x] Toll Processing retains the exact source-order job table and collapsed `Add Toll Processing Job` expander without React-only fields; dates, choices, defaults and SLA wording match.
 - [x] Compliance/METRC required-field guidance plus facility-scoped output, QA and traceability evidence match.
-- [ ] Data Input/manual run matches.
+- [x] Data Input retains the CSV-only uploader, success/error wording and full-column preview; manual run entry remains in the Run Analytics expander exactly as Streamlit exposes it.
 - [x] Doobie Ops Brief uses current filtered durable run evidence, preserves the exact action label and does not replace deterministic extraction calculations.
 - [x] Durable Extraction Operations run board, search/status/method/closed filters and KPI labels match `modules/extraction/ui.py`.
 - [x] New Extraction Run opens in the Streamlit right-side work-window pattern with the exact durable run controls and defaults.
 - [x] Run 360 opens in the right-side work-window pattern with the exact seven tabs: Overview, Inputs, Process, Outputs + QA, COGS, Traceability and History.
 - [x] Run 360 source reservation/consumption/release, stage events, output creation, QA/COA/release, cost events, package-creation queue and history actions use the existing tenant/facility-scoped durable extraction services.
-- [ ] Toll customer/job detail dialogs match Streamlit.
+- [x] Streamlit exposes no separate toll customer/job detail dialog; toll-job context remains within the Toll Processing table and the attached Run 360 context.
 - [x] Extraction desktop/mobile rendering and Run 360/New Run drawer geometry were verified at 390px, 430px, 768px, 1024px and 1440px.
 
 ### White Label / Repack
