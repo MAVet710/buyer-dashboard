@@ -24,7 +24,7 @@ export function AuthGate({ children }: PropsWithChildren) {
   if (!session) return <div className="auth-screen"><div className="auth-stage"><section className="auth-intro"><div className="brand hero-brand"><span>BD</span><strong>Buyer Dash</strong></div><div className="eyebrow">DoobieLogic operations</div><h1>One workspace.<br/>Every cannabis operation.</h1><p>Retail buying, inventory, production, extraction, compliance, commercial operations and the DEV Sandbox stay behind the same access context you built in Buyer Dash.</p><div className="auth-proof"><span>Retail Ops</span><span>Production Ops</span><span>Commercial Ops</span><span>Data & Compliance</span></div></section><form className="auth-card" onSubmit={async event => {
     event.preventDefault(); setMessage(""); setSigningIn(true);
     const value = login.trim();
-    const email = value.includes("@") ? value.casefold?.() ?? value.toLocaleLowerCase() : `${value.toLocaleLowerCase()}@users.doobielogic.io`;
+    const email = value.includes("@") ? value.toLocaleLowerCase() : `${value.toLocaleLowerCase()}@users.doobielogic.io`;
     const result = await supabase!.auth.signInWithPassword({ email, password });
     if (result.error) setMessage(result.error.message);
     setSigningIn(false);
