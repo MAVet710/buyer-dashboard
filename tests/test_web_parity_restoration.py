@@ -1,4 +1,5 @@
 from backend.app.routers.po_parity import POLine, POPdfRequest, _best_match, _pdf
+from services.doobie_client import DoobieClient
 from services.license_validation import validate_license_key
 from services.trial_access import issue_trial_token, verify_trial_token
 
@@ -45,6 +46,32 @@ def test_trial_license_validation_is_ui_independent(monkeypatch):
     assert captured["url"] == "https://doobie.example/api/v1/license/validate"
     assert captured["headers"]["Authorization"] == "Bearer service-key"
     assert captured["json"] == {"license_key": "trial-key"}
+
+
+def test_grounded_extraction_brief_uses_current_run_evidence(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    result = DoobieClient(base_url="", api_key="").extraction_brief(
+        {
+            "runs": [
+                {
+                    "batch_id_internal": "BHO-TEST-1",
+                    "method": "BHO",
+                    "input_weight_g": 1000.0,
+                    "finished_output_g": 100.0,
+                    "residual_loss_g": 20.0,
+                    "yield_pct": 10.0,
+                    "qa_hold": True,
+                    "cogs_usd": 500.0,
+                    "est_revenue_usd": 900.0,
+                }
+            ]
+        },
+        state="MA",
+        question="What needs attention?",
+    )
+    assert result["mode"] == "extraction"
+    assert "BHO-TEST-1" in result["answer"] or "BHO-TEST-1" in " ".join(result["risk_flags"])
+    assert result["recommendations"]
 
 
 def test_po_inventory_cross_check_prefers_exact_sku_then_product_name():
