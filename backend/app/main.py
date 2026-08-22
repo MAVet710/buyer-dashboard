@@ -11,18 +11,29 @@ from .routers.plants import router as plants_router
 from .routers.production import router as production_router
 from .routers.commercial import router as commercial_router
 from .routers.compliance import router as compliance_router
+from .routers.compliance_qa import router as compliance_qa_router
 from .routers.account import router as account_router
 from .routers.data_hub import router as data_hub_router
 from .routers.home import router as home_router
 from .routers.doobie import router as doobie_router
 from .routers.extraction import router as extraction_router
+from .routers.extraction_parity import router as extraction_parity_router
+from .routers.extraction_parity_brief import router as extraction_parity_brief_router
 from .routers.package_studio import router as package_studio_router
 from .routers.product_master import router as product_master_router
 from .routers.retail_insights import router as retail_insights_router
 from .routers.purchasing import router as purchasing_router
+from .routers.buying_budget_parity import router as buying_budget_parity_router
+from .routers.po_parity import router as po_parity_router
+from .routers.trial import router as trial_router
 from .routers.legal import router as legal_router
 from .routers.admin import router as admin_router
 from .routers.integrations import router as integrations_router
+from .routers.parity_tools import router as parity_tools_router
+from .routers.buyer_parity import router as buyer_parity_router
+from .routers.buyer_parity_actions import router as buyer_parity_actions_router
+from .routers.slow_movers_parity import router as slow_movers_parity_router
+from .routers.executive_reports import router as executive_reports_router
 from .database import get_engine
 from .observability import install_observability
 
@@ -58,21 +69,32 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
     return payload if not missing and revision_current else JSONResponse(status_code=503, content=payload)
 
 
+app.include_router(trial_router, prefix=settings.api_prefix)
 app.include_router(inventory_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
 app.include_router(commercial_router, prefix=settings.api_prefix)
 app.include_router(compliance_router, prefix=settings.api_prefix)
+app.include_router(compliance_qa_router, prefix=settings.api_prefix)
 app.include_router(account_router, prefix=settings.api_prefix)
 app.include_router(data_hub_router, prefix=settings.api_prefix)
 app.include_router(home_router, prefix=settings.api_prefix)
 app.include_router(doobie_router, prefix=settings.api_prefix)
 app.include_router(extraction_router, prefix=settings.api_prefix)
+app.include_router(extraction_parity_router, prefix=settings.api_prefix)
+app.include_router(extraction_parity_brief_router, prefix=settings.api_prefix)
 app.include_router(package_studio_router, prefix=settings.api_prefix)
 app.include_router(product_master_router, prefix=settings.api_prefix)
 app.include_router(retail_insights_router, prefix=settings.api_prefix)
 app.include_router(purchasing_router, prefix=settings.api_prefix)
+app.include_router(buying_budget_parity_router, prefix=settings.api_prefix)
+app.include_router(po_parity_router, prefix=settings.api_prefix)
 app.include_router(legal_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.include_router(integrations_router, prefix=settings.api_prefix)
+app.include_router(parity_tools_router, prefix=settings.api_prefix)
+app.include_router(buyer_parity_router, prefix=settings.api_prefix)
+app.include_router(buyer_parity_actions_router, prefix=settings.api_prefix)
+app.include_router(slow_movers_parity_router, prefix=settings.api_prefix)
+app.include_router(executive_reports_router, prefix=settings.api_prefix)
