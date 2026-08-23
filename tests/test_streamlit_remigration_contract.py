@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import unescape
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,7 +11,7 @@ def source(path: str) -> str:
 
 
 def assert_markers(path: str, *markers: str) -> None:
-    text = source(path)
+    text = unescape(source(path))
     missing = [marker for marker in markers if marker not in text]
     assert not missing, f"{path} is missing Streamlit parity markers: {missing}"
 
