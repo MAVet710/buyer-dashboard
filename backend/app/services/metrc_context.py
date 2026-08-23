@@ -34,7 +34,21 @@ def metrc_scope_key(context: RequestContext) -> str:
     return f"{context.user_id}|{context.facility_id}"
 
 
-def resolve_metrc_context(engine: Engine, settings: Settings, context: RequestContext) -> tuple[IntegrationConfigurationService, MetrcContext]:
+def resolve_metrc_context(
+    engine: Engine, settings: Settings, context: RequestContext
+) -> tuple[IntegrationConfigurationService | None, MetrcContext]:
+    # Development/test environments intentionally allow local deterministic
+    # inventory workflows without integration secrets. Production startup is
+    # already fail-closed on INTEGRATION_ENCRYPTION_KEY, so treating a missing
+    # key as an unconfigured METRC connection here preserves local inventory
+    # work without weakening production credential handling.
+    if not str(settings.integration_encryption_key or "").strip():
+        return None, MetrcContext(
+            configured=False,
+            integrator_api_key=settings.metrc_integrator_key,
+            message="METRC is not configured for this environment.",
+        )
+
     service = IntegrationConfigurationService(engine, settings.integration_encryption_key)
     row = service.get("user", metrc_scope_key(context), "metrc")
 
