@@ -17,23 +17,42 @@ def assert_markers(path: str, *markers: str) -> None:
 
 def test_purchasing_category_opens_full_buyer_command_center():
     app = source("frontend/src/App.tsx")
+    shell = source("frontend/src/components/AppShell.tsx")
     assert 'page === "Buyer Operations" || page === "Purchasing"' in app
     assert '<BuyerCommandCenterPage onNavigate={setPage} />' in app
     assert 'page === "Replenishment Policies" ? <PurchasingPage />' in app
+    assert '{ label: "Overview", page: "Buyer Operations" }' in shell
+    assert '{ label: "Replenishment Policies", page: "Replenishment Policies" }' in shell
 
 
-def test_retail_inventory_exposes_product_360_and_audits():
+def test_retail_inventory_exposes_product_360_catalog_and_audits():
     assert_markers(
         "frontend/src/components/AppShell.tsx",
+        '{ label: "Product 360", page: "Retail Product 360" }',
+        '{ label: "Catalog Administration", page: "Retail Catalog Admin" }',
         'page: "Inventory Audits"',
-        'page: "Retail Product Master"',
         'page: "Slow Movers"',
         'page: "MA Flower Equivalency"',
     )
     assert_markers(
         "frontend/src/App.tsx",
         'page === "Retail Product 360" || page === "Retail Product Master"',
+        'page === "Retail Catalog Admin"',
         '<FocusedInventoryAudits />',
+    )
+
+
+def test_production_inventory_keeps_products_and_audits_first_class():
+    assert_markers(
+        "frontend/src/components/AppShell.tsx",
+        '{ label: "Materials", page: "Production Inventory" }',
+        '{ label: "Products", page: "Production Product Master" }',
+        '{ label: "Inventory Audits", page: "Inventory Audits" }',
+    )
+    assert_markers(
+        "frontend/src/App.tsx",
+        'page === "Production Product Master"',
+        'page === "Inventory Audits"',
     )
 
 
@@ -55,7 +74,7 @@ def test_product_360_retains_all_streamlit_evidence_tabs_and_actions():
     )
 
 
-def test_package_360_is_not_lineage_only():
+def test_package_360_is_not_lineage_only_and_keeps_cross_workspace_actions():
     assert_markers(
         "frontend/src/components/PackageLineage.tsx",
         'Product360Workspace',
@@ -70,7 +89,13 @@ def test_package_360_is_not_lineage_only():
         'Purchasing',
         'Packages',
         'Compliance',
+        'Audits',
         'Lineage',
+        'Audit this SKU',
+        'Add / update in PO',
+        'Open traceability',
+        'buyer-dash-audit-product-focus',
+        'buyer-dash-po-inventory-selection',
     )
 
 
@@ -113,6 +138,7 @@ def test_extraction_exposes_command_center_run_360_and_inventory():
         'Compliance',
         'METRC',
         'Data Input',
+        'Doobie Ops Brief',
     )
 
 
@@ -129,9 +155,22 @@ def test_legacy_buyer_family_remains_first_class():
     assert_markers(
         "frontend/src/pages/BuyerOperationsPage.tsx",
         'Target Days on Hand',
-        'velocity',
-        'forecast',
+        'Velocity Adjustment',
+        'Days in Sales Period',
+        'Category DOS (at a glance)',
+        'Forecast Table',
+        'Product-Level Rows',
+        'buyer-brief',
+        'inventory-check',
     )
+
+
+def test_classic_navigation_does_not_hide_major_workspaces():
+    shell = source("frontend/src/components/AppShell.tsx")
+    for category in ("Inventory", "Purchasing", "Orders", "Reports", "Compliance"):
+        assert f'secondaryItems("{category}", operation, role)' in shell
+    for category in ("Inventory", "Production", "Orders", "Compliance"):
+        assert f'secondaryItems("{category}", operation, role)' in shell
 
 
 def test_streamlit_admin_data_compliance_and_reports_destinations_are_reachable():
