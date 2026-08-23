@@ -141,7 +141,7 @@ def test_legacy_streamlit_keeps_seven_tabs_and_adds_step8_inside_run_analytics()
     assert [source.index(f'"{label}"') for label in tabs] == sorted(source.index(f'"{label}"') for label in tabs)
     assert "render_step8_run_fields" in source
     assert "render_legacy_process_tracker" in source
-    assert source.index('with runs_tab:') < source.index("render_step8_run_fields") < source.index('with toll_tab:')
+    assert source.index('with runs_tab:') < source.index("step8 = render_step8_run_fields") < source.index('with toll_tab:')
     for contract in [
         "Workflow Template",
         "Method Stage Outputs",
