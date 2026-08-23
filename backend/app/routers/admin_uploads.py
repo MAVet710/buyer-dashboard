@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import gzip
 import json
 
@@ -39,6 +39,14 @@ def _latest_clear(session: Session, context: RequestContext):
     return session.scalar(query)
 
 
+def _aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 @router.get("/uploads")
 def list_admin_uploads(
     limit: int = Query(default=100, ge=1, le=500),
@@ -51,9 +59,9 @@ def list_admin_uploads(
     viewer cutoff instead of destroying the files that power the application.
     """
     _require_admin(context)
-    cutoff = utc_now() - timedelta(minutes=_UPLOAD_TTL_MINUTES)
+    cutoff = _aware_utc(utc_now()) - timedelta(minutes=_UPLOAD_TTL_MINUTES)
     with Session(engine) as session:
-        cleared_at = _latest_clear(session, context)
+        cleared_at = _aware_utc(_latest_clear(session, context))
         if cleared_at and cleared_at > cutoff:
             cutoff = cleared_at
         query = select(DataHubImport).where(DataHubImport.created_at >= cutoff)
