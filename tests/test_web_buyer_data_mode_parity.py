@@ -42,3 +42,19 @@ def test_data_mode_switch_refetches_active_web_queries():
     assert 'window.addEventListener("buyer-dash-data-mode", refreshForDataMode)' in app
     assert "client.invalidateQueries()" in app
     assert 'modes = ["📁 Uploads", "🔴 Dutchie Live"]' in streamlit
+
+
+def test_every_upload_backed_buyer_surface_uses_the_same_data_mode_guard():
+    buyer = read("backend/app/routers/buyer_parity.py")
+    slow = read("backend/app/routers/slow_movers_parity.py")
+    budget = read("backend/app/routers/buying_budget_parity.py")
+    po = read("backend/app/routers/po_parity.py")
+    reports = read("backend/app/routers/executive_reports.py")
+
+    assert "_require_available_data_mode(context)" in buyer
+    assert "from .buyer_parity import _require_available_data_mode" in slow
+    assert "_require_available_data_mode(context)" in slow
+    assert "from .buyer_parity import _require_available_data_mode" in budget
+    assert "_require_available_data_mode(context)" in budget
+    assert "from .buyer_parity import _model" in po
+    assert "buyer_model(context, engine" in reports
