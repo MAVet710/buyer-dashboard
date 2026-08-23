@@ -120,17 +120,13 @@ jobs:
             --region "${{ env.REGION }}" \
             --wait
 
-      - name: Deploy uniquely identified production API revision
+      - name: Deploy production API revision with release identity
         run: |
           set -euo pipefail
-          SHORT_SHA="$(printf '%s' '${{ github.event.pull_request.head.sha }}' | cut -c1-10)"
-          REVISION_SUFFIX="${SHORT_SHA}-a${{ github.run_attempt }}"
-          echo "EXPECTED_REVISION_SUFFIX=$REVISION_SUFFIX" >> "$GITHUB_ENV"
           gcloud run deploy "${{ env.API_SERVICE }}" \
             --image "$API_IMAGE" \
             --region "${{ env.REGION }}" \
             --platform managed \
-            --revision-suffix "$REVISION_SUFFIX" \
             --service-account "buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --allow-unauthenticated \
             --port 8080 \
@@ -143,19 +139,35 @@ jobs:
             --set-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
             --quiet
 
-      - name: Verify Cloud Run selected the exact deployed revision
+      - name: Verify Cloud Run accepted the exact release identity
         id: service-url
         run: |
           set -euo pipefail
-          SERVICE_URL="$(gcloud run services describe "${{ env.API_SERVICE }}" --region "${{ env.REGION }}" --format='value(status.url)')"
-          REVISION="$(gcloud run services describe "${{ env.API_SERVICE }}" --region "${{ env.REGION }}" --format='value(status.latestReadyRevisionName)')"
-          DEPLOYED_IMAGE="$(gcloud run revisions describe "$REVISION" --region "${{ env.REGION }}" --format='value(spec.containers[0].image)')"
+          SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" --region "${{ env.REGION }}" --format=json)"
+          SERVICE_URL="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.url')"
+          READY_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.latestReadyRevisionName')"
+          CREATED_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.latestCreatedRevisionName')"
           echo "Cloud Run API service: $SERVICE_URL"
-          echo "Latest ready revision: $REVISION"
+          echo "Latest created revision: $CREATED_REVISION"
+          echo "Latest ready revision: $READY_REVISION"
+          if [ -z "$READY_REVISION" ] || [ "$READY_REVISION" != "$CREATED_REVISION" ]; then
+            echo "Refusing cutover: the newly created Cloud Run revision is not the latest ready revision"
+            exit 1
+          fi
+
+          gcloud run revisions describe "$READY_REVISION" --region "${{ env.REGION }}" --format=json > /tmp/revision.json
+          REV_RELEASE="$(jq -r '[.spec.containers[0].env[]? | select(.name == "RELEASE_SHA") | .value][0] // ""' /tmp/revision.json)"
+          REV_SCHEMA="$(jq -r '[.spec.containers[0].env[]? | select(.name == "EXPECTED_SCHEMA_HEAD") | .value][0] // ""' /tmp/revision.json)"
+          DEPLOYED_IMAGE="$(jq -r '.spec.containers[0].image // ""' /tmp/revision.json)"
           echo "Revision image: $DEPLOYED_IMAGE"
-          echo "Expected revision suffix: $EXPECTED_REVISION_SUFFIX"
-          if [[ "$REVISION" != *"$EXPECTED_REVISION_SUFFIX" ]]; then
-            echo "Refusing cutover: Cloud Run latest ready revision is not the revision just deployed"
+          echo "Revision release SHA: $REV_RELEASE"
+          echo "Revision declared schema head: $REV_SCHEMA"
+          if [ "$REV_RELEASE" != "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "Refusing cutover: Cloud Run revision release SHA does not match this deployment"
+            exit 1
+          fi
+          if [ "$REV_SCHEMA" != "$IMAGE_SCHEMA_HEAD" ]; then
+            echo "Refusing cutover: Cloud Run revision schema declaration does not match the API image schema head"
             exit 1
           fi
           echo "url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
@@ -178,7 +190,7 @@ jobs:
                 && [ "$RUNTIME_HEAD" = "$IMAGE_SCHEMA_HEAD" ] \
                 && [ "$SCHEMA_MATCHES" = "true" ]; then
                 cat /tmp/ready.json
-                echo "Production identity verified: release SHA, image schema head, and DB schema head all match"
+                echo "Production identity verified: release SHA, image schema head, runtime schema head, and DB schema head all match"
                 exit 0
               fi
               echo "Production hostname is healthy but is not yet serving the exact release/schema identity"
