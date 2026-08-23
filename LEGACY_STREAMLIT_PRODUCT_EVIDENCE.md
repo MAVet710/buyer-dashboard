@@ -2,6 +2,14 @@
 
 This file is part of the exact-parity acceptance contract for the Streamlit -> React/FastAPI migration.
 
+## Product identity / branding clarification
+
+`Buyer Dash` was the working/development name of this same application. The intended production product name is **DoobieLogic**. Buyer Dash and DoobieLogic are not separate products and the migration must not split them into separate concepts.
+
+Exact parity therefore means: restore the application that existed as Streamlit Buyer Dash on the faster React/FastAPI/Supabase/Cloud Run architecture, while using **DoobieLogic** as the production brand on `doobielogic.io`.
+
+The product-name substitution `Buyer Dash` -> `DoobieLogic` is an explicitly approved branding change. It does not authorize any UI, workflow, calculation, navigation, permission, report, data-source, or feature redesign. Job-function names such as Buyer Operations, Buyer Intelligence, Buyer Brief, purchasing, inventory, production, compliance, and other operational terminology remain product behavior and must be preserved unless separately approved.
+
 ## Why this exists
 
 The migration exists to improve runtime performance, reliability, persistence and hosting. It is **not** a product redesign. A React page, API endpoint, or equivalent capability does not satisfy parity when the operator-facing workflow, composition, controls, evidence, reports, or navigation from the working Streamlit Buyer Dash has been removed, fragmented, hidden, or materially changed.
