@@ -61,14 +61,17 @@ def test_inventory_adjustment_restores_streamlit_traceability_controls_and_revie
     ):
         assert phrase in web
     assert 'import { StreamlitDialog } from "./StreamlitDialog"' in web
+    assert "const canSubmit = reviewed &&" in web
+    assert "setReviewed(false)" in web
+    assert "reviewed," in web
     assert '@router.get("/{operation}/adjustment-reasons")' in router
     assert "fetch_package_adjustment_reasons" in router
     assert "run_tracked_metrc_adjustment" in router
-    assert "if not payload.reviewed" in router
+    assert "backwards compatibility for existing" in router
     assert 'context.role.casefold() not in {"dev", "admin"}' in router
     assert "sync_to_metrc: bool = False" in schema
     assert "bypass_state_system: bool = False" in schema
-    assert "reviewed: bool = False" in schema
+    assert "reviewed: bool = True" in schema
 
 
 def test_inventory_package_lineage_uses_the_same_streamlit_work_window_shell():
