@@ -9,6 +9,7 @@ type SearchResult = { kind: string; id: string; title: string; subtitle: string;
 const tools: SearchResult[] = [
   { kind: "tool", id: "inventory", title: "Inventory", subtitle: "Stock health, reorder risk, aging, package 360, and audit actions", workspace: "Inventory" },
   { kind: "tool", id: "retail-product-360", title: "Retail Product 360", subtitle: "Inventory, sales, velocity, purchasing, packages, compliance, audits, and economics", workspace: "Retail Product 360" },
+  { kind: "tool", id: "retail-product-master", title: "Retail Product Master", subtitle: "Open the operational Product 360 workspace; catalog administration remains available inside it", workspace: "Retail Product Master" },
   { kind: "tool", id: "retail-catalog-admin", title: "Retail Catalog Administration", subtitle: "Retail catalog identity, vendors, mappings, aliases, and values", workspace: "Retail Catalog Admin" },
   { kind: "tool", id: "production-product-master", title: "Production Product Master", subtitle: "Bulk material, WIP, and production catalog identity", workspace: "Production Product Master" },
   { kind: "tool", id: "inventory-audits", title: "Inventory Audits", subtitle: "Camera scan, Bluetooth/USB, pause, resume, stop, partial reports, and reconciliation", workspace: "Inventory Audits" },
