@@ -1,5 +1,6 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "./components/AppShell";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 const HomePage = lazy(() => import("./pages/HomePage").then(module => ({ default: module.HomePage })));
 const InventoryPage = lazy(() => import("./pages/InventoryPage").then(module => ({ default: module.InventoryPage })));
@@ -40,7 +41,13 @@ function initialPage(): string {
 }
 
 export default function App() {
+  const client = useQueryClient();
   const [page, setPage] = useState(initialPage);
+  useEffect(() => {
+    const refreshForDataMode = () => { void client.invalidateQueries(); };
+    window.addEventListener("buyer-dash-data-mode", refreshForDataMode);
+    return () => window.removeEventListener("buyer-dash-data-mode", refreshForDataMode);
+  }, [client]);
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
     : page === "Buyer Operations" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
