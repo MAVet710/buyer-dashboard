@@ -70,7 +70,7 @@ jobs:
       - name: Build and push production API image
         run: |
           set -euo pipefail
-          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.event.pull_request.head.sha }}"
+          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.event.pull_request.head.sha }}-a${{ github.run_attempt }}"
           docker build -f Dockerfile.api -t "$IMAGE" .
           docker push "$IMAGE"
           echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
@@ -174,7 +174,7 @@ jobs:
       - name: Build and push production web image
         run: |
           set -euo pipefail
-          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.event.pull_request.head.sha }}"
+          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.event.pull_request.head.sha }}-a${{ github.run_attempt }}"
           docker build -f frontend/Dockerfile \
             --build-arg VITE_API_URL=${{ needs.deploy-api.outputs.api_url }} \
             --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
