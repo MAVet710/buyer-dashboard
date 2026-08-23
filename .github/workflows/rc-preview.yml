@@ -3,6 +3,8 @@ name: Release Candidate Preview
 on:
   push:
     branches: [fix/exact-streamlit-parity-v2]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -44,6 +46,7 @@ jobs:
 
   deploy:
     needs: verify
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
