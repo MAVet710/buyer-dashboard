@@ -89,14 +89,14 @@ def test_compliance_qa_and_nomenclature_mapper_keep_streamlit_operator_workflows
         'Compliance Q&A', 'Download compliance source template', 'Required source columns',
         'state', 'scope', 'topic', 'answer', 'source_citation', 'source_url', 'last_updated', 'review_status',
         'Upload structured compliance sources', 'Answer from structured sources',
-        'METRC State', 'Adult Use', 'Medical',
+        'METRC State', 'adult-use', 'medical',
     )
     has(
         "frontend/src/pages/NomenclatureMapperPage.tsx",
         'Dutchie-to-METRC Nomenclature', '1 - Dutchie Catalog', '2 - Apply Names to METRC',
-        'Mapping Library', 'Dutchie catalog export', 'METRC manifest export',
+        'Mapping Library', 'Dutchie catalog', 'METRC manifest',
         'Ready', 'Needs Review', 'Unmatched', 'Create New Product',
-        'Confirm & Remember Mappings', 'Correct_METRC_Item_Names.xlsx',
+        'Confirm names and remember mappings', 'Correct_METRC_Item_Names.xlsx',
     )
 
 
