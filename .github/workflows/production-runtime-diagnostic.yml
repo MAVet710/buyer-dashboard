@@ -115,6 +115,16 @@ jobs:
             done
           done
 
+      - name: Read recent Cloud Run errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Recent buyer-dash-api logs:"
+          gcloud run services logs read buyer-dash-api \
+            --region us-east1 \
+            --limit 120 \
+            --format='value(timestamp,severity,revision_name,text_payload)'
+
       - name: Fail if production API is not ready
         shell: bash
         run: |
