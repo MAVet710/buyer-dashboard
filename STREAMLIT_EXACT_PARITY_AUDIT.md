@@ -234,10 +234,10 @@ The last two report checks are conditional exactly as they were in Streamlit. Re
 
 ## Release gate
 
-- [ ] Automated exact-parity test/audit passes.
-- [ ] Frontend lint/test/build passes.
-- [ ] Full backend suite passes.
-- [ ] Production containers and security scans pass.
-- [ ] Desktop acceptance completed against current Streamlit side-by-side.
-- [ ] iPhone/mobile acceptance completed against current Streamlit side-by-side.
-- [ ] Only after all above: deploy React/FastAPI candidate for user acceptance.
+- [x] Automated exact-parity test/audit passes.
+- [x] Frontend lint/test/build passes.
+- [x] Full backend suite passes.
+- [x] Production containers and security scans pass.
+- [x] Desktop acceptance completed against current Streamlit side-by-side.
+- [x] iPhone/mobile acceptance completed against current Streamlit side-by-side.
+- [x] Only after all above: deploy React/FastAPI candidate for user acceptance.
