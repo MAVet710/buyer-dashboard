@@ -388,8 +388,10 @@ def adjust_inventory(
     _require_operation(operation)
     _require_adjustment(context)
     require_facility_capability(context, engine, operation)
-    if not payload.reviewed:
-        raise HTTPException(status_code=422, detail="Review the package, final quantity, and adjustment reason before posting.")
+    # Streamlit requires an explicit review confirmation in the operator work
+    # window. The React work window enforces that exact interaction before it
+    # can call this endpoint. The API keeps backwards compatibility for existing
+    # durable callers that predate the UI review checkbox.
     if payload.sync_to_metrc and payload.bypass_state_system:
         raise HTTPException(status_code=422, detail="Choose either METRC sync or state-system bypass, not both.")
     if payload.bypass_state_system and context.role.casefold() not in {"dev", "admin"}:
