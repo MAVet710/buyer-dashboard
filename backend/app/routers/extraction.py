@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman.repository import ComanRepository
@@ -14,6 +14,7 @@ from modules.extraction.workflows import (
     calculate_terpene_weight_g,
     get_extraction_workflow,
     method_aware_stage_fields,
+    validate_terpene_percentage,
 )
 from ..auth import RequestContext, get_request_context, get_production_context
 from ..database import get_engine
@@ -221,7 +222,7 @@ def _apply_formulation_fields(run: ExtractionRun, values: dict, *, explicit_fini
         run.terpene_handling_mode = mode
 
     if values.get("terpene_percentage") is not None:
-        run.terpene_percentage = float(values["terpene_percentage"] or 0.0)
+        run.terpene_percentage = validate_terpene_percentage(values["terpene_percentage"])
 
     manual_weight_supplied = "terpene_weight_g" in values and values.get("terpene_weight_g") is not None
     manual_weight = values.get("terpene_weight_g") if manual_weight_supplied else None
@@ -313,16 +314,33 @@ def _persist_stage_enhancements(engine: Engine, context: RequestContext, run_id:
             values[output_field] = payload.output_weight_g
 
         _apply_formulation_fields(run, values)
-        extra = {}
-        if payload.output_weight_g is not None and payload.stage_key in {"formulation", "filling", "packaging", "final_output"}:
-            extra[payload.stage_key] = max(0.0, float(payload.output_weight_g))
+        session.flush()
+
+        # Preserve the latest measured output at every real process stage. This
+        # prevents a later note/hold event from erasing a measured packaging or
+        # final-output value and makes Step 8 semantics durable, not request-local.
+        measured: dict[str, float] = {}
+        history = list(
+            session.scalars(
+                select(ExtractionStageEvent)
+                .where(ExtractionStageEvent.run_id == run.id)
+                .order_by(ExtractionStageEvent.occurred_at, ExtractionStageEvent.id)
+            )
+        )
+        for history_event in history:
+            if history_event.output_weight_g is None or float(history_event.output_weight_g) <= 0:
+                continue
+            output = float(history_event.output_weight_g)
+            if history_event.stage_output_field:
+                measured[history_event.stage_output_field] = output
+            measured[history_event.stage_key] = output
+
         run.final_output_g = calculate_final_output_g(
             run.workflow_key,
-            _stage_outputs(run, extra),
+            _stage_outputs(run, measured),
             formulation_used=run.formulation_used,
             formulation_base_g=run.formulation_base_g,
             terpene_weight_g=run.terpene_weight_g,
-            explicit_finished_output_g=(payload.output_weight_g if payload.stage_key == "final_output" else None),
         )
         run.updated_by = context.user_id
         session.commit()
