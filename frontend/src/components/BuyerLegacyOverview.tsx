@@ -82,19 +82,20 @@ export function BuyerLegacyOverview() {
 
 function HealthGauge({ score }: { score: number }) {
   const bounded = Math.max(0, Math.min(100, score));
-  return <div className="buyer-health-gauge" style={{ "--buyer-health": `${bounded * 3.6}deg` } as React.CSSProperties} aria-label={`Inventory health ${bounded} out of 100`}><div><strong>{bounded}</strong><span>Health</span></div></div>;
+  return <div className="buyer-health-gauge" style={{ background: `conic-gradient(var(--dl-copper) 0deg ${bounded * 3.6}deg, rgba(255,255,255,.08) ${bounded * 3.6}deg 360deg)` }} aria-label={`Inventory health ${bounded} out of 100`}><div><strong>{bounded}</strong><span>Health</span></div></div>;
 }
 
 function LineChart({ rows }: { rows: TrendPoint[] }) {
   const width = 720; const height = 230; const pad = 24;
   const values = rows.map(row => Number(row.revenue || row.units || 0));
   const max = Math.max(...values, 1); const min = Math.min(...values, 0); const span = Math.max(max - min, 1);
-  const points = rows.map((row, index) => {
+  const pointRows = rows.map((row, index) => {
     const x = rows.length <= 1 ? width / 2 : pad + index * ((width - pad * 2) / (rows.length - 1));
     const value = Number(row.revenue || row.units || 0); const y = height - pad - ((value - min) / span) * (height - pad * 2);
-    return `${x},${y}`;
-  }).join(" ");
-  return <div className="buyer-chart-wrap"><svg className="buyer-line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Sales Trend"><polyline points={points}/>{rows.map((row, index) => { const [x,y] = points.split(" ")[index].split(","); return <circle key={`${row.date}-${index}`} cx={x} cy={y} r="4"><title>{row.date}: {money(row.revenue)} · {row.units.toLocaleString()} units</title></circle>; })}</svg><div className="buyer-chart-axis"><span>{rows[0]?.date}</span><span>{rows.at(-1)?.date}</span></div></div>;
+    return { row, x, y };
+  });
+  const points = pointRows.map(point => `${point.x},${point.y}`).join(" ");
+  return <div className="buyer-chart-wrap"><svg className="buyer-line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Sales Trend"><polyline points={points}/>{pointRows.map(({ row, x, y }, index) => <circle key={`${row.date}-${index}`} cx={x} cy={y} r="4"><title>{row.date}: {money(row.revenue)} · {row.units.toLocaleString()} units</title></circle>)}</svg><div className="buyer-chart-axis"><span>{rows[0]?.date}</span><span>{rows[rows.length - 1]?.date}</span></div></div>;
 }
 
 function BarChart({ rows }: { rows: CategoryPoint[] }) {
