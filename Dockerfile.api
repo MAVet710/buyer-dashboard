@@ -23,4 +23,4 @@ COPY alembic.ini ./
 COPY compliance_engine.py doobielogic_client.py delivery_impact.py ./
 USER buyer
 EXPOSE 8080
-CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "MODULE=backend.app.main:app; if [ \"${RC_PREVIEW:-0}\" = \"1\" ]; then MODULE=backend.app.rc_preview:app; fi; exec uvicorn \"${MODULE}\" --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips='*'"]
