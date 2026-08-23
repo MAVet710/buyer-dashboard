@@ -26,6 +26,12 @@ def _date_column(frame: pd.DataFrame) -> str | None:
     return next((str(column) for column in frame.columns if "date" in str(column).casefold()), None)
 
 
+def _numeric(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame:
+        return pd.Series(0.0, index=frame.index, dtype=float)
+    return pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
+
+
 @router.get("/legacy-overview")
 def legacy_overview(
     target_doh: int = Query(21, ge=1, le=120),
@@ -80,10 +86,10 @@ def legacy_overview(
         category_revenue = category_revenue.sort_values(["revenue", "units"], ascending=False)
 
     product_health = product.copy()
-    on_hand = pd.to_numeric(product_health.get("onhandunits", 0), errors="coerce").fillna(0)
-    sold = pd.to_numeric(product_health.get("unitssold", 0), errors="coerce").fillna(0)
-    velocity = pd.to_numeric(product_health.get("avgunitsperday", 0), errors="coerce").fillna(0)
-    doh = pd.to_numeric(product_health.get("daysonhand", 0), errors="coerce").fillna(0)
+    on_hand = _numeric(product_health, "onhandunits")
+    sold = _numeric(product_health, "unitssold")
+    velocity = _numeric(product_health, "avgunitsperday")
+    doh = _numeric(product_health, "daysonhand")
     reorder_skus = int(((doh < target_doh) & (velocity > 0)).sum())
     at_risk = int(((doh > 0) & (doh <= 7) & (velocity > 0)).sum())
     slow_movers = int(((velocity <= 0) & (on_hand > 0)).sum())
@@ -91,10 +97,10 @@ def legacy_overview(
     health_score = max(0, min(100, int(100 - reorder_skus * 2 - at_risk * 3 - slow_movers)))
 
     sku_work = sku.copy()
-    dollars = pd.to_numeric(sku_work.get("dollars_on_hand", 0), errors="coerce").fillna(0)
-    days_supply = pd.to_numeric(sku_work.get("days_of_supply", 0), errors="coerce").fillna(0)
-    on_hand_sku = pd.to_numeric(sku_work.get("onhandunits", 0), errors="coerce").fillna(0)
-    weekly = pd.to_numeric(sku_work.get("avg_weekly_sales", 0), errors="coerce").fillna(0)
+    dollars = _numeric(sku_work, "dollars_on_hand")
+    days_supply = _numeric(sku_work, "days_of_supply")
+    on_hand_sku = _numeric(sku_work, "onhandunits")
+    weekly = _numeric(sku_work, "avg_weekly_sales")
     sku_work["_slow_rank"] = np.where(weekly <= 0, 10000, days_supply)
     sku_work["_inventory_value"] = dollars
     slow = sku_work[on_hand_sku > 0].sort_values(["_slow_rank", "_inventory_value"], ascending=False).head(top_n).copy()
