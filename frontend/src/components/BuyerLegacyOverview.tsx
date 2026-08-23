@@ -1,14 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api";
+import type { CSSProperties } from "react";
 
-type TrendPoint = { date: string; units: number; revenue: number };
-type CategoryPoint = { category: string; units: number; revenue: number };
-type SlowMover = Record<string, unknown>;
+type Row = Record<string, unknown>;
 type LegacyOverview = {
-  sales_trend: TrendPoint[];
-  revenue_by_category: CategoryPoint[];
-  top_slow_movers: SlowMover[];
-  inventory_health: { score: number; reorder_skus: number; at_risk_skus: number; slow_movers: number; overstock_skus: number };
+  sales_trend: Row[];
+  revenue_by_category: Row[];
+  top_slow_movers: Row[];
+  inventory_health: {
+    score: number;
+    reorder_skus: number;
+    at_risk_skus: number;
+    slow_movers: number;
+    overstock_skus: number;
+  };
   inventory_condition: {
     reorder_count: number;
     overstock_count: number;
@@ -22,15 +27,30 @@ type LegacyOverview = {
   };
 };
 
+type Props = {
+  targetDoh: number;
+  velocityAdjustment: number;
+  salesDays: number;
+  skuWindow: number;
+  topN: number;
+};
+
 const SLOW_COLUMNS = ["product_name", "category", "brand_vendor", "onhandunits", "avg_weekly_sales", "days_of_supply", "dollars_on_hand", "expiration_date", "status"];
 
-export function BuyerLegacyOverview() {
+export function BuyerLegacyOverview({ targetDoh, velocityAdjustment, salesDays, skuWindow, topN }: Props) {
+  const params = new URLSearchParams({
+    target_doh: String(targetDoh),
+    velocity_adjustment: String(velocityAdjustment),
+    sales_days: String(salesDays),
+    sku_window: String(skuWindow),
+    top_n: String(topN > 0 ? Math.min(Math.max(topN, 1), 50) : 10),
+  });
   const overview = useQuery({
-    queryKey: ["buyer-legacy-overview"],
-    queryFn: ({ signal }) => apiGet<LegacyOverview>("/api/v1/buyer-parity/legacy-overview?target_doh=21&velocity_adjustment=0.5&sales_days=60&sku_window=56&top_n=10", signal),
+    queryKey: ["buyer-legacy-overview", targetDoh, velocityAdjustment, salesDays, skuWindow, topN],
+    queryFn: ({ signal }) => apiGet<LegacyOverview>(`/api/v1/buyer-parity/legacy-overview?${params}`, signal),
   });
 
-  if (overview.isLoading) return <section className="inventory-panel"><div className="state">Building the original Buyer Dash overview…</div></section>;
+  if (overview.isLoading) return <section className="inventory-panel"><div className="state">Building the purchasing command-center evidence…</div></section>;
   if (overview.isError) return <section className="inventory-panel"><div className="state error">{overview.error.message}</div></section>;
   if (!overview.data) return null;
   const data = overview.data;
@@ -74,7 +94,7 @@ export function BuyerLegacyOverview() {
     </div>
 
     <article className="inventory-panel">
-      <div className="section-heading"><div><div className="eyebrow">Embedded buyer exception review</div><h2>Top Slow Movers</h2></div></div>
+      <div className="section-heading"><div><div className="eyebrow">Embedded buyer exception review</div><h2>Top Slow Movers</h2><p>Kept inside the purchasing workflow so the buyer does not have to leave the command center to see aging inventory risk.</p></div></div>
       <DataTable rows={data.top_slow_movers} columns={SLOW_COLUMNS}/>
     </article>
   </section>;
@@ -82,34 +102,37 @@ export function BuyerLegacyOverview() {
 
 function HealthGauge({ score }: { score: number }) {
   const bounded = Math.max(0, Math.min(100, score));
-  return <div className="buyer-health-gauge" style={{ background: `conic-gradient(var(--dl-copper) 0deg ${bounded * 3.6}deg, rgba(255,255,255,.08) ${bounded * 3.6}deg 360deg)` }} aria-label={`Inventory health ${bounded} out of 100`}><div><strong>{bounded}</strong><span>Health</span></div></div>;
+  const style = { "--buyer-health-angle": `${bounded * 3.6}deg` } as CSSProperties;
+  return <div className="buyer-health-gauge" style={style} aria-label={`Inventory health ${bounded} out of 100`}><div><strong>{bounded}</strong><span>Health</span></div></div>;
 }
 
-function LineChart({ rows }: { rows: TrendPoint[] }) {
+function LineChart({ rows }: { rows: Row[] }) {
   const width = 720; const height = 230; const pad = 24;
-  const values = rows.map(row => Number(row.revenue || row.units || 0));
+  const values = rows.map(row => number(row.revenue) || number(row.units));
   const max = Math.max(...values, 1); const min = Math.min(...values, 0); const span = Math.max(max - min, 1);
   const pointRows = rows.map((row, index) => {
     const x = rows.length <= 1 ? width / 2 : pad + index * ((width - pad * 2) / (rows.length - 1));
-    const value = Number(row.revenue || row.units || 0); const y = height - pad - ((value - min) / span) * (height - pad * 2);
+    const value = number(row.revenue) || number(row.units); const y = height - pad - ((value - min) / span) * (height - pad * 2);
     return { row, x, y };
   });
   const points = pointRows.map(point => `${point.x},${point.y}`).join(" ");
-  return <div className="buyer-chart-wrap"><svg className="buyer-line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Sales Trend"><polyline points={points}/>{pointRows.map(({ row, x, y }, index) => <circle key={`${row.date}-${index}`} cx={x} cy={y} r="4"><title>{row.date}: {money(row.revenue)} · {row.units.toLocaleString()} units</title></circle>)}</svg><div className="buyer-chart-axis"><span>{rows[0]?.date}</span><span>{rows[rows.length - 1]?.date}</span></div></div>;
+  return <div className="buyer-chart-wrap"><svg className="buyer-line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Sales Trend"><polyline points={points}/>{pointRows.map(({ row, x, y }, index) => <circle key={`${text(row.date)}-${index}`} cx={x} cy={y} r="4"><title>{`${text(row.date)}: ${money(number(row.revenue))} · ${number(row.units).toLocaleString()} units`}</title></circle>)}</svg><div className="buyer-chart-axis"><span>{text(rows[0]?.date)}</span><span>{text(rows[rows.length - 1]?.date)}</span></div></div>;
 }
 
-function BarChart({ rows }: { rows: CategoryPoint[] }) {
-  const visible = rows.slice(0, 8); const max = Math.max(...visible.map(row => Number(row.revenue || row.units || 0)), 1);
-  return <div className="buyer-category-bars">{visible.map(row => { const value = Number(row.revenue || row.units || 0); return <div className="buyer-category-bar" key={row.category}><div><strong>{row.category}</strong><span>{row.revenue ? money(row.revenue) : `${row.units.toLocaleString()} units`}</span></div><div className="buyer-bar-track"><i style={{ width: `${Math.max(2, value / max * 100)}%` }}/></div></div>; })}</div>;
+function BarChart({ rows }: { rows: Row[] }) {
+  const visible = rows.slice(0, 8); const max = Math.max(...visible.map(row => number(row.revenue) || number(row.units)), 1);
+  return <div className="buyer-category-bars">{visible.map((row, index) => { const value = number(row.revenue) || number(row.units); return <div className="buyer-category-bar" key={`${text(row.category)}-${index}`}><div><strong>{text(row.category) || "Uncategorized"}</strong><span>{number(row.revenue) ? money(number(row.revenue)) : `${number(row.units).toLocaleString()} units`}</span></div><div className="buyer-bar-track"><i style={{ width: `${Math.max(2, value / max * 100)}%` }}/></div></div>; })}</div>;
 }
 
-function DataTable({ rows, columns }: { rows: SlowMover[]; columns: string[] }) {
+function DataTable({ rows, columns }: { rows: Row[]; columns: string[] }) {
   const visible = columns.filter(column => rows.some(row => Object.prototype.hasOwnProperty.call(row, column)));
   if (!rows.length) return <div className="empty">No slow-moving inventory in the current buyer source.</div>;
-  return <div className="table-wrap"><table><thead><tr>{visible.map(column => <th key={column}>{header(column)}</th>)}</tr></thead><tbody>{rows.map((row,index) => <tr key={index}>{visible.map(column => <td key={column}>{render(row[column])}</td>)}</tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table><thead><tr>{visible.map(column => <th key={column}>{header(column)}</th>)}</tr></thead><tbody>{rows.map((row,index) => <tr key={index}>{visible.map(column => <td key={column}>{render(row[column], column)}</td>)}</tr>)}</tbody></table></div>;
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) { return <article className="metric"><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : value}</strong></article>; }
+function text(value: unknown) { return value == null ? "" : String(value); }
+function number(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
 function money(value: number) { return Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }); }
 function header(value: string) { return value.replaceAll("_", " ").replace(/\b\w/g, char => char.toUpperCase()); }
-function render(value: unknown) { if (value == null || value === "") return "—"; if (typeof value === "number") return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 }); return String(value); }
+function render(value: unknown, column: string) { if (value == null || value === "") return "—"; if (typeof value === "number") { if (column.includes("dollar") || column.includes("revenue")) return money(value); return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 }); } return String(value); }
