@@ -50,7 +50,7 @@ export default function App() {
     return () => window.removeEventListener("buyer-dash-data-mode", refreshForDataMode);
   }, [client]);
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
-    : page === "Buyer Operations" || page === "Purchasing" ? <BuyerCommandCenterPage onNavigate={setPage} />
+    : page === "Buyer Operations" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={setPage} />
     : page === "Inventory Audits" ? <FocusedInventoryAudits />
@@ -60,10 +60,10 @@ export default function App() {
     : page === "Buying Recommendations" ? <BuyingRecommendationsPage />
     : page === "Buying Budget" ? <BuyingBudgetPage />
     : page === "Purchase Orders" ? <PurchaseOrdersParityPage onNavigate={setPage} />
-    : page === "Retail Product 360" ? <RetailProduct360Page onNavigate={setPage} />
-    : page === "Retail Product Master" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
+    : page === "Retail Product 360" || page === "Retail Product Master" ? <RetailProduct360Page onNavigate={setPage} />
+    : page === "Retail Catalog Admin" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
-    : page === "Replenishment Policies" ? <PurchasingPage />
+    : page === "Purchasing" || page === "Replenishment Policies" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPage />
     : page === "Extraction" ? <ExtractionCommandCenterPage onNavigate={setPage} />
