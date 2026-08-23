@@ -121,7 +121,7 @@ def test_admin_integrations_location_and_facility_controls_survive_remigration()
     )
     has(
         "frontend/src/pages/LocationSettingsPage.tsx",
-        'Location Settings', 'Auto-map products during receive', 'Default receiving room',
+        'Location settings', 'Auto-map products during receive', 'Default receiving room',
         'Save location settings',
     )
 
