@@ -267,7 +267,19 @@ def operations_inbox(context: RequestContext = Depends(get_request_context), eng
             )
         )
         for lot, product in held:
-            items.append({"id": f"hold:{lot.id}", "severity": "high", "area": "Inventory", "title": f"{product.name} is on {lot.status}", "detail": lot.compliance_package_id or lot.lot_code, "workspace": "Inventory", "entity_id": lot.id})
+            package_id = lot.compliance_package_id or lot.lot_code
+            items.append({
+                "id": f"hold:{lot.id}",
+                "severity": "high",
+                "area": "Inventory",
+                "title": f"{product.name} is on {lot.status}",
+                "detail": "A restricted inventory state needs review before the product can move or sell.",
+                "workspace": "Inventory",
+                "entity_id": lot.id,
+                "product_id": product.id,
+                "action_label": "Investigate",
+                "evidence": [f"Attention {lot.status}", f"Package {package_id}"],
+            })
         failures = list(
             session.scalars(
                 select(TraceabilityTransaction)
@@ -281,7 +293,21 @@ def operations_inbox(context: RequestContext = Depends(get_request_context), eng
             )
         )
         for row in failures:
-            items.append({"id": f"traceability:{row.id}", "severity": "critical" if row.status == "rejected" else "high", "area": "Compliance", "title": f"{row.operation_type.replace('_', ' ').title()} needs attention", "detail": row.error_message or row.reason or row.status.replace("_", " "), "workspace": "Compliance", "entity_id": row.id})
+            evidence = [f"Status {row.status.replace('_', ' ')}"]
+            external_reference = str(getattr(row, "external_reference", "") or "").strip()
+            if external_reference:
+                evidence.append(f"Reference {external_reference}")
+            items.append({
+                "id": f"traceability:{row.id}",
+                "severity": "critical" if row.status == "rejected" else "high",
+                "area": "Compliance",
+                "title": f"{row.operation_type.replace('_', ' ').title()} needs attention",
+                "detail": row.error_message or row.reason or row.status.replace("_", " "),
+                "workspace": "Compliance",
+                "entity_id": row.id,
+                "action_label": "Open Queue",
+                "evidence": evidence,
+            })
         overdue_production = list(
             session.scalars(
                 select(ProductionOrder)
@@ -296,7 +322,17 @@ def operations_inbox(context: RequestContext = Depends(get_request_context), eng
             )
         )
         for row in overdue_production:
-            items.append({"id": f"production:{row.id}", "severity": "high", "area": "Production", "title": f"{row.order_number} is overdue", "detail": f"{row.product_name} · {row.status}", "workspace": "Production", "entity_id": row.id})
+            items.append({
+                "id": f"production:{row.id}",
+                "severity": "high",
+                "area": "Production",
+                "title": f"{row.order_number} is overdue",
+                "detail": f"{row.product_name} · {row.status}",
+                "workspace": "Production",
+                "entity_id": row.id,
+                "action_label": "Open",
+                "evidence": [f"Status {row.status}", f"Due {row.due_at.date().isoformat() if row.due_at else 'not set'}"],
+            })
         overdue_orders = list(
             session.scalars(
                 select(CommercialOrder)
@@ -311,7 +347,17 @@ def operations_inbox(context: RequestContext = Depends(get_request_context), eng
             )
         )
         for row in overdue_orders:
-            items.append({"id": f"order:{row.id}", "severity": "medium", "area": "Orders", "title": f"{row.order_number} is overdue", "detail": f"{row.order_type} order · {row.status}", "workspace": "Orders", "entity_id": row.id})
+            items.append({
+                "id": f"order:{row.id}",
+                "severity": "medium",
+                "area": "Orders",
+                "title": f"{row.order_number} is overdue",
+                "detail": f"{row.order_type} order · {row.status}",
+                "workspace": "Orders",
+                "entity_id": row.id,
+                "action_label": "Open",
+                "evidence": [f"Order type {row.order_type}", f"Status {row.status}"],
+            })
         unmapped = int(
             session.scalar(
                 select(func.count()).select_from(RetailSale).where(
@@ -324,7 +370,17 @@ def operations_inbox(context: RequestContext = Depends(get_request_context), eng
             or 0
         )
         if unmapped:
-            items.append({"id": "unmapped-sales", "severity": "medium", "area": "Data", "title": f"{unmapped} sales lines need product mapping", "detail": "Unmapped lines are excluded from product-level velocity.", "workspace": "Data & Settings", "entity_id": ""})
+            items.append({
+                "id": "unmapped-sales",
+                "severity": "medium",
+                "area": "Data",
+                "title": f"{unmapped} sales lines need product mapping",
+                "detail": "Unmapped lines are excluded from product-level velocity.",
+                "workspace": "Data & Settings",
+                "entity_id": "",
+                "action_label": "Review Data",
+                "evidence": [f"Unmapped sales lines {unmapped}", "Window 7 days"],
+            })
         failed_integrations = list(
             session.scalars(
                 select(IntegrationConfiguration).where(
@@ -335,7 +391,17 @@ def operations_inbox(context: RequestContext = Depends(get_request_context), eng
             )
         )
         for row in failed_integrations:
-            items.append({"id": f"integration:{row.id}", "severity": "high", "area": "Integrations", "title": f"{row.provider.upper()} connection failed", "detail": row.last_error or "Retest the saved connection.", "workspace": "Integrations", "entity_id": row.id})
+            items.append({
+                "id": f"integration:{row.id}",
+                "severity": "high",
+                "area": "Integrations",
+                "title": f"{row.provider.upper()} connection failed",
+                "detail": row.last_error or "Retest the saved connection.",
+                "workspace": "Integrations",
+                "entity_id": row.id,
+                "action_label": "Review",
+                "evidence": [f"Provider {row.provider.upper()}", f"Status {row.status}"],
+            })
     priority = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     items.sort(key=lambda item: (priority[item["severity"]], item["area"], item["title"]))
     return {"items": items[:50], "summary": {"critical": sum(item["severity"] == "critical" for item in items), "high": sum(item["severity"] == "high" for item in items), "total": len(items)}}
