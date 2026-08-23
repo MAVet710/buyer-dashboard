@@ -3,6 +3,8 @@ name: Legal Gate Diagnostics
 on:
   push:
     branches: [diag/legal-gate]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
