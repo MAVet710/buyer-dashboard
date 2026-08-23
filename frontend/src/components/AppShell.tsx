@@ -14,6 +14,7 @@ type OperationMode = "Retail Ops" | "Production Ops";
 type PrimaryCategory = "Home" | "Inventory" | "Purchasing" | "Orders" | "Production" | "Reports" | "Compliance" | "Data & Settings";
 type SecondaryItem = { label: string; page: string; roles?: readonly string[] };
 type PrimaryItem = { label: PrimaryCategory; icon: typeof Home; defaultPage: string };
+type BuyerDataMode = "Uploads" | "Dutchie Live";
 
 // Match modules/navigation/operation_context_bar.py exactly. Trial falls back
 // to Retail Ops, but planner is production-only and read_only cannot open
@@ -115,7 +116,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => localStorage.getItem("buyer-dash-theme") === "light" ? "light" : "dark");
   const [operation, setOperation] = useState<OperationMode>(() => localStorage.getItem("buyer-dash-operation") === "Production Ops" ? "Production Ops" : "Retail Ops");
-  const [dataMode, setDataMode] = useState(() => localStorage.getItem("buyer-dash-data-mode") === "Dutchie Live" ? "Dutchie Live" : "Uploads");
+  const [dataMode, setDataMode] = useState<BuyerDataMode>(() => localStorage.getItem("buyer-dash-data-mode") === "Dutchie Live" ? "Dutchie Live" : "Uploads");
   const [classicNavigation, setClassicNavigation] = useState(() => localStorage.getItem("buyer-dash-classic-navigation") === "true");
   const context = useQuery({ queryKey: ["account-context"], queryFn: ({ signal }) => apiGet<AccountContext>("/api/v1/account/context", signal) });
   const access = useQuery({ queryKey: ["access-options"], queryFn: ({ signal }) => apiGet<AccessOptions>("/api/v1/account/access-options", signal), enabled: Boolean(context.data) });
@@ -206,6 +207,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     const nextSecondary = secondaryItems(target.label, next, role).filter(item => !item.roles || item.roles.includes(role as never));
     routeToOperation(nextSecondary[0]?.page ?? target.defaultPage, next);
   };
+  const changeDataMode = (next: BuyerDataMode) => setDataMode(next);
   const switchOrganization = (organizationId: string) => {
     if (isTrial) return;
     const organizationRow = access.data?.organizations.find(row => row.id === organizationId);
@@ -244,7 +246,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
       {!classicNavigation ? <>
         <nav aria-label="Work areas">{primary.map(row => { const Icon = row.icon; return <button className={row.label === activeCategory ? "nav-item active" : "nav-item"} key={row.label} onClick={() => chooseCategory(row)}><Icon size={18}/><span>{row.label}</span></button>; })}</nav>
         {secondary.length ? <><div className="operation-label">Current area</div><nav className="secondary-nav" aria-label={`${activeCategory} tools`}>{secondary.map(row => <button className={row.page === active ? "nav-item active" : "nav-item"} key={row.page} onClick={() => navigate(row.page)}><span>{row.label}</span></button>)}</nav></> : null}
-        {operation === "Retail Ops" ? <details className="sidebar-expander"><summary>Data source</summary><div><label className="compact-field">Buyer data mode<select className="data-mode-select" value={dataMode} onChange={event => setDataMode(event.target.value === "Dutchie Live" ? "Dutchie Live" : "Uploads")}><option value="Uploads">📁 Uploads</option><option value="Dutchie Live">🔴 Dutchie Live</option></select></label></div></details> : null}
+        {operation === "Retail Ops" ? <details className="sidebar-expander"><summary>Data source</summary><div><label className="compact-field">Buyer data mode<select className="data-mode-select" value={dataMode} onChange={event => changeDataMode(event.target.value === "Dutchie Live" ? "Dutchie Live" : "Uploads")}><option value="Uploads">📁 Uploads</option><option value="Dutchie Live">🔴 Dutchie Live</option></select></label></div></details> : null}
       </> : <ClassicNavigation operation={operation} role={role} active={active} onNavigate={navigate}/>} 
       <details className="sidebar-expander"><summary>Navigation options</summary><div><label className="toggle"><input type="checkbox" checked={classicNavigation} onChange={event => setClassicNavigation(event.target.checked)}/> Use classic navigation</label></div></details>
     </aside>
@@ -261,13 +263,13 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
         <button className="icon-button theme-toggle" title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} onClick={() => setTheme(current => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={18}/> : <Moon size={18}/>}</button>
         <button className="user-chip" onClick={signOut}>{context.data?.user.display_name || context.data?.user.email || "Developer"} · {role}</button>
       </header>
-      <main><MobileNavigation primary={primary} category={activeCategory} secondary={secondary} active={active} onCategory={chooseCategory} onNavigate={navigate}/><GlobalSearch onNavigate={navigate}/>{children}</main>
+      <main><MobileNavigation primary={primary} category={activeCategory} secondary={secondary} active={active} operation={operation} dataMode={dataMode} onDataMode={changeDataMode} onCategory={chooseCategory} onNavigate={navigate}/><GlobalSearch onNavigate={navigate}/>{children}</main>
     </section>
   </div>;
 }
 
-function MobileNavigation({ primary, category, secondary, active, onCategory, onNavigate }: { primary: PrimaryItem[]; category: PrimaryCategory; secondary: SecondaryItem[]; active: string; onCategory: (item: PrimaryItem) => void; onNavigate: (page: string) => void }) {
-  return <section className="mobile-flat-navigation"><div className="eyebrow">DoobieLogic</div><select aria-label="Navigate" value={category} onChange={event => { const row = primary.find(item => item.label === event.target.value); if (row) onCategory(row); }}>{primary.map(row => <option key={row.label} value={row.label}>{row.label}</option>)}</select>{secondary.length ? <select aria-label="Tool" value={secondary.some(row => row.page === active) ? active : secondary[0].page} onChange={event => onNavigate(event.target.value)}>{secondary.map(row => <option key={row.page} value={row.page}>{row.label}</option>)}</select> : null}</section>;
+function MobileNavigation({ primary, category, secondary, active, operation, dataMode, onDataMode, onCategory, onNavigate }: { primary: PrimaryItem[]; category: PrimaryCategory; secondary: SecondaryItem[]; active: string; operation: OperationMode; dataMode: BuyerDataMode; onDataMode: (mode: BuyerDataMode) => void; onCategory: (item: PrimaryItem) => void; onNavigate: (page: string) => void }) {
+  return <section className="mobile-flat-navigation"><div className="eyebrow">DoobieLogic</div><select aria-label="Navigate" value={category} onChange={event => { const row = primary.find(item => item.label === event.target.value); if (row) onCategory(row); }}>{primary.map(row => <option key={row.label} value={row.label}>{row.label}</option>)}</select>{secondary.length ? <select aria-label="Tool" value={secondary.some(row => row.page === active) ? active : secondary[0].page} onChange={event => onNavigate(event.target.value)}>{secondary.map(row => <option key={row.page} value={row.page}>{row.label}</option>)}</select> : null}{operation === "Retail Ops" ? <select className="mobile-data-mode-select" aria-label="Buyer data mode" value={dataMode} onChange={event => onDataMode(event.target.value === "Dutchie Live" ? "Dutchie Live" : "Uploads")}><option value="Uploads">📁 Uploads</option><option value="Dutchie Live">🔴 Dutchie Live</option></select> : null}</section>;
 }
 
 function ClassicNavigation({ operation, role, active, onNavigate }: { operation: OperationMode; role: string; active: string; onNavigate: (page: string) => void }) {
