@@ -16,6 +16,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify public API health before Google authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          for endpoint in health health/ready; do
+            code=$(curl --silent --show-error --max-time 20 \
+              --output "/tmp/${endpoint//\//_}.json" \
+              --write-out '%{http_code}' \
+              "https://api.doobielogic.io/${endpoint}" || true)
+            echo "GET /${endpoint} -> ${code}"
+            cat "/tmp/${endpoint//\//_}.json" 2>/dev/null || true
+            echo
+          done
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -61,27 +75,13 @@ jobs:
               legal_acceptance = conn.execute(text("select to_regclass('public.legal_acceptance_events')")).scalar_one()
               users = conn.execute(text('select count(*) from public.app_users')).scalar_one()
               acceptances = conn.execute(text('select count(*) from public.legal_acceptance_events')).scalar_one()
-          print(f'DATABASE_URL connection: OK')
+          print('DATABASE_URL connection: OK')
           print(f'Alembic revision: {version}')
           print(f'Legal policy table: {legal_policy}')
           print(f'Legal acceptance table: {legal_acceptance}')
           print(f'App users: {users}')
           print(f'Legal acceptance rows: {acceptances}')
           PY
-
-      - name: Verify public API health and readiness
-        shell: bash
-        run: |
-          set -euo pipefail
-          for endpoint in health health/ready; do
-            code=$(curl --silent --show-error --max-time 20 \
-              --output "/tmp/${endpoint//\//_}.json" \
-              --write-out '%{http_code}' \
-              "https://api.doobielogic.io/${endpoint}" || true)
-            echo "GET /${endpoint} -> ${code}"
-            cat "/tmp/${endpoint//\//_}.json" 2>/dev/null || true
-            echo
-          done
 
       - name: Fail if production API is not ready
         shell: bash
