@@ -122,10 +122,14 @@ class RetailSalesImportResult(BaseModel):
 
 class InventoryAdjustmentCreate(BaseModel):
     lot_id: str
+    package_id: str = ""
     adjustment_type: Literal["incremental", "set_quantity"]
     quantity: float
     reason: str
     reason_note: str = ""
+    sync_to_metrc: bool = False
+    bypass_state_system: bool = False
+    reviewed: bool = False
 
 
 class InventoryAdjustmentResult(BaseModel):
@@ -137,6 +141,8 @@ class InventoryAdjustmentResult(BaseModel):
     reserved_quantity: float
     unit: str
     reason: str
+    metrc_status: str = "not_configured"
+    traceability_transaction_id: str = ""
 
 
 class InventoryAuditCreate(BaseModel):
