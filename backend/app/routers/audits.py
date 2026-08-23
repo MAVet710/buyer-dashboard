@@ -10,7 +10,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import InventoryLot
-from ..auth import RequestContext, get_request_context, require_facility_capability
+from ..auth import RequestContext, get_request_context, require_inventory_operation_capability
 from ..database import get_engine
 from ..schemas.inventory import InventoryAuditComplete, InventoryAuditCounts, InventoryAuditCreate, InventoryAuditDetail, InventoryAuditLineItem, InventoryAuditScanCount, InventoryAuditScanPreview, InventoryAuditStatusChange, InventoryAuditSummary, RetailAuditSnapshotImport
 from ..services.audits import AuditService
@@ -22,7 +22,7 @@ WRITE_ROLES = {"dev", "admin", "buyer", "supervisor", "operator", "qa", "trial"}
 def _validate(operation: str, context: RequestContext, engine: Engine, write: bool = False):
     if operation not in {"retail", "production"}:
         raise HTTPException(404, "Inventory operation not found.")
-    require_facility_capability(context, engine, operation)
+    require_inventory_operation_capability(context, engine, operation)
     if write and context.role.casefold() not in WRITE_ROLES:
         raise HTTPException(403, "Your role does not allow inventory audit changes.")
 
