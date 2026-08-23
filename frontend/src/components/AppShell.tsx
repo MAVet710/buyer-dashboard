@@ -15,8 +15,11 @@ type PrimaryCategory = "Home" | "Inventory" | "Purchasing" | "Orders" | "Product
 type SecondaryItem = { label: string; page: string; roles?: readonly string[] };
 type PrimaryItem = { label: PrimaryCategory; icon: typeof Home; defaultPage: string };
 
-const RETAIL_ROLES = ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only", "trial"] as const;
-const PRODUCTION_ROLES = ["dev", "admin", "planner", "supervisor", "operator", "qa", "read_only", "trial"] as const;
+// Match modules/navigation/operation_context_bar.py exactly. Trial falls back
+// to Retail Ops, but planner is production-only and read_only cannot open
+// Production Ops unless Streamlit grants it there too.
+const RETAIL_ROLES = ["dev", "admin", "buyer", "supervisor", "operator", "qa", "read_only", "trial"] as const;
+const PRODUCTION_ROLES = ["dev", "admin", "planner", "supervisor", "operator", "qa"] as const;
 const ADMIN = ["dev", "admin"] as const;
 const DEV = ["dev"] as const;
 const NON_DEV = ["admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only", "trial"] as const;
