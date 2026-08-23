@@ -88,7 +88,9 @@ def test_inventory_audit_is_a_workspace_and_inventory_action_routes_to_it():
     inventory = (ROOT / "frontend" / "src" / "pages" / "InventoryPage.tsx").read_text(encoding="utf-8")
     focused = (ROOT / "frontend" / "src" / "components" / "FocusedInventoryAudits.tsx").read_text(encoding="utf-8")
     assert 'page === "Inventory Audits" ? <FocusedInventoryAudits />' in app
-    assert '<InventoryAudits operation="retail" />' in focused
+    assert '<InventoryAudits operation={operation} />' in focused
+    assert 'type Operation = "retail" | "production"' in focused
     assert 'sessionStorage.getItem("buyer-dash-audit-product-focus")' in focused
+    assert '`/api/v1/inventory/${operation}/audits`' in focused
     assert 'onNavigate?.("Inventory Audits")' in inventory
     assert "<InventoryAudits operation={operation}" not in inventory
