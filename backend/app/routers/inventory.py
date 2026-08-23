@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine
 
 from modules.package_studio.service import PackageStudioService
+from modules.traceability.inventory_adjustment import run_tracked_metrc_adjustment
+from services.metrc_inventory_adjustments import fetch_package_adjustment_reasons
 from services.metrc_receiving import (
     fetch_all_delivery_packages,
     fetch_all_incoming_transfers,
@@ -30,6 +32,15 @@ from ..services.metrc_context import resolve_metrc_context
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 ADJUSTMENT_ROLES = {"dev", "admin", "supervisor", "operator", "qa"}
 RECEIVING_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only", "trial", "user"}
+LOCAL_ADJUSTMENT_REASONS = (
+    "Inventory count correction",
+    "Scale variance",
+    "Damage / destruction",
+    "Waste / disposal",
+    "Found inventory",
+    "Entry error",
+    "Other",
+)
 
 
 def _list_packages(
@@ -67,11 +78,27 @@ def _require_receiving(context: RequestContext) -> None:
         raise HTTPException(status_code=403, detail="Your role does not allow inventory receiving.")
 
 
+def _require_adjustment(context: RequestContext) -> None:
+    if context.role.casefold() not in ADJUSTMENT_ROLES:
+        raise HTTPException(status_code=403, detail="Your role does not allow inventory adjustments.")
+
+
 def _metrc_context(
     *, context: RequestContext, engine: Engine, settings: Settings, operation: str
 ):
     _require_operation(operation)
     _require_receiving(context)
+    require_facility_capability(context, engine, operation)
+    try:
+        _, metrc = resolve_metrc_context(engine, settings, context)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return metrc
+
+
+def _adjustment_metrc_context(*, context: RequestContext, engine: Engine, settings: Settings, operation: str):
+    _require_operation(operation)
+    _require_adjustment(context)
     require_facility_capability(context, engine, operation)
     try:
         _, metrc = resolve_metrc_context(engine, settings, context)
@@ -318,23 +345,129 @@ def import_retail_sales(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.get("/{operation}/adjustment-reasons")
+def inventory_adjustment_reasons(
+    operation: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    metrc = _adjustment_metrc_context(context=context, engine=engine, settings=settings, operation=operation)
+    rows: list[dict] = []
+    if metrc.configured:
+        result = fetch_package_adjustment_reasons(
+            state=metrc.state,
+            user_api_key=metrc.user_api_key,
+            integrator_api_key=metrc.integrator_api_key,
+            license_number=metrc.license_number,
+        )
+        if result.get("ok"):
+            rows = [dict(item) for item in result.get("reasons") or [] if isinstance(item, dict)]
+    if not rows:
+        rows = [{"Name": reason, "RequiresNote": reason == "Other"} for reason in LOCAL_ADJUSTMENT_REASONS]
+    return {
+        "reasons": [
+            {"name": str(row.get("Name") or "").strip(), "requires_note": bool(row.get("RequiresNote"))}
+            for row in rows
+            if str(row.get("Name") or "").strip()
+        ],
+        "metrc_ready": bool(metrc.configured),
+        "can_bypass": bool(metrc.configured and context.role.casefold() in {"dev", "admin"}),
+        "license_number": metrc.license_number if metrc.configured else "",
+    }
+
+
 @router.post("/{operation}/adjustments", response_model=InventoryAdjustmentResult, status_code=201)
 def adjust_inventory(
     operation: str,
     payload: InventoryAdjustmentCreate,
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
 ):
     _require_operation(operation)
-    if context.role.casefold() not in ADJUSTMENT_ROLES:
-        raise HTTPException(status_code=403, detail="Your role does not allow inventory adjustments.")
+    _require_adjustment(context)
     require_facility_capability(context, engine, operation)
+    if not payload.reviewed:
+        raise HTTPException(status_code=422, detail="Review the package, final quantity, and adjustment reason before posting.")
+    if payload.sync_to_metrc and payload.bypass_state_system:
+        raise HTTPException(status_code=422, detail="Choose either METRC sync or state-system bypass, not both.")
+    if payload.bypass_state_system and context.role.casefold() not in {"dev", "admin"}:
+        raise HTTPException(status_code=403, detail="Only DEV or admin may bypass the state system.")
+
+    service = InventoryQueryService(engine)
+    package_snapshot = service.list_packages(
+        context.organization_id,
+        context.facility_id,
+        operation=operation,
+    )
+    item = next((row for row in package_snapshot.items if row.id == payload.lot_id), None)
+    if item is None:
+        raise HTTPException(status_code=422, detail="Inventory lot was not found in the active facility.")
+    package_id = payload.package_id.strip() or item.package_id.strip()
+    if payload.sync_to_metrc and not package_id:
+        raise HTTPException(status_code=422, detail="An External Package ID is required for tracked METRC adjustment.")
+
+    metrc = _adjustment_metrc_context(context=context, engine=engine, settings=settings, operation=operation)
+    reason_rows: list[dict] = []
+    if metrc.configured:
+        try:
+            reason_result = fetch_package_adjustment_reasons(
+                state=metrc.state,
+                user_api_key=metrc.user_api_key,
+                integrator_api_key=metrc.integrator_api_key,
+                license_number=metrc.license_number,
+            )
+            if reason_result.get("ok"):
+                reason_rows = [dict(row) for row in reason_result.get("reasons") or [] if isinstance(row, dict)]
+        except Exception:
+            reason_rows = []
+    if not reason_rows:
+        reason_rows = [{"Name": reason, "RequiresNote": reason == "Other"} for reason in LOCAL_ADJUSTMENT_REASONS]
+    reason_meta = next((row for row in reason_rows if str(row.get("Name") or "").strip() == payload.reason.strip()), None)
+    if reason_meta and bool(reason_meta.get("RequiresNote")) and not payload.reason_note.strip():
+        raise HTTPException(status_code=422, detail="This adjustment reason requires a note.")
+
+    if payload.sync_to_metrc:
+        if not metrc.configured:
+            raise HTTPException(status_code=422, detail="METRC sync was requested, but this user/facility does not have a complete METRC connection.")
+        previous = float(item.available)
+        final = previous + float(payload.quantity) if payload.adjustment_type == "incremental" else float(payload.quantity)
+        metrc_quantity = final - previous if payload.adjustment_type == "incremental" else final
+        local_result: list[InventoryAdjustmentResult] = []
+
+        def local_apply() -> tuple[float, str]:
+            result = service.adjust_inventory(context.organization_id, context.facility_id, payload, context.user_id)
+            local_result.append(result)
+            return float(result.delta), str(result.unit)
+
+        try:
+            _delta, _unit, traceability_id = run_tracked_metrc_adjustment(
+                organization_id=context.organization_id,
+                facility_id=context.facility_id,
+                actor=context.user_id,
+                credentials=metrc,
+                package_id=package_id,
+                adjustment_type="incremental" if payload.adjustment_type == "incremental" else "absolute",
+                quantity=metrc_quantity,
+                unit=item.unit,
+                reason=payload.reason,
+                reason_note=payload.reason_note,
+                local_apply=local_apply,
+            )
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        result = local_result[0]
+        return result.model_copy(update={"metrc_status": "synced", "traceability_transaction_id": traceability_id})
+
     try:
-        return InventoryQueryService(engine).adjust_inventory(
-            context.organization_id, context.facility_id, payload, context.user_id
-        )
+        result = service.adjust_inventory(context.organization_id, context.facility_id, payload, context.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return result.model_copy(update={
+        "metrc_status": "bypassed" if payload.bypass_state_system else "not_configured" if not metrc.configured else "local_only",
+        "traceability_transaction_id": "",
+    })
 
 
 @router.get("/{operation}/packages/{lot_id}/lineage", response_model=PackageLineage)
