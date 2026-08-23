@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from modules.coman.models import AuditEvent, Product
 from modules.product_master import ProductMasterRepository
 from modules.product_master.models import ProductMasterProfile
-from ..auth import RequestContext, get_request_context, require_facility_capability
+from ..auth import RequestContext, get_request_context, require_facility_capability, require_inventory_operation_capability
 from ..database import get_engine
 
 router = APIRouter(prefix="/product-master", tags=["product-master"])
@@ -73,7 +73,7 @@ def _require_operation(context: RequestContext, engine: Engine, operation: str) 
     operation = operation.strip().casefold()
     if operation not in {"retail", "production"}:
         raise HTTPException(422, "Operation must be retail or production.")
-    require_facility_capability(context, engine, operation)
+    require_inventory_operation_capability(context, engine, operation)
     return operation
 
 
@@ -83,7 +83,7 @@ def _require_enabled_scopes(context: RequestContext, engine: Engine, *, retail: 
     if retail:
         require_facility_capability(context, engine, "retail")
     if production:
-        require_facility_capability(context, engine, "production")
+        require_inventory_operation_capability(context, engine, "production")
 
 
 def _identity(row: Product) -> dict:
