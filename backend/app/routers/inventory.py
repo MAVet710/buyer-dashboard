@@ -10,7 +10,7 @@ from services.metrc_receiving import (
     fetch_all_transfer_deliveries,
     fetch_metrc_lab_results,
 )
-from ..auth import RequestContext, get_request_context, require_facility_capability
+from ..auth import RequestContext, get_request_context, require_facility_capability, require_inventory_operation_capability
 from ..config import Settings, get_settings
 from ..database import get_engine
 from ..schemas.inventory import (
@@ -54,7 +54,7 @@ def _list_packages(
     source: str,
     view: str,
 ) -> InventoryResponse:
-    require_facility_capability(context, engine, operation)
+    require_inventory_operation_capability(context, engine, operation)
     return InventoryQueryService(engine).list_packages(
         context.organization_id,
         context.facility_id,
@@ -88,7 +88,7 @@ def _metrc_context(
 ):
     _require_operation(operation)
     _require_receiving(context)
-    require_facility_capability(context, engine, operation)
+    require_inventory_operation_capability(context, engine, operation)
     try:
         _, metrc = resolve_metrc_context(engine, settings, context)
     except RuntimeError as exc:
@@ -99,7 +99,7 @@ def _metrc_context(
 def _adjustment_metrc_context(*, context: RequestContext, engine: Engine, settings: Settings, operation: str):
     _require_operation(operation)
     _require_adjustment(context)
-    require_facility_capability(context, engine, operation)
+    require_inventory_operation_capability(context, engine, operation)
     try:
         _, metrc = resolve_metrc_context(engine, settings, context)
     except RuntimeError as exc:
@@ -282,7 +282,7 @@ def receive_inventory(
 ):
     _require_operation(operation)
     _require_receiving(context)
-    require_facility_capability(context, engine, operation)
+    require_inventory_operation_capability(context, engine, operation)
     try:
         return InventoryQueryService(engine).receive(
             context.organization_id,
@@ -304,7 +304,7 @@ def receive_inventory_batch(
 ):
     _require_operation(operation)
     _require_receiving(context)
-    require_facility_capability(context, engine, operation)
+    require_inventory_operation_capability(context, engine, operation)
     try:
         return InventoryReceiptBatchService(engine).post(
             context.organization_id,
@@ -326,7 +326,7 @@ def inventory_receive_history(
     engine: Engine = Depends(get_engine),
 ):
     _require_operation(operation)
-    require_facility_capability(context, engine, operation)
+    require_inventory_operation_capability(context, engine, operation)
     return InventoryQueryService(engine).receive_history(context.organization_id, context.facility_id, operation, limit)
 
 
@@ -387,7 +387,7 @@ def adjust_inventory(
 ):
     _require_operation(operation)
     _require_adjustment(context)
-    require_facility_capability(context, engine, operation)
+    require_inventory_operation_capability(context, engine, operation)
     # Streamlit requires an explicit review confirmation in the operator work
     # window. The React work window enforces that exact interaction before it
     # can call this endpoint. The API keeps backwards compatibility for existing
@@ -480,7 +480,7 @@ def package_lineage(
     engine: Engine = Depends(get_engine),
 ):
     _require_operation(operation)
-    require_facility_capability(context, engine, operation)
+    require_inventory_operation_capability(context, engine, operation)
     try:
         return PackageStudioService(engine).source_trail(
             lot_id, organization_id=context.organization_id, facility_id=context.facility_id
