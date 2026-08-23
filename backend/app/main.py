@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import Engine, inspect, text
@@ -54,6 +54,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# The Streamlit data selector was behavioral: Dutchie Live did not silently
+# continue using uploaded files. The React shell now sends the current mode on
+# every request, and all upload-backed Buyer surfaces are stopped here until the
+# real Dutchie API fetch is implemented. This prevents a dangerous false sense
+# that users are looking at live POS data while they are actually seeing stale
+# uploads.
+_BUYER_UPLOAD_BACKED_PREFIXES = (
+    f"{settings.api_prefix}/buyer-parity",
+    f"{settings.api_prefix}/buyer-legacy-overview",
+    f"{settings.api_prefix}/slow-movers-parity",
+    f"{settings.api_prefix}/buying-budget-parity",
+    f"{settings.api_prefix}/po-parity",
+    f"{settings.api_prefix}/executive-reports",
+)
+
+
+@app.middleware("http")
+async def enforce_buyer_data_mode(request: Request, call_next):
+    data_mode = str(request.headers.get("X-DoobieLogic-Data-Mode") or "Uploads").strip().casefold()
+    if data_mode in {"dutchie live", "dutchie_live", "live"} and request.url.path.startswith(_BUYER_UPLOAD_BACKED_PREFIXES):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": (
+                    "Dutchie Live mode is active. The Streamlit app did not silently fall back to uploaded files in this mode. "
+                    "Live Dutchie API fetching is not yet implemented in the web runtime, so Buyer workflows are paused instead of showing stale upload data. "
+                    "Configure the Dutchie integration when live fetching is available, or switch Data source back to Uploads."
+                )
+            },
+        )
+    return await call_next(request)
 
 
 @app.get("/health", tags=["system"])
