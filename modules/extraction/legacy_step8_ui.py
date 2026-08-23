@@ -13,6 +13,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from core.session_keys import EXTRACTION_RUNS
 from modules.extraction.workflows import (
     TERPENE_HANDLING_MODES,
     calculate_final_output_g,
@@ -433,7 +434,7 @@ def render_legacy_process_tracker(run_df: pd.DataFrame) -> None:
         events = pd.concat([events, pd.DataFrame([event_row])], ignore_index=True)
         st.session_state[PROCESS_EVENTS_KEY] = events
 
-        source = st.session_state.get("extraction_runs")
+        source = st.session_state.get(EXTRACTION_RUNS)
         if isinstance(source, pd.DataFrame) and run_index in source.index:
             source = source.copy()
             source.at[run_index, "workflow_template"] = workflow.key
@@ -468,6 +469,6 @@ def render_legacy_process_tracker(run_df: pd.DataFrame) -> None:
                 source.at[run_index, "finished_output_g"] = resolved
                 input_g = float(source.at[run_index, "input_weight_g"] or 0.0) if "input_weight_g" in source.columns else 0.0
                 source.at[run_index, "yield_pct"] = (resolved / input_g * 100.0) if input_g else 0.0
-            st.session_state["extraction_runs"] = source
+            st.session_state[EXTRACTION_RUNS] = source
         st.success("Process event recorded and Step 8 output state refreshed.")
         st.rerun()
