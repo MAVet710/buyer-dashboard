@@ -11,13 +11,28 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import Customer
+from modules.extraction.models import ExtractionRun
 from modules.extraction.repository import ExtractionRepository
 from modules.extraction.performance import ExtractionPerformanceService
-from modules.extraction.workflows import default_workflow_for_method
+from modules.extraction.workflows import (
+    TERPENE_HANDLING_MODES,
+    calculate_terpene_weight_g,
+    default_workflow_for_method,
+    get_extraction_workflow,
+    method_aware_stage_fields,
+)
 from modules.data_hub_repository import MAX_DURABLE_UPLOAD_BYTES
-from services.extraction_partner_import import DEFAULTS as PARTNER_DEFAULTS, TARGET_FIELDS as PARTNER_TARGET_FIELDS, apply_mapping as apply_partner_mapping, confidence as partner_confidence, normalize_workbook, suggestions as partner_suggestions
+from services.extraction_partner_import import (
+    DEFAULTS as PARTNER_DEFAULTS,
+    TARGET_FIELDS as PARTNER_TARGET_FIELDS,
+    apply_mapping as apply_partner_mapping,
+    confidence as partner_confidence,
+    normalize_workbook,
+    suggestions as partner_suggestions,
+)
 from ..auth import RequestContext, get_request_context, get_production_context
 from ..database import get_engine
+from .extraction import RUN_STAGE_OUTPUT_FIELDS, _persist_run_enhancements
 
 router = APIRouter(prefix="/extraction-parity", tags=["extraction-parity"], dependencies=[Depends(get_production_context)])
 
@@ -49,7 +64,10 @@ class ManualRunCreate(BaseModel):
     client_name: str = "In House"
     batch_id_internal: str = Field(default="", max_length=120)
     method: str = "BHO"
+    workflow_template: str = ""
     product_type: str = "Sugar"
+    intermediate_product_type: str = ""
+    final_product_type: str = ""
     input_material_type: str = "Fresh Frozen"
     input_weight_g: float = Field(default=0, ge=0)
     intermediate_output_g: float = Field(default=0, ge=0)
@@ -57,9 +75,45 @@ class ManualRunCreate(BaseModel):
     residual_loss_g: float = Field(default=0, ge=0)
     operator: str = ""
     machine_line: str = ""
+
+    # Existing generic METRC fields remain for backward compatibility.
     metrc_package_id_input: str = ""
     metrc_package_id_output: str = ""
     metrc_manifest_or_transfer_id: str = ""
+
+    # Step 2: stage-aware manual METRC package references.
+    metrc_input_package_id: str = ""
+    metrc_intermediate_package_id: str = ""
+    metrc_distillate_package_id: str = ""
+    metrc_formulation_package_id: str = ""
+    metrc_final_package_id: str = ""
+
+    # Steps 3-4: optional formulation / terpene handling.
+    formulation_used: bool = False
+    formulation_base_g: float = Field(default=0, ge=0)
+    terpene_handling_mode: str = "Native / No Add-Back"
+    terpene_type: str = ""
+    terpene_source: str = ""
+    terpene_percentage: float = Field(default=0, ge=0)
+    terpene_weight_g: float | None = Field(default=None, ge=0)
+
+    # Step 6: method-aware stage outputs. They remain optional/zero-safe so
+    # existing uploaded and manually entered runs continue to work unchanged.
+    extraction_output_g: float = Field(default=0, ge=0)
+    purge_output_g: float = Field(default=0, ge=0)
+    crystallization_output_g: float = Field(default=0, ge=0)
+    sauce_fraction_g: float = Field(default=0, ge=0)
+    diamond_fraction_g: float = Field(default=0, ge=0)
+    crude_output_g: float = Field(default=0, ge=0)
+    winterized_output_g: float = Field(default=0, ge=0)
+    filtered_output_g: float = Field(default=0, ge=0)
+    decarbed_output_g: float = Field(default=0, ge=0)
+    distillate_output_g: float = Field(default=0, ge=0)
+    wash_output_g: float = Field(default=0, ge=0)
+    dried_hash_output_g: float = Field(default=0, ge=0)
+    sift_output_g: float = Field(default=0, ge=0)
+    rosin_output_g: float = Field(default=0, ge=0)
+
     coa_status: str = "Pending"
     qa_hold: bool = False
     toll_processing: bool = False
@@ -83,6 +137,37 @@ def _toll(row):
     return result
 
 
+def _enhancement_values(payload: ManualRunCreate) -> dict:
+    values = {
+        "intermediate_product_type": payload.intermediate_product_type,
+        "final_product_type": payload.final_product_type,
+        "formulation_used": payload.formulation_used,
+        "formulation_base_g": payload.formulation_base_g,
+        "terpene_handling_mode": payload.terpene_handling_mode,
+        "terpene_type": payload.terpene_type,
+        "terpene_source": payload.terpene_source,
+        "terpene_percentage": payload.terpene_percentage,
+        "metrc_input_package_id": payload.metrc_input_package_id or payload.metrc_package_id_input,
+        "metrc_intermediate_package_id": payload.metrc_intermediate_package_id,
+        "metrc_distillate_package_id": payload.metrc_distillate_package_id,
+        "metrc_formulation_package_id": payload.metrc_formulation_package_id,
+        "metrc_final_package_id": payload.metrc_final_package_id or payload.metrc_package_id_output,
+    }
+    for field in RUN_STAGE_OUTPUT_FIELDS:
+        values[field] = getattr(payload, field)
+
+    if payload.terpene_handling_mode == "Native / No Add-Back":
+        values["terpene_weight_g"] = 0.0
+    elif payload.terpene_weight_g is not None:
+        values["terpene_weight_g"] = payload.terpene_weight_g
+    else:
+        values["terpene_weight_g"] = calculate_terpene_weight_g(
+            payload.formulation_base_g,
+            payload.terpene_percentage,
+        )
+    return values
+
+
 @router.get("/overview")
 def overview(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     repo = _repo(engine)
@@ -102,7 +187,11 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
         qa = repo.list_qa_events(context.organization_id, context.facility_id, run.id)
         trace = repo.list_traceability_transactions(context.organization_id, context.facility_id, run.id)
         input_weight = float(mass.get("consumed_input", 0)) or float(run.manual_input_weight_g or 0)
-        output_weight = float(mass.get("recorded_output", 0)) or float(run.manual_finished_output_g or 0)
+        output_weight = (
+            float(mass.get("recorded_output", 0))
+            or float(run.final_output_g or 0)
+            or float(run.manual_finished_output_g or 0)
+        )
         yield_pct = output_weight / input_weight * 100 if input_weight else 0.0
         finished += output_weight
         yields.append(yield_pct)
@@ -118,7 +207,10 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
             "id": run.id,
             "batch_id_internal": run.manual_batch_id_internal if run.manual_batch_id_internal is not None else run.batch_number,
             "method": run.method,
+            "workflow_template": run.workflow_key,
             "product_type": run.product_family,
+            "intermediate_product_type": run.intermediate_product_type,
+            "final_product_type": run.final_product_type,
             "strain": run.strain,
             "operator": run.operator,
             "status": run.status.title(),
@@ -136,8 +228,21 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
             "metrc_package_id_input": run.metrc_package_id_input,
             "metrc_package_id_output": run.metrc_package_id_output,
             "metrc_manifest_or_transfer_id": run.metrc_manifest_or_transfer_id,
+            "metrc_input_package_id": run.metrc_input_package_id,
+            "metrc_intermediate_package_id": run.metrc_intermediate_package_id,
+            "metrc_distillate_package_id": run.metrc_distillate_package_id,
+            "metrc_formulation_package_id": run.metrc_formulation_package_id,
+            "metrc_final_package_id": run.metrc_final_package_id,
+            "formulation_used": run.formulation_used,
+            "formulation_base_g": run.formulation_base_g,
+            "terpene_handling_mode": run.terpene_handling_mode,
+            "terpene_type": run.terpene_type,
+            "terpene_source": run.terpene_source,
+            "terpene_percentage": run.terpene_percentage,
+            "terpene_weight_g": run.terpene_weight_g,
             "input_weight_g": input_weight,
             "finished_output_g": output_weight,
+            "final_output_g": output_weight,
             "residual_loss_g": float(mass.get("unaccounted_balance", 0)) or float(run.residual_loss_g or 0),
             "yield_pct": yield_pct,
             "post_process_efficiency_pct": output_weight / float(run.intermediate_output_g or 0) * 100 if run.intermediate_output_g else 0.0,
@@ -150,6 +255,7 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
             "notes": run.notes,
             "traceability_count": len(trace),
             "toll_job": _toll(toll),
+            **{field: float(getattr(run, field, 0.0) or 0.0) for field in RUN_STAGE_OUTPUT_FIELDS},
         })
     alerts = []
     low = sum(1 for row in rows if row["input_weight_g"] > 0 and row["yield_pct"] < 12)
@@ -165,34 +271,69 @@ def overview(context: RequestContext = Depends(get_request_context), engine: Eng
 
 @router.post("/runs", status_code=201)
 def create_manual_run(payload: ManualRunCreate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    workflow = default_workflow_for_method(payload.method)
+    try:
+        workflow = get_extraction_workflow(payload.workflow_template) if payload.workflow_template.strip() else default_workflow_for_method(payload.method)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     durable_batch = f"MANUAL-{payload.run_date.strftime('%Y%m%d')}-{uuid4().hex[:8].upper()}"
     try:
         status = {"processing": "active", "queued": "queued", "complete": "complete", "hold": "hold", "failed": "failed"}.get(payload.status.strip().casefold(), "complete")
         release = "approved" if status == "complete" else "blocked" if status == "hold" else "rejected" if status == "failed" else "pending"
         row = _repo(engine).create_run(
-            organization_id=context.organization_id, facility_id=context.facility_id,
-            batch_number=durable_batch, method=workflow.method, workflow_key=workflow.key,
-            actor=context.user_id, product_family=payload.product_type, operator=payload.operator,
-            license_number=payload.license_name, toll_processing=payload.toll_processing, notes=payload.notes,
-            run_date=payload.run_date, jurisdiction=payload.state, facility_license_name=payload.license_name,
-            client_name_snapshot=payload.client_name, input_material_type=payload.input_material_type,
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            batch_number=durable_batch,
+            method=workflow.method,
+            workflow_key=workflow.key,
+            actor=context.user_id,
+            product_family=payload.product_type,
+            operator=payload.operator,
+            license_number=payload.license_name,
+            toll_processing=payload.toll_processing,
+            notes=payload.notes,
+            run_date=payload.run_date,
+            jurisdiction=payload.state,
+            facility_license_name=payload.license_name,
+            client_name_snapshot=payload.client_name,
+            input_material_type=payload.input_material_type,
             manual_batch_id_internal=payload.batch_id_internal,
-            manual_input_weight_g=payload.input_weight_g, intermediate_output_g=payload.intermediate_output_g,
-            manual_finished_output_g=payload.finished_output_g, residual_loss_g=payload.residual_loss_g,
-            machine_line=payload.machine_line, metrc_package_id_input=payload.metrc_package_id_input,
-            metrc_package_id_output=payload.metrc_package_id_output,
+            manual_input_weight_g=payload.input_weight_g,
+            intermediate_output_g=payload.intermediate_output_g,
+            manual_finished_output_g=payload.finished_output_g,
+            residual_loss_g=payload.residual_loss_g,
+            machine_line=payload.machine_line,
+            metrc_package_id_input=payload.metrc_package_id_input or payload.metrc_input_package_id,
+            metrc_package_id_output=payload.metrc_package_id_output or payload.metrc_final_package_id,
             metrc_manifest_or_transfer_id=payload.metrc_manifest_or_transfer_id,
-            manual_coa_status=payload.coa_status, manual_qa_hold=payload.qa_hold,
-            processing_fee_usd=payload.processing_fee_usd, estimated_revenue_usd=payload.est_revenue_usd,
+            manual_coa_status=payload.coa_status,
+            manual_qa_hold=payload.qa_hold,
+            processing_fee_usd=payload.processing_fee_usd,
+            estimated_revenue_usd=payload.est_revenue_usd,
             manual_cogs_usd=payload.cogs_usd,
-            initial_status=status, initial_release_status=release,
+            initial_status=status,
+            initial_release_status=release,
         )
+        row = _persist_run_enhancements(engine, context, row.id, _enhancement_values(payload))
+        if payload.finished_output_g > 0:
+            with Session(engine) as session:
+                persisted = session.get(ExtractionRun, row.id)
+                persisted.final_output_g = payload.finished_output_g
+                persisted.updated_by = context.user_id
+                session.commit()
+                session.refresh(persisted)
+                row = persisted
         if payload.cogs_usd > 0:
             _repo(engine).add_cost_event(organization_id=context.organization_id, facility_id=context.facility_id, run_id=row.id, category="other", amount_usd=payload.cogs_usd, actor=context.user_id, notes="Manual Run Analytics entry")
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    return {"id": row.id, "batch_id_internal": payload.batch_id_internal, "status": row.status.title()}
+    return {
+        "id": row.id,
+        "batch_id_internal": payload.batch_id_internal,
+        "status": row.status.title(),
+        "workflow_template": row.workflow_key,
+        "final_output_g": row.final_output_g,
+        "terpene_weight_g": row.terpene_weight_g,
+    }
 
 
 def _partner_upload(payload: bytes, file: UploadFile):
@@ -306,6 +447,11 @@ def create_toll_job(payload: TollJobCreate, context: RequestContext = Depends(ge
     batch = payload.batch_id_internal.strip() or f"TOLL-{datetime.utcnow().strftime('%Y%m%d')}-{uuid4().hex[:6].upper()}"
     try:
         run = repo.create_run(organization_id=context.organization_id, facility_id=context.facility_id, batch_number=batch, method=workflow.method, workflow_key=workflow.key, actor=context.user_id, product_family="Toll Processing", customer_id=customer_id, toll_processing=True, notes=payload.notes, jurisdiction=payload.state, client_name_snapshot=payload.client_name, manual_input_weight_g=payload.input_weight_g, manual_finished_output_g=payload.actual_output_g, metrc_manifest_or_transfer_id=payload.metrc_transfer_id, manual_coa_status=payload.coa_status, processing_fee_usd=payload.processing_fee_usd)
+        if payload.actual_output_g > 0:
+            with Session(engine) as session:
+                persisted = session.get(ExtractionRun, run.id)
+                persisted.final_output_g = payload.actual_output_g
+                session.commit()
         toll = repo.upsert_toll_job(organization_id=context.organization_id, facility_id=context.facility_id, run_id=run.id, customer_id=customer_id, actor=context.user_id, promised_completion_at=payload.promised_completion_at, processing_fee_usd=payload.processing_fee_usd, invoice_status=payload.invoice_status, payment_status=payload.payment_status, external_reference=payload.metrc_transfer_id, notes=payload.notes, jurisdiction=payload.state, client_license_snapshot=payload.license_or_registration, material_received_at=payload.material_received_at, input_weight_g=payload.input_weight_g, expected_output_g=payload.expected_output_g, actual_output_g=payload.actual_output_g, coa_status=payload.coa_status, job_status=payload.job_status)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -319,12 +465,28 @@ def compliance(run_id: str, context: RequestContext = Depends(get_request_contex
         run = repo.get_run(context.organization_id, context.facility_id, run_id)
         outputs = repo.list_outputs(context.organization_id, context.facility_id, run_id)
         qa = repo.list_qa_events(context.organization_id, context.facility_id, run_id)
-        trace = repo.list_traceability_transactions(context.organization_id, context.facility_id, run_id)
-        toll = repo.get_toll_job(context.organization_id, context.facility_id, run_id)
+        trace = repo.list_traceability_transactions(context.organization_id, context.facility_id, run.id)
+        toll = repo.get_toll_job(context.organization_id, context.facility_id, run.id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     return {
-        "run": {"id": run.id, "batch_number": run.batch_number, "method": run.method, "status": run.status, "release_status": run.release_status, "license_number": run.license_number, "compliance_provider": run.compliance_provider, "toll_processing": run.toll_processing},
+        "run": {
+            "id": run.id,
+            "batch_number": run.batch_number,
+            "method": run.method,
+            "workflow_template": run.workflow_key,
+            "status": run.status,
+            "release_status": run.release_status,
+            "license_number": run.license_number,
+            "compliance_provider": run.compliance_provider,
+            "toll_processing": run.toll_processing,
+            "metrc_input_package_id": run.metrc_input_package_id or run.metrc_package_id_input,
+            "metrc_intermediate_package_id": run.metrc_intermediate_package_id,
+            "metrc_distillate_package_id": run.metrc_distillate_package_id,
+            "metrc_formulation_package_id": run.metrc_formulation_package_id,
+            "metrc_final_package_id": run.metrc_final_package_id or run.metrc_package_id_output,
+            "final_output_g": run.final_output_g or run.manual_finished_output_g,
+        },
         "outputs": [{"id": row.id, "output_label": row.output_label, "compliance_package_id": row.compliance_package_id, "coa_status": row.coa_status, "status": row.status} for row in outputs],
         "qa_events": [{"event_type": row.event_type, "result": row.result, "coa_reference": row.coa_reference, "deviation_code": row.deviation_code, "notes": row.notes, "occurred_at": row.occurred_at} for row in qa],
         "traceability": [{"id": row.id, "entity_type": row.entity_type, "entity_id": row.entity_id, "status": row.status, "operation_type": row.operation_type, "requested_at": row.requested_at} for row in trace],
