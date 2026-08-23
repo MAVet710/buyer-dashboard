@@ -35,6 +35,17 @@ class IntegrationConfigurationService:
             session.add(AuditEvent(organization_id=audit_organization_id or organization_id, facility_id=audit_facility_id if audit_facility_id is not None else facility_id, entity_type="integration_configuration", entity_id=row.id, action="configuration_saved", actor=actor, changes_json=json.dumps({"provider": provider, "scope_type": scope_type, "configuration_keys": sorted(configuration), "secret_changed": secret is not None}, sort_keys=True)))
         return row
 
+    def clear(self, *, scope_type: str, scope_key: str, provider: str, actor: str, audit_organization_id: str, audit_facility_id: str | None = None) -> None:
+        """Clear one saved integration while retaining an auditable reset event."""
+        with self.sessions.begin() as session:
+            row = session.scalar(select(IntegrationConfiguration).where(IntegrationConfiguration.scope_type == scope_type, IntegrationConfiguration.scope_key == scope_key, IntegrationConfiguration.provider == provider))
+            if row is not None:
+                entity_id = row.id
+                session.delete(row)
+            else:
+                entity_id = f"{scope_type}:{scope_key}:{provider}"
+            session.add(AuditEvent(organization_id=audit_organization_id, facility_id=audit_facility_id, entity_type="integration_configuration", entity_id=entity_id, action="configuration_cleared", actor=actor, changes_json=json.dumps({"provider": provider, "scope_type": scope_type}, sort_keys=True)))
+
     def secret(self, row: IntegrationConfiguration) -> str:
         if not row.encrypted_secret: return ""
         try: return self.cipher.decrypt(row.encrypted_secret.encode()).decode()
