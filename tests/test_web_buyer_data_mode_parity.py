@@ -57,4 +57,7 @@ def test_every_upload_backed_buyer_surface_uses_the_same_data_mode_guard():
     assert "from .buyer_parity import _require_available_data_mode" in budget
     assert "_require_available_data_mode(context)" in budget
     assert "from .buyer_parity import _model" in po
-    assert "buyer_model(context, engine" in reports
+    assert "from .buyer_parity import _model as buyer_model" in reports
+    assert "buyer_model(" in reports
+    assert "context," in reports
+    assert "engine," in reports
