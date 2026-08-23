@@ -39,7 +39,7 @@ type Product360Snapshot = {
   value_history: { value_type: string; amount: number; currency: string; effective_at: string }[];
 };
 
-type Tab = "overview" | "inventory" | "sales" | "purchasing" | "packages" | "compliance" | "master" | "lineage";
+type Tab = "overview" | "inventory" | "sales" | "purchasing" | "packages" | "compliance" | "audits" | "master" | "lineage";
 
 const money = (value: number | null | undefined) => `$${Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const number = (value: number | null | undefined, digits = 1) => value == null ? "—" : Number(value).toLocaleString(undefined, { maximumFractionDigits: digits });
@@ -57,13 +57,19 @@ function Tabs({ active, onChange, showLineage }: { active: Tab; onChange: (tab: 
     { key: "purchasing", label: "Purchasing" },
     { key: "packages", label: "Packages" },
     { key: "compliance", label: "Compliance" },
+    { key: "audits", label: "Audits" },
     { key: "master", label: "Product Master" },
   ];
   if (showLineage) tabs.push({ key: "lineage", label: "Lineage" });
   return <div className="operation-switch">{tabs.map(tab => <button type="button" key={tab.key} className={active === tab.key ? "active" : ""} onClick={() => onChange(tab.key)}>{tab.label}</button>)}</div>;
 }
 
-export function Product360Workspace({ data, initialTab = "overview", focusPackageId, lineage }: { data: Product360Snapshot; initialTab?: Tab; focusPackageId?: string; lineage?: PackageLineage | null }) {
+function fallbackNavigate(page: string) {
+  sessionStorage.setItem("buyer-dash-pending-page", page);
+  window.location.reload();
+}
+
+export function Product360Workspace({ data, initialTab = "overview", focusPackageId, lineage, onNavigate }: { data: Product360Snapshot; initialTab?: Tab; focusPackageId?: string; lineage?: PackageLineage | null; onNavigate?: (page: string) => void }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const packages = useMemo(() => {
     if (!focusPackageId) return data.inventory.packages;
@@ -73,6 +79,15 @@ export function Product360Workspace({ data, initialTab = "overview", focusPackag
   const profile = data.profile;
   const days = data.decision.days_on_hand;
   const trend = data.sales.sales_trend_pct;
+  const navigate = (page: string) => onNavigate ? onNavigate(page) : fallbackNavigate(page);
+  const stagePo = () => {
+    sessionStorage.setItem("buyer-dash-po-inventory-selection", JSON.stringify([{ product_id: data.product.id, sku: data.product.sku, description: data.product.name, quantity: Math.max(1, data.decision.target_units), price: data.economics.unit_cost }]));
+    navigate("Purchase Orders");
+  };
+  const audit = () => {
+    sessionStorage.setItem("buyer-dash-audit-product-focus", JSON.stringify({ operation: profile?.production_enabled && !profile?.retail_enabled ? "production" : "retail", selections: [{ product_id: data.product.id, sku: data.product.sku, product_name: data.product.name, lot_id: focusPackageId || undefined }] }));
+    navigate("Inventory Audits");
+  };
 
   return <div className="product-360-workspace">
     <section className="inventory-panel">
@@ -125,6 +140,7 @@ export function Product360Workspace({ data, initialTab = "overview", focusPackag
       </div>
       <section className="inventory-panel"><h3>Open orders</h3>{data.open_orders.length ? <div className="table-wrap"><table><thead><tr><th>Order</th><th>Type</th><th>Status</th><th>Ordered</th><th>Fulfilled</th></tr></thead><tbody>{data.open_orders.map(row => <tr key={row.id}><td>{row.order_number}</td><td>{row.order_type}</td><td><span className="badge">{row.status}</span></td><td>{number(row.quantity)} {row.unit}</td><td>{number(row.fulfilled_quantity)} {row.unit}</td></tr>)}</tbody></table></div> : <div className="empty">No open commercial orders for this product.</div>}</section>
       {data.production_orders.length ? <section className="inventory-panel"><h3>Production demand</h3>{data.production_orders.map(row => <div className="catalog-row" key={row.id}><strong>{row.order_number}</strong><span>{row.status} · {number(row.requested_units, 0)} units</span><small>{row.product_format || "Production order"} · due {date(row.due_at)}</small></div>)}</section> : null}
+      <button className="primary submit" type="button" onClick={stagePo}>{data.decision.target_units > 0 ? "Add / update in PO" : "Open PO Builder"}</button>
     </div> : null}
 
     {tab === "packages" ? <div>
@@ -136,6 +152,11 @@ export function Product360Workspace({ data, initialTab = "overview", focusPackag
       <div className="metrics"><Metric label="Inventory status" value={data.compliance.status || "—"} /><Metric label="Lab status" value={data.compliance.lab_status || "—"} /><Metric label="External mappings" value={number(data.mappings.length, 0)} /><Metric label="Aliases" value={number(data.aliases.length, 0)} /></div>
       <section className="inventory-panel"><h3>External mappings</h3>{data.mappings.length ? data.mappings.map((row, index) => <div className="catalog-row" key={`${row.system_name}-${row.external_id}-${index}`}><strong>{row.system_name}</strong><span>{row.external_id}</span><small>{row.external_name || "—"}</small></div>) : <div className="empty">No external mappings recorded.</div>}</section>
       <section className="inventory-panel"><h3>Aliases</h3><div className="chip-list">{data.aliases.length ? data.aliases.map((row, index) => <span className="badge" key={`${row.alias}-${index}`}>{row.alias} · {row.source}</span>) : <span>No aliases recorded.</span>}</div></section>
+      <button className="secondary submit" type="button" onClick={() => navigate("Integrations")}>Open traceability</button>
+    </div> : null}
+
+    {tab === "audits" ? <div>
+      <section className="inventory-panel"><h3>Audit this SKU</h3><p>Keep the current Product 360 / Package 360 context and open the durable scan-audit workflow.</p><div className="catalog-row"><strong>{data.product.name}</strong><span>{data.product.sku || "No SKU"}</span><small>{focusPackageId ? `Focused package ${focused?.package_id || focused?.lot_code || focusPackageId}` : `${data.inventory.package_count} package(s) in this facility`}</small></div><button className="primary submit" type="button" onClick={audit}>Audit this SKU</button></section>
     </div> : null}
 
     {tab === "master" ? <div>
