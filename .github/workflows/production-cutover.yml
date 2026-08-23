@@ -108,7 +108,7 @@ jobs:
             --concurrency 40 \
             --cpu 1 \
             --memory 1Gi \
-            --set-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,buyer-dash-api-giuo75azma-ue.a.run.app,buyer-dash-api-508595042568.us-east1.run.app@DATABASE_POOL_SIZE=3@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30" \
+            --set-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=3@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30" \
             --set-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
             --quiet
 
