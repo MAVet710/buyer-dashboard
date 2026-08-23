@@ -90,8 +90,8 @@ jobs:
           service_json=$(gcloud run services describe buyer-dash-api --region us-east1 --format=json)
           probe_url=$(python -c 'import json,sys; d=json.load(sys.stdin); print(next(t["url"] for t in d["status"]["traffic"] if t.get("tag")=="repair-probe"))' <<< "$service_json")
           echo "Probe URL: $probe_url"
-          health=$(curl --silent --show-error --max-time 20 --output /tmp/probe-health.json --write-out '%{http_code}' "$probe_url/health" || true)
-          ready=$(curl --silent --show-error --max-time 20 --output /tmp/probe-ready.json --write-out '%{http_code}' "$probe_url/health/ready" || true)
+          health=$(curl --silent --show-error --max-time 20 -H 'Host: api.doobielogic.io' --output /tmp/probe-health.json --write-out '%{http_code}' "$probe_url/health" || true)
+          ready=$(curl --silent --show-error --max-time 20 -H 'Host: api.doobielogic.io' --output /tmp/probe-ready.json --write-out '%{http_code}' "$probe_url/health/ready" || true)
           echo "Probe health=$health ready=$ready"
           cat /tmp/probe-health.json || true
           cat /tmp/probe-ready.json || true
