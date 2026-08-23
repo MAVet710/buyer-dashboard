@@ -10,6 +10,7 @@ import streamlit as st
 
 from modules.coman.db import create_coman_engine
 from modules.coman.repository import ComanRepository
+from modules.design.responsive import responsive_columns, is_mobile, get_viewport_width
 from modules.extraction.repository import ExtractionRepository
 from modules.production_erp.service import ProductionERPService
 
@@ -55,9 +56,13 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
     st.caption("Live KPIs across your entire vertical operation — cultivation, processing, retail.")
 
     # Refresh button in top right
-    cols = st.columns([4, 1])
-    if cols[1].button("🔄 Refresh", use_container_width=True):
-        st.rerun()
+    if is_mobile():
+        if st.button("🔄 Refresh", use_container_width=True):
+            st.rerun()
+    else:
+        cols = st.columns([4, 1])
+        if cols[1].button("🔄 Refresh", use_container_width=True):
+            st.rerun()
 
     # ===========================================================================
     # SECTION 1: FACILITY STATUS
@@ -77,16 +82,20 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
         facility = coman.get_facility(facility_id)
         facility_name = getattr(facility, "name", "Unknown") if facility else "Unknown"
 
-        fac_cols = st.columns([1, 1, 1, 1])
-        fac_cols[0].metric("Facility", facility_name)
-        fac_cols[1].metric("Inventory Units", f"{total_units:,}")
-        fac_cols[2].metric("Total Value", f"${total_value:,.0f}")
+        fac_cols = responsive_columns(4)
+        with fac_cols[0]:
+            st.metric("Facility", facility_name)
+        with fac_cols[1 % len(fac_cols)]:
+            st.metric("Inventory Units", f"{total_units:,}")
+        with fac_cols[2 % len(fac_cols)]:
+            st.metric("Total Value", f"${total_value:,.0f}")
 
         # Status indicator
         status = "Operational"
         if total_units == 0:
             status = "⚠️ Low Stock"
-        fac_cols[3].metric("Status", status)
+        with fac_cols[3 % len(fac_cols)]:
+            st.metric("Status", status)
 
     except Exception as e:
         st.error(f"Facility status error: {str(e)}")
@@ -102,11 +111,12 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
         if production_orders:
             frame = pd.DataFrame(production_orders)
 
-            prod_cols = st.columns([1, 1, 1, 1])
-            prod_cols[0].metric(
-                "Orders In Progress",
-                int((~frame["Status"].isin(["Complete", "Cancelled"])).sum()),
-            )
+            prod_cols = responsive_columns(4)
+            with prod_cols[0]:
+                st.metric(
+                    "Orders In Progress",
+                    int((~frame["Status"].isin(["Complete", "Cancelled"])).sum()),
+                )
 
             # Completion rate
             total_planned = frame["Planned"].sum()
@@ -114,10 +124,13 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
             completion_rate = (
                 (total_actual / total_planned * 100) if total_planned > 0 else 0
             )
-            prod_cols[1].metric("Completion Rate", f"{completion_rate:.1f}%")
+            with prod_cols[1 % len(prod_cols)]:
+                st.metric("Completion Rate", f"{completion_rate:.1f}%")
 
-            prod_cols[2].metric("QA Holds", int((frame.get("QA", pd.Series("")) == "HOLD").sum()))
-            prod_cols[3].metric("COGS Tracked", f"${frame['COGS'].sum():,.0f}")
+            with prod_cols[2 % len(prod_cols)]:
+                st.metric("QA Holds", int((frame.get("QA", pd.Series("")) == "HOLD").sum()))
+            with prod_cols[3 % len(prod_cols)]:
+                st.metric("COGS Tracked", f"${frame['COGS'].sum():,.0f}")
 
             st.caption("Recent production orders:")
             st.dataframe(
@@ -143,9 +156,11 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
             active_runs = [r for r in runs if r.status != "complete"]
             completed_runs = [r for r in runs if r.status == "complete"]
 
-            ext_cols = st.columns([1, 1, 1, 1])
-            ext_cols[0].metric("Active Runs", len(active_runs))
-            ext_cols[1].metric("Completed (30d)", len(completed_runs))
+            ext_cols = responsive_columns(4)
+            with ext_cols[0]:
+                st.metric("Active Runs", len(active_runs))
+            with ext_cols[1 % len(ext_cols)]:
+                st.metric("Completed (30d)", len(completed_runs))
 
             if runs:
                 # Calculate average yield from recent runs
@@ -158,13 +173,15 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
                             else 0
                         )
                 avg_yield = sum(yields) / len(yields) if yields else 0
-                ext_cols[2].metric("Avg Yield", f"{avg_yield:.1f}%")
+                with ext_cols[2 % len(ext_cols)]:
+                    st.metric("Avg Yield", f"{avg_yield:.1f}%")
 
                 total_cost = sum(
                     getattr(r, "material_cost", 0) + getattr(r, "labor_cost", 0)
                     for r in completed_runs[-10:]
                 )
-                ext_cols[3].metric("Recent COGS", f"${total_cost:,.0f}")
+                with ext_cols[3 % len(ext_cols)]:
+                    st.metric("Recent COGS", f"${total_cost:,.0f}")
 
             st.caption("Active extraction runs:")
             if active_runs:
@@ -193,7 +210,7 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
     st.markdown("## ✅ Compliance Status")
 
     try:
-        comp_cols = st.columns([1, 1, 1, 1])
+        comp_cols = responsive_columns(4)
 
         # Mock license renewal date (in production, pull from database)
         license_renewal = datetime.now() + timedelta(days=45)
@@ -206,8 +223,10 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
         else:
             renewal_status = "✅ Current"
 
-        comp_cols[0].metric("License Status", renewal_status)
-        comp_cols[1].metric("Days Until Renewal", days_until)
+        with comp_cols[0]:
+            st.metric("License Status", renewal_status)
+        with comp_cols[1 % len(comp_cols)]:
+            st.metric("Days Until Renewal", days_until)
 
         # Metrc sync status (check traceability_inbox)
         try:
@@ -215,11 +234,14 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
 
             inbox = build_traceability_inbox(dict(state), limit=10)
             pending_metrc = len([i for i in inbox if i.get("area") == "Compliance"])
-            comp_cols[2].metric("Pending Metrc Actions", pending_metrc)
+            with comp_cols[2 % len(comp_cols)]:
+                st.metric("Pending Metrc Actions", pending_metrc)
         except Exception:
-            comp_cols[2].metric("Metrc Sync", "Connected")
+            with comp_cols[2 % len(comp_cols)]:
+                st.metric("Metrc Sync", "Connected")
 
-        comp_cols[3].metric("Audit Status", "✅ Current")
+        with comp_cols[3 % len(comp_cols)]:
+            st.metric("Audit Status", "✅ Current")
 
         st.caption("Compliance dashboard ready for state reporting.")
 
@@ -236,13 +258,17 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
         today_sales = 0.0  # Would pull from POS
         today_margin_pct = 0.0
 
-        rev_cols = st.columns([1, 1, 1, 1])
-        rev_cols[0].metric("Today's Sales", f"${today_sales:,.0f}")
-        rev_cols[1].metric("Gross Margin", f"{today_margin_pct:.1f}%")
+        rev_cols = responsive_columns(4)
+        with rev_cols[0]:
+            st.metric("Today's Sales", f"${today_sales:,.0f}")
+        with rev_cols[1 % len(rev_cols)]:
+            st.metric("Gross Margin", f"{today_margin_pct:.1f}%")
 
         # Top products by revenue (mock)
-        rev_cols[2].metric("Top Product SKU", "—")
-        rev_cols[3].metric("Avg Order Value", "$—")
+        with rev_cols[2 % len(rev_cols)]:
+            st.metric("Top Product SKU", "—")
+        with rev_cols[3 % len(rev_cols)]:
+            st.metric("Avg Order Value", "$—")
 
         st.caption(
             "Revenue tracking coming soon: POS integration + retail margin analytics."
@@ -256,24 +282,18 @@ def render_dashboard(state: Mapping[str, Any]) -> None:
     # ===========================================================================
     st.markdown("---")
     st.markdown("### Quick Actions")
-    action_cols = st.columns([1, 1, 1, 1, 1])
+    action_cols = responsive_columns(5 if not is_mobile() else 2)
 
-    if action_cols[0].button("📦 View Inventory", use_container_width=True):
-        state["active_section"] = "Inventory"
-        st.rerun()
+    action_buttons = [
+        ("📦 View Inventory", "Inventory"),
+        ("🏭 Production Orders", "Production"),
+        ("🧪 Extraction Runs", "Extraction"),
+        ("✅ Compliance", "Compliance"),
+        ("📊 Analytics", "Analytics"),
+    ]
 
-    if action_cols[1].button("🏭 Production Orders", use_container_width=True):
-        state["active_section"] = "Production"
-        st.rerun()
-
-    if action_cols[2].button("🧪 Extraction Runs", use_container_width=True):
-        state["active_section"] = "Extraction"
-        st.rerun()
-
-    if action_cols[3].button("✅ Compliance", use_container_width=True):
-        state["active_section"] = "Compliance"
-        st.rerun()
-
-    if action_cols[4].button("📊 Analytics", use_container_width=True):
-        state["active_section"] = "Analytics"
-        st.rerun()
+    for idx, (label, section) in enumerate(action_buttons):
+        with action_cols[idx % len(action_cols)]:
+            if st.button(label, use_container_width=True):
+                state["active_section"] = section
+                st.rerun()

@@ -7,15 +7,16 @@ import { GlobalSearch } from "./GlobalSearch";
 
 type Capability = "retail" | "production" | "cultivation" | "commercial";
 type Facility = { id: string; name: string; code: string; license_type?: string; capabilities?: Record<Capability, boolean> };
+type AccessOrganization = { id: string; name: string; slug: string; facilities: Facility[] };
 type AccountContext = { user: { display_name: string; email: string; role: string; must_change_password?: boolean }; organization: { id: string; name: string; slug?: string } | null; facility_id: string; capabilities: Record<Capability, boolean>; facilities: Facility[] };
-type AccessOptions = { organizations: { id: string; name: string; slug: string; facilities: Facility[] }[]; organization_id: string; facility_id: string };
+type AccessOptions = { organizations: AccessOrganization[]; organization_id: string; facility_id: string };
 type OperationMode = "Retail Ops" | "Production Ops";
 type PrimaryCategory = "Home" | "Inventory" | "Purchasing" | "Orders" | "Production" | "Reports" | "Compliance" | "Data & Settings";
 type SecondaryItem = { label: string; page: string; roles?: readonly string[] };
 type PrimaryItem = { label: PrimaryCategory; icon: typeof Home; defaultPage: string };
 
-const RETAIL_ROLES = ["dev", "admin", "buyer", "supervisor", "operator", "qa", "read_only", "trial"] as const;
-const PRODUCTION_ROLES = ["dev", "admin", "planner", "supervisor", "operator", "qa", "trial"] as const;
+const RETAIL_ROLES = ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only", "trial"] as const;
+const PRODUCTION_ROLES = ["dev", "admin", "planner", "supervisor", "operator", "qa", "read_only", "trial"] as const;
 const ADMIN = ["dev", "admin"] as const;
 const DEV = ["dev"] as const;
 const NON_DEV = ["admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only", "trial"] as const;
@@ -66,12 +67,17 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     { label: "Delivery Performance", page: "Delivery Performance" },
     { label: "Purchase Orders", page: "Purchase Orders" },
     { label: "Buying Budget", page: "Buying Budget" },
+    { label: "Replenishment Policies", page: "Purchasing" },
   ];
   if (category === "Orders") return [{ label: "Orders & Fulfillment", page: "Orders" }];
-  if (category === "Reports") return [{ label: "Sales & Category Trends", page: "Sales & Category Trends" }];
+  if (category === "Reports") return [
+    { label: "Sales & Category Trends", page: "Sales & Category Trends" },
+    { label: "Executive Reports", page: "Executive Reports" },
+  ];
   if (category === "Compliance") return [
     { label: "Compliance Q&A", page: "Compliance Q&A" },
     { label: "Product Name Mapper", page: "Product Name Mapper" },
+    { label: "Traceability", page: "Compliance" },
   ];
   if (category === "Data & Settings") return dataSettingsItems(role);
   return [];
@@ -114,8 +120,38 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   const selectedOrganization = access.data?.organizations.find(row => row.id === context.data?.organization?.id);
   const role = context.data?.user.role ?? "trial";
   const isTrial = role === "trial";
-  const canRetail = Boolean(context.data?.capabilities.retail) && RETAIL_ROLES.includes(role as never);
-  const canProduction = Boolean(context.data && (context.data.capabilities.production || context.data.capabilities.cultivation)) && PRODUCTION_ROLES.includes(role as never);
+
+  const operationAllowed = (mode: OperationMode): boolean => mode === "Retail Ops"
+    ? RETAIL_ROLES.includes(role as never)
+    : PRODUCTION_ROLES.includes(role as never);
+  const facilitySupports = (facility: Facility | undefined, mode: OperationMode): boolean => {
+    if (!facility) return false;
+    return mode === "Retail Ops"
+      ? Boolean(facility.capabilities?.retail)
+      : Boolean(facility.capabilities?.production || facility.capabilities?.cultivation);
+  };
+  const currentSupports = (mode: OperationMode): boolean => mode === "Retail Ops"
+    ? Boolean(context.data?.capabilities.retail)
+    : Boolean(context.data && (context.data.capabilities.production || context.data.capabilities.cultivation));
+  const findOperationTarget = (mode: OperationMode): { organizationId: string; facilityId: string } | null => {
+    if (!context.data || !operationAllowed(mode)) return null;
+    if (currentSupports(mode)) return { organizationId: context.data.organization?.id ?? "", facilityId: context.data.facility_id };
+    if (isTrial) return null;
+    const organizations = access.data?.organizations ?? [];
+    const currentOrganizationId = context.data.organization?.id ?? "";
+    const currentOrganization = organizations.find(row => row.id === currentOrganizationId);
+    const currentOrganizationFacility = currentOrganization?.facilities.find(row => facilitySupports(row, mode));
+    if (currentOrganization && currentOrganizationFacility) return { organizationId: currentOrganization.id, facilityId: currentOrganizationFacility.id };
+    if (role === "dev") {
+      for (const organizationRow of organizations) {
+        const facility = organizationRow.facilities.find(row => facilitySupports(row, mode));
+        if (facility) return { organizationId: organizationRow.id, facilityId: facility.id };
+      }
+    }
+    return null;
+  };
+  const canRetail = Boolean(findOperationTarget("Retail Ops"));
+  const canProduction = Boolean(findOperationTarget("Production Ops"));
   const operationModes = useMemo<OperationMode[]>(() => {
     const modes: OperationMode[] = [];
     if (canRetail) modes.push("Retail Ops");
@@ -140,24 +176,39 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   const primary = operation === "Production Ops" ? PRODUCTION_PRIMARY : RETAIL_PRIMARY;
   const activeCategory = categoryForPage(active, operation);
   const secondary = secondaryItems(activeCategory, operation, role).filter(item => !item.roles || item.roles.includes(role as never));
-  const navigate = (page: string) => { onNavigate(page); setNavigationOpen(false); };
+  const routeToOperation = (page: string, mode: OperationMode) => {
+    const target = findOperationTarget(mode);
+    if (target && target.facilityId !== context.data?.facility_id) {
+      sessionStorage.setItem("buyer-dash-pending-page", page);
+      localStorage.setItem("buyer-dash-operation", mode);
+      localStorage.setItem("buyer-dash-organization", target.organizationId);
+      localStorage.setItem("buyer-dash-facility", target.facilityId);
+      client.clear();
+      window.location.reload();
+      return;
+    }
+    onNavigate(page);
+    setNavigationOpen(false);
+  };
+  const navigate = (page: string) => routeToOperation(page, operation);
   const chooseCategory = (row: PrimaryItem) => {
     const nextSecondary = secondaryItems(row.label, operation, role).filter(item => !item.roles || item.roles.includes(role as never));
     navigate(nextSecondary[0]?.page ?? row.defaultPage);
   };
   const changeOperation = (next: OperationMode) => {
     setOperation(next);
+    localStorage.setItem("buyer-dash-operation", next);
     const nextPrimary = next === "Production Ops" ? PRODUCTION_PRIMARY : RETAIL_PRIMARY;
-    const requested = next === "Production Ops" ? "Inventory" : "Inventory";
-    const target = nextPrimary.find(row => row.label === requested) ?? nextPrimary[0];
+    const target = nextPrimary.find(row => row.label === "Inventory") ?? nextPrimary[0];
     const nextSecondary = secondaryItems(target.label, next, role).filter(item => !item.roles || item.roles.includes(role as never));
-    onNavigate(nextSecondary[0]?.page ?? target.defaultPage);
+    routeToOperation(nextSecondary[0]?.page ?? target.defaultPage, next);
   };
   const switchOrganization = (organizationId: string) => {
     if (isTrial) return;
     const organizationRow = access.data?.organizations.find(row => row.id === organizationId);
     const firstFacility = organizationRow?.facilities[0];
     if (!organizationRow || !firstFacility) return;
+    sessionStorage.setItem("buyer-dash-pending-page", active);
     localStorage.setItem("buyer-dash-organization", organizationRow.id);
     localStorage.setItem("buyer-dash-facility", firstFacility.id);
     client.clear();
@@ -165,6 +216,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   };
   const switchFacility = (facilityId: string) => {
     if (isTrial) return;
+    sessionStorage.setItem("buyer-dash-pending-page", active);
     localStorage.setItem("buyer-dash-organization", context.data?.organization?.id ?? "");
     localStorage.setItem("buyer-dash-facility", facilityId);
     client.clear();
@@ -173,6 +225,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   const signOut = async () => {
     localStorage.removeItem("buyer-dash-organization");
     localStorage.removeItem("buyer-dash-facility");
+    sessionStorage.removeItem("buyer-dash-pending-page");
     clearTrialSession();
     client.clear();
     if (isTrial) { window.location.reload(); return; }

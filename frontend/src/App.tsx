@@ -30,8 +30,17 @@ const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage
 const ExecutiveReportsPage = lazy(() => import("./pages/ExecutiveReportsPage").then(module => ({ default: module.ExecutiveReportsPage })));
 const ComplianceQAPage = lazy(() => import("./pages/ComplianceQAPage").then(module => ({ default: module.ComplianceQAPage })));
 
+function initialPage(): string {
+  const pending = sessionStorage.getItem("buyer-dash-pending-page");
+  if (pending) {
+    sessionStorage.removeItem("buyer-dash-pending-page");
+    return pending;
+  }
+  return "Home";
+}
+
 export default function App() {
-  const [page, setPage] = useState("Home");
+  const [page, setPage] = useState(initialPage);
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
     : page === "Buyer Operations" ? <BuyerOperationsPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
@@ -40,7 +49,7 @@ export default function App() {
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
     : page === "Delivery Performance" ? <DeliveryImpactPage />
-    : page === "Buying Recommendations" ? <BuyingRecommendationsPage />
+    : page === "Buying Recommendations" ? <BuyingRecommendationsPage onNavigate={setPage} />
     : page === "Buying Budget" ? <BuyingBudgetPage />
     : page === "Purchase Orders" ? <PurchaseOrdersParityPage onNavigate={setPage} />
     : page === "Retail Product Master" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
@@ -62,6 +71,6 @@ export default function App() {
     : page === "Admin" || page === "Admin Tools" ? <AdminPage />
     : page === "Location Settings" ? <LocationSettingsPage />
     : page === "Data & Settings" ? <DataSettingsPage onNavigate={setPage} />
-    : <InventoryPage initialOperation="retail" />;
+    : <InventoryPage initialOperation="retail" onNavigate={setPage} />;
   return <AppShell active={page} onNavigate={setPage}><Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense></AppShell>;
 }
