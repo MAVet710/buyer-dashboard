@@ -96,9 +96,37 @@ def test_cultivation_facility_exposes_plant_grain_signal():
 def test_production_receiving_is_not_retail_inventory_receiving():
     command_center = (ROOT / "modules" / "inventory_command_center.py").read_text(encoding="utf-8")
     production_receiving = (ROOT / "modules" / "production_inventory_receiving.py").read_text(encoding="utf-8")
+    inventory_page = (ROOT / "frontend" / "src" / "pages" / "InventoryPage.tsx").read_text(encoding="utf-8")
+    web_receiving = (ROOT / "frontend" / "src" / "components" / "ProductionReceiveInventory.tsx").read_text(encoding="utf-8")
 
     assert 'disabled=is_production' not in command_center
     assert "render_production_receive_inventory_dialog" in command_center
     assert 'transaction_type="receive"' in production_receiving
     assert "facility_id=facility_id" in production_receiving
     assert "Retail inventory is never modified" in production_receiving
+    assert "<ProductionReceiveInventory" in inventory_page
+    assert '<ReceiveInventory operation="retail"' in inventory_page
+    for label in (
+        "PRODUCTION / CULTIVATION RECEIVING",
+        "Receive material",
+        "METRC package ID",
+        "Internal lot / batch",
+        "Room / location",
+        "Source facility / supplier",
+        "Manifest / transfer #",
+    ):
+        assert label in web_receiving
+    assert "Retail inventory is never modified" in web_receiving
+
+
+def test_cultivation_web_surface_keeps_facility_scoped_events_and_drawers():
+    plant_ui = (ROOT / "frontend" / "src" / "components" / "PlantInventory.tsx").read_text(encoding="utf-8")
+    plant_api = (ROOT / "backend" / "app" / "routers" / "plants.py").read_text(encoding="utf-8")
+
+    assert "StreamlitDialog" in plant_ui
+    assert "Plant 360" in plant_ui
+    assert "Lifecycle history" in plant_ui
+    assert "writeRoles" in plant_ui
+    assert "require_cultivation(context, engine)" in plant_api
+    assert 'require_facility_capability(context, engine, "cultivation")' in plant_api
+    assert '"/{plant_id}/events"' in plant_api
