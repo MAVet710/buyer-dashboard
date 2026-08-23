@@ -16,7 +16,9 @@ def require_write(context: RequestContext):
     if context.role.casefold() not in WRITE_ROLES: raise HTTPException(403, "Your role does not allow cultivation changes.")
 
 def require_cultivation(context: RequestContext, engine: Engine):
-    require_facility_capability(context, engine, "production")
+    # Cultivation is its own legal license context. A cultivation-only facility
+    # uses shared Production Ops inventory but must not be forced to also claim
+    # a manufacturing/production capability just to manage its plants.
     require_facility_capability(context, engine, "cultivation")
 
 @router.get("", response_model=list[PlantItem])
