@@ -64,11 +64,9 @@ def create_coman_engine(database_url: str | None = None) -> Engine:
         options["connect_args"] = {"check_same_thread": False}
     else:
         # Supabase session-mode pooling has a finite server-side connection
-        # budget. SQLAlchemy's QueuePool defaults (5 pooled + 10 overflow)
-        # can consume that entire budget from a single Cloud Run process.
-        # Keep the application pool deliberately small and bounded; callers
-        # can tune it explicitly for larger database plans.
-        options["pool_size"] = _int_setting("DATABASE_POOL_SIZE", 3, minimum=1)
+        # budget. Keep every process on a small, bounded pool so normal traffic
+        # plus a rolling Cloud Run revision can stay below the session ceiling.
+        options["pool_size"] = _int_setting("DATABASE_POOL_SIZE", 2, minimum=1)
         options["max_overflow"] = _int_setting("DATABASE_MAX_OVERFLOW", 0, minimum=0)
         options["pool_timeout"] = _int_setting("DATABASE_POOL_TIMEOUT", 30, minimum=1)
         options["pool_use_lifo"] = True
