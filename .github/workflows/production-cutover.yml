@@ -33,6 +33,16 @@ jobs:
         run: python scripts/verify_streamlit_parity.py
       - name: Verify production API image builds
         run: docker build -f Dockerfile.api -t doobielogic-api-cutover-check .
+      - name: Verify API image has exactly one current Alembic head
+        run: |
+          set -euo pipefail
+          HEADS="$(docker run --rm doobielogic-api-cutover-check alembic heads)"
+          echo "$HEADS"
+          HEAD_COUNT="$(printf '%s\n' "$HEADS" | grep -c '(head)' || true)"
+          if [ "$HEAD_COUNT" -ne 1 ]; then
+            echo "Expected exactly one Alembic head in the API image; found $HEAD_COUNT"
+            exit 1
+          fi
       - name: Verify production API starts
         run: |
           docker run -d --name doobielogic-api-cutover-check \
@@ -68,13 +78,29 @@ jobs:
 
       - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
-      - name: Build and push production API image
+      - name: Build, identify, and push production API image
         run: |
           set -euo pipefail
           IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.event.pull_request.head.sha }}-a${{ github.run_attempt }}"
           docker build -f Dockerfile.api -t "$IMAGE" .
+
+          HEADS="$(docker run --rm "$IMAGE" alembic heads)"
+          echo "$HEADS"
+          HEAD_COUNT="$(printf '%s\n' "$HEADS" | grep -c '(head)' || true)"
+          if [ "$HEAD_COUNT" -ne 1 ]; then
+            echo "Refusing deployment: API image has $HEAD_COUNT Alembic heads"
+            exit 1
+          fi
+          IMAGE_SCHEMA_HEAD="$(printf '%s\n' "$HEADS" | awk 'NR==1 {print $1}')"
+          if [ -z "$IMAGE_SCHEMA_HEAD" ]; then
+            echo "Unable to determine API image schema head"
+            exit 1
+          fi
+          echo "API image schema head: $IMAGE_SCHEMA_HEAD"
+
           docker push "$IMAGE"
           echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "IMAGE_SCHEMA_HEAD=$IMAGE_SCHEMA_HEAD" >> "$GITHUB_ENV"
 
       - name: Run production database migrations
         run: |
@@ -94,13 +120,17 @@ jobs:
             --region "${{ env.REGION }}" \
             --wait
 
-      - name: Deploy production API
+      - name: Deploy uniquely identified production API revision
         run: |
           set -euo pipefail
+          SHORT_SHA="$(printf '%s' '${{ github.event.pull_request.head.sha }}' | cut -c1-10)"
+          REVISION_SUFFIX="${SHORT_SHA}-a${{ github.run_attempt }}"
+          echo "EXPECTED_REVISION_SUFFIX=$REVISION_SUFFIX" >> "$GITHUB_ENV"
           gcloud run deploy "${{ env.API_SERVICE }}" \
             --image "$API_IMAGE" \
             --region "${{ env.REGION }}" \
             --platform managed \
+            --revision-suffix "$REVISION_SUFFIX" \
             --service-account "buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --allow-unauthenticated \
             --port 8080 \
@@ -109,11 +139,11 @@ jobs:
             --concurrency 40 \
             --cpu 1 \
             --memory 1Gi \
-            --set-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=3@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30@RELEASE_SHA=${{ github.event.pull_request.head.sha }}" \
+            --set-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=3@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30@RELEASE_SHA=${{ github.event.pull_request.head.sha }}@EXPECTED_SCHEMA_HEAD=$IMAGE_SCHEMA_HEAD" \
             --set-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
             --quiet
 
-      - name: Capture deployed API service URL
+      - name: Verify Cloud Run selected the exact deployed revision
         id: service-url
         run: |
           set -euo pipefail
@@ -123,25 +153,41 @@ jobs:
           echo "Cloud Run API service: $SERVICE_URL"
           echo "Latest ready revision: $REVISION"
           echo "Revision image: $DEPLOYED_IMAGE"
+          echo "Expected revision suffix: $EXPECTED_REVISION_SUFFIX"
+          if [[ "$REVISION" != *"$EXPECTED_REVISION_SUFFIX" ]]; then
+            echo "Refusing cutover: Cloud Run latest ready revision is not the revision just deployed"
+            exit 1
+          fi
           echo "url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
 
-      - name: Verify production API readiness
+      - name: Verify release SHA and schema head on production hostname
         run: |
           set -euo pipefail
           SERVICE_URL="${{ env.PRODUCTION_API_URL }}"
+          EXPECTED_RELEASE="${{ github.event.pull_request.head.sha }}"
           for attempt in $(seq 1 30); do
-            health=$(curl -sS -o /tmp/health.json -w '%{http_code}' "$SERVICE_URL/health" || true)
             ready=$(curl -sS -o /tmp/ready.json -w '%{http_code}' "$SERVICE_URL/health/ready" || true)
-            if [ "$health" = "200" ] && [ "$ready" = "200" ]; then
-              cat /tmp/health.json
-              cat /tmp/ready.json
-              exit 0
+            if [ "$ready" = "200" ]; then
+              RELEASE="$(jq -r '.release_sha // ""' /tmp/ready.json)"
+              DB_HEAD="$(jq -r '.schema_revision // ""' /tmp/ready.json)"
+              RUNTIME_HEAD="$(jq -r '.expected_schema_revision // ""' /tmp/ready.json)"
+              SCHEMA_MATCHES="$(jq -r '.schema_matches // false' /tmp/ready.json)"
+              echo "release=$RELEASE db_head=$DB_HEAD runtime_head=$RUNTIME_HEAD schema_matches=$SCHEMA_MATCHES"
+              if [ "$RELEASE" = "$EXPECTED_RELEASE" ] \
+                && [ "$DB_HEAD" = "$IMAGE_SCHEMA_HEAD" ] \
+                && [ "$RUNTIME_HEAD" = "$IMAGE_SCHEMA_HEAD" ] \
+                && [ "$SCHEMA_MATCHES" = "true" ]; then
+                cat /tmp/ready.json
+                echo "Production identity verified: release SHA, image schema head, and DB schema head all match"
+                exit 0
+              fi
+              echo "Production hostname is healthy but is not yet serving the exact release/schema identity"
+            else
+              echo "Waiting for production API readiness (http=$ready)"
             fi
-            echo "Waiting for production API hostname (health=$health ready=$ready)"
             sleep 6
           done
-          echo "Production API readiness failed"
-          cat /tmp/health.json || true
+          echo "Production release/schema identity verification failed"
           cat /tmp/ready.json || true
           exit 1
 
@@ -151,7 +197,7 @@ jobs:
           set -euo pipefail
           echo "Direct Cloud Run URL: ${{ steps.service-url.outputs.url }}"
           echo "Custom API hostname response:"
-          curl -sS -i "${{ env.PRODUCTION_API_URL }}/health/ready" | head -40 || true
+          curl -sS -i "${{ env.PRODUCTION_API_URL }}/health/ready" | head -60 || true
           echo "Cloud Run domain mappings:"
           gcloud run domain-mappings list --region "${{ env.REGION }}" --format='table(metadata.name,spec.routeName,status.conditions[0].status,status.resourceRecords)' || true
 
