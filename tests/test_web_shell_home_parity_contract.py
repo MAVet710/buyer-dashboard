@@ -1,3 +1,4 @@
+from html import unescape
 from pathlib import Path
 
 
@@ -48,7 +49,7 @@ def test_home_restores_role_aware_streamlit_decision_surface():
 
 
 def test_buyer_command_center_keeps_recorded_overview_inside_primary_workflow():
-    buyer = read("frontend/src/pages/BuyerOperationsPage.tsx")
+    buyer = unescape(read("frontend/src/pages/BuyerOperationsPage.tsx"))
     overview = read("frontend/src/components/BuyerLegacyOverview.tsx")
 
     assert "<BuyerLegacyOverview" in buyer
