@@ -53,7 +53,8 @@ def test_production_receive_is_a_separate_bulk_material_workflow():
     assert "Retail inventory is never modified." in source
     assert "Retail inventory is never modified." in web
     assert '"/api/v1/inventory/production/receipts"' in web
-    assert "ReceiveInventory" not in web
+    assert 'export function ProductionReceiveInventory' in web
+    assert 'from "./ReceiveInventory"' not in web
 
 
 def test_receive_history_is_operation_and_facility_scoped_with_streamlit_receipt_evidence():
