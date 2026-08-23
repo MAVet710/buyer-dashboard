@@ -97,6 +97,65 @@ def test_react_extraction_analytics_and_toll_forms_match_streamlit_source_order(
     assert "Job Notes" not in toll_section
 
 
+def test_extraction_step8_react_surfaces_workflow_formulation_metrc_and_method_outputs():
+    command_center = (ROOT / "frontend" / "src" / "pages" / "ExtractionCommandCenterPage.tsx").read_text(encoding="utf-8")
+    run_360 = (ROOT / "frontend" / "src" / "pages" / "ExtractionPage.tsx").read_text(encoding="utf-8")
+    for label in [
+        "Workflow Template",
+        "Intermediate Product Type",
+        "Final Product Type",
+        "METRC Intermediate Package ID",
+        "METRC Distillate Package ID",
+        "METRC Formulation Package ID",
+        "Formulation Used",
+        "Terpene Handling",
+        "Terpene Weight Override (g)",
+        "Step 8 final-output preview",
+    ]:
+        assert label in command_center
+    for label in [
+        "Show optional workflow stages",
+        "Stage output field",
+        "METRC stage input ID",
+        "METRC stage output ID",
+        "Calculated terpene addition",
+    ]:
+        assert label in run_360
+    assert "method_output_fields" in command_center
+    assert "output_fields" in run_360
+
+
+def test_legacy_streamlit_keeps_seven_tabs_and_adds_step8_inside_run_analytics():
+    source = (ROOT / "views" / "extraction_perfect_view_v2.py").read_text(encoding="utf-8")
+    helper = (ROOT / "modules" / "extraction" / "legacy_step8_ui.py").read_text(encoding="utf-8")
+    tabs = [
+        "Executive Overview",
+        "Method Efficiency",
+        "Run Analytics",
+        "Toll Processing",
+        "Compliance / METRC",
+        "Data Input",
+        "Doobie Ops Brief",
+    ]
+    assert source.count("overview_tab, method_tab, runs_tab, toll_tab, compliance_tab, inputs_tab, ai_ops_tab = st.tabs") == 1
+    assert [source.index(f'"{label}"') for label in tabs] == sorted(source.index(f'"{label}"') for label in tabs)
+    assert "render_step8_run_fields" in source
+    assert "render_legacy_process_tracker" in source
+    assert source.index('with runs_tab:') < source.index("render_step8_run_fields") < source.index('with toll_tab:')
+    for contract in [
+        "Workflow Template",
+        "Method Stage Outputs",
+        "Formulation Used",
+        "Terpene Handling",
+        "Process Tracker",
+        "Show Optional Workflow Stages",
+        "METRC Stage Input ID",
+        "METRC Stage Output ID",
+        "calculate_final_output_g",
+    ]:
+        assert contract in helper
+
+
 def test_extraction_parity_fields_are_durable_columns_not_serialized_notes():
     model = (ROOT / "modules" / "extraction" / "models.py").read_text(encoding="utf-8")
     router = (ROOT / "backend" / "app" / "routers" / "extraction_parity.py").read_text(encoding="utf-8")
