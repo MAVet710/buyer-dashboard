@@ -49,6 +49,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    outputs:
+      api_url: ${{ steps.service-url.outputs.url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -106,23 +108,46 @@ jobs:
             --set-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
             --quiet
 
-      - name: Verify production API readiness
+      - name: Capture deployed API service URL
+        id: service-url
         run: |
           set -euo pipefail
+          SERVICE_URL="$(gcloud run services describe "${{ env.API_SERVICE }}" --region "${{ env.REGION }}" --format='value(status.url)')"
+          REVISION="$(gcloud run services describe "${{ env.API_SERVICE }}" --region "${{ env.REGION }}" --format='value(status.latestReadyRevisionName)')"
+          DEPLOYED_IMAGE="$(gcloud run revisions describe "$REVISION" --region "${{ env.REGION }}" --format='value(spec.containers[0].image)')"
+          echo "Cloud Run API service: $SERVICE_URL"
+          echo "Latest ready revision: $REVISION"
+          echo "Revision image: $DEPLOYED_IMAGE"
+          echo "url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify deployed Cloud Run API readiness
+        run: |
+          set -euo pipefail
+          SERVICE_URL="${{ steps.service-url.outputs.url }}"
           for attempt in $(seq 1 30); do
-            health=$(curl -sS -o /tmp/health.json -w '%{http_code}' https://api.doobielogic.io/health || true)
-            ready=$(curl -sS -o /tmp/ready.json -w '%{http_code}' https://api.doobielogic.io/health/ready || true)
+            health=$(curl -sS -o /tmp/health.json -w '%{http_code}' "$SERVICE_URL/health" || true)
+            ready=$(curl -sS -o /tmp/ready.json -w '%{http_code}' "$SERVICE_URL/health/ready" || true)
             if [ "$health" = "200" ] && [ "$ready" = "200" ]; then
               cat /tmp/health.json
               cat /tmp/ready.json
               exit 0
             fi
-            echo "Waiting for api.doobielogic.io (health=$health ready=$ready)"
+            echo "Waiting for deployed Cloud Run API (health=$health ready=$ready)"
             sleep 6
           done
           cat /tmp/health.json || true
           cat /tmp/ready.json || true
           exit 1
+
+      - name: Diagnose api.doobielogic.io mapping
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "Direct Cloud Run URL: ${{ steps.service-url.outputs.url }}"
+          echo "Custom API hostname response:"
+          curl -sS -i https://api.doobielogic.io/health/ready | head -40 || true
+          echo "Cloud Run domain mappings:"
+          gcloud run domain-mappings list --region "${{ env.REGION }}" --format='table(metadata.name,spec.routeName,status.conditions[0].status,status.resourceRecords)' || true
 
   deploy-web:
     needs: deploy-api
@@ -147,7 +172,7 @@ jobs:
           set -euo pipefail
           IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.event.pull_request.head.sha }}"
           docker build -f frontend/Dockerfile \
-            --build-arg VITE_API_URL=https://api.doobielogic.io \
+            --build-arg VITE_API_URL=${{ needs.deploy-api.outputs.api_url }} \
             --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
             --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }} \
             -t "$IMAGE" frontend
