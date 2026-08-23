@@ -26,6 +26,21 @@ def test_shared_product_360_restores_the_streamlit_evidence_tabs_and_actions():
     assert 'lotId={productLotId}' in home
 
 
+def test_product_360_audit_focus_is_consumed_by_the_real_inventory_audit_workspace():
+    drawer = read("frontend/src/components/Product360Drawer.tsx")
+    focused = read("frontend/src/components/FocusedInventoryAudits.tsx")
+    app = read("frontend/src/App.tsx")
+
+    assert 'sessionStorage.setItem("buyer-dash-audit-product-focus"' in drawer
+    assert 'sessionStorage.getItem("buyer-dash-audit-product-focus")' in focused
+    assert 'row.product_id === focus?.product_id' in focused
+    assert '"/api/v1/inventory/retail/audits"' in focused
+    assert 'lot_ids: lots.map(row => row.id)' in focused
+    assert "Start focused audit" in focused
+    assert '<InventoryAudits operation="retail" />' in focused
+    assert 'page === "Inventory Audits" ? <FocusedInventoryAudits />' in app
+
+
 def test_product_360_backend_keeps_deterministic_streamlit_replenishment_economics():
     backend = read("backend/app/routers/product_360.py")
     main = read("backend/app/main.py")
