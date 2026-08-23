@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_buyer_legacy_filter_surface_matches_operator_recording_contract():
     source = (ROOT / "frontend" / "src" / "pages" / "BuyerOperationsPage.tsx").read_text(encoding="utf-8")
+    source = source.replace("&amp;", "&").replace("&gt;", ">").replace("&lt;", "<")
     for label in [
         "Buyer Filters & Settings",
         "Search (SKU / Product / Brand)",
