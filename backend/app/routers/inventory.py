@@ -29,7 +29,7 @@ from ..services.metrc_context import resolve_metrc_context
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 ADJUSTMENT_ROLES = {"dev", "admin", "supervisor", "operator", "qa"}
-RECEIVING_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "trial"}
+RECEIVING_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only", "trial", "user"}
 
 
 def _list_packages(
