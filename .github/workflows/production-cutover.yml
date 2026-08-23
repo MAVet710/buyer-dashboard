@@ -151,6 +151,16 @@ jobs:
           echo "Latest created revision: $CREATED_REVISION"
           echo "Latest ready revision: $READY_REVISION"
           if [ -z "$READY_REVISION" ] || [ "$READY_REVISION" != "$CREATED_REVISION" ]; then
+            echo "New revision did not become ready. Capturing revision conditions and startup logs."
+            gcloud run revisions describe "$CREATED_REVISION" \
+              --region "${{ env.REGION }}" \
+              --format='yaml(metadata.name,spec.containers[0].image,spec.containers[0].env,status.conditions,status.logUrl)' || true
+            echo "--- Cloud Run revision logs ---"
+            gcloud logging read \
+              "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${{ env.API_SERVICE }}\" AND resource.labels.revision_name=\"$CREATED_REVISION\"" \
+              --limit 150 \
+              --order=asc \
+              --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
             echo "Refusing cutover: the newly created Cloud Run revision is not the latest ready revision"
             exit 1
           fi
