@@ -1,15 +1,83 @@
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
-import { useState } from "react";
 import { apiGet } from "../lib/api";
-type Summary = { inventory_quantity: number; package_count: number; plant_count: number; open_production: number; open_orders: number; compliance_exceptions: number; active_data_sources: number };
-type Result = { kind: string; id: string; title: string; subtitle: string; workspace: string };
+
+type Summary = {
+  inventory_quantity: number;
+  package_count: number;
+  plant_count: number;
+  open_production: number;
+  open_orders: number;
+  compliance_exceptions: number;
+  active_data_sources: number;
+  data_sources_total: number;
+  low_stock: number;
+  open_purchase_orders: number;
+  open_purchase_order_value: number;
+};
 type Inbox = { items: { id: string; severity: string; area: string; title: string; detail: string; workspace: string; entity_id: string }[]; summary: { critical: number; high: number; total: number } };
-type Product360 = { product: { id: string; sku: string; name: string; item_type: string; base_unit: string; unit_cost: number; retail_price: number; upc: string }; profile: { brand: string; category: string; strain: string; product_format: string; description: string } | null; inventory: { packages: { id: string; package_id: string; location: string; status: string; balance: number; unit: string }[]; on_hand: number; package_count: number }; sales_30d: { quantity: number; net_sales: number; daily_velocity: number }; open_orders: { id: string; order_number: string; order_type: string; status: string; quantity: number; fulfilled_quantity: number; unit: string }[]; production_orders: { id: string; order_number: string; status: string; requested_units: number; due_at: string | null; product_format: string }[]; aliases: { alias: string; source: string }[]; mappings: { system_name: string; external_id: string; external_name: string }[]; value_history: { value_type: string; amount: number; currency: string; effective_at: string }[] };
+type Context = { user: { display_name: string; email: string; role: string }; organization: { id: string; name: string } | null; facility_id: string; facility?: { id: string; name: string } | null; facilities: { id: string; name: string }[] };
+type HomeAction = { label: string; description: string; page: string; roles?: string[] };
+
+const HOME_ACTIONS: HomeAction[] = [
+  { label: "Review inventory", description: "Stock health, reorders, and aging risk.", page: "Inventory", roles: ["dev", "admin", "buyer", "read_only"] },
+  { label: "Start inventory audit", description: "Scan, pause, resume, and reconcile counts.", page: "Inventory Audits", roles: ["dev", "admin", "buyer", "supervisor", "operator", "qa"] },
+  { label: "Traceability queue", description: "Review pending, rejected, and reconciliation-required state-system actions.", page: "Compliance", roles: ["dev", "admin", "buyer", "supervisor", "operator", "qa", "read_only"] },
+  { label: "Open Package Studio", description: "Break down, pack down, build, sample, correct, and trace packages.", page: "Package Studio", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa"] },
+  { label: "Build purchasing decisions", description: "Recommendations, budget, deliveries, and POs.", page: "Purchase Orders", roles: ["dev", "admin", "buyer"] },
+  { label: "Plan Co-Man production", description: "Balance orders, machines, crews, and hand labor.", page: "Production", roles: ["dev", "admin", "planner", "supervisor", "operator", "qa"] },
+  { label: "Review extraction", description: "Inspect run performance, yields, QA, and production risks.", page: "Extraction", roles: ["dev", "admin", "planner", "supervisor", "operator", "qa"] },
+  { label: "Manage orders", description: "Track customer orders and fulfillment readiness.", page: "Orders", roles: ["dev", "admin", "buyer", "planner", "supervisor"] },
+  { label: "Import operational data", description: "Load, map, review, and reuse operational sources.", page: "Data & Settings" },
+];
+
 export function HomePage({ onNavigate }: { onNavigate: (page: string) => void }) {
-  const [search, setSearch] = useState(""); const [productId, setProductId] = useState("");
-  const summary = useQuery({ queryKey: ["home-summary"], queryFn: ({ signal }) => apiGet<Summary>("/api/v1/home/summary", signal) }); const inbox = useQuery({ queryKey: ["operations-inbox"], queryFn: ({ signal }) => apiGet<Inbox>("/api/v1/home/inbox", signal) }); const results = useQuery({ queryKey: ["universal-search", search], enabled: search.trim().length >= 2, queryFn: ({ signal }) => apiGet<Result[]>(`/api/v1/home/search?q=${encodeURIComponent(search)}`, signal) }); const product = useQuery({ queryKey: ["product-360", productId], enabled: Boolean(productId), queryFn: ({ signal }) => apiGet<Product360>(`/api/v1/home/products/${productId}`, signal) }); const data = summary.data;
-  return <div className="page"><div className="page-heading"><div><div className="eyebrow">Operations Home</div><h1>Today</h1><p>One durable view across inventory, production, orders, compliance, and data.</p></div></div><label className="home-search"><Search size={20}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search products, packages, plants, orders, partners…" /></label>{search.length >= 2 ? <section className="search-results">{results.data?.map(row => <button key={`${row.kind}-${row.id}`} onClick={() => row.kind === "product" ? setProductId(row.id) : onNavigate(row.workspace)}><span className="badge">{row.kind}</span><strong>{row.title}</strong><small>{row.subtitle}</small><em>{row.kind === "product" ? "Product 360 →" : `${row.workspace} →`}</em></button>)}{results.data?.length === 0 ? <div className="empty">No matching records in this facility.</div> : null}</section> : null}<section className="home-grid"><HomeCard title="Inventory" value={`${data?.package_count ?? "—"} packages`} detail={`${data?.inventory_quantity.toLocaleString() ?? "—"} total ledger quantity · ${data?.plant_count ?? "—"} active plants`} onClick={() => onNavigate("Inventory")} /><HomeCard title="Production" value={`${data?.open_production ?? "—"} open`} detail="Planning, execution, materials, QA and costs" onClick={() => onNavigate("Production")} /><HomeCard title="Orders" value={`${data?.open_orders ?? "—"} open`} detail="Commercial demand, allocation and fulfillment" onClick={() => onNavigate("Orders")} /><HomeCard title="Compliance" value={`${data?.compliance_exceptions ?? "—"} exceptions`} detail="Traceability submissions and reconciliation" warning={Boolean(data?.compliance_exceptions)} onClick={() => onNavigate("Compliance")} /><HomeCard title="Data Hub" value={`${data?.active_data_sources ?? "—"} active sources`} detail="Versioned inventory, sales, pricing and quarantine data" onClick={() => onNavigate("Data & Settings")} /></section><div className="inbox-heading"><div><div className="eyebrow">Decision queue</div><h2>Operations Inbox</h2></div><span>{inbox.data?.summary.total ?? 0} items · {inbox.data?.summary.critical ?? 0} critical</span></div><section className="inbox-list">{inbox.data?.items.map(row => <button key={row.id} onClick={() => onNavigate(row.workspace)}><span className={`severity ${row.severity}`}>{row.severity}</span><span><strong>{row.title}</strong><small>{row.area} · {row.detail}</small></span><em>{row.workspace} →</em></button>)}{inbox.data?.items.length === 0 ? <div className="empty">No operational exceptions need attention.</div> : null}</section>{productId ? <Product360Modal data={product.data} loading={product.isLoading} onClose={() => setProductId("")} onNavigate={onNavigate}/> : null}</div>;
+  const summary = useQuery({ queryKey: ["home-summary"], queryFn: ({ signal }) => apiGet<Summary>("/api/v1/home/summary", signal) });
+  const inbox = useQuery({ queryKey: ["operations-inbox"], queryFn: ({ signal }) => apiGet<Inbox>("/api/v1/home/inbox", signal) });
+  const context = useQuery({ queryKey: ["account-context"], queryFn: ({ signal }) => apiGet<Context>("/api/v1/account/context", signal) });
+  const role = context.data?.user.role ?? "trial";
+  const actions = HOME_ACTIONS.filter(action => !action.roles || action.roles.includes(role));
+  const data = summary.data;
+  const facility = context.data?.facility ?? context.data?.facilities.find(row => row.id === context.data?.facility_id);
+  const highPriority = inbox.data ? inbox.data.summary.critical + inbox.data.summary.high : 0;
+
+  return <div className="page role-home-page">
+    <section className="role-home-hero">
+      <div className="eyebrow">Operations Home</div>
+      <h1>Good to see you, {context.data?.user.display_name || context.data?.user.email || "Operator"}.</h1>
+      <p>Your {roleLabel(role)} workspace is organized around what needs attention now.</p>
+      <span className="role-home-context">{context.data?.organization?.name ?? "Organization"} · {facility?.name ?? "Facility"}</span>
+    </section>
+
+    <section className="role-home-metrics">
+      <HomeMetric label="Needs attention" value={inbox.data?.summary.total ?? "—"} caption={`${highPriority} high-priority item(s)`}/>
+      <HomeMetric label="Low stock" value={data?.low_stock ?? "—"} caption="Critical cover signal"/>
+      <HomeMetric label="Open POs" value={data?.open_purchase_orders ?? "—"} caption={`${money(data?.open_purchase_order_value ?? 0)} represented`}/>
+      <HomeMetric label="Data sources ready" value={data ? `${data.active_data_sources}/${data.data_sources_total}` : "—"} caption="Sources available to workspaces"/>
+    </section>
+
+    <section className="role-home-section">
+      <div className="role-home-section-label">Needs attention · Operations Inbox</div>
+      {inbox.isLoading ? <div className="state">Building the current facility decision queue…</div> : null}
+      {inbox.isError ? <div className="state error">{inbox.error.message}</div> : null}
+      {inbox.data?.items.length ? <div className="role-home-inbox">{inbox.data.items.slice(0, 8).map(item => <article className="role-home-alert" key={item.id}>
+        <div className="role-home-alert-area"><span>{item.area.toUpperCase()}</span><em className={`severity ${item.severity}`}>{item.severity}</em></div>
+        <div className="role-home-alert-body"><strong>{item.title}</strong><p>{item.detail}</p>{item.entity_id ? <small>{item.entity_id}</small> : null}</div>
+        <button className={item.severity === "critical" ? "primary" : "secondary"} type="button" onClick={() => onNavigate(item.workspace)}>{actionLabel(item.area)}</button>
+      </article>)}</div> : !inbox.isLoading && !inbox.isError ? <div className="success-banner"><strong>No high-priority operational exceptions are visible from the loaded facility data.</strong><br/><span>Start from a task below or use global search.</span></div> : null}
+    </section>
+
+    <section className="role-home-section">
+      <div className="role-home-section-label">Start a Task</div>
+      <div className="role-home-task-grid">{actions.map((action, index) => <article className="role-home-task" key={action.label}>
+        <h3>{action.label}</h3><p>{action.description}</p><button className={index === 0 ? "primary" : "secondary"} type="button" onClick={() => onNavigate(action.page)}>Open</button>
+      </article>)}</div>
+    </section>
+  </div>;
 }
-function Product360Modal({ data, loading, onClose, onNavigate }: { data?: Product360; loading: boolean; onClose: () => void; onNavigate: (page: string) => void }) { return <div className="modal-backdrop"><div className="modal wide"><div className="modal-heading"><div><div className="eyebrow">Product 360</div><h2>{data?.product.name ?? "Loading product…"}</h2><p>{data ? `${data.product.sku} · ${data.profile?.brand || "No brand"} · ${data.profile?.category || data.product.item_type}` : "Cross-workspace context"}</p></div><button className="secondary" onClick={onClose}>Close</button></div>{loading ? <div className="state">Loading durable product context…</div> : data ? <><section className="quantity-summary"><span>On hand<strong>{data.inventory.on_hand.toLocaleString()} {data.product.base_unit}</strong></span><span>30d sold<strong>{data.sales_30d.quantity.toLocaleString()}</strong></span><span>30d net sales<strong>{money(data.sales_30d.net_sales)}</strong></span></section><div className="product360-grid"><section><h3>Packages</h3>{data.inventory.packages.map(row => <article className="catalog-row" key={row.id}><strong>{row.package_id}</strong><span>{row.balance} {row.unit}</span><small>{row.location} · {row.status}</small></article>)}{data.inventory.packages.length === 0 ? <div className="empty">No packages in this facility.</div> : null}</section><section><h3>Open demand</h3>{data.open_orders.map(row => <article className="catalog-row" key={row.id}><strong>{row.order_number}</strong><span>{row.quantity - row.fulfilled_quantity} {row.unit}</span><small>{row.order_type} · {row.status}</small></article>)}{data.production_orders.map(row => <article className="catalog-row" key={row.id}><strong>{row.order_number}</strong><span>{row.requested_units} units</span><small>production · {row.status}</small></article>)}{!data.open_orders.length && !data.production_orders.length ? <div className="empty">No open demand.</div> : null}</section><section><h3>Catalog identity</h3><div className="catalog-row"><strong>UPC</strong><span>{data.product.upc || "—"}</span></div>{data.aliases.map(row => <div className="catalog-row" key={row.alias}><strong>Alias</strong><span>{row.alias}</span><small>{row.source}</small></div>)}{data.mappings.map(row => <div className="catalog-row" key={`${row.system_name}-${row.external_id}`}><strong>{row.system_name}</strong><span>{row.external_id}</span><small>{row.external_name}</small></div>)}</section><section><h3>Value history</h3>{data.value_history.slice(0, 8).map(row => <div className="catalog-row" key={`${row.value_type}-${row.effective_at}`}><strong>{row.value_type.replaceAll("_", " ")}</strong><span>{money(row.amount)}</span><small>{new Date(row.effective_at).toLocaleString()}</small></div>)}</section></div><div className="audit-actions"><button className="secondary" onClick={() => onNavigate("Inventory")}>Open inventory</button><button className="primary" onClick={() => onNavigate("Retail Product Master")}>Open Product Master</button></div></> : null}</div></div>; }
-function HomeCard({ title, value, detail, warning, onClick }: { title: string; value: string; detail: string; warning?: boolean; onClick: () => void }) { return <button className={`home-card ${warning ? "warning" : ""}`} onClick={onClick}><span>{title}</span><strong>{value}</strong><p>{detail}</p></button>; } function money(value: number) { return value.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 }); }
+
+function HomeMetric({ label, value, caption }: { label: string; value: string | number; caption: string }) {
+  return <article className="role-home-metric"><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString() : value}</strong><small>{caption}</small></article>;
+}
+function roleLabel(role: string) { return role.replaceAll("_", " ").replace(/\b\w/g, char => char.toUpperCase()); }
+function money(value: number) { return Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }); }
+function actionLabel(area: string) { const value = area.toLowerCase(); if (value === "inventory") return "Review"; if (value === "compliance") return "Open queue"; if (value === "production") return "Open"; if (value === "orders") return "Open"; if (value === "integrations") return "Review"; return "Open"; }
