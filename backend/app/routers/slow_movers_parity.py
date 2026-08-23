@@ -7,9 +7,11 @@ from services.web_buyer_parity import read_tabular_bytes,records
 from services.web_slow_movers_parity import build_slow_movers,export_excel,export_filename,filter_slow_movers,summary,tier_summary
 from ..auth import RequestContext,get_request_context,get_retail_context
 from ..database import get_engine
+from .buyer_parity import _require_available_data_mode
 
 router=APIRouter(prefix="/slow-movers-parity",tags=["slow-movers-parity"],dependencies=[Depends(get_retail_context)])
 def _frames(context,engine):
+    _require_available_data_mode(context)
     sources={row.dataset_key:row for row in DataHubRepository(engine).list_active_sources(context.organization_id,context.facility_id)};inventory=sources.get("inventory") or sources.get("sandbox_buyer_inventory");sales=sources.get("product_sales") or sources.get("sandbox_buyer_sales") or sources.get("sandbox_delivery_sales")
     if inventory is None or sales is None:raise HTTPException(422,"Slow Movers needs active Inventory and Product Sales data in Data & Settings.")
     return read_tabular_bytes(inventory.payload,inventory.filename),read_tabular_bytes(sales.payload,sales.filename)
