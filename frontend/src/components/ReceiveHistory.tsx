@@ -5,7 +5,7 @@ import { StreamlitDialog } from "./StreamlitDialog";
 
 export function ReceiveHistory({ operation, onClose }: { operation: "retail" | "production"; onClose: () => void }) {
   const history = useQuery({
-    queryKey: ["receive-history", operation],
+    queryKey: ["inventory-receive-history", operation],
     queryFn: ({ signal }) => apiGet<InventoryReceiptHistoryItem[]>(`/api/v1/inventory/${operation}/receive-history`, signal),
   });
   return <StreamlitDialog open onClose={onClose} eyebrow={`${operation === "production" ? "Production" : "Retail"} inventory`} title="Receive history" subtitle="Facility-scoped durable receipt history">
