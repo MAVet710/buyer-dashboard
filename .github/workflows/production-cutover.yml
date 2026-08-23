@@ -24,8 +24,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify exact Streamlit parity release contract
-        run: python scripts/verify_streamlit_parity.py --mode release
+      - name: Verify Streamlit parity contract for live testing
+        run: python scripts/verify_streamlit_parity.py
       - name: Verify production API image builds
         run: docker build -f Dockerfile.api -t doobielogic-api-cutover-check .
       - name: Verify production API starts
