@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 
 const HomePage = lazy(() => import("./pages/HomePage").then(module => ({ default: module.HomePage })));
 const InventoryPage = lazy(() => import("./pages/InventoryPage").then(module => ({ default: module.InventoryPage })));
-const InventoryAudits = lazy(() => import("./components/InventoryAudits").then(module => ({ default: module.InventoryAudits })));
+const FocusedInventoryAudits = lazy(() => import("./components/FocusedInventoryAudits").then(module => ({ default: module.FocusedInventoryAudits })));
 const BuyerCommandCenterPage = lazy(() => import("./pages/BuyerCommandCenterPage").then(module => ({ default: module.BuyerCommandCenterPage })));
 const BuyerTrendsPage = lazy(() => import("./pages/BuyerTrendsPage").then(module => ({ default: module.BuyerTrendsPage })));
 const SlowMoversPage = lazy(() => import("./pages/SlowMoversPage").then(module => ({ default: module.SlowMoversPage })));
@@ -52,7 +52,7 @@ export default function App() {
     : page === "Buyer Operations" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={setPage} />
-    : page === "Inventory Audits" ? <InventoryAudits operation="retail" />
+    : page === "Inventory Audits" ? <FocusedInventoryAudits />
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
     : page === "Delivery Performance" ? <DeliveryImpactPage />
