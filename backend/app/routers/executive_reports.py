@@ -21,6 +21,13 @@ from ..database import get_engine
 
 router = APIRouter(prefix="/executive-reports", tags=["executive-reports"])
 
+DEFAULT_BUYER_CONTROLS = {
+    "target_doh": 21,
+    "velocity_adjustment": 0.5,
+    "sales_days": 60,
+    "sku_window": 56,
+}
+
 
 def _context_names(context: RequestContext, engine: Engine) -> tuple[str, str]:
     with Session(engine) as session:
@@ -35,18 +42,42 @@ def _numeric_sum(frame: pd.DataFrame, column: str) -> float:
     return float(pd.to_numeric(frame[column], errors="coerce").fillna(0).sum())
 
 
-def _buyer_report(context: RequestContext, engine: Engine) -> tuple[bytes, bool]:
+def _buyer_controls(payload: dict | None) -> dict[str, float | int]:
+    raw = (payload or {}).get("buyer_controls") if isinstance(payload, dict) else None
+    raw = raw if isinstance(raw, dict) else {}
+    try:
+        target = max(1, min(60, int(raw.get("target_doh", DEFAULT_BUYER_CONTROLS["target_doh"]))))
+        velocity = max(0.01, min(5.0, float(raw.get("velocity_adjustment", DEFAULT_BUYER_CONTROLS["velocity_adjustment"]))))
+        days = max(7, min(120, int(raw.get("sales_days", DEFAULT_BUYER_CONTROLS["sales_days"]))))
+        sku_window = int(raw.get("sku_window", DEFAULT_BUYER_CONTROLS["sku_window"]))
+        if sku_window not in {28, 56, 84}:
+            sku_window = 56
+    except (TypeError, ValueError):
+        return dict(DEFAULT_BUYER_CONTROLS)
+    return {"target_doh": target, "velocity_adjustment": velocity, "sales_days": days, "sku_window": sku_window}
+
+
+def _buyer_report(context: RequestContext, engine: Engine, payload: dict | None = None) -> tuple[bytes, bool]:
     organization, facility = _context_names(context, engine)
-    detail, product, inventory, sales, _inventory_source, _sales_source = buyer_model(context, engine, 21, 0.5, 60)
+    controls = _buyer_controls(payload)
+    detail, product, inventory, sales, _inventory_source, _sales_source = buyer_model(
+        context,
+        engine,
+        int(controls["target_doh"]),
+        float(controls["velocity_adjustment"]),
+        int(controls["sales_days"]),
+    )
     payload = {
         "store_name": organization,
         "organization": organization,
         "facility": facility,
-        "reporting_period": "Current Buyer Dash source set",
+        "reporting_period": f"Current Buyer Dashboard source set · {controls['sales_days']} day sales period",
         "detail_view": detail,
         "detail_product": product,
         "inv_df": inventory,
         "sales_df": sales,
+        "controls": controls,
+        "doh_threshold": int(controls["target_doh"]),
         "kpis": {
             "total_units_sold": _numeric_sum(product, "unitssold"),
             "total_units_on_hand": _numeric_sum(product, "onhandunits"),
@@ -116,12 +147,12 @@ def _pdf_response(pdf: bytes, filename: str) -> Response:
 def _retail_pack_parts(payload: dict | None, context: RequestContext, engine: Engine) -> list[tuple[str, bytes]]:
     parts: list[tuple[str, bytes]] = []
     try:
-        buyer_pdf, buyer_has_data = _buyer_report(context, engine)
+        buyer_pdf, buyer_has_data = _buyer_report(context, engine, payload)
         if buyer_has_data:
             parts.append(("Buyer Operations", buyer_pdf))
     except HTTPException:
         pass
-    white_label = (payload or {}).get("white_label")
+    white_label = (payload or {}).get("white_label") if isinstance(payload, dict) else None
     if isinstance(white_label, dict) and white_label:
         parts.append(("White Label / Repack", _white_label_report(white_label, context, engine)))
     return parts
@@ -147,6 +178,16 @@ def catalog(context: RequestContext = Depends(get_request_context)):
             {"key": "extraction", "label": "Extraction Operations Executive Report", "capability": "production"},
         ]
     }
+
+
+@router.post("/buyer.pdf")
+def buyer_report_pdf(
+    payload: dict | None = Body(default=None),
+    context: RequestContext = Depends(get_retail_context),
+    engine: Engine = Depends(get_engine),
+):
+    pdf, _has_data = _buyer_report(context, engine, payload)
+    return _pdf_response(pdf, f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf")
 
 
 @router.post("/white-label.pdf")
