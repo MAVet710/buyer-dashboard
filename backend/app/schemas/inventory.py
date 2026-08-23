@@ -129,7 +129,7 @@ class InventoryAdjustmentCreate(BaseModel):
     reason_note: str = ""
     sync_to_metrc: bool = False
     bypass_state_system: bool = False
-    reviewed: bool | None = None
+    reviewed: bool = True
 
 
 class InventoryAdjustmentResult(BaseModel):
