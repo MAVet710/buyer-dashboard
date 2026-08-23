@@ -47,7 +47,16 @@ def _pick(sources: list[PublishedSource], keys: tuple[str, ...]) -> PublishedSou
     return next((by_key[key] for key in keys if key in by_key), None)
 
 
+def _require_available_data_mode(context: RequestContext) -> None:
+    if context.data_mode == "Dutchie Live":
+        raise HTTPException(
+            503,
+            "Dutchie Live is selected, but live data fetch is not yet implemented. Switch to Uploads or complete the Dutchie API integration.",
+        )
+
+
 def _inputs(context: RequestContext, engine: Engine):
+    _require_available_data_mode(context)
     sources = DataHubRepository(engine).list_active_sources(context.organization_id, context.facility_id)
     inventory_source = _pick(sources, _INVENTORY_KEYS); sales_source = _pick(sources, _SALES_KEYS)
     if inventory_source is None or sales_source is None:
@@ -79,7 +88,7 @@ def dashboard(target_doh: int = Query(21, ge=1, le=120), velocity_adjustment: fl
     overstock = sku[sku["days_of_supply"] >= 90] if not sku.empty else sku
     expiring = sku[sku["days_to_expire"].notna() & (sku["days_to_expire"] < 60)] if not sku.empty and "days_to_expire" in sku else sku.iloc[0:0]
     total_units = float(detail["unitssold"].sum()) if "unitssold" in detail else 0.0; reorder_asap = int((detail.get("reorderpriority") == "1 – Reorder ASAP").sum()) if "reorderpriority" in detail else 0
-    return {"controls":{"target_doh":target_doh,"velocity_adjustment":velocity_adjustment,"sales_days":sales_days,"sku_window":sku_window},"summary":{"units_sold":total_units,"reorder_asap":reorder_asap,"tracked_products":int(len(product)),"categories":int(detail["subcategory"].nunique()) if "subcategory" in detail else 0},"sources":{"inventory":{"filename":inventory_source.filename,"rows":inventory_source.row_count,"activated_at":inventory_source.activated_at},"sales":{"filename":sales_source.filename,"rows":sales_source.row_count,"activated_at":sales_source.activated_at}},"category_dos":records(categories),"forecast":records(forecast),"product_rows":records(product.sort_values("unitssold",ascending=False) if "unitssold" in product else product,limit=PRODUCT_TABLE_DISPLAY_LIMIT),"product_rows_total":int(len(product)),"sku_views":{"all":records(sku),"reorder":records(reorder),"overstock":records(overstock),"expiring":records(expiring)}}
+    return {"data_mode":context.data_mode,"controls":{"target_doh":target_doh,"velocity_adjustment":velocity_adjustment,"sales_days":sales_days,"sku_window":sku_window},"summary":{"units_sold":total_units,"reorder_asap":reorder_asap,"tracked_products":int(len(product)),"categories":int(detail["subcategory"].nunique()) if "subcategory" in detail else 0},"sources":{"inventory":{"filename":inventory_source.filename,"rows":inventory_source.row_count,"activated_at":inventory_source.activated_at},"sales":{"filename":sales_source.filename,"rows":sales_source.row_count,"activated_at":sales_source.activated_at}},"category_dos":records(categories),"forecast":records(forecast),"product_rows":records(product.sort_values("unitssold",ascending=False) if "unitssold" in product else product,limit=PRODUCT_TABLE_DISPLAY_LIMIT),"product_rows_total":int(len(product)),"sku_views":{"all":records(sku),"reorder":records(reorder),"overstock":records(overstock),"expiring":records(expiring)}}
 
 
 @router.get("/trends")
@@ -164,6 +173,7 @@ async def delivery_impact_upload(
 
 
 def _active_delivery_sales(context: RequestContext, engine: Engine) -> tuple[pd.DataFrame, str]:
+    _require_available_data_mode(context)
     sources = DataHubRepository(engine).list_active_sources(context.organization_id, context.facility_id)
     source = _pick(sources, _SALES_KEYS)
     if source is None:
