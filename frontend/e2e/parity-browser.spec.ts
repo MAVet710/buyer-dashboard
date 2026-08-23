@@ -147,9 +147,9 @@ for (const width of WIDTHS) {
       localStorage.setItem("buyer-dash-theme", "dark");
       localStorage.setItem("buyer-dash-organization", "org-parity");
       localStorage.setItem("buyer-dash-facility", "facility-parity");
-      localStorage.setItem("buyer-dash-operation", "Retail Ops");
       localStorage.setItem("buyer-dash-data-mode", "Uploads");
-      sessionStorage.setItem("buyer-dash-pending-page", "Buyer Operations");
+      if (!localStorage.getItem("buyer-dash-operation")) localStorage.setItem("buyer-dash-operation", "Retail Ops");
+      if (!sessionStorage.getItem("buyer-dash-pending-page")) sessionStorage.setItem("buyer-dash-pending-page", "Buyer Operations");
     });
     await page.goto("/", { waitUntil: "networkidle" });
 
