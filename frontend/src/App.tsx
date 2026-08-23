@@ -4,7 +4,7 @@ import { lazy, Suspense, useState } from "react";
 const HomePage = lazy(() => import("./pages/HomePage").then(module => ({ default: module.HomePage })));
 const InventoryPage = lazy(() => import("./pages/InventoryPage").then(module => ({ default: module.InventoryPage })));
 const InventoryAudits = lazy(() => import("./components/InventoryAudits").then(module => ({ default: module.InventoryAudits })));
-const BuyerOperationsPage = lazy(() => import("./pages/BuyerOperationsPage").then(module => ({ default: module.BuyerOperationsPage })));
+const BuyerCommandCenterPage = lazy(() => import("./pages/BuyerCommandCenterPage").then(module => ({ default: module.BuyerCommandCenterPage })));
 const BuyerTrendsPage = lazy(() => import("./pages/BuyerTrendsPage").then(module => ({ default: module.BuyerTrendsPage })));
 const SlowMoversPage = lazy(() => import("./pages/SlowMoversPage").then(module => ({ default: module.SlowMoversPage })));
 const DeliveryImpactPage = lazy(() => import("./pages/DeliveryImpactPage").then(module => ({ default: module.DeliveryImpactPage })));
@@ -42,7 +42,7 @@ function initialPage(): string {
 export default function App() {
   const [page, setPage] = useState(initialPage);
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
-    : page === "Buyer Operations" ? <BuyerOperationsPage onNavigate={setPage} />
+    : page === "Buyer Operations" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={setPage} />
     : page === "Inventory Audits" ? <InventoryAudits operation="retail" />
