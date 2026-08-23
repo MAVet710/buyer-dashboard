@@ -26,11 +26,22 @@ type DoobieResult = {
 };
 type SkuTab = "all" | "reorder" | "overstock" | "expiring";
 type MetricFilter = "All" | "Reorder ASAP";
+type InventoryCondition = {
+  reorder: number;
+  noStock: number;
+  overstock: number;
+  expiring: number;
+  overstockExposure: number;
+  expiringExposure: number;
+  onHandCost: number;
+  onHandUnits: number;
+};
 
 const REB_CATEGORIES = ["flower", "pre rolls", "vapes", "edibles", "beverages", "concentrates", "tinctures", "topicals"];
 const FORECAST_COLUMNS = ["top_products","mastercategory","subcategory","strain_type","packagesize","onhandunits","unitssold","avgunitsperday","daysonhand","reorderqty","reorderpriority","product_count"];
 const PRODUCT_COLUMNS = ["product_name","subcategory","strain_type","packagesize","onhandunits","unitssold","avgunitsperday","daysonhand"];
 const SKU_COLUMNS = ["sku","product_name","brand_vendor","category","onhandunits","avg_weekly_sales","days_of_supply","weeks_of_supply","dollars_on_hand","retail_dollars_on_hand","expiration_date","days_to_expire","status"];
+const SKU_COMPACT_COLUMNS = ["product_name","category","brand_vendor","onhandunits","avg_weekly_sales","days_of_supply","dollars_on_hand","expiration_date","status"];
 
 export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => void }) {
   const [targetDoh, setTargetDoh] = useState(21);
@@ -42,6 +53,15 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
   const [categorySelectionTouched, setCategorySelectionTouched] = useState(false);
   const [showProductRows, setShowProductRows] = useState(false);
   const [skuTab, setSkuTab] = useState<SkuTab>("all");
+  const [buyerSearch, setBuyerSearch] = useState("");
+  const [showTopN, setShowTopN] = useState(0);
+  const [sortBy, setSortBy] = useState("dollars_on_hand_desc");
+  const [legacyCategory, setLegacyCategory] = useState("All");
+  const [legacyBrand, setLegacyBrand] = useState("All");
+  const [expirationWindow, setExpirationWindow] = useState("Any");
+  const [onHandOnly, setOnHandOnly] = useState(true);
+  const [minDoh, setMinDoh] = useState(0);
+  const [maxDoh, setMaxDoh] = useState(9999);
 
   useEffect(() => {
     sessionStorage.setItem("buyer-dash-buyer-controls", JSON.stringify({ target_doh: targetDoh, velocity_adjustment: velocity, sales_days: salesDays, sku_window: skuWindow }));
@@ -77,8 +97,65 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
   const visibleProductRows = useMemo(() => (dashboard.data?.product_rows ?? []).filter(row => visibleCategories.includes(text(row.subcategory))), [dashboard.data, visibleCategories]);
   const productRowsTruncated = Boolean(dashboard.data && dashboard.data.product_rows_total > dashboard.data.product_rows.length);
 
+  const legacyCategoryOptions = useMemo(() => sortedUnique((dashboard.data?.sku_views.all ?? []).map(row => text(row.category))), [dashboard.data]);
+  const legacyBrandOptions = useMemo(() => sortedUnique((dashboard.data?.sku_views.all ?? []).map(row => text(row.brand_vendor))), [dashboard.data]);
+  const filteredInventoryBase = useMemo(() => {
+    let rows = [...(dashboard.data?.sku_views.all ?? [])];
+    const search = buyerSearch.trim().toLowerCase();
+    if (search) rows = rows.filter(row => [row.sku, row.product_name, row.brand_vendor].some(value => text(value).toLowerCase().includes(search)));
+    if (legacyCategory !== "All") rows = rows.filter(row => text(row.category) === legacyCategory);
+    if (legacyBrand !== "All") rows = rows.filter(row => text(row.brand_vendor) === legacyBrand);
+    if (expirationWindow !== "Any") {
+      rows = rows.filter(row => {
+        const days = optionalNumber(row.days_to_expire);
+        if (days == null) return false;
+        if (expirationWindow === "Expired") return days < 0;
+        const windowDays = expirationWindow === "30 days" ? 30 : expirationWindow === "60 days" ? 60 : 90;
+        return days >= 0 && days <= windowDays;
+      });
+    }
+    if (onHandOnly) rows = rows.filter(row => number(row.onhandunits) > 0);
+    rows = rows.filter(row => {
+      const doh = number(row.days_of_supply);
+      return doh >= minDoh && doh <= maxDoh;
+    });
+    const sorters: Record<string, (a: Row, b: Row) => number> = {
+      dollars_on_hand_desc: (a, b) => number(b.dollars_on_hand) - number(a.dollars_on_hand),
+      days_of_supply_asc: (a, b) => number(a.days_of_supply) - number(b.days_of_supply),
+      days_of_supply_desc: (a, b) => number(b.days_of_supply) - number(a.days_of_supply),
+      weekly_sales_desc: (a, b) => number(b.avg_weekly_sales) - number(a.avg_weekly_sales),
+      on_hand_desc: (a, b) => number(b.onhandunits) - number(a.onhandunits),
+      expiration_asc: (a, b) => (optionalNumber(a.days_to_expire) ?? 100000) - (optionalNumber(b.days_to_expire) ?? 100000),
+    };
+    rows.sort(sorters[sortBy] ?? sorters.dollars_on_hand_desc);
+    return rows;
+  }, [dashboard.data, buyerSearch, legacyCategory, legacyBrand, expirationWindow, onHandOnly, minDoh, maxDoh, sortBy]);
+  const filteredSkuRows = useMemo(() => showTopN > 0 ? filteredInventoryBase.slice(0, showTopN) : filteredInventoryBase, [filteredInventoryBase, showTopN]);
+  const filteredCondition = useMemo(() => inventoryCondition(filteredInventoryBase), [filteredInventoryBase]);
+  const allSkuColumns = useMemo(() => {
+    const ordered = [...SKU_COLUMNS];
+    const extras = sortedUnique(filteredSkuRows.flatMap(row => Object.keys(row))).filter(column => !ordered.includes(column));
+    return [...ordered, ...extras];
+  }, [filteredSkuRows]);
+  const statusRows = useMemo(() => {
+    if (skuTab === "reorder") return filteredInventoryBase.filter(row => number(row.days_of_supply) > 0 && number(row.days_of_supply) <= 21);
+    if (skuTab === "overstock") return filteredInventoryBase.filter(row => number(row.days_of_supply) >= 90);
+    if (skuTab === "expiring") return filteredInventoryBase.filter(row => { const days = optionalNumber(row.days_to_expire); return days != null && days < 60; });
+    return filteredInventoryBase;
+  }, [filteredInventoryBase, skuTab]);
+
+  const doobieCategories = legacyCategory === "All" ? visibleCategories : [legacyCategory];
   const doobiePayload = {
-    categories: visibleCategories,
+    categories: doobieCategories,
+    brands: legacyBrand === "All" ? [] : [legacyBrand],
+    search: buyerSearch,
+    expiration_window: expirationWindow,
+    on_hand_only: onHandOnly,
+    min_doh: minDoh,
+    max_doh: maxDoh,
+    velocity_window: skuWindow,
+    top_n: showTopN,
+    sort_by: sortBy,
     target_doh: targetDoh,
     velocity_adjustment: velocity,
     sales_days: salesDays,
@@ -161,25 +238,51 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
         <div className="download-row"><button className="secondary" type="button" onClick={() => download("product")}>📥 Download Product-Level Table (Excel)</button></div>
       </section> : null}
 
+      <section className="inventory-panel buyer-filter-settings">
+        <h3>🔍 Buyer Filters &amp; Settings</h3>
+        <div className="buyer-settings-grid">
+          <label className="buyer-setting-wide">Search (SKU / Product / Brand)<span className="field-help" title="Filters the current SKU inventory view and the inventory slice sent to Doobie.">?</span><input value={buyerSearch} placeholder="Type to filter…" onChange={event => setBuyerSearch(event.target.value)}/></label>
+          <label>Velocity window<span className="field-help" title="Sales history used to calculate run rate and days of supply.">?</span><select value={skuWindow} onChange={event => setSkuWindow(Number(event.target.value))}><option value={28}>Last 28 days</option><option value={56}>Last 56 days</option><option value={84}>Last 84 days</option></select></label>
+          <label>Show top N<select value={showTopN} onChange={event => setShowTopN(Number(event.target.value))}><option value={0}>All</option><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label>
+          <label>Sort by<select value={sortBy} onChange={event => setSortBy(event.target.value)}><option value="dollars_on_hand_desc">$ on hand ↓</option><option value="days_of_supply_asc">DOH ↑</option><option value="days_of_supply_desc">DOH ↓</option><option value="weekly_sales_desc">Weekly sales ↓</option><option value="on_hand_desc">On hand ↓</option><option value="expiration_asc">Expiration ↑</option></select></label>
+          <label>Category / Subcategory<select value={legacyCategory} onChange={event => setLegacyCategory(event.target.value)}><option>All</option>{legacyCategoryOptions.map(category => <option key={category}>{category}</option>)}</select></label>
+          <label>Vendor / Brand<select value={legacyBrand} onChange={event => setLegacyBrand(event.target.value)}><option>All</option>{legacyBrandOptions.map(brand => <option key={brand}>{brand}</option>)}</select></label>
+          <label>Expiration window<span className="field-help" title="Limits the current view by the nearest expiration date when inventory provides one.">?</span><select value={expirationWindow} onChange={event => setExpirationWindow(event.target.value)}><option>Any</option><option>30 days</option><option>60 days</option><option>90 days</option><option>Expired</option></select></label>
+          <label className="toggle buyer-onhand-toggle"><input type="checkbox" checked={onHandOnly} onChange={event => setOnHandOnly(event.target.checked)}/> On-hand &gt; 0 <span className="field-help" title="When enabled, zero-stock items are removed from the working view.">?</span></label>
+          <NumberControl label="DOH min (days)" value={minDoh} min={0} max={9999} step={1} onChange={setMinDoh}/>
+          <NumberControl label="DOH max (days)" value={maxDoh} min={0} max={9999} step={1} onChange={setMaxDoh}/>
+        </div>
+      </section>
+
+      <section className="metrics buyer-filter-condition">
+        <Metric label="Units On Hand" value={filteredCondition.onHandUnits}/>
+        <Metric label="Reorder / Low Cover" value={filteredCondition.reorder}/>
+        <Metric label="No Stock" value={filteredCondition.noStock}/>
+        <Metric label="🟠 Overstock SKUs" value={filteredCondition.overstock}/>
+        <Metric label="⚠️ Expiring <60d" value={`${filteredCondition.expiring.toLocaleString()} (${money(filteredCondition.expiringExposure)})`}/>
+        <Metric label="Overstock $" value={money(filteredCondition.overstockExposure)}/>
+        <Metric label="$ On Hand" value={money(filteredCondition.onHandCost)}/>
+      </section>
+
       <section className="inventory-panel">
-        <h3>📋 SKU Inventory Buyer View</h3>
-        <label className="compact-field sku-window">Velocity window<select value={skuWindow} onChange={event => setSkuWindow(Number(event.target.value))}><option value={28}>28</option><option value={56}>56</option><option value={84}>84</option></select></label>
+        <div className="section-heading"><div><h3>📋 SKU Inventory Buyer View</h3><p>{filteredSkuRows.length.toLocaleString()} SKU(s) (velocity window: {skuWindow} days){showTopN > 0 && filteredInventoryBase.length > filteredSkuRows.length ? ` · showing top ${filteredSkuRows.length.toLocaleString()} of ${filteredInventoryBase.length.toLocaleString()}` : ""}</p></div></div>
         {dashboard.data.sources.inventory.rows > 0 ? <p className="source-caption">Inventory cross-reference is active for PO-related buyer review.</p> : null}
-        <div className="view-tabs"><button className={skuTab === "all" ? "active" : ""} onClick={() => setSkuTab("all")}>📦 All Inventory</button><button className={skuTab === "reorder" ? "active" : ""} onClick={() => setSkuTab("reorder")}>🔴 Reorder</button><button className={skuTab === "overstock" ? "active" : ""} onClick={() => setSkuTab("overstock")}>🟠 Overstock</button><button className={skuTab === "expiring" ? "active" : ""} onClick={() => setSkuTab("expiring")}>⚠️ Expiring</button></div>
-        <DataTable rows={dashboard.data.sku_views[skuTab]} columns={SKU_COLUMNS}/>
+        <DataTable rows={filteredSkuRows} columns={SKU_COMPACT_COLUMNS}/>
+        <details className="streamlit-expander buyer-all-columns"><summary>🔎 Show all columns</summary><div className="streamlit-expander-body"><DataTable rows={filteredSkuRows} columns={allSkuColumns}/></div></details>
+        <details className="streamlit-expander buyer-status-views"><summary>Inventory status views</summary><div className="streamlit-expander-body"><div className="view-tabs"><button className={skuTab === "all" ? "active" : ""} onClick={() => setSkuTab("all")}>📦 All Inventory</button><button className={skuTab === "reorder" ? "active" : ""} onClick={() => setSkuTab("reorder")}>🔴 Reorder</button><button className={skuTab === "overstock" ? "active" : ""} onClick={() => setSkuTab("overstock")}>🟠 Overstock</button><button className={skuTab === "expiring" ? "active" : ""} onClick={() => setSkuTab("expiring")}>⚠️ Expiring</button></div><DataTable rows={statusRows} columns={SKU_COLUMNS}/></div></details>
       </section>
 
       <section className="inventory-panel">
         <h3>🤖 Doobie Inventory Check</h3>
-        <p className="source-caption">Doobie replaces the legacy AI Inventory Check and evaluates the current filtered buyer slice.</p>
-        <button className="primary" type="button" disabled={inventoryCheck.isPending || !visibleCategories.length} onClick={() => inventoryCheck.mutate()}>{inventoryCheck.isPending ? "Running…" : "Run Doobie Inventory Check"}</button>
+        <p className="source-caption">Doobie replaces the legacy AI Inventory Check and evaluates this exact filtered buyer view.</p>
+        <button className="primary" type="button" disabled={inventoryCheck.isPending || !filteredSkuRows.length} onClick={() => inventoryCheck.mutate()}>{inventoryCheck.isPending ? "Running…" : "Run Doobie Inventory Check"}</button>
         {inventoryCheck.isError ? <div className="state error">{inventoryCheck.error.message}</div> : null}
         {inventoryCheck.data ? <DoobieAnswer result={inventoryCheck.data}/> : null}
       </section>
 
       <section className="inventory-panel">
         <h3>🧠 Doobie Buyer Brief</h3>
-        <button className="primary" type="button" disabled={buyerBrief.isPending || !visibleCategories.length} onClick={() => buyerBrief.mutate()}>{buyerBrief.isPending ? "Generating…" : "Generate Doobie Buyer Brief"}</button>
+        <button className="primary" type="button" disabled={buyerBrief.isPending || !filteredSkuRows.length} onClick={() => buyerBrief.mutate()}>{buyerBrief.isPending ? "Generating…" : "Generate Doobie Buyer Brief"}</button>
         {buyerBrief.isError ? <div className="state error">{buyerBrief.error.message}</div> : null}
         {buyerBrief.data ? <DoobieAnswer result={buyerBrief.data}/> : null}
       </section>
@@ -241,17 +344,34 @@ function categoryDosForForecast(rows: Row[]) {
   }).sort((a, b) => b.reorder_lines - a.reorder_lines || a.category_dos - b.category_dos);
 }
 
+function inventoryCondition(rows: Row[]): InventoryCondition {
+  let reorder = 0; let noStock = 0; let overstock = 0; let expiring = 0;
+  let overstockExposure = 0; let expiringExposure = 0; let onHandCost = 0; let onHandUnits = 0;
+  rows.forEach(row => {
+    const onHand = number(row.onhandunits); const doh = number(row.days_of_supply); const dollars = number(row.dollars_on_hand); const expiry = optionalNumber(row.days_to_expire);
+    onHandUnits += onHand; onHandCost += dollars;
+    if (onHand <= 0) noStock += 1;
+    if (doh > 0 && doh <= 21) reorder += 1;
+    if (doh >= 90) { overstock += 1; overstockExposure += dollars; }
+    if (expiry != null && expiry >= 0 && expiry < 60) { expiring += 1; expiringExposure += dollars; }
+  });
+  return { reorder, noStock, overstock, expiring, overstockExposure, expiringExposure, onHandCost, onHandUnits };
+}
+
 function DataTable({ rows, columns }: { rows: Row[]; columns: string[] }) {
   const visible = columns.filter(column => rows.some(row => Object.prototype.hasOwnProperty.call(row, column)));
   if (!rows.length) return <div className="empty">No matching rows.</div>;
   return <div className="table-wrap"><table><thead><tr>{visible.map(column => <th key={column}>{header(column)}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{visible.map(column => <td key={column}>{render(row[column])}</td>)}</tr>)}</tbody></table></div>;
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) { return <article className="metric"><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString() : value}</strong></article>; }
+function Metric({ label, value }: { label: string; value: string | number }) { return <article className="metric"><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : value}</strong></article>; }
 function NumberControl({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void }) { return <label>{label}<input type="number" value={value} min={min} max={max} step={step} onChange={event => onChange(Number(event.target.value))}/></label>; }
 function DoobieAnswer({ result }: { result: DoobieResult }) { return <div className="doobie-answer"><strong>{result.confidence ? `${result.confidence} confidence · ` : ""}Doobie</strong><p>{result.answer}</p>{result.explanation ? <p>{result.explanation}</p> : null}{Array.isArray(result.recommendations) && result.recommendations.length ? <><h4>Recommendations</h4><pre>{JSON.stringify(result.recommendations, null, 2)}</pre></> : null}{Array.isArray(result.risk_flags) && result.risk_flags.length ? <><h4>Risk flags</h4><pre>{JSON.stringify(result.risk_flags, null, 2)}</pre></> : null}</div>; }
 function header(value: string) { return value.replaceAll("_", " ").replace(/\b\w/g, char => char.toUpperCase()); }
 function title(value: string) { return value.replace(/\b\w/g, char => char.toUpperCase()); }
 function text(value: unknown) { return value == null ? "" : String(value); }
 function number(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
+function optionalNumber(value: unknown) { if (value == null || value === "") return null; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
+function sortedUnique(values: string[]) { return Array.from(new Set(values.filter(value => value.trim()))).sort((a, b) => a.localeCompare(b)); }
+function money(value: number) { return Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }); }
 function render(value: unknown) { if (value == null || value === "") return "—"; if (typeof value === "number") return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 }); if (typeof value === "boolean") return value ? "Yes" : "No"; if (Array.isArray(value)) return value.join(", "); if (typeof value === "object") return JSON.stringify(value); return String(value); }
