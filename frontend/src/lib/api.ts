@@ -49,6 +49,12 @@ export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
 }
 
 export async function apiDownload(path: string, body?: unknown): Promise<Blob> {
+  // Streamlit keeps a generated White Label/Repack payload in session state so
+  // it can join the Retail/Company executive packs. Preserve that session-level
+  // report availability after the web user generates the same report.
+  if (path === "/api/v1/executive-reports/white-label.pdf" && body !== undefined) {
+    try { sessionStorage.setItem("white-label-current-report-payload", JSON.stringify(body)); } catch { /* storage may be unavailable */ }
+  }
   const response = await fetch(`${API_URL}${path}`, { method: body === undefined ? "GET" : "POST", headers: await requestHeaders(body !== undefined), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload, response.status)); }
   return response.blob();
