@@ -61,7 +61,7 @@ def test_legal_gate_and_trial_sandbox_boundary_remain_mandatory():
     ):
         assert marker in legal
     trial = source("backend/app/routers/trial.py")
-    for marker in ("DEV Sandbox", "trial", "activate"):
+    for marker in ("dev-sandbox", "trial", "activate"):
         assert marker in trial
 
 
