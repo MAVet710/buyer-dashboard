@@ -110,6 +110,6 @@ def test_duplicate_facility_code_is_rejected_within_organization():
 
 def test_facility_context_update_route_is_registered():
     assert any(
-        getattr(route, "path", "") == "/api/v1/admin/facilities/{facility_id}/update"
+        getattr(route, "path", "") == "/api/v1/admin/facilities/{target_facility_id}/update"
         for route in app.routes
     )
