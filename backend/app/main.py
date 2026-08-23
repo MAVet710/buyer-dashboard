@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from alembic.config import Config as AlembicConfig
@@ -55,10 +56,22 @@ settings.validate_production()
 
 def _expected_schema_revision() -> str:
     config = AlembicConfig(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
-    return ScriptDirectory.from_config(config).get_current_head()
+    script = ScriptDirectory.from_config(config)
+    heads = script.get_heads()
+    if len(heads) != 1:
+        raise RuntimeError(f"Expected exactly one Alembic head, found {heads}")
+    return heads[0]
 
 
 EXPECTED_SCHEMA_REVISION = _expected_schema_revision()
+RELEASE_SHA = (os.getenv("RELEASE_SHA") or "development").strip()
+DECLARED_SCHEMA_HEAD = (os.getenv("EXPECTED_SCHEMA_HEAD") or "").strip()
+
+if settings.is_production and DECLARED_SCHEMA_HEAD and DECLARED_SCHEMA_HEAD != EXPECTED_SCHEMA_REVISION:
+    raise RuntimeError(
+        "Deployed schema-head declaration does not match the API image: "
+        f"declared={DECLARED_SCHEMA_HEAD} image={EXPECTED_SCHEMA_REVISION}"
+    )
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 install_observability(app)
@@ -71,12 +84,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# The Streamlit data selector was behavioral: Dutchie Live did not silently
-# continue using uploaded files. The React shell now sends the current mode on
-# every request, and all upload-backed Buyer surfaces are stopped here until the
-# real Dutchie API fetch is implemented. This prevents a dangerous false sense
-# that users are looking at live POS data while they are actually seeing stale
-# uploads.
 _BUYER_UPLOAD_BACKED_PREFIXES = (
     f"{settings.api_prefix}/buyer-parity",
     f"{settings.api_prefix}/buyer-legacy-overview",
@@ -106,7 +113,12 @@ async def enforce_buyer_data_mode(request: Request, call_next):
 
 @app.get("/health", tags=["system"])
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "buyer-dash-api"}
+    return {
+        "status": "ok",
+        "service": "buyer-dash-api",
+        "release_sha": RELEASE_SHA,
+        "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
+    }
 
 
 @app.get("/health/ready", tags=["system"])
@@ -117,13 +129,19 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
         revision = connection.execute(text("select version_num from alembic_version")).scalar_one_or_none() if "alembic_version" in tables else None
     required = {"coman_organizations", "coman_facilities", "coman_products", "coman_inventory_lots", "coman_inventory_transactions", "retail_sales", "inventory_audits", "data_hub_imports", "legal_acceptance_events", "cultivation_plants", "retail_planning_policies", "integration_configurations"}
     missing = sorted(required - tables)
-    # Production must be stamped at the actual Alembic head. Unit/in-memory
-    # engines built directly from SQLAlchemy metadata intentionally have no
-    # alembic_version table, so development/test readiness accepts that case
-    # while still validating the complete required table set.
     revision_current = revision == EXPECTED_SCHEMA_REVISION or (settings.is_development and revision is None)
-    payload = {"status": "ready" if not missing and revision_current else "degraded", "service": "buyer-dash-api", "database": "connected", "schema_revision": revision, "expected_schema_revision": EXPECTED_SCHEMA_REVISION, "missing_tables": missing}
-    return payload if not missing and revision_current else JSONResponse(status_code=503, content=payload)
+    ready = not missing and revision_current
+    payload = {
+        "status": "ready" if ready else "degraded",
+        "service": "buyer-dash-api",
+        "release_sha": RELEASE_SHA,
+        "database": "connected",
+        "schema_revision": revision,
+        "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
+        "schema_matches": revision_current,
+        "missing_tables": missing,
+    }
+    return payload if ready else JSONResponse(status_code=503, content=payload)
 
 
 app.include_router(trial_router, prefix=settings.api_prefix)
