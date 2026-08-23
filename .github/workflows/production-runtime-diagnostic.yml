@@ -21,10 +21,7 @@ jobs:
         run: |
           set -euo pipefail
           for endpoint in health health/ready; do
-            code=$(curl --silent --show-error --max-time 20 \
-              --output "/tmp/${endpoint//\//_}.json" \
-              --write-out '%{http_code}' \
-              "https://api.doobielogic.io/${endpoint}" || true)
+            code=$(curl --silent --show-error --max-time 20 --output "/tmp/${endpoint//\//_}.json" --write-out '%{http_code}' "https://api.doobielogic.io/${endpoint}" || true)
             echo "GET /${endpoint} -> ${code}"
             cat "/tmp/${endpoint//\//_}.json" 2>/dev/null || true
             echo
@@ -42,32 +39,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Active Google identity:"
-          gcloud auth list --filter=status:ACTIVE --format='value(account)'
-          echo "API service summary:"
-          gcloud run services describe buyer-dash-api \
-            --region us-east1 \
-            --format='table(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.url,spec.template.spec.serviceAccountName)'
+          gcloud run services describe buyer-dash-api --region us-east1 --format='table(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.url,spec.template.spec.serviceAccountName)'
           echo "API traffic:"
-          gcloud run services describe buyer-dash-api \
-            --region us-east1 \
-            --format='yaml(status.traffic)'
-          echo "API environment bindings (names and secret refs only):"
-          gcloud run services describe buyer-dash-api \
-            --region us-east1 \
-            --format='yaml(spec.template.spec.containers[0].env)'
+          gcloud run services describe buyer-dash-api --region us-east1 --format='yaml(status.traffic)'
+          echo "API environment bindings:"
+          gcloud run services describe buyer-dash-api --region us-east1 --format='yaml(spec.template.spec.containers[0].env)'
           echo "Recent API revisions:"
-          gcloud run revisions list \
-            --service buyer-dash-api \
-            --region us-east1 \
-            --limit 5 \
-            --sort-by='~metadata.creationTimestamp' \
-            --format='table(metadata.name,metadata.creationTimestamp,status.conditions[0].status,status.conditions[0].message)'
-          echo "DATABASE_URL secret versions (metadata only):"
-          gcloud secrets versions list buyer-dash-database-url \
-            --limit=3 \
-            --sort-by='~createTime' \
-            --format='table(name,state,createTime)'
+          gcloud run revisions list --service buyer-dash-api --region us-east1 --limit 5 --sort-by='~metadata.creationTimestamp' --format='table(metadata.name,metadata.creationTimestamp,status.conditions[0].status,status.conditions[0].message)'
+          echo "DATABASE_URL secret versions:"
+          gcloud secrets versions list buyer-dash-database-url --limit=3 --sort-by='~createTime' --format='table(name,state,createTime)'
 
       - name: Verify Secret Manager DATABASE_URL against production database
         shell: bash
@@ -79,7 +59,6 @@ jobs:
           python - <<'PY'
           import os
           from sqlalchemy import create_engine, text
-
           url = os.environ['DATABASE_URL'].strip()
           if url.startswith('postgres://'):
               url = 'postgresql+psycopg://' + url[len('postgres://'):]
@@ -100,36 +79,44 @@ jobs:
           print(f'Legal acceptance rows: {acceptances}')
           PY
 
-      - name: Probe default and candidate API URLs
+      - name: Probe latest revision and promote only if ready
         shell: bash
         run: |
           set -euo pipefail
-          service_url=$(gcloud run services describe buyer-dash-api --region us-east1 --format='value(status.url)')
-          for base in "https://api.doobielogic.io" "$service_url" "https://candidate---buyer-dash-api-giuo75azma-ue.a.run.app"; do
-            echo "Probing $base"
-            for endpoint in health health/ready; do
-              code=$(curl --silent --show-error --max-time 20 --output /tmp/probe.json --write-out '%{http_code}' "$base/$endpoint" || true)
-              echo "  /$endpoint -> $code"
-              cat /tmp/probe.json 2>/dev/null || true
-              echo
-            done
+          latest=$(gcloud run services describe buyer-dash-api --region us-east1 --format='value(status.latestCreatedRevisionName)')
+          echo "Latest created revision: $latest"
+          gcloud run services update-traffic buyer-dash-api --region us-east1 --update-tags=repair-probe=$latest >/tmp/tag.out
+          cat /tmp/tag.out
+          service_json=$(gcloud run services describe buyer-dash-api --region us-east1 --format=json)
+          probe_url=$(python -c 'import json,sys; d=json.load(sys.stdin); print(next(t["url"] for t in d["status"]["traffic"] if t.get("tag")=="repair-probe"))' <<< "$service_json")
+          echo "Probe URL: $probe_url"
+          health=$(curl --silent --show-error --max-time 20 --output /tmp/probe-health.json --write-out '%{http_code}' "$probe_url/health" || true)
+          ready=$(curl --silent --show-error --max-time 20 --output /tmp/probe-ready.json --write-out '%{http_code}' "$probe_url/health/ready" || true)
+          echo "Probe health=$health ready=$ready"
+          cat /tmp/probe-health.json || true
+          cat /tmp/probe-ready.json || true
+          if [ "$health" != "200" ] || [ "$ready" != "200" ]; then
+            echo "Latest revision is not ready; production traffic unchanged."
+            exit 1
+          fi
+          echo "Latest revision is healthy; promoting to 100% traffic."
+          gcloud run services update-traffic buyer-dash-api --region us-east1 --to-revisions="$latest=100"
+
+      - name: Verify production API after promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            health=$(curl --silent --max-time 20 --output /tmp/health.json --write-out '%{http_code}' https://api.doobielogic.io/health || true)
+            ready=$(curl --silent --max-time 20 --output /tmp/ready.json --write-out '%{http_code}' https://api.doobielogic.io/health/ready || true)
+            echo "Attempt $attempt: health=$health ready=$ready"
+            if [ "$health" = "200" ] && [ "$ready" = "200" ]; then
+              cat /tmp/health.json
+              cat /tmp/ready.json
+              exit 0
+            fi
+            sleep 3
           done
-
-      - name: Read recent Cloud Run errors
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Recent buyer-dash-api logs:"
-          gcloud run services logs read buyer-dash-api \
-            --region us-east1 \
-            --limit 120 \
-            --format='value(timestamp,severity,revision_name,text_payload)'
-
-      - name: Fail if production API is not ready
-        shell: bash
-        run: |
-          set -euo pipefail
-          health=$(curl --silent --max-time 20 --output /dev/null --write-out '%{http_code}' https://api.doobielogic.io/health || true)
-          ready=$(curl --silent --max-time 20 --output /dev/null --write-out '%{http_code}' https://api.doobielogic.io/health/ready || true)
-          test "$health" = "200"
-          test "$ready" = "200"
+          cat /tmp/health.json || true
+          cat /tmp/ready.json || true
+          exit 1
