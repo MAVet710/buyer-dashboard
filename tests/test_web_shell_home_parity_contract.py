@@ -23,6 +23,53 @@ def test_react_operation_roles_match_streamlit_operation_context_contract():
     assert 'const PRODUCTION_ROLES = ["dev", "admin", "planner", "supervisor", "operator", "qa"]' in shell
 
 
+def test_flat_shell_matches_streamlit_category_order_context_search_and_compatibility():
+    streamlit_nav = read("services/workspace_navigation.py")
+    streamlit_shell = read("modules/navigation/workspace_shell.py")
+    shell = read("frontend/src/components/AppShell.tsx")
+
+    categories = ["Home", "Inventory", "Purchasing", "Orders", "Production", "Reports", "Compliance", "Data & Settings"]
+    for category in categories:
+        assert f'"{category}"' in streamlit_nav
+        assert f'label: "{category}"' in shell
+
+    retail_order = ["Home", "Inventory", "Purchasing", "Orders", "Reports", "Compliance", "Data & Settings"]
+    retail_block = shell.split("const RETAIL_PRIMARY", 1)[1].split("const PRODUCTION_PRIMARY", 1)[0]
+    assert [retail_block.index(f'label: "{label}"') for label in retail_order] == sorted(retail_block.index(f'label: "{label}"') for label in retail_order)
+
+    production_order = ["Home", "Inventory", "Production", "Orders", "Compliance", "Data & Settings"]
+    production_block = shell.split("const PRODUCTION_PRIMARY", 1)[1].split("function secondaryItems", 1)[0]
+    assert [production_block.index(f'label: "{label}"') for label in production_order] == sorted(production_block.index(f'label: "{label}"') for label in production_order)
+
+    for contract in (
+        'aria-label="Organization"',
+        'aria-label="Facility"',
+        'aria-label="Operation"',
+        "<GlobalSearch onNavigate={navigate}/>",
+        "Use classic navigation",
+        'className="dl-nav-context"',
+    ):
+        assert contract in shell
+    assert "flat_nav_tool_label" in streamlit_shell
+    assert "buyer_dash_global_search" in streamlit_shell
+
+
+def test_mobile_navigation_preserves_streamlit_category_tool_and_buyer_source_selectors():
+    streamlit = read("modules/navigation/workspace_shell.py")
+    shell = read("frontend/src/components/AppShell.tsx")
+
+    assert 'aria-label="Navigate"' in shell
+    assert 'aria-label="Tool"' in shell
+    assert 'className="mobile-data-mode-select"' in shell
+    assert 'aria-label="Buyer data mode"' in shell
+    assert '<option value="Uploads">📁 Uploads</option>' in shell
+    assert '<option value="Dutchie Live">🔴 Dutchie Live</option>' in shell
+    assert 'operation === "Retail Ops"' in shell
+    assert 'onDataMode(event.target.value === "Dutchie Live" ? "Dutchie Live" : "Uploads")' in shell
+    assert 'modes = ["📁 Uploads", "🔴 Dutchie Live"]' in streamlit
+    assert "mobile_flat_nav_data_mode" in streamlit
+
+
 def test_home_restores_role_aware_streamlit_decision_surface():
     streamlit = read("modules/navigation/role_home.py")
     home = read("frontend/src/pages/HomePage.tsx")
