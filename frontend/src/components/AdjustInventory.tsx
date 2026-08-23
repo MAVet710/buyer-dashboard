@@ -1,25 +1,126 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { apiPost } from "../lib/api";
-import type { InventoryAdjustment, InventoryPackage } from "../types/inventory";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { apiGet, apiPost } from "../lib/api";
+import type { InventoryPackage } from "../types/inventory";
+import { StreamlitDialog } from "./StreamlitDialog";
 
-const reasons = ["Inventory count correction", "Scale variance", "Damage / destruction", "Waste / disposal", "Found inventory", "Entry error", "Other"];
+type AdjustmentType = "incremental" | "set_quantity";
+type ReasonPayload = {
+  reasons: { name: string; requires_note: boolean }[];
+  metrc_ready: boolean;
+  can_bypass: boolean;
+  license_number: string;
+};
+type AdjustmentResult = {
+  transaction_id: string;
+  lot_id: string;
+  previous_quantity: number;
+  delta: number;
+  final_quantity: number;
+  reserved_quantity: number;
+  unit: string;
+  reason: string;
+  metrc_status: string;
+  traceability_transaction_id: string;
+};
 
 export function AdjustInventory({ operation, item, onClose }: { operation: "retail" | "production"; item: InventoryPackage; onClose: () => void }) {
-  const [form, setForm] = useState<InventoryAdjustment>({ lot_id: item.id, adjustment_type: "incremental", quantity: 0, reason: reasons[0], reason_note: "" });
   const client = useQueryClient();
-  const mutation = useMutation({ mutationFn: () => apiPost(`/api/v1/inventory/${operation}/adjustments`, form), onSuccess: async () => { await client.invalidateQueries({ queryKey: ["inventory"] }); onClose(); } });
-  const final = form.adjustment_type === "incremental" ? item.available + form.quantity : form.quantity;
-  return <div className="modal-backdrop"><section className="modal compact" role="dialog" aria-modal="true" aria-label="Adjust inventory">
-    <div className="modal-heading"><div><div className="eyebrow">Inventory control</div><h2>Adjust package</h2><p>{item.product_name} · {item.package_id}</p></div><button className="secondary" onClick={onClose}>Close</button></div>
-    <div className="quantity-summary"><span>Current<strong>{item.available.toLocaleString()} {item.unit}</strong></span><span>Reserved<strong>{item.reserved.toLocaleString()} {item.unit}</strong></span><span>Final<strong>{final.toLocaleString()} {item.unit}</strong></span></div>
-    <div className="form-grid">
-      <label>Adjustment type<select value={form.adjustment_type} onChange={e => setForm({ ...form, adjustment_type: e.target.value as InventoryAdjustment["adjustment_type"], quantity: 0 })}><option value="incremental">Incremental (+ / −)</option><option value="set_quantity">Set quantity</option></select></label>
-      <label>{form.adjustment_type === "incremental" ? "Quantity change" : "New quantity"}<input type="number" step="0.01" value={form.quantity} onChange={e => setForm({ ...form, quantity: Number(e.target.value) })} /></label>
-      <label className="span-2">Reason<select value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })}>{reasons.map(reason => <option key={reason}>{reason}</option>)}</select></label>
-      <label className="span-2">Reason note<input value={form.reason_note} onChange={e => setForm({ ...form, reason_note: e.target.value })} /></label>
-    </div>
-    {mutation.error ? <div className="form-error">{mutation.error.message}</div> : null}
-    <button className="primary submit" disabled={final < item.reserved || final < 0 || mutation.isPending || (form.adjustment_type === "incremental" && form.quantity === 0) || (form.adjustment_type === "set_quantity" && form.quantity === item.available)} onClick={() => mutation.mutate()}>{mutation.isPending ? "Posting adjustment…" : "Post adjustment"}</button>
-  </section></div>;
+  const reasons = useQuery({
+    queryKey: ["inventory-adjustment-reasons", operation],
+    queryFn: ({ signal }) => apiGet<ReasonPayload>(`/api/v1/inventory/${operation}/adjustment-reasons`, signal),
+  });
+  const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>("incremental");
+  const [quantity, setQuantity] = useState(0);
+  const [reason, setReason] = useState("");
+  const [reasonNote, setReasonNote] = useState("");
+  const [syncToMetrc, setSyncToMetrc] = useState(false);
+  const [bypass, setBypass] = useState(false);
+  const [reviewed, setReviewed] = useState(false);
+
+  useEffect(() => {
+    if (!reasons.data) return;
+    if (!reason && reasons.data.reasons[0]) setReason(reasons.data.reasons[0].name);
+    setSyncToMetrc(reasons.data.metrc_ready);
+  }, [reasons.data, reason]);
+
+  const current = Number(item.available || 0);
+  const final = adjustmentType === "incremental" ? current + quantity : quantity;
+  const reasonMeta = reasons.data?.reasons.find(row => row.name === reason);
+  const noteRequired = Boolean(reasonMeta?.requires_note);
+  const invalidFinal = final < 0 || final + 1e-9 < Number(item.reserved || 0);
+  const unchanged = Math.abs(final - current) <= 1e-9;
+  const canSubmit = reviewed && reason.trim() && !invalidFinal && !unchanged && (!noteRequired || reasonNote.trim());
+
+  const mutation = useMutation({
+    mutationFn: () => apiPost<AdjustmentResult>(`/api/v1/inventory/${operation}/adjustments`, {
+      lot_id: item.id,
+      package_id: item.package_id,
+      adjustment_type: adjustmentType,
+      quantity,
+      reason,
+      reason_note: reasonNote,
+      sync_to_metrc: syncToMetrc,
+      bypass_state_system: bypass,
+      reviewed,
+    }),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["inventory"] });
+      await client.invalidateQueries({ queryKey: ["operations-inbox"] });
+      onClose();
+    },
+  });
+
+  return <StreamlitDialog
+    open
+    onClose={onClose}
+    eyebrow="INVENTORY / ADJUST"
+    title="Adjust inventory"
+    subtitle="Every adjustment requires a reason and is recorded in the inventory adjustment journal."
+  >
+    {reasons.isLoading ? <div className="state">Loading facility adjustment reasons…</div> : null}
+    {reasons.isError ? <div className="state error">{reasons.error.message}</div> : null}
+    <label>Package *<select value={item.id} disabled><option value={item.id}>{item.product_name} · {item.package_id}</option></select></label>
+    <section className="quantity-summary">
+      <span>Current quantity<strong>{trimQuantity(current)} {item.unit}</strong></span>
+      <span>Reserved<strong>{trimQuantity(item.reserved)} {item.unit}</strong></span>
+      <span>Final quantity<strong>{trimQuantity(final)} {item.unit}</strong></span>
+    </section>
+
+    <fieldset className="segmented-field">
+      <legend>Adjustment type *</legend>
+      <div className="grain-control" role="group" aria-label="Adjustment type">
+        <button type="button" className={adjustmentType === "incremental" ? "active" : ""} onClick={() => { setAdjustmentType("incremental"); setQuantity(0); setReviewed(false); }}>Incremental</button>
+        <button type="button" className={adjustmentType === "set_quantity" ? "active" : ""} onClick={() => { setAdjustmentType("set_quantity"); setQuantity(current); setReviewed(false); }}>Set Quantity</button>
+      </div>
+    </fieldset>
+
+    <label>{adjustmentType === "incremental" ? "Change (+ / -) *" : "New quantity *"}<input type="number" min={adjustmentType === "set_quantity" ? 0 : undefined} step="0.1" value={quantity} onChange={event => { setQuantity(Number(event.target.value)); setReviewed(false); }}/></label>
+    <p className="source-caption">Final quantity: {trimQuantity(final)} {item.unit}</p>
+
+    <label>Reason *<select value={reason} onChange={event => { setReason(event.target.value); setReviewed(false); }}>{reasons.data?.reasons.map(row => <option value={row.name} key={row.name}>{row.name}</option>)}</select></label>
+    <label>{noteRequired ? "Reason note *" : "Reason note"}<textarea value={reasonNote} onChange={event => { setReasonNote(event.target.value); setReviewed(false); }}/></label>
+
+    <label className="toggle"><input type="checkbox" checked={syncToMetrc} disabled={!reasons.data?.metrc_ready || bypass} onChange={event => { setSyncToMetrc(event.target.checked); if (event.target.checked) setBypass(false); setReviewed(false); }}/>Sync adjustment to Metrc</label>
+    <p className="source-caption">When enabled, DoobieLogic submits the package adjustment to Metrc before posting the local inventory change.</p>
+    <label className="toggle"><input type="checkbox" checked={bypass} disabled={!reasons.data?.can_bypass} onChange={event => { setBypass(event.target.checked); if (event.target.checked) setSyncToMetrc(false); setReviewed(false); }}/>Bypass state system</label>
+    {bypass ? <div className="warning-banner">This changes DoobieLogic only. Use bypass only when the state system has already been handled separately.</div> : null}
+    {reasons.data && !reasons.data.metrc_ready ? <div className="info-banner">No complete Metrc connection is available for this user/facility. This adjustment will be local only.</div> : null}
+    {reasons.data?.metrc_ready && reasons.data.license_number ? <p className="source-caption">Active facility license: {reasons.data.license_number}</p> : null}
+
+    {invalidFinal ? <div className="form-error">Final quantity cannot be negative or below {trimQuantity(item.reserved)} currently reserved.</div> : null}
+    {noteRequired && !reasonNote.trim() ? <div className="form-error">This adjustment reason requires a note.</div> : null}
+    <label className="toggle"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)}/>I reviewed the package, final quantity, and adjustment reason.</label>
+    {mutation.isError ? <div className="form-error">{mutation.error.message}</div> : null}
+    {mutation.data ? <div className="success-banner">Adjusted {item.package_id} by {signed(mutation.data.delta)} {mutation.data.unit} · final {trimQuantity(mutation.data.final_quantity)}. {mutation.data.metrc_status === "synced" ? "Metrc accepted and the local ledger is verified." : ""}</div> : null}
+    <button className="primary submit" type="button" disabled={!canSubmit || mutation.isPending || reasons.isLoading || reasons.isError} onClick={() => mutation.mutate()}>{mutation.isPending ? "Adjusting inventory…" : "Adjust inventory"}</button>
+  </StreamlitDialog>;
+}
+
+function trimQuantity(value: number) {
+  return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
+}
+function signed(value: number) {
+  const number = Number(value || 0);
+  return `${number >= 0 ? "+" : ""}${trimQuantity(number)}`;
 }
