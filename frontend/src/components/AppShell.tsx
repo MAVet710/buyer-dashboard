@@ -235,8 +235,8 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   return <div className="app-shell">
     {navigationOpen ? <button className="navigation-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} /> : null}
     <aside className={navigationOpen ? "sidebar open" : "sidebar"} id="primary-navigation" aria-label="Primary navigation">
-      <div className="brand"><span>BD</span><strong>Buyer Dash</strong></div>
-      <div className="dl-nav-context"><strong>Active</strong><br/>{context.data?.organization?.name ?? "Buyer Dash"} · {selectedFacility?.name ?? "Loading facility…"} · {operation}</div>
+      <div className="brand"><span>DL</span><strong>DoobieLogic</strong></div>
+      <div className="dl-nav-context"><strong>Active</strong><br/>{context.data?.organization?.name ?? "DoobieLogic"} · {selectedFacility?.name ?? "Loading facility…"} · {operation}</div>
       <div className="sidebar-caption">Choose the work, not the architecture.</div>
       {!classicNavigation ? <>
         <nav aria-label="Work areas">{primary.map(row => { const Icon = row.icon; return <button className={row.label === activeCategory ? "nav-item active" : "nav-item"} key={row.label} onClick={() => chooseCategory(row)}><Icon size={18}/><span>{row.label}</span></button>; })}</nav>
@@ -264,7 +264,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
 }
 
 function MobileNavigation({ primary, category, secondary, active, onCategory, onNavigate }: { primary: PrimaryItem[]; category: PrimaryCategory; secondary: SecondaryItem[]; active: string; onCategory: (item: PrimaryItem) => void; onNavigate: (page: string) => void }) {
-  return <section className="mobile-flat-navigation"><div className="eyebrow">Buyer Dash</div><select aria-label="Navigate" value={category} onChange={event => { const row = primary.find(item => item.label === event.target.value); if (row) onCategory(row); }}>{primary.map(row => <option key={row.label} value={row.label}>{row.label}</option>)}</select>{secondary.length ? <select aria-label="Tool" value={secondary.some(row => row.page === active) ? active : secondary[0].page} onChange={event => onNavigate(event.target.value)}>{secondary.map(row => <option key={row.page} value={row.page}>{row.label}</option>)}</select> : null}</section>;
+  return <section className="mobile-flat-navigation"><div className="eyebrow">DoobieLogic</div><select aria-label="Navigate" value={category} onChange={event => { const row = primary.find(item => item.label === event.target.value); if (row) onCategory(row); }}>{primary.map(row => <option key={row.label} value={row.label}>{row.label}</option>)}</select>{secondary.length ? <select aria-label="Tool" value={secondary.some(row => row.page === active) ? active : secondary[0].page} onChange={event => onNavigate(event.target.value)}>{secondary.map(row => <option key={row.page} value={row.page}>{row.label}</option>)}</select> : null}</section>;
 }
 
 function ClassicNavigation({ operation, role, active, onNavigate }: { operation: OperationMode; role: string; active: string; onNavigate: (page: string) => void }) {
