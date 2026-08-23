@@ -53,4 +53,22 @@ def test_white_label_report_payload_is_session_scoped_for_pack_reuse():
     assert 'path === "/api/v1/executive-reports/white-label.pdf"' in api
     assert 'sessionStorage.setItem("white-label-current-report-payload"' in api
     assert 'sessionStorage.getItem("white-label-current-report-payload")' in web
-    assert '{ white_label: whiteLabel }' in web
+    assert "white_label: whiteLabel" in web
+
+
+def test_buyer_executive_report_uses_active_buyer_controls_and_selected_data_mode():
+    buyer = read("frontend/src/pages/BuyerOperationsPage.tsx")
+    web = read("frontend/src/pages/ExecutiveReportsPage.tsx")
+    backend = read("backend/app/routers/executive_reports.py")
+    api = read("frontend/src/lib/api.ts")
+
+    assert 'sessionStorage.setItem("buyer-dash-buyer-controls"' in buyer
+    assert 'sessionStorage.getItem("buyer-dash-buyer-controls")' in web
+    assert "buyer_controls: buyerControls" in web
+    assert '@router.post("/buyer.pdf")' in backend
+    assert "controls = _buyer_controls(payload)" in backend
+    assert 'int(controls["target_doh"])' in backend
+    assert 'float(controls["velocity_adjustment"])' in backend
+    assert 'int(controls["sales_days"])' in backend
+    assert '"doh_threshold": int(controls["target_doh"])' in backend
+    assert '"X-DoobieLogic-Data-Mode": buyerDataMode()' in api
