@@ -6,9 +6,11 @@ import { supabase } from "../lib/supabase";
 
 type Capability = "retail" | "production" | "cultivation" | "commercial";
 type Facility = { id: string; name: string; code: string; license_type?: string; capabilities?: Record<Capability, boolean> };
+type AccessOrganization = { id: string; name: string; slug: string; facilities: Facility[] };
 type AccountContext = { user: { display_name: string; email: string; role: string; must_change_password?: boolean }; organization: { id: string; name: string; slug?: string } | null; facility_id: string; capabilities: Record<Capability, boolean>; facilities: Facility[] };
-type AccessOptions = { organizations: { id: string; name: string; slug: string; facilities: Facility[] }[]; organization_id: string; facility_id: string };
-type NavigationItem = { section: string } | { icon: typeof Gauge; label: string; page: string; capability?: Capability; roles?: readonly string[] };
+type AccessOptions = { organizations: AccessOrganization[]; organization_id: string; facility_id: string };
+type NavigationLink = { icon: typeof Gauge; label: string; page: string; capability?: Capability; roles?: readonly string[] };
+type NavigationItem = { section: string } | NavigationLink;
 
 const DEV = ["dev"] as const;
 const NON_DEV = ["admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] as const;
@@ -63,11 +65,49 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   const selectedFacility = context.data?.facilities.find(row => row.id === context.data?.facility_id);
   const selectedOrganization = access.data?.organizations.find(row => row.id === context.data?.organization?.id);
   const isTrial = context.data?.user.role === "trial";
+
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("buyer-dash-theme", theme); }, [theme]);
   useEffect(() => { if (!navigationOpen) return; const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setNavigationOpen(false); }; window.addEventListener("keydown", closeOnEscape); return () => window.removeEventListener("keydown", closeOnEscape); }, [navigationOpen]);
+
   const navigate = (page: string) => { onNavigate(page); setNavigationOpen(false); };
+  const findCapabilityTarget = (capability: Capability): { organizationId: string; facilityId: string } | null => {
+    if (!context.data || isTrial) return null;
+    if (context.data.capabilities[capability]) return { organizationId: context.data.organization?.id ?? "", facilityId: context.data.facility_id };
+    const organizations = access.data?.organizations ?? [];
+    const currentOrganizationId = context.data.organization?.id ?? "";
+    const currentOrganization = organizations.find(row => row.id === currentOrganizationId);
+    const currentFacility = currentOrganization?.facilities.find(row => Boolean(row.capabilities?.[capability]));
+    if (currentOrganization && currentFacility) return { organizationId: currentOrganization.id, facilityId: currentFacility.id };
+    if (context.data.user.role === "dev") {
+      for (const organization of organizations) {
+        const facility = organization.facilities.find(row => Boolean(row.capabilities?.[capability]));
+        if (facility) return { organizationId: organization.id, facilityId: facility.id };
+      }
+    }
+    return null;
+  };
+  const capabilityAvailable = (capability: Capability): boolean => {
+    if (!context.data) return true;
+    if (context.data.capabilities[capability]) return true;
+    return Boolean(findCapabilityTarget(capability));
+  };
+  const navigateItem = (item: NavigationLink) => {
+    if (item.capability && context.data && !context.data.capabilities[item.capability]) {
+      const target = findCapabilityTarget(item.capability);
+      if (target) {
+        sessionStorage.setItem("buyer-dash-pending-page", item.page);
+        localStorage.setItem("buyer-dash-organization", target.organizationId);
+        localStorage.setItem("buyer-dash-facility", target.facilityId);
+        client.clear();
+        window.location.reload();
+        return;
+      }
+    }
+    navigate(item.page);
+  };
   const switchOrganization = (organizationId: string) => { if (isTrial) return; const organization = access.data?.organizations.find(row => row.id === organizationId); const firstFacility = organization?.facilities[0]; if (!organization || !firstFacility) return; localStorage.setItem("buyer-dash-organization", organization.id); localStorage.setItem("buyer-dash-facility", firstFacility.id); client.clear(); window.location.reload(); };
   const switchFacility = (facilityId: string) => { if (isTrial) return; localStorage.setItem("buyer-dash-organization", context.data?.organization?.id ?? ""); localStorage.setItem("buyer-dash-facility", facilityId); client.clear(); window.location.reload(); };
-  const signOut = async () => { localStorage.removeItem("buyer-dash-organization"); localStorage.removeItem("buyer-dash-facility"); clearTrialSession(); client.clear(); if (isTrial) { window.location.reload(); return; } await supabase?.auth.signOut(); };
-  return <div className="app-shell">{navigationOpen ? <button className="navigation-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} /> : null}<aside className={navigationOpen ? "sidebar open" : "sidebar"} id="primary-navigation" aria-label="Primary navigation"><div className="brand"><span>BD</span><strong>Buyer Dash</strong></div><nav>{navigation.map((item,index) => { if ("section" in item) return <div className="operation-label" key={item.section}>{item.section}</div>; if (item.roles && context.data && !item.roles.includes(context.data.user.role)) return null; if (item.capability && context.data && !context.data.capabilities[item.capability]) return null; const Icon=item.icon; return <button className={item.page===active?"nav-item active":"nav-item"} key={`${item.page}-${index}`} onClick={()=>navigate(item.page)}><Icon size={18}/><span>{item.label}</span></button>; })}</nav></aside><section className="workspace"><header className="topbar"><button className="icon-button" aria-label={navigationOpen?"Close navigation":"Open navigation"} aria-expanded={navigationOpen} aria-controls="primary-navigation" onClick={()=>setNavigationOpen(open=>!open)}><Menu size={19}/></button><div className="context"><strong>{context.data?.organization?.name??"Buyer Dash"}</strong><span>{selectedFacility?.name??"Loading facility…"}</span></div><div className="context-switchers" aria-label="Access Context">{context.data?.user.role==="dev"&&access.data&&access.data.organizations.length>1?<select className="organization-switch" aria-label="Organization" value={context.data.organization?.id??""} onChange={event=>switchOrganization(event.target.value)}>{access.data.organizations.map(row=><option value={row.id} key={row.id}>{row.name}{row.slug==="dev-sandbox"?" · Sandbox":""}</option>)}</select>:null}{!isTrial&&context.data?.facilities.length?<select className="facility-switch" aria-label="Facility" value={context.data.facility_id} onChange={event=>switchFacility(event.target.value)}>{context.data.facilities.map(row=><option value={row.id} key={row.id}>{row.name}</option>)}</select>:null}{selectedOrganization?.slug==="dev-sandbox"?<span className="access-badge">{isTrial?"24-hour Trial":"DEV Sandbox"}</span>:null}</div><button className="icon-button theme-toggle" title={`Switch to ${theme==="dark"?"light":"dark"} theme`} aria-label={`Switch to ${theme==="dark"?"light":"dark"} theme`} onClick={()=>setTheme(current=>current==="dark"?"light":"dark")}>{theme==="dark"?<Sun size={18}/>:<Moon size={18}/>}</button><button className="user-chip" onClick={signOut}>{context.data?.user.display_name||context.data?.user.email||"Developer"} · {context.data?.user.role??"dev"}</button></header><main>{children}</main></section></div>;
+  const signOut = async () => { localStorage.removeItem("buyer-dash-organization"); localStorage.removeItem("buyer-dash-facility"); sessionStorage.removeItem("buyer-dash-pending-page"); clearTrialSession(); client.clear(); if (isTrial) { window.location.reload(); return; } await supabase?.auth.signOut(); };
+
+  return <div className="app-shell">{navigationOpen ? <button className="navigation-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} /> : null}<aside className={navigationOpen ? "sidebar open" : "sidebar"} id="primary-navigation" aria-label="Primary navigation"><div className="brand"><span>BD</span><strong>Buyer Dash</strong></div><nav>{navigation.map((item,index) => { if ("section" in item) return <div className="operation-label" key={item.section}>{item.section}</div>; if (item.roles && context.data && !item.roles.includes(context.data.user.role)) return null; if (item.capability && !capabilityAvailable(item.capability)) return null; const Icon=item.icon; return <button className={item.page===active?"nav-item active":"nav-item"} key={`${item.page}-${index}`} onClick={()=>navigateItem(item)}><Icon size={18}/><span>{item.label}</span></button>; })}</nav></aside><section className="workspace"><header className="topbar"><button className="icon-button" aria-label={navigationOpen?"Close navigation":"Open navigation"} aria-expanded={navigationOpen} aria-controls="primary-navigation" onClick={()=>setNavigationOpen(open=>!open)}><Menu size={19}/></button><div className="context"><strong>{context.data?.organization?.name??"Buyer Dash"}</strong><span>{selectedFacility?.name??"Loading facility…"}</span></div><div className="context-switchers" aria-label="Access Context">{context.data?.user.role==="dev"&&access.data&&access.data.organizations.length>1?<select className="organization-switch" aria-label="Organization" value={context.data.organization?.id??""} onChange={event=>switchOrganization(event.target.value)}>{access.data.organizations.map(row=><option value={row.id} key={row.id}>{row.name}{row.slug==="dev-sandbox"?" · Sandbox":""}</option>)}</select>:null}{!isTrial&&context.data?.facilities.length?<select className="facility-switch" aria-label="Facility" value={context.data.facility_id} onChange={event=>switchFacility(event.target.value)}>{context.data.facilities.map(row=><option value={row.id} key={row.id}>{row.name}</option>)}</select>:null}{selectedOrganization?.slug==="dev-sandbox"?<span className="access-badge">{isTrial?"24-hour Trial":"DEV Sandbox"}</span>:null}</div><button className="icon-button theme-toggle" title={`Switch to ${theme==="dark"?"light":"dark"} theme`} aria-label={`Switch to ${theme==="dark"?"light":"dark"} theme`} onClick={()=>setTheme(current=>current==="dark"?"light":"dark")}>{theme==="dark"?<Sun size={18}/>:<Moon size={18}/>}</button><button className="user-chip" onClick={signOut}>{context.data?.user.display_name||context.data?.user.email||"Developer"} · {context.data?.user.role??"dev"}</button></header><main>{children}</main></section></div>;
 }
