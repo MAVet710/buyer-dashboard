@@ -7,15 +7,17 @@ import { Product360Drawer } from "./Product360Drawer";
 type SearchResult = { kind: string; id: string; title: string; subtitle: string; workspace: string };
 
 const tools: SearchResult[] = [
-  { kind: "tool", id: "inventory", title: "Inventory", subtitle: "Stock health, reorder risk, and aging", workspace: "Inventory" },
-  { kind: "tool", id: "retail-product-master", title: "Retail Product Master", subtitle: "Retail catalog identity, vendors, mappings, aliases, and values", workspace: "Retail Product Master" },
+  { kind: "tool", id: "inventory", title: "Inventory", subtitle: "Stock health, reorder risk, aging, package 360, and audit actions", workspace: "Inventory" },
+  { kind: "tool", id: "retail-product-360", title: "Retail Product 360", subtitle: "Inventory, sales, velocity, purchasing, packages, compliance, audits, and economics", workspace: "Retail Product 360" },
+  { kind: "tool", id: "retail-catalog-admin", title: "Retail Catalog Administration", subtitle: "Retail catalog identity, vendors, mappings, aliases, and values", workspace: "Retail Catalog Admin" },
   { kind: "tool", id: "production-product-master", title: "Production Product Master", subtitle: "Bulk material, WIP, and production catalog identity", workspace: "Production Product Master" },
-  { kind: "tool", id: "inventory-audits", title: "Inventory Audits", subtitle: "Scan, pause, resume, and reconcile counts", workspace: "Inventory Audits" },
+  { kind: "tool", id: "inventory-audits", title: "Inventory Audits", subtitle: "Camera scan, Bluetooth/USB, pause, resume, stop, partial reports, and reconciliation", workspace: "Inventory Audits" },
+  { kind: "tool", id: "buyer-operations", title: "Purchasing / Buyer Command Center", subtitle: "Buyer Dashboard KPIs, forecasts, SKU intelligence, recommendations, and purchasing decisions", workspace: "Buyer Operations" },
   { kind: "tool", id: "buying-recommendations", title: "Buying Recommendations", subtitle: "Buyer Intelligence recommendations and risks", workspace: "Buying Recommendations" },
   { kind: "tool", id: "purchase-orders", title: "Purchase Orders", subtitle: "Build and review purchase orders", workspace: "Purchase Orders" },
   { kind: "tool", id: "buying-budget", title: "Buying Budget", subtitle: "Purchasing budget and committed spend", workspace: "Buying Budget" },
   { kind: "tool", id: "orders", title: "Orders", subtitle: "Customer orders and fulfillment", workspace: "Orders" },
-  { kind: "tool", id: "extraction", title: "Extraction", subtitle: "Extraction runs, yield, QA, and economics", workspace: "Extraction" },
+  { kind: "tool", id: "extraction", title: "Extraction Command Center", subtitle: "Run 360, process tracking, inputs, outputs, QA, COGS, traceability, toll processing, and analytics", workspace: "Extraction" },
   { kind: "tool", id: "compliance-qa", title: "Compliance Q&A", subtitle: "Reviewed compliance source workflow", workspace: "Compliance Q&A" },
   { kind: "tool", id: "metrc", title: "METRC", subtitle: "Traceability connections and reconciliation", workspace: "Integrations" },
   { kind: "tool", id: "name-mapper", title: "Product Name Mapper", subtitle: "Map METRC items to facility nomenclature", workspace: "Product Name Mapper" },
