@@ -26,9 +26,9 @@ def test_production_deploy_is_blocked_until_strict_and_legacy_evidence_are_compl
 def test_api_deploy_preserves_dedicated_runtime_identity():
     workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
 
-    assert "--service-account=buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" in workflow
-    api_deploy = workflow.split("- name: Deploy API to Cloud Run", 1)[1].split("- name: Verify deployed API readiness", 1)[0]
-    assert "--service-account=${{ secrets.GCP_SERVICE_ACCOUNT }}" not in api_deploy
+    api_deploy = workflow.split("- name: Deploy API candidate without traffic", 1)[1].split("- name: Verify candidate identity and promote to 100 percent", 1)[0]
+    assert "buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" in api_deploy
+    assert "${{ secrets.GCP_SERVICE_ACCOUNT }}" not in api_deploy
 
 
 def test_eight_phase_execution_control_exists():
