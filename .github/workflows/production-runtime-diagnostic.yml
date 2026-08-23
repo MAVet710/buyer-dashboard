@@ -1,0 +1,93 @@
+name: Production Runtime Diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/production-runtime-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Inspect Cloud Run and Secret Manager metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Active Google identity:"
+          gcloud auth list --filter=status:ACTIVE --format='value(account)'
+          echo "API service:"
+          gcloud run services describe buyer-dash-api \
+            --region us-east1 \
+            --format='table(status.latestReadyRevisionName,status.url,spec.template.spec.serviceAccountName)'
+          echo "DATABASE_URL secret versions (metadata only):"
+          gcloud secrets versions list buyer-dash-database-url \
+            --limit=3 \
+            --sort-by='~createTime' \
+            --format='table(name,state,createTime)'
+
+      - name: Verify Secret Manager DATABASE_URL against production database
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet 'sqlalchemy>=2,<3' 'psycopg[binary]>=3.1,<4'
+          DATABASE_URL="$(gcloud secrets versions access latest --secret=buyer-dash-database-url)"
+          export DATABASE_URL
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+
+          url = os.environ['DATABASE_URL'].strip()
+          if url.startswith('postgres://'):
+              url = 'postgresql://' + url[len('postgres://'):]
+          engine = create_engine(url, pool_pre_ping=True)
+          with engine.connect() as conn:
+              version = conn.execute(text('select version_num from alembic_version')).scalar_one()
+              legal_policy = conn.execute(text("select to_regclass('public.legal_policy_versions')")).scalar_one()
+              legal_acceptance = conn.execute(text("select to_regclass('public.legal_acceptance_events')")).scalar_one()
+              users = conn.execute(text('select count(*) from public.app_users')).scalar_one()
+              acceptances = conn.execute(text('select count(*) from public.legal_acceptance_events')).scalar_one()
+          print(f'DATABASE_URL connection: OK')
+          print(f'Alembic revision: {version}')
+          print(f'Legal policy table: {legal_policy}')
+          print(f'Legal acceptance table: {legal_acceptance}')
+          print(f'App users: {users}')
+          print(f'Legal acceptance rows: {acceptances}')
+          PY
+
+      - name: Verify public API health and readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for endpoint in health health/ready; do
+            code=$(curl --silent --show-error --max-time 20 \
+              --output "/tmp/${endpoint//\//_}.json" \
+              --write-out '%{http_code}' \
+              "https://api.doobielogic.io/${endpoint}" || true)
+            echo "GET /${endpoint} -> ${code}"
+            cat "/tmp/${endpoint//\//_}.json" 2>/dev/null || true
+            echo
+          done
+
+      - name: Fail if production API is not ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          health=$(curl --silent --max-time 20 --output /dev/null --write-out '%{http_code}' https://api.doobielogic.io/health || true)
+          ready=$(curl --silent --max-time 20 --output /dev/null --write-out '%{http_code}' https://api.doobielogic.io/health/ready || true)
+          test "$health" = "200"
+          test "$ready" = "200"
