@@ -66,7 +66,7 @@ def test_inventory_audit_routes_use_durable_scoped_repository_and_reports():
     router = (ROOT / "backend" / "app" / "routers" / "audits.py").read_text(encoding="utf-8")
     service = (ROOT / "backend" / "app" / "services" / "audits.py").read_text(encoding="utf-8")
     for contract in [
-        "require_operation_capability",
+        "require_inventory_operation_capability",
         '"buyer"',
         '"trial"',
         '@router.post("/{audit_id}/scan/preview"',
