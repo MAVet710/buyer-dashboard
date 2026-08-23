@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     CheckConstraint,
@@ -66,6 +66,60 @@ class ExtractionRun(TimestampMixin, Base):
     license_number: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     operator: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    run_date: Mapped[date | None] = mapped_column(nullable=True)
+    jurisdiction: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    facility_license_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    client_name_snapshot: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    manual_batch_id_internal: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    input_material_type: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    manual_input_weight_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    intermediate_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    manual_finished_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    residual_loss_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    machine_line: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    metrc_package_id_input: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    metrc_package_id_output: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    metrc_manifest_or_transfer_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    manual_coa_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    manual_qa_hold: Mapped[bool] = mapped_column(nullable=False, default=False)
+    processing_fee_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    estimated_revenue_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    manual_cogs_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    # Extraction workflow enhancement fields (steps 1-8). All defaults are
+    # deliberately backward-compatible for existing runs and uploaded rows.
+    intermediate_product_type: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    final_product_type: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    formulation_used: Mapped[bool] = mapped_column(nullable=False, default=False)
+    formulation_base_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    terpene_handling_mode: Mapped[str] = mapped_column(
+        String(160), nullable=False, default="Native / No Add-Back"
+    )
+    terpene_type: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    terpene_source: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    terpene_percentage: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    terpene_weight_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    final_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    metrc_input_package_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    metrc_intermediate_package_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    metrc_distillate_package_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    metrc_formulation_package_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    metrc_final_package_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    extraction_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    purge_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    crystallization_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    sauce_fraction_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    diamond_fraction_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    crude_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    winterized_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    filtered_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    decarbed_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    distillate_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    wash_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    dried_hash_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    sift_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    rosin_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -146,6 +200,9 @@ class ExtractionStageEvent(Base):
     output_weight_g: Mapped[float | None] = mapped_column(Float, nullable=True)
     loss_weight_g: Mapped[float | None] = mapped_column(Float, nullable=True)
     loss_reason: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    stage_output_field: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    metrc_stage_input_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    metrc_stage_output_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     operator: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     machine_id: Mapped[str | None] = mapped_column(
         ForeignKey("coman_facility_machines.id", ondelete="SET NULL"), nullable=True
@@ -310,4 +367,12 @@ class ExtractionTollJob(TimestampMixin, Base):
     payment_status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
     external_reference: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    jurisdiction: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    client_license_snapshot: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    material_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    input_weight_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    expected_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    actual_output_g: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    coa_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    job_status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     created_by: Mapped[str] = mapped_column(String(255), nullable=False)

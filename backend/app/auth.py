@@ -28,6 +28,7 @@ class RequestContext:
     organization_id: str
     facility_id: str
     role: str = "user"
+    data_mode: str = "Uploads"
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -70,9 +71,11 @@ def get_request_context(
     facility_id: str = Header(default="", alias="X-Facility-Id"),
     development_user: str = Header(default="", alias="X-User-Id"),
     development_role: str = Header(default="", alias="X-User-Role"),
+    data_mode: str = Header(default="Uploads", alias="X-DoobieLogic-Data-Mode"),
     trial_token: str = Header(default="", alias="X-Trial-Token"),
     engine: Engine | None = Depends(get_authorization_engine),
 ) -> RequestContext:
+    normalized_data_mode = "Dutchie Live" if "dutchie" in str(data_mode or "").casefold() else "Uploads"
     # Streamlit supported a 24-hour trial key. The web stack preserves that
     # experience with a signed, non-persistent token restricted to DEV Sandbox.
     if trial_token and not credentials:
@@ -88,7 +91,7 @@ def get_request_context(
             facility = session.get(Facility, trial_facility)
             if not facility or not facility.active or facility.organization_id != trial_org:
                 raise HTTPException(status_code=403, detail="Trial workspace is unavailable.")
-        return RequestContext(str(payload.get("sub")), trial_org, trial_facility, "trial")
+        return RequestContext(str(payload.get("sub")), trial_org, trial_facility, "trial", normalized_data_mode)
 
     claims: dict = {}
     if credentials:
@@ -142,23 +145,56 @@ def get_request_context(
                         raise HTTPException(status_code=403, detail="This account is not assigned to the selected facility.")
                     role = assignment.role
             user_id = user.id
-    return RequestContext(user_id, organization_id, facility_id, role)
+    return RequestContext(user_id, organization_id, facility_id, role, normalized_data_mode)
+
+
+_CAPABILITY_FIELDS = {
+    "retail": "retail_enabled",
+    "production": "production_enabled",
+    "cultivation": "cultivation_enabled",
+    "commercial": "commercial_enabled",
+}
+
+
+def require_any_facility_capability(context: RequestContext, engine: Engine, capabilities: tuple[str, ...]) -> None:
+    """Require at least one legal operating capability for the active facility.
+
+    Shared Production Ops inventory is intentionally available to either a
+    manufacturing/production license or a cultivation license. Manufacturing-
+    specific endpoints continue to call ``require_facility_capability(...,
+    "production")`` directly and therefore remain manufacturing-only.
+    """
+    if not capabilities:
+        raise RuntimeError("At least one facility capability is required.")
+    unknown = [capability for capability in capabilities if capability not in _CAPABILITY_FIELDS]
+    if unknown:
+        raise RuntimeError(f"Unknown facility capability: {unknown[0]}")
+    with Session(engine) as session:
+        facility = session.get(Facility, context.facility_id)
+        enabled = bool(
+            facility
+            and facility.organization_id == context.organization_id
+            and any(bool(getattr(facility, _CAPABILITY_FIELDS[capability])) for capability in capabilities)
+        )
+    if not enabled:
+        readable = " or ".join(capabilities)
+        raise HTTPException(status_code=403, detail=f"The selected facility does not enable {readable} operations.")
 
 
 def require_facility_capability(context: RequestContext, engine: Engine, capability: str) -> None:
-    fields = {
-        "retail": "retail_enabled",
-        "production": "production_enabled",
-        "cultivation": "cultivation_enabled",
-        "commercial": "commercial_enabled",
-    }
-    field = fields.get(capability)
-    if field is None:
-        raise RuntimeError(f"Unknown facility capability: {capability}")
-    with Session(engine) as session:
-        facility = session.get(Facility, context.facility_id)
-        if not facility or facility.organization_id != context.organization_id or not bool(getattr(facility, field)):
-            raise HTTPException(status_code=403, detail=f"The selected facility does not enable {capability} operations.")
+    require_any_facility_capability(context, engine, (capability,))
+
+
+def require_inventory_operation_capability(context: RequestContext, engine: Engine, operation: str) -> None:
+    """Authorize shared retail vs production/cultivation inventory surfaces."""
+    normalized = str(operation or "").strip().casefold()
+    if normalized == "retail":
+        require_facility_capability(context, engine, "retail")
+        return
+    if normalized == "production":
+        require_any_facility_capability(context, engine, ("production", "cultivation"))
+        return
+    raise RuntimeError(f"Unknown inventory operation: {operation}")
 
 
 def get_retail_context(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_database_engine)) -> RequestContext:
@@ -167,6 +203,8 @@ def get_retail_context(context: RequestContext = Depends(get_request_context), e
 
 
 def get_production_context(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_database_engine)) -> RequestContext:
+    # Deliberately manufacturing-only. Extraction/Co-Man production should not
+    # become available merely because a facility holds a cultivation license.
     require_facility_capability(context, engine, "production")
     return context
 

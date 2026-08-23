@@ -16,6 +16,7 @@ from modules.coman.models import (
     MaterialReservation,
     Organization,
     Product,
+    RetailSale,
     ProductionOrder,
     TradePartner,
     CommercialOrder,
@@ -27,6 +28,7 @@ from modules.coman.models import (
 from backend.app.config import Settings, get_settings
 from backend.app.auth import get_authorization_engine
 from modules.integrations.models import IntegrationConfiguration
+from modules.product_master.models import ProductMasterProfile
 
 
 def _engine():
@@ -126,6 +128,86 @@ def test_retail_and_production_read_the_same_durable_package_ledger():
         assert payload["summary"]["reserved_quantity"] == 15
         assert payload["items"][0]["usable"] == 85
         assert payload["items"][0]["package_id"] == "1A406000000001"
+
+
+def test_inventory_api_matches_streamlit_builtin_views_and_source_facets():
+    engine = _engine()
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        lot = session.get(InventoryLot, "lot-1")
+        lot.received_at = now - timedelta(days=70)
+        lot.expiration_at = now + timedelta(days=60)
+        lot.notes = json.dumps({"source_name": "Atlantic Cultivation"})
+        session.add(ProductMasterProfile(
+            product_id="product-1",
+            organization_id="org-1",
+            category="Bulk Flower",
+            product_format="Flower",
+        ))
+        session.add(RetailSale(
+            organization_id="org-1",
+            facility_id="facility-1",
+            product_id="product-1",
+            source_system="dutchie",
+            source_record_id="view-test-sale",
+            import_batch_id="view-test",
+            sku="BD-BULK",
+            product_name="Blue Dream Bulk Flower",
+            quantity=300,
+            net_sales=3000,
+            sold_at=now,
+            imported_by="tester",
+        ))
+        session.commit()
+    app.dependency_overrides[get_engine] = lambda: engine
+    client = TestClient(app)
+    headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1"}
+    try:
+        all_inventory = client.get("/api/v1/inventory/retail/packages", headers=headers)
+        source = client.get("/api/v1/inventory/retail/packages?source=Atlantic%20Cultivation", headers=headers)
+        under_14 = client.get("/api/v1/inventory/retail/packages?view=under-14-doh", headers=headers)
+        expiring = client.get("/api/v1/inventory/retail/packages?view=expiring-90-days", headers=headers)
+        flower = client.get("/api/v1/inventory/production/packages?view=bulk-flower", headers=headers)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert all_inventory.status_code == 200
+    assert all_inventory.json()["facets"]["sources"] == ["Atlantic Cultivation"]
+    assert all_inventory.json()["facets"]["material_types"] == ["Bulk Flower"]
+    item = all_inventory.json()["items"][0]
+    assert item["source_name"] == "Atlantic Cultivation"
+    assert 69 <= item["age_days"] <= 71
+    assert 59 <= item["days_to_expiry"] <= 61
+    assert source.json()["summary"]["package_count"] == 1
+    assert under_14.json()["summary"]["package_count"] == 1
+    assert expiring.json()["summary"]["package_count"] == 1
+    assert flower.json()["summary"]["package_count"] == 1
+
+
+def test_retail_and_production_inventory_respect_product_operation_scope():
+    engine = _engine()
+    with Session(engine) as session:
+        session.add(ProductMasterProfile(
+            product_id="product-1",
+            organization_id="org-1",
+            category="Bulk Flower",
+            retail_enabled=False,
+            production_enabled=True,
+        ))
+        session.commit()
+    app.dependency_overrides[get_engine] = lambda: engine
+    client = TestClient(app)
+    headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1"}
+    try:
+        retail = client.get("/api/v1/inventory/retail/packages", headers=headers)
+        production = client.get("/api/v1/inventory/production/packages", headers=headers)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert retail.status_code == 200
+    assert retail.json()["items"] == []
+    assert production.status_code == 200
+    assert [row["package_id"] for row in production.json()["items"]] == ["1A406000000001"]
 
 
 def test_facility_capabilities_are_exposed_and_enforced_by_inventory_routes():
@@ -318,22 +400,71 @@ def test_react_audit_api_preserves_resumable_lifecycle_and_completion():
             "audit_number": "RTL-001", "scope_label": "Retail vault", "blind_count": True,
             "recount_tolerance": 10, "lot_ids": ["lot-1"],
         })
+        duplicate = client.post("/api/v1/inventory/retail/audits", headers=headers, json={
+            "audit_number": "RTL-001", "scope_label": "Retail vault", "blind_count": True,
+            "recount_tolerance": 10, "lot_ids": ["lot-1"],
+        })
         audit_id = created.json()["id"]
         initial = client.get(f"/api/v1/inventory/retail/audits/{audit_id}", headers=headers)
-        line_id = initial.json()["lines"][0]["id"]
-        counted = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/counts", headers=headers, json={"counts": [{"line_id": line_id, "counted_quantity": 95, "reason": "Physical count"}]})
+        preview = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/scan/preview", headers=headers, json={"raw_code": "1A406000000001", "recount": False})
+        counted = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/scan/count", headers=headers, json={"raw_code": "1A406000000001", "quantity": 95, "reason": "Physical count", "recount": False})
         paused = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/status", headers=headers, json={"status": "paused"})
         resumed = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/status", headers=headers, json={"status": "in_progress"})
         completed = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/complete", headers=headers, json={"post_adjustments": False})
+        csv_report = client.get(f"/api/v1/inventory/retail/audits/{audit_id}/report.csv", headers=headers)
+        excel_report = client.get(f"/api/v1/inventory/retail/audits/{audit_id}/report.xlsx", headers=headers)
+        wrong_operation = client.get(f"/api/v1/inventory/production/audits/{audit_id}", headers=headers)
+        isolated = client.get(f"/api/v1/inventory/retail/audits/{audit_id}", headers={**headers, "X-Facility-Id": "other-facility"})
     finally:
         app.dependency_overrides.clear()
     assert created.status_code == 201
+    assert duplicate.status_code == 422
+    assert "already exists" in duplicate.json()["detail"]
+    assert created.json()["status"] == "in_progress"
     assert initial.json()["lines"][0]["expected_quantity"] is None
+    assert preview.json()["lot_code"] == "LOT-100"
+    assert preview.json()["primary_code"] == "1A406000000001"
     assert counted.json()["lines"][0]["variance_quantity"] == -5
     assert counted.json()["lines"][0]["recount_required"] is False
+    assert counted.json()["scans"][0]["match_status"] == "matched"
     assert paused.json()["status"] == "paused"
     assert resumed.json()["status"] == "in_progress"
     assert completed.json()["status"] == "completed"
+    assert b"Product Name" in csv_report.content
+    assert excel_report.content.startswith(b"PK")
+    assert wrong_operation.status_code == 404
+    assert isolated.status_code == 403
+
+
+def test_retail_audit_snapshot_preview_mapping_and_import_are_durable():
+    engine = _engine()
+    app.dependency_overrides[get_engine] = lambda: engine
+    client = TestClient(app)
+    headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1", "X-User-Id": "buyer@example.com", "X-User-Role": "buyer"}
+    try:
+        preview = client.post(
+            "/api/v1/inventory/retail/audits/retail-snapshot/preview",
+            headers=headers,
+            files={"file": ("dutchie-inventory.csv", b"Product Name,Quantity,SKU,Lot,Location,Unit\nSour Diesel,12,SD-1,LOT-SD-1,Sales Floor,unit\n", "text/csv")},
+        )
+        imported = client.post(
+            "/api/v1/inventory/retail/audits/retail-snapshot/import",
+            headers=headers,
+            json={
+                "reference": preview.json()["reference"],
+                "rows": preview.json()["rows"],
+                "mapping": {"product_name": "Product Name", "quantity": "Quantity", "sku": "SKU", "lot_code": "Lot", "location_code": "Location", "unit": "Unit"},
+            },
+        )
+        inventory = client.get("/api/v1/inventory/retail/packages?search=Sour%20Diesel", headers=headers)
+    finally:
+        app.dependency_overrides.clear()
+    assert preview.status_code == 200
+    assert preview.json()["columns"] == ["Product Name", "Quantity", "SKU", "Lot", "Location", "Unit"]
+    assert imported.status_code == 200
+    assert imported.json()["rows"] == 1
+    assert len(imported.json()["lot_ids"]) == 1
+    assert inventory.json()["items"][0]["available"] == 12
 
 
 def test_production_plants_have_durable_lifecycle_and_facility_isolation():
@@ -406,28 +537,42 @@ def test_commercial_orders_are_tenant_safe_and_actionable():
     headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1", "X-User-Id": "seller@example.com", "X-User-Role": "admin"}
     try:
         listing = client.get("/api/v1/commercial/orders", headers=headers)
+        workspace = client.get("/api/v1/commercial/workspace", headers=headers)
         detail = client.get("/api/v1/commercial/orders/sales-1", headers=headers)
         confirmed = client.post("/api/v1/commercial/orders/sales-1/actions/confirm", headers=headers, json={})
+        payment_status = client.post("/api/v1/commercial/orders/sales-1/payment", headers=headers, json={"payment_status": "sent"})
         invoiced = client.post("/api/v1/commercial/orders/sales-1/invoices", headers=headers, json={"invoice_number": "INV-100", "due_days": 30})
         invoice_id = invoiced.json()["id"]
         sent = client.post(f"/api/v1/commercial/invoices/{invoice_id}/send", headers=headers, json={})
         paid = client.post(f"/api/v1/commercial/invoices/{invoice_id}/payments", headers=headers, json={"amount_usd": 40, "method": "ach", "reference": "ACH-1"})
         shipped = client.post("/api/v1/commercial/orders/sales-1/shipments", headers=headers, json={"shipment_number": "SHIP-100", "manifest_reference": "MAN-100"})
+        customer_price = client.post("/api/v1/commercial/customer-prices", headers=headers, json={"partner_id": "partner-1", "product_id": "product-1", "price_usd": 18.5, "discount_pct": 0})
         ar = client.get("/api/v1/commercial/ar", headers=headers)
         isolated = client.get("/api/v1/commercial/orders/sales-1", headers={**headers, "X-Facility-Id": "other-facility"})
+        isolated_workspace = client.get("/api/v1/commercial/workspace", headers={**headers, "X-Facility-Id": "other-facility"})
     finally:
         app.dependency_overrides.clear()
     assert listing.status_code == 200
     assert listing.json()[0]["partner_name"] == "Retail Customer"
     assert listing.json()[0]["order_total"] == 100
+    assert workspace.status_code == 200
+    assert workspace.json()["facility_name"] == "Boston Production"
+    assert workspace.json()["metrics"]["open_sales_value"] == 100
+    assert workspace.json()["orders"][0]["requested_quantity"] == 5
+    assert workspace.json()["products"][0]["sku"] == "BD-BULK"
     assert detail.json()["lines"][0]["sku_snapshot"] == "BD-BULK"
+    assert detail.json()["lines"][0]["position"] == 1
     assert confirmed.json()["status"] == "confirmed"
+    assert payment_status.json()["payment_status"] == "sent"
     assert invoiced.json()["total_usd"] == 100
     assert sent.json()["status"] == "sent"
     assert paid.json()["amount_usd"] == 40
     assert shipped.json()["status"] == "planned"
+    assert customer_price.status_code == 201
+    assert customer_price.json()["price_usd"] == 18.5
     assert ar.json()["total_ar"] == 60
     assert isolated.status_code == 403
+    assert isolated_workspace.status_code == 403
 
 
 def test_production_auth_uses_database_facility_role_not_spoofable_headers(monkeypatch):
@@ -537,22 +682,50 @@ def test_extraction_run_preserves_reservations_mass_balance_cogs_and_qa_gate():
         reserved = client.post(f"/api/v1/extraction/runs/{run_id}/inputs", headers=headers, json={"lot_id": "lot-1", "quantity": 20, "unit": "g"})
         input_id = reserved.json()["id"]
         consumed = client.post(f"/api/v1/extraction/inputs/{input_id}/consume", headers=headers, json={"quantity": 20})
+        notes = client.post(f"/api/v1/extraction/runs/{run_id}/notes", headers=headers, json={"notes": "Run 360 operator note"})
         stage = client.post(f"/api/v1/extraction/runs/{run_id}/events", headers=headers, json={"stage_key": "intake", "event_type": "completed", "loss_weight_g": 2, "loss_reason": "Intake loss"})
         output = client.post(f"/api/v1/extraction/runs/{run_id}/outputs", headers=headers, json={"product_id": "product-1", "lot_code": "EXT-OUTPUT-1", "quantity": 8, "unit": "g"})
         output_id = output.json()["id"]
+        cost = client.post(f"/api/v1/extraction/runs/{run_id}/costs", headers=headers, json={"category": "labor", "amount_usd": 24, "notes": "Run labor"})
         coa = client.post(f"/api/v1/extraction/runs/{run_id}/qa", headers=headers, json={"event_type": "coa_attached", "result": "passed", "output_id": output_id, "coa_reference": "COA-1"})
         release = client.post(f"/api/v1/extraction/runs/{run_id}/qa", headers=headers, json={"event_type": "release", "result": "passed"})
+        products = client.get("/api/v1/extraction/products", headers=headers)
+        overview = client.get("/api/v1/extraction-parity/overview", headers=headers)
+        manual = client.post("/api/v1/extraction-parity/runs", headers=headers, json={"run_date": "2026-08-22", "state": "MA", "license_name": "Boston Production", "client_name": "In House", "batch_id_internal": "ROSIN-MANUAL-1", "method": "Rosin", "product_type": "Fresh Press", "input_material_type": "Hash", "input_weight_g": 100, "intermediate_output_g": 80, "finished_output_g": 72, "residual_loss_g": 8, "operator": "Operator A", "machine_line": "Press 1", "metrc_package_id_input": "INPUT-1", "metrc_package_id_output": "OUTPUT-1", "metrc_manifest_or_transfer_id": "TRANSFER-1", "coa_status": "Passed", "qa_hold": False, "toll_processing": False, "processing_fee_usd": 0, "est_revenue_usd": 1800, "cogs_usd": 400, "notes": "Legacy run analytics entry"})
+        blank_batch = client.post("/api/v1/extraction-parity/runs", headers=headers, json={"batch_id_internal": "", "method": "BHO"})
+        toll_job = client.post("/api/v1/extraction-parity/toll-jobs", headers=headers, json={"client_name": "Toll Client", "state": "MA", "license_or_registration": "LIC-TOLL", "method": "BHO", "batch_id_internal": "TOLL-DURABLE-1", "metrc_transfer_id": "TR-TOLL", "material_received_at": "2026-08-20T00:00:00", "promised_completion_at": "2026-08-30T00:00:00", "input_weight_g": 500, "expected_output_g": 80, "actual_output_g": 75, "processing_fee_usd": 1200, "invoice_status": "sent", "payment_status": "partial", "coa_status": "passed", "job_status": "processing", "notes": "Durable toll entry"})
+        updated_overview = client.get("/api/v1/extraction-parity/overview", headers=headers)
         detail = client.get(f"/api/v1/extraction/runs/{run_id}", headers=headers)
         isolated = client.get(f"/api/v1/extraction/runs/{run_id}", headers={**headers, "X-Facility-Id": "other-facility"})
     finally: app.dependency_overrides.clear()
     assert created.status_code == 201
     assert consumed.json()["status"] == "consumed"
+    assert notes.json()["notes"] == "Run 360 operator note"
     assert stage.status_code == 201
     assert output.json()["status"] == "quarantine"
+    assert output.json()["position"] == 1
+    assert cost.json()["amount_usd"] == 24
     assert coa.json()["result"] == "passed"
     assert release.json()["result"] == "passed"
+    assert products.json()[0]["id"] == "product-1"
+    assert overview.json()["summary"]["total_revenue_usd"] == 0
+    assert manual.status_code == 201
+    assert blank_batch.status_code == 201 and blank_batch.json()["batch_id_internal"] == ""
+    assert toll_job.status_code == 201
+    manual_row = next(row for row in updated_overview.json()["runs"] if row["batch_id_internal"] == "ROSIN-MANUAL-1")
+    toll_row = next(row for row in updated_overview.json()["runs"] if row["batch_id_internal"] == "TOLL-DURABLE-1")
+    assert manual_row["state"] == "MA" and manual_row["finished_output_g"] == 72
+    assert manual_row["est_revenue_usd"] == 1800 and manual_row["cogs_usd"] == 400
+    assert manual_row["post_process_efficiency_pct"] == 90
+    assert manual_row["status"] == "Complete" and manual_row["coa_status"] == "Passed"
+    assert manual_row["notes"] == "Legacy run analytics entry"
+    assert toll_row["toll_job"]["client_license_snapshot"] == "LIC-TOLL"
+    assert toll_row["toll_job"]["input_weight_g"] == 500
     assert detail.json()["run"]["status"] == "complete"
+    assert detail.json()["run"]["notes"] == "Run 360 operator note"
+    assert detail.json()["workflow"]["key"] == "bho_cured"
     assert detail.json()["outputs"][0]["status"] == "released"
+    assert any(row["category"] == "labor" and row["amount_usd"] == 24 for row in detail.json()["cost_events"])
     assert detail.json()["mass_balance"]["consumed_input"] == 20
     assert detail.json()["mass_balance"]["recorded_output"] == 8
     assert isolated.status_code == 403
@@ -592,16 +765,20 @@ def test_purchase_order_receipt_atomically_creates_inventory_and_fulfills_line()
         order_id = order.json()["id"]
         confirmed = client.post(f"/api/v1/commercial/orders/{order_id}/actions/confirm", headers=headers, json={})
         line_id = client.get(f"/api/v1/commercial/orders/{order_id}", headers=headers).json()["lines"][0]["id"]
-        receipt = client.post(f"/api/v1/commercial/order-lines/{line_id}/receive", headers=headers, json={"lot_code": "PO-LOT-1", "package_id": "1A-PO-1", "quantity": 25, "location_code": "Retail Vault"})
+        lot = client.post("/api/v1/commercial/inventory-lots", headers=headers, json={"product_id": "product-1", "lot_code": "PO-LOT-1", "location": "Retail Vault", "unit": "g"})
+        receipt = client.post(f"/api/v1/commercial/order-lines/{line_id}/fulfill", headers=headers, json={"lot_id": lot.json()["id"], "quantity": 25, "reference": "PO-WEB-1"})
         detail = client.get(f"/api/v1/commercial/orders/{order_id}", headers=headers)
+        workspace = client.get("/api/v1/commercial/workspace", headers=headers)
         inventory = client.get("/api/v1/inventory/retail/packages", headers=headers)
     finally: app.dependency_overrides.clear()
     assert vendor.status_code == 201 and order.status_code == 201 and confirmed.status_code == 200
-    assert receipt.status_code == 201
+    assert lot.status_code == 201 and receipt.status_code == 201
     assert receipt.json()["quantity_delta"] == 25
     assert detail.json()["order"]["status"] == "fulfilled"
     assert detail.json()["lines"][0]["fulfilled_quantity"] == 25
-    received = next(row for row in inventory.json()["items"] if row["package_id"] == "1A-PO-1")
+    assert workspace.json()["transactions"][0]["order"] == "PO-WEB-1"
+    assert workspace.json()["transactions"][0]["type"] == "Receipt"
+    received = next(row for row in inventory.json()["items"] if row["lot_code"] == "PO-LOT-1")
     assert received["available"] == 25
 
 

@@ -12,8 +12,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip }
-      - name: Verify Streamlit product parity contract
-        run: python scripts/verify_streamlit_parity.py
+      - name: Verify strict Streamlit product parity contract
+        run: python scripts/verify_streamlit_parity.py --mode contract
       - run: pip install -r requirements.txt -r backend/requirements.txt pytest httpx
       - run: python -m pytest -q
   frontend:
@@ -29,6 +29,36 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+      - name: Install browser parity runner
+        run: pnpm add --save-dev @playwright/test@1.55.0 --lockfile=false
+      - name: Install Chromium for browser parity
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run real-browser responsive parity matrix
+        run: |
+          pnpm exec vite --host 127.0.0.1 --port 4173 > /tmp/doobielogic-vite.log 2>&1 &
+          VITE_PID=$!
+          trap 'kill $VITE_PID' EXIT
+          READY=0
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            cat /tmp/doobielogic-vite.log
+            exit 1
+          fi
+          pnpm exec playwright test --config=playwright.config.ts e2e/parity-browser.spec.ts
+      - name: Upload browser parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-parity-evidence
+          path: frontend/test-results/browser-parity
+          if-no-files-found: warn
+          retention-days: 14
   containers:
     runs-on: ubuntu-latest
     steps:

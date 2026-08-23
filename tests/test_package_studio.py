@@ -2,8 +2,10 @@ import math
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from modules.coman.models import (
     AuditEvent,
@@ -23,13 +25,22 @@ from modules.package_studio.service import (
     PackageStudioService,
 )
 from modules.package_studio.ui import ACTION_LABELS
+from backend.app.auth import get_authorization_engine
+from backend.app.database import get_engine
+from backend.app.main import app
+from backend.app.routers.package_studio import COMMIT_ROLES
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _fixture():
-    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
     Base.metadata.create_all(engine)
     with Session(engine) as session:
         org = Organization(name="Studio Test", slug="studio-test", active=True)
@@ -272,6 +283,25 @@ def test_package_studio_uses_buyer_dash_nomenclature_not_distru_labels():
     assert "split package" not in public_labels
     assert any(action.intent == "package_studio" for action in actions_for_role("buyer"))
     assert not any(action.intent == "package_studio" for action in actions_for_role("read_only"))
+    assert COMMIT_ROLES == {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa"}
+
+
+def test_react_package_studio_keeps_the_streamlit_tabs_controls_and_drawer_prefill():
+    page = (ROOT / "frontend" / "src" / "pages" / "PackageStudioPage.tsx").read_text(encoding="utf-8")
+    inventory = (ROOT / "frontend" / "src" / "pages" / "InventoryPage.tsx").read_text(encoding="utf-8")
+    for label in [
+        "PACKAGE STUDIO", "Package transformation", "New Run", "Source Trail", "Recent Runs",
+        "Package action", "Source package", "Available", "Source", "Product", "Location",
+        "Number of outputs", "Recorded loss / waste", "Reason / work note", "Outputs",
+        "Output product", "Lot / package code", "METRC package tag", "Finished quantity",
+        "Finished unit", "Source used", "Sample type", "Output purpose", "Mass balance preview",
+        "I reviewed the source, outputs, and mass balance.", "Parent source", "Downstream use",
+    ]:
+        assert label in page
+    for label in ACTION_LABELS:
+        assert f'["{label}"' in page
+    assert "Preview balance" not in page
+    assert "initialLotId={first?.id}" in inventory
 
 
 def test_migration_0017_tracks_package_studio_lineage():
@@ -280,3 +310,53 @@ def test_migration_0017_tracks_package_studio_lineage():
     assert "package_studio_inputs" in migration
     assert "package_studio_outputs" in migration
     assert "0017_package_studio" in migration
+
+
+def test_web_package_studio_restores_workspace_preview_commit_and_source_trail():
+    engine, org_id, facility_id, _source_product_id, finished_product_id, source_lot_id = _fixture()
+    app.dependency_overrides[get_engine] = lambda: engine
+    app.dependency_overrides[get_authorization_engine] = lambda: engine
+    client = TestClient(app)
+    buyer = {"X-Organization-Id": org_id, "X-Facility-Id": facility_id, "X-User-Id": "buyer-user", "X-User-Role": "buyer"}
+    read_only = {**buyer, "X-User-Id": "read-user", "X-User-Role": "read_only"}
+    plan = {
+        "action_type": "pack_down",
+        "inputs": [{"lot_id": source_lot_id, "quantity": 350, "unit": "g", "purpose": "source"}],
+        "outputs": [{
+            "product_id": finished_product_id,
+            "lot_code": "WEB-PACK-1",
+            "inventory_quantity": 100,
+            "inventory_unit": "unit",
+            "source_equivalent_quantity": 350,
+            "source_equivalent_unit": "g",
+            "compliance_package_id": "1A406WEBPACK",
+            "purpose": "standard",
+        }],
+        "loss_quantity": 0,
+        "source_unit": "g",
+        "reason": "Web Package Studio parity",
+    }
+    try:
+        workspace_response = client.get("/api/v1/package-studio/workspace", headers=buyer)
+        assert workspace_response.status_code == 200, workspace_response.text
+        assert workspace_response.json()["can_commit"] is True
+        assert workspace_response.json()["lots"][0]["lot_id"] == source_lot_id
+
+        read_workspace = client.get("/api/v1/package-studio/workspace", headers=read_only)
+        assert read_workspace.status_code == 200
+        assert read_workspace.json()["can_commit"] is False
+        assert client.post("/api/v1/package-studio/commit", headers=read_only, json=plan).status_code == 403
+
+        preview_response = client.post("/api/v1/package-studio/preview", headers=buyer, json=plan)
+        assert preview_response.status_code == 200, preview_response.text
+        assert preview_response.json()["balanced"] is True
+
+        commit_response = client.post("/api/v1/package-studio/commit", headers=buyer, json=plan)
+        assert commit_response.status_code == 201, commit_response.text
+        output_lot_id = commit_response.json()["output_lot_ids"][0]
+        trail_response = client.get(f"/api/v1/package-studio/source-trail/{output_lot_id}", headers=buyer)
+        assert trail_response.status_code == 200, trail_response.text
+        assert trail_response.json()["created_by"]["action_type"] == "pack_down"
+        assert trail_response.json()["created_by"]["parents"][0]["lot_id"] == source_lot_id
+    finally:
+        app.dependency_overrides.clear()

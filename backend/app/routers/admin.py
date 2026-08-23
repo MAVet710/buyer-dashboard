@@ -137,6 +137,36 @@ def _facilities(session: Session, organization_id: str, facility_ids: list[str])
     return rows
 
 
+def _metadata_context(
+    session: Session,
+    context: RequestContext,
+    role: str,
+    organization: Organization | None,
+    facilities: list[Facility],
+) -> tuple[str, str]:
+    """Choose Auth metadata without inventing workspace access.
+
+    A standard account with zero facility assignments is valid in the original
+    Streamlit admin workflow and intentionally has no facility workspace access.
+    Admins remain organization-wide, so their metadata may safely point at the
+    first active facility even when no explicit facility assignment is stored.
+    """
+    if role == "dev":
+        return context.organization_id, context.facility_id
+    if organization is None:
+        return "", ""
+    if facilities:
+        return organization.id, facilities[0].id
+    if role == "admin":
+        first = session.scalar(
+            select(Facility)
+            .where(Facility.organization_id == organization.id, Facility.active.is_(True))
+            .order_by(Facility.name)
+        )
+        return organization.id, first.id if first else ""
+    return organization.id, ""
+
+
 def _serialize_user(session: Session, row: AppUser) -> dict:
     assignments = list(session.scalars(select(AppUserFacilityRole).where(AppUserFacilityRole.user_id == row.id)))
     return {
@@ -204,8 +234,6 @@ def _link(session: Session, context: RequestContext, payload: UserLink) -> tuple
     role = _validate_role(context, payload.role)
     organization = _target_organization(session, context, role, payload.organization_id)
     facilities = [] if role == "dev" else _facilities(session, organization.id, payload.facility_ids)
-    if role != "dev" and not facilities:
-        raise HTTPException(422, "Assign at least one facility so the user has an operational access context.")
     email = _email(payload.email)
     username, normalized_username = _username(payload.username, email)
     existing = session.scalar(select(AppUser).where(or_(AppUser.id == payload.auth_user_id, AppUser.email == email)))
@@ -243,8 +271,7 @@ def _link(session: Session, context: RequestContext, payload: UserLink) -> tuple
         for facility in facilities:
             session.add(AppUserFacilityRole(user_id=existing.id, organization_id=organization.id, facility_id=facility.id, role=role))
     session.flush()
-    metadata_org_id = context.organization_id if role == "dev" else organization.id
-    metadata_facility_id = context.facility_id if role == "dev" else facilities[0].id
+    metadata_org_id, metadata_facility_id = _metadata_context(session, context, role, organization, facilities)
     session.add(
         AuditEvent(
             organization_id=context.organization_id,
@@ -398,8 +425,6 @@ def update_user(user_id: str, payload: UserUpdate, context: RequestContext = Dep
             raise HTTPException(422, "You cannot change the role of the account currently signed in.")
         organization = _target_organization(session, context, role, payload.organization_id)
         facilities = [] if role == "dev" else _facilities(session, organization.id, payload.facility_ids)
-        if role != "dev" and not facilities:
-            raise HTTPException(422, "Assign at least one facility so the user has an operational access context.")
         before = {"role": row.role, "active": row.active, "organization_id": row.organization_id}
         username, normalized_username = _username(payload.username, row.username or payload.email)
         row.username = username
@@ -416,8 +441,7 @@ def update_user(user_id: str, payload: UserUpdate, context: RequestContext = Dep
             for facility in facilities:
                 session.add(AppUserFacilityRole(user_id=row.id, organization_id=organization.id, facility_id=facility.id, role=role))
         session.flush()
-        metadata_org_id = context.organization_id if role == "dev" else organization.id
-        metadata_facility_id = context.facility_id if role == "dev" else facilities[0].id
+        metadata_org_id, metadata_facility_id = _metadata_context(session, context, role, organization, facilities)
         session.add(AuditEvent(
             organization_id=context.organization_id,
             facility_id=context.facility_id,

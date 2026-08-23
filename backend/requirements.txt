@@ -11,6 +11,7 @@ msgpack>=1.2.1,<2.0
 requests>=2.32,<3.0
 pandas>=2.2,<3.0
 openpyxl>=3.1,<4.0
+xlrd>=2.0,<3.0
 bcrypt>=4.0,<5.0
 reportlab>=4.0,<5.0
 pypdf>=5.0,<7.0

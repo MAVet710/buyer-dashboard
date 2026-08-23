@@ -10,6 +10,10 @@ export function errorMessage(payload: { detail?: unknown; error?: { message?: st
 export function trialToken(): string { return sessionStorage.getItem("buyer-dash-trial-token") ?? ""; }
 export function clearTrialSession(): void { sessionStorage.removeItem("buyer-dash-trial-token"); sessionStorage.removeItem("buyer-dash-trial-expires"); }
 
+export function buyerDataMode(): "Uploads" | "Dutchie Live" {
+  return localStorage.getItem("buyer-dash-data-mode") === "Dutchie Live" ? "Dutchie Live" : "Uploads";
+}
+
 async function requestHeaders(json = false): Promise<Record<string, string>> {
   const session = (await supabase?.auth.getSession())?.data.session;
   const token = session?.access_token;
@@ -21,6 +25,7 @@ async function requestHeaders(json = false): Promise<Record<string, string>> {
     ...(trial ? { "X-Trial-Token": trial } : {}),
     "X-Organization-Id": localStorage.getItem("buyer-dash-organization") ?? metadata.organization_id ?? import.meta.env.VITE_ORGANIZATION_ID ?? "",
     "X-Facility-Id": localStorage.getItem("buyer-dash-facility") ?? metadata.facility_id ?? import.meta.env.VITE_FACILITY_ID ?? "",
+    "X-DoobieLogic-Data-Mode": buyerDataMode(),
     ...(token || trial ? {} : { "X-User-Id": "web-local-developer", "X-User-Role": "admin" }),
   };
 }
@@ -44,6 +49,12 @@ export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
 }
 
 export async function apiDownload(path: string, body?: unknown): Promise<Blob> {
+  // Streamlit keeps a generated White Label/Repack payload in session state so
+  // it can join the Retail/Company executive packs. Preserve that session-level
+  // report availability after the web user generates the same report.
+  if (path === "/api/v1/executive-reports/white-label.pdf" && body !== undefined) {
+    try { sessionStorage.setItem("white-label-current-report-payload", JSON.stringify(body)); } catch { /* storage may be unavailable */ }
+  }
   const response = await fetch(`${API_URL}${path}`, { method: body === undefined ? "GET" : "POST", headers: await requestHeaders(body !== undefined), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload, response.status)); }
   return response.blob();

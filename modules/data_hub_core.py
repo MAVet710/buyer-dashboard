@@ -5,7 +5,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Mapping
 
 import pandas as pd
 
@@ -65,6 +65,13 @@ DATASET_REQUIREMENTS = {
     },
 }
 
+CANONICAL_COLUMN_NAMES = {
+    "Inventory": {"Product": "Product Name", "Category": "Category", "On hand": "On Hand"},
+    "Product Sales": {"Product": "Product Name", "Units sold": "Quantity Sold", "Category": "Category"},
+    "Sales / Pricing Detail": {"Product": "Product Name", "Revenue": "Net Sales"},
+    "Quarantine": {"Product": "Product Name"},
+}
+
 
 def _normalize_column(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().casefold()).strip()
@@ -121,3 +128,64 @@ def inspect_uploaded_dataset(uploaded_file: Any, dataset_label: str) -> dict[str
         "preview": frame.head(8),
         "quality": "Ready" if not missing else "Review mapping",
     }
+
+
+class _MappedUpload(BytesIO):
+    pass
+
+
+def build_mapped_upload(uploaded_file: Any, dataset_label: str, matches: Mapping[str, str]) -> Any:
+    """Rewrite reviewed source headers without importing the Streamlit runtime."""
+
+    requirements = DATASET_REQUIREMENTS.get(dataset_label, {})
+    canonical = CANONICAL_COLUMN_NAMES.get(dataset_label, {})
+    missing = [field for field in requirements if not str(matches.get(field) or "").strip()]
+    if missing:
+        raise ValueError("Required mapping is unresolved: " + ", ".join(missing))
+    selected = [str(matches[field]) for field in requirements]
+    if len(set(selected)) != len(selected):
+        raise ValueError("One source column is assigned to more than one required field. Choose a unique column for each field.")
+
+    payload = _file_bytes(uploaded_file)
+    name = str(getattr(uploaded_file, "name", dataset_label))
+    extension = Path(name).suffix.casefold()
+    if extension == ".csv":
+        frame = pd.read_csv(BytesIO(payload))
+    elif extension in {".xlsx", ".xls"}:
+        frame = pd.read_excel(BytesIO(payload))
+    else:
+        raise ValueError("Use a CSV, XLSX, or XLS file.")
+    columns = [str(column) for column in frame.columns]
+    invalid = [f"{field} -> {source}" for field, source in matches.items() if field in requirements and str(source) not in columns]
+    if invalid:
+        raise ValueError("Mapped source column no longer exists: " + ", ".join(invalid))
+
+    selected_sources = set(selected)
+    rename: dict[str, str] = {}
+    for field, source_value in matches.items():
+        if field not in canonical:
+            continue
+        source = str(source_value)
+        target = str(canonical[field])
+        if target in frame.columns and source != target and target not in selected_sources:
+            frame = frame.rename(columns={target: f"Unmapped {target}"})
+        rename[source] = target
+    frame = frame.rename(columns=rename)
+
+    output = BytesIO()
+    normalized_name = name
+    content_type = str(getattr(uploaded_file, "type", "") or "")
+    if extension == ".csv":
+        frame.to_csv(output, index=False)
+        content_type = "text/csv"
+    else:
+        frame.to_excel(output, index=False)
+        if extension == ".xls":
+            normalized_name = str(Path(name).with_suffix(".xlsx"))
+        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    mapped = _MappedUpload(output.getvalue())
+    mapped.name = normalized_name
+    mapped.type = content_type
+    mapped.source_name = name
+    mapped.column_mapping = dict(matches)
+    return mapped

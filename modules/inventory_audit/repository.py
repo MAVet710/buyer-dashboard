@@ -100,6 +100,14 @@ class InventoryAuditRepository:
         )
         with self._session_factory.begin() as session:
             self._require_scope(session, organization_id, facility_id)
+            duplicate = session.scalar(
+                select(InventoryAudit.id).where(
+                    InventoryAudit.organization_id == organization_id,
+                    InventoryAudit.audit_number == clean_number,
+                )
+            )
+            if duplicate:
+                raise ValueError("That audit name / number already exists in this organization.")
             statement = select(InventoryLot, Product).join(Product, Product.id == InventoryLot.product_id).where(
                 InventoryLot.organization_id == organization_id,
                 InventoryLot.facility_id == facility_id,

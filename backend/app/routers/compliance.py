@@ -11,9 +11,10 @@ router = APIRouter(prefix="/compliance", tags=["compliance"])
 class ManualResolution(BaseModel):
     action: str
     reason: str
+    confirmed: bool = False
 
 def _item(row):
-    return {key: getattr(row, key) for key in ("id", "provider", "license_number", "operation_type", "entity_type", "entity_id", "status", "external_reference", "error_code", "error_message", "attempt_count", "reason", "requested_by", "approved_by", "requested_at", "submitted_at", "completed_at")}
+    return {key: getattr(row, key) for key in ("id", "provider", "license_number", "operation_type", "entity_type", "entity_id", "idempotency_key", "status", "request_payload_json", "response_payload_json", "external_reference", "error_code", "error_message", "attempt_count", "next_attempt_at", "reason", "requested_by", "approved_by", "requested_at", "submitted_at", "completed_at")}
 
 @router.get("/traceability")
 def transactions(status: list[str] = Query(default=[]), provider: str = "", context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
@@ -35,6 +36,8 @@ def detail(transaction_id: str, context: RequestContext = Depends(get_request_co
 def resolve(transaction_id: str, payload: ManualResolution, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     if context.role.casefold() not in MANUAL_TRACEABILITY_ROLES:
         raise HTTPException(403, "Your role does not allow manual compliance resolution.")
+    if not payload.reason.strip() or not payload.confirmed:
+        raise HTTPException(422, "Enter a reason and confirm the review before changing traceability state.")
     repo = TraceabilityBackofficeRepository(engine)
     try:
         if payload.action == "requeue": row = repo.requeue_manual(organization_id=context.organization_id, facility_id=context.facility_id, transaction_id=transaction_id, actor=context.user_id, reason=payload.reason)

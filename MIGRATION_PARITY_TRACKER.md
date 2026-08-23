@@ -58,6 +58,12 @@ Acceptance notes:
 
 Acceptance note: the charting implementation intentionally changes from Streamlit/Plotly to responsive React SVG while preserving the daily and same-weekday comparison series and point-level values. Plotly is not retained as a runtime dependency solely for implementation parity.
 
+Acceptance notes:
+- Delivery Impact now restores Streamlit's multiple-manifest workflow, cached facility sales reuse or direct sales upload, exact comparison defaults, invalid-file exclusion, combined/individual manifest analysis, dynamic same-weekday KPI columns, exact four-metric summary, lift tables, unmatched review and all-file debug downloads.
+- Combined analysis applies the union of delivered product matches to every active manifest exactly as Streamlit does; individual selection recomputes from that manifest's own delivered-item evidence.
+- The responsive chart retains daily/hourly overlays, separate sales/order scaling, current/prior-week series, delivery markers and point-value hover evidence.
+- Browser acceptance passed at 390px, 430px, 768px, 1024px and 1440px with mobile navigation, contained table scrolling and no hidden controls.
+
 ## Slow Movers workspace
 - [x] Full filter bar
 - [x] Velocity window selector
@@ -69,6 +75,28 @@ Acceptance note: the charting implementation intentionally changes from Streamli
 - [x] Discount tier summary
 - [x] Excel export
 
+Acceptance notes:
+- The web workflow now follows the canonical `app.py` version rather than the older separate view: 28/56/84-day velocity choices, 60-day default threshold, All default Top N, single category/vendor selectors, exact sort/toggles, five KPI snapshot, full-detail expander and the three-sheet dated workbook.
+- Buyer Intelligence restores the optional live-reference expander, exact lookback control, revenue evidence, Top Categories, SKU Risk, What to Buy and the original Buyer Brief placement.
+- Trends is again one continuous workflow with exact settings, tables and per-category expanders; the React-only five-tab layout was removed.
+- Slow Movers, Buyer Intelligence and Trends were visually accepted at 390px, 430px, 768px, 1024px and 1440px with contained table scrolling and no hidden actions.
+
+## Inventory Audits workspace
+- [x] Durable independent audit sessions
+- [x] Uploaded Dutchie inventory and active Buyer Ops source selection
+- [x] Explicit source-column mapping and facility-scoped durable import
+- [x] Camera, Bluetooth/USB, typed-code and manual-item scanning
+- [x] Blind first count and tolerance-based recount
+- [x] Pause, resume, stop, reopen and complete lifecycle
+- [x] Partial and completed report review
+- [x] CSV and multi-sheet Excel exports
+- [x] Retail and Production operation/facility isolation
+- [x] Desktop right-side count drawer and full-screen mobile count workflow
+
+Acceptance notes:
+- Streamlit navigation to Inventory Counts is preserved as the standalone Retail Scan Audit workspace; Commercial embeds the same durable engine as Inventory Audit & Reconciliation for Production Ops.
+- Audit history, counts, scan evidence, events, discrepancy reasons and optional ledger corrections persist in SQL and remain resumable across sessions.
+
 ## PO Builder workspace
 - [x] Reorder cross-reference from Inventory Dashboard
 - [x] Add all reorder ASAP lines
@@ -79,8 +107,11 @@ Acceptance note: the charting implementation intentionally changes from Streamli
 - [x] Smart PO merged without removing original capabilities
 
 Acceptance notes:
-- The original manual PO workflow remains intact: editable line items, store/vendor metadata, terms, fulfillment notes, tax, discount, shipping and PDF output.
+- The original manual PO workflow remains intact in exact source order: reorder cross-reference, store/vendor/order metadata, manual line entry, read-only current-item review table, tax, discount, shipping and the legacy canvas PDF output.
+- Inventory review uses exact product name plus optional size matching and the Streamlit `>=15 on hand` threshold; bulk reorder additions intentionally retain the source workflow's zero stored line total until prices are filled.
 - Smart buying evidence is available alongside the manual workflow and can be added to the PO without replacing manual lines. The full Doobie Buyer Brief remains available as the interpretation layer over the same Buyer evidence.
+- Purchasing Budget retains the exact inputs/defaults, formulas, nine-column category table, two category charts, three scenarios and proposed-PO budget carryover.
+- PO Builder and Purchasing Budget were visually accepted at 390px, 430px, 768px, 1024px and 1440px with contained horizontal table scrolling and no hidden actions.
 
 ## Compliance workspace
 - [x] Compliance source upload
@@ -91,6 +122,18 @@ Acceptance notes:
 Acceptance notes:
 - Q&A only answers from the active reviewed facility source and returns citations/source metadata.
 - Reviewed-source publication is restricted to DEV, admin, QA and supervisor roles; other users retain read/query/template access.
+- Traceability Operations preserves the facility-scoped queue, provider filtering, sanitized evidence, lifecycle history and role-gated reconciliation controls in the exact right-side desktop/full-screen mobile work window.
+
+## Data Hub workspace
+- [x] Ten-source operational readiness table
+- [x] Retail source inspect, mapping, preview and durable publish/replace
+- [x] Production extraction CSV/XLS/XLSX inspect, mapping, preview and durable append
+- [x] Revision history and role-gated archive
+- [x] Tenant/facility isolation and responsive acceptance
+
+Acceptance notes:
+- Retail uploads retain reviewed source mappings and normalize canonical headers before durable publication.
+- Production partner imports prefer known extraction-field aliases, calculate missing yield/efficiency values, append to the existing extraction model and skip exact run-date/batch/method duplicates.
 
 ## Buyer Intelligence workspace
 - [x] KPI summary
@@ -98,6 +141,15 @@ Acceptance notes:
 - [x] AI Buyer Brief replaced by Doobie while preserving section outputs
 
 Acceptance note: deterministic Buy First, SKU stockout risk, overstock/slow watch and category risk sections remain visible independently of the generated Doobie Buyer Brief.
+
+## MA Flower Equivalency workspace
+- [x] Six exact Dutchie product-category choices
+- [x] Category-specific inputs and defaults
+- [x] Decimal-safe concentrate, edible and infused pre-roll calculations
+- [x] Exact validation, calculation breakdown and Dutchie-ready output
+- [x] Copy-value action and responsive result cards
+
+Acceptance note: the React workflow now mirrors the Streamlit package-entry calculator in source order, retains operator-entered decimal text through the API, rounds only for display and passed browser acceptance at 390px, 430px, 768px, 1024px and 1440px.
 
 ## Extraction Command Center workspace
 - [x] Executive Overview

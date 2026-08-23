@@ -8,11 +8,13 @@ from services.web_buyer_parity import read_tabular_bytes
 from modules.data_hub_repository import DataHubRepository
 from ..auth import RequestContext, get_request_context, get_retail_context
 from ..database import get_engine
+from .buyer_parity import _require_available_data_mode
 
 router = APIRouter(prefix="/buying-budget-parity", tags=["buying-budget-parity"], dependencies=[Depends(get_retail_context)])
 
 
 def _sources(context: RequestContext, engine: Engine):
+    _require_available_data_mode(context)
     sources = {row.dataset_key: row for row in DataHubRepository(engine).list_active_sources(context.organization_id, context.facility_id)}
     inventory = sources.get("inventory") or sources.get("sandbox_buyer_inventory")
     sales = sources.get("product_sales") or sources.get("sandbox_buyer_sales") or sources.get("sandbox_delivery_sales")
