@@ -115,7 +115,12 @@ def can_manage_ai_integrations(user_role: str | None) -> bool:
 
 
 def workspace_groups(feature_enabled: Callable[..., bool]) -> dict[str, list[str]]:
-    """Return licensed workspaces grouped by the operation they support."""
+    """Return licensed workspaces grouped by the operation they support.
+
+    Keep the legacy/Streamlit workspace set exact during the web migration.
+    New analytics APIs may exist behind the shell, but they do not become a
+    navigation workspace until that product change is explicitly accepted.
+    """
     groups = {
         HOME_OPS: [HOME_WORKSPACE],
         RETAIL_OPS: [],
@@ -132,7 +137,7 @@ def workspace_groups(feature_enabled: Callable[..., bool]) -> dict[str, list[str
         if COMMERCIAL_WORKSPACE not in groups[COMMERCIAL_OPS]:
             groups[COMMERCIAL_OPS].append(COMMERCIAL_WORKSPACE)
     if groups[RETAIL_OPS] or groups[PRODUCTION_OPS]:
-        groups[DATA_OPERATIONS].extend([DATA_HUB_WORKSPACE, ANALYTICS_WORKSPACE])
+        groups[DATA_OPERATIONS].append(DATA_HUB_WORKSPACE)
     return {group: options for group, options in groups.items() if options}
 
 

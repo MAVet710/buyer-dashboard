@@ -8,6 +8,7 @@ env:
   REGISTRY: us-east1-docker.pkg.dev
   API_SERVICE: buyer-dash-api
   WEB_SERVICE: buyer-dash-web
+  MIGRATION_JOB: buyer-dash-migrate
   REGION: us-east1
 
 jobs:
@@ -40,6 +41,23 @@ jobs:
           docker push ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.sha }}
           docker push ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:latest
 
+      - name: Run production database migrations
+        run: |
+          set -euo pipefail
+          gcloud run jobs deploy ${{ env.MIGRATION_JOB }} \
+            --image ${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
+            --service-account buyer-dash-migrate@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com \
+            --command alembic \
+            --args upgrade,head \
+            --max-retries 0 \
+            --task-timeout 15m \
+            --set-env-vars APP_ENV=production \
+            --set-secrets DATABASE_URL=buyer-dash-database-url:latest
+          gcloud run jobs execute ${{ env.MIGRATION_JOB }} \
+            --region ${{ env.REGION }} \
+            --wait
+
       - name: Deploy API to Cloud Run
         run: |
           gcloud run deploy ${{ env.API_SERVICE }} \
@@ -57,7 +75,27 @@ jobs:
             --set-secrets DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest \
             --service-account=${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Verify deployed API readiness
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            health_code=$(curl -sS -o /tmp/health.json -w '%{http_code}' https://api.doobielogic.io/health || true)
+            ready_code=$(curl -sS -o /tmp/ready.json -w '%{http_code}' https://api.doobielogic.io/health/ready || true)
+            if [ "$health_code" = "200" ] && [ "$ready_code" = "200" ]; then
+              cat /tmp/health.json
+              cat /tmp/ready.json
+              exit 0
+            fi
+            echo "API not ready yet (health=$health_code ready=$ready_code); retrying..."
+            sleep 6
+          done
+          echo "API failed readiness verification"
+          cat /tmp/health.json || true
+          cat /tmp/ready.json || true
+          exit 1
+
   deploy-web:
+    needs: deploy-api
     runs-on: ubuntu-latest
     permissions:
       contents: read

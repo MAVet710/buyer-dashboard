@@ -47,10 +47,10 @@ class ProfitabilityAnalyticsService:
         period_end = datetime.now(tz=timezone.utc).date()
         period_start = period_end - timedelta(days=days_back)
 
-        with self._sessions.begin() as session:
+        with self._sessions() as session:
             # Revenue from completed sales orders → invoiced
             revenue_stmt = (
-                select(func.sum(CommercialInvoiceLine.quantity * CommercialInvoiceLine.unit_price))
+                select(func.sum(CommercialInvoiceLine.quantity * CommercialInvoiceLine.unit_price_usd))
                 .select_from(CommercialInvoiceLine)
                 .join(CommercialInvoice)
                 .where(
@@ -124,7 +124,7 @@ class ProfitabilityAnalyticsService:
         period_end = datetime.now(tz=timezone.utc).date()
         period_start = period_end - timedelta(days=days_back)
 
-        with self._sessions.begin() as session:
+        with self._sessions() as session:
             # Sales by product
             sales_stmt = (
                 select(
@@ -187,7 +187,7 @@ class ProfitabilityAnalyticsService:
         period_end = datetime.now(tz=timezone.utc).date()
         period_start = period_end - timedelta(days=days_back)
 
-        with self._sessions.begin() as session:
+        with self._sessions() as session:
             cost_stmt = (
                 select(
                     ProductionCostEvent.category,
@@ -227,7 +227,7 @@ class ProfitabilityAnalyticsService:
         period_end = datetime.now(tz=timezone.utc).date()
         period_start = period_end - timedelta(days=days_back)
 
-        with self._sessions.begin() as session:
+        with self._sessions() as session:
             runs_stmt = (
                 select(ExtractionRun)
                 .where(
