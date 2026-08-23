@@ -110,6 +110,24 @@ def test_metrc(
     }
 
 
+@router.post("/metrc/clear")
+def clear_metrc(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    service = _service(engine, settings)
+    service.clear(
+        scope_type="user",
+        scope_key=metrc_scope_key(context),
+        provider="metrc",
+        actor=context.user_id,
+        audit_organization_id=context.organization_id,
+        audit_facility_id=context.facility_id,
+    )
+    return {**service.public(None), "facility_id": context.facility_id, "facility_scoped": True}
+
+
 @router.post("/doobie")
 def save_doobie(
     payload: DoobieSave,
@@ -158,3 +176,23 @@ def test_doobie(
         error="" if result.get("ok") else str(result.get("message") or "Connection failed"),
     )
     return {**service.public(updated), "result": {"ok": bool(result.get("ok")), "message": result.get("message")}}
+
+
+@router.post("/doobie/clear")
+def clear_doobie(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    if context.role != "dev":
+        raise HTTPException(403, "Level DEV access is required for platform AI settings.")
+    service = _service(engine, settings)
+    service.clear(
+        scope_type="platform",
+        scope_key="global",
+        provider="doobie",
+        actor=context.user_id,
+        audit_organization_id=context.organization_id,
+        audit_facility_id=context.facility_id,
+    )
+    return service.public(None)
