@@ -47,24 +47,26 @@ Review artifact: `ScreenRecording_04-16-2026 22-23-38_1.mp4`, supplied by the pr
 
 The restored DoobieLogic Buyer/Purchasing surface must include and visually/behaviorally verify all of the following together, not merely scattered across unrelated pages:
 
-- [ ] Sales Trend visualization in the buyer workflow.
-- [ ] Revenue by Category visualization in the buyer workflow.
-- [ ] Top Slow Movers embedded in the buyer workflow.
-- [ ] Inventory Health score/gauge and supporting inventory condition evidence.
-- [ ] Doobie Buyer Brief in the same buyer decision flow, preserving deterministic evidence first.
-- [ ] Inventory Summary with Units Sold and Reorder ASAP evidence.
-- [ ] Category DOS at a glance.
-- [ ] Full Forecast Table.
-- [ ] Forecast Excel export.
-- [ ] Category expanders in buyer ordering (Flower, Pre-Rolls, Vapes, etc.).
-- [ ] Nested SKU-level reorder drilldowns with strain/type/size and reorder quantity.
-- [ ] SKU sales and batch/lot evidence inside reorder drilldowns.
-- [ ] Full Buyer Filters & Settings surface: search, velocity window, Top N, sort, category/subcategory, vendor/brand, expiration window, on-hand filter, minimum DOH and maximum DOH.
-- [ ] Inventory-condition KPI block including overstock, expiring inventory, dollar exposure and reorder/out-of-stock conditions.
-- [ ] Full SKU inventory table and Show all columns behavior.
-- [ ] Doobie Inventory Check against the current filtered buyer view.
-- [ ] Continuous workflow composition matching the operator recording rather than requiring page-hopping for core buyer decisions.
-- [ ] Existing newer replenishment-policy/vendor-policy and durable PO functionality remains available as additive functionality.
+- [x] Sales Trend visualization in the buyer workflow.
+- [x] Revenue by Category visualization in the buyer workflow.
+- [x] Top Slow Movers embedded in the buyer workflow.
+- [x] Inventory Health score/gauge and supporting inventory condition evidence.
+- [x] Doobie Buyer Brief in the same buyer decision flow, preserving deterministic evidence first.
+- [x] Inventory Summary with Units Sold and Reorder ASAP evidence.
+- [x] Category DOS at a glance.
+- [x] Full Forecast Table.
+- [x] Forecast Excel export.
+- [x] Category expanders in buyer ordering (Flower, Pre-Rolls, Vapes, etc.).
+- [x] Nested SKU-level reorder drilldowns with strain/type/size and reorder quantity.
+- [x] SKU sales and batch/lot evidence inside reorder drilldowns.
+- [x] Full Buyer Filters & Settings surface: search, velocity window, Top N, sort, category/subcategory, vendor/brand, expiration window, on-hand filter, minimum DOH and maximum DOH.
+- [x] Inventory-condition KPI block including overstock, expiring inventory, dollar exposure and reorder/out-of-stock conditions.
+- [x] Full SKU inventory table and Show all columns behavior.
+- [x] Doobie Inventory Check against the current filtered buyer view.
+- [x] Continuous workflow composition matching the operator recording rather than requiring page-hopping for core buyer decisions.
+- [x] Existing newer replenishment-policy/vendor-policy and durable PO functionality remains available as additive functionality.
+
+Verification evidence: `frontend/src/pages/BuyerOperationsPage.tsx`, `frontend/src/components/BuyerLegacyOverview.tsx`, Buyer parity API tests, and the real-browser responsive matrix in `frontend/e2e/parity-browser.spec.ts`. The browser gate exercises the connected Buyer command center at 390, 430, 768, 1024 and 1440 px and uploads full-page screenshot evidence.
 
 ## App-wide recovery rule
 

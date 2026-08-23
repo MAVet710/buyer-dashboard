@@ -21,7 +21,7 @@ const RETAIL_PACKAGE_DEFAULTS = ["SKU", "Product", "External Package ID", "Mater
 const PRODUCTION_DEFAULTS = ["SKU", "Product", "External Package ID", "Material Type", "Room", "Available", "Unit", "Status", "Attention"];
 const ALL_COLUMNS = ["SKU", "Product", "External Package ID", "Material Type", "Source / Supplier", "Room", "Available", "Unit", "Reserved", "30d Sold", "DOH", "Cost", "Retail", "Margin", "Age", "Days to Expiry", "Status", "Attention"];
 
- type Operation = "retail" | "production";
+type Operation = "retail" | "production";
 type Grain = "products" | "packages" | "plants";
 type DisplayRow = InventoryPackage & { package_count?: number };
 
@@ -36,7 +36,9 @@ export function InventoryPage({ initialOperation="retail", onNavigate }: { initi
   const [savedViews,setSavedViews]=useState<Record<string,{status:string;materialType:string;location:string;source:string}>>(()=>readJson("buyer-dash-inventory-views",{}));
   const defaultColumns = operation === "production" ? PRODUCTION_DEFAULTS : grain === "products" ? RETAIL_PRODUCT_DEFAULTS : RETAIL_PACKAGE_DEFAULTS;
   const [columns,setColumns]=useState<string[]>(defaultColumns);
-  const retailEnabled=account.data?.capabilities.retail??true; const productionEnabled=account.data?.capabilities.production??true; const cultivationEnabled=account.data?.capabilities.cultivation??false;
+  const retailEnabled=account.data?.capabilities.retail??true;
+  const cultivationEnabled=account.data?.capabilities.cultivation??false;
+  const productionEnabled=account.data ? Boolean(account.data.capabilities.production || account.data.capabilities.cultivation) : true;
   const role=account.data?.user.role??"trial"; const adjustAllowed=["dev","admin","supervisor","operator","qa"].includes(role);
   const apiView = operation === "retail" && grain === "products" ? "all" : viewKey(view);
   const inventory=useInventory({operation,search,view:apiView,status,materialType,location,source});

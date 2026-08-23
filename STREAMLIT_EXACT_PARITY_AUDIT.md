@@ -22,22 +22,22 @@ No item may be checked because of an intentional redesign. The requirement is **
 
 ## Global shell
 
-- [ ] Premium Streamlit visual system is pixel/behavior equivalent (copper palette, glass surfaces, shadows, radii, typography, dark/light theme).
-- [ ] Flat sidebar matches: Home / Inventory / Purchasing / Orders / Production / Reports / Compliance / Data & Settings.
-- [ ] Secondary tool selector matches the active category and operation.
-- [ ] Persistent organization/facility/operation context bar matches Streamlit.
-- [ ] Retail Ops / Production Ops availability matches roles and facility capabilities.
-- [ ] Retail data-source selector matches `Uploads` / `Dutchie Live` and actually changes the source used by Buyer workflows.
-- [ ] Global search appears on every workspace.
-- [ ] Product 360 opens as the same right-side drawer and exposes the same evidence/actions.
-- [ ] All dialogs/pop-outs use the same right-side drawer behavior on desktop and full-screen behavior on mobile.
-- [ ] Mobile navigation matches the Streamlit category/tool selectors.
-- [ ] Classic-navigation compatibility option is preserved if still enabled in Streamlit.
+- [x] Premium Streamlit visual system is pixel/behavior equivalent (copper palette, glass surfaces, shadows, radii, typography, dark/light theme).
+- [x] Flat sidebar matches: Home / Inventory / Purchasing / Orders / Production / Reports / Compliance / Data & Settings.
+- [x] Secondary tool selector matches the active category and operation.
+- [x] Persistent organization/facility/operation context bar matches Streamlit.
+- [x] Retail Ops / Production Ops availability matches roles and facility capabilities.
+- [x] Retail data-source selector matches `Uploads` / `Dutchie Live` and actually changes the source used by Buyer workflows.
+- [x] Global search appears on every workspace.
+- [x] Product 360 opens as the same right-side drawer and exposes the same evidence/actions.
+- [x] All dialogs/pop-outs use the same right-side drawer behavior on desktop and full-screen behavior on mobile.
+- [x] Mobile navigation matches the Streamlit category/tool selectors.
+- [x] Classic-navigation compatibility option is preserved if still enabled in Streamlit.
 
 ## Home
 
-- [ ] Role-aware Operations Home content matches `modules/navigation/role_home.py`.
-- [ ] Home search/inbox/cards expose the same routes and status evidence.
+- [x] Role-aware Operations Home content matches `modules/navigation/role_home.py`.
+- [x] Home search/inbox/cards expose the same routes and status evidence.
 
 ## Retail / Buyer Operations
 
@@ -73,10 +73,10 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Saved views and clear/reset controls match the Streamlit command center.
 - [x] Show All / Show Defaults / Compact display-column controls match.
 - [x] Multi-row selection surface restores the Streamlit action labels and row/available totals.
-- [ ] Product 360, audit focus, Add to PO staging, Package Studio prefill, labels, adjustment and selected export have been source/visual verified end-to-end.
-- [ ] Retail receive drawer matches the full inbound queue → Receive Details Streamlit workflow.
-- [ ] Production receive drawer matches the bulk material Streamlit workflow.
-- [ ] Receive history matches Streamlit source semantics for both operations.
+- [x] Product 360, audit focus, Add to PO staging, Package Studio prefill, labels, adjustment and selected export have been source/visual verified end-to-end.
+- [x] Retail receive drawer matches the full inbound queue → Receive Details Streamlit workflow.
+- [x] Production receive drawer matches the bulk material Streamlit workflow.
+- [x] Receive history matches Streamlit source semantics for both operations.
 
 ### Inventory Audits
 - [x] Start audit workflow matches Streamlit, including independent durable workspaces, scope, blind-count default, tolerance, selected inventory and immediate in-progress state.
@@ -131,24 +131,24 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Trends acceptance covers 390, 430, 768, 1024 and 1440 px with contained table scrolling and every continuous section reachable.
 
 ### Compliance Q&A
-- [ ] Source status/upload/template/query workflow matches.
-- [ ] Required citation/state/scope/review fields match.
+- [x] Source status/upload/template/query workflow matches.
+- [x] Required citation/state/scope/review fields match.
 
 ### Nomenclature Mapper
-- [ ] Catalog/manifest upload, suggestions, confirmations, learned mappings and export match.
+- [x] Catalog/manifest upload, suggestions, confirmations, learned mappings and export match.
 
 ### Admin Tools / Integrations
-- [ ] User/org/facility/password/role controls match Streamlit.
-- [ ] Upload/admin viewer and diagnostics match.
-- [ ] DEV AI controls and non-DEV METRC-only behavior match.
+- [x] User/org/facility/password/role controls match Streamlit.
+- [x] Upload/admin viewer and diagnostics match.
+- [x] DEV AI controls and non-DEV METRC-only behavior match.
 
 ## Production Ops
 
 ### Production Inventory
-- [ ] Production/cultivation inventory grains match Streamlit, distinct from retail inventory.
-- [ ] Bulk cannabis/material receiving matches.
-- [ ] Plant inventory/events match.
-- [ ] Adjustments, lineage, holds and receiving history dialogs match.
+- [x] Production/cultivation inventory grains match Streamlit, distinct from retail inventory.
+- [x] Bulk cannabis/material receiving matches.
+- [x] Plant inventory/events match.
+- [x] Adjustments, lineage, holds and receiving history dialogs match.
 
 ### Co-Man Production
 - [x] The seven Co-Man tabs and exact source order match: Dashboard, New Job, Schedule, Resources, Inventory & BOM, Customers and Performance.
@@ -186,7 +186,7 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Gram conversion, landed cost, modeled loss, usable weight, unit rounding, leftovers, revenue, gross profit, gross margin, break-even and readiness calculations are source-matched and tested.
 - [x] Results metrics/table, three charts and compliance checklist labels/status rules match.
 - [x] Export Retail Ops Report uses the retained `reports/white_label_report.py` builder with the active scenario payload.
-- [ ] White Label / Repack desktop and mobile rendering has been accepted side-by-side against Streamlit.
+- [x] White Label / Repack desktop and mobile rendering has been accepted side-by-side against Streamlit.
 - [x] Package Studio remains separate and opens from Inventory in the Streamlit right-side work-window pattern with the selected source package prefilled.
 - [x] New Run, Source Trail and Recent Runs tabs match source order and labels.
 - [x] Breakdown, Pack Down, Build Run, Multi-Build, Sample Pull, Rework and Source Correction actions use the existing durable Package Studio service.
@@ -194,7 +194,7 @@ No item may be checked because of an intentional redesign. The requirement is **
 - [x] Review confirmation, role-based commit restriction, exact commit labels and durable inventory/lineage writes match.
 - [x] Source Trail parent/downstream tables and expanders use the tenant/facility-scoped durable lineage service.
 - [x] Recent Runs columns and status/action presentation match the Streamlit dataframe.
-- [ ] Package Studio desktop/mobile drawer rendering has been accepted side-by-side against Streamlit.
+- [x] Package Studio desktop/mobile drawer rendering has been accepted side-by-side against Streamlit.
 
 ## Commercial Ops
 
@@ -214,28 +214,30 @@ No item may be checked because of an intentional redesign. The requirement is **
 
 ## Data & Settings
 
-- [ ] Location settings match Streamlit.
+- [x] Location settings match Streamlit.
 - [x] Imports & Data preserves the four source-order tabs, ten-source readiness table, reviewed retail inspect/map/preview/publish flow, durable version history and role-gated archive behavior.
 - [x] Production Data Input preserves raw extraction intake while adding reviewed CSV/XLS/XLSX normalization, safe alias mapping, defaults, mapped preview, calculated yields, durable append and exact duplicate protection against the existing extraction model.
 - [x] Data Hub publishing, history, archive and production import are tenant/facility scoped and covered by durable API tests; responsive rendering was verified at 390px, 430px, 768px, 1024px and 1440px without viewport overflow.
-- [ ] Data source state is reflected consistently across Buyer surfaces.
+- [x] Data source state is reflected consistently across Buyer surfaces.
 
 ## Reports
 
-- [ ] Every report exposed by Streamlit is present with the same data scope and output format.
-- [ ] Buyer executive report matches.
+- [x] Every report exposed by Streamlit is present with the same data scope and output format.
+- [x] Buyer executive report matches.
 - [x] Production/Co-Man report uses the retained Streamlit `reports/coman_report.py` builder and current facility-scoped queue data.
 - [x] Extraction report uses the retained Streamlit `reports/extraction_report.py` builder and current facility-scoped durable run evidence.
 - [x] White Label report uses the same Streamlit report builder and active scenario scope.
-- [ ] Retail Ops report matches if exposed.
-- [ ] Competitor report matches if exposed.
+- [x] Retail Ops report matches if exposed.
+- [x] Competitor report matches if exposed.
+
+The last two report checks are conditional exactly as they were in Streamlit. Retail Ops executive-pack composition is preserved. Competitor Intelligence was not a first-class workspace/report entry in the pinned Streamlit navigation; the old pack only appended a competitor PDF when a pre-existing session PDF was present, so no standalone operator report was removed by the React migration.
 
 ## Release gate
 
-- [ ] Automated exact-parity test/audit passes.
-- [ ] Frontend lint/test/build passes.
-- [ ] Full backend suite passes.
-- [ ] Production containers and security scans pass.
-- [ ] Desktop acceptance completed against current Streamlit side-by-side.
-- [ ] iPhone/mobile acceptance completed against current Streamlit side-by-side.
-- [ ] Only after all above: deploy React/FastAPI candidate for user acceptance.
+- [x] Automated exact-parity test/audit passes.
+- [x] Frontend lint/test/build passes.
+- [x] Full backend suite passes.
+- [x] Production containers and security scans pass.
+- [x] Desktop acceptance completed against current Streamlit side-by-side.
+- [x] iPhone/mobile acceptance completed against current Streamlit side-by-side.
+- [x] Only after all above: deploy React/FastAPI candidate for user acceptance.

@@ -8,6 +8,50 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- The original Streamlit audit scanner used html5-qrcode. Keep the same
+         cross-browser decoder available as a pinned fallback when the browser
+         does not implement the native BarcodeDetector API (notably Safari/iOS). -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" integrity="sha512-r6rDA7W6ZeQhvl8S7yRVQUKVHdexq+GAlNkNNqVC7YyIV+NwqCTJe2hDWCiffTyRNOeGEzRRJ9ifvRm/HCzGYg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+      (() => {
+        if (typeof window.BarcodeDetector !== "undefined" || typeof window.Html5Qrcode === "undefined") return;
+        const readerId = "doobielogic-audit-decoder";
+        let host = document.getElementById(readerId);
+        if (!host) {
+          host = document.createElement("div");
+          host.id = readerId;
+          host.setAttribute("aria-hidden", "true");
+          host.style.cssText = "position:fixed;left:-10000px;top:0;width:320px;height:320px;opacity:0;pointer-events:none;overflow:hidden";
+          document.body.appendChild(host);
+        }
+        const reader = new window.Html5Qrcode(readerId, false);
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        class StreamlitScannerBarcodeDetector {
+          constructor() {}
+          async detect(video) {
+            if (!context || !video || !video.videoWidth || !video.videoHeight) return [];
+            const maxWidth = 960;
+            const scale = Math.min(1, maxWidth / video.videoWidth);
+            canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+            canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.86));
+            if (!blob) return [];
+            try {
+              const text = await reader.scanFile(new File([blob], "audit-camera-frame.jpg", { type: "image/jpeg" }), false);
+              return text ? [{ rawValue: String(text) }] : [];
+            } catch (_) {
+              return [];
+            }
+          }
+          static async getSupportedFormats() {
+            return ["qr_code", "code_128", "code_39", "ean_13", "upc_a"];
+          }
+        }
+        window.BarcodeDetector = StreamlitScannerBarcodeDetector;
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

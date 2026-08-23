@@ -46,12 +46,15 @@ const PRODUCTION_PRIMARY: PrimaryItem[] = [
 
 function secondaryItems(category: PrimaryCategory, operation: OperationMode, role: string): SecondaryItem[] {
   if (operation === "Production Ops") {
-    if (category === "Inventory") return [{ label: "Materials", page: "Production Inventory" }];
+    if (category === "Inventory") return [
+      { label: "Materials", page: "Production Inventory" },
+      { label: "Products", page: "Production Product Master" },
+      { label: "Inventory Audits", page: "Inventory Audits" },
+    ];
     if (category === "Production") return [
       { label: "Co-Man Production", page: "Production" },
       { label: "Extraction", page: "Extraction" },
       { label: "White Label / Repack", page: "White Label / Repack" },
-      { label: "Product Master", page: "Production Product Master" },
     ];
     if (category === "Orders") return [{ label: "Orders & Fulfillment", page: "Orders" }];
     if (category === "Compliance") return [{ label: "Traceability", page: "Compliance" }];
@@ -60,7 +63,8 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
   }
   if (category === "Inventory") return [
     { label: "Inventory", page: "Inventory" },
-    { label: "Product Master", page: "Retail Product Master" },
+    { label: "Product 360", page: "Retail Product 360" },
+    { label: "Catalog Administration", page: "Retail Catalog Admin" },
     { label: "Inventory Audits", page: "Inventory Audits" },
     { label: "Slow Movers", page: "Slow Movers" },
     { label: "MA Flower Equivalency", page: "MA Flower Equivalency" },
@@ -71,7 +75,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     { label: "Delivery Performance", page: "Delivery Performance" },
     { label: "Purchase Orders", page: "Purchase Orders" },
     { label: "Buying Budget", page: "Buying Budget" },
-    { label: "Replenishment Policies", page: "Purchasing" },
+    { label: "Replenishment Policies", page: "Replenishment Policies" },
   ];
   if (category === "Orders") return [{ label: "Orders & Fulfillment", page: "Orders" }];
   if (category === "Reports") return [
@@ -101,10 +105,10 @@ function dataSettingsItems(role: string): SecondaryItem[] {
 
 function categoryForPage(page: string, operation: OperationMode): PrimaryCategory {
   if (page === "Home") return "Home";
-  if (["Inventory", "Retail Product Master", "Inventory Audits", "Slow Movers", "MA Flower Equivalency", "Production Inventory"].includes(page)) return "Inventory";
-  if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing"].includes(page)) return "Purchasing";
+  if (["Inventory", "Retail Product Master", "Retail Product 360", "Retail Catalog Admin", "Inventory Audits", "Slow Movers", "MA Flower Equivalency", "Production Inventory", "Production Product Master"].includes(page)) return "Inventory";
+  if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing", "Replenishment Policies"].includes(page)) return "Purchasing";
   if (page === "Orders") return "Orders";
-  if (["Production", "Extraction", "White Label / Repack", "Package Studio", "Production Product Master"].includes(page)) return "Production";
+  if (["Production", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
   if (["Sales & Category Trends", "Reports", "Executive Reports"].includes(page)) return "Reports";
   if (["Compliance", "Compliance Q&A", "Product Name Mapper", "Nomenclature Mapper"].includes(page)) return "Compliance";
   if (["Location Settings", "Data & Settings", "Admin", "Admin Tools", "Integrations", "AI & METRC Integrations", "METRC Integrations"].includes(page)) return "Data & Settings";
@@ -274,7 +278,20 @@ function MobileNavigation({ primary, category, secondary, active, operation, dat
 
 function ClassicNavigation({ operation, role, active, onNavigate }: { operation: OperationMode; role: string; active: string; onNavigate: (page: string) => void }) {
   const groups = operation === "Production Ops"
-    ? [{ label: "Production Ops", pages: secondaryItems("Production", operation, role) }, { label: "Data & Integrations", pages: dataSettingsItems(role) }]
-    : [{ label: "Retail Ops", pages: [...secondaryItems("Inventory", operation, role), ...secondaryItems("Purchasing", operation, role), ...secondaryItems("Reports", operation, role), ...secondaryItems("Compliance", operation, role)] }, { label: "Data & Integrations", pages: dataSettingsItems(role) }];
+    ? [
+      { label: "Production Inventory", pages: secondaryItems("Inventory", operation, role) },
+      { label: "Production Ops", pages: secondaryItems("Production", operation, role) },
+      { label: "Orders", pages: secondaryItems("Orders", operation, role) },
+      { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
+      { label: "Data & Integrations", pages: dataSettingsItems(role) },
+    ]
+    : [
+      { label: "Retail Inventory", pages: secondaryItems("Inventory", operation, role) },
+      { label: "Purchasing", pages: secondaryItems("Purchasing", operation, role) },
+      { label: "Orders", pages: secondaryItems("Orders", operation, role) },
+      { label: "Reports", pages: secondaryItems("Reports", operation, role) },
+      { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
+      { label: "Data & Integrations", pages: dataSettingsItems(role) },
+    ];
   return <>{groups.map(group => <div key={group.label}><div className="operation-label">{group.label}</div><nav>{group.pages.map(row => <button className={active === row.page ? "nav-item active" : "nav-item"} key={`${group.label}-${row.page}`} onClick={() => onNavigate(row.page)}>{row.label}</button>)}</nav></div>)}</>;
 }

@@ -12,6 +12,7 @@ import "./buyer-streamlit.css";
 import "./white-label-streamlit.css";
 import "./home-streamlit.css";
 import "./inventory-receiving.css";
+import "./auth-streamlit.css";
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
 

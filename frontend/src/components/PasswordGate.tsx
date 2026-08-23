@@ -13,8 +13,8 @@ export function PasswordGate({ children }: PropsWithChildren) {
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
-  if (context.isLoading) return <div className="auth-screen"><div className="auth-card"><div className="brand"><span>BD</span><strong>Buyer Dash</strong></div><p>Restoring your secure workspace…</p></div></div>;
-  if (context.isError) return <div className="auth-screen"><div className="auth-card"><div className="brand"><span>BD</span><strong>Buyer Dash</strong></div><h1>Access context unavailable</h1><p>{context.error.message}</p><button className="secondary" onClick={() => supabase?.auth.signOut()}>Sign out</button></div></div>;
+  if (context.isLoading) return <div className="auth-screen"><div className="auth-card"><div className="brand"><span>DL</span><strong>DoobieLogic</strong></div><p>Restoring your secure workspace…</p></div></div>;
+  if (context.isError) return <div className="auth-screen"><div className="auth-card"><div className="brand"><span>DL</span><strong>DoobieLogic</strong></div><h1>Access context unavailable</h1><p>{context.error.message}</p><button className="secondary" onClick={() => supabase?.auth.signOut()}>Sign out</button></div></div>;
   if (!context.data?.user.must_change_password) return <>{children}</>;
 
   return <div className="auth-screen"><form className="auth-card password-card" onSubmit={async event => {
@@ -31,10 +31,10 @@ export function PasswordGate({ children }: PropsWithChildren) {
       await context.refetch();
       setPassword(""); setConfirm("");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Password changed, but Buyer Dash could not finish the account update.");
+      setMessage(error instanceof Error ? error.message : "Password changed, but DoobieLogic could not finish the account update.");
     } finally { setSaving(false); }
   }}>
-    <div className="brand"><span>BD</span><strong>Buyer Dash</strong></div>
+    <div className="brand"><span>DL</span><strong>DoobieLogic</strong></div>
     <div className="eyebrow">First login security</div>
     <h1>Create your private password</h1>
     <p>Your temporary password worked. Replace it now before entering the operations workspace.</p>
