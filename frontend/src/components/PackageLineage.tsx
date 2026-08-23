@@ -4,6 +4,7 @@ import type { InventoryPackage, PackageLineage as Lineage } from "../types/inven
 import { Product360Workspace, type Product360Snapshot } from "./Product360Workspace";
 import { StreamlitDialog } from "./StreamlitDialog";
 
+// Package 360 still preserves the original lineage semantics: Created from → current package → Used by.
 export function PackageLineage({ operation, item, onClose }: { operation: "retail" | "production"; item: InventoryPackage; onClose: () => void }) {
   const trail = useQuery({
     queryKey: ["package-lineage", operation, item.id],
@@ -16,7 +17,7 @@ export function PackageLineage({ operation, item, onClose }: { operation: "retai
   const loading = trail.isLoading || product.isLoading;
   const error = trail.error || product.error;
 
-  return <StreamlitDialog open onClose={onClose} eyebrow="PACKAGE 360 · inventory + product + lineage" title={item.product_name} subtitle={`${item.package_id} · ${item.available.toLocaleString()} ${item.unit} · ${item.location || "No location"}`}>
+  return <StreamlitDialog open onClose={onClose} eyebrow="Package 360" title={item.product_name} subtitle={`${item.package_id} · ${item.available.toLocaleString()} ${item.unit} · inventory + product + lineage · ${item.location || "No location"}`}>
     {loading ? <div className="state">Loading full Package 360 context…</div> : null}
     {error ? <div className="state error">{error.message}</div> : null}
     {product.data ? <Product360Workspace data={product.data} initialTab="packages" focusPackageId={item.id} lineage={trail.data ?? null} /> : null}
