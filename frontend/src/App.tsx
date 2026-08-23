@@ -24,7 +24,7 @@ const CompliancePage = lazy(() => import("./pages/CompliancePage").then(module =
 const DoobiePage = lazy(() => import("./pages/DoobiePage").then(module => ({ default: module.DoobiePage })));
 const DataSettingsPage = lazy(() => import("./pages/DataSettingsPage").then(module => ({ default: module.DataSettingsPage })));
 const LocationSettingsPage = lazy(() => import("./pages/LocationSettingsPage").then(module => ({ default: module.LocationSettingsPage })));
-const AdminPage = lazy(() => import("./pages/AdminPage").then(module => ({ default: module.AdminPage })));
+const AdminToolsPage = lazy(() => import("./pages/AdminToolsPage").then(module => ({ default: module.AdminToolsPage })));
 const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then(module => ({ default: module.IntegrationsPage })));
 const MAFlowerEquivalencyPage = lazy(() => import("./pages/MAFlowerEquivalencyPage").then(module => ({ default: module.MAFlowerEquivalencyPage })));
 const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage").then(module => ({ default: module.NomenclatureMapperPage })));
@@ -75,7 +75,7 @@ export default function App() {
     : page === "Executive Reports" ? <ExecutiveReportsPage />
     : page === "Doobie" ? <DoobiePage />
     : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <IntegrationsPage />
-    : page === "Admin" || page === "Admin Tools" ? <AdminPage />
+    : page === "Admin" || page === "Admin Tools" ? <AdminToolsPage />
     : page === "Location Settings" ? <LocationSettingsPage />
     : page === "Data & Settings" ? <DataSettingsPage onNavigate={setPage} />
     : <InventoryPage initialOperation="retail" onNavigate={setPage} />;
