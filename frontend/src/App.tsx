@@ -27,8 +27,17 @@ const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage
 const ExecutiveReportsPage = lazy(() => import("./pages/ExecutiveReportsPage").then(module => ({ default: module.ExecutiveReportsPage })));
 const ComplianceQAPage = lazy(() => import("./pages/ComplianceQAPage").then(module => ({ default: module.ComplianceQAPage })));
 
+function initialPage(): string {
+  const pending = sessionStorage.getItem("buyer-dash-pending-page");
+  if (pending) {
+    sessionStorage.removeItem("buyer-dash-pending-page");
+    return pending;
+  }
+  return "Home";
+}
+
 export default function App() {
-  const [page, setPage] = useState("Home");
+  const [page, setPage] = useState(initialPage);
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
     : page === "Buyer Operations" ? <BuyerOperationsPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" />
