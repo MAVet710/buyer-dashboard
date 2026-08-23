@@ -18,7 +18,7 @@ export function LocationSettingsPage() {
   });
   const facility = context.data?.facilities.find(row => row.id === context.data?.facility_id);
   return <div className="page">
-    <div className="eyebrow">DATA &amp; SETTINGS / LOCATION</div>
+    <div className="eyebrow">DATA & SETTINGS / LOCATION</div>
     <div className="page-heading"><div><h1>Location settings</h1><p>{context.data?.organization?.name ?? "Organization"} · {facility?.name ?? "Facility"}</p><p>These settings apply only to the selected facility and are stored durably with that facility&apos;s DoobieLogic data.</p></div></div>
     {settings.isLoading ? <div className="state">Loading location settings…</div> : null}
     {settings.isError ? <div className="state error">{settings.error.message}</div> : null}
