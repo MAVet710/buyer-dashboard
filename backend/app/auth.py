@@ -12,12 +12,19 @@ from services.trial_access import verify_trial_token
 
 from .config import Settings, get_settings
 from .database import get_engine as get_database_engine
-from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engine
+from modules.coman.db import ComanDatabaseConfigurationError
 
 
-def get_authorization_engine(settings: Settings = Depends(get_settings)) -> Engine | None:
+def get_authorization_engine() -> Engine | None:
+    """Reuse the application's single cached SQLAlchemy engine.
+
+    Auth used to construct a fresh QueuePool for every authenticated request.
+    On Supabase session-mode pooling that leaked idle sessions until the 15-client
+    ceiling was exhausted. ``get_database_engine`` is process-cached, so all API
+    dependencies now share one deliberately bounded pool per Cloud Run instance.
+    """
     try:
-        return create_coman_engine(settings.database_url or None)
+        return get_database_engine()
     except ComanDatabaseConfigurationError:
         return None
 
