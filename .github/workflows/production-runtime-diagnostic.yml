@@ -67,7 +67,9 @@ jobs:
 
           url = os.environ['DATABASE_URL'].strip()
           if url.startswith('postgres://'):
-              url = 'postgresql://' + url[len('postgres://'):]
+              url = 'postgresql+psycopg://' + url[len('postgres://'):]
+          elif url.startswith('postgresql://'):
+              url = 'postgresql+psycopg://' + url[len('postgresql://'):]
           engine = create_engine(url, pool_pre_ping=True)
           with engine.connect() as conn:
               version = conn.execute(text('select version_num from alembic_version')).scalar_one()
