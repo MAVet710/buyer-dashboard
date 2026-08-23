@@ -35,6 +35,7 @@ const HOME_ACTIONS: HomeAction[] = [
 
 export function HomePage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const [productId, setProductId] = useState("");
+  const [productLotId, setProductLotId] = useState("");
   const summary = useQuery({ queryKey: ["home-summary"], queryFn: ({ signal }) => apiGet<Summary>("/api/v1/home/summary", signal) });
   const inbox = useQuery({ queryKey: ["operations-inbox"], queryFn: ({ signal }) => apiGet<Inbox>("/api/v1/home/inbox", signal) });
   const context = useQuery({ queryKey: ["account-context"], queryFn: ({ signal }) => apiGet<Context>("/api/v1/account/context", signal) });
@@ -44,9 +45,15 @@ export function HomePage({ onNavigate }: { onNavigate: (page: string) => void })
   const facility = context.data?.facility ?? context.data?.facilities.find(row => row.id === context.data?.facility_id);
   const highPriority = inbox.data ? inbox.data.summary.critical + inbox.data.summary.high : 0;
   const openInboxItem = (item: InboxItem) => {
-    if (item.product_id) setProductId(item.product_id);
-    else onNavigate(item.workspace);
+    if (item.product_id && item.id.startsWith("hold:")) {
+      setProductId("");
+      setProductLotId(item.entity_id);
+    } else if (item.product_id) {
+      setProductLotId("");
+      setProductId(item.product_id);
+    } else onNavigate(item.workspace);
   };
+  const closeProduct360 = () => { setProductId(""); setProductLotId(""); };
 
   return <div className="page role-home-page">
     <section className="role-home-hero">
@@ -80,7 +87,7 @@ export function HomePage({ onNavigate }: { onNavigate: (page: string) => void })
         <h3>{action.label}</h3><p>{action.description}</p><button className={index === 0 ? "primary" : "secondary"} type="button" onClick={() => onNavigate(action.page)}>Open</button>
       </article>)}</div>
     </section>
-    <Product360Drawer productId={productId} open={Boolean(productId)} onClose={() => setProductId("")} onNavigate={onNavigate}/>
+    <Product360Drawer productId={productId} lotId={productLotId} open={Boolean(productId || productLotId)} onClose={closeProduct360} onNavigate={onNavigate}/>
   </div>;
 }
 
