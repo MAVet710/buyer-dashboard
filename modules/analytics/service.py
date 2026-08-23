@@ -50,7 +50,7 @@ class ProfitabilityAnalyticsService:
         with self._sessions.begin() as session:
             # Revenue from completed sales orders → invoiced
             revenue_stmt = (
-                select(func.sum(CommercialInvoiceLine.quantity * CommercialInvoiceLine.unit_price))
+                select(func.sum(CommercialInvoiceLine.quantity * CommercialInvoiceLine.unit_price_usd))
                 .select_from(CommercialInvoiceLine)
                 .join(CommercialInvoice)
                 .where(
