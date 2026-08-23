@@ -109,7 +109,7 @@ def test_admin_integrations_location_and_facility_controls_survive_remigration()
     )
     has(
         "frontend/src/pages/AdminToolsPage.tsx",
-        'Facility license & operation context', 'License number', 'License type',
+        'Facility license &amp; operation context', 'License number', 'License type',
         'Production / Manufacturing', 'Cultivation', 'Commercial', 'Admin Uploads',
         'Operational diagnostics',
     )
