@@ -58,6 +58,17 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Grant deploy identity access to attach API runtime identity
+        run: |
+          set -euo pipefail
+          gcloud iam service-accounts add-iam-policy-binding \
+            "buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --member="serviceAccount:${{ secrets.GCP_SERVICE_ACCOUNT }}" \
+            --role="roles/iam.serviceAccountUser" \
+            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            --quiet
+
       - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
       - name: Build and push API release candidate
@@ -130,7 +141,7 @@ jobs:
             --port 8080 \
             --min-instances 0 \
             --max-instances 2 \
-            --service-account="${{ secrets.GCP_SERVICE_ACCOUNT }}" \
+            --service-account="buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --quiet
           WEB_URL="$(gcloud run services describe "$WEB_SERVICE" --region "$REGION" --format='value(status.url)')"
           test -n "$WEB_URL"
