@@ -91,4 +91,4 @@ def test_commercial_workspace_uses_durable_scoped_services_and_embedded_audits()
     ]:
         assert contract in router
     assert "embedded = false" in audits
-    assert 'embedded ? content' in audits
+    assert 'embedded?"embedded-audits exact-audits":"page exact-audits"' in audits
