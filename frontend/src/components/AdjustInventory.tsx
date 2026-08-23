@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "../lib/api";
 import type { InventoryPackage } from "../types/inventory";
 import { StreamlitDialog } from "./StreamlitDialog";
@@ -37,12 +37,14 @@ export function AdjustInventory({ operation, item, onClose }: { operation: "reta
   const [syncToMetrc, setSyncToMetrc] = useState(false);
   const [bypass, setBypass] = useState(false);
   const [reviewed, setReviewed] = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    if (!reasons.data) return;
-    if (!reason && reasons.data.reasons[0]) setReason(reasons.data.reasons[0].name);
-    setSyncToMetrc(reasons.data.metrc_ready);
-  }, [reasons.data, reason]);
+    if (!reasons.data || initialized) return;
+    setReason(current => current || reasons.data?.reasons[0]?.name || "");
+    setSyncToMetrc(Boolean(reasons.data.metrc_ready));
+    setInitialized(true);
+  }, [initialized, reasons.data]);
 
   const current = Number(item.available || 0);
   const final = adjustmentType === "incremental" ? current + quantity : quantity;
