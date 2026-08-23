@@ -49,7 +49,7 @@ export default function App() {
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
     : page === "Delivery Performance" ? <DeliveryImpactPage />
-    : page === "Buying Recommendations" ? <BuyingRecommendationsPage onNavigate={setPage} />
+    : page === "Buying Recommendations" ? <BuyingRecommendationsPage />
     : page === "Buying Budget" ? <BuyingBudgetPage />
     : page === "Purchase Orders" ? <PurchaseOrdersParityPage onNavigate={setPage} />
     : page === "Retail Product Master" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
