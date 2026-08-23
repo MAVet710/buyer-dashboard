@@ -16,7 +16,12 @@ from modules.ma_flower_equivalency.logic import (
     calculate_infused_preroll_equivalency,
     format_equivalency,
 )
-from services.nomenclature_mapper import prepare_catalog, prepare_manifest, suggest_matches
+from services.nomenclature_mapper import (
+    prepare_catalog,
+    prepare_manifest,
+    propose_new_catalog_name,
+    suggest_matches,
+)
 from services.nomenclature_store import NomenclatureStore
 from ..auth import RequestContext, get_request_context, get_retail_context
 from ..database import get_engine
@@ -59,6 +64,21 @@ class CatalogItemsRequest(BaseModel):
 
 def _decimal(value: Decimal | None) -> float | None:
     return float(value) if value is not None else None
+
+
+def _catalog_records(frame: pd.DataFrame, *, limit: int | None = None) -> list[dict[str, str]]:
+    selected = frame if limit is None else frame.head(limit)
+    rows: list[dict[str, str]] = []
+    for row in selected.to_dict("records"):
+        rows.append(
+            {
+                "canonical_name": str(row.get("canonical_name") or ""),
+                "sku": str(row.get("sku") or ""),
+                "category": str(row.get("category") or ""),
+                "brand": str(row.get("brand") or ""),
+            }
+        )
+    return rows
 
 
 @router.post("/ma-flower-equivalency")
@@ -115,6 +135,21 @@ def nomenclature_status(context: RequestContext = Depends(get_request_context), 
     }
 
 
+@router.post("/nomenclature/catalog/preview")
+async def nomenclature_catalog_preview(file: UploadFile = File(...)):
+    payload = await file.read()
+    if len(payload) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Catalog files must be 10 MB or smaller.")
+    try:
+        frame = prepare_catalog(payload, file.filename or "catalog.csv")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "detected": len(frame),
+        "preview": _catalog_records(frame, limit=100),
+    }
+
+
 @router.post("/nomenclature/catalog")
 async def nomenclature_catalog(
     file: UploadFile = File(...),
@@ -129,7 +164,7 @@ async def nomenclature_catalog(
         saved = _store(engine).replace_catalog(context.organization_id, frame.to_dict("records"), context.user_id)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    return {"saved": saved, "preview": frame.head(100).fillna("").to_dict("records")}
+    return {"saved": saved, "preview": _catalog_records(frame, limit=100)}
 
 
 @router.post("/nomenclature/catalog/items")
@@ -208,6 +243,7 @@ async def nomenclature_manifest(
                 "confidence": round(float(row.confidence) * 100, 1),
                 "status": row.status,
                 "match_basis": row.match_basis,
+                "proposed_new_name": propose_new_catalog_name(row.source_name, catalog),
             }
             for row in suggestions
         ],
