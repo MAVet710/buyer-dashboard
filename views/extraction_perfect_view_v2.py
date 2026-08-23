@@ -7,10 +7,11 @@ import streamlit as st
 
 from core.session_keys import EXTRACTION_JOBS, EXTRACTION_RUNS
 from doobie_panels import run_extraction_doobie
+from modules.extraction.legacy_step8_ui import render_legacy_process_tracker, render_step8_run_fields
 from ui_polish import chart_card_end, chart_card_start, render_metric_tiles, render_section_header
 
-METHOD_OPTIONS = ["All", "BHO", "CO2", "Rosin", "Ethanol"]
-ENTRY_METHOD_OPTIONS = ["BHO", "CO2", "Rosin", "Ethanol"]
+METHOD_OPTIONS = ["All", "BHO", "CO2", "Rosin", "Ethanol", "Dry Sift", "Ice Water Hash"]
+ENTRY_METHOD_OPTIONS = ["BHO", "CO2", "Rosin", "Ethanol", "Dry Sift", "Ice Water Hash"]
 CHART_COLORS = ["#ff9a3c", "#5aa8ff", "#f3c74c", "#4cd388", "#ff6161"]
 PRODUCT_TYPE_OPTIONS = [
     "Sugar",
@@ -620,9 +621,17 @@ def render_extraction_perfect_view_v2():
                 operator = st.text_input("Operator", key="ecc_operator_v2")
                 machine_line = st.text_input("Machine / Line", key="ecc_machine_line_v2")
                 notes = st.text_area("Run Notes", key="ecc_notes_v2")
+
+            step8 = render_step8_run_fields(
+                method=method,
+                legacy_metrc_input=metrc_package_id_input,
+                legacy_metrc_output=metrc_package_id_output,
+                explicit_finished_output_g=finished_output_g,
+            )
             if st.button("Add Run", key="ecc_add_run_v2"):
-                yield_pct = (finished_output_g / input_weight_g * 100) if input_weight_g else 0.0
-                post_eff = (finished_output_g / intermediate_output_g * 100) if intermediate_output_g else 0.0
+                resolved_finished_output_g = float(step8.get("final_output_g", finished_output_g) or 0.0)
+                yield_pct = (resolved_finished_output_g / input_weight_g * 100) if input_weight_g else 0.0
+                post_eff = (resolved_finished_output_g / intermediate_output_g * 100) if intermediate_output_g else 0.0
                 new_row = pd.DataFrame([{
                     "run_date": str(run_date),
                     "state": state,
@@ -638,7 +647,8 @@ def render_extraction_perfect_view_v2():
                     "input_material_type": input_material_type,
                     "input_weight_g": input_weight_g,
                     "intermediate_output_g": intermediate_output_g,
-                    "finished_output_g": finished_output_g,
+                    "manual_finished_output_g": finished_output_g,
+                    "finished_output_g": resolved_finished_output_g,
                     "residual_loss_g": residual_loss_g,
                     "yield_pct": yield_pct,
                     "post_process_efficiency_pct": post_eff,
@@ -654,9 +664,12 @@ def render_extraction_perfect_view_v2():
                     "coa_status": coa_status,
                     "qa_hold": qa_hold,
                     "notes": notes,
+                    **step8,
                 }])
                 st.session_state[EXTRACTION_RUNS] = pd.concat([st.session_state[EXTRACTION_RUNS], new_row], ignore_index=True)
                 st.success("Run added.")
+
+        render_legacy_process_tracker(st.session_state[EXTRACTION_RUNS])
 
     with toll_tab:
         st.markdown("### Toll Processing Command View")
@@ -721,6 +734,9 @@ def render_extraction_perfect_view_v2():
                 ["Facility / License Name", "Required internal mapping for multi-site operations"],
                 ["Internal Batch ID", "Your own batch identifier"],
                 ["METRC Package ID - Input", "Starting package used in the run"],
+                ["METRC Intermediate Package ID", "Intermediate/WIP lineage when used"],
+                ["METRC Distillate Package ID", "Distillation lineage when applicable"],
+                ["METRC Formulation Package ID", "Formulation lineage when applicable"],
                 ["METRC Package ID - Output", "Finished package created from the run"],
                 ["METRC Manifest / Transfer ID", "Movement and custody tracking"],
                 ["Client License / Registration", "Critical for toll processing"],
