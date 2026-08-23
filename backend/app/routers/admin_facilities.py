@@ -49,9 +49,9 @@ def _serialize(row: Facility) -> dict:
     }
 
 
-@router.post("/{facility_id}/update")
+@router.post("/{target_facility_id}/update")
 def update_facility(
-    facility_id: str,
+    target_facility_id: str,
     payload: FacilityUpdate,
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
@@ -65,7 +65,7 @@ def update_facility(
 
     _require_dev(context)
     with Session(engine, expire_on_commit=False) as session, session.begin():
-        row = session.get(Facility, facility_id)
+        row = session.get(Facility, target_facility_id)
         if row is None:
             raise HTTPException(404, "Facility was not found.")
 
