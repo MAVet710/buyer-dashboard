@@ -86,7 +86,7 @@ def test_inventory_cross_workspace_actions_receiving_and_history_are_preserved()
 def test_compliance_qa_and_nomenclature_mapper_keep_streamlit_operator_workflows():
     has(
         "frontend/src/pages/ComplianceQAPage.tsx",
-        'Compliance Q&A', 'Download compliance source template', 'Required source columns',
+        'Compliance Q&amp;A', 'Download compliance source template', 'Required source columns',
         'state', 'scope', 'topic', 'answer', 'source_citation', 'source_url', 'last_updated', 'review_status',
         'Upload structured compliance sources', 'Answer from structured sources',
         'METRC State', 'adult-use', 'medical',
@@ -105,7 +105,7 @@ def test_admin_integrations_location_and_facility_controls_survive_remigration()
         "frontend/src/pages/AdminPage.tsx",
         'User Management', 'Create User', 'Manage Existing', 'Temporary password',
         'Confirm temporary password', 'Require password change',
-        'Platform Organizations & Facilities', 'Add Organization', 'Add Facility', 'facility_ids',
+        'Platform Organizations &amp; Facilities', 'Add Organization', 'Add Facility', 'facility_ids',
     )
     has(
         "frontend/src/pages/AdminToolsPage.tsx",
