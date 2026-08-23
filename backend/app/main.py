@@ -67,7 +67,7 @@ EXPECTED_SCHEMA_REVISION = _expected_schema_revision()
 RELEASE_SHA = (os.getenv("RELEASE_SHA") or "development").strip()
 DECLARED_SCHEMA_HEAD = (os.getenv("EXPECTED_SCHEMA_HEAD") or "").strip()
 
-if settings.is_production and DECLARED_SCHEMA_HEAD and DECLARED_SCHEMA_HEAD != EXPECTED_SCHEMA_REVISION:
+if not settings.is_development and DECLARED_SCHEMA_HEAD and DECLARED_SCHEMA_HEAD != EXPECTED_SCHEMA_REVISION:
     raise RuntimeError(
         "Deployed schema-head declaration does not match the API image: "
         f"declared={DECLARED_SCHEMA_HEAD} image={EXPECTED_SCHEMA_REVISION}"
