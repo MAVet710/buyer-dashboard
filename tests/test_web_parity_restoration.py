@@ -129,9 +129,11 @@ def test_retail_and_production_product_master_are_reachable_without_flattening_n
     app = (root / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
     search = (root / "frontend" / "src" / "components" / "GlobalSearch.tsx").read_text(encoding="utf-8")
 
-    assert '{ label: "Product Master", page: "Retail Product Master" }' in shell
-    assert '{ label: "Product Master", page: "Production Product Master" }' in shell
-    assert 'page === "Retail Product Master"' in app
+    assert '{ label: "Product 360", page: "Retail Product 360" }' in shell
+    assert '{ label: "Catalog Administration", page: "Retail Catalog Admin" }' in shell
+    assert '{ label: "Products", page: "Production Product Master" }' in shell
+    assert 'page === "Retail Product 360" || page === "Retail Product Master"' in app
+    assert 'page === "Retail Catalog Admin"' in app
     assert 'page === "Production Product Master"' in app
     assert 'workspace: "Retail Product Master"' in search
     assert 'workspace: "Production Product Master"' in search
