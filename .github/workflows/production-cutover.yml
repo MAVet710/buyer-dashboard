@@ -34,7 +34,7 @@ jobs:
             -e APP_ENV=development \
             -e DATABASE_URL=sqlite+pysqlite:////tmp/cutover-check.db \
             -e CORS_ORIGINS=https://ops.doobielogic.io \
-            -e ALLOWED_HOSTS=api.doobielogic.io,localhost \
+            -e ALLOWED_HOSTS=api.doobielogic.io,localhost,127.0.0.1 \
             -p 8080:8080 doobielogic-api-cutover-check
           for i in $(seq 1 20); do
             if curl -fsS http://127.0.0.1:8080/health; then exit 0; fi
