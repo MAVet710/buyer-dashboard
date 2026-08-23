@@ -47,12 +47,31 @@ def resolve_database_url(explicit_url: str | None = None) -> str:
     return database_url
 
 
+def _int_setting(name: str, default: int, *, minimum: int) -> int:
+    raw = str(os.environ.get(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return max(minimum, int(raw))
+    except ValueError:
+        return default
+
+
 def create_coman_engine(database_url: str | None = None) -> Engine:
     resolved = resolve_database_url(database_url)
     options: dict = {"future": True, "pool_pre_ping": True}
     if resolved.startswith("sqlite"):
         options["connect_args"] = {"check_same_thread": False}
     else:
+        # Supabase session-mode pooling has a finite server-side connection
+        # budget. SQLAlchemy's QueuePool defaults (5 pooled + 10 overflow)
+        # can consume that entire budget from a single Cloud Run process.
+        # Keep the application pool deliberately small and bounded; callers
+        # can tune it explicitly for larger database plans.
+        options["pool_size"] = _int_setting("DATABASE_POOL_SIZE", 3, minimum=1)
+        options["max_overflow"] = _int_setting("DATABASE_MAX_OVERFLOW", 0, minimum=0)
+        options["pool_timeout"] = _int_setting("DATABASE_POOL_TIMEOUT", 30, minimum=1)
+        options["pool_use_lifo"] = True
         options["pool_recycle"] = 300
         options["connect_args"] = {"connect_timeout": 5}
     return create_engine(resolved, **options)
