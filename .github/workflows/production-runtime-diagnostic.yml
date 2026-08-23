@@ -44,10 +44,25 @@ jobs:
           set -euo pipefail
           echo "Active Google identity:"
           gcloud auth list --filter=status:ACTIVE --format='value(account)'
-          echo "API service:"
+          echo "API service summary:"
           gcloud run services describe buyer-dash-api \
             --region us-east1 \
-            --format='table(status.latestReadyRevisionName,status.url,spec.template.spec.serviceAccountName)'
+            --format='table(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.url,spec.template.spec.serviceAccountName)'
+          echo "API traffic:"
+          gcloud run services describe buyer-dash-api \
+            --region us-east1 \
+            --format='yaml(status.traffic)'
+          echo "API environment bindings (names and secret refs only):"
+          gcloud run services describe buyer-dash-api \
+            --region us-east1 \
+            --format='yaml(spec.template.spec.containers[0].env)'
+          echo "Recent API revisions:"
+          gcloud run revisions list \
+            --service buyer-dash-api \
+            --region us-east1 \
+            --limit 5 \
+            --sort-by='~metadata.creationTimestamp' \
+            --format='table(metadata.name,metadata.creationTimestamp,status.conditions[0].status,status.conditions[0].message)'
           echo "DATABASE_URL secret versions (metadata only):"
           gcloud secrets versions list buyer-dash-database-url \
             --limit=3 \
@@ -84,6 +99,21 @@ jobs:
           print(f'App users: {users}')
           print(f'Legal acceptance rows: {acceptances}')
           PY
+
+      - name: Probe default and candidate API URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          service_url=$(gcloud run services describe buyer-dash-api --region us-east1 --format='value(status.url)')
+          for base in "https://api.doobielogic.io" "$service_url" "https://candidate---buyer-dash-api-giuo75azma-ue.a.run.app"; do
+            echo "Probing $base"
+            for endpoint in health health/ready; do
+              code=$(curl --silent --show-error --max-time 20 --output /tmp/probe.json --write-out '%{http_code}' "$base/$endpoint" || true)
+              echo "  /$endpoint -> $code"
+              cat /tmp/probe.json 2>/dev/null || true
+              echo
+            done
+          done
 
       - name: Fail if production API is not ready
         shell: bash
