@@ -18,6 +18,7 @@ env:
   WEB_SERVICE: buyer-dash-web
   MIGRATION_JOB: buyer-dash-migrate
   REGION: us-east1
+  PRODUCTION_API_URL: https://api.doobielogic.io
 
 jobs:
   release-gate:
@@ -108,7 +109,7 @@ jobs:
             --concurrency 40 \
             --cpu 1 \
             --memory 1Gi \
-            --set-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=3@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30" \
+            --set-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=3@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30@RELEASE_SHA=${{ github.event.pull_request.head.sha }}" \
             --set-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
             --quiet
 
@@ -124,10 +125,10 @@ jobs:
           echo "Revision image: $DEPLOYED_IMAGE"
           echo "url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
 
-      - name: Verify deployed Cloud Run API readiness
+      - name: Verify production API readiness
         run: |
           set -euo pipefail
-          SERVICE_URL="${{ steps.service-url.outputs.url }}"
+          SERVICE_URL="${{ env.PRODUCTION_API_URL }}"
           for attempt in $(seq 1 30); do
             health=$(curl -sS -o /tmp/health.json -w '%{http_code}' "$SERVICE_URL/health" || true)
             ready=$(curl -sS -o /tmp/ready.json -w '%{http_code}' "$SERVICE_URL/health/ready" || true)
@@ -136,9 +137,10 @@ jobs:
               cat /tmp/ready.json
               exit 0
             fi
-            echo "Waiting for deployed Cloud Run API (health=$health ready=$ready)"
+            echo "Waiting for production API hostname (health=$health ready=$ready)"
             sleep 6
           done
+          echo "Production API readiness failed"
           cat /tmp/health.json || true
           cat /tmp/ready.json || true
           exit 1
@@ -149,7 +151,7 @@ jobs:
           set -euo pipefail
           echo "Direct Cloud Run URL: ${{ steps.service-url.outputs.url }}"
           echo "Custom API hostname response:"
-          curl -sS -i https://api.doobielogic.io/health/ready | head -40 || true
+          curl -sS -i "${{ env.PRODUCTION_API_URL }}/health/ready" | head -40 || true
           echo "Cloud Run domain mappings:"
           gcloud run domain-mappings list --region "${{ env.REGION }}" --format='table(metadata.name,spec.routeName,status.conditions[0].status,status.resourceRecords)' || true
 
@@ -176,7 +178,7 @@ jobs:
           set -euo pipefail
           IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.event.pull_request.head.sha }}-a${{ github.run_attempt }}"
           docker build -f frontend/Dockerfile \
-            --build-arg VITE_API_URL=${{ needs.deploy-api.outputs.api_url }} \
+            --build-arg VITE_API_URL=${{ env.PRODUCTION_API_URL }} \
             --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
             --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }} \
             -t "$IMAGE" frontend
