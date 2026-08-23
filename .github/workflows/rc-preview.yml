@@ -1,0 +1,174 @@
+name: Release Candidate Preview
+
+on:
+  push:
+    branches: [fix/exact-streamlit-parity-v2]
+  workflow_dispatch:
+
+env:
+  REGISTRY: us-east1-docker.pkg.dev
+  REGION: us-east1
+  API_SERVICE: buyer-dash-api-rc
+  WEB_SERVICE: buyer-dash-web-rc
+
+concurrency:
+  group: doobielogic-rc-preview
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify strict Streamlit parity contract
+        run: python scripts/verify_streamlit_parity.py --mode contract
+      - name: Build API release-candidate image locally
+        run: docker build -f Dockerfile.api -t buyer-dash-api:rc .
+      - name: Verify production API startup
+        run: |
+          docker run --rm \
+            -e APP_ENV=production \
+            -e DATABASE_URL=sqlite+pysqlite:///:memory: \
+            -e SUPABASE_URL=https://example.supabase.co \
+            -e SUPABASE_JWKS_URL=https://example.supabase.co/auth/v1/.well-known/jwks.json \
+            -e SUPABASE_SERVICE_ROLE_KEY=test \
+            -e INTEGRATION_ENCRYPTION_KEY=test \
+            -e CORS_ORIGINS=https://preview.invalid \
+            -e ALLOWED_HOSTS=*.run.app \
+            buyer-dash-api:rc python -c "import backend.app.main"
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build and push API release candidate
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${API_SERVICE}:${GITHUB_SHA}"
+          docker build -f Dockerfile.api -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy isolated API release candidate
+        run: |
+          set -euo pipefail
+          gcloud run deploy "$API_SERVICE" \
+            --image "$API_IMAGE" \
+            --region "$REGION" \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --min-instances 0 \
+            --max-instances 2 \
+            --concurrency 20 \
+            --cpu 1 \
+            --memory 1Gi \
+            --set-env-vars APP_ENV=production,CORS_ORIGINS=https://preview.invalid,ALLOWED_HOSTS=*.run.app \
+            --set-secrets DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest \
+            --service-account="buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --quiet
+          API_URL="$(gcloud run services describe "$API_SERVICE" --region "$REGION" --format='value(status.url)')"
+          test -n "$API_URL"
+          echo "API_URL=$API_URL" >> "$GITHUB_ENV"
+
+      - name: Verify API release-candidate health
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            health_code=$(curl -sS -o /tmp/rc-health.json -w '%{http_code}' "$API_URL/health" || true)
+            ready_code=$(curl -sS -o /tmp/rc-ready.json -w '%{http_code}' "$API_URL/health/ready" || true)
+            if [ "$health_code" = "200" ] && [ "$ready_code" = "200" ]; then
+              cat /tmp/rc-health.json
+              cat /tmp/rc-ready.json
+              exit 0
+            fi
+            sleep 3
+          done
+          cat /tmp/rc-health.json || true
+          cat /tmp/rc-ready.json || true
+          exit 1
+
+      - name: Build and push web release candidate
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${WEB_SERVICE}:${GITHUB_SHA}"
+          docker build -f frontend/Dockerfile \
+            --build-arg VITE_API_URL="$API_URL" \
+            --build-arg VITE_SUPABASE_URL="${{ secrets.VITE_SUPABASE_URL }}" \
+            --build-arg VITE_SUPABASE_PUBLISHABLE_KEY="${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" \
+            -t "$IMAGE" frontend
+          docker push "$IMAGE"
+          echo "WEB_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy isolated web release candidate
+        run: |
+          set -euo pipefail
+          gcloud run deploy "$WEB_SERVICE" \
+            --image "$WEB_IMAGE" \
+            --region "$REGION" \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --min-instances 0 \
+            --max-instances 2 \
+            --service-account="${{ secrets.GCP_SERVICE_ACCOUNT }}" \
+            --quiet
+          WEB_URL="$(gcloud run services describe "$WEB_SERVICE" --region "$REGION" --format='value(status.url)')"
+          test -n "$WEB_URL"
+          echo "WEB_URL=$WEB_URL" >> "$GITHUB_ENV"
+
+      - name: Bind API CORS to the release-candidate web origin
+        run: |
+          set -euo pipefail
+          gcloud run services update "$API_SERVICE" \
+            --region "$REGION" \
+            --update-env-vars "CORS_ORIGINS=$WEB_URL,ALLOWED_HOSTS=*.run.app" \
+            --quiet
+
+      - name: Smoke test release-candidate pair
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            web_code=$(curl -sS -o /tmp/rc-web.html -w '%{http_code}' "$WEB_URL" || true)
+            health_code=$(curl -sS -o /tmp/rc-health-final.json -w '%{http_code}' "$API_URL/health" || true)
+            ready_code=$(curl -sS -o /tmp/rc-ready-final.json -w '%{http_code}' "$API_URL/health/ready" || true)
+            if [ "$web_code" = "200" ] && [ "$health_code" = "200" ] && [ "$ready_code" = "200" ]; then
+              break
+            fi
+            sleep 3
+          done
+          test "$web_code" = "200"
+          test "$health_code" = "200"
+          test "$ready_code" = "200"
+          grep -qi '<div id="root"' /tmp/rc-web.html
+          printf 'WEB_URL=%s\nAPI_URL=%s\nCOMMIT=%s\n' "$WEB_URL" "$API_URL" "$GITHUB_SHA" | tee rc-preview-urls.txt
+          {
+            echo '## DoobieLogic release-candidate preview'
+            echo
+            echo "- Web: $WEB_URL"
+            echo "- API: $API_URL"
+            echo "- Commit: $GITHUB_SHA"
+            echo '- Production traffic/DNS: unchanged'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rc-preview-urls
+          path: rc-preview-urls.txt
+          retention-days: 7
