@@ -5,6 +5,10 @@ on:
     branches: [main]
     types: [synchronize, reopened]
 
+concurrency:
+  group: doobielogic-production-cutover
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
