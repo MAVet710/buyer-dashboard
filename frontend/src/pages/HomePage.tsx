@@ -16,13 +16,13 @@ type Summary = {
   open_purchase_orders: number;
   open_purchase_order_value: number;
 };
-type InboxItem = { id: string; severity: string; area: string; title: string; detail: string; workspace: string; entity_id: string };
+type InboxItem = { id: string; severity: string; area: string; title: string; detail: string; workspace: string; entity_id: string; product_id?: string; action_label?: string; evidence?: string[] };
 type Inbox = { items: InboxItem[]; summary: { critical: number; high: number; total: number } };
 type Context = { user: { display_name: string; email: string; role: string }; organization: { id: string; name: string } | null; facility_id: string; facility?: { id: string; name: string } | null; facilities: { id: string; name: string }[] };
 type HomeAction = { label: string; description: string; page: string; roles?: string[] };
 
 const HOME_ACTIONS: HomeAction[] = [
-  { label: "Review inventory", description: "Stock health, reorders, and aging risk.", page: "Inventory", roles: ["dev", "admin", "buyer", "read_only"] },
+  { label: "Review inventory", description: "Stock health, reorders, and aging risk.", page: "Buyer Operations", roles: ["dev", "admin", "buyer", "read_only"] },
   { label: "Start inventory audit", description: "Scan, pause, resume, and reconcile counts.", page: "Inventory Audits", roles: ["dev", "admin", "buyer", "supervisor", "operator", "qa"] },
   { label: "Traceability queue", description: "Review pending, rejected, and reconciliation-required state-system actions.", page: "Compliance", roles: ["dev", "admin", "buyer", "supervisor", "operator", "qa", "read_only"] },
   { label: "Open Package Studio", description: "Break down, pack down, build, sample, correct, and trace packages.", page: "Package Studio", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa"] },
@@ -34,7 +34,7 @@ const HOME_ACTIONS: HomeAction[] = [
 ];
 
 export function HomePage({ onNavigate }: { onNavigate: (page: string) => void }) {
-  const [productLotId, setProductLotId] = useState("");
+  const [productId, setProductId] = useState("");
   const summary = useQuery({ queryKey: ["home-summary"], queryFn: ({ signal }) => apiGet<Summary>("/api/v1/home/summary", signal) });
   const inbox = useQuery({ queryKey: ["operations-inbox"], queryFn: ({ signal }) => apiGet<Inbox>("/api/v1/home/inbox", signal) });
   const context = useQuery({ queryKey: ["account-context"], queryFn: ({ signal }) => apiGet<Context>("/api/v1/account/context", signal) });
@@ -44,7 +44,7 @@ export function HomePage({ onNavigate }: { onNavigate: (page: string) => void })
   const facility = context.data?.facility ?? context.data?.facilities.find(row => row.id === context.data?.facility_id);
   const highPriority = inbox.data ? inbox.data.summary.critical + inbox.data.summary.high : 0;
   const openInboxItem = (item: InboxItem) => {
-    if (item.area.toLowerCase() === "inventory" && item.entity_id) setProductLotId(item.entity_id);
+    if (item.product_id) setProductId(item.product_id);
     else onNavigate(item.workspace);
   };
 
@@ -69,8 +69,8 @@ export function HomePage({ onNavigate }: { onNavigate: (page: string) => void })
       {inbox.isError ? <div className="state error">{inbox.error.message}</div> : null}
       {inbox.data?.items.length ? <div className="role-home-inbox">{inbox.data.items.slice(0, 8).map(item => <article className="role-home-alert" key={item.id}>
         <div className="role-home-alert-area"><span>{item.area.toUpperCase()}</span><em className={`severity ${item.severity}`}>{item.severity}</em></div>
-        <div className="role-home-alert-body"><strong>{item.title}</strong><p>{item.detail}</p>{item.entity_id ? <small>{item.entity_id}</small> : null}</div>
-        <button className={item.severity === "critical" ? "primary" : "secondary"} type="button" onClick={() => openInboxItem(item)}>{actionLabel(item.area)}</button>
+        <div className="role-home-alert-body"><strong>{item.title}</strong><p>{item.detail}</p>{item.evidence?.length ? <small>{item.evidence.join(" · ")}</small> : null}</div>
+        <button className={item.severity === "critical" ? "primary" : "secondary"} type="button" onClick={() => openInboxItem(item)}>{item.action_label || actionLabel(item.area)}</button>
       </article>)}</div> : !inbox.isLoading && !inbox.isError ? <div className="success-banner"><strong>No high-priority operational exceptions are visible from the loaded facility data.</strong><br/><span>Start from a task below or use global search.</span></div> : null}
     </section>
 
@@ -80,7 +80,7 @@ export function HomePage({ onNavigate }: { onNavigate: (page: string) => void })
         <h3>{action.label}</h3><p>{action.description}</p><button className={index === 0 ? "primary" : "secondary"} type="button" onClick={() => onNavigate(action.page)}>Open</button>
       </article>)}</div>
     </section>
-    <Product360Drawer lotId={productLotId} open={Boolean(productLotId)} onClose={() => setProductLotId("")} onNavigate={onNavigate}/>
+    <Product360Drawer productId={productId} open={Boolean(productId)} onClose={() => setProductId("")} onNavigate={onNavigate}/>
   </div>;
 }
 
