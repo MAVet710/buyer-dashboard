@@ -17,7 +17,7 @@ const RetailProduct360Page = lazy(() => import("./pages/RetailProduct360Page").t
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
 const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
 const ProductionPage = lazy(() => import("./pages/ProductionPage").then(module => ({ default: module.ProductionPage })));
-const ExtractionCommandCenterPage = lazy(() => import("./pages/ExtractionCommandCenterPage").then(module => ({ default: module.ExtractionCommandCenterPage })));
+const ExtractionUnifiedPage = lazy(() => import("./pages/ExtractionUnifiedPage").then(module => ({ default: module.ExtractionUnifiedPage })));
 const WhiteLabelRepackPage = lazy(() => import("./pages/WhiteLabelRepackPage").then(module => ({ default: module.WhiteLabelRepackPage })));
 const PackageStudioPage = lazy(() => import("./pages/PackageStudioPage").then(module => ({ default: module.PackageStudioPage })));
 const OrdersPage = lazy(() => import("./pages/OrdersPage").then(module => ({ default: module.OrdersPage })));
@@ -66,7 +66,7 @@ export default function App() {
     : page === "Purchasing" || page === "Replenishment Policies" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPage />
-    : page === "Extraction" ? <ExtractionCommandCenterPage onNavigate={setPage} />
+    : page === "Extraction" ? <ExtractionUnifiedPage onNavigate={setPage} />
     : page === "White Label / Repack" ? <WhiteLabelRepackPage />
     : page === "Package Studio" ? <PackageStudioPage />
     : page === "Orders" ? <OrdersPage />
