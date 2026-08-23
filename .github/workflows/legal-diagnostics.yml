@@ -1,0 +1,33 @@
+name: Legal Gate Diagnostics
+
+on:
+  push:
+    branches: [diag/legal-gate]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Show production API service state
+        run: |
+          set -euo pipefail
+          gcloud run services describe buyer-dash-api --region us-east1 --format='yaml(status.url,status.latestCreatedRevisionName,status.latestReadyRevisionName,status.traffic)'
+      - name: Read recent legal/auth API failures
+        run: |
+          set -euo pipefail
+          gcloud logging read \
+            'resource.type="cloud_run_revision" AND resource.labels.service_name="buyer-dash-api" AND timestamp>="2026-08-23T23:20:00Z"' \
+            --limit 400 \
+            --order=desc \
+            --format='value(timestamp,severity,resource.labels.revision_name,textPayload,jsonPayload.message,httpRequest.requestMethod,httpRequest.requestUrl,httpRequest.status)' \
+            | grep -Ei 'legal/current|api_request_failed|Traceback|ERROR|Exception|psycopg|sqlalchemy|jwt|auth' || true
