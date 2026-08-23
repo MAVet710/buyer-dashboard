@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiGet, apiPost, downloadBlob } from "../lib/api";
+import { BuyerLegacyOverview } from "../components/BuyerLegacyOverview";
 
 type Row = Record<string, unknown>;
 type Dashboard = {
@@ -184,13 +185,15 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
   };
 
   return <div className="page">
-    <div className="page-heading"><div><div className="eyebrow">Buyer Dashboard</div><h1>Buyer Dashboard</h1><p>Original buyer workflow ported into the modular app with Doobie replacing legacy AI.</p></div></div>
+    <div className="page-heading"><div><div className="eyebrow">Purchasing</div><h1>Buyer Dashboard</h1><p>The original buyer workflow, restored as one continuous DoobieLogic purchasing command center.</p></div></div>
 
     <section className="inventory-panel parity-controls buyer-primary-controls">
       <NumberControl label="Target Days on Hand" value={targetDoh} min={1} max={60} step={1} onChange={setTargetDoh}/>
       <NumberControl label="Velocity Adjustment" value={velocity} min={0.01} max={5} step={0.01} onChange={setVelocity}/>
       <label>Days in Sales Period<input type="range" min={7} max={120} value={salesDays} onChange={event => setSalesDays(Number(event.target.value))}/><span>{salesDays}</span></label>
     </section>
+
+    <BuyerLegacyOverview targetDoh={targetDoh} velocityAdjustment={velocity} salesDays={salesDays} skuWindow={skuWindow} topN={showTopN}/>
 
     {dashboard.isError ? <div className="state error">{dashboard.error.message}</div> : null}
     {dashboard.isLoading ? <div className="state">Building the Buyer Dashboard forecast from the active inventory and sales sources…</div> : null}
