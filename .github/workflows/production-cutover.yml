@@ -139,48 +139,64 @@ jobs:
             --set-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
             --quiet
 
-      - name: Verify Cloud Run accepted the exact release identity
+      - name: Verify and promote exact Cloud Run release
         id: service-url
         run: |
           set -euo pipefail
           SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" --region "${{ env.REGION }}" --format=json)"
           SERVICE_URL="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.url')"
-          READY_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.latestReadyRevisionName')"
           CREATED_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.latestCreatedRevisionName')"
           echo "Cloud Run API service: $SERVICE_URL"
           echo "Latest created revision: $CREATED_REVISION"
-          echo "Latest ready revision: $READY_REVISION"
-          if [ -z "$READY_REVISION" ] || [ "$READY_REVISION" != "$CREATED_REVISION" ]; then
-            echo "New revision did not become ready. Capturing revision conditions and startup logs."
-            gcloud run revisions describe "$CREATED_REVISION" \
-              --region "${{ env.REGION }}" \
-              --format='yaml(metadata.name,spec.containers[0].image,spec.containers[0].env,status.conditions,status.logUrl)' || true
-            echo "--- Cloud Run revision logs ---"
+          test -n "$CREATED_REVISION"
+
+          gcloud run revisions describe "$CREATED_REVISION" --region "${{ env.REGION }}" --format=json > /tmp/revision.json
+          READY_STATUS="$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .status][0] // ""' /tmp/revision.json)"
+          REV_RELEASE="$(jq -r '[.spec.containers[0].env[]? | select(.name == "RELEASE_SHA") | .value][0] // ""' /tmp/revision.json)"
+          REV_SCHEMA="$(jq -r '[.spec.containers[0].env[]? | select(.name == "EXPECTED_SCHEMA_HEAD") | .value][0] // ""' /tmp/revision.json)"
+          DEPLOYED_IMAGE="$(jq -r '.spec.containers[0].image // ""' /tmp/revision.json)"
+          echo "Created revision ready status: $READY_STATUS"
+          echo "Revision image: $DEPLOYED_IMAGE"
+          echo "Revision release SHA: $REV_RELEASE"
+          echo "Revision declared schema head: $REV_SCHEMA"
+
+          if [ "$READY_STATUS" != "True" ]; then
+            echo "Created revision is not ready. Capturing conditions and startup logs."
+            jq '.status.conditions' /tmp/revision.json || true
             gcloud logging read \
               "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${{ env.API_SERVICE }}\" AND resource.labels.revision_name=\"$CREATED_REVISION\"" \
               --limit 150 \
               --order=asc \
               --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
-            echo "Refusing cutover: the newly created Cloud Run revision is not the latest ready revision"
             exit 1
           fi
-
-          gcloud run revisions describe "$READY_REVISION" --region "${{ env.REGION }}" --format=json > /tmp/revision.json
-          REV_RELEASE="$(jq -r '[.spec.containers[0].env[]? | select(.name == "RELEASE_SHA") | .value][0] // ""' /tmp/revision.json)"
-          REV_SCHEMA="$(jq -r '[.spec.containers[0].env[]? | select(.name == "EXPECTED_SCHEMA_HEAD") | .value][0] // ""' /tmp/revision.json)"
-          DEPLOYED_IMAGE="$(jq -r '.spec.containers[0].image // ""' /tmp/revision.json)"
-          echo "Revision image: $DEPLOYED_IMAGE"
-          echo "Revision release SHA: $REV_RELEASE"
-          echo "Revision declared schema head: $REV_SCHEMA"
           if [ "$REV_RELEASE" != "${{ github.event.pull_request.head.sha }}" ]; then
-            echo "Refusing cutover: Cloud Run revision release SHA does not match this deployment"
+            echo "Refusing cutover: created revision release SHA does not match this deployment"
             exit 1
           fi
           if [ "$REV_SCHEMA" != "$IMAGE_SCHEMA_HEAD" ]; then
-            echo "Refusing cutover: Cloud Run revision schema declaration does not match the API image schema head"
+            echo "Refusing cutover: created revision schema declaration does not match the API image schema head"
             exit 1
           fi
-          echo "url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
+
+          echo "Promoting verified revision $CREATED_REVISION to 100% production traffic"
+          gcloud run services update-traffic "${{ env.API_SERVICE }}" \
+            --region "${{ env.REGION }}" \
+            --to-revisions "$CREATED_REVISION=100" \
+            --quiet
+
+          for attempt in $(seq 1 20); do
+            SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" --region "${{ env.REGION }}" --format=json)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+            echo "100% traffic revision: $ACTIVE_100"
+            if [ "$ACTIVE_100" = "$CREATED_REVISION" ]; then
+              echo "url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Refusing cutover: verified revision did not receive 100% production traffic"
+          exit 1
 
       - name: Verify release SHA and schema head on production hostname
         run: |
