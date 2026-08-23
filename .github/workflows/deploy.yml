@@ -12,6 +12,10 @@ env:
   MIGRATION_JOB: buyer-dash-migrate
   REGION: us-east1
   PRODUCTION_API_URL: https://api.doobielogic.io
+  API_MAX_INSTANCES: 3
+  DATABASE_POOL_SIZE: 2
+  SUPABASE_SESSION_LIMIT: 15
+  SUPABASE_SESSION_HEADROOM: 3
 
 jobs:
   parity-release-gate:
@@ -35,6 +39,17 @@ jobs:
           HEAD_COUNT="$(printf '%s\n' "$HEADS" | grep -c '(head)' || true)"
           if [ "$HEAD_COUNT" -ne 1 ]; then
             echo "Expected exactly one Alembic head; found $HEAD_COUNT"
+            exit 1
+          fi
+      - name: Verify Supabase session budget
+        run: |
+          set -euo pipefail
+          STEADY=$(( DATABASE_POOL_SIZE * API_MAX_INSTANCES ))
+          ROLLING=$(( STEADY * 2 ))
+          SAFE=$(( SUPABASE_SESSION_LIMIT - SUPABASE_SESSION_HEADROOM ))
+          echo "steady-state sessions <= $STEADY; rolling-revision worst case <= $ROLLING; safe budget = $SAFE"
+          if [ "$ROLLING" -gt "$SAFE" ]; then
+            echo "Refusing deployment: configured API pool/scale can exceed the reserved Supabase session budget"
             exit 1
           fi
 
@@ -113,11 +128,11 @@ jobs:
             --no-traffic \
             --port 8080 \
             --min-instances 1 \
-            --max-instances 10 \
+            --max-instances "${{ env.API_MAX_INSTANCES }}" \
             --concurrency 40 \
             --cpu 1 \
             --memory 1Gi \
-            --set-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=3@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30@RELEASE_SHA=${{ github.sha }}@EXPECTED_SCHEMA_HEAD=$IMAGE_SCHEMA_HEAD" \
+            --set-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=${{ env.DATABASE_POOL_SIZE }}@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30@RELEASE_SHA=${{ github.sha }}@EXPECTED_SCHEMA_HEAD=$IMAGE_SCHEMA_HEAD" \
             --set-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
             --quiet
 
