@@ -1,13 +1,13 @@
 """Persist extraction workflow, formulation, METRC and stage-output fields.
 
-Revision ID: 0039_extraction_workflow_steps_1_8
+Revision ID: 0039_extraction_step8
 Revises: 0038_extraction_parity_fields
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0039_extraction_workflow_steps_1_8"
+revision = "0039_extraction_step8"
 down_revision = "0038_extraction_parity_fields"
 branch_labels = None
 depends_on = None
