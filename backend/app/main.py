@@ -1,3 +1,7 @@
+from pathlib import Path
+
+from alembic.config import Config as AlembicConfig
+from alembic.script import ScriptDirectory
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -47,6 +51,15 @@ from .observability import install_observability
 
 settings = get_settings()
 settings.validate_production()
+
+
+def _expected_schema_revision() -> str:
+    config = AlembicConfig(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    return ScriptDirectory.from_config(config).get_current_head()
+
+
+EXPECTED_SCHEMA_REVISION = _expected_schema_revision()
+
 app = FastAPI(title=settings.app_name, version="0.1.0")
 install_observability(app)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
@@ -104,8 +117,8 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
         revision = connection.execute(text("select version_num from alembic_version")).scalar_one_or_none() if "alembic_version" in tables else None
     required = {"coman_organizations", "coman_facilities", "coman_products", "coman_inventory_lots", "coman_inventory_transactions", "retail_sales", "inventory_audits", "data_hub_imports", "legal_acceptance_events", "cultivation_plants", "retail_planning_policies", "integration_configurations"}
     missing = sorted(required - tables)
-    revision_current = revision in {None, "0037_function_acl_hardening"}
-    payload = {"status": "ready" if not missing and revision_current else "degraded", "service": "buyer-dash-api", "database": "connected", "schema_revision": revision, "expected_schema_revision": "0037_function_acl_hardening", "missing_tables": missing}
+    revision_current = revision == EXPECTED_SCHEMA_REVISION
+    payload = {"status": "ready" if not missing and revision_current else "degraded", "service": "buyer-dash-api", "database": "connected", "schema_revision": revision, "expected_schema_revision": EXPECTED_SCHEMA_REVISION, "missing_tables": missing}
     return payload if not missing and revision_current else JSONResponse(status_code=503, content=payload)
 
 
