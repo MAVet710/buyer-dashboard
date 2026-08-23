@@ -119,6 +119,30 @@ def test_scan_audit_keeps_phone_camera_and_resumable_lifecycle():
         'completed',
         'cancelled',
     )
+    assert_markers(
+        "frontend/index.html",
+        'html5-qrcode/2.3.8/html5-qrcode.min.js',
+        'StreamlitScannerBarcodeDetector',
+        'window.BarcodeDetector',
+        'reader.scanFile',
+    )
+
+
+def test_inventory_receiving_keeps_traceability_mapping_labs_atomic_post_and_labels():
+    assert_markers(
+        "frontend/src/components/ReceiveInventory.tsx",
+        'Inbound Queue',
+        'Receive Details',
+        'Review',
+        'Post Inventory',
+        'Labels',
+        'METRC',
+        'Mapped Product',
+        'Pull read-only METRC lab results',
+        '/receipts/batch',
+        'Print labels',
+        'Manual receipt',
+    )
 
 
 def test_extraction_exposes_command_center_run_360_and_inventory():
@@ -162,6 +186,141 @@ def test_legacy_buyer_family_remains_first_class():
         'Product-Level Rows',
         'buyer-brief',
         'inventory-check',
+    )
+
+
+def test_home_keeps_operations_inbox_and_role_aware_task_launchers():
+    assert_markers(
+        "frontend/src/pages/HomePage.tsx",
+        'Operations Home',
+        'Needs attention · Operations Inbox',
+        'Start a Task',
+        'Start inventory audit',
+        'Traceability queue',
+        'Open Package Studio',
+        'Build purchasing decisions',
+        'Plan Co-Man production',
+        'Review extraction',
+        'Manage orders',
+        'Import operational data',
+    )
+
+
+def test_orders_keeps_command_entry_execution_partners_audits_ledger_and_finance():
+    assert_markers(
+        "frontend/src/pages/OrdersPage.tsx",
+        'Command Center',
+        'New Order',
+        'Allocate & Fulfill',
+        'Trade Partners',
+        'Inventory Audits',
+        'Inventory Ledger',
+        'Wholesale + Finance',
+        'Incoming purchase orders',
+        'Outgoing sales orders',
+    )
+
+
+def test_coman_production_keeps_full_planning_and_execution_surface():
+    assert_markers(
+        "frontend/src/pages/ProductionPage.tsx",
+        'Dashboard',
+        'New Job',
+        'Schedule',
+        'Resources',
+        'Inventory & BOM',
+        'Customers',
+        'Performance',
+        'machine_models',
+        'reservations',
+        'actuals',
+        'attainment_pct',
+    )
+
+
+def test_white_label_repack_keeps_original_five_step_economics_workflow():
+    assert_markers(
+        "frontend/src/pages/WhiteLabelRepackPage.tsx",
+        'Step 1: Bulk Lot',
+        'Step 2: Costs',
+        'Step 3: Package Plan',
+        'Step 4: Results',
+        'Step 5: Compliance',
+        'Save Scenario',
+        'Duplicate Scenario',
+        'Export Retail Ops Report',
+        'Gross Profit',
+        'Gross Margin %',
+        'Source METRC Package ID',
+    )
+
+
+def test_data_hub_keeps_readiness_import_mapping_history_and_production_intake():
+    assert_markers(
+        "frontend/src/pages/DataSettingsPage.tsx",
+        'Readiness',
+        'Import Retail Data',
+        'Import Production Data',
+        'History',
+        'Ask Mapping Agent',
+        'Publish source',
+        'Archive active sources',
+        'Raw Data Upload Staging',
+    )
+
+
+def test_admin_keeps_users_passwords_roles_orgs_facilities_and_license_context():
+    assert_markers(
+        "frontend/src/pages/AdminPage.tsx",
+        'User Management',
+        'Create User',
+        'Manage Existing',
+        'Temporary password',
+        'Confirm temporary password',
+        'Require password change',
+        'Platform Organizations & Facilities',
+        'Add Organization',
+        'Add Facility',
+        'facility_ids',
+    )
+    assert_markers(
+        "frontend/src/pages/AdminToolsPage.tsx",
+        'Facility license & operation context',
+        'License number',
+        'License type',
+        'Retail',
+        'Production / Manufacturing',
+        'Cultivation',
+        'Commercial',
+        'Admin Uploads',
+        'Operational diagnostics',
+    )
+
+
+def test_integrations_keep_facility_scoped_metrc_and_dev_doobie_controls():
+    assert_markers(
+        "frontend/src/pages/IntegrationsPage.tsx",
+        'METRC User API Key',
+        'METRC State',
+        'METRC License / Facility',
+        'Test Connection',
+        'Clear / Reset',
+        'Doobie Service API Key',
+    )
+
+
+def test_traceability_keeps_queue_reconciliation_attempts_lifecycle_and_payload_evidence():
+    assert_markers(
+        "frontend/src/pages/CompliancePage.tsx",
+        'Queue & Reconciliation',
+        'Needs reconciliation',
+        'In flight',
+        'Attempts',
+        'Lifecycle',
+        'Payloads',
+        'Requeue',
+        'Mark verified',
+        'Cancel action',
     )
 
 
