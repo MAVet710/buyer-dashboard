@@ -33,11 +33,13 @@ def test_product_360_audit_focus_is_consumed_by_the_real_inventory_audit_workspa
 
     assert 'sessionStorage.setItem("buyer-dash-audit-product-focus"' in drawer
     assert 'sessionStorage.getItem("buyer-dash-audit-product-focus")' in focused
-    assert 'row.product_id === focus?.product_id' in focused
-    assert '"/api/v1/inventory/retail/audits"' in focused
+    assert 'products.has(row.product_id)' in focused
+    assert 'explicitLots.has(row.id)' in focused
+    assert '`/api/v1/inventory/${operation}/audits`' in focused
     assert 'lot_ids: lots.map(row => row.id)' in focused
     assert "Start focused audit" in focused
-    assert '<InventoryAudits operation="retail" />' in focused
+    assert '<InventoryAudits operation={operation} />' in focused
+    assert 'type Operation = "retail" | "production"' in focused
     assert 'page === "Inventory Audits" ? <FocusedInventoryAudits />' in app
 
 
