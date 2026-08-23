@@ -29,6 +29,7 @@ from .routers.po_parity import router as po_parity_router
 from .routers.trial import router as trial_router
 from .routers.legal import router as legal_router
 from .routers.admin import router as admin_router
+from .routers.admin_user_create import router as admin_user_create_router
 from .routers.integrations import router as integrations_router
 from .routers.parity_tools import router as parity_tools_router
 from .routers.buyer_parity import router as buyer_parity_router
@@ -97,6 +98,7 @@ app.include_router(buying_budget_parity_router, prefix=settings.api_prefix)
 app.include_router(po_parity_router, prefix=settings.api_prefix)
 app.include_router(legal_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
+app.include_router(admin_user_create_router, prefix=settings.api_prefix)
 app.include_router(integrations_router, prefix=settings.api_prefix)
 app.include_router(parity_tools_router, prefix=settings.api_prefix)
 app.include_router(buyer_parity_router, prefix=settings.api_prefix)
