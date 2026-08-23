@@ -13,6 +13,7 @@ const BuyingRecommendationsPage = lazy(() => import("./pages/BuyingRecommendatio
 const BuyingBudgetPage = lazy(() => import("./pages/BuyingBudgetPage").then(module => ({ default: module.BuyingBudgetPage })));
 const PurchaseOrdersParityPage = lazy(() => import("./pages/PurchaseOrdersParityPage").then(module => ({ default: module.PurchaseOrdersParityPage })));
 const ProductMasterPage = lazy(() => import("./pages/ProductMasterPage").then(module => ({ default: module.ProductMasterPage })));
+const RetailProduct360Page = lazy(() => import("./pages/RetailProduct360Page").then(module => ({ default: module.RetailProduct360Page })));
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
 const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
 const ProductionPage = lazy(() => import("./pages/ProductionPage").then(module => ({ default: module.ProductionPage })));
@@ -49,7 +50,7 @@ export default function App() {
     return () => window.removeEventListener("buyer-dash-data-mode", refreshForDataMode);
   }, [client]);
   const content = page === "Home" ? <HomePage onNavigate={setPage} />
-    : page === "Buyer Operations" ? <BuyerCommandCenterPage onNavigate={setPage} />
+    : page === "Buyer Operations" || page === "Purchasing" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={setPage} />
     : page === "Inventory Audits" ? <FocusedInventoryAudits />
@@ -59,9 +60,10 @@ export default function App() {
     : page === "Buying Recommendations" ? <BuyingRecommendationsPage />
     : page === "Buying Budget" ? <BuyingBudgetPage />
     : page === "Purchase Orders" ? <PurchaseOrdersParityPage onNavigate={setPage} />
+    : page === "Retail Product 360" ? <RetailProduct360Page onNavigate={setPage} />
     : page === "Retail Product Master" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
-    : page === "Purchasing" ? <PurchasingPage />
+    : page === "Replenishment Policies" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPage />
     : page === "Extraction" ? <ExtractionCommandCenterPage onNavigate={setPage} />
