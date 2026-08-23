@@ -36,6 +36,7 @@ export function RetailProduct360Page({ onNavigate }: { onNavigate: (page: string
         <h1>Product 360</h1>
         <p>Open the same product-level operating picture from Buyer Dash: inventory, velocity, sales windows, purchasing, packages, compliance, audit actions, economics and durable catalog identity.</p>
       </div>
+      <button className="secondary" type="button" onClick={() => onNavigate("Retail Catalog Admin")}>Catalog administration</button>
     </div>
     <div className="metrics">
       <div className="metric"><span>Active products</span><strong>{rows.length}</strong></div>
