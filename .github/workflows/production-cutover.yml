@@ -1,4 +1,4 @@
-name: Production Cutover Diagnostics
+name: Production Cutover to DoobieLogic
 
 on:
   pull_request:
@@ -8,36 +8,178 @@ on:
 permissions:
   contents: read
 
+env:
+  REGISTRY: us-east1-docker.pkg.dev
+  API_SERVICE: buyer-dash-api
+  WEB_SERVICE: buyer-dash-web
+  MIGRATION_JOB: buyer-dash-migrate
+  REGION: us-east1
+
 jobs:
-  diagnose-migration:
+  release-gate:
     if: github.event.pull_request.number == 276 && github.event.pull_request.head.ref == 'fix/exact-streamlit-parity-v2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Streamlit parity contract for live testing
+        run: python scripts/verify_streamlit_parity.py
+      - name: Verify production API image builds
+        run: docker build -f Dockerfile.api -t doobielogic-api-cutover-check .
+      - name: Verify production API starts
+        run: |
+          docker run -d --name doobielogic-api-cutover-check \
+            -e APP_ENV=development \
+            -e DATABASE_URL=sqlite+pysqlite:////tmp/cutover-check.db \
+            -e CORS_ORIGINS=https://ops.doobielogic.io \
+            -e ALLOWED_HOSTS=api.doobielogic.io,localhost,127.0.0.1 \
+            -p 8080:8080 doobielogic-api-cutover-check
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs doobielogic-api-cutover-check
+          exit 1
+
+  deploy-api:
+    needs: release-gate
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
       - uses: google-github-actions/setup-gcloud@v2
-      - name: Describe failed migration execution
+
+      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build and push production API image
         run: |
-          set -x
-          gcloud run jobs executions describe buyer-dash-migrate-pdxjw \
-            --region us-east1 \
-            --format=yaml || true
-      - name: Read migration execution logs
+          set -euo pipefail
+          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.event.pull_request.head.sha }}"
+          docker build -f Dockerfile.api -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Run production database migrations
         run: |
-          set -x
-          gcloud beta run jobs executions logs read buyer-dash-migrate-pdxjw \
-            --region us-east1 \
-            --limit 200 || true
-      - name: Read Cloud Run job logs fallback
+          set -euo pipefail
+          gcloud run jobs deploy "${{ env.MIGRATION_JOB }}" \
+            --image "$API_IMAGE" \
+            --region "${{ env.REGION }}" \
+            --service-account "buyer-dash-migrate@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --command alembic \
+            --args upgrade,head \
+            --max-retries 0 \
+            --task-timeout 15m \
+            --set-env-vars APP_ENV=production \
+            --set-secrets DATABASE_URL=buyer-dash-database-url:latest \
+            --quiet
+          gcloud run jobs execute "${{ env.MIGRATION_JOB }}" \
+            --region "${{ env.REGION }}" \
+            --wait
+
+      - name: Deploy production API
         run: |
-          set -x
-          gcloud logging read \
-            'resource.type="cloud_run_job" AND resource.labels.job_name="buyer-dash-migrate"' \
-            --limit 200 \
-            --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
+          set -euo pipefail
+          gcloud run deploy "${{ env.API_SERVICE }}" \
+            --image "$API_IMAGE" \
+            --region "${{ env.REGION }}" \
+            --platform managed \
+            --service-account "buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --allow-unauthenticated \
+            --port 8080 \
+            --min-instances 1 \
+            --max-instances 3 \
+            --concurrency 40 \
+            --cpu 1 \
+            --memory 1Gi \
+            --set-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=3@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30" \
+            --set-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
+            --quiet
+
+      - name: Verify production API readiness
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            health=$(curl -sS -o /tmp/health.json -w '%{http_code}' https://api.doobielogic.io/health || true)
+            ready=$(curl -sS -o /tmp/ready.json -w '%{http_code}' https://api.doobielogic.io/health/ready || true)
+            if [ "$health" = "200" ] && [ "$ready" = "200" ]; then
+              cat /tmp/health.json
+              cat /tmp/ready.json
+              exit 0
+            fi
+            echo "Waiting for api.doobielogic.io (health=$health ready=$ready)"
+            sleep 6
+          done
+          cat /tmp/health.json || true
+          cat /tmp/ready.json || true
+          exit 1
+
+  deploy-web:
+    needs: deploy-api
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build and push production web image
+        run: |
+          set -euo pipefail
+          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.event.pull_request.head.sha }}"
+          docker build -f frontend/Dockerfile \
+            --build-arg VITE_API_URL=https://api.doobielogic.io \
+            --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
+            --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }} \
+            -t "$IMAGE" frontend
+          docker push "$IMAGE"
+          echo "WEB_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy production web service
+        run: |
+          set -euo pipefail
+          gcloud run deploy "${{ env.WEB_SERVICE }}" \
+            --image "$WEB_IMAGE" \
+            --region "${{ env.REGION }}" \
+            --platform managed \
+            --service-account "${{ secrets.GCP_SERVICE_ACCOUNT }}" \
+            --allow-unauthenticated \
+            --port 8080 \
+            --min-instances 1 \
+            --max-instances 10 \
+            --quiet
+
+      - name: Smoke test ops.doobielogic.io
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            code=$(curl -sS -L -o /tmp/ops.html -w '%{http_code}' https://ops.doobielogic.io || true)
+            if [ "$code" = "200" ]; then
+              grep -qi 'DoobieLogic\|Buyer' /tmp/ops.html
+              echo "ops.doobielogic.io is serving the production cutover"
+              exit 0
+            fi
+            echo "Waiting for ops.doobielogic.io (http=$code)"
+            sleep 6
+          done
+          head -100 /tmp/ops.html || true
+          exit 1
