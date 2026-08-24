@@ -16,23 +16,24 @@ SENSITIVE_PATTERNS = (
 )
 BUSINESS_COLUMN_TOKENS = {
     "product", "item", "sku", "upc", "brand", "strain", "category", "type", "size",
-    "weight", "unit", "package", "lot", "batch", "manifest", "vendor", "supplier",
+    "weight", "unit", "units", "package", "lot", "batch", "manifest", "vendor", "supplier",
     "quantity", "qty", "available", "onhand", "inventory", "cost", "price", "margin",
-    "sales", "sold", "revenue", "discount", "promotion", "velocity", "days", "weeks",
-    "age", "aging", "expiration", "expiry", "received", "delivery", "order", "status",
-    "forecast", "reorder", "budget", "lead", "moq", "case", "pack", "room", "phase",
-    "plant", "harvest", "machine", "capacity", "yield", "scrap", "downtime", "throughput",
+    "sales", "sold", "revenue", "discount", "promotion", "velocity", "days", "weeks", "cover",
+    "age", "aging", "expiration", "expiry", "received", "delivery", "order", "status", "risk",
+    "forecast", "reorder", "budget", "lead", "moq", "case", "pack", "room", "phase", "priority",
+    "plant", "harvest", "machine", "capacity", "yield", "scrap", "downtime", "throughput", "rate",
     "reservation", "allocation", "fill", "shortage", "invoice", "balance", "due", "payment",
     "coa", "testing", "terpene", "method", "process", "sop", "quality", "variance", "scan",
     "audit", "source", "file", "dataset", "mapping", "freshness", "row", "column", "license",
-    "facility", "organization", "operation", "state", "date", "time", "value", "amount",
+    "facility", "organization", "operation", "state", "date", "time", "value", "amount", "percent", "pct",
     "description", "notes", "reason", "reference", "expected", "actual", "planned", "finished",
+    "recommended", "suggested", "need", "current", "urgency",
 }
 BUSINESS_COMPOUND_NAMES = {
-    "on_hand", "onhand", "units_sold", "unit_cost", "retail_price", "days_of_supply",
-    "days_on_hand", "days_cover", "avg_daily_units", "daily_velocity", "gross_margin",
-    "gross_margin_pct", "open_po", "open_po_quantity", "reorder_point", "reorder_qty",
-    "suggested_quantity", "fulfilled_quantity", "outstanding_quantity", "received_quantity",
+    "on_hand", "onhand", "on_hand_units", "current_on_hand", "units_sold", "unit_cost", "retail_price",
+    "days_of_supply", "days_on_hand", "days_cover", "days_of_cover", "avg_daily_units", "daily_velocity",
+    "gross_margin", "gross_margin_pct", "open_po", "open_po_quantity", "reorder_point", "reorder_qty",
+    "recommended_units", "suggested_quantity", "fulfilled_quantity", "outstanding_quantity", "received_quantity",
 }
 
 _EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
