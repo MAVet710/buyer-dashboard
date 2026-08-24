@@ -41,9 +41,10 @@ def _safe_label(value: Any) -> str:
 class AgentLearningEngine:
     """Controlled facility learning shared by every DoobieLogic agent.
 
-    The engine stores aggregate associations and explicitly approved corrections.
-    It never stores raw operational rows, never changes model weights, and never
-    promotes learned patterns into regulatory/SOP authority.
+    The engine stores aggregate associations, provider-quality summaries, and
+    explicitly learning-approved corrections. It never stores raw operational
+    rows, never changes model weights, and never promotes learned patterns into
+    regulatory/SOP authority.
     """
 
     def __init__(self, engine: Engine) -> None:
@@ -172,6 +173,39 @@ class AgentLearningEngine:
         patterns.sort(key=lambda row: (row["confidence"], row["sample_size"]), reverse=True)
         return patterns[:16]
 
+    def _telemetry_patterns(self, *, organization_id: str, facility_id: str, agent: str) -> list[dict[str, Any]]:
+        try:
+            with self.engine.connect() as connection:
+                rows = [dict(row) for row in connection.execute(text("""
+                    SELECT provider, model, is_local, latency_ms, fallback_used, success
+                    FROM ai_telemetry
+                    WHERE organization_id=:org AND facility_id=:facility AND agent=:agent
+                    ORDER BY timestamp DESC LIMIT 500
+                """), {"org": organization_id, "facility": facility_id, "agent": agent[:64]}).mappings()]
+        except Exception:
+            return []
+        sample = len(rows)
+        if sample < 5:
+            return []
+        successes = sum(1 for row in rows if bool(row.get("success")))
+        fallbacks = sum(1 for row in rows if bool(row.get("fallback_used")))
+        local = sum(1 for row in rows if bool(row.get("is_local")))
+        latencies = [int(row.get("latency_ms") or 0) for row in rows if int(row.get("latency_ms") or 0) >= 0]
+        avg_latency = round(sum(latencies) / len(latencies), 1) if latencies else 0.0
+        success_pct = round(successes / sample * 100.0, 1)
+        fallback_pct = round(fallbacks / sample * 100.0, 1)
+        local_pct = round(local / sample * 100.0, 1)
+        confidence = min(0.95, 0.45 + min(sample, 100) / 200.0)
+        return [{
+            "learning_key": self._learning_key("telemetry", agent, "runtime_quality"),
+            "learning_type": "runtime_quality_pattern",
+            "source_kind": "telemetry",
+            "summary": f"For {agent}, the latest {sample} AI requests were {success_pct:.1f}% successful, {local_pct:.1f}% local, with {fallback_pct:.1f}% fallback and {avg_latency:.0f} ms average recorded latency. Use this for routing/quality monitoring, not business conclusions.",
+            "evidence": {"requests": sample, "success_pct": success_pct, "local_pct": local_pct, "fallback_pct": fallback_pct, "avg_latency_ms": avg_latency},
+            "sample_size": sample,
+            "confidence": round(confidence, 4),
+        }]
+
     def _upsert(self, *, organization_id: str, facility_id: str, agent: str, pattern: dict[str, Any], now: datetime) -> None:
         params = {
             "org": organization_id,
@@ -210,20 +244,26 @@ class AgentLearningEngine:
                     VALUES (:id,:org,:facility,:agent,:key,:type,:source,:summary,:evidence,:sample,:confidence,:now,:now,:active)
                 """), {**payload, "id": str(uuid.uuid4())})
 
+    def _replace_source(self, *, organization_id: str, facility_id: str, agent: str, source_kind: str, patterns: list[dict[str, Any]], now: datetime) -> int:
+        with self.engine.begin() as connection:
+            connection.execute(text("""
+                UPDATE ai_agent_learnings SET active=:inactive
+                WHERE organization_id=:org AND facility_id=:facility AND agent=:agent AND source_kind=:source
+            """), {"inactive": False, "org": organization_id, "facility": facility_id, "agent": agent[:64], "source": source_kind[:80]})
+        for pattern in patterns:
+            self._upsert(organization_id=organization_id, facility_id=facility_id, agent=agent, pattern=pattern, now=now)
+        return len(patterns)
+
     def refresh(self, *, organization_id: str, facility_id: str, agent: str, datasets: dict[str, LoadedDataset]) -> int:
         if not organization_id or not facility_id or not agent:
             return 0
-        patterns = self.derive_patterns(datasets)
+        historical = self.derive_patterns(datasets)
+        telemetry = self._telemetry_patterns(organization_id=organization_id, facility_id=facility_id, agent=agent)
         now = datetime.now(timezone.utc)
         try:
-            with self.engine.begin() as connection:
-                connection.execute(text("""
-                    UPDATE ai_agent_learnings SET active=:inactive
-                    WHERE organization_id=:org AND facility_id=:facility AND agent=:agent AND source_kind=:source
-                """), {"inactive": False, "org": organization_id, "facility": facility_id, "agent": agent[:64], "source": "historical_data"})
-            for pattern in patterns:
-                self._upsert(organization_id=organization_id, facility_id=facility_id, agent=agent, pattern=pattern, now=now)
-            return len(patterns)
+            total = self._replace_source(organization_id=organization_id, facility_id=facility_id, agent=agent, source_kind="historical_data", patterns=historical, now=now)
+            total += self._replace_source(organization_id=organization_id, facility_id=facility_id, agent=agent, source_kind="telemetry", patterns=telemetry, now=now)
+            return total
         except Exception:
             return 0
 
@@ -234,7 +274,7 @@ class AgentLearningEngine:
                     SELECT normalized_task_type, sanitized_prompt, corrected_answer, user_rating, evaluation_score, created_at
                     FROM ai_agent_feedback
                     WHERE organization_id=:org AND facility_id=:facility AND agent=:agent
-                      AND training_approved AND corrected_answer <> ''
+                      AND learning_approved AND corrected_answer <> ''
                     ORDER BY created_at DESC LIMIT :limit
                 """), {"org": organization_id, "facility": facility_id, "agent": agent[:64], "limit": max(1, min(limit, 5))}).mappings()]
         except Exception:
@@ -252,7 +292,7 @@ class AgentLearningEngine:
 
     def context(self, *, organization_id: str, facility_id: str, agent: str, compliance_agent: bool = False, limit: int = 10) -> dict[str, Any]:
         if not organization_id or not facility_id or not agent:
-            return {"patterns": [], "approved_corrections": []}
+            return {"patterns": [], "approved_corrections": [], "rules": []}
         try:
             with self.engine.connect() as connection:
                 rows = [dict(row) for row in connection.execute(text("""
@@ -282,6 +322,7 @@ class AgentLearningEngine:
                 "Learned patterns are advisory historical associations, not causal proof.",
                 "Deterministic calculations and current authorized data override learned summaries.",
                 "Regulations, legal conclusions, SOP requirements, and machine setpoints can never be learned from feedback or correlations.",
+                "Facility-learning approval never implies consent for model training or tuning.",
             ],
         }
 
