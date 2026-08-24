@@ -14,6 +14,14 @@ depends_on = None
 
 
 def upgrade() -> None:
+    op.add_column("ai_agent_feedback", sa.Column("learning_approved", sa.Boolean(), nullable=False, server_default=sa.false()))
+    op.add_column("ai_agent_feedback", sa.Column("learning_approved_at", sa.DateTime(timezone=True), nullable=True))
+    op.create_index(
+        "ix_ai_agent_feedback_learning",
+        "ai_agent_feedback",
+        ["organization_id", "facility_id", "agent", "learning_approved", "created_at"],
+    )
+
     op.create_table(
         "ai_agent_learnings",
         sa.Column("id", sa.String(36), primary_key=True),
@@ -55,3 +63,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("ai_agent_learnings")
+    op.drop_index("ix_ai_agent_feedback_learning", table_name="ai_agent_feedback")
+    op.drop_column("ai_agent_feedback", "learning_approved_at")
+    op.drop_column("ai_agent_feedback", "learning_approved")
