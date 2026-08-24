@@ -26,10 +26,9 @@
   <body>
     <div id="root"></div>
 
-    <!-- Keep the Streamlit-era cross-browser decoder as a pinned fallback. The
-         wrapper below also protects browsers whose native BarcodeDetector exists
-         but rejects one of the requested formats, which previously stopped QR
-         scanning before the first frame was decoded. -->
+    <!-- Cross-browser camera decoding fallback. Inventory label QR rendering and
+         Buyer KPI behavior are owned by React components; no DOM mutation shims
+         are allowed to implement operator features here. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" integrity="sha512-r6rDA7W6ZeQhvl8S7yRVQUKVHdexq+GAlNkNNqVC7YyIV+NwqCTJe2hDWCiffTyRNOeGEzRRJ9ifvRm/HCzGYg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script>
@@ -117,116 +116,6 @@
         if (typeof NativeBarcodeDetector === "function" || reader) {
           window.BarcodeDetector = StreamlitScannerBarcodeDetector;
         }
-      })();
-
-      (() => {
-        function packageIdFromLabel(label) {
-          const packageLine = label.querySelector("span");
-          const value = String(packageLine?.textContent || "").trim();
-          return value && value !== "—" ? value : "";
-        }
-
-        function addPackageQr(label) {
-          if (label.dataset.doobielogicQr === "ready") return;
-          const packageId = packageIdFromLabel(label);
-          if (!packageId || typeof window.qrcode !== "function") return;
-          try {
-            const qr = window.qrcode(0, "M");
-            qr.addData(packageId, "Byte");
-            qr.make();
-            const wrapper = document.createElement("div");
-            wrapper.className = "inventory-label-qr";
-            wrapper.setAttribute("aria-label", `QR code for external package ID ${packageId}`);
-            wrapper.title = `External package ID: ${packageId}`;
-            wrapper.innerHTML = qr.createSvgTag(3, 1);
-            wrapper.style.cssText = "width:92px;height:92px;padding:5px;border-radius:7px;background:#fff;display:grid;place-items:center;margin:8px 0";
-            const svg = wrapper.querySelector("svg");
-            if (svg) svg.style.cssText = "width:100%;height:100%;display:block";
-            const small = label.querySelector("small");
-            label.insertBefore(wrapper, small || null);
-            label.dataset.doobielogicQr = "ready";
-          } catch (_) {
-            label.dataset.doobielogicQr = "failed";
-          }
-        }
-
-        const statusButtonLabels = {
-          all: "All Inventory",
-          reorder: "Reorder",
-          overstock: "Overstock",
-          expiring: "Expiring",
-        };
-
-        function openBuyerStatusView(target) {
-          const details = document.querySelector("details.buyer-status-views");
-          if (!details) return;
-          details.open = true;
-          details.dataset.doobielogicKpiFilter = target;
-          if (target === "no-stock") {
-            const onHand = document.querySelector(".buyer-onhand-toggle input[type='checkbox']");
-            if (onHand && onHand.checked) onHand.click();
-            target = "all";
-          }
-          const wanted = statusButtonLabels[target] || statusButtonLabels.all;
-          const button = Array.from(details.querySelectorAll("button")).find(item => String(item.textContent || "").includes(wanted));
-          if (button) button.click();
-          window.setTimeout(() => {
-            if (details.dataset.doobielogicKpiFilter === "no-stock") applyNoStockDomFilter(details);
-            details.scrollIntoView({ behavior: "smooth", block: "start" });
-          }, 80);
-        }
-
-        function applyNoStockDomFilter(details) {
-          const table = details.querySelector("table");
-          if (!table) return;
-          const headers = Array.from(table.querySelectorAll("thead th")).map(th => String(th.textContent || "").trim().toLowerCase());
-          const index = headers.findIndex(text => text === "onhandunits" || text.includes("on hand") || text.includes("onhand"));
-          if (index < 0) return;
-          Array.from(table.querySelectorAll("tbody tr")).forEach(row => {
-            const cell = row.children[index];
-            const value = Number(String(cell?.textContent || "0").replace(/[$,%\s]/g, "").replace(/,/g, ""));
-            row.hidden = Number.isFinite(value) ? value > 0 : false;
-          });
-        }
-
-        function metricTarget(metric) {
-          const label = String(metric.querySelector("span")?.textContent || metric.textContent || "").toLowerCase();
-          if (label.includes("no stock")) return "no-stock";
-          if (label.includes("reorder") || label.includes("low cover")) return "reorder";
-          if (label.includes("overstock")) return "overstock";
-          if (label.includes("expiring")) return "expiring";
-          if (label.includes("on hand") || label.includes("units sold")) return "all";
-          return "";
-        }
-
-        function enhanceBuyerMetric(metric) {
-          if (metric.dataset.doobielogicKpi === "ready") return;
-          const target = metricTarget(metric);
-          if (!target) return;
-          metric.dataset.doobielogicKpi = "ready";
-          metric.setAttribute("role", "button");
-          metric.setAttribute("tabindex", "0");
-          metric.setAttribute("aria-label", `${String(metric.querySelector("span")?.textContent || "KPI").trim()}: filter inventory view`);
-          metric.style.cursor = "pointer";
-          metric.addEventListener("click", () => openBuyerStatusView(target));
-          metric.addEventListener("keydown", event => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              openBuyerStatusView(target);
-            }
-          });
-        }
-
-        function enhanceCurrentDom() {
-          document.querySelectorAll(".inventory-label").forEach(addPackageQr);
-          document.querySelectorAll(".buyer-filter-condition .metric, .buyer-condition-metrics .metric").forEach(enhanceBuyerMetric);
-          const details = document.querySelector("details.buyer-status-views");
-          if (details?.dataset.doobielogicKpiFilter === "no-stock") applyNoStockDomFilter(details);
-        }
-
-        const observer = new MutationObserver(enhanceCurrentDom);
-        observer.observe(document.body, { childList: true, subtree: true });
-        enhanceCurrentDom();
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
