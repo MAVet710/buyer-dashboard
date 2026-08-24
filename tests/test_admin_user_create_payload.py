@@ -1,3 +1,4 @@
+from backend.app.main import app
 from backend.app.routers.admin_user_create import UserCreate
 
 
@@ -33,3 +34,20 @@ def test_create_user_accepts_single_facility_id_and_normalizes_it():
     )
 
     assert payload.facility_ids == ["facility-a"]
+
+
+def test_create_user_literal_post_route_precedes_dynamic_user_update_route():
+    create_index = next(
+        index
+        for index, route in enumerate(app.routes)
+        if getattr(route, "path", "") == "/api/v1/admin/users/create"
+        and "POST" in (getattr(route, "methods", set()) or set())
+    )
+    dynamic_index = next(
+        index
+        for index, route in enumerate(app.routes)
+        if getattr(route, "path", "") == "/api/v1/admin/users/{user_id}"
+        and "POST" in (getattr(route, "methods", set()) or set())
+    )
+
+    assert create_index < dynamic_index
