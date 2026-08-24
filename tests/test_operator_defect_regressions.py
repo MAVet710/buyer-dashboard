@@ -79,8 +79,9 @@ def test_web_deploy_explicitly_promotes_new_revision():
     web_section = workflow.split("  deploy-web:", 1)[1]
     assert "Deploy frontend candidate without traffic" in web_section
     assert "--no-traffic" in web_section
-    assert "Verify frontend candidate and promote to 100 percent" in web_section
-    assert '--to-revisions "$CREATED_REVISION=100"' in web_section
+    assert "Verify exact frontend candidate revision and HTTP identity" in web_section
+    assert "Promote exact validated frontend revision to 100 percent" in web_section
+    assert '--to-revisions "$CREATED_WEB_REVISION=100"' in web_section
     assert "https://ops.doobielogic.io" in web_section
     assert "https://doobielogic.io" in web_section
-    assert "ops.doobielogic.io and doobielogic.io are serving the promoted web revision" in web_section
+    assert "Both production web domains and Cloud Run traffic confirm the exact current commit." in web_section

@@ -26,7 +26,7 @@ def test_production_deploy_is_blocked_until_strict_and_legacy_evidence_are_compl
 def test_api_deploy_preserves_dedicated_runtime_identity():
     workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
 
-    api_deploy = workflow.split("- name: Deploy API candidate without traffic", 1)[1].split("- name: Verify candidate identity and promote to 100 percent", 1)[0]
+    api_deploy = workflow.split("- name: Deploy API candidate without traffic", 1)[1].split("- name: Verify exact API candidate revision and HTTP health", 1)[0]
     assert "buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" in api_deploy
     assert "${{ secrets.GCP_SERVICE_ACCOUNT }}" not in api_deploy
 
