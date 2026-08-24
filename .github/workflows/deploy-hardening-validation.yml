@@ -1,0 +1,87 @@
+name: Deployment Hardening Validation
+
+on:
+  push:
+    branches: [harden/production-deploy-identity]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate workflow YAML
+        run: |
+          python -m pip install --quiet pyyaml
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          path = Path('.github/workflows/deploy.yml')
+          data = yaml.safe_load(path.read_text(encoding='utf-8'))
+          assert isinstance(data, dict)
+          assert 'jobs' in data and {'parity-release-gate', 'deploy-api', 'deploy-web'} <= set(data['jobs'])
+          print('deploy.yml YAML parsed successfully')
+          PY
+
+      - name: Run deployment safety regression tests
+        run: python -m pytest -q tests/test_production_deploy_safety.py
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend lint
+        working-directory: frontend
+        run: pnpm lint
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: pnpm test
+
+      - name: Frontend production build
+        working-directory: frontend
+        env:
+          VITE_RELEASE_SHA: ${{ github.sha }}
+        run: pnpm build
+
+      - name: Build and inspect frontend container release identity
+        run: |
+          set -euo pipefail
+          docker build -f frontend/Dockerfile \
+            --build-arg VITE_API_URL=https://api.doobielogic.io \
+            --build-arg VITE_SUPABASE_URL=https://example.supabase.co \
+            --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=test \
+            --build-arg VITE_RELEASE_SHA=${{ github.sha }} \
+            -t doobielogic-web-deploy-validation \
+            frontend
+          docker run --rm doobielogic-web-deploy-validation nginx -t
+          cid="$(docker create doobielogic-web-deploy-validation)"
+          docker cp "$cid:/usr/share/nginx/html/release.json" /tmp/release.json
+          docker rm "$cid"
+          cat /tmp/release.json
+          jq -e --arg sha "${{ github.sha }}" '.release_sha == $sha' /tmp/release.json
+
+      - name: Validate API image and Alembic head
+        run: |
+          set -euo pipefail
+          docker build -f Dockerfile.api -t doobielogic-api-deploy-validation .
+          HEADS="$(docker run --rm doobielogic-api-deploy-validation alembic heads)"
+          echo "$HEADS"
+          test "$(printf '%s\n' "$HEADS" | grep -c '(head)' || true)" -eq 1
