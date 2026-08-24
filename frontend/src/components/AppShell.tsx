@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, clearTrialSession } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { GlobalSearch } from "./GlobalSearch";
+import { WorkspaceAgent } from "./WorkspaceAgent";
 
 type Capability = "retail" | "production" | "cultivation" | "commercial";
 type Facility = { id: string; name: string; code: string; license_type?: string; capabilities?: Record<Capability, boolean> };
@@ -252,6 +253,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
         {secondary.length ? <><div className="operation-label">Current area</div><nav className="secondary-nav" aria-label={`${activeCategory} tools`}>{secondary.map(row => <button className={row.page === active ? "nav-item active" : "nav-item"} key={row.page} onClick={() => navigate(row.page)}><span>{row.label}</span></button>)}</nav></> : null}
         {operation === "Retail Ops" ? <details className="sidebar-expander"><summary>Data source</summary><div><label className="compact-field">Buyer data mode<select className="data-mode-select" value={dataMode} onChange={event => changeDataMode(event.target.value === "Dutchie Live" ? "Dutchie Live" : "Uploads")}><option value="Uploads">📁 Uploads</option><option value="Dutchie Live">🔴 Dutchie Live</option></select></label></div></details> : null}
       </> : <ClassicNavigation operation={operation} role={role} active={active} onNavigate={navigate}/>} 
+      <WorkspaceAgent activePage={active} operation={operation} onNavigate={navigate}/>
       <details className="sidebar-expander"><summary>Navigation options</summary><div><label className="toggle"><input type="checkbox" checked={classicNavigation} onChange={event => setClassicNavigation(event.target.checked)}/> Use classic navigation</label></div></details>
     </aside>
     <section className="workspace">

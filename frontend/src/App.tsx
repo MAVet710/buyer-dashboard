@@ -41,6 +41,14 @@ function initialPage(): string {
   return "Home";
 }
 
+function UnknownWorkspace({ page, onHome }: { page: string; onHome: () => void }) {
+  return <section className="inventory-panel state error">
+    <strong>Workspace unavailable</strong>
+    <p>DoobieLogic could not restore the saved workspace “{page}”. The app will not silently send you to a different module.</p>
+    <button className="primary" type="button" onClick={onHome}>Return to Home</button>
+  </section>;
+}
+
 export default function App() {
   const client = useQueryClient();
   const [page, setPage] = useState(initialPage);
@@ -80,6 +88,6 @@ export default function App() {
     : page === "Admin" || page === "Admin Tools" ? <AdminToolsPage />
     : page === "Location Settings" ? <LocationSettingsPage />
     : page === "Data & Settings" ? <DataSettingsPage onNavigate={setPage} />
-    : <InventoryPage initialOperation="retail" onNavigate={setPage} />;
+    : <UnknownWorkspace page={page} onHome={() => setPage("Home")} />;
   return <AppShell active={page} onNavigate={setPage}><Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense></AppShell>;
 }

@@ -6,7 +6,7 @@ from urllib.request import Request as UrlRequest, urlopen
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
@@ -28,6 +28,28 @@ class UserCreate(BaseModel):
     organization_id: str = ""
     facility_ids: list[str] = Field(default_factory=list)
     must_change_password: bool = True
+
+    @field_validator("username", "display_name", "email", "role", "organization_id", mode="before")
+    @classmethod
+    def normalize_text_fields(cls, value):
+        # Browser/account context can legitimately provide optional values as
+        # null during a context refresh. Treat optional text consistently rather
+        # than rejecting the whole create-user request before the route can give
+        # an actionable validation message.
+        return "" if value is None else str(value).strip()
+
+    @field_validator("facility_ids", mode="before")
+    @classmethod
+    def normalize_facility_ids(cls, value):
+        if value is None or value == "":
+            return []
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+        return [str(item).strip() for item in values if item is not None and str(item).strip()]
+
+    @field_validator("role")
+    @classmethod
+    def normalize_role(cls, value: str) -> str:
+        return value.casefold()
 
 
 def _service_headers(settings: Settings) -> dict[str, str]:
@@ -172,7 +194,12 @@ def create_user_with_temporary_password(
     contact_email = payload.email.strip().casefold()
     if contact_email and ("@" not in contact_email or contact_email.startswith("@") or contact_email.endswith("@")):
         raise HTTPException(422, "Enter a valid email address or leave Email optional blank.")
-    auth_email = contact_email or f"{normalized_username}@users.doobielogic.io"
+    # Synthetic identities must remain valid email addresses even when the
+    # legacy username contains characters such as '@' or '+'. Preserve the real
+    # username in app_metadata while using a safe local-part for Supabase Auth.
+    safe_local_part = "".join(character if character.isalnum() or character in "._-" else "-" for character in normalized_username).strip(".-")
+    safe_local_part = safe_local_part or "doobielogic-user"
+    auth_email = contact_email or f"{safe_local_part}@users.doobielogic.io"
     auth_user_id = _create_auth_user(
         settings,
         email=auth_email,

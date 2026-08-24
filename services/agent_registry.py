@@ -191,15 +191,47 @@ def resolve_agent_profile(app_mode: str = "", section: str = "") -> AgentProfile
     """Resolve the specialist that best matches the current workspace/section."""
 
     mode = str(app_mode or "").casefold()
-    page = str(section or "").casefold()
+    page = str(section or "").casefold().strip()
     combined = f"{mode} {page}"
 
-    # Buyer Operations has several large sub-workflows that deserve their own specialist.
+    # Current React/FastAPI page names are first-class here. This prevents the
+    # migrated shell from silently falling back to Buyer Agent just because the
+    # old Streamlit section label changed during remigration.
+    if page in {"home"}:
+        return PROFILES["ops"]
+    if page in {"inventory audits", "inventory counts"} or "audit" in page:
+        return PROFILES["audit"]
+    if page in {"inventory", "production inventory", "retail product 360", "retail product master", "retail catalog admin", "production product master", "slow movers", "ma flower equivalency"}:
+        return PROFILES["inventory"]
+    if page in {"buyer operations", "purchasing"}:
+        return PROFILES["buyer"]
+    if page in {"buying recommendations", "delivery performance", "purchase orders", "buying budget", "replenishment policies"}:
+        return PROFILES["purchasing"]
+    if page in {"production"}:
+        return PROFILES["coman"]
+    if page in {"extraction"}:
+        return PROFILES["extraction"]
+    if page in {"white label / repack", "package studio"}:
+        return PROFILES["repack"]
+    if page in {"orders"}:
+        return PROFILES["commercial"]
+    if page in {"data & settings", "location settings", "integrations", "ai & metrc integrations", "metrc integrations"}:
+        return PROFILES["data_hub"]
+    if page in {"product name mapper", "nomenclature mapper"}:
+        return PROFILES["nomenclature"]
+    if page in {"compliance", "compliance q&a"}:
+        return PROFILES["compliance"]
+    if page in {"sales & category trends"}:
+        return PROFILES["buyer"]
+    if page in {"executive reports", "reports"}:
+        return PROFILES["ops"]
+
+    # Backward-compatible aliases from the Streamlit application remain valid.
     if "inventory counts" in page:
         return PROFILES["audit"]
     if "compliance" in page:
         return PROFILES["compliance"]
-    if "nomenclature" in page:
+    if "nomenclature" in page or "product name mapper" in page:
         return PROFILES["nomenclature"]
     if any(term in page for term in ("po builder", "purchasing budget", "delivery impact")):
         return PROFILES["purchasing"]

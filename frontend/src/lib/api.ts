@@ -10,9 +10,39 @@ export class ApiError extends Error {
   }
 }
 
-export function errorMessage(payload: { detail?: unknown; error?: { message?: string } }, status: number): string {
+type ValidationIssue = { loc?: unknown; msg?: unknown; message?: unknown };
+type ErrorPayload = { detail?: unknown; error?: { message?: string } };
+
+function humanField(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  const parts = value.filter(part => part !== "body" && typeof part !== "number").map(part => String(part));
+  const raw = parts.at(-1) ?? "";
+  return raw.replaceAll("_", " ").replace(/\b\w/g, character => character.toUpperCase());
+}
+
+function validationDetails(detail: unknown): string {
+  if (!Array.isArray(detail)) return "";
+  const messages = detail.map(item => {
+    if (!item || typeof item !== "object") return "";
+    const issue = item as ValidationIssue;
+    const rawMessage = issue.msg ?? issue.message;
+    if (rawMessage == null || !String(rawMessage).trim()) return "";
+    const field = humanField(issue.loc);
+    const message = String(rawMessage).trim();
+    return field ? `${field}: ${message}` : message;
+  }).filter(Boolean);
+  return [...new Set(messages)].join(" · ");
+}
+
+export function errorMessage(payload: ErrorPayload, status: number): string {
+  // FastAPI returns useful field-level validation information in `detail`, while
+  // our observability envelope also carries a generic `error.message`. Prefer
+  // the actionable field errors so operators can fix a form instead of seeing
+  // only "One or more request fields are invalid."
+  const fieldErrors = validationDetails(payload.detail);
+  if (fieldErrors) return fieldErrors;
+  if (typeof payload.detail === "string" && payload.detail.trim()) return payload.detail;
   if (payload.error?.message) return payload.error.message;
-  if (typeof payload.detail === "string") return payload.detail;
   return `Request failed (${status})`;
 }
 
