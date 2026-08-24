@@ -1,0 +1,16 @@
+.brand > span {
+  overflow: hidden;
+  color: transparent !important;
+  background-image: url("https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG") !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  background-size: cover !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .22);
+  font-size: 0 !important;
+}
+
+.auth-intro .brand > span,
+.auth-card .brand > span,
+.sidebar .brand > span {
+  border: 1px solid rgba(255, 255, 255, .08);
+}
