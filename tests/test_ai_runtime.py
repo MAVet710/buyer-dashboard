@@ -10,6 +10,7 @@ from services.ai.analytics import audit_metrics, inventory_health, production_at
 from services.ai.cache import TenantCache
 from services.ai.datasets import DatasetAccessContext, DatasetRegistry, DatasetSpec
 from services.ai.provider import ProviderTimeout, ProviderUnavailable
+from services.ai.providers.doobie import DoobieProvider
 from services.ai.providers.local import LocalOpenAIProvider
 from services.ai.router import ProviderRouter
 from services.ai.runtime import AgentRuntime
@@ -44,6 +45,30 @@ class FakeProvider:
 
     def supports_structured_output(self):
         return self.structured
+
+
+class FakeRetriever:
+    def __init__(self, authority_level: int):
+        self.authority_level = authority_level
+
+    def search(self, **kwargs):
+        return {
+            "results": [{
+                "title": "Approved source",
+                "source": "test",
+                "source_type": "facility_sop" if self.authority_level == 2 else "government",
+                "authority_level": self.authority_level,
+                "jurisdiction": "MA",
+                "effective_date": "2026-01-01",
+                "updated_at": "2026-01-01",
+                "version": "1",
+                "url": "https://example.test/source",
+                "page_or_section": "1",
+                "content": "approved evidence",
+                "score": 1.0,
+            }],
+            "retrieval_mode": "test",
+        }
 
 
 def request() -> AIRequest:
@@ -110,6 +135,16 @@ def test_local_openai_compatible_provider_health_and_tool_call(monkeypatch):
     assert response.tool_calls == [ToolCall("call-1", "preview_dataset", {"dataset": "inventory"})]
 
 
+def test_doobie_provider_normalizes_legacy_response_to_structured_output(monkeypatch):
+    provider = DoobieProvider(base_url="https://doobie.example", api_key="secret")
+    monkeypatch.setattr(provider.client, "copilot", lambda **kwargs: {"answer": "Use the supplied data.", "confidence": 0.8})
+    response = provider.generate(request())
+    assert provider.supports_structured_output() is True
+    assert response.provider == "doobie"
+    assert response.structured["answer"] == "Use the supplied data."
+    assert response.structured["confidence"] == pytest.approx(0.8)
+
+
 def test_dataset_registry_enforces_role_capability_and_sensitive_columns():
     registry = DatasetRegistry()
     registry.register(DatasetSpec(
@@ -166,6 +201,38 @@ def test_compliance_agent_refuses_regulatory_conclusion_without_authoritative_so
     assert "can’t verify" in result.answer
     assert result.provider == "deterministic"
     assert provider.calls == 0
+
+
+def test_legal_regulatory_claim_rejects_level_two_sop_evidence():
+    provider = FakeProvider("local", local=True)
+    runtime = AgentRuntime(
+        provider_router=ProviderRouter({"local": provider}, order=["local"]),
+        dataset_registry=DatasetRegistry(),
+        retriever=FakeRetriever(2),
+    )
+    result = runtime.run(
+        profile=PROFILES["compliance"],
+        access=DatasetAccessContext("org-a", "fac-a", "u", "qa", frozenset({"retail"})),
+        question="Is this legal under Massachusetts cannabis regulation?",
+    )
+    assert "government/regulatory source" in result.answer
+    assert provider.calls == 0
+
+
+def test_internal_compliance_question_accepts_level_two_approved_sop_evidence():
+    provider = FakeProvider("local", local=True, tools=False)
+    runtime = AgentRuntime(
+        provider_router=ProviderRouter({"local": provider}, order=["local"]),
+        dataset_registry=DatasetRegistry(),
+        retriever=FakeRetriever(2),
+    )
+    result = runtime.run(
+        profile=PROFILES["compliance"],
+        access=DatasetAccessContext("org-a", "fac-a", "u", "qa", frozenset({"retail"})),
+        question="Does this follow our approved facility SOP?",
+    )
+    assert result.provider == "local"
+    assert provider.calls == 1
 
 
 def test_tenant_cache_keys_cannot_cross_organization_or_facility():
