@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy import Engine, text
 
-from .sanitization import sanitize_mapping
+from .sanitization import sanitize_mapping, sanitize_text
 
 
 class AgentFeedbackStore:
@@ -20,9 +20,9 @@ class AgentFeedbackStore:
         if not organization_id or not facility_id:
             raise ValueError("Feedback requires tenant scope.")
         row_id = str(uuid.uuid4())
-        prompt = str(sanitized_prompt or "")[:8000]
-        response = str(answer or "")[:16000]
-        correction = str(corrected_answer or "")[:16000]
+        prompt = sanitize_text(sanitized_prompt, max_chars=8000)
+        response = sanitize_text(answer, max_chars=16000)
+        correction = sanitize_text(corrected_answer, max_chars=16000)
         safe_outcomes = sanitize_mapping(sanitized_tool_outcomes)
         with self.engine.begin() as connection:
             connection.execute(text("""

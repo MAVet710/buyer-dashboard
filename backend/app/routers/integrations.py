@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import Engine
 
 from modules.integrations import IntegrationConfigurationService
@@ -8,6 +8,7 @@ from services.metrc_client import test_metrc_connection
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
+from ..services.ai_runtime import diagnostics
 from ..services.metrc_context import metrc_scope_key, resolve_metrc_context
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -24,11 +25,44 @@ class DoobieSave(BaseModel):
     api_key: str | None = Field(default=None, max_length=1024)
 
 
+class AIRuntimeSave(BaseModel):
+    local_llm_base_url: str = Field(default="", max_length=1024)
+    local_llm_model: str = Field(default="", max_length=255)
+    local_embedding_base_url: str = Field(default="", max_length=1024)
+    local_embedding_model: str = Field(default="", max_length=255)
+    provider_mode: str = Field(default="local_first", max_length=40)
+    provider_order: str = Field(default="local,gemini,openai,doobie", max_length=255)
+    allow_cloud_fallback: bool = True
+    api_key: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("provider_mode")
+    @classmethod
+    def valid_mode(cls, value: str) -> str:
+        normalized = str(value or "").strip().casefold()
+        if normalized not in {"local_first", "local_only"}:
+            raise ValueError("Provider mode must be local_first or local_only.")
+        return normalized
+
+    @field_validator("provider_order")
+    @classmethod
+    def valid_order(cls, value: str) -> str:
+        allowed = {"local", "gemini", "openai", "doobie"}
+        names = [item.strip().casefold() for item in str(value or "").split(",") if item.strip()]
+        if not names or any(name not in allowed for name in names):
+            raise ValueError("Provider order may contain only local, gemini, openai, and doobie.")
+        return ",".join(dict.fromkeys(names))
+
+
 def _service(engine: Engine, settings: Settings) -> IntegrationConfigurationService:
     try:
         return IntegrationConfigurationService(engine, settings.integration_encryption_key)
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
+
+
+def _require_dev(context: RequestContext) -> None:
+    if context.role != "dev":
+        raise HTTPException(403, "Level DEV access is required for platform AI settings.")
 
 
 @router.get("")
@@ -48,10 +82,12 @@ def integrations(
             "facility_scoped": True,
         },
         "doobie": None,
+        "ai_runtime": None,
     }
     if context.role == "dev":
         service = _service(engine, settings)
         result["doobie"] = service.public(service.get("platform", "global", "doobie"))
+        result["ai_runtime"] = service.public(service.get("platform", "global", "ai_runtime"))
     return result
 
 
@@ -191,6 +227,86 @@ def clear_doobie(
         scope_type="platform",
         scope_key="global",
         provider="doobie",
+        actor=context.user_id,
+        audit_organization_id=context.organization_id,
+        audit_facility_id=context.facility_id,
+    )
+    return service.public(None)
+
+
+@router.post("/ai-runtime")
+def save_ai_runtime(
+    payload: AIRuntimeSave,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_dev(context)
+    service = _service(engine, settings)
+    row = service.save(
+        scope_type="platform",
+        scope_key="global",
+        provider="ai_runtime",
+        organization_id=None,
+        facility_id=None,
+        configuration={
+            "local_llm_base_url": payload.local_llm_base_url.strip().rstrip("/"),
+            "local_llm_model": payload.local_llm_model.strip(),
+            "local_embedding_base_url": payload.local_embedding_base_url.strip().rstrip("/"),
+            "local_embedding_model": payload.local_embedding_model.strip(),
+            "provider_mode": payload.provider_mode,
+            "provider_order": payload.provider_order,
+            "allow_cloud_fallback": bool(payload.allow_cloud_fallback),
+        },
+        secret=payload.api_key,
+        actor=context.user_id,
+        audit_organization_id=context.organization_id,
+        audit_facility_id=context.facility_id,
+    )
+    return service.public(row)
+
+
+@router.post("/ai-runtime/test")
+def test_ai_runtime(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_dev(context)
+    service = _service(engine, settings)
+    row = service.get("platform", "global", "ai_runtime")
+    if not row:
+        raise HTTPException(422, "Save Local AI Runtime settings before testing the connection.")
+    result = diagnostics(engine=engine, settings=settings, context=context, operation_type="retail")
+    local = (result.get("providers") or {}).get("local") or {}
+    ok = bool(local.get("configured") and local.get("reachable"))
+    updated = service.validation_result(row.id, ok=ok, error="" if ok else str(local.get("detail") or "Local model is not reachable."))
+    return {
+        **service.public(updated),
+        "result": {
+            "ok": ok,
+            "message": "Local model is reachable." if ok else str(local.get("detail") or "Local model is not reachable."),
+            "local": local,
+            "embedding": result.get("embedding") or {},
+            "knowledge": result.get("knowledge") or {},
+            "provider_order": result.get("provider_order") or [],
+            "cloud_fallback_enabled": bool(result.get("cloud_fallback_enabled")),
+        },
+    }
+
+
+@router.post("/ai-runtime/clear")
+def clear_ai_runtime(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_dev(context)
+    service = _service(engine, settings)
+    service.clear(
+        scope_type="platform",
+        scope_key="global",
+        provider="ai_runtime",
         actor=context.user_id,
         audit_organization_id=context.organization_id,
         audit_facility_id=context.facility_id,

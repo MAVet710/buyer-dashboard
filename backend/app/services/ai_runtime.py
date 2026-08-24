@@ -55,6 +55,14 @@ def runtime_configuration(engine: Engine, settings: Settings) -> dict[str, Any]:
     return config
 
 
+def _public_runtime_configuration(config: dict[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "provider_mode", "provider_order", "allow_cloud_fallback", "local_llm_base_url", "local_llm_model",
+        "local_embedding_base_url", "local_embedding_model", "status", "secret_hint",
+    }
+    return {key: config.get(key) for key in allowed if key in config}
+
+
 def _doobie(engine: Engine, settings: Settings) -> tuple[str, str]:
     service = _integration_service(engine, settings)
     row = service.get("platform", "global", "doobie") if service else None
@@ -117,7 +125,7 @@ def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext
         },
     )
     return runtime, access, organization_name, facility_name, {
-        **config,
+        **_public_runtime_configuration(config),
         "providers": router.health(),
         "embedding": embeddings.health().__dict__ if embeddings else {"configured": False, "reachable": False, "model": "", "detail": "lexical fallback active"},
         "knowledge": store.health(KnowledgeScope(context.organization_id, context.facility_id)),

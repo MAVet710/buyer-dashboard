@@ -29,6 +29,11 @@ BUSINESS_COLUMN_TOKENS = {
     "description", "notes", "reason", "reference", "expected", "actual", "planned", "finished",
 }
 
+_EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
+_SSN_RE = re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b")
+_PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[ .-]?)?(?:\(?\d{3}\)?[ .-]?)\d{3}[ .-]?\d{4}(?!\d)")
+_SECRET_RE = re.compile(r"(?i)\b(?:bearer|api[_ -]?key|token|secret|password)\s*[:=]?\s+[A-Za-z0-9_./+\-=]{8,}")
+
 
 def norm(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().casefold()).strip("_")
@@ -45,6 +50,16 @@ def is_business_column(name: str) -> bool:
         return False
     tokens = {token for token in norm(name).split("_") if token}
     return bool(tokens & BUSINESS_COLUMN_TOKENS)
+
+
+def sanitize_text(value: Any, *, max_chars: int = 16000) -> str:
+    """Best-effort PII/credential redaction for optional feedback/eval text storage."""
+    text = str(value or "")[: max(0, int(max_chars))]
+    text = _SECRET_RE.sub("[REDACTED_CREDENTIAL]", text)
+    text = _EMAIL_RE.sub("[REDACTED_EMAIL]", text)
+    text = _SSN_RE.sub("[REDACTED_SSN]", text)
+    text = _PHONE_RE.sub("[REDACTED_PHONE]", text)
+    return text
 
 
 def safe_scalar(value: Any) -> Any:
