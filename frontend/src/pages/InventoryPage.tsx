@@ -11,6 +11,7 @@ import { PackageLineage } from "../components/PackageLineage";
 import { PlantInventory } from "../components/PlantInventory";
 import { StreamlitDialog } from "../components/StreamlitDialog";
 import { Product360Drawer } from "../components/Product360Drawer";
+import { PackageQrCode } from "../components/PackageQrCode";
 import { PackageStudioPage } from "./PackageStudioPage";
 import { apiGet } from "../lib/api";
 
@@ -73,7 +74,7 @@ export function InventoryPage({ initialOperation="retail", onNavigate }: { initi
     </>}
     {receiving?(operation==="production"?<ProductionReceiveInventory onClose={()=>setReceiving(false)} onReceived={setReceiveFlash}/>:<ReceiveInventory operation="retail" onClose={()=>setReceiving(false)}/>):null}{history?<ReceiveHistory operation={operation} onClose={()=>setHistory(false)}/>:null}{adjusting&&first?<AdjustInventory operation={operation} item={first} onClose={()=>setAdjusting(false)}/>:null}{lineage&&first?<PackageLineage operation={operation} item={first} onClose={()=>setLineage(false)}/>:null}
     <StreamlitDialog open={studio} onClose={()=>setStudio(false)} eyebrow="Inventory" title="Package Studio" subtitle={first?`${first.product_name} · ${first.package_id}`:"Break down, pack down, build, sample, correct, and trace packages."}><PackageStudioPage initialLotId={first?.id}/></StreamlitDialog>
-    <StreamlitDialog open={labels} onClose={()=>setLabels(false)} eyebrow="Inventory control" title="Print inventory labels" footer={<button className="primary" onClick={()=>window.print()}>Print labels</button>}><div className="label-sheet">{selected.map(row=><article className="inventory-label" key={row.id}><strong>{row.product_name}</strong><span>{row.package_id}</span><b>{row.available.toLocaleString()} {row.unit}</b><small>{row.location} · {row.status}</small></article>)}</div></StreamlitDialog>
+    <StreamlitDialog open={labels} onClose={()=>setLabels(false)} eyebrow="Inventory control" title="Print inventory labels" footer={<button className="primary" onClick={()=>window.print()}>Print labels</button>}><div className="label-sheet">{selected.map(row=><article className="inventory-label" key={row.id}><strong>{row.product_name}</strong><span>{row.package_id}</span><PackageQrCode value={row.package_id}/><b>{row.available.toLocaleString()} {row.unit}</b><small>{row.location} · {row.status}</small></article>)}</div></StreamlitDialog>
     <StreamlitDialog open={saveViewOpen} onClose={()=>setSaveViewOpen(false)} eyebrow="Inventory" title="Save this view for quick access" footer={<button className="primary" disabled={!viewName.trim()} onClick={saveCurrentView}>Save</button>}><label>View name<input value={viewName} onChange={event=>setViewName(event.target.value)} placeholder={operation==="production"?"My production-ready flower":"My low-stock flower"}/></label></StreamlitDialog>
     <Product360Drawer productId={first?.product_id??""} open={product360} onClose={()=>setProduct360(false)} onNavigate={page=>onNavigate?.(page)}/>
   </div>;
