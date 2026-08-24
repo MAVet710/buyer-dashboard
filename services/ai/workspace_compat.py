@@ -145,4 +145,6 @@ class DoobieWorkspaceAgent:
         )
         self._last_model = result.model
         self._last_provider = result.provider
+        if result.provider == "unavailable":
+            raise RuntimeError(result.answer)
         return result.answer
