@@ -3,9 +3,11 @@ name: Deployment Hardening Validation
 on:
   push:
     branches: [harden/production-deploy-identity]
+    paths-ignore:
+      - validation/deploy-hardening-result.txt
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -27,6 +29,8 @@ jobs:
           data = yaml.safe_load(path.read_text(encoding='utf-8'))
           assert isinstance(data, dict)
           assert 'jobs' in data and {'parity-release-gate', 'deploy-api', 'deploy-web'} <= set(data['jobs'])
+          assert data.get('concurrency', {}).get('group') == 'doobielogic-production'
+          assert data.get('concurrency', {}).get('cancel-in-progress') is False
           print('deploy.yml YAML parsed successfully')
           PY
 
@@ -85,3 +89,26 @@ jobs:
           HEADS="$(docker run --rm doobielogic-api-deploy-validation alembic heads)"
           echo "$HEADS"
           test "$(printf '%s\n' "$HEADS" | grep -c '(head)' || true)" -eq 1
+
+      - name: Record successful validation
+        run: |
+          mkdir -p validation
+          cat > validation/deploy-hardening-result.txt <<EOF
+          status=PASS
+          validated_sha=${GITHUB_SHA}
+          yaml=PASS
+          deployment_safety_tests=PASS
+          frontend_lint=PASS
+          frontend_tests=PASS
+          frontend_build=PASS
+          frontend_container_build=PASS
+          nginx_config=PASS
+          release_json_identity=PASS
+          api_container_build=PASS
+          alembic_single_head=PASS
+          EOF
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add validation/deploy-hardening-result.txt
+          git commit -m "Record deploy hardening validation result [skip ci]"
+          git push origin HEAD:harden/production-deploy-identity
