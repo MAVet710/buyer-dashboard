@@ -1,10 +1,12 @@
 status=failure
-validated_sha=bb3b21f4827af4ba97689791522d46884a448e4b
+validated_sha=f8036706dad43a80ea6df41a27f592ccef19819f
 yaml=success
 deployment_safety_tests=success
 frontend_install=success
 frontend_lint=success
 frontend_tests=success
 frontend_build=success
-frontend_container_release_identity=failure
+frontend_container_build=failure
+nginx_config=skipped
+release_json_identity=skipped
 api_container_alembic=skipped
