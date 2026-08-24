@@ -9,6 +9,7 @@ from sqlalchemy import Engine
 
 from services.agent_registry import AgentProfile, PROFILES, resolve_agent_profile
 from services.ai.feedback import AgentFeedbackStore
+from services.ai.learning import AgentLearningEngine
 from services.ai.retrieval import KnowledgeIngestionService, KnowledgeScope, KnowledgeStore, LocalEmbeddingProvider
 from services.ai.retrieval.ingestion import SUPPORTED_EXTENSIONS
 from services.ai.telemetry import AITelemetry
@@ -64,6 +65,10 @@ class FeedbackRequest(BaseModel):
     corrected_answer: str = Field(default="", max_length=16000)
     provider: str = Field(default="", max_length=64)
     model: str = Field(default="", max_length=160)
+
+
+class TrainingApprovalRequest(BaseModel):
+    approved: bool = True
 
 
 def _profile_payload(profile: AgentProfile) -> dict[str, Any]:
@@ -152,6 +157,11 @@ def _knowledge_authority(source_type: str) -> tuple[str, int]:
     return normalized, SOURCE_AUTHORITY[normalized]
 
 
+def _require_diagnostics(context: RequestContext) -> None:
+    if context.role.casefold() not in DIAGNOSTIC_ROLES:
+        raise HTTPException(403, "Admin access is required for AI diagnostics and learning controls.")
+
+
 @router.get("")
 def agents(
     app_mode: str = "",
@@ -167,6 +177,7 @@ def agents(
         "active_agent": _profile_payload(active),
         "agents": [_profile_payload(profile) for profile in PROFILES.values()],
         "provider": _provider_payload(status),
+        "learning": status.get("learning") or {"ok": False, "active_learnings": 0, "agents_with_learnings": 0},
         "workspace": {
             "app_mode": app_mode,
             "section": section,
@@ -204,8 +215,7 @@ def ai_diagnostics(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    if context.role.casefold() not in DIAGNOSTIC_ROLES:
-        raise HTTPException(403, "Admin access is required for AI diagnostics.")
+    _require_diagnostics(context)
     operation = "production" if "production" in app_mode.casefold() else "retail"
     return diagnostics(engine=engine, settings=settings, context=context, operation_type=operation)
 
@@ -216,9 +226,34 @@ def ai_telemetry(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
-    if context.role.casefold() not in DIAGNOSTIC_ROLES:
-        raise HTTPException(403, "Admin access is required for AI telemetry.")
+    _require_diagnostics(context)
     return AITelemetry(engine).summary(context.organization_id, context.facility_id, limit_days=max(1, min(int(days), 365)))
+
+
+@router.get("/learning")
+def ai_learning(
+    agent_key: str = "",
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_diagnostics(context)
+    requested = str(agent_key or "").strip().casefold()
+    if requested and requested not in PROFILES:
+        raise HTTPException(422, "Unknown AI agent.")
+    learning = AgentLearningEngine(engine)
+    keys = [requested] if requested else list(PROFILES)
+    return {
+        "health": learning.health(organization_id=context.organization_id, facility_id=context.facility_id),
+        "agents": {
+            key: learning.context(
+                organization_id=context.organization_id,
+                facility_id=context.facility_id,
+                agent=key,
+                compliance_agent=bool(PROFILES[key].compliance_grounded_only),
+            )
+            for key in keys
+        },
+    }
 
 
 @router.post("/knowledge", status_code=201)
@@ -304,3 +339,42 @@ def save_feedback(
         model=payload.model,
     )
     return {"id": row_id, "training_approved": False}
+
+
+@router.get("/feedback/pending")
+def pending_feedback(
+    agent_key: str = "",
+    limit: int = 100,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_diagnostics(context)
+    requested = str(agent_key or "").strip().casefold()
+    if requested and requested not in PROFILES:
+        raise HTTPException(422, "Unknown AI agent.")
+    rows = AgentFeedbackStore(engine).list_pending(
+        organization_id=context.organization_id,
+        facility_id=context.facility_id,
+        agent=requested,
+        limit=max(1, min(int(limit), 200)),
+    )
+    return {"feedback": rows, "count": len(rows)}
+
+
+@router.post("/feedback/{feedback_id}/training-approval")
+def approve_feedback_learning(
+    feedback_id: str,
+    payload: TrainingApprovalRequest,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_diagnostics(context)
+    changed = AgentFeedbackStore(engine).set_training_approved(
+        row_id=feedback_id,
+        organization_id=context.organization_id,
+        facility_id=context.facility_id,
+        approved=bool(payload.approved),
+    )
+    if not changed:
+        raise HTTPException(404, "Feedback was not found in the current organization/facility.")
+    return {"id": feedback_id, "training_approved": bool(payload.approved)}
