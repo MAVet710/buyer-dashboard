@@ -264,7 +264,7 @@ def test_unbalanced_run_is_rejected_before_inventory_changes():
         source_unit="g",
     )
     with pytest.raises(ValueError, match="balance exactly"):
-        service.commit(invalid, organization_id=org_id, facility_id=facility_id, actor="buyer")
+        service.commit(plan, organization_id=org_id, facility_id=facility_id, actor="buyer")
     assert math.isclose(_balance(engine, source_lot_id), 1000.0)
 
 
