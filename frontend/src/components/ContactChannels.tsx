@@ -4,21 +4,21 @@ import { HELP_EMAIL, INFO_EMAIL, SUPPORT_EMAIL } from "../lib/brand";
 const channels = [
   {
     icon: Mail,
-    title: "General & product info",
+    title: "Curious about DoobieLogic?",
     email: INFO_EMAIL,
-    body: "Questions about DoobieLogic, the platform, or getting started.",
+    body: "Questions about the platform, whether it fits your operation, or how to get started.",
   },
   {
     icon: CircleHelp,
-    title: "Help",
+    title: "Need a hand?",
     email: HELP_EMAIL,
-    body: "How-to questions, workflow guidance, and product help.",
+    body: "Workflow questions, how-to stuff, or help figuring out where something lives.",
   },
   {
     icon: Headphones,
-    title: "Support",
+    title: "Something acting weird?",
     email: SUPPORT_EMAIL,
-    body: "Account access, technical issues, and operational support.",
+    body: "Login trouble, errors, broken behavior, or anything that should be working and isn't.",
   },
 ] as const;
 
@@ -26,9 +26,9 @@ export function MarketingContactChannels() {
   return <section className="marketing-contact-channels" aria-labelledby="contact-heading">
     <div className="marketing-contact-heading">
       <div>
-        <div className="marketing-contact-eyebrow">Contact DoobieLogic</div>
-        <h2 id="contact-heading">Get to the right inbox without hunting for an address.</h2>
-        <p>Choose the channel that best matches what you need. All three addresses are monitored through the DoobieLogic Spacemail workspace.</p>
+        <div className="marketing-contact-eyebrow">Talk to us</div>
+        <h2 id="contact-heading">Need us? Pick an inbox.</h2>
+        <p>Product question, need a hand, or something being stubborn? Hit the address that fits. A real person will see it.</p>
       </div>
     </div>
     <div className="marketing-contact-grid">

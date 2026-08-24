@@ -19,9 +19,32 @@ def test_public_and_app_contact_channels_use_doobielogic_aliases():
     assert "<AppSupportButton />" in main
 
 
+def test_public_contact_copy_stays_human_and_does_not_expose_mail_vendor():
+    channels = (ROOT / "frontend" / "src" / "components" / "ContactChannels.tsx").read_text(encoding="utf-8")
+    marketing = (ROOT / "frontend" / "src" / "pages" / "MarketingHome.tsx").read_text(encoding="utf-8")
+
+    assert "Need us? Pick an inbox." in channels
+    assert "A real person will see it." in channels
+    assert "Spacemail" not in channels
+    assert "spreadsheet circus" in marketing
+    assert "Good weed deserves better operations." in marketing
+
+
 def test_contact_channel_styles_include_mobile_support_control():
     css = (ROOT / "frontend" / "src" / "contact-channels.css").read_text(encoding="utf-8")
     assert ".marketing-contact-grid" in css
     assert ".app-support-button" in css
     assert "@media (max-width: 760px)" in css
     assert "#ef7427" in css
+
+
+def test_workspace_agent_is_a_floating_translucent_panel():
+    css = (ROOT / "frontend" / "src" / "components" / "workspace-agent.css").read_text(encoding="utf-8")
+
+    assert "right:18px" in css
+    assert "top:18px" in css
+    assert "bottom:18px" in css
+    assert "border-radius:22px" in css
+    assert "backdrop-filter:blur(24px)" in css
+    assert "rgba(4,6,7,.22)" in css
+    assert "right:0;top:0;height:100dvh" not in css
