@@ -25,6 +25,39 @@ class FakeSMTP:
 
     def send_message(self, message):
         self.message = message
+        return {}
+
+
+class FakeIMAP:
+    instances = []
+
+    def __init__(self, host, port, *, ssl_context, timeout):
+        self.host = host
+        self.port = port
+        self.ssl_context = ssl_context
+        self.timeout = timeout
+        self.login_args = None
+        self.append_args = None
+        self.logged_out = False
+        self.__class__.instances.append(self)
+
+    def login(self, username, password):
+        self.login_args = (username, password)
+        return "OK", [b"authenticated"]
+
+    def list(self):
+        return "OK", [
+            b'(\\HasNoChildren) "/" "INBOX"',
+            b'(\\HasNoChildren \\Sent) "/" "Sent"',
+        ]
+
+    def append(self, mailbox, flags, date_time, message):
+        self.append_args = (mailbox, flags, date_time, message)
+        return "OK", [b"append completed"]
+
+    def logout(self):
+        self.logged_out = True
+        return "BYE", [b"logout"]
 
 
 def _settings(**overrides):
@@ -35,9 +68,11 @@ def _settings(**overrides):
     return Settings(**values)
 
 
-def test_welcome_email_authenticates_primary_mailbox_and_sends_from_support_alias(monkeypatch):
+def test_welcome_email_authenticates_primary_mailbox_sends_alias_and_archives_sent_copy(monkeypatch):
     FakeSMTP.instances.clear()
+    FakeIMAP.instances.clear()
     monkeypatch.setattr(spacemail.smtplib, "SMTP_SSL", FakeSMTP)
+    monkeypatch.setattr(spacemail.imaplib, "IMAP4_SSL", FakeIMAP)
     settings = _settings()
 
     delivery = spacemail.send_welcome_email(
@@ -49,6 +84,7 @@ def test_welcome_email_authenticates_primary_mailbox_and_sends_from_support_alia
     )
 
     assert delivery.sent is True
+    assert delivery.sent_copy_saved is True
     assert delivery.recipient == "new.user@example.com"
     assert delivery.sender == "support@doobielogic.io"
     assert len(FakeSMTP.instances) == 1
@@ -59,6 +95,39 @@ def test_welcome_email_authenticates_primary_mailbox_and_sends_from_support_alia
     assert smtp.message["From"] == "DoobieLogic Support <support@doobielogic.io>"
     assert smtp.message["Reply-To"] == "support@doobielogic.io"
     assert smtp.message["To"] == "new.user@example.com"
+    assert smtp.message["Date"]
+    assert smtp.message["Message-ID"].endswith("@doobielogic.io>")
+
+    assert len(FakeIMAP.instances) == 1
+    imap = FakeIMAP.instances[0]
+    assert imap.host == "mail.spacemail.com"
+    assert imap.port == 993
+    assert imap.login_args == ("nelson@doobielogic.io", "server-only-mailbox-password")
+    assert imap.append_args is not None
+    assert imap.append_args[0] == "Sent"
+    assert imap.append_args[1] == r"(\Seen)"
+    assert b"Welcome to DoobieLogic" in imap.append_args[3]
+    assert imap.logged_out is True
+
+
+def test_welcome_email_delivery_survives_sent_copy_archive_failure(monkeypatch):
+    FakeSMTP.instances.clear()
+    monkeypatch.setattr(spacemail.smtplib, "SMTP_SSL", FakeSMTP)
+
+    def broken_imap(*args, **kwargs):
+        raise OSError("imap unavailable")
+
+    monkeypatch.setattr(spacemail.imaplib, "IMAP4_SSL", broken_imap)
+    delivery = spacemail.send_welcome_email(
+        _settings(),
+        recipient="new.user@example.com",
+        display_name="New User",
+        username="new.user",
+        temporary_password="Temporary!234",
+    )
+
+    assert delivery.sent is True
+    assert delivery.sent_copy_saved is False
 
 
 def test_welcome_email_matches_doobielogic_brand_and_contains_login_credentials():
