@@ -5,17 +5,17 @@ import { apiGet, apiPost } from "../lib/api";
 
 type Configuration = Record<string, string | boolean>;
 type Integration = { configured: boolean; status: string; secret_hint: string; configuration: Configuration; last_validated_at: string | null; last_error: string };
-type Payload = { metrc: Integration; doobie: Integration | null; ai_runtime?: Integration | null };
+type Payload = { metrc: Integration; doobie: Integration | null; ai_runtime?: Integration | null; spacemail?: Integration | null };
 
 export function IntegrationsPage() {
   const client = useQueryClient();
   const data = useQuery({ queryKey: ["integrations"], queryFn: ({ signal }) => apiGet<Payload>("/api/v1/integrations", signal), retry: false });
   const refresh = () => client.invalidateQueries({ queryKey: ["integrations"] });
-  const devMode = Boolean(data.data?.doobie || data.data?.ai_runtime);
+  const devMode = Boolean(data.data?.doobie || data.data?.ai_runtime || data.data?.spacemail);
   return <div className="page">
-    <div className="page-heading"><div><div className="eyebrow">Secure connections</div><h1>{devMode ? "AI & METRC Integrations" : "METRC Integrations"}</h1><p>{devMode ? "Level DEV platform AI runtime, grounded knowledge, cloud fallback, and METRC connection settings." : "Connect the METRC account and licensed facility used by your workflows. These settings are stored for your app account and active facility only."}</p></div></div>
+    <div className="page-heading"><div><div className="eyebrow">Secure connections</div><h1>{devMode ? "Platform Integrations" : "METRC Integrations"}</h1><p>{devMode ? "Level DEV settings for DoobieLogic AI, Spacemail onboarding, grounded knowledge, cloud fallback, and METRC connections." : "Connect the METRC account and licensed facility used by your workflows. These settings are stored for your app account and active facility only."}</p></div></div>
     {data.isError ? <div className="state error">{data.error.message}</div> : null}
-    {data.data ? <div className="integration-grid">{data.data.ai_runtime ? <AIRuntimeCard value={data.data.ai_runtime} onSaved={refresh}/> : null}{devMode ? <KnowledgeLibraryCard canSeedApproved={true}/> : null}{data.data.doobie ? <DoobieCard value={data.data.doobie} onSaved={refresh}/> : null}<MetrcCard value={data.data.metrc} onSaved={refresh}/></div> : null}
+    {data.data ? <div className="integration-grid">{data.data.spacemail ? <SpacemailCard value={data.data.spacemail} onSaved={refresh}/> : null}{data.data.ai_runtime ? <AIRuntimeCard value={data.data.ai_runtime} onSaved={refresh}/> : null}{devMode ? <KnowledgeLibraryCard canSeedApproved={true}/> : null}{data.data.doobie ? <DoobieCard value={data.data.doobie} onSaved={refresh}/> : null}<MetrcCard value={data.data.metrc} onSaved={refresh}/></div> : null}
   </div>;
 }
 
@@ -32,6 +32,50 @@ function MetrcCard({ value, onSaved }: { value: Integration; onSaved: () => void
       <label className="span-2">METRC License / Facility<input value={form.license_number} onChange={event => setForm({ ...form, license_number: event.target.value })}/></label>
     </div>
     <Actions save={() => save.mutate()} test={() => test.mutate()} clear={() => clear.mutate()} disabled={!form.state || !form.license_number || (!value.configured && !form.api_key)} pending={save.isPending || test.isPending || clear.isPending}/>
+    {save.isError || test.isError || clear.isError ? <div className="form-error">{save.error?.message || test.error?.message || clear.error?.message}</div> : null}
+    {test.data ? <div className={test.data.result.ok ? "connection-result success" : "connection-result error"}>{test.data.result.message}</div> : null}
+  </IntegrationCard>;
+}
+
+function SpacemailCard({ value, onSaved }: { value: Integration; onSaved: () => void }) {
+  const defaults = {
+    smtp_username: "nelson@doobielogic.io",
+    from_email: "support@doobielogic.io",
+    from_name: "DoobieLogic Support",
+    support_email: "support@doobielogic.io",
+    help_email: "help@doobielogic.io",
+    info_email: "info@doobielogic.io",
+    welcome_email_enabled: true,
+    mailbox_password: "",
+  };
+  const [form, setForm] = useState(defaults);
+  useEffect(() => setForm(current => ({
+    ...current,
+    smtp_username: String(value.configuration.smtp_username ?? defaults.smtp_username),
+    from_email: String(value.configuration.from_email ?? defaults.from_email),
+    from_name: String(value.configuration.from_name ?? defaults.from_name),
+    support_email: String(value.configuration.support_email ?? defaults.support_email),
+    help_email: String(value.configuration.help_email ?? defaults.help_email),
+    info_email: String(value.configuration.info_email ?? defaults.info_email),
+    welcome_email_enabled: value.configuration.welcome_email_enabled === undefined ? true : Boolean(value.configuration.welcome_email_enabled),
+  })), [value]);
+  const save = useMutation({ mutationFn: () => apiPost("/api/v1/integrations/spacemail", { ...form, mailbox_password: form.mailbox_password || null }), onSuccess: () => { setForm(current => ({ ...current, mailbox_password: "" })); onSaved(); } });
+  const test = useMutation({ mutationFn: () => apiPost<Integration & { result: { ok: boolean; message: string } }>("/api/v1/integrations/spacemail/test", {}), onSuccess: onSaved });
+  const clear = useMutation({ mutationFn: () => apiPost("/api/v1/integrations/spacemail/clear", {}), onSuccess: () => { setForm(defaults); onSaved(); } });
+  const missing = !form.smtp_username || !form.from_email || !form.from_name || !form.support_email || !form.help_email || !form.info_email;
+  return <IntegrationCard title="Spacemail Onboarding & Support" description="Secure SMTP for DoobieLogic welcome emails. The primary mailbox authenticates to Spacemail; outgoing onboarding mail uses the support alias. The mailbox password is encrypted and never returned to the browser." value={value}>
+    <div className="form-grid">
+      <label>Primary mailbox<input value={form.smtp_username} onChange={event => setForm({ ...form, smtp_username: event.target.value })}/></label>
+      <label>Mailbox password<input type="password" autoComplete="new-password" placeholder={value.configured ? `Saved ${value.secret_hint} · leave blank to keep` : "Enter the Spacemail mailbox password"} value={form.mailbox_password} onChange={event => setForm({ ...form, mailbox_password: event.target.value })}/></label>
+      <label>Welcome email sender<input value={form.from_email} onChange={event => setForm({ ...form, from_email: event.target.value })}/></label>
+      <label>Sender name<input value={form.from_name} onChange={event => setForm({ ...form, from_name: event.target.value })}/></label>
+      <label>Support alias<input value={form.support_email} onChange={event => setForm({ ...form, support_email: event.target.value })}/></label>
+      <label>Help alias<input value={form.help_email} onChange={event => setForm({ ...form, help_email: event.target.value })}/></label>
+      <label className="span-2">Info alias<input value={form.info_email} onChange={event => setForm({ ...form, info_email: event.target.value })}/></label>
+      <label className="span-2"><input type="checkbox" checked={form.welcome_email_enabled} onChange={event => setForm({ ...form, welcome_email_enabled: event.target.checked })}/> Send branded welcome emails when a new user has an email address</label>
+    </div>
+    <p className="source-caption">Connection test authenticates to mail.spacemail.com over encrypted SMTP without sending a message.</p>
+    <Actions save={() => save.mutate()} test={() => test.mutate()} clear={() => clear.mutate()} disabled={missing || (!value.configured && !form.mailbox_password)} pending={save.isPending || test.isPending || clear.isPending}/>
     {save.isError || test.isError || clear.isError ? <div className="form-error">{save.error?.message || test.error?.message || clear.error?.message}</div> : null}
     {test.data ? <div className={test.data.result.ok ? "connection-result success" : "connection-result error"}>{test.data.result.message}</div> : null}
   </IntegrationCard>;
