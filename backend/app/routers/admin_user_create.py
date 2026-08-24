@@ -14,7 +14,7 @@ from modules.coman.models import AppUser, AuditEvent, utc_now
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
-from ..services.spacemail import SpacemailError, send_welcome_email
+from ..services.spacemail import SpacemailError, resolve_spacemail_settings, send_welcome_email
 from .admin import UserLink, _link, _require_admin, _serialize_user, _username, _validate_role
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -197,10 +197,11 @@ def create_user_with_temporary_password(
     contact_email = payload.email.strip().casefold()
     if contact_email and ("@" not in contact_email or contact_email.startswith("@") or contact_email.endswith("@")):
         raise HTTPException(422, "Enter a valid email address or leave Email optional blank.")
-    if contact_email and settings.spacemail_welcome_email_enabled and not settings.spacemail_is_configured:
+    mail_settings = resolve_spacemail_settings(engine, settings)
+    if contact_email and mail_settings.spacemail_welcome_email_enabled and not mail_settings.spacemail_is_configured:
         raise HTTPException(
             503,
-            "Spacemail welcome email delivery is not configured. Add the server-side SPACEMAIL_SMTP_PASSWORD secret before creating emailed accounts.",
+            "Spacemail welcome email delivery is not configured. Save the mailbox credential in Data & Settings > AI & METRC Integrations before creating emailed accounts.",
         )
 
     # Synthetic identities must remain valid email addresses even when the
@@ -248,7 +249,7 @@ def create_user_with_temporary_password(
                             "organization_id": row.organization_id,
                             "facility_ids": payload.facility_ids,
                             "must_change_password": payload.must_change_password,
-                            "welcome_email_requested": bool(contact_email and settings.spacemail_welcome_email_enabled),
+                            "welcome_email_requested": bool(contact_email and mail_settings.spacemail_welcome_email_enabled),
                         },
                         sort_keys=True,
                     ),
@@ -265,10 +266,10 @@ def create_user_with_temporary_password(
                 organization_id=metadata_org_id,
                 facility_id=metadata_facility_id,
             )
-            if contact_email and settings.spacemail_welcome_email_enabled:
+            if contact_email and mail_settings.spacemail_welcome_email_enabled:
                 try:
                     send_welcome_email(
-                        settings,
+                        mail_settings,
                         recipient=contact_email,
                         display_name=payload.display_name.strip() or username,
                         username=username,
@@ -286,8 +287,8 @@ def create_user_with_temporary_password(
                         actor=context.user_id,
                         changes_json=json.dumps(
                             {
-                                "recipient": contact_email,
-                                "sender": settings.spacemail_from_email,
+                                "delivery": "sent",
+                                "sender": mail_settings.spacemail_from_email,
                             },
                             sort_keys=True,
                         ),
