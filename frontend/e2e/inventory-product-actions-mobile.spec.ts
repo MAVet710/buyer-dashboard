@@ -8,6 +8,11 @@ const accountContext = {
   facilities: [{ id: "facility-mobile", name: "Mobile Facility", code: "MOBILE", license_type: "Retail", capabilities: { retail: true, production: true, cultivation: false, commercial: true } }],
 };
 
+const readOnlyAccountContext = {
+  ...accountContext,
+  user: { ...accountContext.user, display_name: "Mobile Read Only", email: "readonly@doobielogic.io", role: "read_only" },
+};
+
 const accessOptions = {
   organizations: [{ id: "org-mobile", name: "Mobile Cannabis", slug: "mobile-cannabis", facilities: accountContext.facilities }],
   organization_id: "org-mobile",
@@ -36,11 +41,11 @@ const packageStudioWorkspace = {
   can_commit: true,
 };
 
-async function installApiMocks(page: Page) {
+async function installApiMocks(page: Page, activeAccount = accountContext) {
   await page.route("**/api/v1/**", async route => {
     const path = new URL(route.request().url()).pathname;
     let body: unknown = {};
-    if (path === "/api/v1/account/context") body = accountContext;
+    if (path === "/api/v1/account/context") body = activeAccount;
     else if (path === "/api/v1/account/access-options") body = accessOptions;
     else if (path === "/api/v1/inventory/retail/packages") body = retailInventory;
     else if (path === "/api/v1/package-studio/workspace") body = packageStudioWorkspace;
@@ -50,6 +55,21 @@ async function installApiMocks(page: Page) {
   });
 }
 
+async function openInventory(page: Page, width: number, activeAccount = accountContext) {
+  await page.setViewportSize({ width, height: 900 });
+  await installApiMocks(page, activeAccount);
+  await page.addInitScript(() => {
+    localStorage.setItem("buyer-dash-theme", "dark");
+    localStorage.setItem("buyer-dash-organization", "org-mobile");
+    localStorage.setItem("buyer-dash-facility", "facility-mobile");
+    localStorage.setItem("buyer-dash-operation", "Retail Ops");
+    localStorage.setItem("buyer-dash-data-mode", "Uploads");
+    sessionStorage.setItem("buyer-dash-pending-page", "Inventory");
+  });
+  await page.goto("/", { waitUntil: "networkidle" });
+  await expect(page.getByRole("heading", { name: "Inventory" })).toBeVisible();
+}
+
 async function assertNoOverflow(page: Page) {
   const { width, scrollWidth } = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.documentElement.scrollWidth }));
   expect(scrollWidth).toBeLessThanOrEqual(width + 1);
@@ -57,19 +77,7 @@ async function assertNoOverflow(page: Page) {
 
 for (const width of [390, 430]) {
   test(`product-level package actions are usable at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 900 });
-    await installApiMocks(page);
-    await page.addInitScript(() => {
-      localStorage.setItem("buyer-dash-theme", "dark");
-      localStorage.setItem("buyer-dash-organization", "org-mobile");
-      localStorage.setItem("buyer-dash-facility", "facility-mobile");
-      localStorage.setItem("buyer-dash-operation", "Retail Ops");
-      localStorage.setItem("buyer-dash-data-mode", "Uploads");
-      sessionStorage.setItem("buyer-dash-pending-page", "Inventory");
-    });
-    await page.goto("/", { waitUntil: "networkidle" });
-
-    await expect(page.getByRole("heading", { name: "Inventory" })).toBeVisible();
+    await openInventory(page, width);
     await page.getByRole("checkbox", { name: "Select Copper Kush Whole Flower 3.5g" }).check();
 
     const work = page.getByRole("button", { name: "Work on package" });
@@ -104,6 +112,26 @@ for (const width of [390, 430]) {
     const adjustDialog = page.getByRole("dialog", { name: "Adjust inventory" });
     await expect(adjustDialog).toBeVisible();
     await expect(adjustDialog.getByLabel("Package *")).toHaveValue("lot-copper-b");
+    await assertNoOverflow(page);
+  });
+
+  test(`read-only inventory stays read-only at ${width}px`, async ({ page }) => {
+    await openInventory(page, width, readOnlyAccountContext);
+
+    await expect(page.getByRole("button", { name: "Receive inventory" })).toBeDisabled();
+    await page.getByRole("button", { name: "Actions" }).click();
+    await expect(page.getByRole("button", { name: "Package Studio", exact: true })).toBeDisabled();
+
+    await page.getByRole("checkbox", { name: "Select Copper Kush Whole Flower 3.5g" }).check();
+    await expect(page.getByRole("button", { name: "Audit", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Add to PO" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Work on package" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Adjust", exact: true })).toBeDisabled();
+
+    const labels = page.getByRole("button", { name: "Print labels" });
+    await expect(labels).toBeEnabled();
+    await labels.click();
+    await expect(page.getByRole("dialog", { name: "Print inventory labels" })).toBeVisible();
     await assertNoOverflow(page);
   });
 }
