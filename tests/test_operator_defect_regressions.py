@@ -8,13 +8,23 @@ from backend.app.routers.buyer_legacy_overview import _date_column
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_camera_scanner_has_native_and_cross_browser_qr_fallback():
+def test_camera_scanner_has_visible_ui_and_cross_browser_qr_fallback():
     index = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+    scanner = (ROOT / "frontend" / "src" / "components" / "CameraScanner.tsx").read_text(encoding="utf-8")
+    audits = (ROOT / "frontend" / "src" / "components" / "InventoryAudits.tsx").read_text(encoding="utf-8")
+    styles = (ROOT / "frontend" / "src" / "components" / "camera-scanner.css").read_text(encoding="utf-8")
     assert "html5-qrcode/2.3.8" in index
     assert "StreamlitScannerBarcodeDetector" in index
     assert 'formats: ["qr_code"]' in index
     assert "decodeWithFallback" in index
     assert "doobielogic-camera-frame.png" in index
+    assert "Open camera scanner" in scanner
+    assert "Camera ready — point it at a QR code or barcode" in scanner
+    assert "camera-scan-frame" in scanner
+    assert "RESCAN_GUARD_MS" in scanner
+    assert "schedule(350)" in scanner
+    assert 'import { CameraScanner } from "./CameraScanner"' in audits
+    assert ".camera-scanner-card" in styles
 
 
 def test_printed_inventory_labels_encode_external_package_id_as_qr():
@@ -72,6 +82,14 @@ def test_workspace_restoration_self_heals_instead_of_dead_ending():
     assert "response.status === 401" in api
     assert "refreshSession" in api
     assert "ApiError" in api
+
+
+def test_api_surfaces_field_level_validation_errors():
+    api = (ROOT / "frontend" / "src" / "lib" / "api.ts").read_text(encoding="utf-8")
+    assert "validationDetails" in api
+    assert "const fieldErrors = validationDetails(payload.detail)" in api
+    assert "if (fieldErrors) return fieldErrors" in api
+    assert "One or more request fields are invalid" in api
 
 
 def test_web_deploy_explicitly_promotes_new_revision():
