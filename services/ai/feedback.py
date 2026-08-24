@@ -32,13 +32,56 @@ class AgentFeedbackStore:
             """), {"id": row_id, "org": organization_id, "facility": facility_id, "created": datetime.now(timezone.utc), "agent": str(agent)[:64], "task": str(task_type)[:120], "prompt": prompt, "tools": json.dumps([str(value)[:120] for value in tool_names[:50]]), "outcomes": json.dumps(safe_outcomes, default=str), "answer": response, "rating": rating, "correction": correction, "provider": str(provider)[:64], "model": str(model)[:160], "score": evaluation_score, "training_approved": False})
         return row_id
 
-    def export_approved(self) -> list[dict[str, Any]]:
-        """Explicit-policy export: only rows independently marked training-approved."""
+    def list_pending(self, *, organization_id: str, facility_id: str, agent: str = "", limit: int = 100) -> list[dict[str, Any]]:
+        if not organization_id or not facility_id:
+            return []
+        where = ["organization_id=:org", "facility_id=:facility", "NOT training_approved", "corrected_answer <> ''"]
+        params: dict[str, Any] = {"org": organization_id, "facility": facility_id, "limit": max(1, min(int(limit), 200))}
+        if agent:
+            where.append("agent=:agent")
+            params["agent"] = str(agent)[:64]
+        try:
+            with self.engine.connect() as connection:
+                rows = [dict(row) for row in connection.execute(text(f"""
+                    SELECT id, created_at, agent, normalized_task_type, sanitized_prompt, answer,
+                           user_rating, corrected_answer, provider, model, evaluation_score
+                    FROM ai_agent_feedback
+                    WHERE {' AND '.join(where)}
+                    ORDER BY created_at DESC LIMIT :limit
+                """), params).mappings()]
+        except Exception:
+            return []
+        return rows
+
+    def set_training_approved(self, *, row_id: str, organization_id: str, facility_id: str, approved: bool) -> bool:
+        if not row_id or not organization_id or not facility_id:
+            return False
+        try:
+            with self.engine.begin() as connection:
+                result = connection.execute(text("""
+                    UPDATE ai_agent_feedback
+                    SET training_approved=:approved
+                    WHERE id=:id AND organization_id=:org AND facility_id=:facility
+                """), {"approved": bool(approved), "id": row_id, "org": organization_id, "facility": facility_id})
+            return int(result.rowcount or 0) == 1
+        except Exception:
+            return False
+
+    def export_approved(self, *, organization_id: str | None = None, facility_id: str | None = None) -> list[dict[str, Any]]:
+        """Explicit-policy export. Scope it whenever a tenant context is available."""
+        where = ["training_approved"]
+        params: dict[str, Any] = {}
+        if organization_id:
+            where.append("organization_id=:org")
+            params["org"] = organization_id
+        if facility_id:
+            where.append("facility_id=:facility")
+            params["facility"] = facility_id
         with self.engine.connect() as connection:
-            rows = [dict(row) for row in connection.execute(text("""
+            rows = [dict(row) for row in connection.execute(text(f"""
                 SELECT agent, normalized_task_type, sanitized_prompt, tool_names_json, sanitized_tool_outcomes_json, answer, corrected_answer
-                FROM ai_agent_feedback WHERE training_approved ORDER BY created_at
-            """)).mappings()]
+                FROM ai_agent_feedback WHERE {' AND '.join(where)} ORDER BY created_at
+            """), params).mappings()]
         output = []
         for row in rows:
             output.append({
