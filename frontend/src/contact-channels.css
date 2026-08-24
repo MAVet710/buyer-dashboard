@@ -1,0 +1,132 @@
+.marketing-contact-channels {
+  width: 100%;
+  padding: 46px max(24px, calc((100% - 1480px) / 2)) 54px;
+  color: #f7f3ed;
+  border-top: 1px solid #242220;
+  background:
+    radial-gradient(circle at 86% 12%, rgba(239, 116, 39, .09), transparent 24rem),
+    linear-gradient(180deg, #090b0c 0%, #07090a 100%);
+}
+
+.marketing-contact-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: end;
+  margin-bottom: 22px;
+}
+
+.marketing-contact-heading > div { max-width: 760px; }
+.marketing-contact-eyebrow {
+  color: #ef7427;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.marketing-contact-heading h2 {
+  margin: 10px 0 10px;
+  color: #f7f3ed;
+  font-size: clamp(28px, 3.1vw, 42px);
+  line-height: 1.05;
+  letter-spacing: -.04em;
+}
+.marketing-contact-heading p {
+  margin: 0;
+  color: #aaa6a0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.marketing-contact-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.marketing-contact-card {
+  min-width: 0;
+  min-height: 138px;
+  padding: 18px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: start;
+  border: 1px solid #30302f;
+  border-radius: 11px;
+  color: #f7f3ed;
+  background: linear-gradient(180deg, #111415, #0d0f10);
+  text-decoration: none;
+  transition: border-color .18s ease, transform .18s ease, background .18s ease;
+}
+.marketing-contact-card:hover,
+.marketing-contact-card:focus-visible {
+  border-color: #7d3f1d;
+  background: linear-gradient(180deg, #151515, #101112);
+  transform: translateY(-1px);
+  outline: none;
+}
+.marketing-contact-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid #71401e;
+  border-radius: 9px;
+  color: #ef7427;
+  background: #1b1713;
+}
+.marketing-contact-copy { min-width: 0; display: grid; gap: 6px; }
+.marketing-contact-copy strong { color: #f1eee9; font-size: 15px; }
+.marketing-contact-copy small { color: #918b85; font-size: 12px; line-height: 1.5; }
+.marketing-contact-copy b {
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: #ef8a48;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-support-button {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 90;
+  min-height: 42px;
+  padding: 0 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #8b491f;
+  border-radius: 999px;
+  color: #f7f3ed;
+  background: rgba(13, 16, 17, .94);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .34);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 800;
+  backdrop-filter: blur(12px);
+}
+.app-support-button svg { color: #ef7427; }
+.app-support-button:hover,
+.app-support-button:focus-visible {
+  border-color: #ef7427;
+  background: #1b1713;
+  outline: none;
+}
+
+@media (max-width: 760px) {
+  .marketing-contact-channels { padding: 34px 18px 42px; }
+  .marketing-contact-heading { margin-bottom: 18px; }
+  .marketing-contact-grid { grid-template-columns: 1fr; gap: 10px; }
+  .marketing-contact-card { min-height: 112px; }
+  .app-support-button {
+    right: 14px;
+    bottom: 14px;
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+  .app-support-button span { display: none; }
+}
