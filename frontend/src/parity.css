@@ -143,8 +143,40 @@ body {
 }
 button.primary { background: linear-gradient(135deg, var(--accent), #ef8125); color: #120b05; font-weight: 800; }
 button.primary:hover { filter: brightness(1.08); transform: translateY(-1px); }
+button:disabled,
+button.primary:disabled,
+button.secondary:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+  filter: saturate(.35);
+  transform: none;
+}
+button:disabled:hover,
+button.primary:disabled:hover,
+button.secondary:disabled:hover {
+  filter: saturate(.35);
+  transform: none;
+}
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid rgba(255,154,60,.72); outline-offset: 2px; }
 .eyebrow { color: var(--accent-bright) !important; }
+
+.package-choice-list {
+  display: grid;
+  gap: 10px;
+}
+.package-choice-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 52px;
+  text-align: left;
+}
+.package-choice-list button span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: right;
+}
 
 .access-badge {
   display: inline-flex;
@@ -168,4 +200,6 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   .auth-card { width: 100%; }
   .context-switchers { width: 100%; order: 3; }
   .organization-switch, .facility-switch { flex: 1; min-width: 0; }
+  .package-choice-list button { align-items: flex-start; flex-direction: column; }
+  .package-choice-list button span { text-align: left; }
 }
