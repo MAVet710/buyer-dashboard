@@ -25,8 +25,10 @@ function validationDetails(detail: unknown): string {
   const messages = detail.map(item => {
     if (!item || typeof item !== "object") return "";
     const issue = item as ValidationIssue;
+    const rawMessage = issue.msg ?? issue.message;
+    if (rawMessage == null || !String(rawMessage).trim()) return "";
     const field = humanField(issue.loc);
-    const message = String(issue.msg ?? issue.message ?? "Invalid value").trim();
+    const message = String(rawMessage).trim();
     return field ? `${field}: ${message}` : message;
   }).filter(Boolean);
   return [...new Set(messages)].join(" · ");
@@ -123,5 +125,5 @@ export async function apiDownload(path: string, body?: unknown): Promise<Blob> {
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+  const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url.href);
 }
