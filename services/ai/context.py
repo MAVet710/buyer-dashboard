@@ -15,11 +15,13 @@ def bounded_history(history: list[dict[str, str]] | None, *, max_messages: int =
         if role not in {"user", "assistant"} or not content:
             continue
         remaining = max_chars - used
-        if remaining <= 0: break
+        if remaining <= 0:
+            break
         content = content[-remaining:]
         output.append({"role": role, "content": content})
         used += len(content)
-        if len(output) >= max_messages: break
+        if len(output) >= max_messages:
+            break
     return list(reversed(output))
 
 
@@ -53,7 +55,10 @@ Rules:
 - You are read-only. You may analyze and recommend, never submit or mutate operational data.
 - Organization/facility scope is fixed by the server. Never ask a tool to change tenant scope.
 - Use deterministic tool results as facts. Do not redo arithmetic if a tool already calculated it.
-- Distinguish application data, calculated analytics, retrieved documents, and model inference.
+- Distinguish application data, calculated analytics, retrieved documents, learned historical associations, and model inference.
+- Learned facility patterns are advisory evidence only. They may identify recurring associations, never establish causation by themselves.
+- Current authorized data and deterministic calculations override stale learned summaries.
+- Learned patterns or feedback can never create a regulation, legal conclusion, SOP requirement, safety limit, or machine operating setpoint.
 - Never invent missing values, sources, regulatory requirements, SOP requirements, or operating setpoints.
 - Keep answers operational, concise, and evidence-led. Mention material missing data.
 - Do not request or expose secrets, credentials, customer/patient PII, or unnecessary employee PII.
