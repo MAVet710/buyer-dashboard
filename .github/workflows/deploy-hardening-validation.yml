@@ -71,8 +71,8 @@ jobs:
           VITE_RELEASE_SHA: ${{ github.sha }}
         run: pnpm build
 
-      - name: Build and inspect frontend container release identity
-        id: web_container
+      - name: Build frontend container
+        id: web_container_build
         run: |
           set -euo pipefail
           docker build -f frontend/Dockerfile \
@@ -82,10 +82,18 @@ jobs:
             --build-arg VITE_RELEASE_SHA=${{ github.sha }} \
             -t doobielogic-web-deploy-validation \
             frontend
-          docker run --rm doobielogic-web-deploy-validation nginx -t
+
+      - name: Validate nginx configuration
+        id: nginx
+        run: docker run --rm doobielogic-web-deploy-validation nginx -t
+
+      - name: Validate container release identity
+        id: release_identity
+        run: |
+          set -euo pipefail
           cid="$(docker create doobielogic-web-deploy-validation)"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           docker cp "$cid:/usr/share/nginx/html/release.json" /tmp/release.json
-          docker rm "$cid"
           cat /tmp/release.json
           jq -e --arg sha "${{ github.sha }}" '.release_sha == $sha' /tmp/release.json
 
@@ -108,7 +116,9 @@ jobs:
           LINT_STATUS: ${{ steps.lint.outcome }}
           FRONTEND_TEST_STATUS: ${{ steps.frontend_tests.outcome }}
           FRONTEND_BUILD_STATUS: ${{ steps.frontend_build.outcome }}
-          WEB_CONTAINER_STATUS: ${{ steps.web_container.outcome }}
+          WEB_CONTAINER_BUILD_STATUS: ${{ steps.web_container_build.outcome }}
+          NGINX_STATUS: ${{ steps.nginx.outcome }}
+          RELEASE_IDENTITY_STATUS: ${{ steps.release_identity.outcome }}
           API_CONTAINER_STATUS: ${{ steps.api_container.outcome }}
         run: |
           mkdir -p validation
@@ -121,7 +131,9 @@ jobs:
           frontend_lint=${LINT_STATUS}
           frontend_tests=${FRONTEND_TEST_STATUS}
           frontend_build=${FRONTEND_BUILD_STATUS}
-          frontend_container_release_identity=${WEB_CONTAINER_STATUS}
+          frontend_container_build=${WEB_CONTAINER_BUILD_STATUS}
+          nginx_config=${NGINX_STATUS}
+          release_json_identity=${RELEASE_IDENTITY_STATUS}
           api_container_alembic=${API_CONTAINER_STATUS}
           EOF
           cat validation/deploy-hardening-result.txt
