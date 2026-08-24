@@ -20,6 +20,7 @@ jobs:
           python-version: "3.12"
 
       - name: Validate workflow YAML
+        id: yaml
         run: |
           python -m pip install --quiet pyyaml
           python - <<'PY'
@@ -35,6 +36,7 @@ jobs:
           PY
 
       - name: Run deployment safety regression tests
+        id: safety
         run: python -m pytest -q tests/test_production_deploy_safety.py
 
       - uses: pnpm/action-setup@v4
@@ -48,24 +50,29 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install frontend dependencies
+        id: install
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
       - name: Frontend lint
+        id: lint
         working-directory: frontend
         run: pnpm lint
 
       - name: Frontend tests
+        id: frontend_tests
         working-directory: frontend
         run: pnpm test
 
       - name: Frontend production build
+        id: frontend_build
         working-directory: frontend
         env:
           VITE_RELEASE_SHA: ${{ github.sha }}
         run: pnpm build
 
       - name: Build and inspect frontend container release identity
+        id: web_container
         run: |
           set -euo pipefail
           docker build -f frontend/Dockerfile \
@@ -83,6 +90,7 @@ jobs:
           jq -e --arg sha "${{ github.sha }}" '.release_sha == $sha' /tmp/release.json
 
       - name: Validate API image and Alembic head
+        id: api_container
         run: |
           set -euo pipefail
           docker build -f Dockerfile.api -t doobielogic-api-deploy-validation .
@@ -90,23 +98,33 @@ jobs:
           echo "$HEADS"
           test "$(printf '%s\n' "$HEADS" | grep -c '(head)' || true)" -eq 1
 
-      - name: Record successful validation
+      - name: Record validation outcome
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          YAML_STATUS: ${{ steps.yaml.outcome }}
+          SAFETY_STATUS: ${{ steps.safety.outcome }}
+          INSTALL_STATUS: ${{ steps.install.outcome }}
+          LINT_STATUS: ${{ steps.lint.outcome }}
+          FRONTEND_TEST_STATUS: ${{ steps.frontend_tests.outcome }}
+          FRONTEND_BUILD_STATUS: ${{ steps.frontend_build.outcome }}
+          WEB_CONTAINER_STATUS: ${{ steps.web_container.outcome }}
+          API_CONTAINER_STATUS: ${{ steps.api_container.outcome }}
         run: |
           mkdir -p validation
           cat > validation/deploy-hardening-result.txt <<EOF
-          status=PASS
+          status=${JOB_STATUS}
           validated_sha=${GITHUB_SHA}
-          yaml=PASS
-          deployment_safety_tests=PASS
-          frontend_lint=PASS
-          frontend_tests=PASS
-          frontend_build=PASS
-          frontend_container_build=PASS
-          nginx_config=PASS
-          release_json_identity=PASS
-          api_container_build=PASS
-          alembic_single_head=PASS
+          yaml=${YAML_STATUS}
+          deployment_safety_tests=${SAFETY_STATUS}
+          frontend_install=${INSTALL_STATUS}
+          frontend_lint=${LINT_STATUS}
+          frontend_tests=${FRONTEND_TEST_STATUS}
+          frontend_build=${FRONTEND_BUILD_STATUS}
+          frontend_container_release_identity=${WEB_CONTAINER_STATUS}
+          api_container_alembic=${API_CONTAINER_STATUS}
           EOF
+          cat validation/deploy-hardening-result.txt
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add validation/deploy-hardening-result.txt
