@@ -76,10 +76,9 @@ jobs:
       - name: Build, identify, and push production API image
         run: |
           set -euo pipefail
-          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.sha }}"
+          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
           docker build -f Dockerfile.api \
             -t "$IMAGE" \
-            -t "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:latest" \
             .
 
           HEADS="$(docker run --rm "$IMAGE" alembic heads)"
@@ -94,7 +93,6 @@ jobs:
           echo "API image schema head: $IMAGE_SCHEMA_HEAD"
 
           docker push "$IMAGE"
-          docker push "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:latest"
           echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
           echo "IMAGE_SCHEMA_HEAD=$IMAGE_SCHEMA_HEAD" >> "$GITHUB_ENV"
 
@@ -238,16 +236,14 @@ jobs:
       - name: Build and push production web image
         run: |
           set -euo pipefail
-          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.sha }}"
+          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
           docker build -f frontend/Dockerfile \
             --build-arg VITE_API_URL=${{ env.PRODUCTION_API_URL }} \
             --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
             --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }} \
             -t "$IMAGE" \
-            -t "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:latest" \
             frontend
           docker push "$IMAGE"
-          docker push "${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:latest"
           echo "WEB_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       - name: Deploy frontend to Cloud Run
