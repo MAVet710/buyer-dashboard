@@ -25,48 +25,208 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- The original Streamlit audit scanner used html5-qrcode. Keep the same
-         cross-browser decoder available as a pinned fallback when the browser
-         does not implement the native BarcodeDetector API (notably Safari/iOS). -->
+
+    <!-- Keep the Streamlit-era cross-browser decoder as a pinned fallback. The
+         wrapper below also protects browsers whose native BarcodeDetector exists
+         but rejects one of the requested formats, which previously stopped QR
+         scanning before the first frame was decoded. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" integrity="sha512-r6rDA7W6ZeQhvl8S7yRVQUKVHdexq+GAlNkNNqVC7YyIV+NwqCTJe2hDWCiffTyRNOeGEzRRJ9ifvRm/HCzGYg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script>
       (() => {
-        if (typeof window.BarcodeDetector !== "undefined" || typeof window.Html5Qrcode === "undefined") return;
+        const NativeBarcodeDetector = window.BarcodeDetector;
+        const requestedFormats = ["qr_code", "code_128", "code_39", "ean_13", "upc_a"];
         const readerId = "doobielogic-audit-decoder";
+        let reader = null;
+        let decoding = false;
         let host = document.getElementById(readerId);
-        if (!host) {
+        if (!host && typeof window.Html5Qrcode !== "undefined") {
           host = document.createElement("div");
           host.id = readerId;
           host.setAttribute("aria-hidden", "true");
-          host.style.cssText = "position:fixed;left:-10000px;top:0;width:320px;height:320px;opacity:0;pointer-events:none;overflow:hidden";
+          host.style.cssText = "position:fixed;left:-10000px;top:0;width:480px;height:480px;opacity:0;pointer-events:none;overflow:hidden";
           document.body.appendChild(host);
+          reader = new window.Html5Qrcode(readerId, false);
         }
-        const reader = new window.Html5Qrcode(readerId, false);
         const canvas = document.createElement("canvas");
         const context = canvas.getContext("2d", { willReadFrequently: true });
-        class StreamlitScannerBarcodeDetector {
-          constructor() {}
-          async detect(video) {
-            if (!context || !video || !video.videoWidth || !video.videoHeight) return [];
-            const maxWidth = 960;
+
+        async function decodeWithFallback(video) {
+          if (!reader || decoding || !context || !video || !video.videoWidth || !video.videoHeight) return [];
+          decoding = true;
+          try {
+            const maxWidth = 1280;
             const scale = Math.min(1, maxWidth / video.videoWidth);
             canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
             canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.86));
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
             if (!blob) return [];
             try {
-              const text = await reader.scanFile(new File([blob], "audit-camera-frame.jpg", { type: "image/jpeg" }), false);
+              const text = await reader.scanFile(new File([blob], "doobielogic-camera-frame.png", { type: "image/png" }), false);
               return text ? [{ rawValue: String(text) }] : [];
             } catch (_) {
               return [];
             }
-          }
-          static async getSupportedFormats() {
-            return ["qr_code", "code_128", "code_39", "ean_13", "upc_a"];
+          } finally {
+            decoding = false;
           }
         }
-        window.BarcodeDetector = StreamlitScannerBarcodeDetector;
+
+        class StreamlitScannerBarcodeDetector {
+          constructor(options = {}) {
+            this.native = null;
+            if (typeof NativeBarcodeDetector === "function") {
+              const formats = Array.isArray(options.formats) && options.formats.length ? options.formats : requestedFormats;
+              try {
+                this.native = new NativeBarcodeDetector({ formats });
+              } catch (_) {
+                try {
+                  this.native = new NativeBarcodeDetector({ formats: ["qr_code"] });
+                } catch (_) {
+                  this.native = null;
+                }
+              }
+            }
+          }
+
+          async detect(video) {
+            if (this.native) {
+              try {
+                const found = await this.native.detect(video);
+                if (found && found.length) return found;
+              } catch (_) {
+                // Fall through to html5-qrcode for unsupported formats and
+                // browser-specific BarcodeDetector failures.
+              }
+            }
+            return decodeWithFallback(video);
+          }
+
+          static async getSupportedFormats() {
+            if (NativeBarcodeDetector && typeof NativeBarcodeDetector.getSupportedFormats === "function") {
+              try {
+                const nativeFormats = await NativeBarcodeDetector.getSupportedFormats();
+                return Array.from(new Set([...(nativeFormats || []), ...requestedFormats]));
+              } catch (_) {}
+            }
+            return requestedFormats;
+          }
+        }
+
+        if (typeof NativeBarcodeDetector === "function" || reader) {
+          window.BarcodeDetector = StreamlitScannerBarcodeDetector;
+        }
+      })();
+
+      (() => {
+        function packageIdFromLabel(label) {
+          const packageLine = label.querySelector("span");
+          const value = String(packageLine?.textContent || "").trim();
+          return value && value !== "—" ? value : "";
+        }
+
+        function addPackageQr(label) {
+          if (label.dataset.doobielogicQr === "ready") return;
+          const packageId = packageIdFromLabel(label);
+          if (!packageId || typeof window.qrcode !== "function") return;
+          try {
+            const qr = window.qrcode(0, "M");
+            qr.addData(packageId, "Byte");
+            qr.make();
+            const wrapper = document.createElement("div");
+            wrapper.className = "inventory-label-qr";
+            wrapper.setAttribute("aria-label", `QR code for external package ID ${packageId}`);
+            wrapper.title = `External package ID: ${packageId}`;
+            wrapper.innerHTML = qr.createSvgTag(3, 1);
+            wrapper.style.cssText = "width:92px;height:92px;padding:5px;border-radius:7px;background:#fff;display:grid;place-items:center;margin:8px 0";
+            const svg = wrapper.querySelector("svg");
+            if (svg) svg.style.cssText = "width:100%;height:100%;display:block";
+            const small = label.querySelector("small");
+            label.insertBefore(wrapper, small || null);
+            label.dataset.doobielogicQr = "ready";
+          } catch (_) {
+            label.dataset.doobielogicQr = "failed";
+          }
+        }
+
+        const statusButtonLabels = {
+          all: "All Inventory",
+          reorder: "Reorder",
+          overstock: "Overstock",
+          expiring: "Expiring",
+        };
+
+        function openBuyerStatusView(target) {
+          const details = document.querySelector("details.buyer-status-views");
+          if (!details) return;
+          details.open = true;
+          details.dataset.doobielogicKpiFilter = target;
+          if (target === "no-stock") {
+            const onHand = document.querySelector(".buyer-onhand-toggle input[type='checkbox']");
+            if (onHand && onHand.checked) onHand.click();
+            target = "all";
+          }
+          const wanted = statusButtonLabels[target] || statusButtonLabels.all;
+          const button = Array.from(details.querySelectorAll("button")).find(item => String(item.textContent || "").includes(wanted));
+          if (button) button.click();
+          window.setTimeout(() => {
+            if (details.dataset.doobielogicKpiFilter === "no-stock") applyNoStockDomFilter(details);
+            details.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 80);
+        }
+
+        function applyNoStockDomFilter(details) {
+          const table = details.querySelector("table");
+          if (!table) return;
+          const headers = Array.from(table.querySelectorAll("thead th")).map(th => String(th.textContent || "").trim().toLowerCase());
+          const index = headers.findIndex(text => text === "onhandunits" || text.includes("on hand") || text.includes("onhand"));
+          if (index < 0) return;
+          Array.from(table.querySelectorAll("tbody tr")).forEach(row => {
+            const cell = row.children[index];
+            const value = Number(String(cell?.textContent || "0").replace(/[$,%\s]/g, "").replace(/,/g, ""));
+            row.hidden = Number.isFinite(value) ? value > 0 : false;
+          });
+        }
+
+        function metricTarget(metric) {
+          const label = String(metric.querySelector("span")?.textContent || metric.textContent || "").toLowerCase();
+          if (label.includes("no stock")) return "no-stock";
+          if (label.includes("reorder") || label.includes("low cover")) return "reorder";
+          if (label.includes("overstock")) return "overstock";
+          if (label.includes("expiring")) return "expiring";
+          if (label.includes("on hand") || label.includes("units sold")) return "all";
+          return "";
+        }
+
+        function enhanceBuyerMetric(metric) {
+          if (metric.dataset.doobielogicKpi === "ready") return;
+          const target = metricTarget(metric);
+          if (!target) return;
+          metric.dataset.doobielogicKpi = "ready";
+          metric.setAttribute("role", "button");
+          metric.setAttribute("tabindex", "0");
+          metric.setAttribute("aria-label", `${String(metric.querySelector("span")?.textContent || "KPI").trim()}: filter inventory view`);
+          metric.style.cursor = "pointer";
+          metric.addEventListener("click", () => openBuyerStatusView(target));
+          metric.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              openBuyerStatusView(target);
+            }
+          });
+        }
+
+        function enhanceCurrentDom() {
+          document.querySelectorAll(".inventory-label").forEach(addPackageQr);
+          document.querySelectorAll(".buyer-filter-condition .metric, .buyer-condition-metrics .metric").forEach(enhanceBuyerMetric);
+          const details = document.querySelector("details.buyer-status-views");
+          if (details?.dataset.doobielogicKpiFilter === "no-stock") applyNoStockDomFilter(details);
+        }
+
+        const observer = new MutationObserver(enhanceCurrentDom);
+        observer.observe(document.body, { childList: true, subtree: true });
+        enhanceCurrentDom();
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>

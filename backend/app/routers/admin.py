@@ -184,17 +184,35 @@ def _serialize_user(session: Session, row: AppUser) -> dict:
     }
 
 
-def _auth_request(settings: Settings, user_id: str, payload: dict) -> dict:
-    if not settings.supabase_url or not settings.supabase_service_role_key:
+def _admin_headers(settings: Settings) -> dict[str, str]:
+    url = settings.supabase_url.strip()
+    key = settings.supabase_service_role_key.strip()
+    if not url or not key:
         raise HTTPException(503, "Supabase administrator operations are not configured.")
+    if key.startswith("sb_publishable_"):
+        raise HTTPException(503, "Supabase administrator operations require a server secret key, not the publishable browser key.")
+    headers = {"apikey": key, "Content-Type": "application/json"}
+    # Modern sb_secret_* values are API keys rather than JWTs. Supabase's API
+    # gateway authenticates them from apikey; treating them as bearer JWTs causes
+    # the Invalid JWT / API-key failure seen in user management. Legacy
+    # service_role JWTs still use the bearer header.
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
+def _credential_error() -> HTTPException:
+    return HTTPException(
+        502,
+        "Supabase rejected the server-side administrator credential. Verify the configured Supabase secret/service-role key belongs to this project's SUPABASE_URL.",
+    )
+
+
+def _auth_request(settings: Settings, user_id: str, payload: dict) -> dict:
     request = UrlRequest(
         f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users/{user_id}",
         data=json.dumps(payload).encode(),
-        headers={
-            "apikey": settings.supabase_service_role_key,
-            "Authorization": f"Bearer {settings.supabase_service_role_key}",
-            "Content-Type": "application/json",
-        },
+        headers=_admin_headers(settings),
         method="PUT",
     )
     try:
@@ -202,6 +220,8 @@ def _auth_request(settings: Settings, user_id: str, payload: dict) -> dict:
             return json.loads(response.read().decode())
     except HTTPError as exc:
         detail = exc.read().decode(errors="replace")[:500]
+        if exc.code in {401, 403}:
+            raise _credential_error() from exc
         raise HTTPException(502, f"Supabase account update failed: {detail}") from exc
     except URLError as exc:
         raise HTTPException(502, "Supabase administrator service is unavailable.") from exc
@@ -373,7 +393,7 @@ def link_user(payload: UserLink, context: RequestContext = Depends(get_request_c
     with Session(engine, expire_on_commit=False) as session, session.begin():
         row, metadata_org_id, metadata_facility_id = _link(session, context, payload)
         snapshot = _serialize_user(session, row)
-    _sync_auth_identity(settings, snapshot, organization_id=metadata_org_id, facility_id=metadata_facility_id)
+        _sync_auth_identity(settings, snapshot, organization_id=metadata_org_id, facility_id=metadata_facility_id)
     return snapshot
 
 
@@ -389,7 +409,7 @@ def invite_user(payload: UserInvite, context: RequestContext = Depends(get_reque
     request = UrlRequest(
         f"{settings.supabase_url.rstrip('/')}/auth/v1/invite",
         data=json.dumps(body).encode(),
-        headers={"apikey": settings.supabase_service_role_key, "Authorization": f"Bearer {settings.supabase_service_role_key}", "Content-Type": "application/json"},
+        headers=_admin_headers(settings),
         method="POST",
     )
     try:
@@ -397,6 +417,8 @@ def invite_user(payload: UserInvite, context: RequestContext = Depends(get_reque
             auth_user = json.loads(response.read().decode())
     except HTTPError as exc:
         detail = exc.read().decode(errors="replace")[:500]
+        if exc.code in {401, 403}:
+            raise _credential_error() from exc
         raise HTTPException(502, f"Supabase invitation failed: {detail}") from exc
     except URLError as exc:
         raise HTTPException(502, "Supabase invitation service is unavailable.") from exc
@@ -407,7 +429,7 @@ def invite_user(payload: UserInvite, context: RequestContext = Depends(get_reque
     with Session(engine, expire_on_commit=False) as session, session.begin():
         row, metadata_org_id, metadata_facility_id = _link(session, context, link)
         snapshot = _serialize_user(session, row)
-    _sync_auth_identity(settings, snapshot, organization_id=metadata_org_id, facility_id=metadata_facility_id)
+        _sync_auth_identity(settings, snapshot, organization_id=metadata_org_id, facility_id=metadata_facility_id)
     return snapshot
 
 
@@ -452,7 +474,7 @@ def update_user(user_id: str, payload: UserUpdate, context: RequestContext = Dep
             changes_json=json.dumps({"before": before, "after": {"role": role, "active": payload.active, "organization_id": row.organization_id, "facility_ids": payload.facility_ids, "must_change_password": payload.must_change_password}}, sort_keys=True),
         ))
         snapshot = _serialize_user(session, row)
-    _sync_auth_identity(settings, snapshot, organization_id=metadata_org_id, facility_id=metadata_facility_id)
+        _sync_auth_identity(settings, snapshot, organization_id=metadata_org_id, facility_id=metadata_facility_id)
     return snapshot
 
 

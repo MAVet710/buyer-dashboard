@@ -14,7 +14,7 @@ from modules.coman.models import AppUser, AuditEvent, utc_now
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
-from .admin import UserLink, _link, _require_admin, _serialize_user, _sync_auth_identity, _username, _validate_role
+from .admin import UserLink, _link, _require_admin, _serialize_user, _username, _validate_role
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -31,13 +31,34 @@ class UserCreate(BaseModel):
 
 
 def _service_headers(settings: Settings) -> dict[str, str]:
-    if not settings.supabase_url or not settings.supabase_service_role_key:
+    """Build Supabase admin headers for both modern and legacy server keys.
+
+    Supabase's ``sb_secret_`` keys are API keys, not JWTs, and must not be sent
+    as an Authorization bearer token. Legacy ``service_role`` keys are JWTs and
+    still require the bearer header for the Auth admin API. Supporting both here
+    lets existing deployments migrate keys without breaking user management.
+    """
+
+    url = settings.supabase_url.strip()
+    key = settings.supabase_service_role_key.strip()
+    if not url or not key:
         raise HTTPException(503, "Supabase administrator user creation is not configured.")
-    return {
-        "apikey": settings.supabase_service_role_key,
-        "Authorization": f"Bearer {settings.supabase_service_role_key}",
+    if key.startswith("sb_publishable_"):
+        raise HTTPException(503, "Supabase administrator user creation requires a server secret key, not the publishable browser key.")
+    headers = {
+        "apikey": key,
         "Content-Type": "application/json",
     }
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
+def _credential_error() -> HTTPException:
+    return HTTPException(
+        502,
+        "Supabase rejected the server-side administrator credential. Verify the configured Supabase secret/service-role key belongs to this project's SUPABASE_URL.",
+    )
 
 
 def _create_auth_user(settings: Settings, *, email: str, password: str, display_name: str) -> str:
@@ -59,7 +80,9 @@ def _create_auth_user(settings: Settings, *, email: str, password: str, display_
             payload = json.loads(response.read().decode())
     except HTTPError as exc:
         detail = exc.read().decode(errors="replace")[:500]
-        if exc.code == 422 or exc.code == 400:
+        if exc.code in {401, 403}:
+            raise _credential_error() from exc
+        if exc.code in {400, 422}:
             raise HTTPException(409, f"Unable to create the authentication account: {detail}") from exc
         raise HTTPException(502, f"Supabase account creation failed: {detail}") from exc
     except URLError as exc:
@@ -68,6 +91,45 @@ def _create_auth_user(settings: Settings, *, email: str, password: str, display_
     if not user_id:
         raise HTTPException(502, "Supabase did not return an authentication user ID.")
     return user_id
+
+
+def _auth_request(settings: Settings, user_id: str, payload: dict) -> dict:
+    request = UrlRequest(
+        f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users/{user_id}",
+        data=json.dumps(payload).encode(),
+        headers=_service_headers(settings),
+        method="PUT",
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            return json.loads(response.read().decode())
+    except HTTPError as exc:
+        detail = exc.read().decode(errors="replace")[:500]
+        if exc.code in {401, 403}:
+            raise _credential_error() from exc
+        raise HTTPException(502, f"Supabase account metadata sync failed: {detail}") from exc
+    except URLError as exc:
+        raise HTTPException(502, "Supabase administrator service is unavailable.") from exc
+
+
+def _sync_auth_identity(settings: Settings, snapshot: dict, *, organization_id: str, facility_id: str) -> None:
+    if not settings.supabase_url or not settings.supabase_service_role_key:
+        return
+    _auth_request(
+        settings,
+        str(snapshot["id"]),
+        {
+            "email": snapshot["email"],
+            "app_metadata": {
+                "app_user_id": snapshot["id"],
+                "organization_id": organization_id,
+                "facility_id": facility_id,
+                "role": snapshot["role"],
+                "legacy_username": snapshot["username"],
+            },
+            "user_metadata": {"display_name": snapshot["display_name"] or snapshot["username"]},
+        },
+    )
 
 
 def _delete_auth_user(settings: Settings, user_id: str) -> None:
@@ -157,12 +219,15 @@ def create_user_with_temporary_password(
             )
             session.flush()
             snapshot = _serialize_user(session, row)
-        _sync_auth_identity(
-            settings,
-            snapshot,
-            organization_id=metadata_org_id,
-            facility_id=metadata_facility_id,
-        )
+            # Keep the database and Supabase Auth identity atomic from the admin's
+            # point of view. If Auth metadata sync fails, session.begin() rolls
+            # the durable row back before the best-effort Auth cleanup below.
+            _sync_auth_identity(
+                settings,
+                snapshot,
+                organization_id=metadata_org_id,
+                facility_id=metadata_facility_id,
+            )
         return snapshot
     except Exception:
         _delete_auth_user(settings, auth_user_id)
