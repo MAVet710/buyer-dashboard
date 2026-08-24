@@ -7,6 +7,9 @@ from html import escape
 import smtplib
 import ssl
 
+from sqlalchemy import Engine
+
+from modules.integrations import IntegrationConfigurationService
 from ..config import Settings
 
 
@@ -19,6 +22,42 @@ class WelcomeEmailDelivery:
     sent: bool
     recipient: str
     sender: str
+
+
+def resolve_spacemail_settings(engine: Engine, settings: Settings) -> Settings:
+    """Resolve platform Spacemail settings without exposing the mailbox password.
+
+    A deployment-level secret takes precedence. If no environment secret is
+    present, Level DEV can store the mailbox password in DoobieLogic's encrypted
+    integration credential store and the runtime decrypts it only for the SMTP
+    connection.
+    """
+
+    if settings.spacemail_smtp_password:
+        return settings
+    try:
+        service = IntegrationConfigurationService(engine, settings.integration_encryption_key)
+        row = service.get("platform", "global", "spacemail")
+    except RuntimeError:
+        return settings
+    if not row:
+        return settings
+    configuration = service.public(row)["configuration"]
+    secret = service.secret(row)
+    if not secret:
+        return settings
+    return settings.model_copy(
+        update={
+            "spacemail_smtp_password": secret,
+            "spacemail_smtp_username": str(configuration.get("smtp_username") or settings.spacemail_smtp_username),
+            "spacemail_from_email": str(configuration.get("from_email") or settings.spacemail_from_email),
+            "spacemail_from_name": str(configuration.get("from_name") or settings.spacemail_from_name),
+            "spacemail_support_email": str(configuration.get("support_email") or settings.spacemail_support_email),
+            "spacemail_help_email": str(configuration.get("help_email") or settings.spacemail_help_email),
+            "spacemail_info_email": str(configuration.get("info_email") or settings.spacemail_info_email),
+            "spacemail_welcome_email_enabled": bool(configuration.get("welcome_email_enabled", settings.spacemail_welcome_email_enabled)),
+        }
+    )
 
 
 def _welcome_plain_text(
@@ -152,6 +191,29 @@ def build_welcome_message(
     return message
 
 
+def _smtp_login(settings: Settings):
+    context = ssl.create_default_context()
+    return smtplib.SMTP_SSL(
+        settings.spacemail_smtp_host,
+        settings.spacemail_smtp_port,
+        timeout=settings.spacemail_smtp_timeout_seconds,
+        context=context,
+    )
+
+
+def test_spacemail_connection(settings: Settings) -> dict[str, object]:
+    if not settings.spacemail_is_configured:
+        return {"ok": False, "message": "Spacemail SMTP credentials are not configured."}
+    try:
+        with _smtp_login(settings) as smtp:
+            smtp.login(settings.spacemail_smtp_username, settings.spacemail_smtp_password)
+            code, _ = smtp.noop()
+        ok = 200 <= int(code) < 400
+        return {"ok": ok, "message": "Spacemail SMTP authentication succeeded." if ok else f"Spacemail SMTP returned status {code}."}
+    except (smtplib.SMTPException, OSError, TimeoutError) as exc:
+        return {"ok": False, "message": f"Spacemail SMTP connection failed: {exc.__class__.__name__}."}
+
+
 def send_welcome_email(
     settings: Settings,
     *,
@@ -175,14 +237,8 @@ def send_welcome_email(
         username=username,
         temporary_password=temporary_password,
     )
-    context = ssl.create_default_context()
     try:
-        with smtplib.SMTP_SSL(
-            settings.spacemail_smtp_host,
-            settings.spacemail_smtp_port,
-            timeout=settings.spacemail_smtp_timeout_seconds,
-            context=context,
-        ) as smtp:
+        with _smtp_login(settings) as smtp:
             smtp.login(settings.spacemail_smtp_username, settings.spacemail_smtp_password)
             smtp.send_message(message)
     except (smtplib.SMTPException, OSError, TimeoutError) as exc:
