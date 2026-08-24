@@ -13,6 +13,9 @@ from modules.coman.models import AuditEvent
 from .models import IntegrationConfiguration
 
 
+SUPPORTED_PROVIDERS = {"metrc", "doobie", "ai_runtime", "spacemail"}
+
+
 class IntegrationConfigurationService:
     def __init__(self, engine: Engine, encryption_key: str):
         if not str(encryption_key or "").strip(): raise RuntimeError("Integration credential encryption is not configured.")
@@ -22,7 +25,7 @@ class IntegrationConfigurationService:
         with self.sessions() as session: return session.scalar(select(IntegrationConfiguration).where(IntegrationConfiguration.scope_type == scope_type, IntegrationConfiguration.scope_key == scope_key, IntegrationConfiguration.provider == provider))
 
     def save(self, *, scope_type: str, scope_key: str, provider: str, organization_id: str | None, facility_id: str | None, configuration: dict, secret: str | None, actor: str, audit_organization_id: str | None = None, audit_facility_id: str | None = None) -> IntegrationConfiguration:
-        if scope_type not in {"user", "facility", "platform"} or provider not in {"metrc", "doobie"}: raise ValueError("Unsupported integration scope or provider.")
+        if scope_type not in {"user", "facility", "platform"} or provider not in SUPPORTED_PROVIDERS: raise ValueError("Unsupported integration scope or provider.")
         if not (audit_organization_id or organization_id): raise ValueError("An audit organization is required for integration changes.")
         with self.sessions.begin() as session:
             row = session.scalar(select(IntegrationConfiguration).where(IntegrationConfiguration.scope_type == scope_type, IntegrationConfiguration.scope_key == scope_key, IntegrationConfiguration.provider == provider))
