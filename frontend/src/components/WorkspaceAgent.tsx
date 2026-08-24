@@ -25,15 +25,37 @@ type ProviderStatus = {
   message?: string;
 };
 
+type LearningHealth = { ok?: boolean; active_learnings?: number; agents_with_learnings?: number };
 type AgentDirectory = {
   active_agent?: AgentProfile;
   agents?: AgentProfile[];
   provider?: ProviderStatus;
+  learning?: LearningHealth;
   workspace?: { app_mode: string; section: string; organization_id?: string; facility_id?: string };
 };
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
-type AgentSource = { title?: string; source?: string; source_type?: string; authority_level?: number; page_or_section?: string; effective_date?: string; updated_at?: string; url?: string; score?: number };
+type AgentSource = {
+  title?: string;
+  source?: string;
+  source_type?: string;
+  authority_level?: number;
+  page_or_section?: string;
+  effective_date?: string;
+  updated_at?: string;
+  url?: string;
+  score?: number;
+  precedence_score?: number;
+  precedence_status?: string;
+};
+type LearnedPattern = { type?: string; source?: string; summary?: string; sample_size?: number; confidence?: number; last_observed_at?: string };
+type LearningContext = {
+  enabled?: boolean;
+  pattern_count?: number;
+  approved_correction_count?: number;
+  patterns?: LearnedPattern[];
+  mode?: string;
+};
 type AgentRun = {
   answer: string;
   summary?: string;
@@ -49,6 +71,7 @@ type AgentRun = {
   datasets: string[];
   tool_calls?: string[];
   data_freshness?: Record<string, string>;
+  learning?: LearningContext;
   read_only: boolean;
   sources?: AgentSource[];
   recommendations?: string[];
@@ -74,6 +97,10 @@ function readHistory(scope: string): ChatMessage[] {
 }
 function saveHistory(scope: string, history: ChatMessage[]) {
   try { sessionStorage.setItem(storageKey(scope), JSON.stringify(history.slice(-20))); } catch { /* storage can be unavailable */ }
+}
+function precedenceLabel(value?: string) {
+  if (!value || value === "normal") return "";
+  return value.replaceAll("_", " ");
 }
 
 export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
@@ -142,6 +169,8 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
   const provider = directory.data?.provider;
   const sourceList = lastRun?.sources ?? [];
   const freshness = Object.entries(lastRun?.data_freshness ?? {});
+  const learnedPatterns = lastRun?.learning?.patterns ?? [];
+  const learningHealth = directory.data?.learning;
 
   return <>
     <button className="workspace-agent-launch" type="button" onClick={() => setOpen(true)} aria-label="Open DoobieLogic AI agents">
@@ -150,7 +179,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
     {open ? <div className="workspace-agent-backdrop" onClick={() => setOpen(false)} aria-hidden="true"/> : null}
     <aside className={`workspace-agent-drawer ${open ? "open" : ""}`} aria-label="DoobieLogic AI agents" aria-hidden={!open}>
       <div className="workspace-agent-header">
-        <div><div className="eyebrow"><Sparkles size={14}/> DoobieLogic Intelligence</div><h2>Workspace AI Agents</h2><p>Provider-neutral specialists. Deterministic analytics run before model reasoning and all operational tools stay read-only.</p></div>
+        <div><div className="eyebrow"><Sparkles size={14}/> DoobieLogic Intelligence</div><h2>Workspace AI Agents</h2><p>Provider-neutral specialists. Deterministic analytics run before model reasoning, facility learning is auditable, and all operational tools stay read-only.</p></div>
         <button className="icon-button" type="button" aria-label="Close AI agents" onClick={() => setOpen(false)}><X size={19}/></button>
       </div>
 
@@ -160,6 +189,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
         <section className="workspace-agent-control">
           <label>Specialist<select value={effectiveKey} onChange={event => { setAgentKey(event.target.value); setQuestion(""); }}>{agents.map(agent => <option value={agent.key} key={agent.key}>{agent.name}</option>)}</select></label>
           <div className="agent-provider-line"><span className={provider?.configured ? "provider-dot connected" : "provider-dot"}/><strong>{provider?.provider ?? "AI runtime"}</strong><span>{provider?.model ? `${provider.model} · ` : ""}{provider?.local === false ? "cloud" : "local"} · {provider?.status?.replaceAll("_", " ")}</span></div>
+          {learningHealth?.ok ? <div className="agent-provider-line"><span className="provider-dot connected"/><strong>Facility learning</strong><span>{learningHealth.active_learnings ?? 0} active pattern{learningHealth.active_learnings === 1 ? "" : "s"} across {learningHealth.agents_with_learnings ?? 0} agent{learningHealth.agents_with_learnings === 1 ? "" : "s"}</span></div> : null}
           {provider?.status === "deterministic_only" ? <div className="warning-banner agent-provider-warning"><p>{provider.message}</p><button className="secondary" type="button" onClick={() => { onNavigate("Integrations"); setOpen(false); }}>Open AI integrations</button></div> : null}
         </section>
 
@@ -174,7 +204,8 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
         {lastRun?.missing_data?.length ? <div className="warning-banner agent-provider-warning"><p><strong>Missing data:</strong> {lastRun.missing_data.slice(0, 4).join(" · ")}</p></div> : null}
         {lastRun?.warnings?.length ? <div className="warning-banner agent-provider-warning"><p><strong>Warnings:</strong> {lastRun.warnings.slice(0, 4).join(" · ")}</p></div> : null}
 
-        {sourceList.length ? <section className="workspace-agent-profile"><div><h3>Sources</h3>{sourceList.slice(0, 6).map((source, index) => <p key={`${source.title}-${index}`}><strong>{source.title || source.source || "Retrieved source"}</strong>{source.page_or_section ? ` · ${source.page_or_section}` : ""}{source.source_type ? ` · ${source.source_type}` : ""}{source.authority_level ? ` · authority ${source.authority_level}` : ""}</p>)}</div></section> : null}
+        {learnedPatterns.length ? <section className="workspace-agent-profile"><div><h3>Facility learning used</h3><p>Historical associations are advisory, not causal proof, and never override current data, SOPs, safety limits, or regulations.</p>{learnedPatterns.slice(0, 5).map((pattern, index) => <p key={`${pattern.type}-${index}`}><strong>{Math.round((pattern.confidence ?? 0) * 100)}% confidence · n={pattern.sample_size ?? 0}</strong> · {pattern.summary}</p>)}</div></section> : null}
+        {sourceList.length ? <section className="workspace-agent-profile"><div><h3>Sources</h3>{sourceList.slice(0, 6).map((source, index) => <p key={`${source.title}-${index}`}><strong>{source.title || source.source || "Retrieved source"}</strong>{source.page_or_section ? ` · ${source.page_or_section}` : ""}{source.source_type ? ` · ${source.source_type}` : ""}{source.authority_level ? ` · authority ${source.authority_level}` : ""}{source.effective_date ? ` · effective ${source.effective_date}` : ""}{precedenceLabel(source.precedence_status) ? ` · ${precedenceLabel(source.precedence_status)}` : ""}</p>)}</div></section> : null}
         {freshness.length ? <section className="workspace-agent-profile"><div><h3>Data freshness</h3><p>{freshness.slice(0, 8).map(([name, value]) => `${name}: ${value}`).join(" · ")}</p></div></section> : null}
 
         <div className="agent-suggestions">{selected.suggested_questions.slice(0, 3).map(prompt => <button type="button" key={prompt} onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div>
@@ -182,7 +213,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
         <section className="agent-composer">
           <label htmlFor="workspace-agent-question">Ask {selected.name}</label>
           <textarea id="workspace-agent-question" value={question} onChange={event => setQuestion(event.target.value)} placeholder="Ask about the data and workflow on this page…" rows={4}/>
-          <div className="agent-composer-footer"><div><span className="read-only-chip">Read-only</span>{lastRun?.datasets.length ? <span className="dataset-chip">{lastRun.datasets.length} dataset{lastRun.datasets.length === 1 ? "" : "s"} used</span> : null}{lastRun?.grounding ? <span className="dataset-chip">{lastRun.grounding}</span> : null}</div><button className="primary" type="button" disabled={!question.trim() || run.isPending || !provider?.configured} onClick={() => run.mutate()}>{run.isPending ? "Analyzing…" : <><Send size={16}/> Run agent</>}</button></div>
+          <div className="agent-composer-footer"><div><span className="read-only-chip">Read-only</span>{lastRun?.datasets.length ? <span className="dataset-chip">{lastRun.datasets.length} dataset{lastRun.datasets.length === 1 ? "" : "s"} used</span> : null}{lastRun?.learning?.pattern_count ? <span className="dataset-chip">{lastRun.learning.pattern_count} learned pattern{lastRun.learning.pattern_count === 1 ? "" : "s"}</span> : null}{lastRun?.grounding ? <span className="dataset-chip">{lastRun.grounding}</span> : null}</div><button className="primary" type="button" disabled={!question.trim() || run.isPending || !provider?.configured} onClick={() => run.mutate()}>{run.isPending ? "Analyzing…" : <><Send size={16}/> Run agent</>}</button></div>
           {run.isError ? <div className="form-error">{run.error.message}</div> : null}
         </section>
 
