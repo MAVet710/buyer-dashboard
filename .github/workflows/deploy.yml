@@ -246,7 +246,7 @@ jobs:
           docker push "$IMAGE"
           echo "WEB_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
-      - name: Deploy frontend to Cloud Run
+      - name: Deploy frontend candidate without traffic
         run: |
           set -euo pipefail
           gcloud run deploy "${{ env.WEB_SERVICE }}" \
@@ -254,23 +254,59 @@ jobs:
             --region "${{ env.REGION }}" \
             --platform managed \
             --allow-unauthenticated \
+            --no-traffic \
             --port 8080 \
             --min-instances 1 \
             --max-instances 10 \
             --service-account="${{ secrets.GCP_SERVICE_ACCOUNT }}" \
             --quiet
 
-      - name: Smoke test ops.doobielogic.io
+      - name: Verify frontend candidate and promote to 100 percent
+        run: |
+          set -euo pipefail
+          SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" --region "${{ env.REGION }}" --format=json)"
+          CREATED_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.latestCreatedRevisionName')"
+          test -n "$CREATED_REVISION"
+          echo "Created web revision: $CREATED_REVISION"
+
+          gcloud run revisions describe "$CREATED_REVISION" --region "${{ env.REGION }}" --format=json > /tmp/web-revision.json
+          READY_STATUS="$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .status][0] // ""' /tmp/web-revision.json)"
+          if [ "$READY_STATUS" != "True" ]; then
+            jq '.status.conditions' /tmp/web-revision.json || true
+            exit 1
+          fi
+
+          gcloud run services update-traffic "${{ env.WEB_SERVICE }}" \
+            --region "${{ env.REGION }}" \
+            --to-revisions "$CREATED_REVISION=100" \
+            --quiet
+
+          for attempt in $(seq 1 20); do
+            SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" --region "${{ env.REGION }}" --format=json)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+            if [ "$ACTIVE_100" = "$CREATED_REVISION" ]; then
+              echo "Web traffic is 100% on $CREATED_REVISION"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Frontend candidate never received 100% traffic"
+          exit 1
+
+      - name: Smoke test public and operations domains
         run: |
           set -euo pipefail
           for attempt in $(seq 1 30); do
-            code=$(curl -sS -L -o /tmp/ops.html -w '%{http_code}' https://ops.doobielogic.io || true)
-            if [ "$code" = "200" ]; then
+            ops_code=$(curl -sS -L -o /tmp/ops.html -w '%{http_code}' https://ops.doobielogic.io || true)
+            public_code=$(curl -sS -L -o /tmp/public.html -w '%{http_code}' https://doobielogic.io || true)
+            if [ "$ops_code" = "200" ] && [ "$public_code" = "200" ]; then
               grep -qi 'DoobieLogic\|Buyer' /tmp/ops.html
-              echo "ops.doobielogic.io is serving production"
+              grep -qi 'DoobieLogic' /tmp/public.html
+              echo "ops.doobielogic.io and doobielogic.io are serving the promoted web revision"
               exit 0
             fi
             sleep 6
           done
           head -100 /tmp/ops.html || true
+          head -100 /tmp/public.html || true
           exit 1
