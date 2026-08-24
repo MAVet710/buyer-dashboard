@@ -58,11 +58,18 @@ class AgentRuntime:
         return f"{label}: {len(rows)} result(s) in the bounded analysis. " + " | ".join(preview)
 
     def _knowledge(self, access: DatasetAccessContext, question: str, *, authoritative_only: bool) -> dict[str, Any]:
-        if self.retriever is None: return {"results": [], "retrieval_mode": "unavailable"}
-        return self.retriever.search(scope=KnowledgeScope(access.organization_id, access.facility_id), query=question, limit=8, authoritative_only=authoritative_only)
+        if self.retriever is None:
+            return {"results": [], "retrieval_mode": "unavailable"}
+        return self.retriever.search(
+            scope=KnowledgeScope(access.organization_id, access.facility_id),
+            query=question,
+            limit=8,
+            authoritative_only=authoritative_only,
+        )
 
     def _record(self, *, access: DatasetAccessContext, request_id: str, profile: AgentProfile, task: str, result: AgentResult, latency_ms: int, input_tokens: int, output_tokens: int, validation: str, success: bool, retrieval_count: int) -> None:
-        if self.telemetry is None: return
+        if self.telemetry is None:
+            return
         cost = 0.0
         rates = self.cloud_cost_rates.get(result.provider)
         if rates and not result.local:
@@ -81,22 +88,50 @@ class AgentRuntime:
     ) -> AgentResult:
         request_id = uuid.uuid4().hex
         datasets = self.dataset_registry.load_for_agent(profile.key, access)
-        regulatory = bool(profile.compliance_grounded_only or requires_regulatory_grounding(question))
-        knowledge = self._knowledge(access, question, authoritative_only=regulatory) if regulatory or profile.key in {"extraction", "data_hub"} else {"results": []}
+        legal_regulatory = bool(requires_regulatory_grounding(question))
+        compliance_grounded = bool(profile.compliance_grounded_only)
+        knowledge_required = legal_regulatory or compliance_grounded
+        knowledge = self._knowledge(access, question, authoritative_only=knowledge_required) if knowledge_required or profile.key in {"extraction", "data_hub"} else {"results": []}
         citations = public_citations(list(knowledge.get("results") or []))
-        if regulatory and not [source for source in citations if int(source.get("authority_level") or 99) <= 2]:
+        required_authority = 1 if legal_regulatory else 2 if compliance_grounded else 99
+        authoritative_sources = [source for source in citations if int(source.get("authority_level") or 99) <= required_authority]
+        if knowledge_required and not authoritative_sources:
+            if legal_regulatory:
+                answer = "I can’t verify that legal or regulatory claim from a government/regulatory source currently indexed for this organization/facility. No legal conclusion was generated from model memory."
+                warning = "Legal and regulatory conclusions require retrieved government/regulatory evidence."
+                missing = "Applicable government regulation or regulatory guidance"
+                validation = "government_source_required"
+            else:
+                answer = "I can’t verify that compliance claim from an approved authoritative source currently indexed for this organization/facility. No compliance conclusion was generated from model memory."
+                warning = "Compliance conclusions require retrieved approved authoritative evidence."
+                missing = "Applicable government/regulatory source or approved facility SOP"
+                validation = "authoritative_source_required"
             result = AgentResult(
-                answer="I can’t verify that regulatory or compliance claim from an authoritative source currently indexed for this organization/facility. No compliance conclusion was generated from model memory.",
-                summary="Authoritative compliance evidence is required.", confidence=1.0, grounding="knowledge", sources=citations,
-                warnings=["Regulatory conclusions require retrieved authoritative evidence."], missing_data=["Applicable government/regulatory source or approved facility SOP"],
-                provider="deterministic", model="policy", local=True, datasets=sorted(datasets), request_id=request_id,
+                answer=answer,
+                summary="Authoritative compliance evidence is required.",
+                confidence=1.0,
+                grounding="knowledge",
+                sources=citations,
+                warnings=[warning],
+                missing_data=[missing],
+                provider="deterministic",
+                model="policy",
+                local=True,
+                datasets=sorted(datasets),
+                request_id=request_id,
             )
-            self._record(access=access, request_id=request_id, profile=profile, task="compliance_grounding", result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="authoritative_source_required", success=True, retrieval_count=len(citations))
+            self._record(access=access, request_id=request_id, profile=profile, task="compliance_grounding", result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation=validation, success=True, retrieval_count=len(citations))
             return result
 
         def knowledge_search(query: str, limit: int) -> dict[str, Any]:
-            if self.retriever is None: return {"results": [], "retrieval_mode": "unavailable"}
-            return self.retriever.search(scope=KnowledgeScope(access.organization_id, access.facility_id), query=query, limit=limit, authoritative_only=profile.compliance_grounded_only)
+            if self.retriever is None:
+                return {"results": [], "retrieval_mode": "unavailable"}
+            return self.retriever.search(
+                scope=KnowledgeScope(access.organization_id, access.facility_id),
+                query=query,
+                limit=limit,
+                authoritative_only=bool(profile.compliance_grounded_only or requires_regulatory_grounding(query)),
+            )
 
         tools = ToolRegistry(datasets, knowledge_search=knowledge_search if self.retriever else None)
         deterministic = deterministic_tool_for(question, tools.names())
@@ -116,7 +151,7 @@ class AgentRuntime:
                 self._record(access=access, request_id=request_id, profile=profile, task=deterministic, result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="deterministic", success=True, retrieval_count=len(citations))
                 return result
 
-        prompt = system_prompt(profile, organization_name=organization_name, facility_name=facility_name, operation_type=access.operation_type, tool_names=tools.names(), dataset_keys=sorted(datasets), knowledge_required=regulatory)
+        prompt = system_prompt(profile, organization_name=organization_name, facility_name=facility_name, operation_type=access.operation_type, tool_names=tools.names(), dataset_keys=sorted(datasets), knowledge_required=knowledge_required)
         messages = [*bounded_history(history), {"role": "user", "content": question}]
         if knowledge.get("results"):
             grounding_payload = [{key: row.get(key) for key in ("title", "source_type", "authority_level", "page_or_section", "content")} for row in knowledge["results"]]
@@ -130,8 +165,6 @@ class AgentRuntime:
                 try:
                     decision = self.provider_router.generate(request, validate=lambda response: (bool(response.tool_calls), "tool_call_required"), require_tools=True)
                 except ProviderUnavailable:
-                    # Objective fallback path for providers without tool support:
-                    # precompute bounded context server-side, then remove tools.
                     context_rows = {}
                     for name in list(datasets)[:12]:
                         context_rows[name] = tools.execute("preview_dataset", {"dataset": name, "limit": 5})
@@ -147,7 +180,8 @@ class AgentRuntime:
                     followup = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"tool_results_supplied": used_tools}})
                     final_decision = self.provider_router.generate(followup, validate=validate_agent_response, require_structured=True)
                     final_response = final_decision.response
-                    if final_decision.fallback_used and not decision.fallback_used: decision = final_decision
+                    if final_decision.fallback_used and not decision.fallback_used:
+                        decision = final_decision
             else:
                 decision = self.provider_router.generate(request, validate=validate_agent_response, require_structured=True)
                 final_response = decision.response
