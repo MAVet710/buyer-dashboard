@@ -21,6 +21,22 @@ class Settings(BaseSettings):
     metrc_integrator_key: str = ""
     allowed_hosts: str = "localhost,127.0.0.1,testserver"
 
+    # Spacemail SMTP. The primary mailbox authenticates to SMTP while the
+    # support alias is used as the visible sender. Keep the mailbox password in
+    # a server-side secret only; it must never be exposed to the browser.
+    spacemail_smtp_host: str = "mail.spacemail.com"
+    spacemail_smtp_port: int = 465
+    spacemail_smtp_username: str = "nelson@doobielogic.io"
+    spacemail_smtp_password: str = ""
+    spacemail_smtp_timeout_seconds: float = 12.0
+    spacemail_from_email: str = "support@doobielogic.io"
+    spacemail_from_name: str = "DoobieLogic Support"
+    spacemail_support_email: str = "support@doobielogic.io"
+    spacemail_help_email: str = "help@doobielogic.io"
+    spacemail_info_email: str = "info@doobielogic.io"
+    spacemail_login_url: str = "https://ops.doobielogic.io/"
+    spacemail_welcome_email_enabled: bool = True
+
     # DoobieLogic AI Runtime. Inference services remain external to the API image.
     ai_provider_mode: str = "local_first"
     ai_provider_order: str = "local,gemini,openai,doobie"
@@ -64,6 +80,16 @@ class Settings(BaseSettings):
         if self.ai_provider_mode.casefold() == "local_only":
             return ["local"]
         return values or ["local", "gemini", "openai", "doobie"]
+
+    @property
+    def spacemail_is_configured(self) -> bool:
+        return bool(
+            self.spacemail_welcome_email_enabled
+            and self.spacemail_smtp_host.strip()
+            and self.spacemail_smtp_username.strip()
+            and self.spacemail_smtp_password
+            and self.spacemail_from_email.strip()
+        )
 
     def validate_production(self) -> None:
         if self.is_development:
