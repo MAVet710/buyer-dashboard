@@ -1,9 +1,9 @@
 """Data-backed Buyer Intelligence brief generation.
 
-Buyer Intelligence should remain useful even when an AI provider is unavailable.
+Buyer Intelligence remains useful even when model inference is unavailable.
 This module builds deterministic store evidence first, then optionally asks the
-read-only Gemini Buyer Agent to interpret those exact datasets. Generic advice
-is rejected when it does not reference the supplied assortment/SKU evidence.
+provider-neutral DoobieLogic runtime to interpret those exact datasets. Generic
+advice is rejected when it does not reference the supplied assortment/SKU evidence.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import streamlit as st
 
 from modules.buyer_assortment import build_assortment_priorities
 from services.agent_registry import PROFILES
-from services.gemini_agent import GeminiWorkspaceAgent
+from services.ai.workspace_compat import DoobieWorkspaceAgent as GeminiWorkspaceAgent
 
 
 def resolve_gemini_api_key() -> str:
@@ -74,7 +74,6 @@ def _overstock_watch(by_product: pd.DataFrame, limit: int = 8) -> pd.DataFrame:
     frame["units_sold"] = _numeric(frame["units_sold"]).fillna(0)
     frame["on_hand_units"] = _numeric(frame["on_hand_units"])
     frame["days_of_cover"] = _numeric(frame["days_of_cover"])
-    # A 60+ day cover is a watch signal, not an automatic markdown recommendation.
     watch = frame[
         frame["on_hand_units"].gt(0)
         & (frame["units_sold"].le(0) | frame["days_of_cover"].ge(60))
@@ -120,8 +119,6 @@ def build_store_evidence_markdown(
     by_product: pd.DataFrame,
     lookback_days: int,
 ) -> tuple[str, dict[str, pd.DataFrame]]:
-    """Build an exact, useful buyer read before any model is called."""
-
     priorities = build_assortment_priorities(by_product)
     risks = _sku_risks(by_product)
     overstock = _overstock_watch(by_product)
@@ -148,9 +145,7 @@ def build_store_evidence_markdown(
             )
         sections.append("**Buy first**\n\n" + "\n".join(lines))
     else:
-        sections.append(
-            "**Buy first**\n\nNo assortment-level replenishment gap can be supported by the loaded data."
-        )
+        sections.append("**Buy first**\n\nNo assortment-level replenishment gap can be supported by the loaded data.")
 
     if not risks.empty:
         lines = []
@@ -222,13 +217,10 @@ def generate_buyer_intelligence_brief(
     by_product: pd.DataFrame,
     lookback_days: int,
 ) -> str:
-    """Return exact store evidence plus a Gemini interpretation when available."""
+    """Return exact store evidence plus a provider-neutral interpretation when available."""
 
-    evidence, datasets = build_store_evidence_markdown(
-        summary, by_category, by_product, lookback_days
-    )
-    api_key = resolve_gemini_api_key()
-    agent = GeminiWorkspaceAgent(api_key=api_key, profile=PROFILES["buyer"])
+    evidence, datasets = build_store_evidence_markdown(summary, by_category, by_product, lookback_days)
+    agent = GeminiWorkspaceAgent(api_key=resolve_gemini_api_key(), profile=PROFILES["buyer"])
     if not agent.enabled or not datasets:
         return evidence
 
@@ -266,4 +258,4 @@ Hard rules:
     if not _is_data_specific(answer, datasets):
         return evidence
 
-    return evidence + "\n\n---\n\n**Gemini buyer interpretation**\n\n" + answer.strip()
+    return evidence + "\n\n---\n\n**DoobieLogic AI buyer interpretation**\n\n" + answer.strip()
