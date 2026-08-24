@@ -10,8 +10,7 @@ import {
   Sparkles,
   Warehouse,
 } from "lucide-react";
-
-const APP_URL = "https://ops.doobielogic.io/";
+import { APP_URL, BRAND_IMAGE_URL } from "../lib/brand";
 
 const capabilities = [
   {
@@ -49,7 +48,7 @@ export function MarketingHome() {
       <header className="marketing-nav-wrap">
         <nav className="marketing-nav" aria-label="Public navigation">
           <a className="marketing-brand" href="#top" aria-label="DoobieLogic home">
-            <span className="marketing-brand-mark">DL</span>
+            <img className="marketing-brand-image" src={BRAND_IMAGE_URL} alt="DoobieLogic" />
             <span className="marketing-brand-copy"><strong>DoobieLogic</strong><small>Cannabis Operations Intelligence</small></span>
           </a>
           <div className="marketing-nav-links">
@@ -83,7 +82,7 @@ export function MarketingHome() {
 
           <div className="marketing-product-frame" aria-label="DoobieLogic operations dashboard preview">
             <div className="marketing-product-topbar">
-              <div className="marketing-mini-brand"><span>DL</span><strong>DoobieLogic</strong></div>
+              <div className="marketing-mini-brand"><img src={BRAND_IMAGE_URL} alt="" /><strong>DoobieLogic</strong></div>
               <div className="marketing-context-pill">Retail Ops · Sandbox Facility</div>
             </div>
             <div className="marketing-product-body">
@@ -187,7 +186,7 @@ export function MarketingHome() {
       </main>
 
       <footer className="marketing-footer">
-        <div className="marketing-brand"><span className="marketing-brand-mark">DL</span><span className="marketing-brand-copy"><strong>DoobieLogic</strong><small>Cannabis Operations Intelligence</small></span></div>
+        <div className="marketing-brand"><img className="marketing-brand-image" src={BRAND_IMAGE_URL} alt="DoobieLogic" /><span className="marketing-brand-copy"><strong>DoobieLogic</strong><small>Cannabis Operations Intelligence</small></span></div>
         <div><a href="#platform">Platform</a><a href="#workflow">How it works</a><a href={APP_URL}>Log in</a></div>
         <small>© {new Date().getFullYear()} DoobieLogic</small>
       </footer>
