@@ -30,21 +30,28 @@ def test_camera_scanner_has_visible_ui_and_cross_browser_qr_fallback():
 def test_printed_inventory_labels_encode_external_package_id_as_qr():
     index = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
     inventory = (ROOT / "frontend" / "src" / "pages" / "InventoryPage.tsx").read_text(encoding="utf-8")
+    qr = (ROOT / "frontend" / "src" / "components" / "PackageQrCode.tsx").read_text(encoding="utf-8")
     assert "qrcode-generator/1.4.4" in index
-    assert "inventory-label-qr" in index
-    assert "QR code for external package ID" in index
-    assert "qr.addData(packageId" in index
+    assert 'import { PackageQrCode } from "../components/PackageQrCode"' in inventory
+    assert '<PackageQrCode value={row.package_id}/>' in inventory
+    assert "inventory-label-qr" in qr
+    assert "QR code for external package ID" in qr
+    assert 'qr.addData(clean, "Byte")' in qr
     assert "row.package_id" in inventory
 
 
 def test_purchasing_condition_kpis_drive_inventory_status_views():
-    index = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
     buyer = (ROOT / "frontend" / "src" / "pages" / "BuyerOperationsPage.tsx").read_text(encoding="utf-8")
-    assert ".buyer-filter-condition .metric, .buyer-condition-metrics .metric" in index
-    assert "openBuyerStatusView" in index
-    assert '"no-stock"' in index
-    assert "buyer-status-views" in buyer
-    assert "setSkuTab" in buyer
+    overview = (ROOT / "frontend" / "src" / "components" / "BuyerLegacyOverview.tsx").read_text(encoding="utf-8")
+    assert "selectInventoryCondition" in buyer
+    assert 'setSkuTab(target)' in buyer
+    assert 'target === "no-stock"' in buyer
+    assert 'id="buyer-status-views"' in buyer
+    assert 'onClick={() => selectInventoryCondition("reorder")}' in buyer
+    assert 'onClick={() => selectInventoryCondition("no-stock")}' in buyer
+    assert 'onClick={() => selectInventoryCondition("overstock")}' in buyer
+    assert 'onClick={() => selectInventoryCondition("expiring")}' in buyer
+    assert "onInventoryCondition" in overview
 
 
 def test_extraction_inventory_falls_back_to_production_inventory():
