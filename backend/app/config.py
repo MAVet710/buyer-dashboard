@@ -21,14 +21,16 @@ class Settings(BaseSettings):
     metrc_integrator_key: str = ""
     allowed_hosts: str = "localhost,127.0.0.1,testserver"
 
-    # Spacemail SMTP. The primary mailbox authenticates to SMTP while the
-    # support alias is used as the visible sender. Keep the mailbox password in
-    # a server-side secret only; it must never be exposed to the browser.
+    # Spacemail SMTP/IMAP. The primary mailbox authenticates while the support
+    # alias is used as the visible sender. Keep the mailbox password in a
+    # server-side secret only; it must never be exposed to the browser.
     spacemail_smtp_host: str = "mail.spacemail.com"
     spacemail_smtp_port: int = 465
     spacemail_smtp_username: str = "nelson@doobielogic.io"
     spacemail_smtp_password: str = ""
     spacemail_smtp_timeout_seconds: float = 12.0
+    spacemail_imap_host: str = "mail.spacemail.com"
+    spacemail_imap_port: int = 993
     spacemail_from_email: str = "support@doobielogic.io"
     spacemail_from_name: str = "DoobieLogic Support"
     spacemail_support_email: str = "support@doobielogic.io"
