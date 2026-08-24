@@ -43,11 +43,23 @@ class KnowledgeStore:
         organization_id = None if global_scope else scope.organization_id
         facility_id = None if global_scope or not facility_scope else scope.facility_id
         with self.engine.begin() as connection:
+            parent = connection.execute(text("""
+                SELECT organization_id, facility_id, authority_level
+                FROM ai_knowledge_documents
+                WHERE id=:id AND active
+            """), {"id": document_id}).mappings().first()
+            if parent is None:
+                raise ValueError("Knowledge parent document does not exist or is inactive.")
+            if parent["organization_id"] != organization_id or parent["facility_id"] != facility_id:
+                raise ValueError("Knowledge chunk scope must exactly match its parent document.")
+            parent_authority = int(parent["authority_level"] or 99)
+            if int(authority_level) != parent_authority:
+                raise ValueError("Knowledge chunk authority must exactly match its parent document.")
             connection.execute(text("""
                 INSERT INTO ai_knowledge_chunks
                 (id, document_id, organization_id, facility_id, chunk_number, page_or_section, content, authority_level, embedding_json)
                 VALUES (:id,:document,:org,:facility,:number,:page,:content,:authority,:embedding)
-            """), {"id": chunk_id, "document": document_id, "org": organization_id, "facility": facility_id, "number": int(chunk_number), "page": page_or_section[:240], "content": str(content)[:20000], "authority": max(1, min(int(authority_level), 99)), "embedding": json.dumps(embedding or [])})
+            """), {"id": chunk_id, "document": document_id, "org": organization_id, "facility": facility_id, "number": int(chunk_number), "page": page_or_section[:240], "content": str(content)[:20000], "authority": parent_authority, "embedding": json.dumps(embedding or [])})
         return chunk_id
 
     @staticmethod
@@ -72,7 +84,7 @@ class KnowledgeStore:
         lexical_sql = "(" + " OR ".join(lexical_clauses) + ")" if lexical_clauses else "1=0"
         authority_sql = ""
         if max_authority_level is not None:
-            authority_sql = " AND c.authority_level <= :max_authority"
+            authority_sql = " AND c.authority_level <= :max_authority AND d.authority_level <= :max_authority"
             params["max_authority"] = int(max_authority_level)
         sql = text(f"""
             SELECT c.id, c.document_id, c.chunk_number, c.page_or_section, c.content, c.authority_level, c.embedding_json,
@@ -82,6 +94,11 @@ class KnowledgeStore:
             WHERE d.active
               AND (c.organization_id IS NULL OR c.organization_id = :org)
               AND (c.facility_id IS NULL OR c.facility_id = :facility)
+              AND (d.organization_id IS NULL OR d.organization_id = :org)
+              AND (d.facility_id IS NULL OR d.facility_id = :facility)
+              AND c.organization_id IS d.organization_id
+              AND c.facility_id IS d.facility_id
+              AND c.authority_level = d.authority_level
               AND {lexical_sql}{authority_sql}
             ORDER BY c.authority_level ASC, c.chunk_number ASC
             LIMIT :limit
