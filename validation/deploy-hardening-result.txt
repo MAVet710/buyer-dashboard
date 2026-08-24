@@ -1,10 +1,10 @@
 status=failure
-validated_sha=6e331f4230067633b25ff15cf58707abb2a03200
+validated_sha=bb3b21f4827af4ba97689791522d46884a448e4b
 yaml=success
-deployment_safety_tests=failure
-frontend_install=skipped
-frontend_lint=skipped
-frontend_tests=skipped
-frontend_build=skipped
-frontend_container_release_identity=skipped
+deployment_safety_tests=success
+frontend_install=success
+frontend_lint=success
+frontend_tests=success
+frontend_build=success
+frontend_container_release_identity=failure
 api_container_alembic=skipped
