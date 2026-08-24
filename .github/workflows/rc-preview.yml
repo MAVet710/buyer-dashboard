@@ -83,9 +83,11 @@ jobs:
         run: |
           set -euo pipefail
           gcloud run deploy "$API_SERVICE" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
             --image "$API_IMAGE" \
             --region "$REGION" \
             --platform managed \
+            --service-account "buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --allow-unauthenticated \
             --port 8080 \
             --min-instances 1 \
@@ -95,7 +97,7 @@ jobs:
             --memory 1Gi \
             --set-env-vars "APP_ENV=development,RC_PREVIEW=1,DATABASE_URL=sqlite+pysqlite:////tmp/doobielogic-rc.db,CORS_ORIGINS=*,ALLOWED_HOSTS=*.run.app" \
             --quiet
-          API_URL="$(gcloud run services describe "$API_SERVICE" --region "$REGION" --format='value(status.url)')"
+          API_URL="$(gcloud run services describe "$API_SERVICE" --project "${{ secrets.GCP_PROJECT_ID }}" --region "$REGION" --format='value(status.url)')"
           test -n "$API_URL"
           echo "API_URL=$API_URL" >> "$GITHUB_ENV"
 
@@ -139,15 +141,17 @@ jobs:
         run: |
           set -euo pipefail
           gcloud run deploy "$WEB_SERVICE" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
             --image "$WEB_IMAGE" \
             --region "$REGION" \
             --platform managed \
+            --service-account="${{ secrets.GCP_SERVICE_ACCOUNT }}" \
             --allow-unauthenticated \
             --port 8080 \
             --min-instances 1 \
             --max-instances 1 \
             --quiet
-          WEB_URL="$(gcloud run services describe "$WEB_SERVICE" --region "$REGION" --format='value(status.url)')"
+          WEB_URL="$(gcloud run services describe "$WEB_SERVICE" --project "${{ secrets.GCP_PROJECT_ID }}" --region "$REGION" --format='value(status.url)')"
           test -n "$WEB_URL"
           echo "WEB_URL=$WEB_URL" >> "$GITHUB_ENV"
 
