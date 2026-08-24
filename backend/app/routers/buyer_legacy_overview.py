@@ -18,12 +18,38 @@ router = APIRouter(
 
 
 def _date_column(frame: pd.DataFrame) -> str | None:
-    preferred = ["date", "sold_at", "sale_date", "order_date", "transaction_date", "day"]
-    by_normalized = {str(column).strip().casefold().replace(" ", "_"): column for column in frame.columns}
+    # Buyer uploads frequently carry a transaction timestamp as "Order Time"
+    # rather than a field literally containing "date". The previous detector
+    # therefore produced healthy KPI totals but an empty Sales Trend chart.
+    preferred = [
+        "date",
+        "sold_at",
+        "sale_date",
+        "sale_time",
+        "order_date",
+        "order_time",
+        "transaction_date",
+        "transaction_time",
+        "timestamp",
+        "datetime",
+        "created_at",
+        "day",
+    ]
+    by_normalized = {
+        str(column).strip().casefold().replace(" ", "_"): column
+        for column in frame.columns
+    }
     for key in preferred:
         if key in by_normalized:
             return str(by_normalized[key])
-    return next((str(column) for column in frame.columns if "date" in str(column).casefold()), None)
+    return next(
+        (
+            str(column)
+            for column in frame.columns
+            if any(token in str(column).casefold() for token in ("date", "time", "timestamp"))
+        ),
+        None,
+    )
 
 
 def _numeric(frame: pd.DataFrame, column: str) -> pd.Series:
@@ -68,7 +94,9 @@ def legacy_overview(
             aggregate = {"unitssold": "sum"}
             if "net_sales" in dated:
                 aggregate["net_sales"] = "sum"
-            daily = dated.groupby("date", as_index=False).agg(aggregate).rename(columns={"unitssold": "units", "net_sales": "revenue"})
+            daily = dated.groupby("date", as_index=False).agg(aggregate).rename(
+                columns={"unitssold": "units", "net_sales": "revenue"}
+            )
             if "revenue" not in daily:
                 daily["revenue"] = 0.0
             daily = daily.sort_values("date")
@@ -103,8 +131,13 @@ def legacy_overview(
     weekly = _numeric(sku_work, "avg_weekly_sales")
     sku_work["_slow_rank"] = np.where(weekly <= 0, 10000, days_supply)
     sku_work["_inventory_value"] = dollars
-    slow = sku_work[on_hand_sku > 0].sort_values(["_slow_rank", "_inventory_value"], ascending=False).head(top_n).copy()
-    slow = slow.drop(columns=[column for column in ["_slow_rank", "_inventory_value"] if column in slow], errors="ignore")
+    slow = sku_work[on_hand_sku > 0].sort_values(
+        ["_slow_rank", "_inventory_value"], ascending=False
+    ).head(top_n).copy()
+    slow = slow.drop(
+        columns=[column for column in ["_slow_rank", "_inventory_value"] if column in slow],
+        errors="ignore",
+    )
 
     expiring_mask = pd.Series(False, index=sku_work.index)
     if "days_to_expire" in sku_work:
