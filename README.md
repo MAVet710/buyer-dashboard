@@ -12,17 +12,17 @@ It supports retail inventory intelligence, purchasing, inventory audits, nomencl
 - **Commercial Operations** — customers, orders, fulfillment, and margin.
 - **Data & Integrations** — guided source imports, extraction partner mapping, source status, history, METRC, Dutchie, and platform integrations.
 
-See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for user-facing instructions.
+See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for user-facing instructions and [docs/AI_RUNTIME.md](docs/AI_RUNTIME.md) for the provider-neutral DoobieLogic AI Runtime architecture, local inference setup, security model, and benchmark instructions.
 
 ## Architecture
 
 - `streamlit_app.py` — Streamlit Cloud entrypoint.
 - `app.py` — legacy application composition root. New product work is extracted into modules rather than added inline.
 - `modules/` — workspace UI, workflow, and domain behavior.
-- `services/` — authentication, tenants, persistence, integrations, normalization, and shared application services.
+- `services/` — authentication, tenants, persistence, integrations, normalization, AI runtime, and shared application services.
 - `reports/` — Retail and Production executive report generators.
 - `migrations/versions/` — Alembic and standalone Supabase SQL migrations.
-- `tests/` — unit, architecture, persistence, migration, report, mobile, and workflow regression coverage.
+- `tests/` — unit, architecture, persistence, migration, report, mobile, security, AI-runtime, and workflow regression coverage.
 
 ## Local setup
 
@@ -57,7 +57,7 @@ Buyer Dash validates DoobieLogic-issued licenses and supports a bounded cached g
 
 - Dutchie credentials described in `docs/dutchie.md`
 - METRC integrator configuration managed by authorized administrators
-- Doobie AI service credentials managed by LEVEL DEV
+- DoobieLogic Native AI Runtime local/cloud provider configuration described in `docs/AI_RUNTIME.md`
 
 ## Authentication and tenant safety
 
@@ -66,6 +66,7 @@ Buyer Dash validates DoobieLogic-issued licenses and supports a bounded cached g
 - Every durable user has a role and organization assignment.
 - Facility roles restrict operational access.
 - Production and commercial workspaces fail closed without explicit organization and facility context.
+- AI datasets, tools, retrieval, mapping memory, telemetry, cache keys, and browser conversation history remain organization/facility scoped.
 - PostgreSQL tables have RLS enabled; server-side service access remains responsible for passing and enforcing tenant identifiers.
 
 Before broad multi-company onboarding, complete the planned move to token/JWT-backed Supabase Auth policies. Do not remove the current authentication path until migration, account linking, rollback, and owner recovery have been tested in staging.
@@ -96,7 +97,7 @@ python scripts/quality_gate.py
 python -m pytest -q
 ```
 
-GitHub Actions runs compilation, focused quality checks, dependency consistency, and the full test suite on pull requests and pushes to `main`.
+GitHub Actions runs compilation, focused quality checks, dependency consistency, the full test suite, frontend lint/tests/build, browser parity, container startup checks, migrations, and security scans on pull requests and pushes to `main`.
 
 ## Security
 
@@ -104,4 +105,4 @@ Do not commit secrets, production exports, customer manifests, access tokens, or
 
 ## Deployment
 
-Production is currently hosted on Streamlit Community Cloud. The application is functional there, but a fully white-labeled customer experience will eventually require a custom domain/reverse proxy or a hosting surface that removes Streamlit owner controls.
+The React/FastAPI production architecture is validated independently from the legacy Streamlit surface. AI inference is deliberately external to the FastAPI image so local/open-weight model infrastructure can be scaled or replaced independently without affecting normal operational availability.
