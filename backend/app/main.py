@@ -172,6 +172,9 @@ app.include_router(purchasing_router, prefix=settings.api_prefix)
 app.include_router(buying_budget_parity_router, prefix=settings.api_prefix)
 app.include_router(po_parity_router, prefix=settings.api_prefix)
 app.include_router(legal_router, prefix=settings.api_prefix)
+# Register the literal create-user route before /admin/users/{user_id};
+# otherwise Starlette treats "create" as a user ID and dispatches to update_user.
+app.include_router(admin_user_create_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.add_api_route(
     f"{settings.api_prefix}/admin/facilities/{{target_facility_id}}/update",
@@ -180,7 +183,6 @@ app.add_api_route(
     tags=["admin"],
     name="update_facility",
 )
-app.include_router(admin_user_create_router, prefix=settings.api_prefix)
 app.include_router(admin_uploads_router, prefix=settings.api_prefix)
 app.include_router(integrations_router, prefix=settings.api_prefix)
 app.include_router(parity_tools_router, prefix=settings.api_prefix)
