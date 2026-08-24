@@ -71,13 +71,14 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
     staleTime: 60_000,
   });
   const agents = directory.data?.agents ?? [];
-  const effectiveKey = agentKey || directory.data?.active_agent?.key || "ops";
+  const activeAgentKey = directory.data?.active_agent?.key ?? "";
+  const effectiveKey = agentKey || activeAgentKey || "ops";
   const selected = agents.find(row => row.key === effectiveKey) ?? directory.data?.active_agent;
 
   useEffect(() => {
-    if (!directory.data?.active_agent) return;
-    setAgentKey(directory.data.active_agent.key);
-  }, [directory.data?.active_agent?.key, activePage, operation]);
+    if (!activeAgentKey) return;
+    setAgentKey(activeAgentKey);
+  }, [activeAgentKey, activePage, operation]);
 
   useEffect(() => {
     if (!effectiveKey) return;
@@ -99,7 +100,11 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
       history,
     }),
     onSuccess: result => {
-      const next: ChatMessage[] = [...history, { role: "user", content: question.trim() }, { role: "assistant", content: result.answer }].slice(-20);
+      const next: ChatMessage[] = [
+        ...history,
+        { role: "user" as const, content: question.trim() },
+        { role: "assistant" as const, content: result.answer },
+      ].slice(-20);
       setHistory(next);
       saveHistory(effectiveKey, next);
       setLastRun(result);
