@@ -102,10 +102,16 @@ def test_package_360_is_not_lineage_only_and_keeps_cross_workspace_actions():
 
 def test_scan_audit_keeps_phone_camera_and_resumable_lifecycle():
     assert_markers(
-        "frontend/src/components/InventoryAudits.tsx",
-        'navigator.mediaDevices.getUserMedia',
-        'facingMode:{ideal:"environment"}',
+        "frontend/src/components/CameraScanner.tsx",
+        'navigator.mediaDevices?.getUserMedia',
+        'facingMode: { ideal: "environment" }',
         'BarcodeDetector',
+        'Open camera scanner',
+        'Camera ready — point it at a QR code or barcode',
+    )
+    assert_markers(
+        "frontend/src/components/InventoryAudits.tsx",
+        'import { CameraScanner } from "./CameraScanner"',
         'Camera, Bluetooth/USB scanner, typed code, and manual product selection all remain available.',
         'Back to Dashboard',
         'Pause Audit',
