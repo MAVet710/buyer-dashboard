@@ -15,16 +15,16 @@ type AgentProfile = {
 };
 
 type AgentDirectory = {
-  active_agent: AgentProfile;
-  agents: AgentProfile[];
-  provider: {
+  active_agent?: AgentProfile;
+  agents?: AgentProfile[];
+  provider?: {
     provider: string;
     configured: boolean;
     status: string;
     fallback_configured?: boolean;
     message?: string;
   };
-  workspace: { app_mode: string; section: string };
+  workspace?: { app_mode: string; section: string };
 };
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -70,13 +70,14 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
     queryFn: ({ signal }) => apiGet<AgentDirectory>(`/api/v1/ai-agents?${params}`, signal),
     staleTime: 60_000,
   });
-  const effectiveKey = agentKey || directory.data?.active_agent.key || "ops";
-  const selected = directory.data?.agents.find(row => row.key === effectiveKey) ?? directory.data?.active_agent;
+  const agents = directory.data?.agents ?? [];
+  const effectiveKey = agentKey || directory.data?.active_agent?.key || "ops";
+  const selected = agents.find(row => row.key === effectiveKey) ?? directory.data?.active_agent;
 
   useEffect(() => {
     if (!directory.data?.active_agent) return;
     setAgentKey(directory.data.active_agent.key);
-  }, [directory.data?.active_agent.key, activePage, operation]);
+  }, [directory.data?.active_agent?.key, activePage, operation]);
 
   useEffect(() => {
     if (!effectiveKey) return;
@@ -128,8 +129,8 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
       {directory.isError ? <div className="state error">{directory.error.message}</div> : null}
       {directory.data && selected ? <>
         <section className="workspace-agent-control">
-          <label>Specialist<select value={effectiveKey} onChange={event => { setAgentKey(event.target.value); setQuestion(""); }}>{directory.data.agents.map(agent => <option value={agent.key} key={agent.key}>{agent.name}</option>)}</select></label>
-          <div className="agent-provider-line"><span className={provider?.configured ? "provider-dot connected" : "provider-dot"}/><strong>{provider?.provider}</strong><span>{provider?.configured ? provider.status : "AI provider not connected"}</span></div>
+          <label>Specialist<select value={effectiveKey} onChange={event => { setAgentKey(event.target.value); setQuestion(""); }}>{agents.map(agent => <option value={agent.key} key={agent.key}>{agent.name}</option>)}</select></label>
+          <div className="agent-provider-line"><span className={provider?.configured ? "provider-dot connected" : "provider-dot"}/><strong>{provider?.provider ?? "AI provider"}</strong><span>{provider?.configured ? provider.status : "AI provider not connected"}</span></div>
           {!provider?.configured ? <div className="warning-banner agent-provider-warning"><p>{provider?.message ?? "A platform AI connection is required before the agents can answer."}</p><button className="secondary" type="button" onClick={() => { onNavigate("Integrations"); setOpen(false); }}>Open AI integrations</button></div> : null}
         </section>
 
@@ -149,7 +150,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
           {run.isError ? <div className="form-error">{run.error.message}</div> : null}
         </section>
 
-        <div className="agent-footer"><span>Provider: {lastRun?.provider ?? provider?.provider}</span><button className="link-button" type="button" disabled={!history.length} onClick={clear}>Clear conversation</button></div>
+        <div className="agent-footer"><span>Provider: {lastRun?.provider ?? provider?.provider ?? "Not connected"}</span><button className="link-button" type="button" disabled={!history.length} onClick={clear}>Clear conversation</button></div>
       </> : null}
     </aside>
   </>;
