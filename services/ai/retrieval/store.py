@@ -71,6 +71,35 @@ class KnowledgeStore:
         right_norm = math.sqrt(sum(value * value for value in right))
         return dot / (left_norm * right_norm) if left_norm and right_norm else 0.0
 
+    def list_documents(self, *, scope: KnowledgeScope, limit: int = 200) -> list[dict[str, Any]]:
+        if not scope.organization_id or not scope.facility_id:
+            return []
+        sql = text("""
+            SELECT id, organization_id, facility_id, title, source, source_type, authority_level,
+                   jurisdiction, effective_date, retrieved_or_uploaded_at, version, document_hash,
+                   source_url, active
+            FROM ai_knowledge_documents
+            WHERE active
+              AND (organization_id IS NULL OR organization_id = :org)
+              AND (facility_id IS NULL OR facility_id = :facility)
+            ORDER BY authority_level ASC, retrieved_or_uploaded_at DESC, title ASC
+            LIMIT :limit
+        """)
+        try:
+            with self.engine.connect() as connection:
+                rows = [dict(row._mapping) for row in connection.execute(sql, {
+                    "org": scope.organization_id,
+                    "facility": scope.facility_id,
+                    "limit": max(1, min(int(limit), 500)),
+                })]
+        except Exception:
+            return []
+        for row in rows:
+            row["scope"] = "global" if row.get("organization_id") is None else "organization" if row.get("facility_id") is None else "facility"
+            row.pop("organization_id", None)
+            row.pop("facility_id", None)
+        return rows
+
     def search(self, *, scope: KnowledgeScope, query: str, query_embedding: list[float] | None = None, limit: int = 8, max_authority_level: int | None = None) -> list[dict[str, Any]]:
         if not scope.organization_id or not scope.facility_id:
             return []
