@@ -77,10 +77,10 @@ def test_generic_rules_response_is_rejected(monkeypatch):
     assert "Shopify Retail Open-to-Buy Guide" not in result
     assert "[buyer:" not in result
     assert "AI: rules" not in result
-    assert "Gemini inventory interpretation" not in result
+    assert "DoobieLogic AI inventory interpretation" not in result
 
 
-def test_specific_gemini_response_is_appended(monkeypatch):
+def test_specific_native_runtime_response_is_appended(monkeypatch):
     class FakeAgent:
         def __init__(self, *args, **kwargs):
             self.enabled = True
@@ -96,7 +96,7 @@ def test_specific_gemini_response_is_appended(monkeypatch):
     result = inventory_check.generate_inventory_check(
         _aggregate_frame(), product_view=_product_frame(), doh_threshold=21, data_source="Sandbox"
     )
-    assert "Gemini inventory interpretation" in result
+    assert "DoobieLogic AI inventory interpretation" in result
     assert "Demo State Labs Orchard Haze Vape 1g (VP)" in result
 
 
