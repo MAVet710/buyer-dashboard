@@ -50,7 +50,7 @@ jobs:
             cat /tmp/doobielogic-vite.log
             exit 1
           fi
-          pnpm exec playwright test --config=playwright.config.ts e2e/parity-browser.spec.ts
+          pnpm exec playwright test --config=playwright.config.ts e2e/parity-browser.spec.ts e2e/inventory-product-actions-mobile.spec.ts
       - name: Upload browser parity evidence
         if: always()
         uses: actions/upload-artifact@v4

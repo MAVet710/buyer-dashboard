@@ -301,7 +301,9 @@ def test_react_package_studio_keeps_the_streamlit_tabs_controls_and_drawer_prefi
     for label in ACTION_LABELS:
         assert f'["{label}"' in page
     assert "Preview balance" not in page
-    assert "initialLotId={first?.id}" in inventory
+    assert "initialLotId={actionPackage?.id}" in inventory
+    assert 'packageRows.find(pkg=>pkg.id===actionPackageId)' in inventory
+    assert 'id:`product:${first.product_id}`' in inventory
 
 
 def test_migration_0017_tracks_package_studio_lineage():
