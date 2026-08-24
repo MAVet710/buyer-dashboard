@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 from services.agent_registry import PROFILES
 from services.ai.datasets import DatasetSpec, LoadedDataset
@@ -45,7 +47,31 @@ def learning_engine():
             provider TEXT NOT NULL,
             model TEXT NOT NULL,
             evaluation_score REAL NULL,
-            training_approved BOOLEAN NOT NULL
+            training_approved BOOLEAN NOT NULL,
+            learning_approved BOOLEAN NOT NULL,
+            learning_approved_at DATETIME NULL
+        )""")
+        connection.exec_driver_sql("""CREATE TABLE ai_telemetry (
+            id TEXT PRIMARY KEY,
+            organization_id TEXT NOT NULL,
+            facility_id TEXT NOT NULL,
+            timestamp DATETIME NOT NULL,
+            request_id TEXT NOT NULL,
+            agent TEXT NOT NULL,
+            task_category TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            is_local BOOLEAN NOT NULL,
+            latency_ms INTEGER NOT NULL,
+            tool_call_count INTEGER NOT NULL,
+            retrieval_count INTEGER NOT NULL,
+            input_tokens INTEGER NOT NULL,
+            output_tokens INTEGER NOT NULL,
+            estimated_cost_usd REAL NOT NULL,
+            fallback_used BOOLEAN NOT NULL,
+            fallback_reason TEXT NOT NULL,
+            validation_result TEXT NOT NULL,
+            success BOOLEAN NOT NULL
         )""")
     return engine
 
@@ -97,7 +123,7 @@ def test_learning_is_tenant_facility_and_agent_scoped():
     assert wrong_agent["patterns"] == []
 
 
-def test_corrections_require_explicit_scope_bound_approval_and_compliance_does_not_learn_them():
+def test_corrections_require_learning_approval_without_granting_training_consent():
     engine = learning_engine()
     feedback = AgentFeedbackStore(engine)
     learning = AgentLearningEngine(engine)
@@ -116,13 +142,42 @@ def test_corrections_require_explicit_scope_bound_approval_and_compliance_does_n
         model="test",
     )
     assert learning.context(organization_id="org-a", facility_id="fac-a", agent="buyer")["approved_corrections"] == []
-    assert feedback.set_training_approved(row_id=row_id, organization_id="org-b", facility_id="fac-a", approved=True) is False
-    assert feedback.set_training_approved(row_id=row_id, organization_id="org-a", facility_id="fac-a", approved=True) is True
+    assert feedback.set_learning_approved(row_id=row_id, organization_id="org-b", facility_id="fac-a", approved=True) is False
+    assert feedback.set_learning_approved(row_id=row_id, organization_id="org-a", facility_id="fac-a", approved=True) is True
 
     buyer = learning.context(organization_id="org-a", facility_id="fac-a", agent="buyer")
     compliance = learning.context(organization_id="org-a", facility_id="fac-a", agent="buyer", compliance_agent=True)
     assert buyer["approved_corrections"][0]["approved_correction"].startswith("Use the approved purchasing policy")
     assert compliance["approved_corrections"] == []
+    with engine.connect() as connection:
+        row = connection.execute(text("SELECT learning_approved, training_approved FROM ai_agent_feedback WHERE id=:id"), {"id": row_id}).mappings().one()
+    assert bool(row["learning_approved"]) is True
+    assert bool(row["training_approved"]) is False
+    assert feedback.export_approved(organization_id="org-a", facility_id="fac-a") == []
+
+
+def test_telemetry_becomes_quality_learning_without_raw_prompt_data():
+    engine = learning_engine()
+    now = datetime.now(timezone.utc)
+    with engine.begin() as connection:
+        for index in range(10):
+            connection.execute(text("""
+                INSERT INTO ai_telemetry
+                (id,organization_id,facility_id,timestamp,request_id,agent,task_category,provider,model,is_local,latency_ms,tool_call_count,retrieval_count,input_tokens,output_tokens,estimated_cost_usd,fallback_used,fallback_reason,validation_result,success)
+                VALUES (:id,:org,:facility,:ts,:request,:agent,:task,:provider,:model,:local,:latency,0,0,0,0,0,:fallback,'','ok',:success)
+            """), {
+                "id": f"t-{index}", "org": "org-a", "facility": "fac-a", "ts": now,
+                "request": f"r-{index}", "agent": "buyer", "task": "agent_reasoning",
+                "provider": "local", "model": "test-model", "local": True,
+                "latency": 100 + index, "fallback": index == 9, "success": index != 8,
+            })
+    learning = AgentLearningEngine(engine)
+    assert learning.refresh(organization_id="org-a", facility_id="fac-a", agent="buyer", datasets={}) == 1
+    context = learning.context(organization_id="org-a", facility_id="fac-a", agent="buyer")
+    telemetry = [row for row in context["patterns"] if row["source"] == "telemetry"]
+    assert len(telemetry) == 1
+    assert "10 AI requests" in telemetry[0]["summary"]
+    assert "prompt" not in telemetry[0]["summary"].casefold()
 
 
 def test_every_registered_agent_uses_the_same_learning_contract():
