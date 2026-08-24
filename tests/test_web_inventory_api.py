@@ -259,6 +259,7 @@ def test_retail_receipt_posts_atomically_to_shared_ledger_and_history():
         "X-Organization-Id": "org-1",
         "X-Facility-Id": "facility-1",
         "X-User-Id": "receiver@example.com",
+        "X-User-Role": "operator",
     }
     payload = {
         "product_id": "product-1",
@@ -296,7 +297,12 @@ def test_unpassed_receipt_enters_hold_inventory():
     engine = _engine()
     app.dependency_overrides[get_engine] = lambda: engine
     client = TestClient(app)
-    headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1"}
+    headers = {
+        "X-Organization-Id": "org-1",
+        "X-Facility-Id": "facility-1",
+        "X-User-Id": "receiver@example.com",
+        "X-User-Role": "operator",
+    }
     try:
         response = client.post(
             "/api/v1/inventory/production/receipts",

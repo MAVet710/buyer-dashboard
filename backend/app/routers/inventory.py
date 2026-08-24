@@ -31,7 +31,7 @@ from ..services.metrc_context import resolve_metrc_context
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 ADJUSTMENT_ROLES = {"dev", "admin", "supervisor", "operator", "qa"}
-RECEIVING_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only", "trial", "user"}
+RECEIVING_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "trial"}
 LOCAL_ADJUSTMENT_REASONS = (
     "Inventory count correction",
     "Scale variance",
