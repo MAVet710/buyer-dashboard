@@ -22,7 +22,7 @@ jobs:
       - name: Validate workflow YAML
         id: yaml
         run: |
-          python -m pip install --quiet pyyaml
+          python -m pip install --quiet pyyaml pytest
           python - <<'PY'
           from pathlib import Path
           import yaml
