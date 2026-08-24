@@ -1,7 +1,7 @@
 """Data-backed Inventory Dashboard AI check.
 
-The Inventory Dashboard computes operational evidence first and uses Gemini only
-as a read-only interpreter of that evidence. Generic AI responses are rejected.
+The Inventory Dashboard computes operational evidence first and uses the shared
+DoobieLogic runtime only as a read-only interpreter. Generic AI responses are rejected.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import pandas as pd
 
 from services.agent_registry import PROFILES
 from services.buyer_intelligence_brief import resolve_gemini_api_key
-from services.gemini_agent import GeminiWorkspaceAgent
+from services.ai.workspace_compat import DoobieWorkspaceAgent as GeminiWorkspaceAgent
 
 
 _GENERIC_MARKERS = (
@@ -276,7 +276,7 @@ def generate_inventory_check(
     doh_threshold: int = 21,
     data_source: str = "",
 ) -> str:
-    """Return deterministic inventory evidence plus a specific Gemini interpretation."""
+    """Return deterministic inventory evidence plus a provider-neutral interpretation."""
     target_doh = max(1, int(doh_threshold))
     products = _normalize_product_view(product_view, target_doh)
     aggregate = _normalize_aggregate_view(detail_view, target_doh)
@@ -324,4 +324,4 @@ Hard rules:
 
     if not _acceptable_ai_answer(answer, datasets):
         return evidence
-    return evidence + "\n\n---\n\n**Gemini inventory interpretation**\n\n" + answer.strip()
+    return evidence + "\n\n---\n\n**DoobieLogic AI inventory interpretation**\n\n" + answer.strip()
