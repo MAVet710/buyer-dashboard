@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 from services.doobie_client import DoobieClient
@@ -22,14 +23,37 @@ class DoobieProvider:
         return False
 
     def supports_structured_output(self) -> bool:
-        return False
+        return True
 
     def health(self) -> ProviderHealth:
         configured = bool(self.base_url and self.api_key)
         if not configured:
-            return ProviderHealth(self.name, False, False, self.model, False, False, False, "not configured")
+            return ProviderHealth(self.name, False, False, self.model, False, False, True, "not configured")
         result = self.client.health()
-        return ProviderHealth(self.name, True, bool(result.get("ok")), self.model, False, False, False, str(result.get("error") or "ok"))
+        return ProviderHealth(self.name, True, bool(result.get("ok")), self.model, False, False, True, str(result.get("error") or "ok"))
+
+    @staticmethod
+    def _structured(answer: str, result: dict) -> dict:
+        try:
+            parsed = json.loads(answer)
+            if isinstance(parsed, dict) and str(parsed.get("answer") or "").strip():
+                return parsed
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+        confidence = result.get("confidence")
+        try:
+            confidence_value = float(confidence) if confidence is not None else 0.7
+        except (TypeError, ValueError):
+            confidence_value = 0.7
+        return {
+            "answer": answer,
+            "summary": str(result.get("summary") or "Doobie fallback response"),
+            "priority": str(result.get("priority") or "normal"),
+            "confidence": max(0.0, min(confidence_value, 1.0)),
+            "recommendations": list(result.get("recommendations") or []),
+            "warnings": list(result.get("warnings") or []),
+            "missing_data": list(result.get("missing_data") or []),
+        }
 
     def generate(self, request: AIRequest) -> AIResponse:
         if not self.base_url or not self.api_key:
@@ -49,10 +73,12 @@ class DoobieProvider:
         answer = str(result.get("answer") or "").strip()
         if error in {"missing_service_key", "service_key_rejected", "disabled", "timeout", "request_error", "http_error"} or not answer:
             raise ProviderUnavailable(f"Doobie cloud failed: {error or 'empty_response'}")
+        structured = self._structured(answer, result)
         return AIResponse(
-            text=answer,
+            text=json.dumps(structured),
             provider=self.name,
             model=self.model,
             local=False,
             latency_ms=int((time.perf_counter() - started) * 1000),
+            structured=structured,
         )
