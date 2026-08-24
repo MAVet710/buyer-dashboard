@@ -21,6 +21,23 @@ from ..services.ai_runtime import build_runtime, diagnostics, runtime_configurat
 router = APIRouter(prefix="/ai-agents", tags=["ai-agents"])
 KNOWLEDGE_ROLES = {"dev", "admin", "supervisor", "qa"}
 DIAGNOSTIC_ROLES = {"dev", "admin"}
+SOURCE_AUTHORITY = {
+    "government": 1,
+    "regulation": 1,
+    "regulatory_guidance": 1,
+    "facility_sop": 2,
+    "approved_equipment_sop": 2,
+    "internal_policy": 2,
+    "manufacturer": 3,
+    "metrc": 3,
+    "dutchie": 3,
+    "technical_reference": 4,
+    "peer_reviewed": 4,
+    "industry": 5,
+    "field_practice": 6,
+    "community": 6,
+    "internal_document": 6,
+}
 
 
 class AgentMessage(BaseModel):
@@ -128,6 +145,13 @@ def _embedding_provider(engine: Engine, settings: Settings) -> LocalEmbeddingPro
     )
 
 
+def _knowledge_authority(source_type: str) -> tuple[str, int]:
+    normalized = str(source_type or "internal_document").strip().casefold().replace("-", "_").replace(" ", "_")
+    if normalized not in SOURCE_AUTHORITY:
+        raise HTTPException(422, f"Unknown knowledge source type '{source_type}'.")
+    return normalized, SOURCE_AUTHORITY[normalized]
+
+
 @router.get("")
 def agents(
     app_mode: str = "",
@@ -203,7 +227,7 @@ async def ingest_knowledge(
     title: str = Form(default=""),
     source: str = Form(default=""),
     source_type: str = Form(default="internal_document"),
-    authority_level: int = Form(default=6),
+    authority_level: int = Form(default=0),
     jurisdiction: str = Form(default=""),
     effective_date: str = Form(default=""),
     version: str = Form(default=""),
@@ -214,12 +238,21 @@ async def ingest_knowledge(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    if context.role.casefold() not in KNOWLEDGE_ROLES:
+    role = context.role.casefold()
+    if role not in KNOWLEDGE_ROLES:
         raise HTTPException(403, "Your role cannot publish AI knowledge sources.")
-    if global_scope and context.role.casefold() != "dev":
+    normalized_type, derived_authority = _knowledge_authority(source_type)
+    if authority_level not in {0, derived_authority}:
+        raise HTTPException(422, "Knowledge authority is derived from source type and cannot be self-assigned.")
+    if global_scope and role != "dev":
         raise HTTPException(403, "Only Level DEV may publish globally scoped AI knowledge.")
-    if not 1 <= int(authority_level) <= 6:
-        raise HTTPException(422, "Authority level must be between 1 and 6.")
+    if not facility_scope and not global_scope and role not in {"dev", "admin"}:
+        raise HTTPException(403, "Only Admin or Level DEV may publish organization-wide AI knowledge.")
+    if derived_authority == 1:
+        if role not in {"dev", "admin"}:
+            raise HTTPException(403, "Only Admin or Level DEV may publish government/regulatory sources.")
+        if not jurisdiction.strip() or not source_url.strip():
+            raise HTTPException(422, "Government/regulatory sources require jurisdiction and source URL.")
     filename = file.filename or "knowledge.txt"
     if Path(filename).suffix.casefold() not in SUPPORTED_EXTENSIONS:
         raise HTTPException(422, "Knowledge sources must be PDF, DOCX, TXT, Markdown, or HTML.")
@@ -234,8 +267,8 @@ async def ingest_knowledge(
             payload=payload,
             title=title.strip() or filename,
             source=source.strip() or filename,
-            source_type=source_type.strip() or "internal_document",
-            authority_level=int(authority_level),
+            source_type=normalized_type,
+            authority_level=derived_authority,
             jurisdiction=jurisdiction.strip(),
             effective_date=effective_date.strip(),
             version=version.strip(),
