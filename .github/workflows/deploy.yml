@@ -213,9 +213,7 @@ jobs:
               --format=json)"
             CANDIDATE_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r --arg tag "$API_CANDIDATE_TAG" '[.status.traffic[]? | select(.tag == $tag) | .revisionName][0] // ""')"
             CANDIDATE_URL="$(printf '%s' "$SERVICE_JSON" | jq -r --arg tag "$API_CANDIDATE_TAG" '[.status.traffic[]? | select(.tag == $tag) | .url][0] // ""')"
-            if [ "$CANDIDATE_REVISION" = "$CREATED_API_REVISION" ] && [ -n "$CANDIDATE_URL" ]; then
-              break
-            fi
+            if [ "$CANDIDATE_REVISION" = "$CREATED_API_REVISION" ] && [ -n "$CANDIDATE_URL" ]; then break; fi
             sleep 3
           done
           if [ "$CANDIDATE_REVISION" != "$CREATED_API_REVISION" ] || [ -z "$CANDIDATE_URL" ]; then
@@ -275,6 +273,7 @@ jobs:
       - name: Promote exact validated API revision to 100 percent
         run: |
           set -euo pipefail
+          echo "API_CUTOVER_STARTED=true" >> "$GITHUB_ENV"
           gcloud run services update-traffic "${{ env.API_SERVICE }}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --region "${{ env.REGION }}" \
@@ -293,15 +292,20 @@ jobs:
           echo "Validated API candidate never received 100% production traffic."
           exit 1
 
-      - name: Verify production API identity or restore previous traffic
+      - name: Verify production API identity
         id: verify_production
         run: |
           set -euo pipefail
           production_ok=false
           for attempt in $(seq 1 30); do
+            SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --format=json)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
             health_code="$(curl -sS -o /tmp/production-api-health.json -w '%{http_code}' "${{ env.PRODUCTION_API_URL }}/health" || true)"
             ready_code="$(curl -sS -o /tmp/production-api-ready.json -w '%{http_code}' "${{ env.PRODUCTION_API_URL }}/health/ready" || true)"
-            if [ "$health_code" = "200" ] && [ "$ready_code" = "200" ]; then
+            if [ "$ACTIVE_100" = "$CREATED_API_REVISION" ] && [ "$health_code" = "200" ] && [ "$ready_code" = "200" ]; then
               RELEASE="$(jq -r '.release_sha // ""' /tmp/production-api-ready.json)"
               DB_HEAD="$(jq -r '.schema_revision // ""' /tmp/production-api-ready.json)"
               RUNTIME_HEAD="$(jq -r '.expected_schema_revision // ""' /tmp/production-api-ready.json)"
@@ -317,39 +321,46 @@ jobs:
             sleep 6
           done
 
-          if [ "$production_ok" = "true" ]; then
-            cat /tmp/production-api-health.json
-            cat /tmp/production-api-ready.json
-            echo "Production API release SHA and schema identity verified."
-            echo "url=$API_SERVICE_URL" >> "$GITHUB_OUTPUT"
-            gcloud run services update-traffic "${{ env.API_SERVICE }}" \
-              --project "${{ secrets.GCP_PROJECT_ID }}" \
-              --region "${{ env.REGION }}" \
-              --remove-tags "$API_CANDIDATE_TAG" \
-              --quiet || true
-            exit 0
+          if [ "$production_ok" != "true" ]; then
+            echo "Production API did not confirm the exact validated revision, release SHA, and schema identity."
+            cat /tmp/production-api-health.json || true
+            cat /tmp/production-api-ready.json || true
+            exit 1
           fi
 
-          echo "Post-cutover API verification failed. Restoring application traffic to $PREVIOUS_API_REVISION."
-          cat /tmp/production-api-health.json || true
-          cat /tmp/production-api-ready.json || true
+          cat /tmp/production-api-health.json
+          cat /tmp/production-api-ready.json
+          echo "Production API exact revision, release SHA, and schema identity verified."
+          echo "url=$API_SERVICE_URL" >> "$GITHUB_OUTPUT"
+          gcloud run services update-traffic "${{ env.API_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --remove-tags "$API_CANDIDATE_TAG" \
+            --quiet || true
+
+      - name: Restore previous API traffic after failed cutover
+        if: ${{ failure() && env.API_CUTOVER_STARTED == 'true' }}
+        run: |
+          set +e
+          echo "API cutover failed verification. Restoring application traffic to $PREVIOUS_API_REVISION."
           gcloud run services update-traffic "${{ env.API_SERVICE }}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --region "${{ env.REGION }}" \
             --to-revisions "$PREVIOUS_API_REVISION=100" \
             --quiet
+          rollback_command_status=$?
 
           rollback_ok=false
           for attempt in $(seq 1 20); do
             SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" \
               --project "${{ secrets.GCP_PROJECT_ID }}" \
               --region "${{ env.REGION }}" \
-              --format=json)"
-            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+              --format=json 2>/dev/null)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""' 2>/dev/null)"
             if [ "$ACTIVE_100" = "$PREVIOUS_API_REVISION" ]; then rollback_ok=true; break; fi
             sleep 3
           done
-          echo "API traffic rollback confirmed: $rollback_ok"
+          echo "API rollback command status=$rollback_command_status traffic_confirmed=$rollback_ok"
           curl -sS "${{ env.PRODUCTION_API_URL }}/health" || true
           curl -sS "${{ env.PRODUCTION_API_URL }}/health/ready" || true
           gcloud logging read \
@@ -363,8 +374,8 @@ jobs:
             --region "${{ env.REGION }}" \
             --remove-tags "$API_CANDIDATE_TAG" \
             --quiet || true
-          echo "Alembic migrations were intentionally NOT reversed; rollback assumes backward compatibility with the immediately previous API revision."
-          exit 1
+          echo "Alembic migrations were intentionally NOT reversed; application rollback assumes backward compatibility with the immediately previous API revision."
+          [ "$rollback_command_status" -eq 0 ] && [ "$rollback_ok" = "true" ]
 
   deploy-web:
     needs: deploy-api
@@ -483,9 +494,7 @@ jobs:
               --format=json)"
             CANDIDATE_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r --arg tag "$WEB_CANDIDATE_TAG" '[.status.traffic[]? | select(.tag == $tag) | .revisionName][0] // ""')"
             CANDIDATE_URL="$(printf '%s' "$SERVICE_JSON" | jq -r --arg tag "$WEB_CANDIDATE_TAG" '[.status.traffic[]? | select(.tag == $tag) | .url][0] // ""')"
-            if [ "$CANDIDATE_REVISION" = "$CREATED_WEB_REVISION" ] && [ -n "$CANDIDATE_URL" ]; then
-              break
-            fi
+            if [ "$CANDIDATE_REVISION" = "$CREATED_WEB_REVISION" ] && [ -n "$CANDIDATE_URL" ]; then break; fi
             sleep 3
           done
           if [ "$CANDIDATE_REVISION" != "$CREATED_WEB_REVISION" ] || [ -z "$CANDIDATE_URL" ]; then
@@ -530,6 +539,7 @@ jobs:
       - name: Promote exact validated frontend revision to 100 percent
         run: |
           set -euo pipefail
+          echo "WEB_CUTOVER_STARTED=true" >> "$GITHUB_ENV"
           gcloud run services update-traffic "${{ env.WEB_SERVICE }}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --region "${{ env.REGION }}" \
@@ -548,16 +558,22 @@ jobs:
           echo "Validated web candidate never received 100% production traffic."
           exit 1
 
-      - name: Verify both production web domains or restore previous traffic
+      - name: Verify both production web domains and exact revision
         run: |
           set -euo pipefail
           production_ok=false
           for attempt in $(seq 1 30); do
+            SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --format=json)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
             public_code="$(curl -sS -H 'Cache-Control: no-cache' -o /tmp/public-release.json -w '%{http_code}' "https://doobielogic.io/release.json?run=${{ github.run_id }}-${{ github.run_attempt }}" || true)"
             ops_code="$(curl -sS -H 'Cache-Control: no-cache' -o /tmp/ops-release.json -w '%{http_code}' "https://ops.doobielogic.io/release.json?run=${{ github.run_id }}-${{ github.run_attempt }}" || true)"
             PUBLIC_RELEASE="$(jq -r '.release_sha // ""' /tmp/public-release.json 2>/dev/null || true)"
             OPS_RELEASE="$(jq -r '.release_sha // ""' /tmp/ops-release.json 2>/dev/null || true)"
-            if [ "$public_code" = "200" ] && [ "$ops_code" = "200" ] \
+            if [ "$ACTIVE_100" = "$CREATED_WEB_REVISION" ] \
+              && [ "$public_code" = "200" ] && [ "$ops_code" = "200" ] \
               && [ "$PUBLIC_RELEASE" = "${{ github.sha }}" ] \
               && [ "$OPS_RELEASE" = "${{ github.sha }}" ]; then
               production_ok=true
@@ -566,38 +582,45 @@ jobs:
             sleep 6
           done
 
-          if [ "$production_ok" = "true" ]; then
-            echo "doobielogic.io release: $PUBLIC_RELEASE"
-            echo "ops.doobielogic.io release: $OPS_RELEASE"
-            echo "Both production web domains are serving the exact current commit."
-            gcloud run services update-traffic "${{ env.WEB_SERVICE }}" \
-              --project "${{ secrets.GCP_PROJECT_ID }}" \
-              --region "${{ env.REGION }}" \
-              --remove-tags "$WEB_CANDIDATE_TAG" \
-              --quiet || true
-            exit 0
+          if [ "$production_ok" != "true" ]; then
+            echo "Production web did not confirm the exact validated revision and release SHA on both domains."
+            cat /tmp/public-release.json || true
+            cat /tmp/ops-release.json || true
+            exit 1
           fi
 
-          echo "Post-cutover web identity verification failed. Restoring traffic to $PREVIOUS_WEB_REVISION."
-          cat /tmp/public-release.json || true
-          cat /tmp/ops-release.json || true
+          echo "doobielogic.io release: $PUBLIC_RELEASE"
+          echo "ops.doobielogic.io release: $OPS_RELEASE"
+          echo "Both production web domains and Cloud Run traffic confirm the exact current commit."
+          gcloud run services update-traffic "${{ env.WEB_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --remove-tags "$WEB_CANDIDATE_TAG" \
+            --quiet || true
+
+      - name: Restore previous web traffic after failed cutover
+        if: ${{ failure() && env.WEB_CUTOVER_STARTED == 'true' }}
+        run: |
+          set +e
+          echo "Web cutover failed verification. Restoring traffic to $PREVIOUS_WEB_REVISION."
           gcloud run services update-traffic "${{ env.WEB_SERVICE }}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --region "${{ env.REGION }}" \
             --to-revisions "$PREVIOUS_WEB_REVISION=100" \
             --quiet
+          rollback_command_status=$?
 
           rollback_ok=false
           for attempt in $(seq 1 20); do
             SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" \
               --project "${{ secrets.GCP_PROJECT_ID }}" \
               --region "${{ env.REGION }}" \
-              --format=json)"
-            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+              --format=json 2>/dev/null)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""' 2>/dev/null)"
             if [ "$ACTIVE_100" = "$PREVIOUS_WEB_REVISION" ]; then rollback_ok=true; break; fi
             sleep 3
           done
-          echo "Web traffic rollback confirmed: $rollback_ok"
+          echo "Web rollback command status=$rollback_command_status traffic_confirmed=$rollback_ok"
           curl -sS -L https://doobielogic.io/ >/dev/null || true
           curl -sS -L https://ops.doobielogic.io/ >/dev/null || true
           gcloud logging read \
@@ -611,4 +634,4 @@ jobs:
             --region "${{ env.REGION }}" \
             --remove-tags "$WEB_CANDIDATE_TAG" \
             --quiet || true
-          exit 1
+          [ "$rollback_command_status" -eq 0 ] && [ "$rollback_ok" = "true" ]
