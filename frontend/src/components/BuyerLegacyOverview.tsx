@@ -3,6 +3,7 @@ import { apiGet } from "../lib/api";
 import type { CSSProperties } from "react";
 
 type Row = Record<string, unknown>;
+export type BuyerInventoryTarget = "all" | "reorder" | "no-stock" | "overstock" | "expiring";
 type LegacyOverview = {
   sales_trend: Row[];
   revenue_by_category: Row[];
@@ -33,11 +34,12 @@ type Props = {
   salesDays: number;
   skuWindow: number;
   topN: number;
+  onInventoryCondition?: (target: BuyerInventoryTarget) => void;
 };
 
 const SLOW_COLUMNS = ["product_name", "category", "brand_vendor", "onhandunits", "avg_weekly_sales", "days_of_supply", "dollars_on_hand", "expiration_date", "status"];
 
-export function BuyerLegacyOverview({ targetDoh, velocityAdjustment, salesDays, skuWindow, topN }: Props) {
+export function BuyerLegacyOverview({ targetDoh, velocityAdjustment, salesDays, skuWindow, topN, onInventoryCondition }: Props) {
   const params = new URLSearchParams({
     target_doh: String(targetDoh),
     velocity_adjustment: String(velocityAdjustment),
@@ -54,6 +56,7 @@ export function BuyerLegacyOverview({ targetDoh, velocityAdjustment, salesDays, 
   if (overview.isError) return <section className="inventory-panel"><div className="state error">{overview.error.message}</div></section>;
   if (!overview.data) return null;
   const data = overview.data;
+  const select = (target: BuyerInventoryTarget) => onInventoryCondition ? () => onInventoryCondition(target) : undefined;
 
   return <section className="buyer-legacy-overview" aria-label="Buyer purchasing overview">
     <div className="buyer-overview-grid">
@@ -79,16 +82,16 @@ export function BuyerLegacyOverview({ targetDoh, velocityAdjustment, salesDays, 
         </div>
       </article>
       <article className="inventory-panel">
-        <div className="section-heading"><div><div className="eyebrow">Inventory Summary</div><h2>Buyer decision queue</h2></div></div>
+        <div className="section-heading"><div><div className="eyebrow">Inventory Summary</div><h2>Buyer decision queue</h2><p>Tap a KPI to open the matching SKU status view.</p></div></div>
         <section className="metrics buyer-condition-metrics">
-          <Metric label="Units On Hand" value={data.inventory_condition.units_on_hand}/>
-          <Metric label="Units Sold" value={data.inventory_condition.units_sold}/>
-          <Metric label="Reorder / Low Cover" value={data.inventory_condition.reorder_count}/>
-          <Metric label="No Stock" value={data.inventory_condition.no_stock_count}/>
-          <Metric label="Overstock SKUs" value={data.inventory_condition.overstock_count}/>
-          <Metric label="Expiring <60d" value={`${data.inventory_condition.expiring_count} (${money(data.inventory_condition.expiring_cost_exposure)})`}/>
-          <Metric label="Overstock $" value={money(data.inventory_condition.overstock_cost_exposure)}/>
-          <Metric label="$ On Hand" value={money(data.inventory_condition.on_hand_cost)}/>
+          <Metric label="Units On Hand" value={data.inventory_condition.units_on_hand} onClick={select("all")}/>
+          <Metric label="Units Sold" value={data.inventory_condition.units_sold} onClick={select("all")}/>
+          <Metric label="Reorder / Low Cover" value={data.inventory_condition.reorder_count} onClick={select("reorder")}/>
+          <Metric label="No Stock" value={data.inventory_condition.no_stock_count} onClick={select("no-stock")}/>
+          <Metric label="Overstock SKUs" value={data.inventory_condition.overstock_count} onClick={select("overstock")}/>
+          <Metric label="Expiring <60d" value={`${data.inventory_condition.expiring_count} (${money(data.inventory_condition.expiring_cost_exposure)})`} onClick={select("expiring")}/>
+          <Metric label="Overstock $" value={money(data.inventory_condition.overstock_cost_exposure)} onClick={select("overstock")}/>
+          <Metric label="$ On Hand" value={money(data.inventory_condition.on_hand_cost)} onClick={select("all")}/>
         </section>
       </article>
     </div>
@@ -170,7 +173,10 @@ function DataTable({ rows, columns }: { rows: Row[]; columns: string[] }) {
   return <div className="table-wrap"><table><thead><tr>{visible.map(column => <th key={column}>{header(column)}</th>)}</tr></thead><tbody>{rows.map((row,index) => <tr key={index}>{visible.map(column => <td key={column}>{render(row[column], column)}</td>)}</tr>)}</tbody></table></div>;
 }
 
-function Metric({ label, value }: { label: string; value: string | number }) { return <article className="metric"><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : value}</strong></article>; }
+function Metric({ label, value, onClick }: { label: string; value: string | number; onClick?: () => void }) {
+  const content = <><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : value}</strong></>;
+  return onClick ? <button className="metric metric-button buyer-condition-action" type="button" onClick={onClick} aria-label={`${label}: open filtered inventory view`}>{content}</button> : <article className="metric">{content}</article>;
+}
 function text(value: unknown) { return value == null ? "" : String(value); }
 function number(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
 function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0; }
