@@ -57,12 +57,12 @@ export function BuyerLegacyOverview({ targetDoh, velocityAdjustment, salesDays, 
 
   return <section className="buyer-legacy-overview" aria-label="Buyer purchasing overview">
     <div className="buyer-overview-grid">
-      <article className="inventory-panel buyer-chart-panel">
-        <div className="section-heading"><div><div className="eyebrow">Buyer performance</div><h2>Sales Trend</h2></div></div>
-        {data.sales_trend.length ? <LineChart rows={data.sales_trend}/> : <div className="empty">The active sales source does not contain a usable date column for a time-series trend.</div>}
+      <article className="inventory-panel buyer-chart-panel buyer-chart-elevated">
+        <div className="section-heading"><div><div className="eyebrow">Buyer performance</div><h2>Sales Trend</h2><p>Daily sales activity from the active Product Sales source.</p></div></div>
+        {data.sales_trend.length ? <LineChart rows={data.sales_trend}/> : <div className="empty">No dated sales rows are available in the active Product Sales source.</div>}
       </article>
-      <article className="inventory-panel buyer-chart-panel">
-        <div className="section-heading"><div><div className="eyebrow">Category mix</div><h2>Revenue by Category</h2></div></div>
+      <article className="inventory-panel buyer-chart-panel buyer-chart-elevated">
+        <div className="section-heading"><div><div className="eyebrow">Category mix</div><h2>Revenue by Category</h2><p>Revenue concentration and category contribution from the same sales source.</p></div></div>
         {data.revenue_by_category.length ? <BarChart rows={data.revenue_by_category}/> : <div className="empty">No category sales are available in the current buyer source.</div>}
       </article>
     </div>
@@ -107,21 +107,61 @@ function HealthGauge({ score }: { score: number }) {
 }
 
 function LineChart({ rows }: { rows: Row[] }) {
-  const width = 720; const height = 230; const pad = 24;
-  const values = rows.map(row => number(row.revenue) || number(row.units));
-  const max = Math.max(...values, 1); const min = Math.min(...values, 0); const span = Math.max(max - min, 1);
+  const width = 760; const height = 260; const left = 58; const right = 18; const top = 18; const bottom = 30;
+  const revenues = rows.map(row => number(row.revenue));
+  const units = rows.map(row => number(row.units));
+  const useRevenue = revenues.some(value => value > 0);
+  const values = useRevenue ? revenues : units;
+  const max = Math.max(...values, 1);
+  const chartWidth = width - left - right; const chartHeight = height - top - bottom;
   const pointRows = rows.map((row, index) => {
-    const x = rows.length <= 1 ? width / 2 : pad + index * ((width - pad * 2) / (rows.length - 1));
-    const value = number(row.revenue) || number(row.units); const y = height - pad - ((value - min) / span) * (height - pad * 2);
-    return { row, x, y };
+    const x = rows.length <= 1 ? left + chartWidth / 2 : left + index * (chartWidth / (rows.length - 1));
+    const value = values[index] ?? 0;
+    const y = top + chartHeight - (value / max) * chartHeight;
+    return { row, x, y, value };
   });
   const points = pointRows.map(point => `${point.x},${point.y}`).join(" ");
-  return <div className="buyer-chart-wrap"><svg className="buyer-line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Sales Trend"><polyline points={points}/>{pointRows.map(({ row, x, y }, index) => <circle key={`${text(row.date)}-${index}`} cx={x} cy={y} r="4"><title>{`${text(row.date)}: ${money(number(row.revenue))} · ${number(row.units).toLocaleString()} units`}</title></circle>)}</svg><div className="buyer-chart-axis"><span>{text(rows[0]?.date)}</span><span>{text(rows[rows.length - 1]?.date)}</span></div></div>;
+  const area = pointRows.length ? `M ${pointRows[0].x} ${top + chartHeight} L ${pointRows.map(point => `${point.x} ${point.y}`).join(" L ")} L ${pointRows[pointRows.length - 1].x} ${top + chartHeight} Z` : "";
+  const totalRevenue = revenues.reduce((sum, value) => sum + value, 0);
+  const totalUnits = units.reduce((sum, value) => sum + value, 0);
+  const recent = values.slice(-7); const prior = values.slice(-14, -7);
+  const recentAvg = average(recent); const priorAvg = average(prior);
+  const change = prior.length && priorAvg ? ((recentAvg - priorAvg) / priorAvg) * 100 : null;
+  const grid = [0, .25, .5, .75, 1];
+  const dotEvery = Math.max(1, Math.ceil(rows.length / 18));
+
+  return <div className="buyer-chart-wrap">
+    <div className="buyer-chart-kpis">
+      <div><span>{useRevenue ? "Sales in view" : "Units in view"}</span><strong>{useRevenue ? money(totalRevenue) : totalUnits.toLocaleString()}</strong></div>
+      <div><span>Daily average</span><strong>{useRevenue ? money(recentAvg || average(values)) : Math.round(recentAvg || average(values)).toLocaleString()}</strong></div>
+      <div><span>7-day movement</span><strong className={change == null ? "" : change >= 0 ? "positive" : "negative"}>{change == null ? "Building baseline" : `${change >= 0 ? "+" : ""}${change.toFixed(1)}%`}</strong></div>
+    </div>
+    <div className="buyer-chart-stage">
+      <svg className="buyer-line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Sales Trend">
+        <defs><linearGradient id="buyer-sales-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--dl-copper)" stopOpacity=".34"/><stop offset="78%" stopColor="var(--dl-copper)" stopOpacity=".05"/><stop offset="100%" stopColor="var(--dl-copper)" stopOpacity="0"/></linearGradient></defs>
+        {grid.map(ratio => { const y = top + chartHeight - ratio * chartHeight; const value = max * ratio; return <g className="buyer-chart-grid" key={ratio}><line x1={left} x2={width-right} y1={y} y2={y}/><text x={left-8} y={y+4} textAnchor="end">{useRevenue ? compactMoney(value) : compactNumber(value)}</text></g>; })}
+        {area ? <path className="buyer-area-fill" d={area}/> : null}
+        <polyline className="buyer-trend-line" points={points}/>
+        {pointRows.map(({ row, x, y }, index) => index % dotEvery === 0 || index === pointRows.length - 1 ? <circle key={`${text(row.date)}-${index}`} cx={x} cy={y} r="4"><title>{`${text(row.date)}: ${money(number(row.revenue))} · ${number(row.units).toLocaleString()} units`}</title></circle> : null)}
+      </svg>
+    </div>
+    <div className="buyer-chart-axis"><span>{shortDate(rows[0]?.date)}</span><span>{rows.length.toLocaleString()} daily points</span><span>{shortDate(rows[rows.length - 1]?.date)}</span></div>
+  </div>;
 }
 
 function BarChart({ rows }: { rows: Row[] }) {
-  const visible = rows.slice(0, 8); const max = Math.max(...visible.map(row => number(row.revenue) || number(row.units)), 1);
-  return <div className="buyer-category-bars">{visible.map((row, index) => { const value = number(row.revenue) || number(row.units); return <div className="buyer-category-bar" key={`${text(row.category)}-${index}`}><div><strong>{text(row.category) || "Uncategorized"}</strong><span>{number(row.revenue) ? money(number(row.revenue)) : `${number(row.units).toLocaleString()} units`}</span></div><div className="buyer-bar-track"><i style={{ width: `${Math.max(2, value / max * 100)}%` }}/></div></div>; })}</div>;
+  const visible = rows.slice(0, 8);
+  const values = visible.map(row => number(row.revenue) || number(row.units));
+  const max = Math.max(...values, 1);
+  const total = rows.reduce((sum, row) => sum + (number(row.revenue) || number(row.units)), 0);
+  return <div className="buyer-category-bars">{visible.map((row, index) => {
+    const value = number(row.revenue) || number(row.units); const share = total ? value / total * 100 : 0;
+    return <div className="buyer-category-bar" key={`${text(row.category)}-${index}`}>
+      <div className="buyer-category-bar-label"><span className="buyer-category-rank">{String(index + 1).padStart(2, "0")}</span><strong>{titleCase(text(row.category) || "Uncategorized")}</strong><span>{number(row.revenue) ? money(number(row.revenue)) : `${number(row.units).toLocaleString()} units`}</span></div>
+      <div className="buyer-bar-track"><i style={{ width: `${Math.max(2, value / max * 100)}%` }}/></div>
+      <div className="buyer-category-share"><span>{share.toFixed(1)}% of mix</span><span>{number(row.units).toLocaleString()} units</span></div>
+    </div>;
+  })}</div>;
 }
 
 function DataTable({ rows, columns }: { rows: Row[]; columns: string[] }) {
@@ -133,6 +173,11 @@ function DataTable({ rows, columns }: { rows: Row[]; columns: string[] }) {
 function Metric({ label, value }: { label: string; value: string | number }) { return <article className="metric"><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : value}</strong></article>; }
 function text(value: unknown) { return value == null ? "" : String(value); }
 function number(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
+function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0; }
 function money(value: number) { return Number(value || 0).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }); }
+function compactMoney(value: number) { return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }).format(Number(value || 0)); }
+function compactNumber(value: number) { return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(Number(value || 0)); }
+function shortDate(value: unknown) { const parsed = new Date(text(value)); return Number.isNaN(parsed.valueOf()) ? text(value) : parsed.toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
+function titleCase(value: string) { return value.replace(/\b\w/g, char => char.toUpperCase()); }
 function header(value: string) { return value.replaceAll("_", " ").replace(/\b\w/g, char => char.toUpperCase()); }
 function render(value: unknown, column: string) { if (value == null || value === "") return "—"; if (typeof value === "number") { if (column.includes("dollar") || column.includes("revenue")) return money(value); return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 }); } return String(value); }
