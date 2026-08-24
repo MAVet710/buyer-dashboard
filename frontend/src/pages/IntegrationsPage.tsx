@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type PropsWithChildren } from "react";
+import { KnowledgeLibraryCard } from "../components/KnowledgeLibraryCard";
 import { apiGet, apiPost } from "../lib/api";
 
 type Configuration = Record<string, string | boolean>;
@@ -12,9 +13,9 @@ export function IntegrationsPage() {
   const refresh = () => client.invalidateQueries({ queryKey: ["integrations"] });
   const devMode = Boolean(data.data?.doobie || data.data?.ai_runtime);
   return <div className="page">
-    <div className="page-heading"><div><div className="eyebrow">Secure connections</div><h1>{devMode ? "AI & METRC Integrations" : "METRC Integrations"}</h1><p>{devMode ? "Level DEV platform AI runtime, cloud fallback, and METRC connection settings." : "Connect the METRC account and licensed facility used by your workflows. These settings are stored for your app account and active facility only."}</p></div></div>
+    <div className="page-heading"><div><div className="eyebrow">Secure connections</div><h1>{devMode ? "AI & METRC Integrations" : "METRC Integrations"}</h1><p>{devMode ? "Level DEV platform AI runtime, grounded knowledge, cloud fallback, and METRC connection settings." : "Connect the METRC account and licensed facility used by your workflows. These settings are stored for your app account and active facility only."}</p></div></div>
     {data.isError ? <div className="state error">{data.error.message}</div> : null}
-    {data.data ? <div className="integration-grid">{data.data.ai_runtime ? <AIRuntimeCard value={data.data.ai_runtime} onSaved={refresh}/> : null}{data.data.doobie ? <DoobieCard value={data.data.doobie} onSaved={refresh}/> : null}<MetrcCard value={data.data.metrc} onSaved={refresh}/></div> : null}
+    {data.data ? <div className="integration-grid">{data.data.ai_runtime ? <AIRuntimeCard value={data.data.ai_runtime} onSaved={refresh}/> : null}{devMode ? <KnowledgeLibraryCard canSeedApproved={true}/> : null}{data.data.doobie ? <DoobieCard value={data.data.doobie} onSaved={refresh}/> : null}<MetrcCard value={data.data.metrc} onSaved={refresh}/></div> : null}
   </div>;
 }
 
