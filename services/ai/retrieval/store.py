@@ -96,8 +96,8 @@ class KnowledgeStore:
               AND (c.facility_id IS NULL OR c.facility_id = :facility)
               AND (d.organization_id IS NULL OR d.organization_id = :org)
               AND (d.facility_id IS NULL OR d.facility_id = :facility)
-              AND c.organization_id IS d.organization_id
-              AND c.facility_id IS d.facility_id
+              AND (c.organization_id = d.organization_id OR (c.organization_id IS NULL AND d.organization_id IS NULL))
+              AND (c.facility_id = d.facility_id OR (c.facility_id IS NULL AND d.facility_id IS NULL))
               AND c.authority_level = d.authority_level
               AND {lexical_sql}{authority_sql}
             ORDER BY c.authority_level ASC, c.chunk_number ASC
