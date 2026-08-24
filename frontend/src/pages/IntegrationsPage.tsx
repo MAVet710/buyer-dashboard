@@ -6,6 +6,24 @@ import { apiGet, apiPost } from "../lib/api";
 type Configuration = Record<string, string | boolean>;
 type Integration = { configured: boolean; status: string; secret_hint: string; configuration: Configuration; last_validated_at: string | null; last_error: string };
 type Payload = { metrc: Integration; doobie: Integration | null; ai_runtime?: Integration | null };
+type LearnedPattern = { type?: string; source?: string; summary?: string; sample_size?: number; confidence?: number };
+type LearningPayload = {
+  health: { ok?: boolean; active_learnings?: number; agents_with_learnings?: number };
+  agents: Record<string, { patterns?: LearnedPattern[]; approved_corrections?: unknown[] }>;
+};
+type PendingFeedback = {
+  id: string;
+  created_at?: string;
+  agent: string;
+  normalized_task_type?: string;
+  sanitized_prompt?: string;
+  answer?: string;
+  user_rating?: number | null;
+  corrected_answer?: string;
+  provider?: string;
+  model?: string;
+};
+type PendingPayload = { feedback: PendingFeedback[]; count: number };
 
 export function IntegrationsPage() {
   const client = useQueryClient();
@@ -13,10 +31,37 @@ export function IntegrationsPage() {
   const refresh = () => client.invalidateQueries({ queryKey: ["integrations"] });
   const devMode = Boolean(data.data?.doobie || data.data?.ai_runtime);
   return <div className="page">
-    <div className="page-heading"><div><div className="eyebrow">Secure connections</div><h1>{devMode ? "AI & METRC Integrations" : "METRC Integrations"}</h1><p>{devMode ? "Level DEV platform AI runtime, grounded knowledge, cloud fallback, and METRC connection settings." : "Connect the METRC account and licensed facility used by your workflows. These settings are stored for your app account and active facility only."}</p></div></div>
+    <div className="page-heading"><div><div className="eyebrow">Secure connections</div><h1>{devMode ? "AI & METRC Integrations" : "METRC Integrations"}</h1><p>{devMode ? "Level DEV platform AI runtime, grounded knowledge, controlled facility learning, cloud fallback, and METRC connection settings." : "Connect the METRC account and licensed facility used by your workflows. These settings are stored for your app account and active facility only."}</p></div></div>
     {data.isError ? <div className="state error">{data.error.message}</div> : null}
-    {data.data ? <div className="integration-grid">{data.data.ai_runtime ? <AIRuntimeCard value={data.data.ai_runtime} onSaved={refresh}/> : null}{devMode ? <KnowledgeLibraryCard canSeedApproved={true}/> : null}{data.data.doobie ? <DoobieCard value={data.data.doobie} onSaved={refresh}/> : null}<MetrcCard value={data.data.metrc} onSaved={refresh}/></div> : null}
+    {data.data ? <div className="integration-grid">{data.data.ai_runtime ? <AIRuntimeCard value={data.data.ai_runtime} onSaved={refresh}/> : null}<LearningReviewCard/>{devMode ? <KnowledgeLibraryCard canSeedApproved={true}/> : null}{data.data.doobie ? <DoobieCard value={data.data.doobie} onSaved={refresh}/> : null}<MetrcCard value={data.data.metrc} onSaved={refresh}/></div> : null}
   </div>;
+}
+
+function LearningReviewCard() {
+  const client = useQueryClient();
+  const learning = useQuery({ queryKey: ["ai-learning"], queryFn: ({ signal }) => apiGet<LearningPayload>("/api/v1/ai-agents/learning", signal), retry: false });
+  const pending = useQuery({ queryKey: ["ai-learning-feedback"], queryFn: ({ signal }) => apiGet<PendingPayload>("/api/v1/ai-agents/feedback/pending?limit=50", signal), retry: false, enabled: learning.isSuccess });
+  const approve = useMutation({
+    mutationFn: (id: string) => apiPost(`/api/v1/ai-agents/feedback/${encodeURIComponent(id)}/training-approval`, { approved: true }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["ai-learning-feedback"] });
+      client.invalidateQueries({ queryKey: ["ai-learning"] });
+    },
+  });
+  if (learning.isError) return null;
+  if (learning.isLoading) return <section className="inventory-panel integration-card"><header><div><h2>Agent Learning</h2><p>Loading controlled facility learning…</p></div></header></section>;
+  const active = learning.data?.health.active_learnings ?? 0;
+  const agentCount = learning.data?.health.agents_with_learnings ?? 0;
+  const pendingRows = pending.data?.feedback ?? [];
+  const patternRows = Object.entries(learning.data?.agents ?? {}).flatMap(([agent, value]) => (value.patterns ?? []).slice(0, 2).map(pattern => ({ agent, ...pattern }))).slice(0, 12);
+  return <section className="inventory-panel integration-card">
+    <header><div><h2>Controlled Agent Learning</h2><p>All agents can learn facility-specific historical associations. Human corrections only influence future reasoning after explicit Admin/DEV approval.</p></div><span className="badge production-ready">{active} active</span></header>
+    <div className="connection-result success">{agentCount} agent{agentCount === 1 ? "" : "s"} currently have learned patterns. Learning stores aggregates, sample sizes, confidence, and approved corrections—not raw operational rows.</div>
+    {patternRows.length ? <div><h3>Highest-confidence patterns</h3>{patternRows.map((pattern, index) => <p key={`${pattern.agent}-${index}`}><strong>{pattern.agent.replaceAll("_", " ")} · {Math.round((pattern.confidence ?? 0) * 100)}% · n={pattern.sample_size ?? 0}</strong> · {pattern.summary}</p>)}</div> : <p>No facility patterns have met the minimum evidence thresholds yet. Agents will begin learning as enough authorized historical rows accumulate.</p>}
+    <div><h3>Corrections awaiting approval</h3>{pending.isLoading ? <p>Loading corrections…</p> : pendingRows.length ? pendingRows.map(row => <article key={row.id} className="workspace-agent-profile"><div><p><strong>{row.agent.replaceAll("_", " ")}</strong>{row.user_rating ? ` · rating ${row.user_rating}/5` : ""}{row.created_at ? ` · ${new Date(row.created_at).toLocaleString()}` : ""}</p><p><strong>Question:</strong> {row.sanitized_prompt}</p><p><strong>Corrected answer:</strong> {row.corrected_answer}</p><div className="audit-actions"><button className="primary" type="button" disabled={approve.isPending} onClick={() => approve.mutate(row.id)}>Approve for facility learning</button></div></div></article>) : <p>No corrected answers are waiting for approval.</p>}</div>
+    {approve.isError ? <div className="form-error">{approve.error.message}</div> : null}
+    <footer><span>Safety: learned patterns never override deterministic data, regulations, approved SOPs, or equipment limits.</span></footer>
+  </section>;
 }
 
 function MetrcCard({ value, onSaved }: { value: Integration; onSaved: () => void }) {
