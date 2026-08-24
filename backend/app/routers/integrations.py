@@ -10,6 +10,7 @@ from ..config import Settings, get_settings
 from ..database import get_engine
 from ..services.ai_runtime import diagnostics
 from ..services.metrc_context import metrc_scope_key, resolve_metrc_context
+from ..services.spacemail import resolve_spacemail_settings, test_spacemail_connection
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -23,6 +24,33 @@ class MetrcSave(BaseModel):
 class DoobieSave(BaseModel):
     base_url: str = Field(default=DEFAULT_DOOBIE_BASE_URL, max_length=1024)
     api_key: str | None = Field(default=None, max_length=1024)
+
+
+class SpacemailSave(BaseModel):
+    smtp_username: str = Field(default="nelson@doobielogic.io", max_length=320)
+    from_email: str = Field(default="support@doobielogic.io", max_length=320)
+    from_name: str = Field(default="DoobieLogic Support", max_length=255)
+    support_email: str = Field(default="support@doobielogic.io", max_length=320)
+    help_email: str = Field(default="help@doobielogic.io", max_length=320)
+    info_email: str = Field(default="info@doobielogic.io", max_length=320)
+    welcome_email_enabled: bool = True
+    mailbox_password: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("smtp_username", "from_email", "support_email", "help_email", "info_email")
+    @classmethod
+    def valid_email(cls, value: str) -> str:
+        normalized = str(value or "").strip().casefold()
+        if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+            raise ValueError("Enter a valid email address.")
+        return normalized
+
+    @field_validator("from_name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("Sender name is required.")
+        return normalized
 
 
 class AIRuntimeSave(BaseModel):
@@ -62,7 +90,7 @@ def _service(engine: Engine, settings: Settings) -> IntegrationConfigurationServ
 
 def _require_dev(context: RequestContext) -> None:
     if context.role != "dev":
-        raise HTTPException(403, "Level DEV access is required for platform AI settings.")
+        raise HTTPException(403, "Level DEV access is required for platform integration settings.")
 
 
 @router.get("")
@@ -83,11 +111,13 @@ def integrations(
         },
         "doobie": None,
         "ai_runtime": None,
+        "spacemail": None,
     }
     if context.role == "dev":
         service = _service(engine, settings)
         result["doobie"] = service.public(service.get("platform", "global", "doobie"))
         result["ai_runtime"] = service.public(service.get("platform", "global", "ai_runtime"))
+        result["spacemail"] = service.public(service.get("platform", "global", "spacemail"))
     return result
 
 
@@ -171,8 +201,7 @@ def save_doobie(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    if context.role != "dev":
-        raise HTTPException(403, "Level DEV access is required for platform AI settings.")
+    _require_dev(context)
     service = _service(engine, settings)
     row = service.save(
         scope_type="platform",
@@ -195,8 +224,7 @@ def test_doobie(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    if context.role != "dev":
-        raise HTTPException(403, "Level DEV access is required for platform AI settings.")
+    _require_dev(context)
     service = _service(engine, settings)
     row = service.get("platform", "global", "doobie")
     if not row:
@@ -220,13 +248,91 @@ def clear_doobie(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    if context.role != "dev":
-        raise HTTPException(403, "Level DEV access is required for platform AI settings.")
+    _require_dev(context)
     service = _service(engine, settings)
     service.clear(
         scope_type="platform",
         scope_key="global",
         provider="doobie",
+        actor=context.user_id,
+        audit_organization_id=context.organization_id,
+        audit_facility_id=context.facility_id,
+    )
+    return service.public(None)
+
+
+@router.post("/spacemail")
+def save_spacemail(
+    payload: SpacemailSave,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_dev(context)
+    service = _service(engine, settings)
+    existing = service.get("platform", "global", "spacemail")
+    if not existing and not payload.mailbox_password and not settings.spacemail_smtp_password:
+        raise HTTPException(422, "Enter the primary Spacemail mailbox password before saving.")
+    row = service.save(
+        scope_type="platform",
+        scope_key="global",
+        provider="spacemail",
+        organization_id=None,
+        facility_id=None,
+        configuration={
+            "smtp_username": payload.smtp_username,
+            "from_email": payload.from_email,
+            "from_name": payload.from_name,
+            "support_email": payload.support_email,
+            "help_email": payload.help_email,
+            "info_email": payload.info_email,
+            "welcome_email_enabled": bool(payload.welcome_email_enabled),
+        },
+        secret=payload.mailbox_password,
+        actor=context.user_id,
+        audit_organization_id=context.organization_id,
+        audit_facility_id=context.facility_id,
+    )
+    return service.public(row)
+
+
+@router.post("/spacemail/test")
+def test_spacemail(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_dev(context)
+    service = _service(engine, settings)
+    row = service.get("platform", "global", "spacemail")
+    mail_settings = resolve_spacemail_settings(engine, settings)
+    if not row and not mail_settings.spacemail_is_configured:
+        raise HTTPException(422, "Save Spacemail settings before testing the connection.")
+    result = test_spacemail_connection(mail_settings)
+    if row:
+        updated = service.validation_result(
+            row.id,
+            ok=bool(result.get("ok")),
+            error="" if result.get("ok") else str(result.get("message") or "Connection failed"),
+        )
+        public = service.public(updated)
+    else:
+        public = {"configured": True, "status": "connected" if result.get("ok") else "failed", "secret_hint": "environment", "configuration": {}, "last_validated_at": None, "last_error": "" if result.get("ok") else str(result.get("message") or "")}
+    return {**public, "result": {"ok": bool(result.get("ok")), "message": result.get("message")}}
+
+
+@router.post("/spacemail/clear")
+def clear_spacemail(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_dev(context)
+    service = _service(engine, settings)
+    service.clear(
+        scope_type="platform",
+        scope_key="global",
+        provider="spacemail",
         actor=context.user_id,
         audit_organization_id=context.organization_id,
         audit_facility_id=context.facility_id,
