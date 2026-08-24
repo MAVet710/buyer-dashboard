@@ -13,7 +13,7 @@ export function IntegrationsPage() {
   const refresh = () => client.invalidateQueries({ queryKey: ["integrations"] });
   const devMode = Boolean(data.data?.doobie || data.data?.ai_runtime || data.data?.spacemail);
   return <div className="page">
-    <div className="page-heading"><div><div className="eyebrow">Secure connections</div><h1>{devMode ? "Platform Integrations" : "METRC Integrations"}</h1><p>{devMode ? "Level DEV settings for DoobieLogic AI, Spacemail onboarding, grounded knowledge, cloud fallback, and METRC connections." : "Connect the METRC account and licensed facility used by your workflows. These settings are stored for your app account and active facility only."}</p></div></div>
+    <div className="page-heading"><div><div className="eyebrow">Secure connections</div><h1>{devMode ? "AI & METRC Integrations" : "METRC Integrations"}</h1><p>{devMode ? "Level DEV settings for DoobieLogic AI, Spacemail onboarding, grounded knowledge, cloud fallback, and METRC connections." : "Connect the METRC account and licensed facility used by your workflows. These settings are stored for your app account and active facility only."}</p></div></div>
     {data.isError ? <div className="state error">{data.error.message}</div> : null}
     {data.data ? <div className="integration-grid">{data.data.spacemail ? <SpacemailCard value={data.data.spacemail} onSaved={refresh}/> : null}{data.data.ai_runtime ? <AIRuntimeCard value={data.data.ai_runtime} onSaved={refresh}/> : null}{devMode ? <KnowledgeLibraryCard canSeedApproved={true}/> : null}{data.data.doobie ? <DoobieCard value={data.data.doobie} onSaved={refresh}/> : null}<MetrcCard value={data.data.metrc} onSaved={refresh}/></div> : null}
   </div>;
