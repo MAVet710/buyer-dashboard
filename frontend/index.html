@@ -73,7 +73,7 @@
           }
         }
 
-        class DoobieLogicBarcodeDetector {
+        class StreamlitScannerBarcodeDetector {
           constructor(options = {}) {
             this.native = null;
             if (typeof NativeBarcodeDetector === "function") {
@@ -115,7 +115,7 @@
         }
 
         if (typeof NativeBarcodeDetector === "function" || reader) {
-          window.BarcodeDetector = DoobieLogicBarcodeDetector;
+          window.BarcodeDetector = StreamlitScannerBarcodeDetector;
         }
       })();
 
