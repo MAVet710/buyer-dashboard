@@ -41,7 +41,9 @@ def test_inventory_actions_receiving_and_operation_aware_audits_are_one_workflow
 
     for label in ("Product 360", "Audit", "Add to PO", "Work on package", "Print labels", "Adjust", "Export selected", "Package 360"):
         assert label in page
-    assert 'initialLotId={first?.id}' in page
+    assert 'initialLotId={actionPackage?.id}' in page
+    assert 'const selectedPackages=grain==="packages"?selected:packageRows.filter' in page
+    assert 'setPackageChoice(action)' in page
     assert "Inbound Queue → Receive Details → Review → Post Inventory → Labels" in retail_receive
     assert "PRODUCTION / CULTIVATION RECEIVING" in production_receive
     assert "Retail inventory is never modified." in production_receive
