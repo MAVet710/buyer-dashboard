@@ -28,6 +28,12 @@ BUSINESS_COLUMN_TOKENS = {
     "facility", "organization", "operation", "state", "date", "time", "value", "amount",
     "description", "notes", "reason", "reference", "expected", "actual", "planned", "finished",
 }
+BUSINESS_COMPOUND_NAMES = {
+    "on_hand", "onhand", "units_sold", "unit_cost", "retail_price", "days_of_supply",
+    "days_on_hand", "days_cover", "avg_daily_units", "daily_velocity", "gross_margin",
+    "gross_margin_pct", "open_po", "open_po_quantity", "reorder_point", "reorder_qty",
+    "suggested_quantity", "fulfilled_quantity", "outstanding_quantity", "received_quantity",
+}
 
 _EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 _SSN_RE = re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b")
@@ -48,8 +54,16 @@ def is_sensitive_name(name: str) -> bool:
 def is_business_column(name: str) -> bool:
     if is_sensitive_name(name):
         return False
-    tokens = {token for token in norm(name).split("_") if token}
-    return bool(tokens & BUSINESS_COLUMN_TOKENS)
+    normalized = norm(name)
+    compact = normalized.replace("_", "")
+    tokens = {token for token in normalized.split("_") if token}
+    if tokens & BUSINESS_COLUMN_TOKENS:
+        return True
+    for candidate in BUSINESS_COMPOUND_NAMES:
+        candidate_norm = norm(candidate)
+        if normalized == candidate_norm or compact == candidate_norm.replace("_", ""):
+            return True
+    return False
 
 
 def sanitize_text(value: Any, *, max_chars: int = 16000) -> str:
