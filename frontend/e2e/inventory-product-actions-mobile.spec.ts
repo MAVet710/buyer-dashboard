@@ -85,7 +85,7 @@ for (const width of [390, 430]) {
     await workChooser.getByRole("button", { name: /1A4-MOBILE-0001/ }).click();
     const studio = page.getByRole("dialog", { name: "Package Studio" });
     await expect(studio).toBeVisible();
-    await expect(studio.getByText("1A4-MOBILE-0001", { exact: false })).toBeVisible();
+    await expect(studio.getByText("Copper Kush Whole Flower 3.5g · 1A4-MOBILE-0001", { exact: true })).toBeVisible();
     await assertNoOverflow(page);
     await studio.getByRole("button", { name: "Close" }).click();
 
@@ -103,7 +103,7 @@ for (const width of [390, 430]) {
     await adjustChooser.getByRole("button", { name: /1A4-MOBILE-0002/ }).click();
     const adjustDialog = page.getByRole("dialog", { name: "Adjust inventory" });
     await expect(adjustDialog).toBeVisible();
-    await expect(adjustDialog.getByText("1A4-MOBILE-0002", { exact: false })).toBeVisible();
+    await expect(adjustDialog.getByLabel("Package *")).toHaveValue("lot-copper-b");
     await assertNoOverflow(page);
   });
 }
