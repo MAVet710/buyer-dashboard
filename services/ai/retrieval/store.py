@@ -62,6 +62,51 @@ class KnowledgeStore:
             """), {"id": chunk_id, "document": document_id, "org": organization_id, "facility": facility_id, "number": int(chunk_number), "page": page_or_section[:240], "content": str(content)[:20000], "authority": parent_authority, "embedding": json.dumps(embedding or [])})
         return chunk_id
 
+    def find_document_by_hash(self, *, scope: KnowledgeScope, document_hash: str, facility_scope: bool = True) -> dict[str, Any] | None:
+        if not scope.organization_id or not scope.facility_id or not document_hash:
+            return None
+        facility_sql = "facility_id = :facility" if facility_scope else "facility_id IS NULL"
+        sql = text(f"""
+            SELECT id, title, source_url, document_hash, version
+            FROM ai_knowledge_documents
+            WHERE active AND organization_id = :org AND {facility_sql} AND document_hash = :hash
+            LIMIT 1
+        """)
+        params: dict[str, Any] = {"org": scope.organization_id, "hash": document_hash[:64]}
+        if facility_scope:
+            params["facility"] = scope.facility_id
+        try:
+            with self.engine.connect() as connection:
+                row = connection.execute(sql, params).mappings().first()
+            return dict(row) if row else None
+        except Exception:
+            return None
+
+    def deactivate_superseded_source(self, *, scope: KnowledgeScope, source_url: str, keep_document_id: str, facility_scope: bool = True) -> int:
+        if not scope.organization_id or not scope.facility_id or not source_url or not keep_document_id:
+            return 0
+        facility_sql = "facility_id = :facility" if facility_scope else "facility_id IS NULL"
+        sql = text(f"""
+            UPDATE ai_knowledge_documents
+            SET active = :inactive
+            WHERE active AND organization_id = :org AND {facility_sql}
+              AND source_url = :url AND id <> :keep
+        """)
+        params: dict[str, Any] = {
+            "inactive": False,
+            "org": scope.organization_id,
+            "url": source_url[:1000],
+            "keep": keep_document_id,
+        }
+        if facility_scope:
+            params["facility"] = scope.facility_id
+        try:
+            with self.engine.begin() as connection:
+                result = connection.execute(sql, params)
+                return int(result.rowcount or 0)
+        except Exception:
+            return 0
+
     @staticmethod
     def _cosine(left: list[float], right: list[float]) -> float:
         if not left or not right or len(left) != len(right):
