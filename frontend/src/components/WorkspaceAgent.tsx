@@ -109,6 +109,10 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [lastRun, setLastRun] = useState<AgentRun | null>(null);
+  const [lastPrompt, setLastPrompt] = useState("");
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [correction, setCorrection] = useState("");
+  const [feedbackStatus, setFeedbackStatus] = useState("");
 
   const params = useMemo(() => new URLSearchParams({ app_mode: operation, section: activePage }), [activePage, operation]);
   const directory = useQuery({
@@ -133,6 +137,10 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
     if (!effectiveKey || organizationId === "unknown-org" || facilityId === "unknown-facility") return;
     setHistory(readHistory(historyScope));
     setLastRun(null);
+    setLastPrompt("");
+    setShowCorrection(false);
+    setCorrection("");
+    setFeedbackStatus("");
   }, [effectiveKey, organizationId, facilityId, historyScope]);
 
   useEffect(() => {
@@ -149,21 +157,50 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
       history,
     }),
     onSuccess: result => {
+      const submittedPrompt = question.trim();
       const next: ChatMessage[] = [
         ...history,
-        { role: "user" as const, content: question.trim() },
+        { role: "user" as const, content: submittedPrompt },
         { role: "assistant" as const, content: result.answer },
       ].slice(-20);
       setHistory(next);
       saveHistory(historyScope, next);
       setLastRun(result);
+      setLastPrompt(submittedPrompt);
+      setShowCorrection(false);
+      setCorrection("");
+      setFeedbackStatus("");
       setQuestion("");
+    },
+  });
+
+  const feedback = useMutation({
+    mutationFn: ({ rating, correctedAnswer = "" }: { rating: number; correctedAnswer?: string }) => apiPost<{ id: string; training_approved: boolean }>("/api/v1/ai-agents/feedback", {
+      agent_key: effectiveKey,
+      task_type: "workspace_agent_feedback",
+      prompt: lastPrompt,
+      answer: lastRun?.answer ?? "",
+      tool_names: lastRun?.tool_calls ?? [],
+      tool_outcomes: {},
+      rating,
+      corrected_answer: correctedAnswer,
+      provider: lastRun?.provider ?? "",
+      model: lastRun?.model ?? "",
+    }),
+    onSuccess: (_result, variables) => {
+      setFeedbackStatus(variables.correctedAnswer ? "Correction submitted for Admin/DEV review before it can influence future learning." : "Feedback saved for evaluation. It does not automatically change agent behavior.");
+      setShowCorrection(false);
+      setCorrection("");
     },
   });
 
   const clear = () => {
     setHistory([]);
     setLastRun(null);
+    setLastPrompt("");
+    setShowCorrection(false);
+    setCorrection("");
+    setFeedbackStatus("");
     saveHistory(historyScope, []);
   };
   const provider = directory.data?.provider;
@@ -204,6 +241,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
         {lastRun?.missing_data?.length ? <div className="warning-banner agent-provider-warning"><p><strong>Missing data:</strong> {lastRun.missing_data.slice(0, 4).join(" · ")}</p></div> : null}
         {lastRun?.warnings?.length ? <div className="warning-banner agent-provider-warning"><p><strong>Warnings:</strong> {lastRun.warnings.slice(0, 4).join(" · ")}</p></div> : null}
 
+        {lastRun ? <section className="workspace-agent-profile"><div><h3>Help this agent learn</h3><p>Ratings improve evaluation. Corrections stay pending until an Admin/DEV explicitly approves them for facility learning.</p>{feedbackStatus ? <p><strong>{feedbackStatus}</strong></p> : <div className="audit-actions"><button className="secondary" type="button" disabled={feedback.isPending} onClick={() => feedback.mutate({ rating: 5 })}>Helpful</button><button className="secondary" type="button" disabled={feedback.isPending} onClick={() => setShowCorrection(value => !value)}>Suggest correction</button></div>}{showCorrection && !feedbackStatus ? <div className="form-grid"><label className="span-2">Corrected answer<textarea rows={4} value={correction} onChange={event => setCorrection(event.target.value)} placeholder="What should the agent have said instead?"/></label><div className="audit-actions"><button className="primary" type="button" disabled={!correction.trim() || feedback.isPending} onClick={() => feedback.mutate({ rating: 2, correctedAnswer: correction.trim() })}>Submit for review</button></div></div> : null}{feedback.isError ? <div className="form-error">{feedback.error.message}</div> : null}{selected.compliance_grounded_only ? <p>Compliance corrections can improve workflow/evaluation but never become regulatory authority; legal claims still require indexed government evidence.</p> : null}</div></section> : null}
         {learnedPatterns.length ? <section className="workspace-agent-profile"><div><h3>Facility learning used</h3><p>Historical associations are advisory, not causal proof, and never override current data, SOPs, safety limits, or regulations.</p>{learnedPatterns.slice(0, 5).map((pattern, index) => <p key={`${pattern.type}-${index}`}><strong>{Math.round((pattern.confidence ?? 0) * 100)}% confidence · n={pattern.sample_size ?? 0}</strong> · {pattern.summary}</p>)}</div></section> : null}
         {sourceList.length ? <section className="workspace-agent-profile"><div><h3>Sources</h3>{sourceList.slice(0, 6).map((source, index) => <p key={`${source.title}-${index}`}><strong>{source.title || source.source || "Retrieved source"}</strong>{source.page_or_section ? ` · ${source.page_or_section}` : ""}{source.source_type ? ` · ${source.source_type}` : ""}{source.authority_level ? ` · authority ${source.authority_level}` : ""}{source.effective_date ? ` · effective ${source.effective_date}` : ""}{precedenceLabel(source.precedence_status) ? ` · ${precedenceLabel(source.precedence_status)}` : ""}</p>)}</div></section> : null}
         {freshness.length ? <section className="workspace-agent-profile"><div><h3>Data freshness</h3><p>{freshness.slice(0, 8).map(([name, value]) => `${name}: ${value}`).join(" · ")}</p></div></section> : null}
