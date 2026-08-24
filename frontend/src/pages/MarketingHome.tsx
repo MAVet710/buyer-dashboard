@@ -7,7 +7,6 @@ import {
   Factory,
   FileCheck2,
   FlaskConical,
-  Gauge,
   LockKeyhole,
   PackageCheck,
   ShieldCheck,
