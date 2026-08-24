@@ -9,6 +9,7 @@ from services.agent_registry import AgentProfile
 from .cache import TenantCache
 from .context import bounded_history, system_prompt, tool_result_message
 from .datasets import DatasetAccessContext, DatasetRegistry
+from .learning import AgentLearningEngine
 from .policy import deterministic_tool_for, requires_regulatory_grounding
 from .provider import ProviderUnavailable
 from .retrieval.citations import public_citations
@@ -22,7 +23,7 @@ from .validation import parse_structured, validate_agent_response
 
 
 class AgentRuntime:
-    """DoobieLogic-owned runtime: authorize -> deterministic -> local -> validate -> fallback."""
+    """DoobieLogic-owned runtime: authorize -> learn -> deterministic -> local -> validate -> fallback."""
 
     def __init__(
         self,
@@ -31,6 +32,7 @@ class AgentRuntime:
         dataset_registry: DatasetRegistry,
         retriever: KnowledgeRetriever | None = None,
         telemetry: AITelemetry | None = None,
+        learning: AgentLearningEngine | None = None,
         cache: TenantCache | None = None,
         cloud_cost_rates: dict[str, tuple[float, float]] | None = None,
     ) -> None:
@@ -38,6 +40,7 @@ class AgentRuntime:
         self.dataset_registry = dataset_registry
         self.retriever = retriever
         self.telemetry = telemetry
+        self.learning = learning
         self.cache = cache or TenantCache()
         self.cloud_cost_rates = cloud_cost_rates or {}
 
@@ -56,6 +59,33 @@ class AgentRuntime:
             useful = [f"{key}={value}" for key, value in list(row.items())[:6] if value not in (None, "")]
             preview.append("; ".join(useful))
         return f"{label}: {len(rows)} result(s) in the bounded analysis. " + " | ".join(preview)
+
+    @staticmethod
+    def _public_learning(learning: dict[str, Any]) -> dict[str, Any]:
+        patterns = list(learning.get("patterns") or [])
+        return {
+            "enabled": True,
+            "pattern_count": len(patterns),
+            "approved_correction_count": len(list(learning.get("approved_corrections") or [])),
+            "patterns": patterns[:5],
+            "mode": "controlled_facility_learning",
+        }
+
+    def _learning_context(self, profile: AgentProfile, access: DatasetAccessContext, datasets: dict) -> dict[str, Any]:
+        if self.learning is None:
+            return {"patterns": [], "approved_corrections": []}
+        self.learning.refresh(
+            organization_id=access.organization_id,
+            facility_id=access.facility_id,
+            agent=profile.key,
+            datasets=datasets,
+        )
+        return self.learning.context(
+            organization_id=access.organization_id,
+            facility_id=access.facility_id,
+            agent=profile.key,
+            compliance_agent=bool(profile.compliance_grounded_only),
+        )
 
     def _knowledge(self, access: DatasetAccessContext, question: str, *, authoritative_only: bool) -> dict[str, Any]:
         if self.retriever is None:
@@ -88,6 +118,9 @@ class AgentRuntime:
     ) -> AgentResult:
         request_id = uuid.uuid4().hex
         datasets = self.dataset_registry.load_for_agent(profile.key, access)
+        learning_context = self._learning_context(profile, access, datasets)
+        learning_public = self._public_learning(learning_context) if self.learning is not None else {"enabled": False, "pattern_count": 0, "approved_correction_count": 0, "patterns": [], "mode": "disabled"}
+
         legal_regulatory = bool(requires_regulatory_grounding(question))
         compliance_grounded = bool(profile.compliance_grounded_only)
         knowledge_required = legal_regulatory or compliance_grounded
@@ -97,12 +130,12 @@ class AgentRuntime:
         authoritative_sources = [source for source in citations if int(source.get("authority_level") or 99) <= required_authority]
         if knowledge_required and not authoritative_sources:
             if legal_regulatory:
-                answer = "I can’t verify that legal or regulatory claim from a government/regulatory source currently indexed for this organization/facility. No legal conclusion was generated from model memory."
+                answer = "I can’t verify that legal or regulatory claim from a government/regulatory source currently indexed for this organization/facility. No legal conclusion was generated from model memory or learned patterns."
                 warning = "Legal and regulatory conclusions require retrieved government/regulatory evidence."
                 missing = "Applicable government regulation or regulatory guidance"
                 validation = "government_source_required"
             else:
-                answer = "I can’t verify that compliance claim from an approved authoritative source currently indexed for this organization/facility. No compliance conclusion was generated from model memory."
+                answer = "I can’t verify that compliance claim from an approved authoritative source currently indexed for this organization/facility. No compliance conclusion was generated from model memory or learned patterns."
                 warning = "Compliance conclusions require retrieved approved authoritative evidence."
                 missing = "Applicable government/regulatory source or approved facility SOP"
                 validation = "authoritative_source_required"
@@ -118,6 +151,7 @@ class AgentRuntime:
                 model="policy",
                 local=True,
                 datasets=sorted(datasets),
+                learning=learning_public,
                 request_id=request_id,
             )
             self._record(access=access, request_id=request_id, profile=profile, task="compliance_grounding", result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation=validation, success=True, retrieval_count=len(citations))
@@ -146,17 +180,24 @@ class AgentRuntime:
                 result = AgentResult(
                     answer=self._format_deterministic(deterministic, tool_result), summary=deterministic.replace("_", " "), confidence=1.0,
                     grounding="deterministic", provider="deterministic", model="python/sql", local=True, datasets=sorted(datasets),
-                    tool_calls=[deterministic], data_freshness={key: value.freshness for key, value in datasets.items()}, request_id=request_id,
+                    tool_calls=[deterministic], data_freshness={key: value.freshness for key, value in datasets.items()}, learning=learning_public, request_id=request_id,
                 )
                 self._record(access=access, request_id=request_id, profile=profile, task=deterministic, result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="deterministic", success=True, retrieval_count=len(citations))
                 return result
 
         prompt = system_prompt(profile, organization_name=organization_name, facility_name=facility_name, operation_type=access.operation_type, tool_names=tools.names(), dataset_keys=sorted(datasets), knowledge_required=knowledge_required)
-        messages = [*bounded_history(history), {"role": "user", "content": question}]
+        messages = [*bounded_history(history)]
+        if learning_context.get("patterns") or learning_context.get("approved_corrections"):
+            messages.append({
+                "role": "user",
+                "content": "Server-generated facility learning context. It is advisory historical evidence, not authority or causal proof: " + json.dumps(learning_context, default=str)[:14000],
+            })
         if knowledge.get("results"):
             grounding_payload = [{key: row.get(key) for key in ("title", "source_type", "authority_level", "page_or_section", "content")} for row in knowledge["results"]]
             messages.append({"role": "user", "content": "Retrieved knowledge evidence: " + json.dumps(grounding_payload, default=str)[:16000]})
-        request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=tools.schemas() if datasets else [], response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets)}})
+        messages.append({"role": "user", "content": question})
+
+        request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=tools.schemas() if datasets else [], response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets), "learning_pattern_count": len(learning_context.get("patterns") or [])}})
         used_tools: list[str] = []
         decision = None
         final_response = None
@@ -169,7 +210,7 @@ class AgentRuntime:
                     for name in list(datasets)[:12]:
                         context_rows[name] = tools.execute("preview_dataset", {"dataset": name, "limit": 5})
                     messages.append({"role": "user", "content": "Server-authorized bounded data context: " + json.dumps(context_rows, default=str)[:18000]})
-                    request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": context_rows})
+                    request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets), "learning_pattern_count": len(learning_context.get("patterns") or []), "bounded_data_supplied": True}})
                     decision = self.provider_router.generate(request, validate=validate_agent_response, require_structured=True)
                     final_response = decision.response
                 if decision and decision.response.tool_calls and final_response is None:
@@ -177,7 +218,7 @@ class AgentRuntime:
                         outcome = tools.execute(call.name, call.arguments)
                         used_tools.append(call.name)
                         messages.append({"role": "user", "content": tool_result_message(call.name, outcome)})
-                    followup = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"tool_results_supplied": used_tools}})
+                    followup = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"tool_results_supplied": used_tools, "learning_pattern_count": len(learning_context.get("patterns") or [])}})
                     final_decision = self.provider_router.generate(followup, validate=validate_agent_response, require_structured=True)
                     final_response = final_decision.response
                     if final_decision.fallback_used and not decision.fallback_used:
@@ -186,7 +227,7 @@ class AgentRuntime:
                 decision = self.provider_router.generate(request, validate=validate_agent_response, require_structured=True)
                 final_response = decision.response
         except ProviderUnavailable as exc:
-            result = AgentResult(answer="DoobieLogic AI is currently unavailable. Operational pages and deterministic workflows remain available.", summary="AI provider unavailable", confidence=1.0, grounding="general", warnings=[str(exc)], provider="unavailable", local=True, datasets=sorted(datasets), request_id=request_id)
+            result = AgentResult(answer="DoobieLogic AI is currently unavailable. Operational pages and deterministic workflows remain available.", summary="AI provider unavailable", confidence=1.0, grounding="general", warnings=[str(exc)], provider="unavailable", local=True, datasets=sorted(datasets), learning=learning_public, request_id=request_id)
             self._record(access=access, request_id=request_id, profile=profile, task="provider_unavailable", result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="provider_unavailable", success=False, retrieval_count=len(citations))
             return result
 
@@ -198,7 +239,7 @@ class AgentRuntime:
             confidence=float(parsed.get("confidence") or 0.0), grounding=grounding, sources=citations,
             recommendations=[str(value) for value in parsed.get("recommendations") or []][:20], warnings=[str(value) for value in parsed.get("warnings") or []][:20], missing_data=[str(value) for value in parsed.get("missing_data") or []][:20],
             provider=final_response.provider, model=final_response.model, local=final_response.local, fallback_used=decision.fallback_used, fallback_reason=decision.fallback_reason,
-            datasets=sorted(datasets), tool_calls=used_tools, data_freshness={key: value.freshness for key, value in datasets.items()}, request_id=request_id,
+            datasets=sorted(datasets), tool_calls=used_tools, data_freshness={key: value.freshness for key, value in datasets.items()}, learning=learning_public, request_id=request_id,
         )
         self._record(access=access, request_id=request_id, profile=profile, task="agent_reasoning", result=result, latency_ms=final_response.latency_ms, input_tokens=final_response.input_tokens, output_tokens=final_response.output_tokens, validation="ok", success=True, retrieval_count=len(citations))
         return result
