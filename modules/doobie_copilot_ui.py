@@ -9,7 +9,8 @@ import os
 import streamlit as st
 
 from services.agent_registry import resolve_agent_profile
-from services.gemini_agent import GeminiWorkspaceAgent, datasets_from_session
+from services.ai.workspace_compat import DoobieWorkspaceAgent
+from services.gemini_agent import datasets_from_session
 
 
 def _gemini_key() -> str:
@@ -33,16 +34,16 @@ def render_doobie_sidebar_copilot(
     rerun: Callable[[], Any],
     run_copilot: Callable[..., str],
 ) -> None:
-    """Render the specialist for the current workspace with Gemini-first fallback."""
+    """Render the specialist using the shared provider-neutral DoobieLogic runtime."""
 
     profile = resolve_agent_profile(app_mode, section)
-    gemini = GeminiWorkspaceAgent(api_key=_gemini_key(), profile=profile)
-    gemini_enabled = gemini.enabled
+    runtime_agent = DoobieWorkspaceAgent(api_key=_gemini_key(), profile=profile)
+    runtime_enabled = runtime_agent.enabled
     doobie_enabled = access_enabled()
 
     with st.sidebar.expander(f"🧠 {profile.name}", expanded=False):
-        if not gemini_enabled and not doobie_enabled:
-            st.caption(f"{profile.name} needs a Gemini API key or a connected Doobie backend.")
+        if not runtime_enabled and not doobie_enabled:
+            st.caption(f"{profile.name} needs a configured local/cloud AI runtime or a connected Doobie backend.")
             if status() == "waking_up":
                 st.caption("Doobie AI is waking up. Retry in a moment.")
             if st.button("Retry AI Connection", key=f"retry_ai_status_{profile.key}"):
@@ -50,14 +51,16 @@ def render_doobie_sidebar_copilot(
                 rerun()
             return
 
-        active_provider = "Gemini (free-tier configured)" if gemini_enabled else provider_name
-        active_status = "connected" if gemini_enabled else status()
+        active_provider = "DoobieLogic native runtime" if runtime_enabled else provider_name
+        active_status = "connected" if runtime_enabled else status()
         st.caption(profile.description)
         st.write(f"AI Provider: {active_provider}")
         st.write(f"Status: {active_status}")
         st.caption("Mode: read-only analysis. This agent has no write, submit, inventory-adjustment, METRC, or Dutchie action tools.")
 
-        history_key = f"workspace_agent_history_{profile.key}"
+        organization_id = str(st.session_state.get("active_organization_id") or "streamlit-current-org")
+        facility_id = str(st.session_state.get("active_facility_id") or "streamlit-current-facility")
+        history_key = f"workspace_agent_history_{organization_id}_{facility_id}_{profile.key}"
         history = st.session_state.setdefault(history_key, [])
         if history:
             with st.expander("Recent conversation", expanded=False):
@@ -65,7 +68,7 @@ def render_doobie_sidebar_copilot(
                     speaker = "You" if item.get("role") == "user" else profile.name
                     st.markdown(f"**{speaker}:** {item.get('content', '')}")
 
-        if not gemini_enabled and st.button("Refresh Doobie Status", key=f"refresh_doobie_ai_status_{profile.key}"):
+        if not runtime_enabled and st.button("Refresh Doobie Status", key=f"refresh_doobie_ai_status_{profile.key}"):
             refresh()
             rerun()
 
@@ -80,27 +83,29 @@ def render_doobie_sidebar_copilot(
         )
         if st.button(f"Run {profile.name}", key=f"run_workspace_agent_{profile.key}"):
             try:
-                if gemini_enabled:
+                if runtime_enabled:
                     datasets = datasets_from_session(
                         st.session_state,
                         app_mode=app_mode,
                         section=section,
                         profile=profile,
                     )
-                    answer = gemini.run(
+                    answer = runtime_agent.run(
                         question,
                         datasets,
                         app_mode=app_mode,
                         section=section,
                         history=history,
                         profile=profile,
+                        organization_id=organization_id,
+                        facility_id=facility_id,
                     )
                 else:
                     answer = run_copilot(question, app_mode, section, history=history)
             except Exception as exc:
                 if doobie_enabled:
                     answer = run_copilot(question, app_mode, section, history=history)
-                    st.caption(f"Gemini unavailable, used Doobie fallback: {exc}")
+                    st.caption(f"Native runtime unavailable, used Doobie fallback: {exc}")
                 else:
                     answer = f"{profile.name} is temporarily unavailable: {exc}"
             history.extend(
