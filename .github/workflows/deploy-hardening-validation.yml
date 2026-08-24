@@ -5,6 +5,7 @@ on:
     branches: [harden/production-deploy-identity]
     paths-ignore:
       - validation/deploy-hardening-result.txt
+      - validation/deploy-hardening-web-build.log
 
 permissions:
   contents: write
@@ -74,14 +75,17 @@ jobs:
       - name: Build frontend container
         id: web_container_build
         run: |
-          set -euo pipefail
+          set +e
           docker build -f frontend/Dockerfile \
             --build-arg VITE_API_URL=https://api.doobielogic.io \
             --build-arg VITE_SUPABASE_URL=https://example.supabase.co \
             --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=test \
             --build-arg VITE_RELEASE_SHA=${{ github.sha }} \
             -t doobielogic-web-deploy-validation \
-            frontend
+            frontend 2>&1 | tee /tmp/deploy-hardening-web-build.log
+          status=${PIPESTATUS[0]}
+          echo "docker_build_status=$status"
+          exit "$status"
 
       - name: Validate nginx configuration
         id: nginx
@@ -136,9 +140,14 @@ jobs:
           release_json_identity=${RELEASE_IDENTITY_STATUS}
           api_container_alembic=${API_CONTAINER_STATUS}
           EOF
+          if [ -f /tmp/deploy-hardening-web-build.log ]; then
+            tail -n 120 /tmp/deploy-hardening-web-build.log > validation/deploy-hardening-web-build.log
+          else
+            : > validation/deploy-hardening-web-build.log
+          fi
           cat validation/deploy-hardening-result.txt
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add validation/deploy-hardening-result.txt
+          git add validation/deploy-hardening-result.txt validation/deploy-hardening-web-build.log
           git commit -m "Record deploy hardening validation result [skip ci]"
           git push origin HEAD:harden/production-deploy-identity
