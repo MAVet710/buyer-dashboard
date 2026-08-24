@@ -24,6 +24,7 @@ from .routers.home import router as home_router
 from .routers.product_360 import router as product_360_router
 from .routers.doobie import router as doobie_router
 from .routers.ai_agents import router as ai_agents_router
+from .routers.ai_knowledge import router as ai_knowledge_router
 from .routers.extraction import router as extraction_router
 from .routers.extraction_parity import router as extraction_parity_router
 from .routers.extraction_parity_brief import router as extraction_parity_brief_router
@@ -160,6 +161,7 @@ app.include_router(home_router, prefix=settings.api_prefix)
 app.include_router(product_360_router, prefix=settings.api_prefix)
 app.include_router(doobie_router, prefix=settings.api_prefix)
 app.include_router(ai_agents_router, prefix=settings.api_prefix)
+app.include_router(ai_knowledge_router, prefix=settings.api_prefix)
 app.include_router(extraction_router, prefix=settings.api_prefix)
 app.include_router(extraction_parity_router, prefix=settings.api_prefix)
 app.include_router(extraction_parity_brief_router, prefix=settings.api_prefix)
