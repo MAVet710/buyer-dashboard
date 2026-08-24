@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import Engine, text
 
 from modules.integrations import IntegrationConfigurationService
-from services.ai import AgentRuntime
+from services.ai import AgentLearningEngine, AgentRuntime
 from services.ai.retrieval import KnowledgeRetriever, KnowledgeScope, KnowledgeStore, LocalEmbeddingProvider
 from services.ai.router import ProviderRouter
 from services.ai.telemetry import AITelemetry
@@ -112,6 +112,7 @@ def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext
     ) if embedding_base and embedding_model else None
     store = KnowledgeStore(engine)
     retriever = KnowledgeRetriever(store, embeddings)
+    learning = AgentLearningEngine(engine)
     registry = build_dataset_registry(context, engine, operation_type=operation_type)
     access, organization_name, facility_name = facility_access(context, engine, operation_type=operation_type)
     runtime = AgentRuntime(
@@ -119,6 +120,7 @@ def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext
         dataset_registry=registry,
         retriever=retriever,
         telemetry=AITelemetry(engine),
+        learning=learning,
         cloud_cost_rates={
             "gemini": (settings.ai_gemini_input_cost_per_million, settings.ai_gemini_output_cost_per_million),
             "openai": (settings.ai_openai_input_cost_per_million, settings.ai_openai_output_cost_per_million),
@@ -129,6 +131,7 @@ def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext
         "providers": router.health(),
         "embedding": embeddings.health().__dict__ if embeddings else {"configured": False, "reachable": False, "model": "", "detail": "lexical fallback active"},
         "knowledge": store.health(KnowledgeScope(context.organization_id, context.facility_id)),
+        "learning": learning.health(organization_id=context.organization_id, facility_id=context.facility_id),
         "dataset_registry": list(registry.keys()),
     }
 
