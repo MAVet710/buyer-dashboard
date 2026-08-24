@@ -11,7 +11,7 @@ from .sanitization import sanitize_mapping, sanitize_text
 
 
 class AgentFeedbackStore:
-    """Tenant-bound feedback foundation. Nothing is training-approved by default."""
+    """Tenant-bound feedback foundation. Learning and training approvals are separate."""
 
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
@@ -27,15 +27,15 @@ class AgentFeedbackStore:
         with self.engine.begin() as connection:
             connection.execute(text("""
                 INSERT INTO ai_agent_feedback
-                (id, organization_id, facility_id, created_at, agent, normalized_task_type, sanitized_prompt, tool_names_json, sanitized_tool_outcomes_json, answer, user_rating, corrected_answer, provider, model, evaluation_score, training_approved)
-                VALUES (:id,:org,:facility,:created,:agent,:task,:prompt,:tools,:outcomes,:answer,:rating,:correction,:provider,:model,:score,:training_approved)
-            """), {"id": row_id, "org": organization_id, "facility": facility_id, "created": datetime.now(timezone.utc), "agent": str(agent)[:64], "task": str(task_type)[:120], "prompt": prompt, "tools": json.dumps([str(value)[:120] for value in tool_names[:50]]), "outcomes": json.dumps(safe_outcomes, default=str), "answer": response, "rating": rating, "correction": correction, "provider": str(provider)[:64], "model": str(model)[:160], "score": evaluation_score, "training_approved": False})
+                (id, organization_id, facility_id, created_at, agent, normalized_task_type, sanitized_prompt, tool_names_json, sanitized_tool_outcomes_json, answer, user_rating, corrected_answer, provider, model, evaluation_score, training_approved, learning_approved, learning_approved_at)
+                VALUES (:id,:org,:facility,:created,:agent,:task,:prompt,:tools,:outcomes,:answer,:rating,:correction,:provider,:model,:score,:training_approved,:learning_approved,:learning_approved_at)
+            """), {"id": row_id, "org": organization_id, "facility": facility_id, "created": datetime.now(timezone.utc), "agent": str(agent)[:64], "task": str(task_type)[:120], "prompt": prompt, "tools": json.dumps([str(value)[:120] for value in tool_names[:50]]), "outcomes": json.dumps(safe_outcomes, default=str), "answer": response, "rating": rating, "correction": correction, "provider": str(provider)[:64], "model": str(model)[:160], "score": evaluation_score, "training_approved": False, "learning_approved": False, "learning_approved_at": None})
         return row_id
 
     def list_pending(self, *, organization_id: str, facility_id: str, agent: str = "", limit: int = 100) -> list[dict[str, Any]]:
         if not organization_id or not facility_id:
             return []
-        where = ["organization_id=:org", "facility_id=:facility", "NOT training_approved", "corrected_answer <> ''"]
+        where = ["organization_id=:org", "facility_id=:facility", "NOT learning_approved", "corrected_answer <> ''"]
         params: dict[str, Any] = {"org": organization_id, "facility": facility_id, "limit": max(1, min(int(limit), 200))}
         if agent:
             where.append("agent=:agent")
@@ -44,7 +44,7 @@ class AgentFeedbackStore:
             with self.engine.connect() as connection:
                 rows = [dict(row) for row in connection.execute(text(f"""
                     SELECT id, created_at, agent, normalized_task_type, sanitized_prompt, answer,
-                           user_rating, corrected_answer, provider, model, evaluation_score
+                           user_rating, corrected_answer, provider, model, evaluation_score, learning_approved
                     FROM ai_agent_feedback
                     WHERE {' AND '.join(where)}
                     ORDER BY created_at DESC LIMIT :limit
@@ -53,7 +53,28 @@ class AgentFeedbackStore:
             return []
         return rows
 
+    def set_learning_approved(self, *, row_id: str, organization_id: str, facility_id: str, approved: bool) -> bool:
+        if not row_id or not organization_id or not facility_id:
+            return False
+        try:
+            with self.engine.begin() as connection:
+                result = connection.execute(text("""
+                    UPDATE ai_agent_feedback
+                    SET learning_approved=:approved, learning_approved_at=:approved_at
+                    WHERE id=:id AND organization_id=:org AND facility_id=:facility
+                """), {
+                    "approved": bool(approved),
+                    "approved_at": datetime.now(timezone.utc) if approved else None,
+                    "id": row_id,
+                    "org": organization_id,
+                    "facility": facility_id,
+                })
+            return int(result.rowcount or 0) == 1
+        except Exception:
+            return False
+
     def set_training_approved(self, *, row_id: str, organization_id: str, facility_id: str, approved: bool) -> bool:
+        """Separate explicit consent used only by future model-training/tuning export."""
         if not row_id or not organization_id or not facility_id:
             return False
         try:
@@ -68,7 +89,7 @@ class AgentFeedbackStore:
             return False
 
     def export_approved(self, *, organization_id: str | None = None, facility_id: str | None = None) -> list[dict[str, Any]]:
-        """Explicit-policy export. Scope it whenever a tenant context is available."""
+        """Explicit model-training export; facility-learning approval alone is insufficient."""
         where = ["training_approved"]
         params: dict[str, Any] = {}
         if organization_id:
