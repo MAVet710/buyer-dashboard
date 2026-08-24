@@ -35,7 +35,7 @@ def doobie_brief(
 
     Extraction intentionally stays data-first. DoobieClient.extraction_brief routes
     to the local grounded extraction brief, which may optionally add a bounded
-    Gemini interpretation only when the configured measurements support it.
+    provider-neutral DoobieLogic runtime interpretation when evidence supports it.
     """
 
     current = overview(context=context, engine=engine)

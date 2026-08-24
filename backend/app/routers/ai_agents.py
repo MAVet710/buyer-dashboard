@@ -1,30 +1,43 @@
 from __future__ import annotations
 
-import os
+from pathlib import Path
 from typing import Any
 
-import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
-from modules.coman.repository import ComanRepository
-from modules.commercial.repository import CommercialRepository
-from modules.data_hub_repository import DataHubRepository
-from modules.extraction.repository import ExtractionRepository
-from modules.integrations import IntegrationConfigurationService
-from modules.inventory_audit.repository import InventoryAuditRepository
 from services.agent_registry import AgentProfile, PROFILES, resolve_agent_profile
-from services.doobie_client import DoobieClient
-from services.doobie_connection import DEFAULT_DOOBIE_BASE_URL
-from services.gemini_agent import GeminiWorkspaceAgent, _frame_records, _objects_frame
+from services.ai.feedback import AgentFeedbackStore
+from services.ai.retrieval import KnowledgeIngestionService, KnowledgeScope, KnowledgeStore, LocalEmbeddingProvider
+from services.ai.retrieval.ingestion import SUPPORTED_EXTENSIONS
+from services.ai.telemetry import AITelemetry
 
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
-from .buyer_parity import _model
+from ..services.ai_runtime import build_runtime, diagnostics, runtime_configuration
 
 router = APIRouter(prefix="/ai-agents", tags=["ai-agents"])
+KNOWLEDGE_ROLES = {"dev", "admin", "supervisor", "qa"}
+DIAGNOSTIC_ROLES = {"dev", "admin"}
+SOURCE_AUTHORITY = {
+    "government": 1,
+    "regulation": 1,
+    "regulatory_guidance": 1,
+    "facility_sop": 2,
+    "approved_equipment_sop": 2,
+    "internal_policy": 2,
+    "manufacturer": 3,
+    "metrc": 3,
+    "dutchie": 3,
+    "technical_reference": 4,
+    "peer_reviewed": 4,
+    "industry": 5,
+    "field_practice": 6,
+    "community": 6,
+    "internal_document": 6,
+}
 
 
 class AgentMessage(BaseModel):
@@ -38,6 +51,19 @@ class AgentRun(BaseModel):
     section: str = Field(default="", max_length=160)
     question: str = Field(min_length=1, max_length=8000)
     history: list[AgentMessage] = Field(default_factory=list, max_length=20)
+
+
+class FeedbackRequest(BaseModel):
+    agent_key: str = Field(default="ops", max_length=64)
+    task_type: str = Field(default="user_feedback", max_length=120)
+    prompt: str = Field(default="", max_length=8000)
+    answer: str = Field(default="", max_length=16000)
+    tool_names: list[str] = Field(default_factory=list, max_length=50)
+    tool_outcomes: dict[str, Any] = Field(default_factory=dict)
+    rating: int | None = Field(default=None, ge=1, le=5)
+    corrected_answer: str = Field(default="", max_length=16000)
+    provider: str = Field(default="", max_length=64)
+    model: str = Field(default="", max_length=160)
 
 
 def _profile_payload(profile: AgentProfile) -> dict[str, Any]:
@@ -62,205 +88,68 @@ def _active_profile(agent_key: str, app_mode: str, section: str) -> AgentProfile
     return resolve_agent_profile(app_mode, section)
 
 
-def _integration_service(engine: Engine, settings: Settings) -> IntegrationConfigurationService | None:
-    try:
-        return IntegrationConfigurationService(engine, settings.integration_encryption_key)
-    except RuntimeError:
-        return None
+def _operation_type(app_mode: str, profile: AgentProfile) -> str:
+    mode = str(app_mode or "").casefold()
+    if "production" in mode or profile.key in {"coman", "extraction", "repack", "cultivation"}:
+        return "production"
+    return "retail"
 
 
-def _doobie_configuration(engine: Engine, settings: Settings) -> tuple[str, str, str]:
-    service = _integration_service(engine, settings)
-    if service is None:
-        return DEFAULT_DOOBIE_BASE_URL, "", "not_connected"
-    row = service.get("platform", "global", "doobie")
-    if row is None:
-        return DEFAULT_DOOBIE_BASE_URL, "", "not_connected"
-    public = service.public(row)
-    configuration = public.get("configuration") or {}
-    base_url = str(configuration.get("base_url") or DEFAULT_DOOBIE_BASE_URL).strip().rstrip("/")
-    try:
-        secret = service.secret(row)
-    except RuntimeError:
-        secret = ""
-    return base_url, secret, str(public.get("status") or "configured")
-
-
-def _provider_status(engine: Engine, settings: Settings) -> dict[str, Any]:
-    gemini_ready = bool(str(os.getenv("GEMINI_API_KEY") or "").strip())
-    _base_url, doobie_key, doobie_status = _doobie_configuration(engine, settings)
-    doobie_ready = bool(doobie_key)
-    if gemini_ready:
-        return {"provider": "Gemini", "configured": True, "status": "connected", "fallback_configured": doobie_ready}
-    if doobie_ready:
-        return {"provider": "Doobie", "configured": True, "status": doobie_status, "fallback_configured": False}
-    return {
-        "provider": "Not configured",
-        "configured": False,
-        "status": "not_connected",
-        "fallback_configured": False,
-        "message": "Configure the platform Doobie AI connection in Data & Settings → AI & METRC Integrations.",
-    }
-
-
-def _put_frame(output: dict[str, pd.DataFrame], name: str, value: Any) -> None:
-    if isinstance(value, pd.DataFrame):
-        frame = value.copy()
-    elif isinstance(value, list):
-        frame = _objects_frame(value)
-        if frame.empty and value and isinstance(value[0], dict):
-            frame = pd.DataFrame(value)
-    else:
-        frame = _objects_frame([value]) if value is not None else pd.DataFrame()
-    if not frame.empty:
-        output[name] = frame
-
-
-def _buyer_datasets(context: RequestContext, engine: Engine) -> dict[str, pd.DataFrame]:
-    output: dict[str, pd.DataFrame] = {}
-    try:
-        detail, product, inventory, sales, inventory_source, sales_source = _model(context, engine, 21, 1.0, 60)
-        output.update(
-            {
-                "inventory": inventory,
-                "sales": sales,
-                "buyer_forecast": detail,
-                "buyer_product_forecast": product,
-                "buyer_sources": pd.DataFrame(
-                    [
-                        {"dataset": "inventory", "filename": inventory_source.filename, "rows": inventory_source.row_count},
-                        {"dataset": "product_sales", "filename": sales_source.filename, "rows": sales_source.row_count},
-                    ]
-                ),
-            }
-        )
-    except HTTPException as exc:
-        output["buyer_data_status"] = pd.DataFrame([{"status": "unavailable", "message": str(exc.detail)}])
-    except Exception as exc:
-        output["buyer_data_status"] = pd.DataFrame([{"status": "unavailable", "message": str(exc)}])
-    return output
-
-
-def _data_hub_datasets(context: RequestContext, engine: Engine) -> dict[str, pd.DataFrame]:
-    rows = DataHubRepository(engine).list_active_sources(context.organization_id, context.facility_id)
-    metadata = [
-        {
-            "dataset_key": getattr(row, "dataset_key", ""),
-            "filename": getattr(row, "filename", ""),
-            "row_count": getattr(row, "row_count", 0),
-            "column_count": getattr(row, "column_count", 0),
-            "activated_at": getattr(row, "activated_at", None),
+def _provider_payload(status: dict[str, Any]) -> dict[str, Any]:
+    providers = status.get("providers") if isinstance(status.get("providers"), dict) else {}
+    order = status.get("provider_order")
+    if isinstance(order, str):
+        order = [value.strip().casefold() for value in order.split(",") if value.strip()]
+    if not isinstance(order, list):
+        order = list(providers)
+    reachable = []
+    for name in order:
+        health = providers.get(name)
+        if isinstance(health, dict) and health.get("configured") and health.get("reachable"):
+            reachable.append((name, health))
+    if reachable:
+        name, health = reachable[0]
+        display = {"local": "Local AI", "gemini": "Gemini", "openai": "OpenAI", "doobie": "Doobie"}.get(name, name.title())
+        return {
+            "provider": display,
+            "model": health.get("model") or "",
+            "configured": True,
+            "status": "connected",
+            "local": bool(health.get("local")),
+            "fallback_configured": len(reachable) > 1,
+            "cloud_fallback_enabled": bool(status.get("cloud_fallback_enabled", status.get("allow_cloud_fallback", True))),
         }
-        for row in rows
-    ]
-    return {"active_data_sources": pd.DataFrame(metadata)} if metadata else {}
-
-
-def _extraction_datasets(context: RequestContext, engine: Engine) -> dict[str, pd.DataFrame]:
-    repo = ExtractionRepository(engine)
-    output: dict[str, pd.DataFrame] = {}
-    _put_frame(output, "extraction_runs", repo.list_runs(context.organization_id, context.facility_id, include_closed=True, limit=500))
-    lots = repo.list_available_lots(context.organization_id, context.facility_id)
-    if lots:
-        output["extraction_inventory"] = pd.DataFrame(lots)
-    return output
-
-
-def _coman_datasets(context: RequestContext, engine: Engine) -> dict[str, pd.DataFrame]:
-    repo = ComanRepository(engine)
-    output: dict[str, pd.DataFrame] = {}
-    loaders = {
-        "production_orders": lambda: repo.list_production_orders(context.organization_id, context.facility_id),
-        "production_actuals": lambda: repo.list_production_actuals(context.organization_id, context.facility_id),
-        "facility_machines": lambda: repo.list_facility_machines(context.organization_id, context.facility_id),
-        "products": lambda: repo.list_products(context.organization_id),
-        "inventory_lots": lambda: repo.list_inventory_lots(context.organization_id, context.facility_id),
-        "inventory_transactions": lambda: repo.list_inventory_transactions(context.organization_id, context.facility_id, limit=250),
-        "material_reservations": lambda: repo.list_material_reservations(context.organization_id, context.facility_id),
-    }
-    for name, loader in loaders.items():
-        try:
-            _put_frame(output, name, loader())
-        except Exception:
-            continue
-    return output
-
-
-def _commercial_datasets(context: RequestContext, engine: Engine) -> dict[str, pd.DataFrame]:
-    repo = CommercialRepository(engine)
-    output: dict[str, pd.DataFrame] = {}
-    loaders = {
-        "trade_partners": lambda: repo.list_trade_partners(context.organization_id),
-        "commercial_orders": lambda: repo.list_orders(context.organization_id, context.facility_id),
-        "commercial_order_lines": lambda: repo.list_order_lines(context.organization_id),
-        "order_allocations": lambda: repo.list_allocations(context.organization_id, context.facility_id),
-        "commercial_transactions": lambda: repo.list_commercial_transactions(context.organization_id, context.facility_id),
-    }
-    for name, loader in loaders.items():
-        try:
-            _put_frame(output, name, loader())
-        except Exception:
-            continue
-    return output
-
-
-def _audit_datasets(context: RequestContext, engine: Engine, app_mode: str) -> dict[str, pd.DataFrame]:
-    output: dict[str, pd.DataFrame] = {}
-    operation_type = "production" if "production" in str(app_mode or "").casefold() else "retail"
-    try:
-        repo = InventoryAuditRepository(engine)
-        audits = repo.list_audits(context.organization_id, context.facility_id, operation_type=operation_type)
-        _put_frame(output, "inventory_audits", audits)
-        active = next((row for row in audits if getattr(row, "status", "") in {"in_progress", "paused", "stopped"}), audits[0] if audits else None)
-        if active is not None:
-            _put_frame(output, "audit_lines", repo.list_lines(context.organization_id, active.id))
-            _put_frame(output, "audit_scans", repo.list_scans(context.organization_id, active.id))
-    except Exception:
-        return output
-    return output
-
-
-def _datasets_for(profile: AgentProfile, context: RequestContext, engine: Engine, app_mode: str) -> dict[str, pd.DataFrame]:
-    output: dict[str, pd.DataFrame] = {}
-    buyer_keys = {"ops", "buyer", "purchasing", "inventory", "compliance", "nomenclature", "data_hub"}
-    if profile.key in buyer_keys:
-        output.update(_buyer_datasets(context, engine))
-    if profile.key in {"ops", "data_hub"}:
-        output.update(_data_hub_datasets(context, engine))
-    if profile.key in {"ops", "extraction"}:
-        output.update(_extraction_datasets(context, engine))
-    if profile.key in {"ops", "coman", "repack"}:
-        output.update(_coman_datasets(context, engine))
-    if profile.key in {"ops", "commercial"}:
-        output.update(_commercial_datasets(context, engine))
-    if profile.key in {"ops", "audit"}:
-        output.update(_audit_datasets(context, engine, app_mode))
-    return output
-
-
-def _doobie_persona(profile: AgentProfile) -> str:
     return {
-        "buyer": "buyer",
-        "purchasing": "buyer",
-        "inventory": "inventory",
-        "audit": "inventory",
-        "compliance": "compliance",
-        "nomenclature": "buyer",
-        "repack": "ops",
-        "coman": "ops",
-        "extraction": "extraction",
-        "commercial": "ops",
-        "data_hub": "ops",
-        "ops": "ops",
-    }.get(profile.key, "ops")
-
-
-def _sanitized_context(datasets: dict[str, pd.DataFrame]) -> dict[str, Any]:
-    return {
-        name: {"rows": int(len(frame)), "preview": _frame_records(frame, limit=40)}
-        for name, frame in datasets.items()
-        if isinstance(frame, pd.DataFrame)
+        "provider": "Deterministic analytics",
+        "model": "Python / SQL",
+        "configured": True,
+        "status": "deterministic_only",
+        "local": True,
+        "fallback_configured": False,
+        "cloud_fallback_enabled": bool(status.get("allow_cloud_fallback", True)),
+        "message": "Deterministic read-only analytics remain available. Model reasoning is currently offline or not configured.",
     }
+
+
+def _embedding_provider(engine: Engine, settings: Settings) -> LocalEmbeddingProvider | None:
+    config = runtime_configuration(engine, settings)
+    base_url = str(config.get("local_embedding_base_url") or config.get("local_llm_base_url") or "")
+    model = str(config.get("local_embedding_model") or "")
+    if not base_url or not model:
+        return None
+    return LocalEmbeddingProvider(
+        base_url=base_url,
+        model=model,
+        api_key=str(settings.local_embedding_api_key or config.get("local_llm_api_key") or ""),
+        timeout_seconds=settings.local_embedding_timeout_seconds,
+    )
+
+
+def _knowledge_authority(source_type: str) -> tuple[str, int]:
+    normalized = str(source_type or "internal_document").strip().casefold().replace("-", "_").replace(" ", "_")
+    if normalized not in SOURCE_AUTHORITY:
+        raise HTTPException(422, f"Unknown knowledge source type '{source_type}'.")
+    return normalized, SOURCE_AUTHORITY[normalized]
 
 
 @router.get("")
@@ -272,11 +161,18 @@ def agents(
     settings: Settings = Depends(get_settings),
 ):
     active = resolve_agent_profile(app_mode, section)
+    operation = _operation_type(app_mode, active)
+    _runtime, _access, _org, _facility, status = build_runtime(engine=engine, settings=settings, context=context, operation_type=operation)
     return {
         "active_agent": _profile_payload(active),
         "agents": [_profile_payload(profile) for profile in PROFILES.values()],
-        "provider": _provider_status(engine, settings),
-        "workspace": {"app_mode": app_mode, "section": section, "organization_id": context.organization_id, "facility_id": context.facility_id},
+        "provider": _provider_payload(status),
+        "workspace": {
+            "app_mode": app_mode,
+            "section": section,
+            "organization_id": context.organization_id,
+            "facility_id": context.facility_id,
+        },
     }
 
 
@@ -288,61 +184,123 @@ def run_agent(
     settings: Settings = Depends(get_settings),
 ):
     profile = _active_profile(payload.agent_key, payload.app_mode, payload.section)
-    datasets = _datasets_for(profile, context, engine, payload.app_mode)
-    history = [item.model_dump() for item in payload.history][-20:]
-    provider_errors: list[str] = []
+    operation = _operation_type(payload.app_mode, profile)
+    runtime, access, organization_name, facility_name, _status = build_runtime(engine=engine, settings=settings, context=context, operation_type=operation)
+    result = runtime.run(
+        profile=profile,
+        access=access,
+        question=payload.question.strip(),
+        history=[item.model_dump() for item in payload.history][-20:],
+        organization_name=organization_name,
+        facility_name=facility_name,
+    )
+    return {**result.as_dict(), "agent": _profile_payload(profile)}
 
-    gemini = GeminiWorkspaceAgent(profile=profile)
-    if gemini.enabled:
-        try:
-            answer = gemini.run(
-                payload.question.strip(),
-                datasets,
-                app_mode=payload.app_mode,
-                section=payload.section,
-                history=history,
-                profile=profile,
-            )
-            return {
-                "answer": answer,
-                "provider": "Gemini",
-                "agent": _profile_payload(profile),
-                "datasets": sorted(datasets),
-                "read_only": True,
-            }
-        except Exception as exc:
-            provider_errors.append(f"Gemini: {exc}")
 
-    base_url, api_key, _status = _doobie_configuration(engine, settings)
-    if api_key:
-        client = DoobieClient(base_url=base_url, api_key=api_key, timeout_seconds=12)
-        framed_question = (
-            f"You are {profile.name}, {profile.role}. Focus on {', '.join(profile.focus)}. "
-            f"This is read-only analysis; do not claim to modify operational systems.\n\n{payload.question.strip()}"
+@router.get("/diagnostics")
+def ai_diagnostics(
+    app_mode: str = "",
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    if context.role.casefold() not in DIAGNOSTIC_ROLES:
+        raise HTTPException(403, "Admin access is required for AI diagnostics.")
+    operation = "production" if "production" in app_mode.casefold() else "retail"
+    return diagnostics(engine=engine, settings=settings, context=context, operation_type=operation)
+
+
+@router.get("/telemetry")
+def ai_telemetry(
+    days: int = 30,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    if context.role.casefold() not in DIAGNOSTIC_ROLES:
+        raise HTTPException(403, "Admin access is required for AI telemetry.")
+    return AITelemetry(engine).summary(context.organization_id, context.facility_id, limit_days=max(1, min(int(days), 365)))
+
+
+@router.post("/knowledge", status_code=201)
+async def ingest_knowledge(
+    file: UploadFile = File(...),
+    title: str = Form(default=""),
+    source: str = Form(default=""),
+    source_type: str = Form(default="internal_document"),
+    authority_level: int = Form(default=0),
+    jurisdiction: str = Form(default=""),
+    effective_date: str = Form(default=""),
+    version: str = Form(default=""),
+    source_url: str = Form(default=""),
+    facility_scope: bool = Form(default=True),
+    global_scope: bool = Form(default=False),
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    role = context.role.casefold()
+    if role not in KNOWLEDGE_ROLES:
+        raise HTTPException(403, "Your role cannot publish AI knowledge sources.")
+    normalized_type, derived_authority = _knowledge_authority(source_type)
+    if authority_level not in {0, derived_authority}:
+        raise HTTPException(422, "Knowledge authority is derived from source type and cannot be self-assigned.")
+    if global_scope and role != "dev":
+        raise HTTPException(403, "Only Level DEV may publish globally scoped AI knowledge.")
+    if not facility_scope and not global_scope and role not in {"dev", "admin"}:
+        raise HTTPException(403, "Only Admin or Level DEV may publish organization-wide AI knowledge.")
+    if derived_authority == 1:
+        if role not in {"dev", "admin"}:
+            raise HTTPException(403, "Only Admin or Level DEV may publish government/regulatory sources.")
+        if not jurisdiction.strip() or not source_url.strip():
+            raise HTTPException(422, "Government/regulatory sources require jurisdiction and source URL.")
+    filename = file.filename or "knowledge.txt"
+    if Path(filename).suffix.casefold() not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(422, "Knowledge sources must be PDF, DOCX, TXT, Markdown, or HTML.")
+    payload = await file.read(25 * 1024 * 1024 + 1)
+    if len(payload) > 25 * 1024 * 1024:
+        raise HTTPException(413, "Knowledge document exceeds the 25 MB limit.")
+    service = KnowledgeIngestionService(KnowledgeStore(engine), _embedding_provider(engine, settings))
+    try:
+        result = service.ingest(
+            scope=KnowledgeScope(context.organization_id, context.facility_id),
+            filename=filename,
+            payload=payload,
+            title=title.strip() or filename,
+            source=source.strip() or filename,
+            source_type=normalized_type,
+            authority_level=derived_authority,
+            jurisdiction=jurisdiction.strip(),
+            effective_date=effective_date.strip(),
+            version=version.strip(),
+            source_url=source_url.strip(),
+            global_scope=bool(global_scope),
+            facility_scope=bool(facility_scope),
         )
-        result = client.copilot(
-            question=framed_question,
-            data=_sanitized_context(datasets),
-            persona=_doobie_persona(profile),
-            state="MA",
-            department=profile.key,
-            history=history,
-        )
-        answer = str(result.get("answer") or "").strip()
-        if answer and result.get("error") not in {"missing_service_key", "service_key_rejected", "disabled"}:
-            return {
-                "answer": answer,
-                "provider": "Doobie",
-                "agent": _profile_payload(profile),
-                "datasets": sorted(datasets),
-                "read_only": True,
-                "confidence": result.get("confidence"),
-                "sources": result.get("sources") or [],
-            }
-        provider_errors.append(f"Doobie: {result.get('error') or 'no response'}")
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return result
 
-    detail = " · ".join(provider_errors)
-    message = "AI agents are restored, but no live AI provider is configured. Level DEV can connect Doobie AI in Data & Settings → AI & METRC Integrations."
-    if detail:
-        message += f" Provider detail: {detail}"
-    raise HTTPException(503, message)
+
+@router.post("/feedback", status_code=201)
+def save_feedback(
+    payload: FeedbackRequest,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    if payload.agent_key.casefold() not in PROFILES:
+        raise HTTPException(422, "Unknown AI agent.")
+    row_id = AgentFeedbackStore(engine).save(
+        organization_id=context.organization_id,
+        facility_id=context.facility_id,
+        agent=payload.agent_key.casefold(),
+        task_type=payload.task_type,
+        sanitized_prompt=payload.prompt,
+        tool_names=payload.tool_names,
+        sanitized_tool_outcomes=payload.tool_outcomes,
+        answer=payload.answer,
+        rating=payload.rating,
+        corrected_answer=payload.corrected_answer,
+        provider=payload.provider,
+        model=payload.model,
+    )
+    return {"id": row_id, "training_approved": False}

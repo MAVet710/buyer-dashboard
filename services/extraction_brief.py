@@ -1,7 +1,7 @@
 """Grounded extraction brief generation for the Extraction Command Center.
 
 This replaces generic rules-provider output with deterministic run evidence first,
-then an optional Gemini interpretation over the same read-only datasets.
+then an optional provider-neutral DoobieLogic interpretation over the same read-only datasets.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pandas as pd
 
 from services.agent_registry import PROFILES
 from services.extraction_agent import build_extraction_derived_datasets
-from services.gemini_agent import GeminiWorkspaceAgent
+from services.ai.workspace_compat import DoobieWorkspaceAgent as GeminiWorkspaceAgent
 
 
 _BAD_OUTPUT_TOKENS = (
@@ -76,7 +76,6 @@ def _datasets_from_payload(data: dict[str, Any]) -> dict[str, pd.DataFrame]:
         name = aliases.get(_norm(key), str(key))
         datasets[name] = frame
 
-    # Some callers wrap all current-view data inside one additional dictionary.
     for wrapper in ("data", "context", "payload", "run_data"):
         nested = data.get(wrapper)
         if isinstance(nested, dict):
@@ -97,10 +96,7 @@ def _column_set(frame: pd.DataFrame | None) -> set[str]:
 
 def _capability_presence(runs: pd.DataFrame) -> dict[str, bool]:
     columns = _column_set(runs)
-    return {
-        name: required.issubset(columns)
-        for name, required in _OPTIONAL_CAPABILITIES.items()
-    }
+    return {name: required.issubset(columns) for name, required in _OPTIONAL_CAPABILITIES.items()}
 
 
 def _safe_number(series: pd.Series) -> pd.Series:
@@ -139,9 +135,7 @@ def _evidence(datasets: dict[str, pd.DataFrame]) -> tuple[str, list[str], list[s
     yield_values = _safe_number(derived.get("computed_yield_pct", pd.Series(dtype=float))).dropna()
     average_yield = float(yield_values.mean()) if not yield_values.empty else None
 
-    lines = [
-        f"**Current run evidence:** {run_count} run(s), {total_input:,.1f} g input and {total_output:,.1f} g finished output."
-    ]
+    lines = [f"**Current run evidence:** {run_count} run(s), {total_input:,.1f} g input and {total_output:,.1f} g finished output."]
     if average_yield is not None:
         lines.append(f"Average computed yield across loaded runs: **{average_yield:.2f}%**.")
 
@@ -150,9 +144,7 @@ def _evidence(datasets: dict[str, pd.DataFrame]) -> tuple[str, list[str], list[s
         if not holds.empty:
             ids = [_run_id(row) for _, row in holds.head(4).iterrows()]
             risks.append(f"{len(holds)} run(s) are on QA hold: {', '.join(ids)}")
-            recommendations.append(
-                f"Resolve QA release blockers for {', '.join(ids)} before treating their output as available."
-            )
+            recommendations.append(f"Resolve QA release blockers for {', '.join(ids)} before treating their output as available.")
 
     if "post_process_loss_pct" in derived.columns:
         losses = _safe_number(derived["post_process_loss_pct"])
@@ -162,9 +154,7 @@ def _evidence(datasets: dict[str, pd.DataFrame]) -> tuple[str, list[str], list[s
             rid = _run_id(row)
             value = float(losses.loc[row.name])
             risks.append(f"{rid} has {value:.1f}% post-process loss")
-            recommendations.append(
-                f"Review the stage transition on {rid}; its measured post-process loss is {value:.1f}%."
-            )
+            recommendations.append(f"Review the stage transition on {rid}; its measured post-process loss is {value:.1f}%.")
 
     if "gross_margin_pct" in derived.columns:
         margins = _safe_number(derived["gross_margin_pct"])
@@ -174,9 +164,7 @@ def _evidence(datasets: dict[str, pd.DataFrame]) -> tuple[str, list[str], list[s
             rid = _run_id(row)
             value = float(margins.loc[row.name])
             risks.append(f"{rid} has {value:.1f}% estimated gross margin")
-            recommendations.append(
-                f"Review material, processing, and packaging cost drivers on {rid}; estimated gross margin is {value:.1f}%."
-            )
+            recommendations.append(f"Review material, processing, and packaging cost drivers on {rid}; estimated gross margin is {value:.1f}%.")
 
     if capabilities.get("terpene retention"):
         retention = _safe_number(raw["terpene_retention_pct"])
@@ -188,9 +176,7 @@ def _evidence(datasets: dict[str, pd.DataFrame]) -> tuple[str, list[str], list[s
             lines.append(f"Lowest measured terpene retention: **{rid} at {value:.1f}%**.")
             if value < 65:
                 risks.append(f"{rid} has low measured terpene retention ({value:.1f}%)")
-                recommendations.append(
-                    f"Investigate material handling and validated stage controls on {rid}; measured terpene retention is {value:.1f}%."
-                )
+                recommendations.append(f"Investigate material handling and validated stage controls on {rid}; measured terpene retention is {value:.1f}%.")
 
     if capabilities.get("turnaround"):
         tat = _safe_number(raw["turnaround_hours"])
@@ -214,9 +200,7 @@ def _evidence(datasets: dict[str, pd.DataFrame]) -> tuple[str, list[str], list[s
         if not failed.empty:
             ids = failed["batch_id_internal"].astype(str).head(4).tolist()
             risks.append(f"Residual-solvent QA is failed/flagged on {', '.join(ids)}")
-            recommendations.append(
-                f"Keep {', '.join(ids)} blocked from release and follow the validated QA/CAPA workflow."
-            )
+            recommendations.append(f"Keep {', '.join(ids)} blocked from release and follow the validated QA/CAPA workflow.")
 
     if capabilities.get("downtime"):
         downtime = _safe_number(raw["downtime_minutes"])
@@ -228,14 +212,10 @@ def _evidence(datasets: dict[str, pd.DataFrame]) -> tuple[str, list[str], list[s
 
     missing = [name for name, present in capabilities.items() if not present]
     if missing:
-        lines.append(
-            "**Unavailable measurements:** " + ", ".join(missing) + ". The brief will not recommend benchmarking those metrics."
-        )
+        lines.append("**Unavailable measurements:** " + ", ".join(missing) + ". The brief will not recommend benchmarking those metrics.")
 
     if not recommendations:
-        recommendations.append(
-            "No run-level exception crosses the current deterministic checks; maintain batch-level yield, QA, stage-loss, and margin monitoring."
-        )
+        recommendations.append("No run-level exception crosses the current deterministic checks; maintain batch-level yield, QA, stage-loss, and margin monitoring.")
 
     return "\n\n".join(lines), recommendations[:6], risks[:6], capabilities
 
@@ -299,10 +279,7 @@ def generate_extraction_brief(
     provider = "deterministic"
     model = ""
     if agent.enabled:
-        availability = ", ".join(
-            f"{name}={'available' if present else 'missing'}"
-            for name, present in capabilities.items()
-        )
+        availability = ", ".join(f"{name}={'available' if present else 'missing'}" for name, present in capabilities.items())
         prompt = (
             str(question or "Which extraction risks and process opportunities matter most?").strip()
             + "\n\nUse only the loaded run/job/inventory evidence. Name actual batch IDs and measurements. "
@@ -320,14 +297,14 @@ def generate_extraction_brief(
             ).strip()
             if not _reject_ai(candidate, runs, capabilities):
                 ai_text = candidate
-                provider = "Gemini"
+                provider = agent.provider or "ai_runtime"
                 model = agent.model
         except Exception:
             ai_text = ""
 
     answer = evidence
     if ai_text:
-        answer += "\n\n**Gemini extraction interpretation**\n\n" + ai_text
+        answer += "\n\n**DoobieLogic AI extraction interpretation**\n\n" + ai_text
 
     return {
         "answer": answer,

@@ -12,9 +12,11 @@ from modules.data_hub_core import DATASET_REQUIREMENTS, RETAIL_DATASETS, build_m
 from modules.data_hub_repository import DataHubRepository, MAX_DURABLE_UPLOAD_BYTES
 from modules.extraction.models import ExtractionRun
 from modules.product_master.models import ProductMasterProfile
-from services.data_mapping_agent import suggest_column_mapping
+from services.data_mapping_agent import record_approved_mappings, suggest_column_mapping
 from ..auth import RequestContext, get_request_context
+from ..config import Settings, get_settings
 from ..database import get_engine
+from ..services.ai_runtime import build_runtime
 
 router = APIRouter(prefix="/data-hub", tags=["data-hub"])
 SPECS = {str(spec["dataset_key"]): spec for spec in RETAIL_DATASETS}
@@ -25,10 +27,11 @@ class MappingSuggestionRequest(BaseModel):
     dataset_key: str
     columns: list[str] = Field(min_length=1, max_length=500)
     existing_matches: dict[str, str] = Field(default_factory=dict)
+    source_vendor: str = Field(default="", max_length=255)
 
 
 def _history(row):
-    return {key: getattr(row, key) for key in ("id", "dataset_key", "dataset_label", "filename", "content_type", "fingerprint", "payload_size", "row_count", "column_count", "quality", "status", "imported_by", "activated_at", "created_at") } | {"mapping": json.loads(row.mapping_json or "{}"), "missing_fields": json.loads(row.missing_fields_json or "[]")}
+    return {key: getattr(row, key) for key in ("id", "dataset_key", "dataset_label", "filename", "content_type", "fingerprint", "payload_size", "row_count", "column_count", "quality", "status", "imported_by", "activated_at", "created_at")} | {"mapping": json.loads(row.mapping_json or "{}"), "missing_fields": json.loads(row.missing_fields_json or "[]")}
 
 
 def _spec(dataset_key: str):
@@ -87,7 +90,8 @@ async def upload_dataset(dataset_key: str = Form(...), file: UploadFile = File(.
         inspection.pop("preview", None)
         row = DataHubRepository(engine).publish_source(organization_id=context.organization_id, facility_id=context.facility_id, dataset_key=dataset_key, dataset_label=str(spec["label"]), cache_key=str(spec["cache_key"]), filename=wrapped.name, fingerprint=sha256(payload).hexdigest(), payload=payload, inspection=inspection, content_type=file.content_type or "", imported_by_user_id=context.user_id, imported_by=context.user_id)
         return _history(row)
-    except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/datasets/inspect")
@@ -128,6 +132,7 @@ async def publish_reviewed_dataset(dataset_key: str = Form(...), mapping_json: s
         if not isinstance(mapping, dict):
             raise ValueError("Confirmed column mapping must be an object.")
         inspection = inspect_uploaded_dataset(wrapped, str(spec["label"]))
+        source_columns = [str(column) for column in inspection["preview"].columns]
         mapped = build_mapped_upload(wrapped, str(spec["label"]), {str(key): str(value) for key, value in mapping.items()})
         mapped_payload = mapped.getvalue()
         inspection["matches"] = {str(key): str(value) for key, value in mapping.items()}
@@ -148,25 +153,46 @@ async def publish_reviewed_dataset(dataset_key: str = Form(...), mapping_json: s
             imported_by_user_id=context.user_id,
             imported_by=context.user_id,
         )
+        record_approved_mappings(
+            engine=engine,
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            dataset_type=str(spec["label"]),
+            source_vendor=str(spec["label"]),
+            columns=source_columns,
+            mappings={str(key): str(value) for key, value in mapping.items()},
+        )
         return _history(row)
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/datasets/mapping-suggestions")
-def mapping_suggestions(payload: MappingSuggestionRequest, context: RequestContext = Depends(get_request_context)):
+def mapping_suggestions(
+    payload: MappingSuggestionRequest,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
     if context.role.casefold() not in PUBLISH_ROLES:
         raise HTTPException(403, "Your role can review Data Hub history but cannot map source revisions.")
     spec = _spec(payload.dataset_key)
+    runtime, _access, _org, _facility, _status = build_runtime(engine=engine, settings=settings, context=context, operation_type="retail")
     return suggest_column_mapping(
         payload.columns,
         DATASET_REQUIREMENTS.get(str(spec["label"]), {}),
         existing_matches=payload.existing_matches,
         dataset_label=str(spec["label"]),
+        engine=engine,
+        organization_id=context.organization_id,
+        facility_id=context.facility_id,
+        source_vendor=payload.source_vendor.strip() or str(spec["label"]),
+        provider_router=runtime.provider_router,
     )
 
 
 @router.post("/archive")
 def archive(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    if context.role not in {"dev", "admin", "supervisor"}: raise HTTPException(403, "Your role cannot archive Data Hub sources.")
+    if context.role not in {"dev", "admin", "supervisor"}:
+        raise HTTPException(403, "Your role cannot archive Data Hub sources.")
     return {"archived": DataHubRepository(engine).archive_active_sources(context.organization_id, context.facility_id)}

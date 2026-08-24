@@ -14,28 +14,47 @@ type AgentProfile = {
   compliance_grounded_only: boolean;
 };
 
+type ProviderStatus = {
+  provider: string;
+  model?: string;
+  configured: boolean;
+  status: string;
+  local?: boolean;
+  fallback_configured?: boolean;
+  cloud_fallback_enabled?: boolean;
+  message?: string;
+};
+
 type AgentDirectory = {
   active_agent?: AgentProfile;
   agents?: AgentProfile[];
-  provider?: {
-    provider: string;
-    configured: boolean;
-    status: string;
-    fallback_configured?: boolean;
-    message?: string;
-  };
-  workspace?: { app_mode: string; section: string };
+  provider?: ProviderStatus;
+  workspace?: { app_mode: string; section: string; organization_id?: string; facility_id?: string };
 };
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
+type AgentSource = { title?: string; source?: string; source_type?: string; authority_level?: number; page_or_section?: string; effective_date?: string; updated_at?: string; url?: string; score?: number };
 type AgentRun = {
   answer: string;
+  summary?: string;
+  priority?: string;
+  confidence?: number;
+  grounding?: string;
   provider: string;
+  model?: string;
+  local?: boolean;
+  fallback_used?: boolean;
+  fallback_reason?: string;
   agent: AgentProfile;
   datasets: string[];
+  tool_calls?: string[];
+  data_freshness?: Record<string, string>;
   read_only: boolean;
-  confidence?: string;
-  sources?: unknown[];
+  sources?: AgentSource[];
+  recommendations?: string[];
+  warnings?: string[];
+  missing_data?: string[];
+  request_id?: string;
 };
 
 type Props = {
@@ -44,17 +63,17 @@ type Props = {
   onNavigate: (page: string) => void;
 };
 
-function readHistory(key: string): ChatMessage[] {
+function storageKey(scope: string) { return `workspace-agent-history-${scope}`; }
+function readHistory(scope: string): ChatMessage[] {
   try {
-    const value = JSON.parse(sessionStorage.getItem(`workspace-agent-history-${key}`) ?? "[]");
+    const value = JSON.parse(sessionStorage.getItem(storageKey(scope)) ?? "[]");
     return Array.isArray(value) ? value.filter(item => item && (item.role === "user" || item.role === "assistant") && typeof item.content === "string").slice(-20) : [];
   } catch {
     return [];
   }
 }
-
-function saveHistory(key: string, history: ChatMessage[]) {
-  try { sessionStorage.setItem(`workspace-agent-history-${key}`, JSON.stringify(history.slice(-20))); } catch { /* storage can be unavailable */ }
+function saveHistory(scope: string, history: ChatMessage[]) {
+  try { sessionStorage.setItem(storageKey(scope), JSON.stringify(history.slice(-20))); } catch { /* storage can be unavailable */ }
 }
 
 export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
@@ -74,6 +93,9 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
   const activeAgentKey = directory.data?.active_agent?.key ?? "";
   const effectiveKey = agentKey || activeAgentKey || "ops";
   const selected = agents.find(row => row.key === effectiveKey) ?? directory.data?.active_agent;
+  const organizationId = directory.data?.workspace?.organization_id ?? "unknown-org";
+  const facilityId = directory.data?.workspace?.facility_id ?? "unknown-facility";
+  const historyScope = `${organizationId}|${facilityId}|${effectiveKey}`;
 
   useEffect(() => {
     if (!activeAgentKey) return;
@@ -81,10 +103,10 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
   }, [activeAgentKey, activePage, operation]);
 
   useEffect(() => {
-    if (!effectiveKey) return;
-    setHistory(readHistory(effectiveKey));
+    if (!effectiveKey || organizationId === "unknown-org" || facilityId === "unknown-facility") return;
+    setHistory(readHistory(historyScope));
     setLastRun(null);
-  }, [effectiveKey]);
+  }, [effectiveKey, organizationId, facilityId, historyScope]);
 
   useEffect(() => {
     if (!selected || question) return;
@@ -106,7 +128,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
         { role: "assistant" as const, content: result.answer },
       ].slice(-20);
       setHistory(next);
-      saveHistory(effectiveKey, next);
+      saveHistory(historyScope, next);
       setLastRun(result);
       setQuestion("");
     },
@@ -115,9 +137,11 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
   const clear = () => {
     setHistory([]);
     setLastRun(null);
-    saveHistory(effectiveKey, []);
+    saveHistory(historyScope, []);
   };
   const provider = directory.data?.provider;
+  const sourceList = lastRun?.sources ?? [];
+  const freshness = Object.entries(lastRun?.data_freshness ?? {});
 
   return <>
     <button className="workspace-agent-launch" type="button" onClick={() => setOpen(true)} aria-label="Open DoobieLogic AI agents">
@@ -126,7 +150,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
     {open ? <div className="workspace-agent-backdrop" onClick={() => setOpen(false)} aria-hidden="true"/> : null}
     <aside className={`workspace-agent-drawer ${open ? "open" : ""}`} aria-label="DoobieLogic AI agents" aria-hidden={!open}>
       <div className="workspace-agent-header">
-        <div><div className="eyebrow"><Sparkles size={14}/> DoobieLogic Intelligence</div><h2>Workspace AI Agents</h2><p>Specialists restored from the original workspace. Analysis stays read-only.</p></div>
+        <div><div className="eyebrow"><Sparkles size={14}/> DoobieLogic Intelligence</div><h2>Workspace AI Agents</h2><p>Provider-neutral specialists. Deterministic analytics run before model reasoning and all operational tools stay read-only.</p></div>
         <button className="icon-button" type="button" aria-label="Close AI agents" onClick={() => setOpen(false)}><X size={19}/></button>
       </div>
 
@@ -135,8 +159,8 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
       {directory.data && selected ? <>
         <section className="workspace-agent-control">
           <label>Specialist<select value={effectiveKey} onChange={event => { setAgentKey(event.target.value); setQuestion(""); }}>{agents.map(agent => <option value={agent.key} key={agent.key}>{agent.name}</option>)}</select></label>
-          <div className="agent-provider-line"><span className={provider?.configured ? "provider-dot connected" : "provider-dot"}/><strong>{provider?.provider ?? "AI provider"}</strong><span>{provider?.configured ? provider.status : "AI provider not connected"}</span></div>
-          {!provider?.configured ? <div className="warning-banner agent-provider-warning"><p>{provider?.message ?? "A platform AI connection is required before the agents can answer."}</p><button className="secondary" type="button" onClick={() => { onNavigate("Integrations"); setOpen(false); }}>Open AI integrations</button></div> : null}
+          <div className="agent-provider-line"><span className={provider?.configured ? "provider-dot connected" : "provider-dot"}/><strong>{provider?.provider ?? "AI runtime"}</strong><span>{provider?.model ? `${provider.model} · ` : ""}{provider?.local === false ? "cloud" : "local"} · {provider?.status?.replaceAll("_", " ")}</span></div>
+          {provider?.status === "deterministic_only" ? <div className="warning-banner agent-provider-warning"><p>{provider.message}</p><button className="secondary" type="button" onClick={() => { onNavigate("Integrations"); setOpen(false); }}>Open AI integrations</button></div> : null}
         </section>
 
         <section className="workspace-agent-profile">
@@ -146,16 +170,23 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
 
         {history.length ? <section className="agent-conversation" aria-live="polite">{history.map((message, index) => <article className={`agent-message ${message.role}`} key={`${message.role}-${index}`}><span>{message.role === "user" ? "You" : selected.name}</span><p>{message.content}</p></article>)}</section> : <section className="agent-empty-state"><BrainCircuit size={28}/><strong>Ask from the workspace you are working in.</strong><p>{selected.name} receives only sanitized, read-only operational context for this organization and facility.</p></section>}
 
+        {lastRun?.fallback_used ? <div className="warning-banner agent-provider-warning"><p>Local validation required fallback to {lastRun.provider}. {lastRun.fallback_reason || "The fallback reason is recorded in AI telemetry."}</p></div> : null}
+        {lastRun?.missing_data?.length ? <div className="warning-banner agent-provider-warning"><p><strong>Missing data:</strong> {lastRun.missing_data.slice(0, 4).join(" · ")}</p></div> : null}
+        {lastRun?.warnings?.length ? <div className="warning-banner agent-provider-warning"><p><strong>Warnings:</strong> {lastRun.warnings.slice(0, 4).join(" · ")}</p></div> : null}
+
+        {sourceList.length ? <section className="workspace-agent-profile"><div><h3>Sources</h3>{sourceList.slice(0, 6).map((source, index) => <p key={`${source.title}-${index}`}><strong>{source.title || source.source || "Retrieved source"}</strong>{source.page_or_section ? ` · ${source.page_or_section}` : ""}{source.source_type ? ` · ${source.source_type}` : ""}{source.authority_level ? ` · authority ${source.authority_level}` : ""}</p>)}</div></section> : null}
+        {freshness.length ? <section className="workspace-agent-profile"><div><h3>Data freshness</h3><p>{freshness.slice(0, 8).map(([name, value]) => `${name}: ${value}`).join(" · ")}</p></div></section> : null}
+
         <div className="agent-suggestions">{selected.suggested_questions.slice(0, 3).map(prompt => <button type="button" key={prompt} onClick={() => setQuestion(prompt)}>{prompt}</button>)}</div>
 
         <section className="agent-composer">
           <label htmlFor="workspace-agent-question">Ask {selected.name}</label>
           <textarea id="workspace-agent-question" value={question} onChange={event => setQuestion(event.target.value)} placeholder="Ask about the data and workflow on this page…" rows={4}/>
-          <div className="agent-composer-footer"><div><span className="read-only-chip">Read-only</span>{lastRun?.datasets.length ? <span className="dataset-chip">{lastRun.datasets.length} dataset{lastRun.datasets.length === 1 ? "" : "s"} used</span> : null}</div><button className="primary" type="button" disabled={!question.trim() || run.isPending || !provider?.configured} onClick={() => run.mutate()}>{run.isPending ? "Analyzing…" : <><Send size={16}/> Run agent</>}</button></div>
+          <div className="agent-composer-footer"><div><span className="read-only-chip">Read-only</span>{lastRun?.datasets.length ? <span className="dataset-chip">{lastRun.datasets.length} dataset{lastRun.datasets.length === 1 ? "" : "s"} used</span> : null}{lastRun?.grounding ? <span className="dataset-chip">{lastRun.grounding}</span> : null}</div><button className="primary" type="button" disabled={!question.trim() || run.isPending || !provider?.configured} onClick={() => run.mutate()}>{run.isPending ? "Analyzing…" : <><Send size={16}/> Run agent</>}</button></div>
           {run.isError ? <div className="form-error">{run.error.message}</div> : null}
         </section>
 
-        <div className="agent-footer"><span>Provider: {lastRun?.provider ?? provider?.provider ?? "Not connected"}</span><button className="link-button" type="button" disabled={!history.length} onClick={clear}>Clear conversation</button></div>
+        <div className="agent-footer"><span>Provider: {lastRun?.provider ?? provider?.provider ?? "Not connected"}{lastRun?.model ? ` · ${lastRun.model}` : ""}</span><button className="link-button" type="button" disabled={!history.length} onClick={clear}>Clear conversation</button></div>
       </> : null}
     </aside>
   </>;

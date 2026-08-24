@@ -11,10 +11,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_prefix: str = "/api/v1"
     cors_origins: str = "http://localhost:5173"
-    database_url: str = Field(
-        default="",
-        validation_alias=AliasChoices("COMAN_DATABASE_URL", "DATABASE_URL"),
-    )
+    database_url: str = Field(default="", validation_alias=AliasChoices("COMAN_DATABASE_URL", "DATABASE_URL"))
     supabase_jwt_secret: str = ""
     supabase_jwks_url: str = ""
     supabase_jwt_audience: str = "authenticated"
@@ -23,6 +20,31 @@ class Settings(BaseSettings):
     integration_encryption_key: str = ""
     metrc_integrator_key: str = ""
     allowed_hosts: str = "localhost,127.0.0.1,testserver"
+
+    # DoobieLogic AI Runtime. Inference services remain external to the API image.
+    ai_provider_mode: str = "local_first"
+    ai_provider_order: str = "local,gemini,openai,doobie"
+    ai_allow_cloud_fallback: bool = True
+    local_llm_base_url: str = ""
+    local_llm_api_key: str = ""
+    local_llm_model: str = ""
+    local_llm_timeout_seconds: float = 30.0
+    local_llm_max_tokens: int = 1400
+    local_llm_temperature: float = 0.2
+    local_embedding_base_url: str = ""
+    local_embedding_api_key: str = ""
+    local_embedding_model: str = ""
+    local_embedding_timeout_seconds: float = 20.0
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.5-flash-lite"
+    openai_api_key: str = ""
+    openai_model: str = ""
+    openai_base_url: str = "https://api.openai.com"
+    doobie_ai_model: str = "doobie-cloud"
+    ai_gemini_input_cost_per_million: float = 0.0
+    ai_gemini_output_cost_per_million: float = 0.0
+    ai_openai_input_cost_per_million: float = 0.0
+    ai_openai_output_cost_per_million: float = 0.0
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -35,6 +57,13 @@ class Settings(BaseSettings):
     @property
     def trusted_hosts(self) -> list[str]:
         return [value.strip() for value in self.allowed_hosts.split(",") if value.strip()]
+
+    @property
+    def provider_order(self) -> list[str]:
+        values = [value.strip().casefold() for value in self.ai_provider_order.split(",") if value.strip()]
+        if self.ai_provider_mode.casefold() == "local_only":
+            return ["local"]
+        return values or ["local", "gemini", "openai", "doobie"]
 
     def validate_production(self) -> None:
         if self.is_development:
