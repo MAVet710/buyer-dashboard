@@ -11,9 +11,12 @@ def score_case(case: EvalCase, *, answer: str, structured_valid: bool, tool_name
     forbidden = {fact: fact.casefold() in normalized for fact in case.forbidden_facts}
     grounding_ok = True
     if case.requires_grounding:
-        grounding_ok = any(int(source.get("authority_level") or 99) <= 2 for source in (sources or [])) or "cannot verify" in normalized
+        grounding_ok = any(int(source.get("authority_level") or 99) <= 2 for source in (sources or [])) or "cannot verify" in normalized or "can’t verify" in normalized
     correctness = sum(required.values()) / max(1, len(required)) if required else 1.0
     unsupported = sum(forbidden.values())
+    selected_tools = [str(name) for name in (tool_names or []) if str(name)]
+    tool_selection_valid = True if not case.expected_tool else case.expected_tool in selected_tools
+    passed = correctness == 1.0 and unsupported == 0 and structured_valid and grounding_ok and tool_selection_valid
     return {
         "case": case.key,
         "agent": case.agent,
@@ -22,8 +25,10 @@ def score_case(case: EvalCase, *, answer: str, structured_valid: bool, tool_name
         "unsupported_fact_count": unsupported,
         "structured_output_valid": bool(structured_valid),
         "retrieval_grounding": grounding_ok,
-        "tool_selection_valid": bool(tool_names) if case.deterministic else True,
+        "expected_tool": case.expected_tool,
+        "selected_tools": selected_tools,
+        "tool_selection_valid": tool_selection_valid,
         "latency_ms": max(0, int(latency_ms)),
         "estimated_cost_usd": max(0.0, float(estimated_cost_usd)),
-        "passed": correctness == 1.0 and unsupported == 0 and structured_valid and grounding_ok,
+        "passed": passed,
     }
