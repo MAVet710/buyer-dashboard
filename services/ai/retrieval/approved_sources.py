@@ -126,6 +126,7 @@ def seed_approved_sources(
     embeddings: LocalEmbeddingProvider | None = None,
     keys: set[str] | None = None,
     manifest_path: Path = DEFAULT_MANIFEST,
+    force_reindex: bool = False,
 ) -> dict[str, Any]:
     _manifest, allowed_domains, sources = load_approved_sources(manifest_path)
     ingestion = KnowledgeIngestionService(store, embeddings)
@@ -146,7 +147,7 @@ def seed_approved_sources(
             payload, final_url, content_type = download_source(source, allowed_domains=allowed_domains)
             digest = hashlib.sha256(payload).hexdigest()
             existing = store.find_document_by_hash(scope=scope, document_hash=digest, facility_scope=True)
-            if existing:
+            if existing and not force_reindex:
                 results.append({"key": key, "status": "unchanged", "document_id": existing["id"], "sha256": digest})
                 continue
             result = ingestion.ingest(
@@ -172,7 +173,7 @@ def seed_approved_sources(
             )
             results.append({
                 "key": key,
-                "status": "indexed",
+                "status": "reindexed" if existing else "indexed",
                 "document_id": result["document_id"],
                 "chunks": result["chunks"],
                 "sha256": digest,
@@ -180,7 +181,7 @@ def seed_approved_sources(
             })
         except Exception as exc:
             results.append({"key": key, "status": "failed", "error": f"{exc.__class__.__name__}: {exc}"[:500]})
-    indexed = sum(1 for row in results if row["status"] == "indexed")
+    indexed = sum(1 for row in results if row["status"] in {"indexed", "reindexed"})
     unchanged = sum(1 for row in results if row["status"] == "unchanged")
     failed = sum(1 for row in results if row["status"] in {"failed", "rejected_scope"})
     return {
