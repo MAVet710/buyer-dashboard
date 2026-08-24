@@ -14,6 +14,7 @@ from modules.coman.models import AppUser, AuditEvent, utc_now
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
+from ..services.spacemail import SpacemailError, send_welcome_email
 from .admin import UserLink, _link, _require_admin, _serialize_user, _username, _validate_role
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -181,7 +182,9 @@ def create_user_with_temporary_password(
     """Create the same account shape as Streamlit, backed by Supabase Auth.
 
     Existing migrated users are never recreated or re-keyed. This endpoint is
-    only for a brand-new account created by an authorized admin.
+    only for a brand-new account created by an authorized admin. When a real
+    contact email is supplied, onboarding is completed only after the branded
+    DoobieLogic welcome message has been accepted by Spacemail SMTP.
     """
 
     _require_admin(context)
@@ -194,6 +197,12 @@ def create_user_with_temporary_password(
     contact_email = payload.email.strip().casefold()
     if contact_email and ("@" not in contact_email or contact_email.startswith("@") or contact_email.endswith("@")):
         raise HTTPException(422, "Enter a valid email address or leave Email optional blank.")
+    if contact_email and settings.spacemail_welcome_email_enabled and not settings.spacemail_is_configured:
+        raise HTTPException(
+            503,
+            "Spacemail welcome email delivery is not configured. Add the server-side SPACEMAIL_SMTP_PASSWORD secret before creating emailed accounts.",
+        )
+
     # Synthetic identities must remain valid email addresses even when the
     # legacy username contains characters such as '@' or '+'. Preserve the real
     # username in app_metadata while using a safe local-part for Supabase Auth.
@@ -239,6 +248,7 @@ def create_user_with_temporary_password(
                             "organization_id": row.organization_id,
                             "facility_ids": payload.facility_ids,
                             "must_change_password": payload.must_change_password,
+                            "welcome_email_requested": bool(contact_email and settings.spacemail_welcome_email_enabled),
                         },
                         sort_keys=True,
                     ),
@@ -255,6 +265,37 @@ def create_user_with_temporary_password(
                 organization_id=metadata_org_id,
                 facility_id=metadata_facility_id,
             )
+            if contact_email and settings.spacemail_welcome_email_enabled:
+                try:
+                    send_welcome_email(
+                        settings,
+                        recipient=contact_email,
+                        display_name=payload.display_name.strip() or username,
+                        username=username,
+                        temporary_password=payload.password,
+                    )
+                except SpacemailError as exc:
+                    raise HTTPException(502, str(exc)) from exc
+                session.add(
+                    AuditEvent(
+                        organization_id=context.organization_id,
+                        facility_id=context.facility_id,
+                        entity_type="app_user",
+                        entity_id=row.id,
+                        action="welcome_email_sent",
+                        actor=context.user_id,
+                        changes_json=json.dumps(
+                            {
+                                "recipient": contact_email,
+                                "sender": settings.spacemail_from_email,
+                            },
+                            sort_keys=True,
+                        ),
+                    )
+                )
+                snapshot["welcome_email_sent"] = True
+            else:
+                snapshot["welcome_email_sent"] = False
         return snapshot
     except Exception:
         _delete_auth_user(settings, auth_user_id)
