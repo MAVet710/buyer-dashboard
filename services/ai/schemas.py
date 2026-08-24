@@ -97,6 +97,7 @@ class AgentResult:
     datasets: list[str] = field(default_factory=list)
     tool_calls: list[str] = field(default_factory=list)
     data_freshness: dict[str, str] = field(default_factory=dict)
+    learning: dict[str, Any] = field(default_factory=dict)
     request_id: str = ""
     read_only: bool = True
 
@@ -119,6 +120,7 @@ class AgentResult:
             "datasets": self.datasets,
             "tool_calls": self.tool_calls,
             "data_freshness": self.data_freshness,
+            "learning": self.learning,
             "request_id": self.request_id,
             "read_only": True,
         }
