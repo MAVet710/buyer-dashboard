@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from sqlalchemy import create_engine, text
 
 from services.ai.feedback import AgentFeedbackStore
@@ -49,6 +50,19 @@ def test_rag_retrieval_filters_tenant_and_facility_before_ranking():
     assert "Org A SOP" not in titles_a2
     assert "Org A Policy" in titles_a2
     assert "Government Guidance" in titles_a2
+
+
+def test_rag_chunk_scope_and_authority_must_match_parent_document():
+    engine = engine_with_ai_tables()
+    store = KnowledgeStore(engine)
+    scope = KnowledgeScope("org-a", "fac-a")
+    doc = store.add_document(scope=scope, title="Facility SOP", source="approved", source_type="facility_sop", authority_level=2)
+
+    with pytest.raises(ValueError, match="scope must exactly match"):
+        store.add_chunk(document_id=doc, scope=KnowledgeScope("org-b", "fac-b"), content="private", chunk_number=0, authority_level=2)
+
+    with pytest.raises(ValueError, match="authority must exactly match"):
+        store.add_chunk(document_id=doc, scope=scope, content="elevated", chunk_number=0, authority_level=1)
 
 
 def test_authoritative_retrieval_excludes_lower_authority_material():
