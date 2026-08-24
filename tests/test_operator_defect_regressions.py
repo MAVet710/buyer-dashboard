@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_camera_scanner_has_native_and_cross_browser_qr_fallback():
     index = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
     assert "html5-qrcode/2.3.8" in index
-    assert "DoobieLogicBarcodeDetector" in index
+    assert "StreamlitScannerBarcodeDetector" in index
     assert 'formats: ["qr_code"]' in index
     assert "decodeWithFallback" in index
     assert "doobielogic-camera-frame.png" in index
@@ -48,5 +48,6 @@ def test_web_deploy_explicitly_promotes_new_revision():
     assert "--no-traffic" in web_section
     assert "Verify frontend candidate and promote to 100 percent" in web_section
     assert '--to-revisions "$CREATED_REVISION=100"' in web_section
-    assert "doobielogic.io and doobielogic.io" not in web_section
-    assert "ops.doobielogic.io and doobielogic.io" in web_section
+    assert "https://ops.doobielogic.io" in web_section
+    assert "https://doobielogic.io" in web_section
+    assert "ops.doobielogic.io and doobielogic.io are serving the promoted web revision" in web_section
