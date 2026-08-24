@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiGet, apiPost, downloadBlob } from "../lib/api";
-import { BuyerLegacyOverview } from "../components/BuyerLegacyOverview";
+import { BuyerLegacyOverview, type BuyerInventoryTarget } from "../components/BuyerLegacyOverview";
 
 type Row = Record<string, unknown>;
 type Dashboard = {
@@ -25,7 +25,7 @@ type DoobieResult = {
   confidence?: string;
   mode?: string;
 };
-type SkuTab = "all" | "reorder" | "overstock" | "expiring";
+type SkuTab = "all" | "reorder" | "no-stock" | "overstock" | "expiring";
 type MetricFilter = "All" | "Reorder ASAP";
 type InventoryCondition = {
   reorder: number;
@@ -54,6 +54,7 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
   const [categorySelectionTouched, setCategorySelectionTouched] = useState(false);
   const [showProductRows, setShowProductRows] = useState(false);
   const [skuTab, setSkuTab] = useState<SkuTab>("all");
+  const [statusViewsOpen, setStatusViewsOpen] = useState(false);
   const [buyerSearch, setBuyerSearch] = useState("");
   const [showTopN, setShowTopN] = useState(0);
   const [sortBy, setSortBy] = useState("dollars_on_hand_desc");
@@ -140,10 +141,18 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
   }, [filteredSkuRows]);
   const statusRows = useMemo(() => {
     if (skuTab === "reorder") return filteredInventoryBase.filter(row => number(row.days_of_supply) > 0 && number(row.days_of_supply) <= 21);
+    if (skuTab === "no-stock") return filteredInventoryBase.filter(row => number(row.onhandunits) <= 0);
     if (skuTab === "overstock") return filteredInventoryBase.filter(row => number(row.days_of_supply) >= 90);
-    if (skuTab === "expiring") return filteredInventoryBase.filter(row => { const days = optionalNumber(row.days_to_expire); return days != null && days < 60; });
+    if (skuTab === "expiring") return filteredInventoryBase.filter(row => { const days = optionalNumber(row.days_to_expire); return days != null && days >= 0 && days < 60; });
     return filteredInventoryBase;
   }, [filteredInventoryBase, skuTab]);
+
+  const selectInventoryCondition = (target: BuyerInventoryTarget) => {
+    if (target === "no-stock") setOnHandOnly(false);
+    setSkuTab(target);
+    setStatusViewsOpen(true);
+    window.requestAnimationFrame(() => document.getElementById("buyer-status-views")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
 
   const doobieCategories = legacyCategory === "All" ? visibleCategories : [legacyCategory];
   const doobiePayload = {
@@ -193,7 +202,7 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
       <label>Days in Sales Period<input type="range" min={7} max={120} value={salesDays} onChange={event => setSalesDays(Number(event.target.value))}/><span>{salesDays}</span></label>
     </section>
 
-    <BuyerLegacyOverview targetDoh={targetDoh} velocityAdjustment={velocity} salesDays={salesDays} skuWindow={skuWindow} topN={showTopN}/>
+    <BuyerLegacyOverview targetDoh={targetDoh} velocityAdjustment={velocity} salesDays={salesDays} skuWindow={skuWindow} topN={showTopN} onInventoryCondition={selectInventoryCondition}/>
 
     {dashboard.isError ? <div className="state error">{dashboard.error.message}</div> : null}
     {dashboard.isLoading ? <div className="state">Building the Buyer Dashboard forecast from the active inventory and sales sources…</div> : null}
@@ -258,13 +267,13 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
       </section>
 
       <section className="metrics buyer-filter-condition">
-        <Metric label="Units On Hand" value={filteredCondition.onHandUnits}/>
-        <Metric label="Reorder / Low Cover" value={filteredCondition.reorder}/>
-        <Metric label="No Stock" value={filteredCondition.noStock}/>
-        <Metric label="🟠 Overstock SKUs" value={filteredCondition.overstock}/>
-        <Metric label="⚠️ Expiring <60d" value={`${filteredCondition.expiring.toLocaleString()} (${money(filteredCondition.expiringExposure)})`}/>
-        <Metric label="Overstock $" value={money(filteredCondition.overstockExposure)}/>
-        <Metric label="$ On Hand" value={money(filteredCondition.onHandCost)}/>
+        <ActionMetric label="Units On Hand" value={filteredCondition.onHandUnits} onClick={() => selectInventoryCondition("all")}/>
+        <ActionMetric label="Reorder / Low Cover" value={filteredCondition.reorder} onClick={() => selectInventoryCondition("reorder")}/>
+        <ActionMetric label="No Stock" value={filteredCondition.noStock} onClick={() => selectInventoryCondition("no-stock")}/>
+        <ActionMetric label="🟠 Overstock SKUs" value={filteredCondition.overstock} onClick={() => selectInventoryCondition("overstock")}/>
+        <ActionMetric label="⚠️ Expiring <60d" value={`${filteredCondition.expiring.toLocaleString()} (${money(filteredCondition.expiringExposure)})`} onClick={() => selectInventoryCondition("expiring")}/>
+        <ActionMetric label="Overstock $" value={money(filteredCondition.overstockExposure)} onClick={() => selectInventoryCondition("overstock")}/>
+        <ActionMetric label="$ On Hand" value={money(filteredCondition.onHandCost)} onClick={() => selectInventoryCondition("all")}/>
       </section>
 
       <section className="inventory-panel">
@@ -272,7 +281,7 @@ export function BuyerOperationsPage(_props: { onNavigate?: (page: string) => voi
         {dashboard.data.sources.inventory.rows > 0 ? <p className="source-caption">Inventory cross-reference is active for PO-related buyer review.</p> : null}
         <DataTable rows={filteredSkuRows} columns={SKU_COMPACT_COLUMNS}/>
         <details className="streamlit-expander buyer-all-columns"><summary>🔎 Show all columns</summary><div className="streamlit-expander-body"><DataTable rows={filteredSkuRows} columns={allSkuColumns}/></div></details>
-        <details className="streamlit-expander buyer-status-views"><summary>Inventory status views</summary><div className="streamlit-expander-body"><div className="view-tabs"><button className={skuTab === "all" ? "active" : ""} onClick={() => setSkuTab("all")}>📦 All Inventory</button><button className={skuTab === "reorder" ? "active" : ""} onClick={() => setSkuTab("reorder")}>🔴 Reorder</button><button className={skuTab === "overstock" ? "active" : ""} onClick={() => setSkuTab("overstock")}>🟠 Overstock</button><button className={skuTab === "expiring" ? "active" : ""} onClick={() => setSkuTab("expiring")}>⚠️ Expiring</button></div><DataTable rows={statusRows} columns={SKU_COLUMNS}/></div></details>
+        <details id="buyer-status-views" className="streamlit-expander buyer-status-views" open={statusViewsOpen} onToggle={event => setStatusViewsOpen(event.currentTarget.open)}><summary>Inventory status views · {statusLabel(skuTab)}</summary><div className="streamlit-expander-body"><div className="view-tabs"><button className={skuTab === "all" ? "active" : ""} onClick={() => setSkuTab("all")}>📦 All Inventory</button><button className={skuTab === "reorder" ? "active" : ""} onClick={() => setSkuTab("reorder")}>🔴 Reorder</button><button className={skuTab === "no-stock" ? "active" : ""} onClick={() => { setOnHandOnly(false); setSkuTab("no-stock"); }}>⛔ No Stock</button><button className={skuTab === "overstock" ? "active" : ""} onClick={() => setSkuTab("overstock")}>🟠 Overstock</button><button className={skuTab === "expiring" ? "active" : ""} onClick={() => setSkuTab("expiring")}>⚠️ Expiring</button></div><DataTable rows={statusRows} columns={SKU_COLUMNS}/></div></details>
       </section>
 
       <section className="inventory-panel">
@@ -368,6 +377,8 @@ function DataTable({ rows, columns }: { rows: Row[]; columns: string[] }) {
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) { return <article className="metric"><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : value}</strong></article>; }
+function ActionMetric({ label, value, onClick }: { label: string; value: string | number; onClick: () => void }) { return <button className="metric metric-button buyer-condition-action" type="button" onClick={onClick} aria-label={`${label}: open filtered inventory view`}><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : value}</strong></button>; }
+function statusLabel(tab: SkuTab) { return tab === "no-stock" ? "No Stock" : tab === "reorder" ? "Reorder" : tab === "overstock" ? "Overstock" : tab === "expiring" ? "Expiring" : "All Inventory"; }
 function NumberControl({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void }) { return <label>{label}<input type="number" value={value} min={min} max={max} step={step} onChange={event => onChange(Number(event.target.value))}/></label>; }
 function DoobieAnswer({ result }: { result: DoobieResult }) { return <div className="doobie-answer"><strong>{result.confidence ? `${result.confidence} confidence · ` : ""}Doobie</strong><p>{result.answer}</p>{result.explanation ? <p>{result.explanation}</p> : null}{Array.isArray(result.recommendations) && result.recommendations.length ? <><h4>Recommendations</h4><pre>{JSON.stringify(result.recommendations, null, 2)}</pre></> : null}{Array.isArray(result.risk_flags) && result.risk_flags.length ? <><h4>Risk flags</h4><pre>{JSON.stringify(result.risk_flags, null, 2)}</pre></> : null}</div>; }
 function header(value: string) { return value.replaceAll("_", " ").replace(/\b\w/g, char => char.toUpperCase()); }
