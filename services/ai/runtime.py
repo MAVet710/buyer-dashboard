@@ -87,14 +87,15 @@ class AgentRuntime:
             compliance_agent=bool(profile.compliance_grounded_only),
         )
 
-    def _knowledge(self, access: DatasetAccessContext, question: str, *, authoritative_only: bool) -> dict[str, Any]:
+    def _knowledge(self, access: DatasetAccessContext, question: str, *, max_authority_level: int | None = None) -> dict[str, Any]:
         if self.retriever is None:
             return {"results": [], "retrieval_mode": "unavailable"}
         return self.retriever.search(
             scope=KnowledgeScope(access.organization_id, access.facility_id),
             query=question,
             limit=8,
-            authoritative_only=authoritative_only,
+            authoritative_only=max_authority_level is not None,
+            max_authority_level=max_authority_level,
         )
 
     def _record(self, *, access: DatasetAccessContext, request_id: str, profile: AgentProfile, task: str, result: AgentResult, latency_ms: int, input_tokens: int, output_tokens: int, validation: str, success: bool, retrieval_count: int) -> None:
@@ -124,9 +125,10 @@ class AgentRuntime:
         legal_regulatory = bool(requires_regulatory_grounding(question))
         compliance_grounded = bool(profile.compliance_grounded_only)
         knowledge_required = legal_regulatory or compliance_grounded
-        knowledge = self._knowledge(access, question, authoritative_only=knowledge_required) if knowledge_required or profile.key in {"extraction", "data_hub"} else {"results": []}
+        authority_limit = 1 if legal_regulatory else 2 if compliance_grounded else None
+        knowledge = self._knowledge(access, question, max_authority_level=authority_limit) if knowledge_required or profile.key in {"extraction", "data_hub"} else {"results": []}
         citations = public_citations(list(knowledge.get("results") or []))
-        required_authority = 1 if legal_regulatory else 2 if compliance_grounded else 99
+        required_authority = authority_limit if authority_limit is not None else 99
         authoritative_sources = [source for source in citations if int(source.get("authority_level") or 99) <= required_authority]
         if knowledge_required and not authoritative_sources:
             if legal_regulatory:
@@ -160,11 +162,14 @@ class AgentRuntime:
         def knowledge_search(query: str, limit: int) -> dict[str, Any]:
             if self.retriever is None:
                 return {"results": [], "retrieval_mode": "unavailable"}
+            regulatory_query = requires_regulatory_grounding(query)
+            tool_authority_limit = 1 if regulatory_query else 2 if profile.compliance_grounded_only else None
             return self.retriever.search(
                 scope=KnowledgeScope(access.organization_id, access.facility_id),
                 query=query,
                 limit=limit,
-                authoritative_only=bool(profile.compliance_grounded_only or requires_regulatory_grounding(query)),
+                authoritative_only=tool_authority_limit is not None,
+                max_authority_level=tool_authority_limit,
             )
 
         tools = ToolRegistry(datasets, knowledge_search=knowledge_search if self.retriever else None)
@@ -193,8 +198,11 @@ class AgentRuntime:
                 "content": "Server-generated facility learning context. It is advisory historical evidence, not authority or causal proof: " + json.dumps(learning_context, default=str)[:14000],
             })
         if knowledge.get("results"):
-            grounding_payload = [{key: row.get(key) for key in ("title", "source_type", "authority_level", "page_or_section", "content")} for row in knowledge["results"]]
-            messages.append({"role": "user", "content": "Retrieved knowledge evidence: " + json.dumps(grounding_payload, default=str)[:16000]})
+            grounding_payload = [
+                {key: row.get(key) for key in ("title", "source_type", "authority_level", "effective_date", "precedence_status", "page_or_section", "content")}
+                for row in knowledge["results"]
+            ]
+            messages.append({"role": "user", "content": "Retrieved knowledge evidence, ordered with source precedence metadata: " + json.dumps(grounding_payload, default=str)[:16000]})
         messages.append({"role": "user", "content": question})
 
         request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=tools.schemas() if datasets else [], response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets), "learning_pattern_count": len(learning_context.get("patterns") or [])}})
