@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.utils import formataddr, formatdate, make_msgid
 from html import escape
+import imaplib
+import re
 import smtplib
 import ssl
 
@@ -22,6 +24,7 @@ class WelcomeEmailDelivery:
     sent: bool
     recipient: str
     sender: str
+    sent_copy_saved: bool = False
 
 
 def resolve_spacemail_settings(engine: Engine, settings: Settings) -> Settings:
@@ -168,6 +171,8 @@ def build_welcome_message(
     message["From"] = formataddr((settings.spacemail_from_name, settings.spacemail_from_email))
     message["To"] = recipient
     message["Reply-To"] = settings.spacemail_support_email
+    message["Date"] = formatdate(localtime=False)
+    message["Message-ID"] = make_msgid(domain="doobielogic.io")
     message["X-Auto-Response-Suppress"] = "All"
     message.set_content(
         _welcome_plain_text(
@@ -199,6 +204,69 @@ def _smtp_login(settings: Settings):
         timeout=settings.spacemail_smtp_timeout_seconds,
         context=context,
     )
+
+
+def _imap_login(settings: Settings):
+    context = ssl.create_default_context()
+    return imaplib.IMAP4_SSL(
+        settings.spacemail_imap_host,
+        settings.spacemail_imap_port,
+        ssl_context=context,
+        timeout=settings.spacemail_smtp_timeout_seconds,
+    )
+
+
+def _mailbox_name(raw_line: bytes | str) -> str:
+    line = raw_line.decode(errors="replace") if isinstance(raw_line, bytes) else str(raw_line)
+    quoted = re.search(r'"([^"\\]*(?:\\.[^"\\]*)*)"\s*$', line)
+    if quoted:
+        return quoted.group(1).replace(r'\"', '"').replace(r'\\', '\\')
+    return line.rsplit(" ", 1)[-1].strip().strip('"')
+
+
+def _sent_mailbox(imap) -> str:
+    status, rows = imap.list()
+    if str(status).upper() != "OK":
+        return ""
+    fallback = ""
+    for raw in rows or []:
+        line = raw.decode(errors="replace") if isinstance(raw, bytes) else str(raw)
+        name = _mailbox_name(raw)
+        flags = line.split(")", 1)[0].casefold()
+        if "\\sent" in flags:
+            return name
+        if not fallback and name.casefold() in {"sent", "sent items", "sent messages"}:
+            fallback = name
+    return fallback
+
+
+def _save_sent_copy(settings: Settings, message: EmailMessage) -> bool:
+    """Best-effort IMAP append so app-generated mail appears in webmail Sent.
+
+    SMTP delivery has already succeeded by the time this runs. Failure to append
+    a bookkeeping copy must never roll back a successfully created user or cause
+    a duplicate transactional email on retry.
+    """
+
+    imap = None
+    try:
+        imap = _imap_login(settings)
+        status, _ = imap.login(settings.spacemail_smtp_username, settings.spacemail_smtp_password)
+        if str(status).upper() != "OK":
+            return False
+        mailbox = _sent_mailbox(imap)
+        if not mailbox:
+            return False
+        status, _ = imap.append(mailbox, r"(\Seen)", None, message.as_bytes())
+        return str(status).upper() == "OK"
+    except (imaplib.IMAP4.error, OSError, TimeoutError):
+        return False
+    finally:
+        if imap is not None:
+            try:
+                imap.logout()
+            except Exception:
+                pass
 
 
 def test_spacemail_connection(settings: Settings) -> dict[str, object]:
@@ -240,12 +308,18 @@ def send_welcome_email(
     try:
         with _smtp_login(settings) as smtp:
             smtp.login(settings.spacemail_smtp_username, settings.spacemail_smtp_password)
-            smtp.send_message(message)
+            refused = smtp.send_message(message)
+            if refused:
+                raise SpacemailError("Spacemail rejected the welcome email recipient.")
+    except SpacemailError:
+        raise
     except (smtplib.SMTPException, OSError, TimeoutError) as exc:
         raise SpacemailError("Spacemail could not deliver the DoobieLogic welcome email.") from exc
 
+    sent_copy_saved = _save_sent_copy(settings, message)
     return WelcomeEmailDelivery(
         sent=True,
         recipient=recipient,
         sender=settings.spacemail_from_email,
+        sent_copy_saved=sent_copy_saved,
     )
