@@ -42,7 +42,7 @@ function LearningReviewCard() {
   const learning = useQuery({ queryKey: ["ai-learning"], queryFn: ({ signal }) => apiGet<LearningPayload>("/api/v1/ai-agents/learning", signal), retry: false });
   const pending = useQuery({ queryKey: ["ai-learning-feedback"], queryFn: ({ signal }) => apiGet<PendingPayload>("/api/v1/ai-agents/feedback/pending?limit=50", signal), retry: false, enabled: learning.isSuccess });
   const approve = useMutation({
-    mutationFn: (id: string) => apiPost(`/api/v1/ai-agents/feedback/${encodeURIComponent(id)}/training-approval`, { approved: true }),
+    mutationFn: (id: string) => apiPost(`/api/v1/ai-agents/feedback/${encodeURIComponent(id)}/learning-approval`, { approved: true }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["ai-learning-feedback"] });
       client.invalidateQueries({ queryKey: ["ai-learning"] });
@@ -60,7 +60,7 @@ function LearningReviewCard() {
     {patternRows.length ? <div><h3>Highest-confidence patterns</h3>{patternRows.map((pattern, index) => <p key={`${pattern.agent}-${index}`}><strong>{pattern.agent.replaceAll("_", " ")} · {Math.round((pattern.confidence ?? 0) * 100)}% · n={pattern.sample_size ?? 0}</strong> · {pattern.summary}</p>)}</div> : <p>No facility patterns have met the minimum evidence thresholds yet. Agents will begin learning as enough authorized historical rows accumulate.</p>}
     <div><h3>Corrections awaiting approval</h3>{pending.isLoading ? <p>Loading corrections…</p> : pendingRows.length ? pendingRows.map(row => <article key={row.id} className="workspace-agent-profile"><div><p><strong>{row.agent.replaceAll("_", " ")}</strong>{row.user_rating ? ` · rating ${row.user_rating}/5` : ""}{row.created_at ? ` · ${new Date(row.created_at).toLocaleString()}` : ""}</p><p><strong>Question:</strong> {row.sanitized_prompt}</p><p><strong>Corrected answer:</strong> {row.corrected_answer}</p><div className="audit-actions"><button className="primary" type="button" disabled={approve.isPending} onClick={() => approve.mutate(row.id)}>Approve for facility learning</button></div></div></article>) : <p>No corrected answers are waiting for approval.</p>}</div>
     {approve.isError ? <div className="form-error">{approve.error.message}</div> : null}
-    <footer><span>Safety: learned patterns never override deterministic data, regulations, approved SOPs, or equipment limits.</span></footer>
+    <footer><span>Safety: facility-learning approval does not authorize model training. Learned patterns never override deterministic data, regulations, approved SOPs, or equipment limits.</span></footer>
   </section>;
 }
 
