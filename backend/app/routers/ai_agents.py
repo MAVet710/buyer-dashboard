@@ -67,7 +67,7 @@ class FeedbackRequest(BaseModel):
     model: str = Field(default="", max_length=160)
 
 
-class TrainingApprovalRequest(BaseModel):
+class LearningApprovalRequest(BaseModel):
     approved: bool = True
 
 
@@ -338,7 +338,7 @@ def save_feedback(
         provider=payload.provider,
         model=payload.model,
     )
-    return {"id": row_id, "training_approved": False}
+    return {"id": row_id, "learning_approved": False, "training_approved": False}
 
 
 @router.get("/feedback/pending")
@@ -361,15 +361,15 @@ def pending_feedback(
     return {"feedback": rows, "count": len(rows)}
 
 
-@router.post("/feedback/{feedback_id}/training-approval")
+@router.post("/feedback/{feedback_id}/learning-approval")
 def approve_feedback_learning(
     feedback_id: str,
-    payload: TrainingApprovalRequest,
+    payload: LearningApprovalRequest,
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
     _require_diagnostics(context)
-    changed = AgentFeedbackStore(engine).set_training_approved(
+    changed = AgentFeedbackStore(engine).set_learning_approved(
         row_id=feedback_id,
         organization_id=context.organization_id,
         facility_id=context.facility_id,
@@ -377,4 +377,4 @@ def approve_feedback_learning(
     )
     if not changed:
         raise HTTPException(404, "Feedback was not found in the current organization/facility.")
-    return {"id": feedback_id, "training_approved": bool(payload.approved)}
+    return {"id": feedback_id, "learning_approved": bool(payload.approved), "training_approved": False}
