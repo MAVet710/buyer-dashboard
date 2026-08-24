@@ -12,6 +12,21 @@ from typing import Any
 from sqlalchemy import Engine, text
 
 
+_SOURCE_PRECEDENCE = {
+    "regulation": 1.00,
+    "regulatory_guidance": 0.92,
+    "facility_sop": 0.90,
+    "internal_policy": 0.86,
+    "equipment_manual": 0.84,
+    "manufacturer": 0.82,
+    "metrc": 0.78,
+    "dutchie": 0.74,
+    "technical_reference": 0.68,
+    "peer_reviewed": 0.70,
+    "field_practice": 0.22,
+}
+
+
 @dataclass(frozen=True)
 class KnowledgeScope:
     organization_id: str
@@ -23,6 +38,28 @@ class KnowledgeStore:
 
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
+
+    @staticmethod
+    def _effective_timestamp(value: Any) -> float:
+        text_value = str(value or "").strip()
+        for fmt, width in (("%Y-%m-%d", 10), ("%Y-%m", 7), ("%Y", 4)):
+            try:
+                return datetime.strptime(text_value[:width], fmt).replace(tzinfo=timezone.utc).timestamp()
+            except ValueError:
+                continue
+        return 0.0
+
+    @classmethod
+    def _precedence_score(cls, row: dict[str, Any]) -> float:
+        source_type = str(row.get("source_type") or "").casefold().strip()
+        source_rank = _SOURCE_PRECEDENCE.get(source_type, 0.50)
+        effective = cls._effective_timestamp(row.get("effective_date"))
+        if effective:
+            year = datetime.fromtimestamp(effective, tz=timezone.utc).year
+            freshness = max(0.0, min(1.0, (year - 2018) / 10.0))
+        else:
+            freshness = 0.35
+        return round(0.82 * source_rank + 0.18 * freshness, 6)
 
     def add_document(self, *, scope: KnowledgeScope, title: str, source: str, source_type: str, authority_level: int, jurisdiction: str = "", effective_date: str = "", version: str = "", source_url: str = "", global_scope: bool = False, facility_scope: bool = True, document_hash: str = "") -> str:
         document_id = str(uuid.uuid4())
@@ -141,6 +178,7 @@ class KnowledgeStore:
             return []
         for row in rows:
             row["scope"] = "global" if row.get("organization_id") is None else "organization" if row.get("facility_id") is None else "facility"
+            row["precedence_score"] = self._precedence_score(row)
             row.pop("organization_id", None)
             row.pop("facility_id", None)
         return rows
@@ -192,9 +230,11 @@ class KnowledgeStore:
                 embedding = []
             vector = self._cosine(query_embedding or [], [float(value) for value in embedding])
             authority = max(0.0, (7.0 - min(float(row.get("authority_level") or 99), 7.0)) / 7.0)
-            row["score"] = round(0.55 * lexical + 0.35 * max(0.0, vector) + 0.10 * authority, 6)
+            precedence = self._precedence_score(row)
+            row["precedence_score"] = precedence
+            row["score"] = round(0.52 * lexical + 0.30 * max(0.0, vector) + 0.12 * authority + 0.06 * precedence, 6)
             row.pop("embedding_json", None)
-        rows.sort(key=lambda row: (float(row.get("score") or 0), -int(row.get("authority_level") or 99)), reverse=True)
+        rows.sort(key=lambda row: (float(row.get("score") or 0), -int(row.get("authority_level") or 99), float(row.get("precedence_score") or 0)), reverse=True)
         return rows[: max(1, min(int(limit), 20))]
 
     def health(self, scope: KnowledgeScope) -> dict[str, Any]:
