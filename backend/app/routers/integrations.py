@@ -90,7 +90,7 @@ def _service(engine: Engine, settings: Settings) -> IntegrationConfigurationServ
 
 def _require_dev(context: RequestContext) -> None:
     if context.role != "dev":
-        raise HTTPException(403, "Level DEV access is required for platform integration settings.")
+        raise HTTPException(403, "Level DEV access is required for platform AI settings.")
 
 
 @router.get("")
