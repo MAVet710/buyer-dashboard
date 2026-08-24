@@ -46,6 +46,7 @@ export function ExtractionUnifiedPage({ onNavigate }: { onNavigate: (page: strin
   const inventoryLoading = lots.isLoading && productionInventory.isLoading;
   const fallbackActive = !lots.isLoading && (!lots.data?.length || lots.isError) && fallbackLots.length > 0;
   const inventoryFailed = lots.isError && productionInventory.isError;
+  const inventoryError = [lots.error?.message, productionInventory.error?.message].filter(Boolean).join(" · ");
 
   return <div className="page extraction-unified">
     <div className="page-heading">
@@ -67,7 +68,7 @@ export function ExtractionUnifiedPage({ onNavigate }: { onNavigate: (page: strin
       <div className="section-heading"><div><div className="eyebrow">Extraction Inventory</div><h2>Available input lots</h2><p>Reservation-aware durable facility lots available to reserve into extraction runs. If that feed is unavailable, DoobieLogic falls back to the same Production Inventory package source instead of leaving this workspace blank.</p></div></div>
       {inventoryLoading ? <div className="state">Loading extraction inventory…</div> : null}
       {fallbackActive ? <div className="info-banner">The extraction reservation feed did not return usable rows, so this view is showing eligible Production Inventory lots. Run 360 will still validate availability again when material is reserved.</div> : null}
-      {inventoryFailed ? <div className="state error">Extraction inventory could not be loaded. {lots.error.message} · {productionInventory.error.message}</div> : null}
+      {inventoryFailed ? <div className="state error">Extraction inventory could not be loaded. {inventoryError || "No inventory source responded."}</div> : null}
       <div className="metrics">
         <div className="metric"><span>Available lots</span><strong>{inventoryRows.length}</strong></div>
         <div className="metric"><span>Total available</span><strong>{inventoryRows.reduce((sum, row) => sum + Number(row.available || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}</strong></div>
