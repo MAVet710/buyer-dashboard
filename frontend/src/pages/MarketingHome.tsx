@@ -2,44 +2,64 @@ import {
   ArrowRight,
   BarChart3,
   Boxes,
+  CircleCheck,
   ClipboardCheck,
   Factory,
+  FileCheck2,
+  FlaskConical,
+  LockKeyhole,
   PackageCheck,
   ShieldCheck,
   ShoppingCart,
-  Sparkles,
   Warehouse,
+  Workflow,
 } from "lucide-react";
 import { APP_URL, BRAND_IMAGE_URL } from "../lib/brand";
 
-const capabilities = [
+const modules = [
+  [ShoppingCart, "Buying"],
+  [Warehouse, "Inventory"],
+  [PackageCheck, "Receiving"],
+  [ClipboardCheck, "Audits"],
+  [FlaskConical, "Extraction"],
+  [Factory, "Production"],
+  [Workflow, "METRC"],
+  [ShieldCheck, "Compliance"],
+] as const;
+
+const featureCards = [
   {
-    icon: ShoppingCart,
-    title: "Buy with the whole picture",
-    body: "Turn inventory, sales velocity, days of supply, pricing, and purchasing budgets into clearer buying decisions.",
+    icon: FlaskConical,
+    title: "Extraction Command Center",
+    body: "Plan, execute, and monitor extraction runs with inputs, outputs, yields, costs, stages, and operator notes in one workspace.",
+  },
+  {
+    icon: Workflow,
+    title: "METRC Integration",
+    body: "Keep packages, manifests, transfers, and operational records aligned with state traceability workflows and facility context.",
   },
   {
     icon: Warehouse,
-    title: "Know what is actually on hand",
-    body: "Receive inventory, run focused counts, pause and resume audits, track lots, and keep facility-level inventory separate.",
+    title: "Inventory & Receiving",
+    body: "Track lot-level inventory, receiving, focused counts, package IDs, and facility-specific stock without spreadsheet drift.",
   },
   {
     icon: Factory,
-    title: "Run production from the same system",
-    body: "Plan production, extraction, packaging, Co-Man work, materials, outputs, costs, QA, and capacity without another spreadsheet stack.",
+    title: "Production & QA",
+    body: "Manage production, packaging, materials, outputs, quality checks, and costing from source material through finished goods.",
   },
   {
-    icon: ShieldCheck,
-    title: "Keep compliance close to the work",
-    body: "Bring traceability, METRC-oriented workflows, product naming, compliance research, and operational evidence into the same daily workspace.",
+    icon: FileCheck2,
+    title: "Compliance Evidence & Reporting",
+    body: "Preserve source context, user actions, audit evidence, reports, and operational history so the work stays inspection-ready.",
   },
 ];
 
 const workflow = [
-  ["01", "Connect the operation", "Start with the facility, users, roles, and the operational data your team already works from."],
-  ["02", "See the pressure points", "Surface inventory risk, buying needs, production constraints, slow movers, holds, and upcoming work."],
-  ["03", "Act from the same workspace", "Receive, count, buy, produce, investigate, map, report, and document without bouncing between disconnected tools."],
-  ["04", "Keep the receipts", "Preserve source context, operational history, user permissions, and facility boundaries as the work changes."],
+  ["01", "Connect the operation", "Start with facilities, users, roles, licenses, and the operational data your team already works from."],
+  ["02", "See what needs attention", "Surface inventory pressure, purchasing needs, active runs, holds, receiving work, and compliance exceptions."],
+  ["03", "Act from the same workspace", "Receive, count, buy, produce, extract, investigate, report, and document without bouncing between disconnected systems."],
+  ["04", "Keep the audit trail", "Preserve source context, operational history, permissions, facility boundaries, and the evidence behind every decision."],
 ];
 
 export function MarketingHome() {
@@ -49,99 +69,143 @@ export function MarketingHome() {
         <nav className="marketing-nav" aria-label="Public navigation">
           <a className="marketing-brand" href="#top" aria-label="DoobieLogic home">
             <img className="marketing-brand-image" src={BRAND_IMAGE_URL} alt="DoobieLogic" />
-            <span className="marketing-brand-copy"><strong>DoobieLogic</strong><small>Cannabis Operations Intelligence</small></span>
+            <span className="marketing-wordmark"><strong>Doobie</strong><em>Logic</em></span>
           </a>
+
           <div className="marketing-nav-links">
             <a href="#platform">Platform</a>
-            <a href="#operations">Operations</a>
+            <a href="#extraction">Extraction</a>
+            <a href="#compliance">Compliance</a>
             <a href="#workflow">How it works</a>
           </div>
-          <a className="marketing-login" href={APP_URL}>Log in <ArrowRight size={15} /></a>
+
+          <div className="marketing-nav-actions">
+            <a className="marketing-nav-login" href={APP_URL}>Log In</a>
+            <a className="marketing-nav-primary" href={APP_URL}>Open DoobieLogic</a>
+          </div>
         </nav>
       </header>
 
       <main id="top">
         <section className="marketing-hero">
           <div className="marketing-hero-copy">
-            <div className="marketing-eyebrow">Built for cannabis retail, production, and compliance teams</div>
-            <h1>One operating system for the work between the menu and the manifest.</h1>
+            <div className="marketing-eyebrow">Cannabis operations intelligence + compliance</div>
+            <h1>
+              One operating system for <span>buying, inventory, extraction, production,</span> and METRC-ready compliance.
+            </h1>
             <p>
-              DoobieLogic brings buying, inventory, receiving, audits, production, extraction,
-              compliance, reporting, and facility controls into one connected workspace.
+              DoobieLogic connects purchasing, receiving, inventory, audits, production, extraction,
+              QA, reporting, and compliance in one secure workspace built for cannabis operators.
             </p>
+
             <div className="marketing-cta-row">
-              <a className="marketing-primary" href={APP_URL}>Open DoobieLogic <ArrowRight size={17} /></a>
+              <a className="marketing-primary" href={APP_URL}>Open DoobieLogic <ArrowRight size={18} /></a>
               <a className="marketing-secondary" href="#platform">Explore the platform</a>
             </div>
+
             <div className="marketing-proof-line">
-              <span><ClipboardCheck size={15} /> Facility-aware</span>
-              <span><ShieldCheck size={15} /> Permission-aware</span>
-              <span><Sparkles size={15} /> AI where it helps, deterministic workflows where it matters</span>
+              <span><CircleCheck size={16} /> Facility-aware</span>
+              <span><LockKeyhole size={16} /> Permission-aware</span>
+              <span><ShieldCheck size={16} /> Audit-ready</span>
             </div>
           </div>
 
           <div className="marketing-product-frame" aria-label="DoobieLogic operations dashboard preview">
-            <div className="marketing-product-topbar">
-              <div className="marketing-mini-brand"><img src={BRAND_IMAGE_URL} alt="" /><strong>DoobieLogic</strong></div>
-              <div className="marketing-context-pill">Retail Ops · Sandbox Facility</div>
-            </div>
-            <div className="marketing-product-body">
-              <aside className="marketing-product-sidebar">
-                {['Home','Inventory','Purchasing','Orders','Production','Reports','Compliance'].map((item, index) => (
-                  <div key={item} className={index === 0 ? "active" : ""}>{item}</div>
-                ))}
-              </aside>
-              <div className="marketing-product-content">
-                <div className="marketing-preview-heading">
-                  <div><small>OPERATIONS HOME</small><h3>What needs attention today</h3></div>
-                  <span>Live workspace</span>
+            <aside className="marketing-product-sidebar">
+              <div className="marketing-mini-brand">
+                <img src={BRAND_IMAGE_URL} alt="" />
+                <span className="marketing-mini-wordmark"><strong>Doobie</strong><em>Logic</em></span>
+              </div>
+              {['Home','Inventory','Purchasing','Extraction','Production','Compliance','METRC','Reports'].map((item, index) => (
+                <div key={item} className={`marketing-product-nav-item ${index === 0 ? "active" : ""}`}>{item}</div>
+              ))}
+              <div className="marketing-user-card">
+                <span>DL</span>
+                <div><strong>Operations Admin</strong><small>Sandbox Facility</small></div>
+              </div>
+            </aside>
+
+            <div className="marketing-product-content">
+              <div className="marketing-preview-heading">
+                <div>
+                  <small>OPERATIONS HOME</small>
+                  <h3>Good morning, Operations Team.</h3>
+                  <p>Here&apos;s what needs attention across your operation.</p>
                 </div>
-                <div className="marketing-kpis">
-                  <article><span>Reorder now</span><strong>12</strong><small>6 urgent</small></article>
-                  <article><span>Inventory value</span><strong>$184k</strong><small>across active lots</small></article>
-                  <article><span>Production queue</span><strong>8</strong><small>3 due this week</small></article>
-                  <article><span>Compliance holds</span><strong>2</strong><small>review required</small></article>
-                </div>
-                <div className="marketing-preview-grid">
-                  <section>
-                    <div className="marketing-preview-section-title"><strong>Inventory pressure</strong><span>Buyer view</span></div>
-                    {[['GMO Pre-Roll 1g','11 DOS','Reorder'],['Blue Dream Flower 3.5g','19 DOS','Watch'],['Live Resin Cart 1g','96 DOS','Overstock']].map(([name,dos,state]) => (
-                      <div className="marketing-preview-row" key={name}><span>{name}</span><small>{dos}</small><em>{state}</em></div>
-                    ))}
-                  </section>
-                  <section>
-                    <div className="marketing-preview-section-title"><strong>Production pulse</strong><span>Production Ops</span></div>
-                    <div className="marketing-run-card"><Factory size={18}/><div><strong>PR-2048 · Infused Pre-Rolls</strong><small>Packaging · 72% complete</small></div><b>On track</b></div>
-                    <div className="marketing-run-card"><PackageCheck size={18}/><div><strong>EXT-118 · Live Resin</strong><small>QA review · output pending</small></div><b className="warn">Review</b></div>
-                  </section>
-                </div>
+                <span>Live workspace</span>
+              </div>
+
+              <div className="marketing-kpis">
+                <article><span>Active Runs</span><strong>14</strong><small>3 require attention</small></article>
+                <article><span>Inventory Risk</span><strong>12</strong><small>6 urgent reorders</small></article>
+                <article><span>Avg Yield</span><strong>18.7%</strong><small>up 2.1% vs last week</small></article>
+                <article><span>Compliance Flags</span><strong>2</strong><small>review required</small></article>
+              </div>
+
+              <div className="marketing-preview-grid">
+                <section>
+                  <div className="marketing-preview-section-title"><strong>Extraction Command Center</strong><span>View all runs →</span></div>
+                  <div className="marketing-table-head"><span>Run ID</span><span>Product</span><span>Stage</span><span>Status</span></div>
+                  {[
+                    ['EXT-118','Live Resin','Purging','In Progress'],
+                    ['PR-2048','Infused Pre-Rolls','Packaging','In Progress'],
+                    ['EXT-117','Live Resin','Pressing','Completed'],
+                    ['EXT-116','Distillate','Distillation','Completed'],
+                  ].map(([id, product, stage, status]) => (
+                    <div className="marketing-preview-row" key={id}>
+                      <span>{id}</span><span>{product}</span><small>{stage}</small><em className={status === 'Completed' ? 'done' : ''}>{status}</em>
+                    </div>
+                  ))}
+                </section>
+
+                <section>
+                  <div className="marketing-preview-section-title"><strong>METRC Sync / State Compliance</strong><span>View details →</span></div>
+                  {[
+                    ['Manifest matching','Synced'],
+                    ['Package traceability','Synced'],
+                    ['Batch transfers','Synced'],
+                    ['Audit trail','Up to date'],
+                    ['Compliance status','Pass'],
+                  ].map(([label, state]) => (
+                    <div className="marketing-status-row" key={label}><span>{label}</span><b>{state} <CircleCheck size={12}/></b></div>
+                  ))}
+                </section>
+              </div>
+
+              <div className="marketing-sync-bar">
+                <div><ShieldCheck size={19}/><span><strong>All systems in sync</strong><small>Inventory, production, and compliance data are connected and audit-ready.</small></span></div>
+                <div className="marketing-sync-stat"><strong>98.6%</strong><small>Compliance score</small></div>
+                <div className="marketing-sync-stat"><strong>1</strong><small>Open action</small></div>
+                <div className="marketing-sync-stat"><strong>2 mins</strong><small>Last sync</small></div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="marketing-signal-strip" aria-label="DoobieLogic workspaces">
-          {['Buying','Inventory','Receiving','Audits','Production','Extraction','Compliance','Reports'].map(item => <span key={item}>{item}</span>)}
+        <section className="marketing-module-strip" aria-label="DoobieLogic workspaces">
+          {modules.map(([Icon, label]) => <span key={label}><Icon size={18}/>{label}</span>)}
         </section>
 
-        <section className="marketing-section" id="platform">
+        <section className="marketing-section marketing-feature-section" id="platform">
           <div className="marketing-section-heading">
             <div className="marketing-eyebrow">The platform</div>
-            <h2>The operational layer cannabis teams keep rebuilding in spreadsheets.</h2>
-            <p>DoobieLogic is designed around the jobs operators actually have to finish, not a collection of disconnected dashboards.</p>
+            <h2>Built around the work operators actually have to finish.</h2>
+            <p>One connected layer for the operational handoffs that usually live across spreadsheets, POS exports, seed-to-sale systems, notes, and tribal knowledge.</p>
           </div>
-          <div className="marketing-capability-grid">
-            {capabilities.map(({ icon: Icon, title, body }) => (
-              <article className="marketing-capability-card" key={title}>
-                <span className="marketing-icon"><Icon size={20}/></span>
+
+          <div className="marketing-feature-grid">
+            {featureCards.map(({ icon: Icon, title, body }) => (
+              <article className="marketing-feature-card" key={title}>
+                <span className="marketing-icon"><Icon size={24}/></span>
                 <h3>{title}</h3>
                 <p>{body}</p>
+                <a href="#workflow">Learn more <ArrowRight size={15}/></a>
               </article>
             ))}
           </div>
         </section>
 
-        <section className="marketing-operations" id="operations">
+        <section className="marketing-operations" id="extraction">
           <div className="marketing-operations-copy">
             <div className="marketing-eyebrow">Retail Ops + Production Ops</div>
             <h2>Different licenses. Different inventory. One operating language.</h2>
@@ -150,17 +214,29 @@ export function MarketingHome() {
               Production and cultivation teams need bulk cannabis, plants, materials, extraction, production runs, QA, and their own license context.
             </p>
             <div className="marketing-operation-list">
-              <span><Boxes size={17}/> Retail inventory and buying workflows</span>
-              <span><Factory size={17}/> Production, extraction, packaging, and Co-Man</span>
-              <span><ClipboardCheck size={17}/> Audits, receiving, traceability, and compliance evidence</span>
-              <span><BarChart3 size={17}/> Operational and executive reporting</span>
+              <span><Boxes size={18}/> Retail inventory and buying workflows</span>
+              <span><FlaskConical size={18}/> Extraction runs, yields, inputs, outputs, and costing</span>
+              <span><Factory size={18}/> Production, packaging, QA, and Co-Man</span>
+              <span><BarChart3 size={18}/> Operational and executive reporting</span>
             </div>
           </div>
+
           <div className="marketing-operations-panel">
             <div className="marketing-panel-label">Facility context</div>
-            <article className="marketing-license-card retail"><span>Retail</span><strong>Adult-use store</strong><p>Sellable inventory, purchasing, sales, receiving, counts, compliance, reports.</p></article>
-            <article className="marketing-license-card production"><span>Production</span><strong>Manufacturing / cultivation</strong><p>Bulk inventory, plants, production runs, extraction, QA, costing, capacity, traceability.</p></article>
+            <article className="marketing-license-card retail"><span>Retail</span><strong>Adult-use store</strong><p>Sellable inventory, purchasing, sales, receiving, focused counts, compliance, and reporting.</p></article>
+            <article className="marketing-license-card production"><span>Production</span><strong>Manufacturing / cultivation</strong><p>Bulk inventory, plants, extraction, production runs, QA, materials, costing, capacity, and traceability.</p></article>
           </div>
+        </section>
+
+        <section className="marketing-trust-band" id="compliance">
+          <div className="marketing-trust-intro">
+            <span className="marketing-trust-shield"><ShieldCheck size={28}/></span>
+            <div><h3>Built for regulated operators</h3><p>Run cleaner operations, reduce risk, and preserve the evidence behind the work.</p></div>
+          </div>
+          <article><ShieldCheck size={21}/><div><strong>State Compliance</strong><p>Workflows designed around regulated cannabis operations and evolving requirements.</p></div></article>
+          <article><Workflow size={21}/><div><strong>Full Traceability</strong><p>Track product, package, lot, run, and facility context across the operation.</p></div></article>
+          <article><ClipboardCheck size={21}/><div><strong>Audit Ready</strong><p>Maintain a usable trail of actions, records, source context, and reports.</p></div></article>
+          <article><LockKeyhole size={21}/><div><strong>Facility Controls</strong><p>Role-based access and facility boundaries keep operational data separated.</p></div></article>
         </section>
 
         <section className="marketing-section" id="workflow">
@@ -178,17 +254,21 @@ export function MarketingHome() {
         <section className="marketing-final-cta">
           <div>
             <div className="marketing-eyebrow">DoobieLogic</div>
-            <h2>Less swivel-chair operations. More time running the business.</h2>
-            <p>The application lives at ops.doobielogic.io. Your public site stays clean; your operational workspace stays secured behind login.</p>
+            <h2>One secure operating system for the work that cannot afford to get lost.</h2>
+            <p>Open the secured DoobieLogic workspace for buying, inventory, receiving, production, extraction, reporting, and compliance.</p>
           </div>
-          <a className="marketing-primary" href={APP_URL}>Log in to DoobieLogic <ArrowRight size={17}/></a>
+          <a className="marketing-primary" href={APP_URL}>Open DoobieLogic <ArrowRight size={18}/></a>
         </section>
       </main>
 
       <footer className="marketing-footer">
-        <div className="marketing-brand"><img className="marketing-brand-image" src={BRAND_IMAGE_URL} alt="DoobieLogic" /><span className="marketing-brand-copy"><strong>DoobieLogic</strong><small>Cannabis Operations Intelligence</small></span></div>
-        <div><a href="#platform">Platform</a><a href="#workflow">How it works</a><a href={APP_URL}>Log in</a></div>
-        <small>© {new Date().getFullYear()} DoobieLogic</small>
+        <div className="marketing-footer-brand">
+          <div className="marketing-brand"><img className="marketing-brand-image" src={BRAND_IMAGE_URL} alt="DoobieLogic" /><span className="marketing-wordmark"><strong>Doobie</strong><em>Logic</em></span></div>
+          <small>Cannabis Operations Intelligence</small>
+        </div>
+        <div className="marketing-footer-links"><a href="#platform">Platform</a><a href="#extraction">Extraction</a><a href="#compliance">Compliance</a><a href={APP_URL}>Log in</a></div>
+        <div className="marketing-footer-motto"><strong>Semper Paratus</strong><span>•</span><span>Powered by Good Weed and Data</span></div>
+        <small className="marketing-copyright">© {new Date().getFullYear()} DoobieLogic</small>
       </footer>
     </div>
   );
