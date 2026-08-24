@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: doobielogic-production
+  cancel-in-progress: false
+
 env:
   REGISTRY: us-east1-docker.pkg.dev
   API_SERVICE: buyer-dash-api
@@ -60,7 +64,7 @@ jobs:
       contents: read
       id-token: write
     outputs:
-      api_url: ${{ steps.promote.outputs.url }}
+      api_url: ${{ steps.verify_production.outputs.url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -73,13 +77,11 @@ jobs:
 
       - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
-      - name: Build, identify, and push production API image
+      - name: Build, identify, and push immutable production API image
         run: |
           set -euo pipefail
           IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.API_SERVICE }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
-          docker build -f Dockerfile.api \
-            -t "$IMAGE" \
-            .
+          docker build -f Dockerfile.api -t "$IMAGE" .
 
           HEADS="$(docker run --rm "$IMAGE" alembic heads)"
           echo "$HEADS"
@@ -93,13 +95,43 @@ jobs:
           echo "API image schema head: $IMAGE_SCHEMA_HEAD"
 
           docker push "$IMAGE"
+          IMAGE_DIGEST="$(gcloud artifacts docker images describe "$IMAGE" --project "${{ secrets.GCP_PROJECT_ID }}" --format='value(image_summary.digest)')"
+          test -n "$IMAGE_DIGEST"
+          echo "API image digest: $IMAGE_DIGEST"
           echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "API_IMAGE_DIGEST=$IMAGE_DIGEST" >> "$GITHUB_ENV"
           echo "IMAGE_SCHEMA_HEAD=$IMAGE_SCHEMA_HEAD" >> "$GITHUB_ENV"
+
+      - name: Capture and preflight currently healthy production API revision
+        run: |
+          set -euo pipefail
+          SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --format=json)"
+          PREVIOUS_API_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+          SERVICE_URL="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.url // ""')"
+          test -n "$PREVIOUS_API_REVISION"
+          test -n "$SERVICE_URL"
+
+          health_code="$(curl -sS -o /tmp/pre-api-health.json -w '%{http_code}' "${{ env.PRODUCTION_API_URL }}/health" || true)"
+          ready_code="$(curl -sS -o /tmp/pre-api-ready.json -w '%{http_code}' "${{ env.PRODUCTION_API_URL }}/health/ready" || true)"
+          if [ "$health_code" != "200" ] || [ "$ready_code" != "200" ]; then
+            echo "Refusing deployment because the current production API is not healthy (health=$health_code ready=$ready_code)."
+            cat /tmp/pre-api-health.json || true
+            cat /tmp/pre-api-ready.json || true
+            exit 1
+          fi
+
+          echo "Previous healthy API revision: $PREVIOUS_API_REVISION"
+          echo "PREVIOUS_API_REVISION=$PREVIOUS_API_REVISION" >> "$GITHUB_ENV"
+          echo "API_SERVICE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
 
       - name: Run production database migrations
         run: |
           set -euo pipefail
           gcloud run jobs deploy "${{ env.MIGRATION_JOB }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
             --image "$API_IMAGE" \
             --region "${{ env.REGION }}" \
             --service-account "buyer-dash-migrate@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
@@ -111,19 +143,24 @@ jobs:
             --set-secrets DATABASE_URL=buyer-dash-database-url:latest \
             --quiet
           gcloud run jobs execute "${{ env.MIGRATION_JOB }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
             --region "${{ env.REGION }}" \
             --wait
 
       - name: Deploy API candidate without traffic
         run: |
           set -euo pipefail
+          API_CANDIDATE_TAG="api-candidate-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "API_CANDIDATE_TAG=$API_CANDIDATE_TAG" >> "$GITHUB_ENV"
           gcloud run deploy "${{ env.API_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
             --image "$API_IMAGE" \
             --region "${{ env.REGION }}" \
             --platform managed \
             --service-account "buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --allow-unauthenticated \
             --no-traffic \
+            --tag "$API_CANDIDATE_TAG" \
             --port 8080 \
             --min-instances 1 \
             --max-instances "${{ env.API_MAX_INSTANCES }}" \
@@ -134,85 +171,199 @@ jobs:
             --set-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
             --quiet
 
-      - name: Verify candidate identity and promote to 100 percent
-        id: promote
+      - name: Verify exact API candidate revision and HTTP health
         run: |
           set -euo pipefail
-          SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" --region "${{ env.REGION }}" --format=json)"
-          SERVICE_URL="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.url')"
-          CREATED_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.latestCreatedRevisionName')"
-          test -n "$CREATED_REVISION"
-          echo "Created revision: $CREATED_REVISION"
 
-          gcloud run revisions describe "$CREATED_REVISION" --region "${{ env.REGION }}" --format=json > /tmp/revision.json
-          READY_STATUS="$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .status][0] // ""' /tmp/revision.json)"
-          REV_RELEASE="$(jq -r '[.spec.containers[0].env[]? | select(.name == "RELEASE_SHA") | .value][0] // ""' /tmp/revision.json)"
-          REV_SCHEMA="$(jq -r '[.spec.containers[0].env[]? | select(.name == "EXPECTED_SCHEMA_HEAD") | .value][0] // ""' /tmp/revision.json)"
-          echo "ready=$READY_STATUS release=$REV_RELEASE schema=$REV_SCHEMA"
+          dump_candidate_logs() {
+            if [ -n "${CREATED_API_REVISION:-}" ]; then
+              echo "=== API candidate revision ==="
+              gcloud run revisions describe "$CREATED_API_REVISION" \
+                --project "${{ secrets.GCP_PROJECT_ID }}" \
+                --region "${{ env.REGION }}" \
+                --format='yaml(metadata.name,spec.containers,status.conditions)' || true
+              echo "=== API candidate logs ==="
+              gcloud logging read \
+                "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${{ env.API_SERVICE }}\" AND resource.labels.revision_name=\"$CREATED_API_REVISION\"" \
+                --project "${{ secrets.GCP_PROJECT_ID }}" \
+                --limit 200 \
+                --order=asc \
+                --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
+            fi
+          }
+          trap 'status=$?; if [ "$status" -ne 0 ]; then dump_candidate_logs; fi' EXIT
 
-          if [ "$READY_STATUS" != "True" ]; then
-            jq '.status.conditions' /tmp/revision.json || true
-            gcloud logging read \
-              "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${{ env.API_SERVICE }}\" AND resource.labels.revision_name=\"$CREATED_REVISION\"" \
-              --limit 150 \
-              --order=asc \
-              --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
-            exit 1
-          fi
-          if [ "$REV_RELEASE" != "${{ github.sha }}" ]; then
-            echo "Refusing cutover: candidate release SHA does not match"
-            exit 1
-          fi
-          if [ "$REV_SCHEMA" != "$IMAGE_SCHEMA_HEAD" ]; then
-            echo "Refusing cutover: candidate schema head does not match image head"
-            exit 1
-          fi
-
-          gcloud run services update-traffic "${{ env.API_SERVICE }}" \
+          SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
             --region "${{ env.REGION }}" \
-            --to-revisions "$CREATED_REVISION=100" \
-            --quiet
+            --format=json)"
+          CREATED_API_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.latestCreatedRevisionName // ""')"
+          test -n "$CREATED_API_REVISION"
+          if [ "$CREATED_API_REVISION" = "$PREVIOUS_API_REVISION" ]; then
+            echo "Refusing cutover: Cloud Run did not create a new API revision."
+            exit 1
+          fi
 
+          CANDIDATE_REVISION=""
+          CANDIDATE_URL=""
           for attempt in $(seq 1 20); do
-            SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" --region "${{ env.REGION }}" --format=json)"
-            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
-            if [ "$ACTIVE_100" = "$CREATED_REVISION" ]; then
-              echo "Production traffic is 100% on $CREATED_REVISION"
-              echo "url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
-              exit 0
+            SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --format=json)"
+            CANDIDATE_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r --arg tag "$API_CANDIDATE_TAG" '[.status.traffic[]? | select(.tag == $tag) | .revisionName][0] // ""')"
+            CANDIDATE_URL="$(printf '%s' "$SERVICE_JSON" | jq -r --arg tag "$API_CANDIDATE_TAG" '[.status.traffic[]? | select(.tag == $tag) | .url][0] // ""')"
+            if [ "$CANDIDATE_REVISION" = "$CREATED_API_REVISION" ] && [ -n "$CANDIDATE_URL" ]; then
+              break
             fi
             sleep 3
           done
-          echo "Refusing cutover: candidate never received 100% traffic"
-          exit 1
+          if [ "$CANDIDATE_REVISION" != "$CREATED_API_REVISION" ] || [ -z "$CANDIDATE_URL" ]; then
+            echo "Refusing cutover: the candidate tag does not resolve to the exact newly created API revision."
+            exit 1
+          fi
 
-      - name: Verify production release and schema identity
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 30); do
-            health_code=$(curl -sS -o /tmp/health.json -w '%{http_code}' "${{ env.PRODUCTION_API_URL }}/health" || true)
-            ready_code=$(curl -sS -o /tmp/ready.json -w '%{http_code}' "${{ env.PRODUCTION_API_URL }}/health/ready" || true)
+          gcloud run revisions describe "$CREATED_API_REVISION" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --format=json > /tmp/api-candidate-revision.json
+          READY_STATUS="$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .status][0] // ""' /tmp/api-candidate-revision.json)"
+          REV_RELEASE="$(jq -r '[.spec.containers[0].env[]? | select(.name == "RELEASE_SHA") | .value][0] // ""' /tmp/api-candidate-revision.json)"
+          REV_SCHEMA="$(jq -r '[.spec.containers[0].env[]? | select(.name == "EXPECTED_SCHEMA_HEAD") | .value][0] // ""' /tmp/api-candidate-revision.json)"
+          REV_IMAGE="$(jq -r '.spec.containers[0].image // ""' /tmp/api-candidate-revision.json)"
+          echo "candidate=$CREATED_API_REVISION ready=$READY_STATUS release=$REV_RELEASE schema=$REV_SCHEMA image=$REV_IMAGE"
+
+          [ "$READY_STATUS" = "True" ] || { echo "API candidate is not Ready."; exit 1; }
+          [ "$REV_RELEASE" = "${{ github.sha }}" ] || { echo "API candidate RELEASE_SHA does not match github.sha."; exit 1; }
+          [ "$REV_SCHEMA" = "$IMAGE_SCHEMA_HEAD" ] || { echo "API candidate EXPECTED_SCHEMA_HEAD does not match image Alembic head."; exit 1; }
+          case "$REV_IMAGE" in
+            *@"$API_IMAGE_DIGEST") ;;
+            *) echo "API candidate is not running the image digest built by this workflow."; exit 1 ;;
+          esac
+
+          candidate_ok=false
+          for attempt in $(seq 1 20); do
+            health_code="$(curl -sS -o /tmp/candidate-api-health.json -w '%{http_code}' "$CANDIDATE_URL/health" || true)"
+            ready_code="$(curl -sS -o /tmp/candidate-api-ready.json -w '%{http_code}' "$CANDIDATE_URL/health/ready" || true)"
             if [ "$health_code" = "200" ] && [ "$ready_code" = "200" ]; then
-              RELEASE="$(jq -r '.release_sha // ""' /tmp/ready.json)"
-              DB_HEAD="$(jq -r '.schema_revision // ""' /tmp/ready.json)"
-              RUNTIME_HEAD="$(jq -r '.expected_schema_revision // ""' /tmp/ready.json)"
-              SCHEMA_MATCHES="$(jq -r '.schema_matches // false' /tmp/ready.json)"
+              RELEASE="$(jq -r '.release_sha // ""' /tmp/candidate-api-ready.json)"
+              DB_HEAD="$(jq -r '.schema_revision // ""' /tmp/candidate-api-ready.json)"
+              RUNTIME_HEAD="$(jq -r '.expected_schema_revision // ""' /tmp/candidate-api-ready.json)"
+              SCHEMA_MATCHES="$(jq -r '.schema_matches // false' /tmp/candidate-api-ready.json)"
               if [ "$RELEASE" = "${{ github.sha }}" ] \
                 && [ "$DB_HEAD" = "$IMAGE_SCHEMA_HEAD" ] \
                 && [ "$RUNTIME_HEAD" = "$IMAGE_SCHEMA_HEAD" ] \
                 && [ "$SCHEMA_MATCHES" = "true" ]; then
-                cat /tmp/health.json
-                cat /tmp/ready.json
-                echo "Release SHA and schema identity verified"
-                exit 0
+                candidate_ok=true
+                break
               fi
             fi
-            echo "API identity not ready yet (health=$health_code ready=$ready_code); retrying..."
+            sleep 3
+          done
+          if [ "$candidate_ok" != "true" ]; then
+            echo "API candidate failed direct HTTP identity/health validation."
+            cat /tmp/candidate-api-health.json || true
+            cat /tmp/candidate-api-ready.json || true
+            exit 1
+          fi
+
+          cat /tmp/candidate-api-health.json
+          cat /tmp/candidate-api-ready.json
+          echo "CREATED_API_REVISION=$CREATED_API_REVISION" >> "$GITHUB_ENV"
+          echo "API_CANDIDATE_URL=$CANDIDATE_URL" >> "$GITHUB_ENV"
+
+      - name: Promote exact validated API revision to 100 percent
+        run: |
+          set -euo pipefail
+          gcloud run services update-traffic "${{ env.API_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --to-revisions "$CREATED_API_REVISION=100" \
+            --quiet
+
+          for attempt in $(seq 1 20); do
+            SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --format=json)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+            [ "$ACTIVE_100" = "$CREATED_API_REVISION" ] && exit 0
+            sleep 3
+          done
+          echo "Validated API candidate never received 100% production traffic."
+          exit 1
+
+      - name: Verify production API identity or restore previous traffic
+        id: verify_production
+        run: |
+          set -euo pipefail
+          production_ok=false
+          for attempt in $(seq 1 30); do
+            health_code="$(curl -sS -o /tmp/production-api-health.json -w '%{http_code}' "${{ env.PRODUCTION_API_URL }}/health" || true)"
+            ready_code="$(curl -sS -o /tmp/production-api-ready.json -w '%{http_code}' "${{ env.PRODUCTION_API_URL }}/health/ready" || true)"
+            if [ "$health_code" = "200" ] && [ "$ready_code" = "200" ]; then
+              RELEASE="$(jq -r '.release_sha // ""' /tmp/production-api-ready.json)"
+              DB_HEAD="$(jq -r '.schema_revision // ""' /tmp/production-api-ready.json)"
+              RUNTIME_HEAD="$(jq -r '.expected_schema_revision // ""' /tmp/production-api-ready.json)"
+              SCHEMA_MATCHES="$(jq -r '.schema_matches // false' /tmp/production-api-ready.json)"
+              if [ "$RELEASE" = "${{ github.sha }}" ] \
+                && [ "$DB_HEAD" = "$IMAGE_SCHEMA_HEAD" ] \
+                && [ "$RUNTIME_HEAD" = "$IMAGE_SCHEMA_HEAD" ] \
+                && [ "$SCHEMA_MATCHES" = "true" ]; then
+                production_ok=true
+                break
+              fi
+            fi
             sleep 6
           done
-          echo "API failed release/schema identity verification"
-          cat /tmp/health.json || true
-          cat /tmp/ready.json || true
+
+          if [ "$production_ok" = "true" ]; then
+            cat /tmp/production-api-health.json
+            cat /tmp/production-api-ready.json
+            echo "Production API release SHA and schema identity verified."
+            echo "url=$API_SERVICE_URL" >> "$GITHUB_OUTPUT"
+            gcloud run services update-traffic "${{ env.API_SERVICE }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --remove-tags "$API_CANDIDATE_TAG" \
+              --quiet || true
+            exit 0
+          fi
+
+          echo "Post-cutover API verification failed. Restoring application traffic to $PREVIOUS_API_REVISION."
+          cat /tmp/production-api-health.json || true
+          cat /tmp/production-api-ready.json || true
+          gcloud run services update-traffic "${{ env.API_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --to-revisions "$PREVIOUS_API_REVISION=100" \
+            --quiet
+
+          rollback_ok=false
+          for attempt in $(seq 1 20); do
+            SERVICE_JSON="$(gcloud run services describe "${{ env.API_SERVICE }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --format=json)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+            if [ "$ACTIVE_100" = "$PREVIOUS_API_REVISION" ]; then rollback_ok=true; break; fi
+            sleep 3
+          done
+          echo "API traffic rollback confirmed: $rollback_ok"
+          curl -sS "${{ env.PRODUCTION_API_URL }}/health" || true
+          curl -sS "${{ env.PRODUCTION_API_URL }}/health/ready" || true
+          gcloud logging read \
+            "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${{ env.API_SERVICE }}\" AND resource.labels.revision_name=\"$CREATED_API_REVISION\"" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --limit 200 \
+            --order=asc \
+            --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
+          gcloud run services update-traffic "${{ env.API_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --remove-tags "$API_CANDIDATE_TAG" \
+            --quiet || true
+          echo "Alembic migrations were intentionally NOT reversed; rollback assumes backward compatibility with the immediately previous API revision."
           exit 1
 
   deploy-web:
@@ -233,7 +384,7 @@ jobs:
 
       - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
-      - name: Build and push production web image
+      - name: Build and push immutable production web image
         run: |
           set -euo pipefail
           IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${{ env.WEB_SERVICE }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
@@ -241,72 +392,223 @@ jobs:
             --build-arg VITE_API_URL=${{ env.PRODUCTION_API_URL }} \
             --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
             --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }} \
+            --build-arg VITE_RELEASE_SHA=${{ github.sha }} \
             -t "$IMAGE" \
             frontend
           docker push "$IMAGE"
+          IMAGE_DIGEST="$(gcloud artifacts docker images describe "$IMAGE" --project "${{ secrets.GCP_PROJECT_ID }}" --format='value(image_summary.digest)')"
+          test -n "$IMAGE_DIGEST"
+          echo "Web image digest: $IMAGE_DIGEST"
           echo "WEB_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "WEB_IMAGE_DIGEST=$IMAGE_DIGEST" >> "$GITHUB_ENV"
+
+      - name: Capture and preflight currently healthy production web revision
+        run: |
+          set -euo pipefail
+          SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --format=json)"
+          PREVIOUS_WEB_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+          test -n "$PREVIOUS_WEB_REVISION"
+
+          public_code="$(curl -sS -L -o /tmp/pre-public.html -w '%{http_code}' https://doobielogic.io || true)"
+          ops_code="$(curl -sS -L -o /tmp/pre-ops.html -w '%{http_code}' https://ops.doobielogic.io || true)"
+          if [ "$public_code" != "200" ] || [ "$ops_code" != "200" ]; then
+            echo "Refusing deployment because the current production web revision is not healthy (public=$public_code ops=$ops_code)."
+            exit 1
+          fi
+
+          echo "Previous healthy web revision: $PREVIOUS_WEB_REVISION"
+          echo "PREVIOUS_WEB_REVISION=$PREVIOUS_WEB_REVISION" >> "$GITHUB_ENV"
 
       - name: Deploy frontend candidate without traffic
         run: |
           set -euo pipefail
+          WEB_CANDIDATE_TAG="web-candidate-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "WEB_CANDIDATE_TAG=$WEB_CANDIDATE_TAG" >> "$GITHUB_ENV"
           gcloud run deploy "${{ env.WEB_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
             --image "$WEB_IMAGE" \
             --region "${{ env.REGION }}" \
             --platform managed \
             --allow-unauthenticated \
             --no-traffic \
+            --tag "$WEB_CANDIDATE_TAG" \
             --port 8080 \
             --min-instances 1 \
             --max-instances 10 \
             --service-account="${{ secrets.GCP_SERVICE_ACCOUNT }}" \
             --quiet
 
-      - name: Verify frontend candidate and promote to 100 percent
+      - name: Verify exact frontend candidate revision and HTTP identity
         run: |
           set -euo pipefail
-          SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" --region "${{ env.REGION }}" --format=json)"
-          CREATED_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.latestCreatedRevisionName')"
-          test -n "$CREATED_REVISION"
-          echo "Created web revision: $CREATED_REVISION"
 
-          gcloud run revisions describe "$CREATED_REVISION" --region "${{ env.REGION }}" --format=json > /tmp/web-revision.json
-          READY_STATUS="$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .status][0] // ""' /tmp/web-revision.json)"
-          if [ "$READY_STATUS" != "True" ]; then
-            jq '.status.conditions' /tmp/web-revision.json || true
+          dump_candidate_logs() {
+            if [ -n "${CREATED_WEB_REVISION:-}" ]; then
+              echo "=== Web candidate revision ==="
+              gcloud run revisions describe "$CREATED_WEB_REVISION" \
+                --project "${{ secrets.GCP_PROJECT_ID }}" \
+                --region "${{ env.REGION }}" \
+                --format='yaml(metadata.name,spec.containers,status.conditions)' || true
+              echo "=== Web candidate logs ==="
+              gcloud logging read \
+                "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${{ env.WEB_SERVICE }}\" AND resource.labels.revision_name=\"$CREATED_WEB_REVISION\"" \
+                --project "${{ secrets.GCP_PROJECT_ID }}" \
+                --limit 200 \
+                --order=asc \
+                --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
+            fi
+          }
+          trap 'status=$?; if [ "$status" -ne 0 ]; then dump_candidate_logs; fi' EXIT
+
+          SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --format=json)"
+          CREATED_WEB_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.latestCreatedRevisionName // ""')"
+          test -n "$CREATED_WEB_REVISION"
+          if [ "$CREATED_WEB_REVISION" = "$PREVIOUS_WEB_REVISION" ]; then
+            echo "Refusing cutover: Cloud Run did not create a new web revision."
             exit 1
           fi
 
-          gcloud run services update-traffic "${{ env.WEB_SERVICE }}" \
-            --region "${{ env.REGION }}" \
-            --to-revisions "$CREATED_REVISION=100" \
-            --quiet
-
+          CANDIDATE_REVISION=""
+          CANDIDATE_URL=""
           for attempt in $(seq 1 20); do
-            SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" --region "${{ env.REGION }}" --format=json)"
-            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
-            if [ "$ACTIVE_100" = "$CREATED_REVISION" ]; then
-              echo "Web traffic is 100% on $CREATED_REVISION"
-              exit 0
+            SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --format=json)"
+            CANDIDATE_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r --arg tag "$WEB_CANDIDATE_TAG" '[.status.traffic[]? | select(.tag == $tag) | .revisionName][0] // ""')"
+            CANDIDATE_URL="$(printf '%s' "$SERVICE_JSON" | jq -r --arg tag "$WEB_CANDIDATE_TAG" '[.status.traffic[]? | select(.tag == $tag) | .url][0] // ""')"
+            if [ "$CANDIDATE_REVISION" = "$CREATED_WEB_REVISION" ] && [ -n "$CANDIDATE_URL" ]; then
+              break
             fi
             sleep 3
           done
-          echo "Frontend candidate never received 100% traffic"
-          exit 1
+          if [ "$CANDIDATE_REVISION" != "$CREATED_WEB_REVISION" ] || [ -z "$CANDIDATE_URL" ]; then
+            echo "Refusing cutover: the candidate tag does not resolve to the exact newly created web revision."
+            exit 1
+          fi
 
-      - name: Smoke test public and operations domains
+          gcloud run revisions describe "$CREATED_WEB_REVISION" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --format=json > /tmp/web-candidate-revision.json
+          READY_STATUS="$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .status][0] // ""' /tmp/web-candidate-revision.json)"
+          REV_IMAGE="$(jq -r '.spec.containers[0].image // ""' /tmp/web-candidate-revision.json)"
+          echo "candidate=$CREATED_WEB_REVISION ready=$READY_STATUS image=$REV_IMAGE"
+          [ "$READY_STATUS" = "True" ] || { echo "Web candidate is not Ready."; exit 1; }
+          case "$REV_IMAGE" in
+            *@"$WEB_IMAGE_DIGEST") ;;
+            *) echo "Web candidate is not running the image digest built by this workflow."; exit 1 ;;
+          esac
+
+          candidate_ok=false
+          for attempt in $(seq 1 20); do
+            health_code="$(curl -sS -o /tmp/candidate-web-health.txt -w '%{http_code}' "$CANDIDATE_URL/health" || true)"
+            release_code="$(curl -sS -H 'Cache-Control: no-cache' -o /tmp/candidate-web-release.json -w '%{http_code}' "$CANDIDATE_URL/release.json?run=${{ github.run_id }}-${{ github.run_attempt }}" || true)"
+            RELEASE="$(jq -r '.release_sha // ""' /tmp/candidate-web-release.json 2>/dev/null || true)"
+            if [ "$health_code" = "200" ] && [ "$release_code" = "200" ] && [ "$RELEASE" = "${{ github.sha }}" ]; then
+              candidate_ok=true
+              break
+            fi
+            sleep 3
+          done
+          if [ "$candidate_ok" != "true" ]; then
+            echo "Web candidate failed direct HTTP release-identity validation."
+            cat /tmp/candidate-web-health.txt || true
+            cat /tmp/candidate-web-release.json || true
+            exit 1
+          fi
+
+          echo "CREATED_WEB_REVISION=$CREATED_WEB_REVISION" >> "$GITHUB_ENV"
+          echo "WEB_CANDIDATE_URL=$CANDIDATE_URL" >> "$GITHUB_ENV"
+
+      - name: Promote exact validated frontend revision to 100 percent
         run: |
           set -euo pipefail
+          gcloud run services update-traffic "${{ env.WEB_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --to-revisions "$CREATED_WEB_REVISION=100" \
+            --quiet
+
+          for attempt in $(seq 1 20); do
+            SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --format=json)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+            [ "$ACTIVE_100" = "$CREATED_WEB_REVISION" ] && exit 0
+            sleep 3
+          done
+          echo "Validated web candidate never received 100% production traffic."
+          exit 1
+
+      - name: Verify both production web domains or restore previous traffic
+        run: |
+          set -euo pipefail
+          production_ok=false
           for attempt in $(seq 1 30); do
-            ops_code=$(curl -sS -L -o /tmp/ops.html -w '%{http_code}' https://ops.doobielogic.io || true)
-            public_code=$(curl -sS -L -o /tmp/public.html -w '%{http_code}' https://doobielogic.io || true)
-            if [ "$ops_code" = "200" ] && [ "$public_code" = "200" ]; then
-              grep -qi 'DoobieLogic\|Buyer' /tmp/ops.html
-              grep -qi 'DoobieLogic' /tmp/public.html
-              echo "ops.doobielogic.io and doobielogic.io are serving the promoted web revision"
-              exit 0
+            public_code="$(curl -sS -H 'Cache-Control: no-cache' -o /tmp/public-release.json -w '%{http_code}' "https://doobielogic.io/release.json?run=${{ github.run_id }}-${{ github.run_attempt }}" || true)"
+            ops_code="$(curl -sS -H 'Cache-Control: no-cache' -o /tmp/ops-release.json -w '%{http_code}' "https://ops.doobielogic.io/release.json?run=${{ github.run_id }}-${{ github.run_attempt }}" || true)"
+            PUBLIC_RELEASE="$(jq -r '.release_sha // ""' /tmp/public-release.json 2>/dev/null || true)"
+            OPS_RELEASE="$(jq -r '.release_sha // ""' /tmp/ops-release.json 2>/dev/null || true)"
+            if [ "$public_code" = "200" ] && [ "$ops_code" = "200" ] \
+              && [ "$PUBLIC_RELEASE" = "${{ github.sha }}" ] \
+              && [ "$OPS_RELEASE" = "${{ github.sha }}" ]; then
+              production_ok=true
+              break
             fi
             sleep 6
           done
-          head -100 /tmp/ops.html || true
-          head -100 /tmp/public.html || true
+
+          if [ "$production_ok" = "true" ]; then
+            echo "doobielogic.io release: $PUBLIC_RELEASE"
+            echo "ops.doobielogic.io release: $OPS_RELEASE"
+            echo "Both production web domains are serving the exact current commit."
+            gcloud run services update-traffic "${{ env.WEB_SERVICE }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --remove-tags "$WEB_CANDIDATE_TAG" \
+              --quiet || true
+            exit 0
+          fi
+
+          echo "Post-cutover web identity verification failed. Restoring traffic to $PREVIOUS_WEB_REVISION."
+          cat /tmp/public-release.json || true
+          cat /tmp/ops-release.json || true
+          gcloud run services update-traffic "${{ env.WEB_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --to-revisions "$PREVIOUS_WEB_REVISION=100" \
+            --quiet
+
+          rollback_ok=false
+          for attempt in $(seq 1 20); do
+            SERVICE_JSON="$(gcloud run services describe "${{ env.WEB_SERVICE }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --format=json)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+            if [ "$ACTIVE_100" = "$PREVIOUS_WEB_REVISION" ]; then rollback_ok=true; break; fi
+            sleep 3
+          done
+          echo "Web traffic rollback confirmed: $rollback_ok"
+          curl -sS -L https://doobielogic.io/ >/dev/null || true
+          curl -sS -L https://ops.doobielogic.io/ >/dev/null || true
+          gcloud logging read \
+            "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${{ env.WEB_SERVICE }}\" AND resource.labels.revision_name=\"$CREATED_WEB_REVISION\"" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --limit 200 \
+            --order=asc \
+            --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
+          gcloud run services update-traffic "${{ env.WEB_SERVICE }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --remove-tags "$WEB_CANDIDATE_TAG" \
+            --quiet || true
           exit 1
