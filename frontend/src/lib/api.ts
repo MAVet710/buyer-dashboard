@@ -1,6 +1,15 @@
 import { supabase } from "./supabase";
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export function errorMessage(payload: { detail?: unknown; error?: { message?: string } }, status: number): string {
   if (payload.error?.message) return payload.error.message;
   if (typeof payload.detail === "string") return payload.detail;
@@ -30,21 +39,41 @@ async function requestHeaders(json = false): Promise<Record<string, string>> {
   };
 }
 
+async function authorizedFetch(path: string, makeInit: (headers: Record<string, string>) => RequestInit): Promise<Response> {
+  let response = await fetch(`${API_URL}${path}`, makeInit(await requestHeaders()));
+  // A restored browser session can briefly hold an expired Supabase JWT even
+  // though the refresh token is still valid. Refresh once centrally so every
+  // workspace does not have to implement its own login-recovery loop.
+  if (response.status === 401 && supabase) {
+    const refreshed = await supabase.auth.refreshSession();
+    if (!refreshed.error && refreshed.data.session) {
+      response = await fetch(`${API_URL}${path}`, makeInit(await requestHeaders()));
+    }
+  }
+  return response;
+}
+
+async function throwResponseError(response: Response): Promise<never> {
+  const payload = await response.json().catch(() => ({}));
+  throw new ApiError(errorMessage(payload, response.status), response.status);
+}
+
 export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, { signal, headers: await requestHeaders() });
-  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload, response.status)); }
+  const response = await authorizedFetch(path, headers => ({ signal, headers }));
+  if (!response.ok) return throwResponseError(response);
   return response.json() as Promise<T>;
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, { method: "POST", headers: await requestHeaders(true), body: JSON.stringify(body) });
-  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload, response.status)); }
+  const serialized = JSON.stringify(body);
+  const response = await authorizedFetch(path, headers => ({ method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: serialized }));
+  if (!response.ok) return throwResponseError(response);
   return response.json() as Promise<T>;
 }
 
 export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, { method: "POST", headers: await requestHeaders(), body });
-  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload, response.status)); }
+  const response = await authorizedFetch(path, headers => ({ method: "POST", headers, body }));
+  if (!response.ok) return throwResponseError(response);
   return response.json() as Promise<T>;
 }
 
@@ -55,8 +84,13 @@ export async function apiDownload(path: string, body?: unknown): Promise<Blob> {
   if (path === "/api/v1/executive-reports/white-label.pdf" && body !== undefined) {
     try { sessionStorage.setItem("white-label-current-report-payload", JSON.stringify(body)); } catch { /* storage may be unavailable */ }
   }
-  const response = await fetch(`${API_URL}${path}`, { method: body === undefined ? "GET" : "POST", headers: await requestHeaders(body !== undefined), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload, response.status)); }
+  const serialized = body === undefined ? undefined : JSON.stringify(body);
+  const response = await authorizedFetch(path, headers => ({
+    method: body === undefined ? "GET" : "POST",
+    headers: body === undefined ? headers : { ...headers, "Content-Type": "application/json" },
+    ...(serialized === undefined ? {} : { body: serialized }),
+  }));
+  if (!response.ok) return throwResponseError(response);
   return response.blob();
 }
 
