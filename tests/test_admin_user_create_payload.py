@@ -36,18 +36,19 @@ def test_create_user_accepts_single_facility_id_and_normalizes_it():
     assert payload.facility_ids == ["facility-a"]
 
 
+def _post_route_index(suffix: str) -> int:
+    return next(
+        index
+        for index, route in enumerate(app.routes)
+        if str(getattr(route, "path", "")).endswith(suffix)
+        and "POST" in (getattr(route, "methods", set()) or set())
+    )
+
+
 def test_create_user_literal_post_route_precedes_dynamic_user_update_route():
-    create_index = next(
-        index
-        for index, route in enumerate(app.routes)
-        if getattr(route, "path", "") == "/api/v1/admin/users/create"
-        and "POST" in (getattr(route, "methods", set()) or set())
-    )
-    dynamic_index = next(
-        index
-        for index, route in enumerate(app.routes)
-        if getattr(route, "path", "") == "/api/v1/admin/users/{user_id}"
-        and "POST" in (getattr(route, "methods", set()) or set())
-    )
+    # API_PREFIX is configurable. The collision we are guarding is between the
+    # literal and dynamic admin paths, regardless of the deployment prefix.
+    create_index = _post_route_index("/admin/users/create")
+    dynamic_index = _post_route_index("/admin/users/{user_id}")
 
     assert create_index < dynamic_index
