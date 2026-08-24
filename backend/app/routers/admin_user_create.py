@@ -219,12 +219,15 @@ def create_user_with_temporary_password(
             )
             session.flush()
             snapshot = _serialize_user(session, row)
-        _sync_auth_identity(
-            settings,
-            snapshot,
-            organization_id=metadata_org_id,
-            facility_id=metadata_facility_id,
-        )
+            # Keep the database and Supabase Auth identity atomic from the admin's
+            # point of view. If Auth metadata sync fails, session.begin() rolls
+            # the durable row back before the best-effort Auth cleanup below.
+            _sync_auth_identity(
+                settings,
+                snapshot,
+                organization_id=metadata_org_id,
+                facility_id=metadata_facility_id,
+            )
         return snapshot
     except Exception:
         _delete_auth_user(settings, auth_user_id)
