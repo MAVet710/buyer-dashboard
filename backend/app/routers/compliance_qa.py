@@ -219,7 +219,7 @@ def status(context: RequestContext = Depends(get_request_context), engine: Engin
 
 
 @router.get("/template")
-def template():
+def template(_context: RequestContext = Depends(get_request_context)):
     template_frame = pd.DataFrame(
         [
             {
