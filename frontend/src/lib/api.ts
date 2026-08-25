@@ -101,6 +101,16 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) return throwResponseError(response);
+  return response.json() as Promise<T>;
+}
+
 export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
   const response = await authorizedFetch(path, headers => ({ method: "POST", headers, body }));
   if (!response.ok) return throwResponseError(response);
