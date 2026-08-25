@@ -33,6 +33,7 @@ const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage
 const ExecutiveReportsPage = lazy(() => import("./pages/ExecutiveReportsPage").then(module => ({ default: module.ExecutiveReportsPage })));
 const ComplianceQAPage = lazy(() => import("./pages/ComplianceQAPage").then(module => ({ default: module.ComplianceQAPage })));
 const OperationsControlTowerPage = lazy(() => import("./pages/OperationsControlTowerPage").then(module => ({ default: module.OperationsControlTowerPage })));
+const LabelStudioPage = lazy(() => import("./pages/LabelStudioPage").then(module => ({ default: module.LabelStudioPage })));
 
 function initialPage(): string {
   const pending = sessionStorage.getItem("buyer-dash-pending-page");
@@ -82,6 +83,7 @@ export default function App() {
     : page === "Orders" ? <OrdersPage />
     : page === "Compliance" ? <CompliancePage />
     : page === "Compliance Q&A" ? <ComplianceQAPage />
+    : page === "Label Studio" ? <LabelStudioPage />
     : page === "MA Flower Equivalency" ? <MAFlowerEquivalencyPage />
     : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />
