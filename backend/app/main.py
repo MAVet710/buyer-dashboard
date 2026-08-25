@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -55,8 +56,10 @@ from .routers.analytics import router as analytics_router
 from .routers.control_tower import router as control_tower_router, public_router as commerce_portal_router
 from .database import get_engine
 from .observability import install_observability
+from .services.sandbox_extraction import ensure_rich_extraction_sandbox
 from .services.sandbox_sales import sync_sandbox_retail_sales
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 settings.validate_production()
 
@@ -83,7 +86,21 @@ if not settings.is_development and DECLARED_SCHEMA_HEAD and DECLARED_SCHEMA_HEAD
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    sync_sandbox_retail_sales(get_engine())
+    # The persisted DEV Sandbox sales CSV is canonical synthetic data. Normalize
+    # it into the same retail-sales ledger used by production APIs so unit sales,
+    # velocity, DOH, slow movers, and related views remain coherent everywhere.
+    engine = get_engine()
+    sync_sandbox_retail_sales(engine)
+    try:
+        # Keep the durable Extraction / Run 360 workspace populated with a
+        # realistic multi-method synthetic operation. The seeder itself only
+        # resolves dev-sandbox / SANDBOX and therefore cannot touch a customer
+        # organization or facility.
+        ensure_rich_extraction_sandbox(engine)
+    except Exception:
+        # Sandbox realism must never make the production API unavailable. CI
+        # exercises the seeder directly; runtime failures remain observable.
+        logger.exception("DEV Sandbox extraction realism seed failed")
     yield
 
 
@@ -142,10 +159,21 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
         tables = set(inspect(connection).get_table_names())
         revision = connection.execute(text("select version_num from alembic_version")).scalar_one_or_none() if "alembic_version" in tables else None
     required = {
-        "coman_organizations", "coman_facilities", "coman_products", "coman_inventory_lots",
-        "coman_inventory_transactions", "retail_sales", "inventory_audits", "data_hub_imports",
-        "legal_acceptance_events", "cultivation_plants", "retail_planning_policies",
-        "integration_configurations", "sop_documents", "label_reviews", "machine_telemetry_events",
+        "coman_organizations",
+        "coman_facilities",
+        "coman_products",
+        "coman_inventory_lots",
+        "coman_inventory_transactions",
+        "retail_sales",
+        "inventory_audits",
+        "data_hub_imports",
+        "legal_acceptance_events",
+        "cultivation_plants",
+        "retail_planning_policies",
+        "integration_configurations",
+        "sop_documents",
+        "label_reviews",
+        "machine_telemetry_events",
         "cultivation_harvests",
     }
     missing = sorted(required - tables)
@@ -193,6 +221,8 @@ app.include_router(po_parity_router, prefix=settings.api_prefix)
 app.include_router(legal_router, prefix=settings.api_prefix)
 app.include_router(control_tower_router, prefix=settings.api_prefix)
 app.include_router(commerce_portal_router, prefix=settings.api_prefix)
+# Register the literal create-user route before /admin/users/{user_id};
+# otherwise Starlette treats "create" as a user ID and dispatches to update_user.
 app.include_router(admin_user_create_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.add_api_route(
