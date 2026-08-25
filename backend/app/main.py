@@ -43,6 +43,7 @@ from .routers.admin_facilities import update_facility
 from .routers.admin_user_create import router as admin_user_create_router
 from .routers.admin_uploads import router as admin_uploads_router
 from .routers.integrations import router as integrations_router
+from .routers.sandbox_integrations import router as sandbox_integrations_router
 from .routers.parity_tools import router as parity_tools_router
 from .routers.buyer_parity import router as buyer_parity_router
 from .routers.buyer_legacy_overview import router as buyer_legacy_overview_router
@@ -199,6 +200,7 @@ app.add_api_route(
 )
 app.include_router(admin_uploads_router, prefix=settings.api_prefix)
 app.include_router(integrations_router, prefix=settings.api_prefix)
+app.include_router(sandbox_integrations_router, prefix=settings.api_prefix)
 app.include_router(parity_tools_router, prefix=settings.api_prefix)
 app.include_router(buyer_parity_router, prefix=settings.api_prefix)
 app.include_router(buyer_legacy_overview_router, prefix=settings.api_prefix)
