@@ -5,6 +5,7 @@ import App from "./App";
 import { AuthGate } from "./components/AuthGate";
 import { AppSupportButton, MarketingContactChannels } from "./components/ContactChannels";
 import { MarketingHome } from "./pages/MarketingHome";
+import { configureSeo } from "./lib/seo";
 import { isMarketingHost } from "./lib/siteMode";
 import "./styles.css";
 import "./parity.css";
@@ -22,6 +23,7 @@ import "./contact-channels.css";
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
 const marketing = isMarketingHost(window.location.hostname);
+configureSeo(marketing);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
