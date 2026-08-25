@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import secrets
@@ -48,6 +48,13 @@ def _hash_token(token: str) -> str:
 
 def _new_token(prefix: str) -> str:
     return f"{prefix}_{secrets.token_urlsafe(32)}"
+
+
+def _utc_datetime(value: datetime | None) -> datetime | None:
+    """Normalize SQLite's timezone-naive DateTime values to UTC before comparing."""
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 def evaluate_label_rules(label: dict[str, Any], rules: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -277,7 +284,8 @@ class OperationalMoatService:
         digest = _hash_token(token)
         with self._sessions.begin() as session:
             row = session.scalar(select(PartnerPortalAccess).where(PartnerPortalAccess.token_hash == digest))
-            if not row or row.revoked_at is not None or (row.expires_at and row.expires_at < utc_now()):
+            expires_at = _utc_datetime(row.expires_at) if row else None
+            if not row or row.revoked_at is not None or (expires_at and expires_at < utc_now()):
                 raise ValueError("Partner portal access is invalid or expired.")
             row.last_used_at = utc_now(); session.flush(); return row
 
