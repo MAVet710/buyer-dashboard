@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -38,6 +38,14 @@ def _event(*, occurred_at: datetime | None, area: str, event_type: str, title: s
         "quantity": quantity,
         "unit": unit,
     }
+
+
+def _sort_timestamp(value: datetime | None) -> float:
+    """Treat SQLite's timezone-naive persisted timestamps as UTC for stable ordering."""
+    if value is None:
+        return float("-inf")
+    normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return normalized.timestamp()
 
 
 def _snapshot(lot: InventoryLot, context: RequestContext, engine: Engine) -> dict[str, Any]:
@@ -156,7 +164,7 @@ def _snapshot(lot: InventoryLot, context: RequestContext, engine: Engine) -> dic
     for tx in trace_rows:
         events.append(_event(occurred_at=tx.requested_at, area="Traceability", event_type=tx.operation_type, title=f"{tx.provider.upper()} · {tx.operation_type.replace('_', ' ')}", detail=tx.reason or tx.error_message, actor=tx.requested_by, reference=tx.external_reference or tx.id, status=tx.status))
 
-    events.sort(key=lambda row: row["occurred_at"] or datetime.min, reverse=True)
+    events.sort(key=lambda row: _sort_timestamp(row["occurred_at"]), reverse=True)
     return {
         "package": {
             "id": lot.id,
