@@ -35,6 +35,7 @@ from .routers.purchasing import router as purchasing_router
 from .routers.buying_budget_parity import router as buying_budget_parity_router
 from .routers.po_parity import router as po_parity_router
 from .routers.trial import router as trial_router
+from .routers.beta import router as beta_router
 from .routers.legal import router as legal_router
 from .routers.admin import router as admin_router
 from .routers.admin_facilities import update_facility
@@ -147,6 +148,7 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
 
 
 app.include_router(trial_router, prefix=settings.api_prefix)
+app.include_router(beta_router, prefix=settings.api_prefix)
 app.include_router(inventory_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
