@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
-from modules.integrations import IntegrationConfigurationService
+from modules.integrations import IntegrationConfigurationService, SandboxIntegrationRuntime
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
@@ -25,6 +25,7 @@ _PROVIDER_SPECS = {
         "secret_label": "Sandbox user API key",
         "required": ("state", "license_number"),
         "allowed": ("state", "license_number", "base_url", "notes"),
+        "resources": ("packages", "transfers", "items"),
         "future_use": "Traceability reads, guarded writes, reconciliation, package and transfer workflows.",
     },
     "dutchie": {
@@ -33,6 +34,7 @@ _PROVIDER_SPECS = {
         "secret_label": "Sandbox API key / developer secret",
         "required": ("location_id",),
         "allowed": ("location_id", "account_id", "client_id", "base_url", "notes"),
+        "resources": ("sales", "inventory", "catalog"),
         "future_use": "Live inventory, catalog, sales, receiving and purchasing data ingestion.",
     },
     "biotrack": {
@@ -41,6 +43,7 @@ _PROVIDER_SPECS = {
         "secret_label": "Sandbox password / API secret",
         "required": ("state", "license_number", "username"),
         "allowed": ("state", "license_number", "username", "base_url", "notes"),
+        "resources": ("inventory", "transfers", "plants"),
         "future_use": "Provider-neutral traceability execution for BioTrack jurisdictions.",
     },
     "quickbooks": {
@@ -49,6 +52,7 @@ _PROVIDER_SPECS = {
         "secret_label": "Sandbox client secret",
         "required": ("client_id", "redirect_uri"),
         "allowed": ("client_id", "realm_id", "redirect_uri", "base_url", "notes"),
+        "resources": ("invoices", "payments", "items"),
         "future_use": "Invoice, payment, COGS and accounting synchronization after OAuth authorization.",
     },
 }
@@ -59,9 +63,20 @@ class SandboxConnectionSave(BaseModel):
     secret: str | None = Field(default=None, max_length=4096)
 
 
+class SandboxSyncRequest(BaseModel):
+    resource: str = Field(default="", max_length=64)
+
+
 def _service(engine: Engine, settings: Settings) -> IntegrationConfigurationService:
     try:
         return IntegrationConfigurationService(engine, settings.integration_encryption_key)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+def _runtime(engine: Engine, settings: Settings) -> SandboxIntegrationRuntime:
+    try:
+        return SandboxIntegrationRuntime(engine, settings.integration_encryption_key)
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
 
@@ -114,7 +129,9 @@ def _public_provider(service: IntegrationConfigurationService, context: RequestC
         "secret_label": spec["secret_label"],
         "required_fields": list(spec["required"]),
         "allowed_fields": list(spec["allowed"]),
+        "sandbox_resources": list(spec["resources"]),
         "future_use": spec["future_use"],
+        "production_writes_enabled": False,
         **public,
     }
 
@@ -130,6 +147,7 @@ def sandbox_connections(
     return {
         "environment": "sandbox",
         "production_credentials_enabled": False,
+        "production_writes_enabled": False,
         "organization_id": context.organization_id,
         "facility_id": context.facility_id,
         "scope": "facility",
@@ -196,10 +214,71 @@ def test_sandbox_connection(
             "environment": "sandbox",
             "message": (
                 f"{spec['label']} configuration is complete and isolated to this facility. "
-                "No live provider handshake was attempted; the provider adapter can use this saved sandbox connection when its API workflow is enabled."
+                "No live provider handshake was attempted. The sandbox runtime is ready to exercise durable reads, cursors, normalization, dedupe and reconciliation without external writes."
             ),
         },
     }
+
+
+@router.get("/{provider}/runtime")
+def sandbox_runtime_status(
+    provider: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_developer_connections(context)
+    _provider_spec(provider)
+    try:
+        return _runtime(engine, settings).status(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            provider=str(provider).strip().casefold(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/{provider}/sync")
+def run_sandbox_sync(
+    provider: str,
+    payload: SandboxSyncRequest,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_developer_connections(context)
+    _provider_spec(provider)
+    try:
+        return _runtime(engine, settings).sync(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            provider=str(provider).strip().casefold(),
+            actor=context.user_id,
+            resource=payload.resource,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/{provider}/retry")
+def retry_sandbox_sync(
+    provider: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_developer_connections(context)
+    _provider_spec(provider)
+    try:
+        return _runtime(engine, settings).retry_failed(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            provider=str(provider).strip().casefold(),
+            actor=context.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/{provider}/clear")
