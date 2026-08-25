@@ -167,6 +167,7 @@ def test_machine_telemetry_and_harvest_summary_use_facility_assets():
         asset_code="FILL-01",
         display_name="Filling Line 1",
         effective_rate=80,
+        preferred_crew_size=1,
         actor="dev",
     )
     service = OperationalMoatService(engine)
