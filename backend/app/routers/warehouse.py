@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import CommercialOrder, CommercialOrderLine, InventoryLot, InventoryTransaction, Product
+from modules.coman.models import InventoryLot, InventoryTransaction, Product
 from modules.commercial.repository import CommercialRepository
 from ..auth import RequestContext, get_commercial_context, get_request_context
 from ..database import get_engine
@@ -22,6 +22,10 @@ class PickAction(BaseModel):
     scan_code: str = Field(min_length=1, max_length=512)
     action: str = "reserve"
     reference: str = ""
+
+
+def _sortable_time(value: datetime | None) -> datetime:
+    return value.replace(tzinfo=None) if value else datetime.max
 
 
 def _available_lots(session: Session, context: RequestContext, product_id: str) -> list[dict]:
@@ -56,14 +60,7 @@ def _available_lots(session: Session, context: RequestContext, product_id: str) 
             "expiration_at": lot.expiration_at,
         })
     # FEFO first. Non-expiring inventory falls back to oldest received lot.
-    max_dt = datetime.max.replace(tzinfo=None)
-    def key(row: dict):
-        expiry = row["expiration_at"]
-        received = row["received_at"]
-        expiry_key = expiry.replace(tzinfo=None) if expiry else max_dt
-        received_key = received.replace(tzinfo=None) if received else max_dt
-        return (expiry_key, received_key, row["lot_code"])
-    return sorted(available, key=key)
+    return sorted(available, key=lambda row: (_sortable_time(row["expiration_at"]), _sortable_time(row["received_at"]), row["lot_code"]))
 
 
 @router.get("/pick-queue")
@@ -76,7 +73,7 @@ def pick_queue(context: RequestContext = Depends(get_request_context), engine: E
     with Session(engine) as session:
         products = {row.id: row for row in session.scalars(select(Product).where(Product.organization_id == context.organization_id))}
         queue = []
-        for line in sorted(lines, key=lambda row: (order_by_id[row.commercial_order_id].due_at or datetime.max, order_by_id[row.commercial_order_id].order_number, row.position)):
+        for line in sorted(lines, key=lambda row: (_sortable_time(order_by_id[row.commercial_order_id].due_at), order_by_id[row.commercial_order_id].order_number, row.position)):
             order = order_by_id[line.commercial_order_id]
             lots = _available_lots(session, context, line.product_id)
             queue.append({
