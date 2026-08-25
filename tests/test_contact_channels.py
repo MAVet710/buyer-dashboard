@@ -76,3 +76,14 @@ def test_workspace_agent_is_a_true_floating_window():
     assert "Minimize2" in component
     assert "workspace-agent-maximize" in component
     assert "right:0;top:0;height:100dvh" not in css
+
+
+def test_workspace_agent_portals_to_viewport_instead_of_sidebar():
+    component = (ROOT / "frontend" / "src" / "components" / "WorkspaceAgent.tsx").read_text(encoding="utf-8")
+
+    assert 'import { createPortal } from "react-dom"' in component
+    assert "createPortal(<>" in component
+    assert "document.body" in component
+    assert "window.innerWidth - drag.width" in component
+    assert "window.innerHeight - drag.height" in component
+    assert "window.addEventListener(\"resize\", clampToViewport)" in component
