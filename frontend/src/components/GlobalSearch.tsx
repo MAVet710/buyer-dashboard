@@ -7,6 +7,7 @@ import { Product360Drawer } from "./Product360Drawer";
 type SearchResult = { kind: string; id: string; title: string; subtitle: string; workspace: string };
 
 const tools: SearchResult[] = [
+  { kind: "tool", id: "control-tower", title: "Operations Control Tower", subtitle: "Doobie actions, traceability, LabelGuard, SOP controls, profitability, cultivation, machines, and commerce", workspace: "Operations Control Tower" },
   { kind: "tool", id: "inventory", title: "Inventory", subtitle: "Stock health, reorder risk, aging, package 360, and audit actions", workspace: "Inventory" },
   { kind: "tool", id: "retail-product-360", title: "Retail Product 360", subtitle: "Inventory, sales, velocity, purchasing, packages, compliance, audits, and economics", workspace: "Retail Product 360" },
   { kind: "tool", id: "retail-product-master", title: "Retail Product Master", subtitle: "Open the operational Product 360 workspace; catalog administration remains available inside it", workspace: "Retail Product Master" },
