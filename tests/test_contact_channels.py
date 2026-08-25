@@ -19,15 +19,28 @@ def test_public_and_app_contact_channels_use_doobielogic_aliases():
     assert "<AppSupportButton />" in main
 
 
-def test_public_contact_copy_stays_human_and_does_not_expose_mail_vendor():
+def test_public_contact_copy_stays_direct_and_does_not_expose_mail_vendor():
     channels = (ROOT / "frontend" / "src" / "components" / "ContactChannels.tsx").read_text(encoding="utf-8")
     marketing = (ROOT / "frontend" / "src" / "pages" / "MarketingHome.tsx").read_text(encoding="utf-8")
 
-    assert "Need us? Pick an inbox." in channels
-    assert "A real person will see it." in channels
+    assert "Need to reach us?" in channels
+    assert "Contact DoobieLogic" in channels
     assert "Spacemail" not in channels
-    assert "spreadsheet circus" in marketing
-    assert "Good weed deserves better operations." in marketing
+    assert "Cannabis operations, connected" in marketing
+    assert "Run the operation with fewer blind spots." in marketing
+    assert "spreadsheet circus" not in marketing
+    assert "five exports and a prayer" not in marketing
+    assert "without losing the plot" not in marketing
+
+
+def test_public_marketing_copy_uses_no_em_dashes():
+    public_copy_files = [
+        ROOT / "frontend" / "src" / "pages" / "MarketingHome.tsx",
+        ROOT / "frontend" / "src" / "components" / "ContactChannels.tsx",
+    ]
+
+    for path in public_copy_files:
+        assert "—" not in path.read_text(encoding="utf-8")
 
 
 def test_contact_channel_styles_include_mobile_support_control():
