@@ -1,11 +1,12 @@
 import type { Session } from "@supabase/supabase-js";
 import { useEffect, useState, type PropsWithChildren } from "react";
 import { authConfigured, supabase } from "../lib/supabase";
-import { apiPost, clearTrialSession, trialToken } from "../lib/api";
+import { apiPost, apiPublicPost, clearTrialSession, trialToken } from "../lib/api";
 import { LegalGate } from "./LegalGate";
 import { PasswordGate } from "./PasswordGate";
 
 type TrialActivation = { token:string; expires_at:string; organization:{id:string;name:string;slug:string}; facility:{id:string;name:string;code:string}; license:{plan?:string|null;features?:string[]} };
+type UsernameSession = { access_token:string; refresh_token:string };
 
 function validStoredTrial(): boolean {
   const token = trialToken(); const expires = Date.parse(sessionStorage.getItem("buyer-dash-trial-expires") ?? "");
@@ -51,10 +52,24 @@ export function AuthGate({ children }: PropsWithChildren) {
     </section>
     <section className="auth-card"><form onSubmit={async event => {
       event.preventDefault(); setMessage(""); setSigningIn(true);
-      const value = login.trim(); const email = value.includes("@") ? value.toLocaleLowerCase() : `${value.toLocaleLowerCase()}@users.doobielogic.io`;
+      const value = login.trim();
       localStorage.removeItem("buyer-dash-organization"); localStorage.removeItem("buyer-dash-facility"); clearTrialSession();
-      const result = await supabase!.auth.signInWithPassword({ email, password }); if (result.error) setMessage(result.error.message); setSigningIn(false);
-    }}><h2>Welcome back</h2><p>Sign in. The inventory still refuses to count itself.</p><div className="auth-workspace-status ready">Cloud workspace connected</div><label>Username<input autoComplete="username" value={login} onChange={event => setLogin(event.target.value)} /></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label><button className="primary" type="submit" disabled={signingIn}>{signingIn ? "Signing in…" : "Sign in"}</button><button className="link-button" type="button" onClick={async () => { const value = login.trim(); if (!value.includes("@")) return setMessage("Legacy usernames keep their existing password. An administrator can reset it from Users & Access."); const { error } = await supabase!.auth.resetPasswordForEmail(value, { redirectTo: `${window.location.origin}/reset-password` }); setMessage(error?.message ?? "Password reset email sent."); }}>Forgot password?</button>{message ? <div className="form-error">{message}</div> : null}</form>
+      try {
+        if (!value) { setMessage("Enter your username."); return; }
+        if (value.includes("@")) {
+          const result = await supabase!.auth.signInWithPassword({ email: value.toLocaleLowerCase(), password });
+          if (result.error) setMessage(result.error.message);
+        } else {
+          const tokens = await apiPublicPost<UsernameSession>("/api/v1/account/username-login", { username: value, password });
+          const result = await supabase!.auth.setSession({ access_token: tokens.access_token, refresh_token: tokens.refresh_token });
+          if (result.error) setMessage(result.error.message);
+        }
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Invalid login credentials.");
+      } finally {
+        setSigningIn(false);
+      }
+    }}><h2>Welcome back</h2><p>Sign in. The inventory still refuses to count itself.</p><div className="auth-workspace-status ready">Cloud workspace connected</div><label>Username<input autoComplete="username" value={login} onChange={event => setLogin(event.target.value)} /></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label><button className="primary" type="submit" disabled={signingIn}>{signingIn ? "Signing in…" : "Sign in"}</button><button className="link-button" type="button" onClick={async () => { const value = login.trim(); if (!value.includes("@")) return setMessage("Username passwords can be reset by an administrator from Users & Access."); const { error } = await supabase!.auth.resetPasswordForEmail(value, { redirectTo: `${window.location.origin}/reset-password` }); setMessage(error?.message ?? "Password reset email sent."); }}>Forgot password?</button>{message ? <div className="form-error">{message}</div> : null}</form>
       <details className="trial-entry"><summary>Kicking the tires? Enter a trial key</summary><form onSubmit={async event => { event.preventDefault(); setTrialMessage(""); setActivatingTrial(true); try { const result = await apiPost<TrialActivation>("/api/v1/trial/activate", { trial_key: trialKey.trim() }); sessionStorage.setItem("buyer-dash-trial-token", result.token); sessionStorage.setItem("buyer-dash-trial-expires", result.expires_at); localStorage.setItem("buyer-dash-organization", result.organization.id); localStorage.setItem("buyer-dash-facility", result.facility.id); setTrialActive(true); } catch(error) { setTrialMessage(error instanceof Error ? error.message : "Trial activation failed."); } finally { setActivatingTrial(false); } }}><label>Trial key<input type="password" value={trialKey} onChange={event=>setTrialKey(event.target.value)} /></label><button className="secondary" type="submit" disabled={!trialKey.trim()||activatingTrial}>{activatingTrial?"Activating…":"Activate 24-hour trial"}</button>{trialMessage?<div className="form-error">{trialMessage}</div>:null}</form></details>
       <p className="auth-help">Each company gets its own secured workspace, and important actions keep receipts—the boring kind compliance teams love. Contact your administrator if you need an account.</p>
     </section>

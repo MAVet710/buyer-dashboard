@@ -33,6 +33,22 @@ def test_login_restores_streamlit_story_form_trial_and_help_copy():
     assert 'PasswordGate><LegalGate>' in auth
 
 
+def test_username_login_uses_durable_username_instead_of_fabricated_email_alias():
+    auth = source("frontend/src/components/AuthGate.tsx")
+    api = source("frontend/src/lib/api.ts")
+    account = source("backend/app/routers/account.py")
+
+    assert '/api/v1/account/username-login' in auth
+    assert 'apiPublicPost<UsernameSession>' in auth
+    assert 'supabase!.auth.setSession' in auth
+    assert '@users.doobielogic.io' not in auth
+    assert 'export async function apiPublicPost' in api
+    assert '@router.post("/username-login")' in account
+    assert 'AppUser.normalized_username == normalized_username' in account
+    assert '/auth/v1/token?grant_type=password' in account
+    assert 'auth_session["auth_user_id"] != app_user_id' in account
+
+
 def test_password_gate_keeps_first_login_change_requirement_with_doobielogic_branding():
     password = source("frontend/src/components/PasswordGate.tsx")
     for marker in (

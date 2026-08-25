@@ -1,12 +1,66 @@
-from fastapi import APIRouter, Depends
+import json
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as UrlRequest, urlopen
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import AppUser, AppUserFacilityRole, AuditEvent, Facility, Organization, utc_now
 from ..auth import RequestContext, get_request_context
+from ..config import Settings, get_settings
 from ..database import get_engine
 
 router = APIRouter(prefix="/account", tags=["account"])
+
+
+class UsernameLogin(BaseModel):
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+def _invalid_credentials() -> HTTPException:
+    # Keep the response intentionally generic so an unauthenticated caller cannot
+    # distinguish a missing username from a bad password or disabled account.
+    return HTTPException(status_code=400, detail="Invalid login credentials.")
+
+
+def _supabase_password_session(settings: Settings, email: str, password: str) -> dict:
+    """Exchange a linked account email/password for a normal Supabase session."""
+    url = settings.supabase_url.strip()
+    key = settings.supabase_service_role_key.strip()
+    if not url or not key:
+        raise HTTPException(status_code=503, detail="Authentication service is unavailable.")
+
+    request = UrlRequest(
+        f"{url.rstrip('/')}/auth/v1/token?grant_type=password",
+        data=json.dumps({"email": email, "password": password}).encode("utf-8"),
+        headers={"apikey": key, "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code == 429:
+            raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again shortly.") from exc
+        if 400 <= exc.code < 500:
+            raise _invalid_credentials() from exc
+        raise HTTPException(status_code=502, detail="Authentication service rejected the sign-in request.") from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=502, detail="Authentication service is unavailable.") from exc
+
+    access_token = str(payload.get("access_token") or "").strip()
+    refresh_token = str(payload.get("refresh_token") or "").strip()
+    auth_user_id = str((payload.get("user") or {}).get("id") or "").strip()
+    if not access_token or not refresh_token or not auth_user_id:
+        raise HTTPException(status_code=502, detail="Authentication service returned an incomplete session.")
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "auth_user_id": auth_user_id,
+    }
 
 
 def _facility_payload(row: Facility) -> dict:
@@ -47,6 +101,47 @@ def _facilities_for_user(session: Session, context: RequestContext, organization
             .order_by(Facility.name)
         )
     )
+
+
+@router.post("/username-login")
+def username_login(
+    payload: UsernameLogin,
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    """Authenticate a DoobieLogic username without exposing its linked auth email."""
+    normalized_username = payload.username.strip().casefold()
+    if not normalized_username:
+        raise _invalid_credentials()
+
+    with Session(engine) as session:
+        user = session.scalar(
+            select(AppUser).where(AppUser.normalized_username == normalized_username)
+        )
+        if not user or not user.active or not str(user.email or "").strip():
+            raise _invalid_credentials()
+        app_user_id = str(user.id)
+        auth_email = str(user.email).strip().casefold()
+
+    auth_session = _supabase_password_session(settings, auth_email, payload.password)
+    if auth_session["auth_user_id"] != app_user_id:
+        # A valid password was accepted for an identity that is not the durable
+        # DoobieLogic user we resolved. Do not issue that mismatched session.
+        raise HTTPException(
+            status_code=409,
+            detail="This account's authentication link is out of sync. Contact an administrator.",
+        )
+
+    with Session(engine) as session, session.begin():
+        user = session.get(AppUser, app_user_id)
+        if user:
+            user.last_login_at = utc_now()
+            user.updated_by = app_user_id
+
+    return {
+        "access_token": auth_session["access_token"],
+        "refresh_token": auth_session["refresh_token"],
+    }
 
 
 @router.get("/context")
