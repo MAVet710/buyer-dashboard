@@ -75,7 +75,15 @@ if not settings.is_development and DECLARED_SCHEMA_HEAD and DECLARED_SCHEMA_HEAD
         f"declared={DECLARED_SCHEMA_HEAD} image={EXPECTED_SCHEMA_REVISION}"
     )
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+# Interactive API documentation is useful locally, but it gives anonymous
+# production visitors an unnecessary map of the application surface.
+app = FastAPI(
+    title=settings.app_name,
+    version="0.1.0",
+    docs_url="/docs" if settings.is_development else None,
+    redoc_url="/redoc" if settings.is_development else None,
+    openapi_url="/openapi.json" if settings.is_development else None,
+)
 install_observability(app)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 app.add_middleware(
@@ -97,6 +105,16 @@ _BUYER_UPLOAD_BACKED_PREFIXES = (
 
 
 @app.middleware("http")
+async def add_security_response_headers(request: Request, call_next):
+    response = await call_next(request)
+    # API responses are machine endpoints, never search-engine content.
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
+
+
+@app.middleware("http")
 async def enforce_buyer_data_mode(request: Request, call_next):
     data_mode = str(request.headers.get("X-DoobieLogic-Data-Mode") or "Uploads").strip().casefold()
     if data_mode in {"dutchie live", "dutchie_live", "live"} and request.url.path.startswith(_BUYER_UPLOAD_BACKED_PREFIXES):
@@ -115,12 +133,9 @@ async def enforce_buyer_data_mode(request: Request, call_next):
 
 @app.get("/health", tags=["system"])
 def health() -> dict[str, str]:
-    return {
-        "status": "ok",
-        "service": "buyer-dash-api",
-        "release_sha": RELEASE_SHA,
-        "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
-    }
+    # Public liveness intentionally reveals no release, schema, database, or
+    # internal service metadata.
+    return {"status": "ok"}
 
 
 @app.get("/health/ready", tags=["system"])
@@ -128,20 +143,38 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
     with engine.connect() as connection:
         connection.execute(text("select 1"))
         tables = set(inspect(connection).get_table_names())
-        revision = connection.execute(text("select version_num from alembic_version")).scalar_one_or_none() if "alembic_version" in tables else None
-    required = {"coman_organizations", "coman_facilities", "coman_products", "coman_inventory_lots", "coman_inventory_transactions", "retail_sales", "inventory_audits", "data_hub_imports", "legal_acceptance_events", "cultivation_plants", "retail_planning_policies", "integration_configurations"}
-    missing = sorted(required - tables)
+        revision = (
+            connection.execute(text("select version_num from alembic_version")).scalar_one_or_none()
+            if "alembic_version" in tables
+            else None
+        )
+    required = {
+        "coman_organizations",
+        "coman_facilities",
+        "coman_products",
+        "coman_inventory_lots",
+        "coman_inventory_transactions",
+        "retail_sales",
+        "inventory_audits",
+        "data_hub_imports",
+        "legal_acceptance_events",
+        "cultivation_plants",
+        "retail_planning_policies",
+        "integration_configurations",
+    }
+    missing = required - tables
     revision_current = revision == EXPECTED_SCHEMA_REVISION or (settings.is_development and revision is None)
     ready = not missing and revision_current
+
+    # The deploy workflow needs these four identity fields to prove that the
+    # exact validated revision reached production. Do not add table names,
+    # connection details, exception text, or other internal diagnostics here.
     payload = {
         "status": "ready" if ready else "degraded",
-        "service": "buyer-dash-api",
         "release_sha": RELEASE_SHA,
-        "database": "connected",
         "schema_revision": revision,
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
         "schema_matches": revision_current,
-        "missing_tables": missing,
     }
     return payload if ready else JSONResponse(status_code=503, content=payload)
 
