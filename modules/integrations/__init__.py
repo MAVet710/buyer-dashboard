@@ -5,7 +5,12 @@ from .models import (
     IntegrationSyncState,
 )
 from .service import IntegrationConfigurationService
-from .sandbox_runtime import SandboxIntegrationRuntime
+from . import sandbox_runtime as _sandbox_runtime
+
+# METRC-style credential payloads commonly call this field UserApiKey.
+# Keep that alias in the runtime redaction set before any sandbox records are staged.
+_sandbox_runtime.SENSITIVE_TOKENS.add("userapikey")
+SandboxIntegrationRuntime = _sandbox_runtime.SandboxIntegrationRuntime
 
 __all__ = [
     "IntegrationConfiguration",
