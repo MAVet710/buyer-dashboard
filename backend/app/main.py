@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -54,8 +55,10 @@ from .routers.coman_parity import router as coman_parity_router
 from .routers.analytics import router as analytics_router
 from .database import get_engine
 from .observability import install_observability
+from .services.sandbox_extraction import ensure_rich_extraction_sandbox
 from .services.sandbox_sales import sync_sandbox_retail_sales
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 settings.validate_production()
 
@@ -85,7 +88,18 @@ async def lifespan(_: FastAPI):
     # The persisted DEV Sandbox sales CSV is canonical synthetic data. Normalize
     # it into the same retail-sales ledger used by production APIs so unit sales,
     # velocity, DOH, slow movers, and related views remain coherent everywhere.
-    sync_sandbox_retail_sales(get_engine())
+    engine = get_engine()
+    sync_sandbox_retail_sales(engine)
+    try:
+        # Keep the durable Extraction / Run 360 workspace populated with a
+        # realistic multi-method synthetic operation. The seeder itself only
+        # resolves dev-sandbox / SANDBOX and therefore cannot touch a customer
+        # organization or facility.
+        ensure_rich_extraction_sandbox(engine)
+    except Exception:
+        # Sandbox realism must never make the production API unavailable. CI
+        # exercises the seeder directly; runtime failures remain observable.
+        logger.exception("DEV Sandbox extraction realism seed failed")
     yield
 
 
