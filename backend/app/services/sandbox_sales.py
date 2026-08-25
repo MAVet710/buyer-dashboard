@@ -58,9 +58,9 @@ def _sold_at(value: object, *, timezone_name: str, row_number: int) -> datetime:
 def sync_sandbox_retail_sales(engine: Engine) -> dict[str, object]:
     """Normalize the persisted DEV Sandbox buyer-sales CSV into ``retail_sales``.
 
-    The public sandbox source remains the canonical synthetic dataset.  This sync
+    The public sandbox source remains the canonical synthetic dataset. This sync
     makes the durable inventory/analytics APIs consume the same unit-sales history
-    as Buyer parity instead of showing zero velocity.  It is intentionally scoped
+    as Buyer parity instead of showing zero velocity. It is intentionally scoped
     to the canonical DEV Sandbox tenant and is idempotent by source fingerprint.
     """
 
@@ -91,7 +91,11 @@ def sync_sandbox_retail_sales(engine: Engine) -> dict[str, object]:
                 )
             )
         )
-        by_sku = {str(product.sku or "").strip().casefold(): product for product in products if str(product.sku or "").strip()}
+        by_sku = {
+            str(product.sku or "").strip().casefold(): product
+            for product in products
+            if str(product.sku or "").strip()
+        }
         organization_id = organization.id
         facility_id = facility.id
         timezone_name = facility.timezone_name or "America/New_York"
@@ -156,6 +160,9 @@ def sync_sandbox_retail_sales(engine: Engine) -> dict[str, object]:
     rows: list[RetailSale] = []
     local_dates = []
     unmapped_skus: set[str] = set()
+    total_units = 0.0
+    total_net_sales = 0.0
+    product_ids: set[object] = set()
     for index, row in enumerate(reader, start=1):
         sku = str(row.get("SKU") or "").strip()
         product = by_sku.get(sku.casefold())
@@ -170,6 +177,9 @@ def sync_sandbox_retail_sales(engine: Engine) -> dict[str, object]:
             raise ValueError(f"Sandbox sales row {index} cannot have negative Net Sales.")
         sold_at = _sold_at(row.get("Order Time"), timezone_name=timezone_name, row_number=index)
         local_dates.append(sold_at.astimezone(ZoneInfo(timezone_name)).date())
+        total_units += quantity
+        total_net_sales += net_sales
+        product_ids.add(product.id)
         order_id = str(row.get("Order ID") or "").strip() or f"ORDER-{index:07d}"
         source_record_id = f"{order_id}:{sku}:{index:06d}"
         rows.append(
@@ -206,6 +216,17 @@ def sync_sandbox_retail_sales(engine: Engine) -> dict[str, object]:
             f"DEV Sandbox sales must span exactly {SANDBOX_SALES_WINDOW_DAYS} days; found {span_days}."
         )
 
+    summary = {
+        "synced": True,
+        "reason": "refreshed",
+        "rows": len(rows),
+        "units": round(total_units, 2),
+        "net_sales": round(total_net_sales, 2),
+        "products": len(product_ids),
+        "sales_window_days": span_days,
+        "import_batch_id": import_batch_id,
+    }
+
     with Session(engine) as session, session.begin():
         session.execute(
             delete(RetailSale).where(
@@ -216,13 +237,4 @@ def sync_sandbox_retail_sales(engine: Engine) -> dict[str, object]:
         )
         session.add_all(rows)
 
-    return {
-        "synced": True,
-        "reason": "refreshed",
-        "rows": len(rows),
-        "units": round(sum(float(row.quantity) for row in rows), 2),
-        "net_sales": round(sum(float(row.net_sales) for row in rows), 2),
-        "products": len({row.product_id for row in rows}),
-        "sales_window_days": span_days,
-        "import_batch_id": import_batch_id,
-    }
+    return summary
