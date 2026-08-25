@@ -4,21 +4,21 @@ import { HELP_EMAIL, INFO_EMAIL, SUPPORT_EMAIL } from "../lib/brand";
 const channels = [
   {
     icon: Mail,
-    title: "General questions",
+    title: "Curious about DoobieLogic?",
     email: INFO_EMAIL,
-    body: "Questions about DoobieLogic, whether it fits your operation, or how to get started.",
+    body: "Questions about the platform, whether it fits your operation, or how to get started.",
   },
   {
     icon: CircleHelp,
-    title: "Product help",
+    title: "Need a hand?",
     email: HELP_EMAIL,
-    body: "Workflow questions, how-to help, and guidance using the platform.",
+    body: "Workflow questions, how-to stuff, or help figuring out where something lives.",
   },
   {
     icon: Headphones,
-    title: "Technical support",
+    title: "Something acting weird?",
     email: SUPPORT_EMAIL,
-    body: "Login problems, errors, unexpected behavior, or anything that is not working the way it should.",
+    body: "Login trouble, errors, broken behavior, or anything that should be working and isn't.",
   },
 ] as const;
 
@@ -26,9 +26,9 @@ export function MarketingContactChannels() {
   return <section className="marketing-contact-channels" aria-labelledby="contact-heading">
     <div className="marketing-contact-heading">
       <div>
-        <div className="marketing-contact-eyebrow">Contact DoobieLogic</div>
-        <h2 id="contact-heading">Need to reach us?</h2>
-        <p>Choose the address that best fits what you need and we&apos;ll get it to the right place.</p>
+        <div className="marketing-contact-eyebrow">Talk to us</div>
+        <h2 id="contact-heading">Need us? Pick an inbox.</h2>
+        <p>Product question, need a hand, or something being stubborn? Hit the address that fits. A real person will see it.</p>
       </div>
     </div>
     <div className="marketing-contact-grid">
