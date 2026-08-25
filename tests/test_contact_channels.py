@@ -26,8 +26,27 @@ def test_public_contact_copy_stays_human_and_does_not_expose_mail_vendor():
     assert "Need us? Pick an inbox." in channels
     assert "A real person will see it." in channels
     assert "Spacemail" not in channels
-    assert "spreadsheet circus" in marketing
+    assert "Cannabis ops without the spreadsheet circus" in marketing
     assert "Good weed deserves better operations." in marketing
+
+
+def test_public_hero_copy_is_clear_and_avoids_overwritten_phrasing():
+    marketing = (ROOT / "frontend" / "src" / "pages" / "MarketingHome.tsx").read_text(encoding="utf-8")
+
+    assert "and compliance from one place." in marketing
+    assert "one clear view of the work that keeps a licensed facility moving" in marketing
+    assert "without losing the plot" not in marketing
+    assert "five exports and a prayer" not in marketing
+
+
+def test_public_marketing_copy_uses_no_em_dashes():
+    public_copy_files = [
+        ROOT / "frontend" / "src" / "pages" / "MarketingHome.tsx",
+        ROOT / "frontend" / "src" / "components" / "ContactChannels.tsx",
+    ]
+
+    for path in public_copy_files:
+        assert "—" not in path.read_text(encoding="utf-8")
 
 
 def test_contact_channel_styles_include_mobile_support_control():

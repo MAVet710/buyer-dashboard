@@ -91,11 +91,11 @@ export function MarketingHome() {
           <div className="marketing-hero-copy">
             <div className="marketing-eyebrow">Cannabis ops without the spreadsheet circus</div>
             <h1>
-              Run <span>buying, inventory, extraction, production,</span> and compliance without losing the plot.
+              Run <span>buying, inventory, extraction, production,</span> and compliance from one place.
             </h1>
             <p>
-              DoobieLogic is for people who actually move cannabis through a licensed operation. Buy it, receive it, count it,
-              make it, test it, track it, and prove what happened without stitching together five exports and a prayer.
+              DoobieLogic gives cannabis operators one clear view of the work that keeps a licensed facility moving, from purchasing and receiving to production,
+              traceability, reporting, and compliance.
             </p>
 
             <div className="marketing-cta-row">
