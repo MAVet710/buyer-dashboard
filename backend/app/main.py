@@ -17,6 +17,9 @@ from .routers.audits import router as audit_router
 from .routers.plants import router as plants_router
 from .routers.production import router as production_router
 from .routers.commercial import router as commercial_router
+from .routers.warehouse import router as warehouse_router
+from .routers.enterprise_control import router as enterprise_control_router
+from .routers.traceability_actions import router as traceability_actions_router
 from .routers.compliance import router as compliance_router
 from .routers.compliance_qa import router as compliance_qa_router
 from .routers.account import router as account_router
@@ -201,6 +204,9 @@ app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
 app.include_router(commercial_router, prefix=settings.api_prefix)
+app.include_router(warehouse_router, prefix=settings.api_prefix)
+app.include_router(enterprise_control_router, prefix=settings.api_prefix)
+app.include_router(traceability_actions_router, prefix=settings.api_prefix)
 app.include_router(compliance_router, prefix=settings.api_prefix)
 app.include_router(compliance_qa_router, prefix=settings.api_prefix)
 app.include_router(account_router, prefix=settings.api_prefix)
