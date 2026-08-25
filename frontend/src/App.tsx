@@ -17,11 +17,13 @@ const RetailProduct360Page = lazy(() => import("./pages/RetailProduct360Page").t
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
 const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
 const ProductionPage = lazy(() => import("./pages/ProductionPage").then(module => ({ default: module.ProductionPage })));
+const ProductionRun360Page = lazy(() => import("./pages/ProductionRun360Page").then(module => ({ default: module.ProductionRun360Page })));
 const ExtractionUnifiedPage = lazy(() => import("./pages/ExtractionUnifiedPage").then(module => ({ default: module.ExtractionUnifiedPage })));
 const WhiteLabelRepackPage = lazy(() => import("./pages/WhiteLabelRepackPage").then(module => ({ default: module.WhiteLabelRepackPage })));
 const PackageStudioPage = lazy(() => import("./pages/PackageStudioPage").then(module => ({ default: module.PackageStudioPage })));
 const Package360Page = lazy(() => import("./pages/Package360Page").then(module => ({ default: module.Package360Page })));
 const OrdersPage = lazy(() => import("./pages/OrdersPage").then(module => ({ default: module.OrdersPage })));
+const WarehousePickPackPage = lazy(() => import("./pages/WarehousePickPackPage").then(module => ({ default: module.WarehousePickPackPage })));
 const CompliancePage = lazy(() => import("./pages/CompliancePage").then(module => ({ default: module.CompliancePage })));
 const DoobiePage = lazy(() => import("./pages/DoobiePage").then(module => ({ default: module.DoobiePage })));
 const DataSettingsPage = lazy(() => import("./pages/DataSettingsPage").then(module => ({ default: module.DataSettingsPage })));
@@ -34,6 +36,7 @@ const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage
 const ExecutiveReportsPage = lazy(() => import("./pages/ExecutiveReportsPage").then(module => ({ default: module.ExecutiveReportsPage })));
 const ComplianceQAPage = lazy(() => import("./pages/ComplianceQAPage").then(module => ({ default: module.ComplianceQAPage })));
 const OperationsControlTowerPage = lazy(() => import("./pages/OperationsControlTowerPage").then(module => ({ default: module.OperationsControlTowerPage })));
+const EnterpriseControlPage = lazy(() => import("./pages/EnterpriseControlPage").then(module => ({ default: module.EnterpriseControlPage })));
 const LabelStudioPage = lazy(() => import("./pages/LabelStudioPage").then(module => ({ default: module.LabelStudioPage })));
 
 function initialPage(): string {
@@ -79,10 +82,12 @@ export default function App() {
     : page === "Replenishment Policies" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPage />
+    : page === "Production Run 360" ? <ProductionRun360Page onNavigate={setPage} />
     : page === "Extraction" ? <ExtractionUnifiedPage onNavigate={setPage} />
     : page === "White Label / Repack" ? <WhiteLabelRepackPage />
     : page === "Package Studio" ? <PackageStudioPage />
     : page === "Orders" ? <OrdersPage />
+    : page === "Warehouse Pick Pack" ? <WarehousePickPackPage onNavigate={setPage} />
     : page === "Compliance" ? <CompliancePage />
     : page === "Compliance Q&A" ? <ComplianceQAPage />
     : page === "Label Studio" ? <LabelStudioPage />
@@ -90,6 +95,7 @@ export default function App() {
     : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />
     : page === "Operations Control Tower" ? <OperationsControlTowerPage />
+    : page === "Enterprise Control Tower" ? <EnterpriseControlPage onNavigate={setPage} />
     : page === "Doobie" ? <DoobiePage />
     : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <><IntegrationsPage /><DeveloperConnectionsPanel /></>
     : page === "Admin" || page === "Admin Tools" ? <AdminToolsPage />
