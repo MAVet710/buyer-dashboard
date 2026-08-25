@@ -1,6 +1,7 @@
 import { BrainCircuit, Maximize2, Minimize2, Send, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiGet, apiPost } from "../lib/api";
 import "./workspace-agent.css";
@@ -121,6 +122,21 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
     setQuestion(selected.suggested_questions[0] ?? "What needs my attention in this workspace?");
   }, [question, selected]);
 
+  useEffect(() => {
+    const clampToViewport = () => {
+      if (!position || maximized || window.innerWidth <= 720) return;
+      const rect = drawerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const margin = 12;
+      setPosition(current => current ? {
+        left: Math.min(Math.max(margin, window.innerWidth - rect.width - margin), Math.max(margin, current.left)),
+        top: Math.min(Math.max(margin, window.innerHeight - rect.height - margin), Math.max(margin, current.top)),
+      } : current);
+    };
+    window.addEventListener("resize", clampToViewport);
+    return () => window.removeEventListener("resize", clampToViewport);
+  }, [position, maximized]);
+
   const run = useMutation({
     mutationFn: () => apiPost<AgentRun>("/api/v1/ai-agents/run", {
       agent_key: effectiveKey,
@@ -190,10 +206,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
   const sourceList = lastRun?.sources ?? [];
   const freshness = Object.entries(lastRun?.data_freshness ?? {});
 
-  return <>
-    <button className="workspace-agent-launch" type="button" onClick={() => setOpen(true)} aria-label="Open DoobieLogic AI agents">
-      <BrainCircuit size={18}/><span>{selected?.name ?? "AI Agents"}</span><i className={provider?.configured ? "is-connected" : ""}/>
-    </button>
+  const floatingWindow = typeof document === "undefined" ? null : createPortal(<>
     {open ? <div className="workspace-agent-backdrop" onClick={() => setOpen(false)} aria-hidden="true"/> : null}
     <aside
       ref={drawerRef}
@@ -256,5 +269,12 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
         </> : null}
       </div>
     </aside>
+  </>, document.body);
+
+  return <>
+    <button className="workspace-agent-launch" type="button" onClick={() => setOpen(true)} aria-label="Open DoobieLogic AI agents">
+      <BrainCircuit size={18}/><span>{selected?.name ?? "AI Agents"}</span><i className={provider?.configured ? "is-connected" : ""}/>
+    </button>
+    {floatingWindow}
   </>;
 }
