@@ -101,6 +101,12 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function apiPublicGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, { signal });
+  if (!response.ok) return throwResponseError(response);
+  return response.json() as Promise<T>;
+}
+
 export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     method: "POST",
