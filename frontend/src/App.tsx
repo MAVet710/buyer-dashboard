@@ -27,6 +27,7 @@ const DataSettingsPage = lazy(() => import("./pages/DataSettingsPage").then(modu
 const LocationSettingsPage = lazy(() => import("./pages/LocationSettingsPage").then(module => ({ default: module.LocationSettingsPage })));
 const AdminToolsPage = lazy(() => import("./pages/AdminToolsPage").then(module => ({ default: module.AdminToolsPage })));
 const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then(module => ({ default: module.IntegrationsPage })));
+const DeveloperConnectionsPanel = lazy(() => import("./components/DeveloperConnectionsPanel").then(module => ({ default: module.DeveloperConnectionsPanel })));
 const MAFlowerEquivalencyPage = lazy(() => import("./pages/MAFlowerEquivalencyPage").then(module => ({ default: module.MAFlowerEquivalencyPage })));
 const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage").then(module => ({ default: module.NomenclatureMapperPage })));
 const ExecutiveReportsPage = lazy(() => import("./pages/ExecutiveReportsPage").then(module => ({ default: module.ExecutiveReportsPage })));
@@ -84,7 +85,7 @@ export default function App() {
     : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />
     : page === "Doobie" ? <DoobiePage />
-    : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <IntegrationsPage />
+    : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <><IntegrationsPage /><DeveloperConnectionsPanel /></>
     : page === "Admin" || page === "Admin Tools" ? <AdminToolsPage />
     : page === "Location Settings" ? <LocationSettingsPage />
     : page === "Data & Settings" ? <DataSettingsPage onNavigate={setPage} />

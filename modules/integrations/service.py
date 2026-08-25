@@ -13,7 +13,16 @@ from modules.coman.models import AuditEvent
 from .models import IntegrationConfiguration
 
 
-SUPPORTED_PROVIDERS = {"metrc", "doobie", "ai_runtime", "spacemail"}
+SUPPORTED_PROVIDERS = {
+    "metrc",
+    "doobie",
+    "ai_runtime",
+    "spacemail",
+    "metrc_sandbox",
+    "dutchie_sandbox",
+    "biotrack_sandbox",
+    "quickbooks_sandbox",
+}
 
 
 class IntegrationConfigurationService:
