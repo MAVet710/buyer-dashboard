@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from alembic.config import Config as AlembicConfig
@@ -52,6 +53,7 @@ from .routers.coman_parity import router as coman_parity_router
 from .routers.analytics import router as analytics_router
 from .database import get_engine
 from .observability import install_observability
+from .services.sandbox_sales import sync_sandbox_retail_sales
 
 settings = get_settings()
 settings.validate_production()
@@ -76,7 +78,17 @@ if not settings.is_development and DECLARED_SCHEMA_HEAD and DECLARED_SCHEMA_HEAD
         f"declared={DECLARED_SCHEMA_HEAD} image={EXPECTED_SCHEMA_REVISION}"
     )
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # The persisted DEV Sandbox sales CSV is canonical synthetic data. Normalize
+    # it into the same retail-sales ledger used by production APIs so unit sales,
+    # velocity, DOH, slow movers, and related views remain coherent everywhere.
+    sync_sandbox_retail_sales(get_engine())
+    yield
+
+
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 install_observability(app)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 app.add_middleware(
