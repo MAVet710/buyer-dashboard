@@ -1,4 +1,4 @@
-export type CannabisProgramStatus = "adult-use-and-medical" | "medical" | "adult-use";
+export type CannabisProgramStatus = "adult-use-and-medical" | "medical" | "adult-use" | "other";
 
 export type CannabisJurisdiction = {
   code: string;
@@ -62,7 +62,7 @@ export const REGULATED_CANNABIS_JURISDICTIONS: CannabisJurisdiction[] = [
 
 export const CANNABIS_JURISDICTION_OPTIONS = [
   ...REGULATED_CANNABIS_JURISDICTIONS,
-  { code: "Other", name: "Other / Tribal / International", program: "medical" as const },
+  { code: "Other", name: "Other / Tribal / International", program: "other" as const },
 ];
 
 export function cannabisJurisdictionLabel(jurisdiction: CannabisJurisdiction) {
