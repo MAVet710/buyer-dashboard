@@ -57,13 +57,22 @@ def test_contact_channel_styles_include_mobile_support_control():
     assert "#ef7427" in css
 
 
-def test_workspace_agent_is_a_floating_translucent_panel():
+def test_workspace_agent_is_a_true_floating_window():
     css = (ROOT / "frontend" / "src" / "components" / "workspace-agent.css").read_text(encoding="utf-8")
+    component = (ROOT / "frontend" / "src" / "components" / "WorkspaceAgent.tsx").read_text(encoding="utf-8")
 
-    assert "right:18px" in css
-    assert "top:18px" in css
-    assert "bottom:18px" in css
+    assert "right:28px" in css
+    assert "top:72px" in css
+    assert "height:min(700px,calc(100dvh - 144px))" in css
     assert "border-radius:22px" in css
     assert "backdrop-filter:blur(24px)" in css
-    assert "rgba(4,6,7,.22)" in css
+    assert "rgba(4,6,7,.12)" in css
+    assert ".workspace-agent-body{" in css
+    assert ".workspace-agent-drawer.maximized" in css
+    assert ".workspace-agent-drawer.has-custom-position" in css
+    assert "onPointerDown={beginDrag}" in component
+    assert "onPointerMove={dragWindow}" in component
+    assert "Maximize2" in component
+    assert "Minimize2" in component
+    assert "workspace-agent-maximize" in component
     assert "right:0;top:0;height:100dvh" not in css
