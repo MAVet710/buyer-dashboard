@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
 
 from modules.coman.models import Facility
 from modules.coman.repository import ComanRepository
@@ -24,7 +25,8 @@ def enterprise_control_tower(context: RequestContext = Depends(get_request_conte
     finance = CommercialFinanceService(engine)
     moat = OperationalMoatService(engine)
     trace = TraceabilityBackofficeRepository(engine)
-    facilities = [row for row in coman.list_facilities(context.organization_id) if row.active]
+    with Session(engine) as session:
+        facilities = list(session.scalars(select(Facility).where(Facility.organization_id == context.organization_id, Facility.active.is_(True)).order_by(Facility.name)))
     products = {row.id: row for row in coman.list_products(context.organization_id)}
     now = datetime.now(timezone.utc)
     rows = []
