@@ -1,12 +1,12 @@
 """Allow isolated sandbox provider connection records.
 
-Revision ID: 0042_sandbox_provider_connections
+Revision ID: 0042_sandbox_providers
 Revises: 0041_integration_providers
 """
 
 from alembic import op
 
-revision = "0042_sandbox_provider_connections"
+revision = "0042_sandbox_providers"
 down_revision = "0041_integration_providers"
 branch_labels = None
 depends_on = None
