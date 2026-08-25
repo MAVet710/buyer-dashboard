@@ -186,10 +186,13 @@
 .beta-form input:focus,
 .beta-form select:focus,
 .beta-form textarea:focus { border-color: #ef7427; box-shadow: 0 0 0 3px rgba(239,116,39,.10); }
+.beta-honeypot { position: absolute !important; left: -10000px !important; width: 1px !important; height: 1px !important; overflow: hidden !important; opacity: 0 !important; pointer-events: none !important; }
 .beta-consent { display: flex !important; grid-template-columns: auto 1fr; align-items: flex-start; gap: 10px !important; margin: 19px 0; color: #9b958f !important; font-size: 12px !important; font-weight: 500 !important; line-height: 1.5; }
 .beta-consent input { width: 18px; height: 18px; min-height: 0; margin-top: 1px; flex: 0 0 auto; accent-color: #ef7427; }
 .beta-submit { width: 100%; min-height: 49px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; border: 1px solid #ef7427; border-radius: 7px; color: #fff; background: linear-gradient(180deg, #f2833f, #d85d17); font-weight: 850; cursor: pointer; }
-.beta-submit:hover { filter: brightness(1.07); }
+.beta-submit:hover:not(:disabled) { filter: brightness(1.07); }
+.beta-submit:disabled { cursor: wait; opacity: .68; }
+.beta-error { margin-top: 14px; padding: 15px 17px; border: 1px solid #6f3730; border-radius: 10px; color: #e8b5ae; background: #1b1010; font-size: 12px; line-height: 1.5; }
 .beta-success { margin-top: 14px; padding: 18px; display: grid; gap: 4px; border: 1px solid #3b6044; border-radius: 10px; color: #cbe4d0; background: #101b13; font-size: 12px; }
 .beta-success strong { color: #f7f3ed; font-size: 15px; }
 
