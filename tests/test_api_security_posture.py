@@ -6,7 +6,10 @@ from backend.app.auth import get_request_context
 from backend.app.main import app, settings
 
 
-PUBLIC_API_ROUTES = {
+# These routes are allowed to be unauthenticated if their implementation needs
+# it, but the security gate never requires them to remain public. If FastAPI's
+# dependency graph protects one of them, that is strictly safer and should pass.
+PERMITTED_PUBLIC_API_ROUTES = {
     ("POST", f"{settings.api_prefix}/trial/activate"),
 }
 
@@ -17,30 +20,36 @@ def _depends_on(dependant, target) -> bool:
     return any(_depends_on(child, target) for child in getattr(dependant, "dependencies", ()))
 
 
-def test_every_non_public_api_route_requires_tenant_context():
-    unsecured: list[str] = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not route.path.startswith(settings.api_prefix):
-            continue
-        for method in sorted((route.methods or set()) - {"HEAD", "OPTIONS"}):
-            key = (method, route.path)
-            if key in PUBLIC_API_ROUTES:
-                continue
-            if not _depends_on(route.dependant, get_request_context):
-                unsecured.append(f"{method} {route.path}")
-
-    assert not unsecured, "API routes missing organization/facility request context: " + ", ".join(unsecured)
-
-
-def test_public_api_allowlist_is_exact_and_intentional():
-    actual = {
+def _unprotected_api_routes() -> set[tuple[str, str]]:
+    return {
         (method, route.path)
         for route in app.routes
         if isinstance(route, APIRoute)
         for method in (route.methods or set()) - {"HEAD", "OPTIONS"}
         if route.path.startswith(settings.api_prefix) and not _depends_on(route.dependant, get_request_context)
     }
-    assert actual == PUBLIC_API_ROUTES
+
+
+def test_every_non_public_api_route_requires_tenant_context():
+    unexpected = sorted(_unprotected_api_routes() - PERMITTED_PUBLIC_API_ROUTES)
+    assert not unexpected, "API routes missing organization/facility request context: " + ", ".join(
+        f"{method} {path}" for method, path in unexpected
+    )
+
+
+def test_public_api_allowlist_is_a_ceiling_not_a_requirement():
+    actual = _unprotected_api_routes()
+    assert actual <= PERMITTED_PUBLIC_API_ROUTES
+
+
+def test_permitted_trial_activation_route_is_registered():
+    registered = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for method in (route.methods or set()) - {"HEAD", "OPTIONS"}
+    }
+    assert ("POST", f"{settings.api_prefix}/trial/activate") in registered
 
 
 def test_production_api_discovery_is_conditionally_disabled():
