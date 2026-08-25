@@ -6,6 +6,7 @@ import { AuthGate } from "./components/AuthGate";
 import { AppSupportButton, MarketingContactChannels } from "./components/ContactChannels";
 import { MarketingHome } from "./pages/MarketingHome";
 import { BetaPartnerPage } from "./pages/BetaPartnerPage";
+import { CommercePortalPage } from "./pages/CommercePortalPage";
 import { isMarketingHost } from "./lib/siteMode";
 import "./styles.css";
 import "./parity.css";
@@ -25,11 +26,13 @@ import "./contact-channels.css";
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
 const marketing = isMarketingHost(window.location.hostname);
 const betaPage = marketing && /^\/beta\/?$/.test(window.location.pathname);
+const portalMatch = window.location.pathname.match(/^\/portal\/([^/]+)\/?$/);
+const portalToken = portalMatch ? decodeURIComponent(portalMatch[1]) : "";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={client}>
-      {marketing ? <>
+      {portalToken ? <CommercePortalPage token={portalToken} /> : marketing ? <>
         {betaPage ? <BetaPartnerPage /> : <MarketingHome />}
         <MarketingContactChannels />
       </> : <AuthGate><>
