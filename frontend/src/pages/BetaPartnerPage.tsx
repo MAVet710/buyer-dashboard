@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { useState, type FormEvent } from "react";
 import {
   ArrowRight,
   BarChart3,
@@ -11,6 +11,7 @@ import {
   ShoppingCart,
   Warehouse,
 } from "lucide-react";
+import { apiPublicPost } from "../lib/api";
 import { BRAND_IMAGE_URL } from "../lib/brand";
 
 const pillars = [
@@ -67,10 +68,40 @@ const pillars = [
 
 export function BetaPartnerPage() {
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSubmitted(true);
+    if (submitting) return;
+    setSubmitting(true);
+    setSubmitted(false);
+    setError("");
+
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    try {
+      await apiPublicPost<{ accepted: boolean }>("/api/v1/beta/apply", {
+        name: String(data.get("name") ?? ""),
+        email: String(data.get("email") ?? ""),
+        company: String(data.get("company") ?? ""),
+        role: String(data.get("role") ?? ""),
+        operation: String(data.get("operation") ?? ""),
+        facilities: String(data.get("facilities") ?? ""),
+        stack: String(data.get("stack") ?? ""),
+        state: String(data.get("state") ?? ""),
+        pain: String(data.get("pain") ?? ""),
+        must_have: String(data.get("must_have") ?? ""),
+        consent: data.get("consent") === "on",
+        website: String(data.get("website") ?? ""),
+      });
+      form.reset();
+      setSubmitted(true);
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : "We could not submit your application. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -212,12 +243,14 @@ export function BetaPartnerPage() {
                 <label>Facilities / licenses<select name="facilities" required defaultValue=""><option value="" disabled>Select range</option><option>1</option><option>2–3</option><option>4–10</option><option>11+</option></select></label>
                 <label>Primary POS / ERP<input name="stack" placeholder="Dutchie, Treez, spreadsheets..." /></label>
                 <label>State<input name="state" required placeholder="MA" /></label>
-                <label className="full">What&apos;s the biggest operational problem you want DoobieLogic to solve?<textarea name="pain" required placeholder="Tell us where your team loses the most time, money, or visibility..." /></label>
-                <label className="full">What would make DoobieLogic indispensable to your operation?<textarea name="mustHave" placeholder="The feature or outcome you would never want to work without..." /></label>
+                <label className="full">What&apos;s the biggest operational problem you want DoobieLogic to solve?<textarea name="pain" required minLength={10} placeholder="Tell us where your team loses the most time, money, or visibility..." /></label>
+                <label className="full">What would make DoobieLogic indispensable to your operation?<textarea name="must_have" placeholder="The feature or outcome you would never want to work without..." /></label>
+                <label className="beta-honeypot" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off" /></label>
               </div>
-              <label className="beta-consent"><input type="checkbox" required /><span>I understand beta participation includes structured feedback and the sharing of approved usage, diagnostic, or operational test data under the Beta Participation & Data Use Agreement.</span></label>
-              <button className="beta-submit" type="submit">Submit Beta Application <ArrowRight size={18} /></button>
-              {submitted && <div className="beta-success" role="status"><strong>Application captured.</strong><span>This preview flow is ready for the production submission endpoint to be connected.</span></div>}
+              <label className="beta-consent"><input name="consent" type="checkbox" required /><span>I understand beta participation includes structured feedback and the sharing of approved usage, diagnostic, or operational test data under the Beta Participation & Data Use Agreement.</span></label>
+              <button className="beta-submit" type="submit" disabled={submitting}>{submitting ? "Submitting..." : <>Submit Beta Application <ArrowRight size={18} /></>}</button>
+              {error && <div className="beta-error" role="alert">{error}</div>}
+              {submitted && <div className="beta-success" role="status"><strong>Application received.</strong><span>Thanks for putting your hand up. The DoobieLogic team will review your application and follow up using the email you provided.</span></div>}
             </form>
           </div>
         </section>
