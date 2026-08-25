@@ -81,7 +81,7 @@ export function MarketingHome() {
 
           <div className="marketing-nav-actions">
             <a className="marketing-nav-login" href={APP_URL}>Log In</a>
-            <a className="marketing-nav-primary" href={APP_URL}>Open DoobieLogic</a>
+            <a className="marketing-nav-primary" href="/beta">Join the Beta</a>
           </div>
         </nav>
       </header>
@@ -99,7 +99,7 @@ export function MarketingHome() {
             </p>
 
             <div className="marketing-cta-row">
-              <a className="marketing-primary" href={APP_URL}>Open DoobieLogic <ArrowRight size={18} /></a>
+              <a className="marketing-primary" href="/beta">Join the DoobieLogic Beta <ArrowRight size={18} /></a>
               <a className="marketing-secondary" href="#platform">See what it does</a>
             </div>
 
@@ -253,11 +253,11 @@ export function MarketingHome() {
 
         <section className="marketing-final-cta">
           <div>
-            <div className="marketing-eyebrow">DoobieLogic</div>
+            <div className="marketing-eyebrow">DoobieLogic Beta</div>
             <h2>Good weed deserves better operations.</h2>
-            <p>DoobieLogic handles the regulated, detail-heavy stuff that keeps good operators from running blind.</p>
+            <p>Get early access, put DoobieLogic through real cannabis workflows, and help shape what ships next.</p>
           </div>
-          <a className="marketing-primary" href={APP_URL}>Open DoobieLogic <ArrowRight size={18}/></a>
+          <a className="marketing-primary" href="/beta">Apply for Beta Access <ArrowRight size={18}/></a>
         </section>
       </main>
 
@@ -266,7 +266,7 @@ export function MarketingHome() {
           <div className="marketing-brand"><img className="marketing-brand-image" src={BRAND_IMAGE_URL} alt="DoobieLogic" /><span className="marketing-wordmark"><strong>Doobie</strong><em>Logic</em></span></div>
           <small>Cannabis Operations Intelligence</small>
         </div>
-        <div className="marketing-footer-links"><a href="#platform">Platform</a><a href="#extraction">Extraction</a><a href="#compliance">Compliance</a><a href={APP_URL}>Log in</a></div>
+        <div className="marketing-footer-links"><a href="#platform">Platform</a><a href="#extraction">Extraction</a><a href="#compliance">Compliance</a><a href="/beta">Join Beta</a><a href={APP_URL}>Log in</a></div>
         <div className="marketing-footer-motto"><strong>Semper Paratus</strong><span>•</span><span>Powered by Good Weed and Data</span></div>
         <small className="marketing-copyright">© {new Date().getFullYear()} DoobieLogic</small>
       </footer>
