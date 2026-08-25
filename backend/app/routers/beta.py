@@ -16,6 +16,9 @@ from ..services.spacemail import resolve_spacemail_settings
 
 router = APIRouter(prefix="/beta", tags=["beta"])
 
+BETA_APPLICATION_RECIPIENT = "nelson@doobielogic.io"
+BETA_APPLICATION_SENDER_NAME = "DoobieLogic Beta"
+
 
 class BetaApplication(BaseModel):
     name: str = Field(min_length=2, max_length=120)
@@ -63,14 +66,14 @@ def submit_beta_application(
     if not mail_settings.spacemail_is_configured:
         raise HTTPException(status_code=503, detail="Beta applications are temporarily unavailable. Please try again shortly.")
 
-    recipient = str(mail_settings.spacemail_info_email or mail_settings.spacemail_support_email).strip().casefold()
-    if not recipient:
-        raise HTTPException(status_code=503, detail="Beta application delivery is not configured.")
+    sender = str(mail_settings.spacemail_info_email or "").strip().casefold()
+    if not sender:
+        raise HTTPException(status_code=503, detail="Beta application sender is not configured.")
 
     message = EmailMessage()
     message["Subject"] = f"DoobieLogic Beta Application — {payload.company} — {payload.name}"
-    message["From"] = formataddr((mail_settings.spacemail_from_name, mail_settings.spacemail_from_email))
-    message["To"] = recipient
+    message["From"] = formataddr((BETA_APPLICATION_SENDER_NAME, sender))
+    message["To"] = BETA_APPLICATION_RECIPIENT
     message["Reply-To"] = payload.email
     message["Date"] = formatdate(localtime=False)
     message["Message-ID"] = make_msgid(domain="doobielogic.io")
