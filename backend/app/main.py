@@ -54,6 +54,7 @@ from .routers.executive_reports import router as executive_reports_router
 from .routers.coman_parity import router as coman_parity_router
 from .routers.analytics import router as analytics_router
 from .routers.control_tower import router as control_tower_router, public_router as commerce_portal_router
+from .routers.external_api import router as external_api_router
 from .database import get_engine
 from .observability import install_observability
 from .services.sandbox_extraction import ensure_rich_extraction_sandbox
@@ -221,6 +222,7 @@ app.include_router(po_parity_router, prefix=settings.api_prefix)
 app.include_router(legal_router, prefix=settings.api_prefix)
 app.include_router(control_tower_router, prefix=settings.api_prefix)
 app.include_router(commerce_portal_router, prefix=settings.api_prefix)
+app.include_router(external_api_router, prefix=settings.api_prefix)
 # Register the literal create-user route before /admin/users/{user_id};
 # otherwise Starlette treats "create" as a user ID and dispatches to update_user.
 app.include_router(admin_user_create_router, prefix=settings.api_prefix)
