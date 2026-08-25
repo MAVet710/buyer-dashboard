@@ -20,6 +20,7 @@ const ProductionPage = lazy(() => import("./pages/ProductionPage").then(module =
 const ExtractionUnifiedPage = lazy(() => import("./pages/ExtractionUnifiedPage").then(module => ({ default: module.ExtractionUnifiedPage })));
 const WhiteLabelRepackPage = lazy(() => import("./pages/WhiteLabelRepackPage").then(module => ({ default: module.WhiteLabelRepackPage })));
 const PackageStudioPage = lazy(() => import("./pages/PackageStudioPage").then(module => ({ default: module.PackageStudioPage })));
+const Package360Page = lazy(() => import("./pages/Package360Page").then(module => ({ default: module.Package360Page })));
 const OrdersPage = lazy(() => import("./pages/OrdersPage").then(module => ({ default: module.OrdersPage })));
 const CompliancePage = lazy(() => import("./pages/CompliancePage").then(module => ({ default: module.CompliancePage })));
 const DoobiePage = lazy(() => import("./pages/DoobiePage").then(module => ({ default: module.DoobiePage })));
@@ -65,6 +66,7 @@ export default function App() {
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={setPage} />
     : page === "Inventory Audits" ? <FocusedInventoryAudits />
+    : page === "Package 360" ? <Package360Page onNavigate={setPage} />
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
     : page === "Delivery Performance" ? <DeliveryImpactPage />
