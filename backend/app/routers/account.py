@@ -43,7 +43,9 @@ def _supabase_password_session(settings: Settings, email: str, password: str) ->
         with urlopen(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
-        if exc.code in {400, 401, 403}:
+        if exc.code == 429:
+            raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again shortly.") from exc
+        if 400 <= exc.code < 500:
             raise _invalid_credentials() from exc
         raise HTTPException(status_code=502, detail="Authentication service rejected the sign-in request.") from exc
     except (URLError, TimeoutError, json.JSONDecodeError) as exc:
