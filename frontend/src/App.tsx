@@ -25,6 +25,7 @@ const Package360Page = lazy(() => import("./pages/Package360Page").then(module =
 const OrdersPage = lazy(() => import("./pages/OrdersPage").then(module => ({ default: module.OrdersPage })));
 const WarehousePickPackPage = lazy(() => import("./pages/WarehousePickPackPage").then(module => ({ default: module.WarehousePickPackPage })));
 const CompliancePage = lazy(() => import("./pages/CompliancePage").then(module => ({ default: module.CompliancePage })));
+const TraceabilityActionsPage = lazy(() => import("./pages/TraceabilityActionsPage").then(module => ({ default: module.TraceabilityActionsPage })));
 const DoobiePage = lazy(() => import("./pages/DoobiePage").then(module => ({ default: module.DoobiePage })));
 const DataSettingsPage = lazy(() => import("./pages/DataSettingsPage").then(module => ({ default: module.DataSettingsPage })));
 const LocationSettingsPage = lazy(() => import("./pages/LocationSettingsPage").then(module => ({ default: module.LocationSettingsPage })));
@@ -89,6 +90,7 @@ export default function App() {
     : page === "Orders" ? <OrdersPage />
     : page === "Warehouse Pick Pack" ? <WarehousePickPackPage onNavigate={setPage} />
     : page === "Compliance" ? <CompliancePage />
+    : page === "Traceability Actions" ? <TraceabilityActionsPage onNavigate={setPage} />
     : page === "Compliance Q&A" ? <ComplianceQAPage />
     : page === "Label Studio" ? <LabelStudioPage />
     : page === "MA Flower Equivalency" ? <MAFlowerEquivalencyPage />
