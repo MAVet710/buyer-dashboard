@@ -32,6 +32,7 @@ const MAFlowerEquivalencyPage = lazy(() => import("./pages/MAFlowerEquivalencyPa
 const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage").then(module => ({ default: module.NomenclatureMapperPage })));
 const ExecutiveReportsPage = lazy(() => import("./pages/ExecutiveReportsPage").then(module => ({ default: module.ExecutiveReportsPage })));
 const ComplianceQAPage = lazy(() => import("./pages/ComplianceQAPage").then(module => ({ default: module.ComplianceQAPage })));
+const OperationsControlTowerPage = lazy(() => import("./pages/OperationsControlTowerPage").then(module => ({ default: module.OperationsControlTowerPage })));
 
 function initialPage(): string {
   const pending = sessionStorage.getItem("buyer-dash-pending-page");
@@ -84,6 +85,7 @@ export default function App() {
     : page === "MA Flower Equivalency" ? <MAFlowerEquivalencyPage />
     : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />
+    : page === "Operations Control Tower" ? <OperationsControlTowerPage />
     : page === "Doobie" ? <DoobiePage />
     : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <><IntegrationsPage /><DeveloperConnectionsPanel /></>
     : page === "Admin" || page === "Admin Tools" ? <AdminToolsPage />
