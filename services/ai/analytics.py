@@ -28,7 +28,7 @@ def inventory_health(inventory: pd.DataFrame, sales: pd.DataFrame, *, sales_days
         return pd.DataFrame()
     inv_name = find_col(inventory, ("product name", "product", "item name", "item", "name", "sku name"))
     inv_sku = find_col(inventory, ("sku", "product sku", "item sku"))
-    qty = find_col(inventory, ("available", "on hand", "onhand", "quantity", "qty", "inventory available", "med total"))
+    qty = find_col(inventory, ("available", "on hand", "onhand", "onhandunits", "on hand units", "quantity", "qty", "inventory available", "med total"))
     cost = find_col(inventory, ("cost", "unit cost", "wholesale cost"))
     price = find_col(inventory, ("retail price", "price", "med price"))
     received = find_col(inventory, ("received date", "received_at", "received"))
@@ -60,7 +60,7 @@ def inventory_health(inventory: pd.DataFrame, sales: pd.DataFrame, *, sales_days
     if sales is not None and not sales.empty:
         sales_name = find_col(sales, ("product name", "product", "item name", "item", "name", "description"))
         sales_sku = find_col(sales, ("sku", "product sku", "item sku"))
-        sold = find_col(sales, ("quantity sold", "qty sold", "units sold", "units", "total units", "quantity"))
+        sold = find_col(sales, ("quantity sold", "qty sold", "units sold", "unitssold", "units", "total units", "quantity"))
         if sales_name and sold:
             velocity = pd.DataFrame({
                 "__key": sales[sales_sku].fillna("").astype(str).str.strip().str.casefold() if sales_sku else "",
