@@ -13,7 +13,10 @@ class IntegrationConfiguration(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("scope_type", "scope_key", "provider", name="uq_integration_scope_provider"),
         CheckConstraint("scope_type in ('user','facility','platform')", name="ck_integration_scope_type"),
-        CheckConstraint("provider in ('metrc','doobie')", name="ck_integration_provider"),
+        CheckConstraint(
+            "provider in ('metrc','doobie','ai_runtime','spacemail')",
+            name="ck_integration_provider",
+        ),
         CheckConstraint("status in ('not_connected','configured','connected','failed')", name="ck_integration_status"),
         Index("ix_integration_org_facility", "organization_id", "facility_id"),
     )
