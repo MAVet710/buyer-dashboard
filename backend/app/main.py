@@ -91,25 +91,23 @@ if not settings.is_development and DECLARED_SCHEMA_HEAD and DECLARED_SCHEMA_HEAD
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # The persisted DEV Sandbox sales CSV is canonical synthetic data. Normalize
-    # it into the same retail-sales ledger used by production APIs so unit sales,
-    # velocity, DOH, slow movers, and related views remain coherent everywhere.
     engine = get_engine()
     sync_sandbox_retail_sales(engine)
     try:
-        # Keep the durable Extraction / Run 360 workspace populated with a
-        # realistic multi-method synthetic operation. The seeder itself only
-        # resolves dev-sandbox / SANDBOX and therefore cannot touch a customer
-        # organization or facility.
         ensure_rich_extraction_sandbox(engine)
     except Exception:
-        # Sandbox realism must never make the production API unavailable. CI
-        # exercises the seeder directly; runtime failures remain observable.
         logger.exception("DEV Sandbox extraction realism seed failed")
     yield
 
 
-app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title=settings.app_name,
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/docs" if settings.is_development else None,
+    redoc_url="/redoc" if settings.is_development else None,
+    openapi_url="/openapi.json" if settings.is_development else None,
+)
 install_observability(app)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 app.add_middleware(
@@ -131,6 +129,15 @@ _BUYER_UPLOAD_BACKED_PREFIXES = (
 
 
 @app.middleware("http")
+async def add_security_response_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
+
+
+@app.middleware("http")
 async def enforce_buyer_data_mode(request: Request, call_next):
     data_mode = str(request.headers.get("X-DoobieLogic-Data-Mode") or "Uploads").strip().casefold()
     if data_mode in {"dutchie live", "dutchie_live", "live"} and request.url.path.startswith(_BUYER_UPLOAD_BACKED_PREFIXES):
@@ -149,12 +156,7 @@ async def enforce_buyer_data_mode(request: Request, call_next):
 
 @app.get("/health", tags=["system"])
 def health() -> dict[str, str]:
-    return {
-        "status": "ok",
-        "service": "buyer-dash-api",
-        "release_sha": RELEASE_SHA,
-        "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
-    }
+    return {"status": "ok"}
 
 
 @app.get("/health/ready", tags=["system"])
@@ -181,18 +183,15 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
         "machine_telemetry_events",
         "cultivation_harvests",
     }
-    missing = sorted(required - tables)
+    missing = required - tables
     revision_current = revision == EXPECTED_SCHEMA_REVISION or (settings.is_development and revision is None)
     ready = not missing and revision_current
     payload = {
         "status": "ready" if ready else "degraded",
-        "service": "buyer-dash-api",
         "release_sha": RELEASE_SHA,
-        "database": "connected",
         "schema_revision": revision,
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
         "schema_matches": revision_current,
-        "missing_tables": missing,
     }
     return payload if ready else JSONResponse(status_code=503, content=payload)
 
@@ -231,8 +230,6 @@ app.include_router(legal_router, prefix=settings.api_prefix)
 app.include_router(control_tower_router, prefix=settings.api_prefix)
 app.include_router(commerce_portal_router, prefix=settings.api_prefix)
 app.include_router(external_api_router, prefix=settings.api_prefix)
-# Register the literal create-user route before /admin/users/{user_id};
-# otherwise Starlette treats "create" as a user ID and dispatches to update_user.
 app.include_router(admin_user_create_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.add_api_route(
