@@ -51,7 +51,8 @@ from .routers.integrations import router as integrations_router
 from .routers.native_integrations import router as native_integrations_router
 from .routers.sandbox_integrations import router as sandbox_integrations_router
 from .routers.label_printing import router as label_printing_router
-from .routers.webhooks import router as webhooks_router
+from .routers.printing_external import router as printing_external_router
+from .routers.webhooks import router as webhooks_router, legacy_router as legacy_webhooks_router
 from .routers.parity_tools import router as parity_tools_router
 from .routers.buyer_parity import router as buyer_parity_router
 from .routers.buyer_legacy_overview import router as buyer_legacy_overview_router
@@ -185,6 +186,7 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
         "label_reviews",
         "machine_telemetry_events",
         "cultivation_harvests",
+        "accounting_sync_links",
         "printer_profiles",
         "label_print_jobs",
     }
@@ -232,9 +234,11 @@ app.include_router(purchasing_router, prefix=settings.api_prefix)
 app.include_router(buying_budget_parity_router, prefix=settings.api_prefix)
 app.include_router(po_parity_router, prefix=settings.api_prefix)
 app.include_router(legal_router, prefix=settings.api_prefix)
+app.include_router(legacy_webhooks_router, prefix=settings.api_prefix)
 app.include_router(control_tower_router, prefix=settings.api_prefix)
 app.include_router(commerce_portal_router, prefix=settings.api_prefix)
 app.include_router(external_api_router, prefix=settings.api_prefix)
+app.include_router(printing_external_router, prefix=settings.api_prefix)
 app.include_router(admin_user_create_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.add_api_route(
