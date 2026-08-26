@@ -8,13 +8,23 @@ from sqlalchemy.orm import Mapped, mapped_column
 from modules.coman.models import Base, TimestampMixin, new_id, utc_now
 
 
+PRODUCTION_PROVIDER_IDS = ("metrc", "biotrack", "quickbooks")
+SANDBOX_PROVIDER_IDS = (
+    "metrc_sandbox",
+    "dutchie_sandbox",
+    "biotrack_sandbox",
+    "quickbooks_sandbox",
+)
+SYNC_PROVIDER_IDS = PRODUCTION_PROVIDER_IDS + SANDBOX_PROVIDER_IDS
+
+
 class IntegrationConfiguration(TimestampMixin, Base):
     __tablename__ = "integration_configurations"
     __table_args__ = (
         UniqueConstraint("scope_type", "scope_key", "provider", name="uq_integration_scope_provider"),
         CheckConstraint("scope_type in ('user','facility','platform')", name="ck_integration_scope_type"),
         CheckConstraint(
-            "provider in ('metrc','doobie','ai_runtime','spacemail','metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox')",
+            "provider in ('metrc','biotrack','quickbooks','doobie','ai_runtime','spacemail','metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox')",
             name="ck_integration_provider",
         ),
         CheckConstraint("status in ('not_connected','configured','connected','failed')", name="ck_integration_status"),
@@ -35,14 +45,6 @@ class IntegrationConfiguration(TimestampMixin, Base):
     updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
-SANDBOX_PROVIDER_IDS = (
-    "metrc_sandbox",
-    "dutchie_sandbox",
-    "biotrack_sandbox",
-    "quickbooks_sandbox",
-)
-
-
 class IntegrationSyncState(TimestampMixin, Base):
     """Durable cursor and health state for one facility/provider/resource feed."""
 
@@ -56,7 +58,7 @@ class IntegrationSyncState(TimestampMixin, Base):
             name="uq_integration_sync_state_scope",
         ),
         CheckConstraint(
-            "provider in ('metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox')",
+            "provider in ('metrc','biotrack','quickbooks','metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox')",
             name="ck_integration_sync_state_provider",
         ),
         CheckConstraint(
@@ -96,7 +98,7 @@ class IntegrationSyncRecord(Base):
             name="uq_integration_sync_record_fingerprint",
         ),
         CheckConstraint(
-            "provider in ('metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox')",
+            "provider in ('metrc','biotrack','quickbooks','metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox')",
             name="ck_integration_sync_record_provider",
         ),
         CheckConstraint(
@@ -122,12 +124,12 @@ class IntegrationSyncRecord(Base):
 
 
 class IntegrationSyncAttempt(Base):
-    """Append-only execution summary for sandbox feed runs and retries."""
+    """Append-only execution summary for provider feed runs and retries."""
 
     __tablename__ = "integration_sync_attempts"
     __table_args__ = (
         CheckConstraint(
-            "provider in ('metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox')",
+            "provider in ('metrc','biotrack','quickbooks','metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox')",
             name="ck_integration_sync_attempt_provider",
         ),
         CheckConstraint(
