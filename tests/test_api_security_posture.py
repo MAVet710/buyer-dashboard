@@ -11,6 +11,7 @@ from backend.app.main import app, settings
 PERMITTED_PUBLIC_API_ROUTES = {
     ("POST", f"{settings.api_prefix}/trial/activate"),
     ("POST", f"{settings.api_prefix}/beta/apply"),
+    ("POST", f"{settings.api_prefix}/account/username-login"),
     ("GET", f"{settings.api_prefix}/commerce-portal/{{token}}"),
     ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/orders"),
 }
@@ -66,6 +67,7 @@ def test_public_api_allowlist_is_explicit_and_bounded():
     assert unauthenticated_non_service <= PERMITTED_PUBLIC_API_ROUTES
     assert ("POST", f"{settings.api_prefix}/trial/activate") in security
     assert ("POST", f"{settings.api_prefix}/beta/apply") in security
+    assert ("POST", f"{settings.api_prefix}/account/username-login") in security
 
 
 def test_external_api_uses_scoped_bearer_service_account_authentication():
