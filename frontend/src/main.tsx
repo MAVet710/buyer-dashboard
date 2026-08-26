@@ -7,6 +7,7 @@ import { AppSupportButton, MarketingContactChannels } from "./components/Contact
 import { MarketingHome } from "./pages/MarketingHome";
 import { BetaPartnerPage } from "./pages/BetaPartnerPage";
 import { CommercePortalPage } from "./pages/CommercePortalPage";
+import { configureSeo } from "./lib/seo";
 import { isMarketingHost } from "./lib/siteMode";
 import "./styles.css";
 import "./parity.css";
@@ -25,6 +26,7 @@ import "./contact-channels.css";
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
 const marketing = isMarketingHost(window.location.hostname);
+configureSeo(marketing);
 const betaPage = marketing && /^\/beta\/?$/.test(window.location.pathname);
 const portalMatch = window.location.pathname.match(/^\/portal\/([^/]+)\/?$/);
 const portalToken = portalMatch ? decodeURIComponent(portalMatch[1]) : "";
