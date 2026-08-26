@@ -22,6 +22,7 @@ type Context = { user: { display_name: string; email: string; role: string }; or
 type HomeAction = { label: string; description: string; page: string; roles?: string[] };
 
 const HOME_ACTIONS: HomeAction[] = [
+  { label: "Open Operations Control Tower", description: "Resolve cross-workspace risk, review Doobie actions, check SOPs, labels, profitability, cultivation, machines, and commerce.", page: "Operations Control Tower", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only"] },
   { label: "Review inventory", description: "Stock health, reorders, and aging risk.", page: "Buyer Operations", roles: ["dev", "admin", "buyer", "read_only"] },
   { label: "Start inventory audit", description: "Scan, pause, resume, and reconcile counts.", page: "Inventory Audits", roles: ["dev", "admin", "buyer", "supervisor", "operator", "qa"] },
   { label: "Traceability queue", description: "Review pending, rejected, and reconciliation-required state-system actions.", page: "Compliance", roles: ["dev", "admin", "buyer", "supervisor", "operator", "qa", "read_only"] },

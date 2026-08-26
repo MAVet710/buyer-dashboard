@@ -17,11 +17,15 @@ const RetailProduct360Page = lazy(() => import("./pages/RetailProduct360Page").t
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
 const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
 const ProductionPage = lazy(() => import("./pages/ProductionPage").then(module => ({ default: module.ProductionPage })));
+const ProductionRun360Page = lazy(() => import("./pages/ProductionRun360Page").then(module => ({ default: module.ProductionRun360Page })));
 const ExtractionUnifiedPage = lazy(() => import("./pages/ExtractionUnifiedPage").then(module => ({ default: module.ExtractionUnifiedPage })));
 const WhiteLabelRepackPage = lazy(() => import("./pages/WhiteLabelRepackPage").then(module => ({ default: module.WhiteLabelRepackPage })));
 const PackageStudioPage = lazy(() => import("./pages/PackageStudioPage").then(module => ({ default: module.PackageStudioPage })));
+const Package360Page = lazy(() => import("./pages/Package360Page").then(module => ({ default: module.Package360Page })));
 const OrdersPage = lazy(() => import("./pages/OrdersPage").then(module => ({ default: module.OrdersPage })));
+const WarehousePickPackPage = lazy(() => import("./pages/WarehousePickPackPage").then(module => ({ default: module.WarehousePickPackPage })));
 const CompliancePage = lazy(() => import("./pages/CompliancePage").then(module => ({ default: module.CompliancePage })));
+const TraceabilityActionsPage = lazy(() => import("./pages/TraceabilityActionsPage").then(module => ({ default: module.TraceabilityActionsPage })));
 const DoobiePage = lazy(() => import("./pages/DoobiePage").then(module => ({ default: module.DoobiePage })));
 const DataSettingsPage = lazy(() => import("./pages/DataSettingsPage").then(module => ({ default: module.DataSettingsPage })));
 const LocationSettingsPage = lazy(() => import("./pages/LocationSettingsPage").then(module => ({ default: module.LocationSettingsPage })));
@@ -32,6 +36,9 @@ const MAFlowerEquivalencyPage = lazy(() => import("./pages/MAFlowerEquivalencyPa
 const NomenclatureMapperPage = lazy(() => import("./pages/NomenclatureMapperPage").then(module => ({ default: module.NomenclatureMapperPage })));
 const ExecutiveReportsPage = lazy(() => import("./pages/ExecutiveReportsPage").then(module => ({ default: module.ExecutiveReportsPage })));
 const ComplianceQAPage = lazy(() => import("./pages/ComplianceQAPage").then(module => ({ default: module.ComplianceQAPage })));
+const OperationsControlTowerPage = lazy(() => import("./pages/OperationsControlTowerPage").then(module => ({ default: module.OperationsControlTowerPage })));
+const EnterpriseControlPage = lazy(() => import("./pages/EnterpriseControlPage").then(module => ({ default: module.EnterpriseControlPage })));
+const LabelStudioPage = lazy(() => import("./pages/LabelStudioPage").then(module => ({ default: module.LabelStudioPage })));
 
 function initialPage(): string {
   const pending = sessionStorage.getItem("buyer-dash-pending-page");
@@ -63,6 +70,7 @@ export default function App() {
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={setPage} />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={setPage} />
     : page === "Inventory Audits" ? <FocusedInventoryAudits />
+    : page === "Package 360" ? <Package360Page onNavigate={setPage} />
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
     : page === "Slow Movers" ? <SlowMoversPage />
     : page === "Delivery Performance" ? <DeliveryImpactPage />
@@ -75,15 +83,21 @@ export default function App() {
     : page === "Replenishment Policies" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPage />
+    : page === "Production Run 360" ? <ProductionRun360Page onNavigate={setPage} />
     : page === "Extraction" ? <ExtractionUnifiedPage onNavigate={setPage} />
     : page === "White Label / Repack" ? <WhiteLabelRepackPage />
     : page === "Package Studio" ? <PackageStudioPage />
     : page === "Orders" ? <OrdersPage />
+    : page === "Warehouse Pick Pack" ? <WarehousePickPackPage onNavigate={setPage} />
     : page === "Compliance" ? <CompliancePage />
+    : page === "Traceability Actions" ? <TraceabilityActionsPage onNavigate={setPage} />
     : page === "Compliance Q&A" ? <ComplianceQAPage />
+    : page === "Label Studio" ? <LabelStudioPage />
     : page === "MA Flower Equivalency" ? <MAFlowerEquivalencyPage />
     : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />
+    : page === "Operations Control Tower" ? <OperationsControlTowerPage />
+    : page === "Enterprise Control Tower" ? <EnterpriseControlPage onNavigate={setPage} />
     : page === "Doobie" ? <DoobiePage />
     : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <><IntegrationsPage /><DeveloperConnectionsPanel /></>
     : page === "Admin" || page === "Admin Tools" ? <AdminToolsPage />

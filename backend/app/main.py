@@ -17,6 +17,9 @@ from .routers.audits import router as audit_router
 from .routers.plants import router as plants_router
 from .routers.production import router as production_router
 from .routers.commercial import router as commercial_router
+from .routers.warehouse import router as warehouse_router
+from .routers.enterprise_control import router as enterprise_control_router
+from .routers.traceability_actions import router as traceability_actions_router
 from .routers.compliance import router as compliance_router
 from .routers.compliance_qa import router as compliance_qa_router
 from .routers.account import router as account_router
@@ -24,6 +27,7 @@ from .routers.data_hub import router as data_hub_router
 from .routers.location_settings import router as location_settings_router
 from .routers.home import router as home_router
 from .routers.product_360 import router as product_360_router
+from .routers.package_360 import router as package_360_router
 from .routers.doobie import router as doobie_router
 from .routers.ai_agents import router as ai_agents_router
 from .routers.ai_knowledge import router as ai_knowledge_router
@@ -53,6 +57,8 @@ from .routers.slow_movers_parity import router as slow_movers_parity_router
 from .routers.executive_reports import router as executive_reports_router
 from .routers.coman_parity import router as coman_parity_router
 from .routers.analytics import router as analytics_router
+from .routers.control_tower import router as control_tower_router, public_router as commerce_portal_router
+from .routers.external_api import router as external_api_router
 from .database import get_engine
 from .observability import install_observability
 from .services.sandbox_extraction import ensure_rich_extraction_sandbox
@@ -157,7 +163,24 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
         connection.execute(text("select 1"))
         tables = set(inspect(connection).get_table_names())
         revision = connection.execute(text("select version_num from alembic_version")).scalar_one_or_none() if "alembic_version" in tables else None
-    required = {"coman_organizations", "coman_facilities", "coman_products", "coman_inventory_lots", "coman_inventory_transactions", "retail_sales", "inventory_audits", "data_hub_imports", "legal_acceptance_events", "cultivation_plants", "retail_planning_policies", "integration_configurations"}
+    required = {
+        "coman_organizations",
+        "coman_facilities",
+        "coman_products",
+        "coman_inventory_lots",
+        "coman_inventory_transactions",
+        "retail_sales",
+        "inventory_audits",
+        "data_hub_imports",
+        "legal_acceptance_events",
+        "cultivation_plants",
+        "retail_planning_policies",
+        "integration_configurations",
+        "sop_documents",
+        "label_reviews",
+        "machine_telemetry_events",
+        "cultivation_harvests",
+    }
     missing = sorted(required - tables)
     revision_current = revision == EXPECTED_SCHEMA_REVISION or (settings.is_development and revision is None)
     ready = not missing and revision_current
@@ -181,6 +204,9 @@ app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
 app.include_router(commercial_router, prefix=settings.api_prefix)
+app.include_router(warehouse_router, prefix=settings.api_prefix)
+app.include_router(enterprise_control_router, prefix=settings.api_prefix)
+app.include_router(traceability_actions_router, prefix=settings.api_prefix)
 app.include_router(compliance_router, prefix=settings.api_prefix)
 app.include_router(compliance_qa_router, prefix=settings.api_prefix)
 app.include_router(account_router, prefix=settings.api_prefix)
@@ -188,6 +214,7 @@ app.include_router(data_hub_router, prefix=settings.api_prefix)
 app.include_router(location_settings_router, prefix=settings.api_prefix)
 app.include_router(home_router, prefix=settings.api_prefix)
 app.include_router(product_360_router, prefix=settings.api_prefix)
+app.include_router(package_360_router, prefix=settings.api_prefix)
 app.include_router(doobie_router, prefix=settings.api_prefix)
 app.include_router(ai_agents_router, prefix=settings.api_prefix)
 app.include_router(ai_knowledge_router, prefix=settings.api_prefix)
@@ -201,6 +228,9 @@ app.include_router(purchasing_router, prefix=settings.api_prefix)
 app.include_router(buying_budget_parity_router, prefix=settings.api_prefix)
 app.include_router(po_parity_router, prefix=settings.api_prefix)
 app.include_router(legal_router, prefix=settings.api_prefix)
+app.include_router(control_tower_router, prefix=settings.api_prefix)
+app.include_router(commerce_portal_router, prefix=settings.api_prefix)
+app.include_router(external_api_router, prefix=settings.api_prefix)
 # Register the literal create-user route before /admin/users/{user_id};
 # otherwise Starlette treats "create" as a user ID and dispatches to update_user.
 app.include_router(admin_user_create_router, prefix=settings.api_prefix)

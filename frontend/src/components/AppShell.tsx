@@ -46,25 +46,38 @@ const PRODUCTION_PRIMARY: PrimaryItem[] = [
 ];
 
 function secondaryItems(category: PrimaryCategory, operation: OperationMode, role: string): SecondaryItem[] {
+  if (category === "Home") return [
+    { label: "Operations Control Tower", page: "Operations Control Tower" },
+    { label: "Enterprise Control Tower", page: "Enterprise Control Tower", roles: ADMIN },
+  ];
   if (operation === "Production Ops") {
     if (category === "Inventory") return [
       { label: "Materials", page: "Production Inventory" },
+      { label: "Package 360", page: "Package 360" },
       { label: "Products", page: "Production Product Master" },
       { label: "Inventory Audits", page: "Inventory Audits" },
     ];
     if (category === "Production") return [
       { label: "Co-Man Production", page: "Production" },
+      { label: "Production Run 360", page: "Production Run 360" },
       { label: "Extraction", page: "Extraction" },
       { label: "White Label / Repack", page: "White Label / Repack" },
     ];
-    if (category === "Orders") return [{ label: "Orders & Fulfillment", page: "Orders" }];
-    if (category === "Compliance") return [{ label: "Traceability", page: "Compliance" }];
+    if (category === "Orders") return [
+      { label: "Orders & Fulfillment", page: "Orders" },
+      { label: "Warehouse Pick / Pack", page: "Warehouse Pick Pack" },
+    ];
+    if (category === "Compliance") return [
+      { label: "Traceability", page: "Compliance" },
+      { label: "State Actions", page: "Traceability Actions" },
+    ];
     if (category === "Data & Settings") return dataSettingsItems(role);
     return [];
   }
   if (category === "Inventory") return [
     { label: "Inventory", page: "Inventory" },
     { label: "Product 360", page: "Retail Product 360" },
+    { label: "Package 360", page: "Package 360" },
     { label: "Catalog Administration", page: "Retail Catalog Admin" },
     { label: "Inventory Audits", page: "Inventory Audits" },
     { label: "Slow Movers", page: "Slow Movers" },
@@ -78,7 +91,10 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     { label: "Buying Budget", page: "Buying Budget" },
     { label: "Replenishment Policies", page: "Replenishment Policies" },
   ];
-  if (category === "Orders") return [{ label: "Orders & Fulfillment", page: "Orders" }];
+  if (category === "Orders") return [
+    { label: "Orders & Fulfillment", page: "Orders" },
+    { label: "Warehouse Pick / Pack", page: "Warehouse Pick Pack" },
+  ];
   if (category === "Reports") return [
     { label: "Sales & Category Trends", page: "Sales & Category Trends" },
     { label: "Executive Reports", page: "Executive Reports" },
@@ -87,6 +103,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     { label: "Compliance Q&A", page: "Compliance Q&A" },
     { label: "Product Name Mapper", page: "Product Name Mapper" },
     { label: "Traceability", page: "Compliance" },
+    { label: "State Actions", page: "Traceability Actions" },
   ];
   if (category === "Data & Settings") return dataSettingsItems(role);
   return [];
@@ -105,13 +122,13 @@ function dataSettingsItems(role: string): SecondaryItem[] {
 }
 
 function categoryForPage(page: string, operation: OperationMode): PrimaryCategory {
-  if (page === "Home") return "Home";
-  if (["Inventory", "Retail Product Master", "Retail Product 360", "Retail Catalog Admin", "Inventory Audits", "Slow Movers", "MA Flower Equivalency", "Production Inventory", "Production Product Master"].includes(page)) return "Inventory";
+  if (["Home", "Operations Control Tower", "Enterprise Control Tower"].includes(page)) return "Home";
+  if (["Inventory", "Retail Product Master", "Retail Product 360", "Package 360", "Retail Catalog Admin", "Inventory Audits", "Slow Movers", "MA Flower Equivalency", "Production Inventory", "Production Product Master"].includes(page)) return "Inventory";
   if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing", "Replenishment Policies"].includes(page)) return "Purchasing";
-  if (page === "Orders") return "Orders";
-  if (["Production", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
+  if (["Orders", "Warehouse Pick Pack"].includes(page)) return "Orders";
+  if (["Production", "Production Run 360", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
   if (["Sales & Category Trends", "Reports", "Executive Reports"].includes(page)) return "Reports";
-  if (["Compliance", "Compliance Q&A", "Product Name Mapper", "Nomenclature Mapper"].includes(page)) return "Compliance";
+  if (["Compliance", "Compliance Q&A", "Traceability Actions", "Product Name Mapper", "Nomenclature Mapper"].includes(page)) return "Compliance";
   if (["Location Settings", "Data & Settings", "Admin", "Admin Tools", "Integrations", "AI & METRC Integrations", "METRC Integrations"].includes(page)) return "Data & Settings";
   return operation === "Production Ops" ? "Inventory" : "Inventory";
 }
@@ -281,6 +298,7 @@ function MobileNavigation({ primary, category, secondary, active, operation, dat
 function ClassicNavigation({ operation, role, active, onNavigate }: { operation: OperationMode; role: string; active: string; onNavigate: (page: string) => void }) {
   const groups = operation === "Production Ops"
     ? [
+      { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
       { label: "Production Inventory", pages: secondaryItems("Inventory", operation, role) },
       { label: "Production Ops", pages: secondaryItems("Production", operation, role) },
       { label: "Orders", pages: secondaryItems("Orders", operation, role) },
@@ -288,6 +306,7 @@ function ClassicNavigation({ operation, role, active, onNavigate }: { operation:
       { label: "Data & Integrations", pages: dataSettingsItems(role) },
     ]
     : [
+      { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
       { label: "Retail Inventory", pages: secondaryItems("Inventory", operation, role) },
       { label: "Purchasing", pages: secondaryItems("Purchasing", operation, role) },
       { label: "Orders", pages: secondaryItems("Orders", operation, role) },
@@ -295,5 +314,5 @@ function ClassicNavigation({ operation, role, active, onNavigate }: { operation:
       { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
       { label: "Data & Integrations", pages: dataSettingsItems(role) },
     ];
-  return <>{groups.map(group => <div key={group.label}><div className="operation-label">{group.label}</div><nav>{group.pages.map(row => <button className={active === row.page ? "nav-item active" : "nav-item"} key={`${group.label}-${row.page}`} onClick={() => onNavigate(row.page)}>{row.label}</button>)}</nav></div>)}</>;
+  return <>{groups.map(group => <div key={group.label}><div className="operation-label">{group.label}</div><nav>{group.pages.filter(row => !row.roles || row.roles.includes(role as never)).map(row => <button className={active === row.page ? "nav-item active" : "nav-item"} key={`${group.label}-${row.page}`} onClick={() => onNavigate(row.page)}>{row.label}</button>)}</nav></div>)}</>;
 }
