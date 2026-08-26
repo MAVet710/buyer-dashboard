@@ -11,7 +11,7 @@ from sqlalchemy import Engine
 from modules.coman.models import utc_now
 from modules.integrations import IntegrationConfigurationService
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
-from services.metrc_native import MetrcNativeError, submit_metrc_action
+from services.metrc_native import MetrcNativeError, submit_metrc_action, validate_metrc_action
 
 
 class TraceabilityDispatchError(RuntimeError):
@@ -24,10 +24,6 @@ def _json_dict(value: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
-
-def _facility_scope(organization_id: str, facility_id: str) -> str:
-    return f"{organization_id}|{facility_id}"
 
 
 class TraceabilityDispatcher:
@@ -104,6 +100,29 @@ class TraceabilityDispatcher:
         if tx.license_number and configured_license and tx.license_number != configured_license:
             raise TraceabilityDispatchError("Transaction license does not match the validated Metrc facility credential.")
         user_api_key = self.integrations.secret(row)
+
+        try:
+            validate_metrc_action(operation_type=tx.operation_type, entity_id=tx.entity_id, payload=payload, reason=tx.reason)
+        except MetrcNativeError as exc:
+            self.traceability.record_attempt(
+                organization_id=tx.organization_id,
+                facility_id=tx.facility_id,
+                transaction_id=tx.id,
+                request_payload={"operation_type": tx.operation_type, "entity_id": tx.entity_id, "payload": payload},
+                error_code="validation_failed",
+                error_message=str(exc),
+            )
+            self.traceability.transition_logged(
+                organization_id=tx.organization_id,
+                facility_id=tx.facility_id,
+                transaction_id=tx.id,
+                new_status="reconciliation_required",
+                actor=actor,
+                reason=f"Provider dispatch validation failed before any external request: {exc}",
+                source="provider_worker",
+            )
+            return {"ok": False, "status": "reconciliation_required", "provider": "metrc", "outbound_request_sent": False, "retryable": False}
+
         self.traceability.transition_logged(
             organization_id=tx.organization_id,
             facility_id=tx.facility_id,
@@ -135,7 +154,7 @@ class TraceabilityDispatcher:
                 error_code="retryable_provider_error" if exc.retryable else "provider_rejected",
                 error_message=str(exc),
             )
-            target = "reconciliation_required" if exc.retryable else "rejected"
+            target = "reconciliation_required" if exc.retryable or not exc.request_sent else "rejected"
             self.traceability.transition_logged(
                 organization_id=tx.organization_id,
                 facility_id=tx.facility_id,
@@ -146,7 +165,7 @@ class TraceabilityDispatcher:
                 source="provider_worker",
                 next_attempt_at=utc_now() + timedelta(minutes=5) if exc.retryable else None,
             )
-            return {"ok": False, "status": target, "provider": "metrc", "outbound_request_sent": True, "retryable": exc.retryable}
+            return {"ok": False, "status": target, "provider": "metrc", "outbound_request_sent": exc.request_sent, "retryable": exc.retryable}
         self.traceability.record_attempt(
             organization_id=tx.organization_id,
             facility_id=tx.facility_id,
