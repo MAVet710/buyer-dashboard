@@ -50,6 +50,8 @@ from .routers.admin_uploads import router as admin_uploads_router
 from .routers.integrations import router as integrations_router
 from .routers.native_integrations import router as native_integrations_router
 from .routers.sandbox_integrations import router as sandbox_integrations_router
+from .routers.label_printing import router as label_printing_router
+from .routers.webhooks import router as webhooks_router
 from .routers.parity_tools import router as parity_tools_router
 from .routers.buyer_parity import router as buyer_parity_router
 from .routers.buyer_legacy_overview import router as buyer_legacy_overview_router
@@ -246,6 +248,8 @@ app.include_router(admin_uploads_router, prefix=settings.api_prefix)
 app.include_router(integrations_router, prefix=settings.api_prefix)
 app.include_router(native_integrations_router, prefix=settings.api_prefix)
 app.include_router(sandbox_integrations_router, prefix=settings.api_prefix)
+app.include_router(label_printing_router, prefix=settings.api_prefix)
+app.include_router(webhooks_router, prefix=settings.api_prefix)
 app.include_router(parity_tools_router, prefix=settings.api_prefix)
 app.include_router(buyer_parity_router, prefix=settings.api_prefix)
 app.include_router(buyer_legacy_overview_router, prefix=settings.api_prefix)
