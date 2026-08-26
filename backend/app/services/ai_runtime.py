@@ -15,11 +15,14 @@ from services.ai.router import ProviderRouter
 from services.ai.schemas import AIRequest
 from services.ai.telemetry import AITelemetry
 from services.ai.validation import parse_structured
-from services.ai.providers import LocalOpenAIProvider
+from services.ai.providers import GeminiProvider, LocalOpenAIProvider, OpenAIProvider
 
 from ..auth import RequestContext
 from ..config import Settings
 from .ai_datasets import build_dataset_registry, facility_access
+
+
+_NATIVE_PROVIDERS = {"local", "gemini", "openai"}
 
 
 def _integration_service(engine: Engine, settings: Settings) -> IntegrationConfigurationService | None:
@@ -68,6 +71,22 @@ def _public_runtime_configuration(config: dict[str, Any]) -> dict[str, Any]:
     return {key: config.get(key) for key in allowed if key in config}
 
 
+def _native_provider_order(config: dict[str, Any], settings: Settings) -> tuple[list[str], str, bool]:
+    """Resolve saved routing while permanently excluding the retired Doobie bridge."""
+    mode = str(config.get("provider_mode") or settings.ai_provider_mode or "local_only").strip().casefold()
+    raw_order = str(config.get("provider_order") or settings.ai_provider_order or "local")
+    requested = [value.strip().casefold() for value in raw_order.split(",") if value.strip()]
+    order = [value for value in requested if value in _NATIVE_PROVIDERS]
+    if mode == "local_only":
+        order = ["local"]
+    elif not order:
+        # Old installations may still have provider_order=doobie. Native AI must
+        # recover to local instead of reviving the retired platform integration.
+        order = ["local"]
+    allow_fallback = bool(config.get("allow_cloud_fallback", settings.ai_allow_cloud_fallback)) and mode != "local_only"
+    return order, mode, allow_fallback
+
+
 def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext, operation_type: str) -> tuple[AgentRuntime, Any, str, str, dict[str, Any]]:
     config = runtime_configuration(engine, settings)
     local = LocalOpenAIProvider(
@@ -80,22 +99,25 @@ def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext
         max_tokens=settings.local_llm_max_tokens,
         temperature=settings.local_llm_temperature,
     )
-    # DoobieLogic production inference is intentionally local-only.
-    # No Gemini, OpenAI, or legacy Doobie provider may receive application data.
     providers: dict[str, Any] = {"local": local}
-    order = ["local"]
-    mode = "local_only"
-    allow_fallback = False
-    router = ProviderRouter(
-        providers,
-        order=order,
-        allow_cloud_fallback=False,
-    )
+    if settings.gemini_api_key:
+        providers["gemini"] = GeminiProvider(api_key=settings.gemini_api_key, model=settings.gemini_model)
+    if settings.openai_api_key and settings.openai_model:
+        providers["openai"] = OpenAIProvider(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            base_url=settings.openai_base_url,
+            timeout_seconds=settings.local_llm_timeout_seconds,
+        )
 
-    # Report the effective runtime rather than any stale persisted provider setting.
-    config["provider_mode"] = "local_only"
-    config["provider_order"] = "local"
-    config["allow_cloud_fallback"] = False
+    order, mode, allow_fallback = _native_provider_order(config, settings)
+    router = ProviderRouter(providers, order=order, allow_cloud_fallback=allow_fallback)
+
+    # Surface the effective, sanitized routing. The retired `doobie` provider is
+    # deliberately absent even if a stale saved configuration still names it.
+    config["provider_mode"] = mode
+    config["provider_order"] = ",".join(order)
+    config["allow_cloud_fallback"] = allow_fallback
 
     embedding_base = str(config.get("local_embedding_base_url") or config.get("local_llm_base_url") or "")
     embedding_model = str(config.get("local_embedding_model") or "")
