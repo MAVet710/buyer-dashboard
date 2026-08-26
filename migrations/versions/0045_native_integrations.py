@@ -52,7 +52,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint("provider", "organization_id", "facility_id", "entity_type", "internal_id", name="uq_accounting_sync_internal"),
         sa.CheckConstraint("provider in ('quickbooks')", name="ck_accounting_sync_provider"),
-        sa.CheckConstraint("entity_type in ('customer','vendor','invoice','payment','purchase_order','bill')", name="ck_accounting_sync_entity_type"),
+        sa.CheckConstraint("entity_type in ('customer','vendor','item','invoice','payment','purchase_order','bill')", name="ck_accounting_sync_entity_type"),
         sa.CheckConstraint("status in ('synced','failed','stale')", name="ck_accounting_sync_status"),
     )
     op.create_index("ix_accounting_sync_external", "accounting_sync_links", ["organization_id", "facility_id", "provider", "entity_type", "external_id"])
