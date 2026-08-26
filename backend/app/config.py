@@ -40,11 +40,13 @@ class Settings(BaseSettings):
     spacemail_welcome_email_enabled: bool = True
 
     # DoobieLogic AI Runtime. Inference services remain external to the API image.
-    ai_provider_mode: str = "local_first"
-    ai_provider_order: str = "local,gemini,openai,doobie"
-    ai_allow_cloud_fallback: bool = True
+    ai_provider_mode: str = "local_only"
+    ai_provider_order: str = "local"
+    ai_allow_cloud_fallback: bool = False
     local_llm_base_url: str = ""
     local_llm_api_key: str = ""
+    local_llm_access_client_id: str = ""
+    local_llm_access_client_secret: str = ""
     local_llm_model: str = ""
     local_llm_timeout_seconds: float = 30.0
     local_llm_max_tokens: int = 1400
@@ -81,7 +83,7 @@ class Settings(BaseSettings):
         values = [value.strip().casefold() for value in self.ai_provider_order.split(",") if value.strip()]
         if self.ai_provider_mode.casefold() == "local_only":
             return ["local"]
-        return values or ["local", "gemini", "openai", "doobie"]
+        return values or ["local"]
 
     @property
     def spacemail_is_configured(self) -> bool:

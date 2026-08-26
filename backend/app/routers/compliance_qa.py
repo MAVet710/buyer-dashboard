@@ -13,11 +13,11 @@ from sqlalchemy import Engine
 
 from compliance_engine import ComplianceRepository, ComplianceSource, format_compliance_answer
 from modules.data_hub_repository import DataHubRepository, MAX_DURABLE_UPLOAD_BYTES
-from modules.integrations import IntegrationConfigurationService
-from services.doobie_client import DoobieClient
+from services.agent_registry import PROFILES
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
+from ..services.ai_runtime import run_bounded_ai
 
 router = APIRouter(prefix="/compliance-qa", tags=["compliance-qa"])
 
@@ -113,22 +113,6 @@ def _preview(frame: pd.DataFrame) -> list[dict[str, str]]:
     return rows
 
 
-def _platform_doobie(engine: Engine, settings: Settings) -> DoobieClient | None:
-    """Resolve Doobie without making it a dependency of deterministic compliance retrieval."""
-    try:
-        service = IntegrationConfigurationService(engine, settings.integration_encryption_key)
-        row = service.get("platform", "global", "doobie")
-        if row is None:
-            return None
-        configuration = service.public(row).get("configuration") or {}
-        base_url = str(configuration.get("base_url") or "").strip().rstrip("/")
-        if not base_url:
-            return None
-        return DoobieClient(base_url=base_url, api_key=service.secret(row), timeout_seconds=12)
-    except (RuntimeError, ValueError, TypeError):
-        return None
-
-
 def _grounded_answer(
     *,
     matches: list[ComplianceSource],
@@ -136,6 +120,7 @@ def _grounded_answer(
     state: str,
     scope: str,
     topic: str,
+    context: RequestContext,
     engine: Engine,
     settings: Settings,
 ) -> str:
@@ -143,50 +128,48 @@ def _grounded_answer(
     if not matches:
         return base_answer
 
-    client = _platform_doobie(engine, settings)
-    if client is None:
+    # Synthetic/demo compliance rows must never be promoted into legal claims
+    # by the language model. Return the deterministic source rendering only.
+    if any(
+        str(item.review_status or "").strip().casefold() == "demo-only"
+        for item in matches
+    ):
         return base_answer
 
-    context = "\n\n".join(
-        (
-            f"State: {item.state}\n"
-            f"Scope: {item.scope}\n"
-            f"Topic: {item.topic}\n"
-            f"Answer: {item.answer}\n"
-            f"Citation: {item.source_citation}\n"
-            f"URL: {item.source_url}\n"
-            f"Last Updated: {item.last_updated.isoformat()}\n"
-            f"Review Status: {item.review_status}"
-        )
-        for item in matches
-    )
     prompt = (
-        "Use only the provided source rows to answer the compliance question.\n"
-        "Do not invent regulations.\n\n"
+        "Use only the authoritative compliance source rows supplied by the server. "
+        "Do not use model memory for regulatory claims. "
+        "Do not invent regulations, requirements, citations, dates, or URLs.\n\n"
         f"Question: {question}\n"
         f"State: {state}\n"
         f"Scope: {scope}\n"
         f"Topic: {topic}\n\n"
-        f"Sources:\n{context}\n\n"
-        "Output format:\n"
-        "- Short answer\n"
-        "- Bullet list of source-backed requirements\n"
-        "- Include citation tags exactly as written in source rows\n"
-        "- Include source URLs\n"
-        "- Include last updated date and review status"
+        "Give a short direct answer followed by concise source-backed requirements. "
+        "Preserve citation tags, source URLs, last-updated dates, and review status exactly."
     )
-    response = client.copilot(
+
+    response = run_bounded_ai(
+        engine=engine,
+        settings=settings,
+        context=context,
+        operation_type="compliance",
+        profile=PROFILES["compliance"],
         question=prompt,
-        data={"source_rows": [_payload(item) for item in matches]},
-        persona="compliance",
-        state=state,
-        department="compliance",
+        bounded_context={
+            "source_rows": [_payload(item) for item in matches],
+            "state": state,
+            "scope": scope,
+            "topic": topic,
+        },
     )
+
     if response.get("mode") == "fallback":
         return base_answer
+
     synthesized = str(response.get("answer") or "").strip()
     if not synthesized:
         return base_answer
+
     return f"{synthesized}\n\n---\n\nSource Records\n\n{base_answer}"
 
 
@@ -313,6 +296,7 @@ def query(
         state=payload.state,
         scope=payload.scope,
         topic=payload.topic,
+        context=context,
         engine=engine,
         settings=settings,
     )

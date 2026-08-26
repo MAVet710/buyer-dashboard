@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
-from modules.integrations import IntegrationConfigurationService
-from services.doobie_client import DoobieClient
+from services.agent_registry import PROFILES
 from services.web_buyer_parity import records, sku_inventory_view
+from ..services.ai_runtime import run_bounded_ai
 from ..auth import RequestContext, get_request_context, get_retail_context
 from ..config import Settings, get_settings
 from ..database import get_engine
@@ -40,22 +40,6 @@ class InventoryCheckRequest(BuyerSliceRequest):
 
 class BuyerBriefRequest(BuyerSliceRequest):
     question: str = Field(default="What should I reorder right now with quantities?", max_length=2000)
-
-
-def _platform_doobie(engine: Engine, settings: Settings) -> DoobieClient:
-    try:
-        service = IntegrationConfigurationService(engine, settings.integration_encryption_key)
-        row = service.get("platform", "global", "doobie")
-    except RuntimeError as exc:
-        raise HTTPException(503, str(exc)) from exc
-    if row is None:
-        raise HTTPException(503, "Doobie is not configured. Level DEV must configure the platform Doobie integration.")
-    configuration = service.public(row).get("configuration") or {}
-    return DoobieClient(
-        base_url=str(configuration.get("base_url") or "").strip().rstrip("/"),
-        api_key=service.secret(row),
-        timeout_seconds=12,
-    )
 
 
 def _buyer_slice(payload: BuyerSliceRequest, context: RequestContext, engine: Engine):
@@ -159,6 +143,105 @@ def _buyer_slice(payload: BuyerSliceRequest, context: RequestContext, engine: En
     return filtered, source
 
 
+def _buyer_ai_context(filtered: pd.DataFrame, *, source: dict, state: str, target_doh: int) -> dict:
+    """Compact the complete authorized Buyer slice without dropping rows after #20.
+
+    Every selected row contributes to deterministic aggregates/risk counts. A small,
+    deduplicated set of attention rows then preserves the concrete outliers the model
+    needs for useful recommendations while keeping the model payload bounded.
+    """
+    numeric_columns = [
+        "onhandunits",
+        "days_of_supply",
+        "daily_run_rate",
+        "avg_weekly_sales",
+        "dollars_on_hand",
+        "days_to_expire",
+        "recommended_reorder_qty",
+        "reorderqty",
+        "unitssold",
+        "avgunitsperday",
+    ]
+    aggregates: dict[str, dict[str, float | int]] = {}
+    for column in numeric_columns:
+        if column not in filtered:
+            continue
+        values = pd.to_numeric(filtered[column], errors="coerce").dropna()
+        if values.empty:
+            continue
+        aggregates[column] = {
+            "count": int(values.count()),
+            "sum": float(values.sum()),
+            "mean": float(values.mean()),
+            "min": float(values.min()),
+            "max": float(values.max()),
+        }
+
+    risks: dict[str, int] = {}
+    if "days_of_supply" in filtered:
+        doh = pd.to_numeric(filtered["days_of_supply"], errors="coerce")
+        risks["below_target_doh"] = int((doh.notna() & (doh < float(target_doh))).sum())
+        risks["stockout_or_zero_doh"] = int((doh.notna() & (doh <= 0)).sum())
+    if "days_to_expire" in filtered:
+        expiry = pd.to_numeric(filtered["days_to_expire"], errors="coerce")
+        risks["expired"] = int((expiry.notna() & (expiry < 0)).sum())
+        risks["expires_within_30_days"] = int((expiry.notna() & (expiry >= 0) & (expiry <= 30)).sum())
+        risks["expires_within_60_days"] = int((expiry.notna() & (expiry >= 0) & (expiry <= 60)).sum())
+    if "recommended_reorder_qty" in filtered:
+        reorder = pd.to_numeric(filtered["recommended_reorder_qty"], errors="coerce").fillna(0)
+        risks["reorder_recommended"] = int((reorder > 0).sum())
+
+    dimensions: dict[str, dict[str, int]] = {}
+    for key, column in (("categories", "category"), ("brands", "brand_vendor")):
+        if column in filtered:
+            counts = filtered[column].fillna("Unknown").astype(str).value_counts().head(12)
+            dimensions[key] = {str(name): int(count) for name, count in counts.items()}
+
+    attention_parts: list[pd.DataFrame] = []
+    for column, ascending in (
+        ("days_of_supply", True),
+        ("recommended_reorder_qty", False),
+        ("dollars_on_hand", False),
+        ("days_to_expire", True),
+    ):
+        if column not in filtered:
+            continue
+        sortable = filtered.copy()
+        sortable["__attention_sort"] = pd.to_numeric(sortable[column], errors="coerce")
+        sortable = sortable[sortable["__attention_sort"].notna()].sort_values(
+            "__attention_sort", ascending=ascending, na_position="last"
+        )
+        if not sortable.empty:
+            attention_parts.append(sortable.head(4).drop(columns=["__attention_sort"]))
+
+    if attention_parts:
+        attention = pd.concat(attention_parts, axis=0)
+        attention = attention.loc[~attention.index.duplicated(keep="first")].head(16)
+    else:
+        attention = filtered.head(16)
+    visible_columns = [
+        column
+        for column in [
+            "sku", "product_name", "brand_vendor", "category", "packagesize", "strain_type",
+            "onhandunits", "days_of_supply", "daily_run_rate", "avg_weekly_sales",
+            "dollars_on_hand", "days_to_expire", "recommended_reorder_qty", "reorderqty", "reorderpriority",
+        ]
+        if column in attention
+    ]
+
+    return {
+        "inventory_summary": {
+            "filtered_row_count": int(len(filtered)),
+            "numeric_aggregates": aggregates,
+            "risk_counts": risks,
+            "dimensions": dimensions,
+            "attention_rows": records(attention[visible_columns], limit=16) if visible_columns else [],
+        },
+        "source": source,
+        "state": state,
+    }
+
+
 @router.get("/drilldown")
 def sku_drilldown(
     category: str = Query(..., min_length=1, max_length=160),
@@ -237,14 +320,33 @@ def inventory_check(
     settings: Settings = Depends(get_settings),
 ):
     filtered, source = _buyer_slice(payload, context, engine)
-    response = _platform_doobie(engine, settings).inventory_check(
-        {"inventory": records(filtered, limit=2000), "source": source},
-        state=payload.state,
+    response = run_bounded_ai(
+        engine=engine,
+        settings=settings,
+        context=context,
+        operation_type="retail",
+        profile=PROFILES["inventory"],
         question=payload.question,
+        bounded_context=_buyer_ai_context(
+            filtered,
+            source=source,
+            state=payload.state,
+            target_doh=payload.target_doh,
+        ),
     )
     if response.get("mode") == "fallback":
-        raise HTTPException(503, str(response.get("answer") or response.get("error") or "Doobie is unavailable."))
-    return response
+        detail = str(response.get("answer") or "DoobieLogic local AI is unavailable.")
+        warnings = response.get("warnings") or []
+        if warnings:
+            detail += " | " + " | ".join(str(value) for value in warnings)
+        raise HTTPException(503, detail)
+    return {
+        **response,
+        "explanation": response.get("summary") or "",
+        "risk_flags": [str(value) for value in response.get("warnings") or []],
+        "inefficiencies": [],
+        "sources": [],
+    }
 
 
 @router.post("/buyer-brief")
@@ -255,11 +357,30 @@ def buyer_brief(
     settings: Settings = Depends(get_settings),
 ):
     filtered, source = _buyer_slice(payload, context, engine)
-    response = _platform_doobie(engine, settings).buyer_brief(
-        {"inventory": records(filtered, limit=2000), "source": source},
-        state=payload.state,
+    response = run_bounded_ai(
+        engine=engine,
+        settings=settings,
+        context=context,
+        operation_type="retail",
+        profile=PROFILES["buyer"],
         question=payload.question,
+        bounded_context=_buyer_ai_context(
+            filtered,
+            source=source,
+            state=payload.state,
+            target_doh=payload.target_doh,
+        ),
     )
     if response.get("mode") == "fallback":
-        raise HTTPException(503, str(response.get("answer") or response.get("error") or "Doobie is unavailable."))
-    return response
+        detail = str(response.get("answer") or "DoobieLogic local AI is unavailable.")
+        warnings = response.get("warnings") or []
+        if warnings:
+            detail += " | " + " | ".join(str(value) for value in warnings)
+        raise HTTPException(503, detail)
+    return {
+        **response,
+        "explanation": response.get("summary") or "",
+        "risk_flags": [str(value) for value in response.get("warnings") or []],
+        "inefficiencies": [],
+        "sources": [],
+    }

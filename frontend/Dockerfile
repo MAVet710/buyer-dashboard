@@ -20,6 +20,9 @@ RUN pnpm build \
     && printf '{"release_sha":"%s"}\n' "$VITE_RELEASE_SHA" > /web/dist/release.json
 
 FROM nginx:1.31.4-alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913
+# Keep the reproducible nginx base while applying security-fixed Alpine packages
+# published after the image digest was pinned.
+RUN apk upgrade --no-cache libcrypto3 libssl3
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /web/dist /usr/share/nginx/html
 EXPOSE 8080

@@ -141,6 +141,8 @@ def _embedding_provider(engine: Engine, settings: Settings) -> LocalEmbeddingPro
         base_url=base_url,
         model=model,
         api_key=str(settings.local_embedding_api_key or config.get("local_llm_api_key") or ""),
+        access_client_id=settings.local_llm_access_client_id,
+        access_client_secret=settings.local_llm_access_client_secret,
         timeout_seconds=settings.local_embedding_timeout_seconds,
     )
 

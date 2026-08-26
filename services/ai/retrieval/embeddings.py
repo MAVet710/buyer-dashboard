@@ -17,10 +17,21 @@ class EmbeddingHealth:
 class LocalEmbeddingProvider:
     """OpenAI-compatible local embeddings. Retrieval remains lexical if offline."""
 
-    def __init__(self, *, base_url: str, model: str, api_key: str = "", timeout_seconds: float = 20.0) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        api_key: str = "",
+        access_client_id: str = "",
+        access_client_secret: str = "",
+        timeout_seconds: float = 20.0,
+    ) -> None:
         self.base_url = str(base_url or "").strip().rstrip("/")
         self.model = str(model or "").strip()
         self.api_key = str(api_key or "").strip()
+        self.access_client_id = str(access_client_id or "").strip()
+        self.access_client_secret = str(access_client_secret or "").strip()
         self.timeout_seconds = max(1.0, float(timeout_seconds))
 
     def _endpoint(self) -> str:
@@ -28,7 +39,11 @@ class LocalEmbeddingProvider:
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
-        if self.api_key: headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.access_client_id and self.access_client_secret:
+            headers["CF-Access-Client-Id"] = self.access_client_id
+            headers["CF-Access-Client-Secret"] = self.access_client_secret
         return headers
 
     def health(self) -> EmbeddingHealth:
