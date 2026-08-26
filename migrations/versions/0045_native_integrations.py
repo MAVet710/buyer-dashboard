@@ -1,4 +1,4 @@
-"""Add production integration providers, signed-webhook material, and label print jobs.
+"""Add production integration providers, signed-webhook material, label printing, and accounting links.
 
 Revision ID: 0045_native_integrations
 Revises: 0044_operational_moats
@@ -32,6 +32,30 @@ def upgrade() -> None:
     with op.batch_alter_table("webhook_subscriptions") as batch:
         batch.add_column(sa.Column("encrypted_secret", sa.Text(), nullable=False, server_default=""))
         batch.add_column(sa.Column("secret_hint", sa.String(32), nullable=False, server_default=""))
+
+    op.create_table(
+        "accounting_sync_links",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("organization_id", sa.String(36), sa.ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("facility_id", sa.String(36), sa.ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("provider", sa.String(32), nullable=False, server_default="quickbooks"),
+        sa.Column("entity_type", sa.String(40), nullable=False),
+        sa.Column("internal_id", sa.String(36), nullable=False),
+        sa.Column("external_id", sa.String(255), nullable=False),
+        sa.Column("sync_token", sa.String(255), nullable=False, server_default=""),
+        sa.Column("payload_hash", sa.String(64), nullable=False, server_default=""),
+        sa.Column("status", sa.String(24), nullable=False, server_default="synced"),
+        sa.Column("last_error", sa.Text(), nullable=False, server_default=""),
+        sa.Column("last_synced_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_by", sa.String(255), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint("provider", "organization_id", "facility_id", "entity_type", "internal_id", name="uq_accounting_sync_internal"),
+        sa.CheckConstraint("provider in ('quickbooks')", name="ck_accounting_sync_provider"),
+        sa.CheckConstraint("entity_type in ('customer','vendor','invoice','payment','purchase_order','bill')", name="ck_accounting_sync_entity_type"),
+        sa.CheckConstraint("status in ('synced','failed','stale')", name="ck_accounting_sync_status"),
+    )
+    op.create_index("ix_accounting_sync_external", "accounting_sync_links", ["organization_id", "facility_id", "provider", "entity_type", "external_id"])
 
     op.create_table(
         "printer_profiles",
@@ -86,6 +110,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("label_print_jobs")
     op.drop_table("printer_profiles")
+    op.drop_table("accounting_sync_links")
     with op.batch_alter_table("webhook_subscriptions") as batch:
         batch.drop_column("secret_hint")
         batch.drop_column("encrypted_secret")
