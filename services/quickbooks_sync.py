@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from modules.coman.models import Product, TradePartner, utc_now
 from modules.commercial_finance.models import CommercialInvoice, CommercialInvoiceLine
 from modules.integrations import IntegrationConfigurationService
-from modules.integrations.accounting_links import QuickBooksEntityLink
+from modules.integrations.accounting_links import AccountingSyncLink
 from services.quickbooks_client import QuickBooksError, quickbooks_api_request, refresh_quickbooks_token
 
 
@@ -60,8 +60,7 @@ class QuickBooksSyncService:
             raise QuickBooksSyncError("Validate the QuickBooks connection before synchronizing accounting records.")
         config = self.integrations.public(row).get("configuration", {})
         secrets = _secret_json(self.integrations, row)
-        missing = [key for key in ("client_id", "client_secret", "refresh_token") if not secrets.get(key)]
-        if missing:
+        if not all(secrets.get(key) for key in ("client_id", "client_secret", "refresh_token")):
             raise QuickBooksSyncError("QuickBooks OAuth credentials are incomplete.")
         try:
             token = refresh_quickbooks_token(
@@ -92,17 +91,16 @@ class QuickBooksSyncService:
         session: Session,
         organization_id: str,
         facility_id: str,
-        local_entity_type: str,
-        local_entity_id: str,
-        qbo_entity_type: str,
-    ) -> QuickBooksEntityLink | None:
+        entity_type: str,
+        internal_id: str,
+    ) -> AccountingSyncLink | None:
         return session.scalar(
-            select(QuickBooksEntityLink).where(
-                QuickBooksEntityLink.organization_id == organization_id,
-                QuickBooksEntityLink.facility_id == facility_id,
-                QuickBooksEntityLink.local_entity_type == local_entity_type,
-                QuickBooksEntityLink.local_entity_id == local_entity_id,
-                QuickBooksEntityLink.qbo_entity_type == qbo_entity_type,
+            select(AccountingSyncLink).where(
+                AccountingSyncLink.provider == "quickbooks",
+                AccountingSyncLink.organization_id == organization_id,
+                AccountingSyncLink.facility_id == facility_id,
+                AccountingSyncLink.entity_type == entity_type,
+                AccountingSyncLink.internal_id == internal_id,
             )
         )
 
@@ -112,59 +110,57 @@ class QuickBooksSyncService:
         *,
         organization_id: str,
         facility_id: str,
-        local_entity_type: str,
-        local_entity_id: str,
-        qbo_entity_type: str,
-        qbo_entity_id: str,
+        entity_type: str,
+        internal_id: str,
+        external_id: str,
+        actor: str,
         sync_token: str = "",
         payload_hash: str = "",
-    ) -> QuickBooksEntityLink:
+    ) -> AccountingSyncLink:
         existing_remote = session.scalar(
-            select(QuickBooksEntityLink).where(
-                QuickBooksEntityLink.organization_id == organization_id,
-                QuickBooksEntityLink.facility_id == facility_id,
-                QuickBooksEntityLink.qbo_entity_type == qbo_entity_type,
-                QuickBooksEntityLink.qbo_entity_id == qbo_entity_id,
+            select(AccountingSyncLink).where(
+                AccountingSyncLink.provider == "quickbooks",
+                AccountingSyncLink.organization_id == organization_id,
+                AccountingSyncLink.facility_id == facility_id,
+                AccountingSyncLink.entity_type == entity_type,
+                AccountingSyncLink.external_id == external_id,
             )
         )
-        row = QuickBooksSyncService._find_link(
-            session,
-            organization_id,
-            facility_id,
-            local_entity_type,
-            local_entity_id,
-            qbo_entity_type,
-        )
+        row = QuickBooksSyncService._find_link(session, organization_id, facility_id, entity_type, internal_id)
         if existing_remote is not None and (row is None or existing_remote.id != row.id):
             raise QuickBooksSyncError("That QuickBooks record is already mapped to a different DoobieLogic record.")
         if row is None:
-            row = QuickBooksEntityLink(
+            row = AccountingSyncLink(
                 organization_id=organization_id,
                 facility_id=facility_id,
-                local_entity_type=local_entity_type,
-                local_entity_id=local_entity_id,
-                qbo_entity_type=qbo_entity_type,
-                qbo_entity_id=qbo_entity_id,
+                provider="quickbooks",
+                entity_type=entity_type,
+                internal_id=internal_id,
+                external_id=external_id,
+                updated_by=actor,
             )
             session.add(row)
-        row.qbo_entity_id = qbo_entity_id
+        row.external_id = external_id
         row.sync_token = str(sync_token or "")
         row.payload_hash = str(payload_hash or "")
-        row.last_synced_at = utc_now()
+        row.status = "synced"
         row.last_error = ""
+        row.last_synced_at = utc_now()
+        row.updated_by = actor
         session.flush()
         return row
 
-    def list_links(self, organization_id: str, facility_id: str) -> list[QuickBooksEntityLink]:
+    def list_links(self, organization_id: str, facility_id: str) -> list[AccountingSyncLink]:
         with Session(self.engine) as session:
             return list(
                 session.scalars(
-                    select(QuickBooksEntityLink)
+                    select(AccountingSyncLink)
                     .where(
-                        QuickBooksEntityLink.organization_id == organization_id,
-                        QuickBooksEntityLink.facility_id == facility_id,
+                        AccountingSyncLink.provider == "quickbooks",
+                        AccountingSyncLink.organization_id == organization_id,
+                        AccountingSyncLink.facility_id == facility_id,
                     )
-                    .order_by(QuickBooksEntityLink.local_entity_type, QuickBooksEntityLink.local_entity_id)
+                    .order_by(AccountingSyncLink.entity_type, AccountingSyncLink.internal_id)
                 )
             )
 
@@ -175,8 +171,9 @@ class QuickBooksSyncService:
         facility_id: str,
         product_id: str,
         qbo_item_id: str,
+        actor: str,
         sync_token: str = "",
-    ) -> QuickBooksEntityLink:
+    ) -> AccountingSyncLink:
         qbo_item_id = str(qbo_item_id or "").strip()
         if not qbo_item_id:
             raise QuickBooksSyncError("A QuickBooks Item ID is required.")
@@ -188,11 +185,11 @@ class QuickBooksSyncService:
                 session,
                 organization_id=organization_id,
                 facility_id=facility_id,
-                local_entity_type="product",
-                local_entity_id=product_id,
-                qbo_entity_type="item",
-                qbo_entity_id=qbo_item_id,
+                entity_type="item",
+                internal_id=product_id,
+                external_id=qbo_item_id,
                 sync_token=sync_token,
+                actor=actor,
             )
 
     def sync_customer(
@@ -208,10 +205,7 @@ class QuickBooksSyncService:
             partner = session.get(TradePartner, partner_id)
             if partner is None or partner.organization_id != organization_id or partner.partner_type not in {"customer", "both"}:
                 raise QuickBooksSyncError("A customer trade partner is required for QuickBooks customer sync.")
-            source_payload: dict[str, Any] = {
-                "DisplayName": partner.name,
-                "CompanyName": partner.name,
-            }
+            source_payload: dict[str, Any] = {"DisplayName": partner.name, "CompanyName": partner.name}
             if partner.contact_email:
                 source_payload["PrimaryEmailAddr"] = {"Address": partner.contact_email}
             if partner.contact_phone:
@@ -219,12 +213,12 @@ class QuickBooksSyncService:
             if partner.license_or_registration:
                 source_payload["Notes"] = f"Cannabis license/registration: {partner.license_or_registration}"
             payload_hash = _json_hash(source_payload)
-            link = self._find_link(session, organization_id, facility_id, "partner", partner.id, "customer")
+            link = self._find_link(session, organization_id, facility_id, "customer", partner.id)
             if link is not None and link.payload_hash == payload_hash:
-                return {"ok": True, "skipped": True, "local_id": partner.id, "qbo_id": link.qbo_entity_id, "entity": "customer"}
+                return {"ok": True, "skipped": True, "local_id": partner.id, "qbo_id": link.external_id, "entity": "customer"}
             request_payload = dict(source_payload)
             if link is not None:
-                request_payload.update({"Id": link.qbo_entity_id, "SyncToken": link.sync_token, "sparse": True})
+                request_payload.update({"Id": link.external_id, "SyncToken": link.sync_token, "sparse": True})
         try:
             response = quickbooks_api_request(
                 access_token=access_token,
@@ -242,14 +236,14 @@ class QuickBooksSyncService:
                 session,
                 organization_id=organization_id,
                 facility_id=facility_id,
-                local_entity_type="partner",
-                local_entity_id=partner_id,
-                qbo_entity_type="customer",
-                qbo_entity_id=str(remote.get("Id")),
+                entity_type="customer",
+                internal_id=partner_id,
+                external_id=str(remote.get("Id")),
                 sync_token=str(remote.get("SyncToken") or ""),
                 payload_hash=payload_hash,
+                actor=actor,
             )
-            return {"ok": True, "skipped": False, "local_id": partner_id, "qbo_id": link.qbo_entity_id, "entity": "customer"}
+            return {"ok": True, "skipped": False, "local_id": partner_id, "qbo_id": link.external_id, "entity": "customer"}
 
     def sync_invoice(
         self,
@@ -276,13 +270,13 @@ class QuickBooksSyncService:
             )
             if not lines:
                 raise QuickBooksSyncError("Invoice has no lines to synchronize.")
-            customer_link = self._find_link(session, organization_id, facility_id, "partner", invoice.partner_id, "customer")
+            customer_link = self._find_link(session, organization_id, facility_id, "customer", invoice.partner_id)
             if customer_link is None:
                 raise QuickBooksSyncError("Synchronize the invoice customer to QuickBooks before posting this invoice.")
-            item_links: dict[str, QuickBooksEntityLink] = {}
+            item_links: dict[str, AccountingSyncLink] = {}
             missing_products: list[str] = []
             for line in lines:
-                link = self._find_link(session, organization_id, facility_id, "product", line.product_id, "item")
+                link = self._find_link(session, organization_id, facility_id, "item", line.product_id)
                 if link is None:
                     product = session.get(Product, line.product_id)
                     missing_products.append(product.sku if product and product.sku else line.product_id)
@@ -293,7 +287,7 @@ class QuickBooksSyncService:
                     "QuickBooks Item mapping is required before invoice sync for: " + ", ".join(sorted(set(missing_products)))
                 )
             source_payload: dict[str, Any] = {
-                "CustomerRef": {"value": customer_link.qbo_entity_id},
+                "CustomerRef": {"value": customer_link.external_id},
                 "DocNumber": invoice.invoice_number,
                 "TxnDate": invoice.issue_date.isoformat(),
                 "DueDate": invoice.due_date.isoformat(),
@@ -303,7 +297,7 @@ class QuickBooksSyncService:
                         "DetailType": "SalesItemLineDetail",
                         "Description": line.description,
                         "SalesItemLineDetail": {
-                            "ItemRef": {"value": item_links[line.product_id].qbo_entity_id},
+                            "ItemRef": {"value": item_links[line.product_id].external_id},
                             "Qty": float(line.quantity),
                             "UnitPrice": float(line.unit_price_usd),
                         },
@@ -314,12 +308,12 @@ class QuickBooksSyncService:
             if invoice.notes:
                 source_payload["PrivateNote"] = invoice.notes[:4000]
             payload_hash = _json_hash(source_payload)
-            invoice_link = self._find_link(session, organization_id, facility_id, "invoice", invoice.id, "invoice")
+            invoice_link = self._find_link(session, organization_id, facility_id, "invoice", invoice.id)
             if invoice_link is not None and invoice_link.payload_hash == payload_hash:
-                return {"ok": True, "skipped": True, "local_id": invoice.id, "qbo_id": invoice_link.qbo_entity_id, "entity": "invoice"}
+                return {"ok": True, "skipped": True, "local_id": invoice.id, "qbo_id": invoice_link.external_id, "entity": "invoice"}
             request_payload = dict(source_payload)
             if invoice_link is not None:
-                request_payload.update({"Id": invoice_link.qbo_entity_id, "SyncToken": invoice_link.sync_token})
+                request_payload.update({"Id": invoice_link.external_id, "SyncToken": invoice_link.sync_token})
         try:
             response = quickbooks_api_request(
                 access_token=access_token,
@@ -337,11 +331,11 @@ class QuickBooksSyncService:
                 session,
                 organization_id=organization_id,
                 facility_id=facility_id,
-                local_entity_type="invoice",
-                local_entity_id=invoice_id,
-                qbo_entity_type="invoice",
-                qbo_entity_id=str(remote.get("Id")),
+                entity_type="invoice",
+                internal_id=invoice_id,
+                external_id=str(remote.get("Id")),
                 sync_token=str(remote.get("SyncToken") or ""),
                 payload_hash=payload_hash,
+                actor=actor,
             )
-            return {"ok": True, "skipped": False, "local_id": invoice_id, "qbo_id": link.qbo_entity_id, "entity": "invoice"}
+            return {"ok": True, "skipped": False, "local_id": invoice_id, "qbo_id": link.external_id, "entity": "invoice"}
