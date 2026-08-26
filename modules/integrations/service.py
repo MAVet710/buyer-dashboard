@@ -15,6 +15,8 @@ from .models import IntegrationConfiguration
 
 SUPPORTED_PROVIDERS = {
     "metrc",
+    "biotrack",
+    "quickbooks",
     "doobie",
     "ai_runtime",
     "spacemail",
