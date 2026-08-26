@@ -22,6 +22,8 @@ class LocalOpenAIProvider:
         base_url: str,
         model: str,
         api_key: str = "",
+        access_client_id: str = "",
+        access_client_secret: str = "",
         timeout_seconds: float = 30.0,
         max_tokens: int = 1400,
         temperature: float = 0.2,
@@ -29,6 +31,8 @@ class LocalOpenAIProvider:
         self.base_url = str(base_url or "").strip().rstrip("/")
         self.model = str(model or "").strip()
         self.api_key = str(api_key or "").strip()
+        self.access_client_id = str(access_client_id or "").strip()
+        self.access_client_secret = str(access_client_secret or "").strip()
         self.timeout_seconds = max(1.0, float(timeout_seconds))
         self.max_tokens = max(1, int(max_tokens))
         self.temperature = max(0.0, min(2.0, float(temperature)))
@@ -45,6 +49,9 @@ class LocalOpenAIProvider:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.access_client_id and self.access_client_secret:
+            headers["CF-Access-Client-Id"] = self.access_client_id
+            headers["CF-Access-Client-Secret"] = self.access_client_secret
         return headers
 
     def supports_tools(self) -> bool:
@@ -58,7 +65,7 @@ class LocalOpenAIProvider:
             return ProviderHealth(self.name, False, False, self.model, True, True, True, "endpoint/model not configured")
         try:
             response = requests.get(self._endpoint("models"), headers=self._headers(), timeout=min(self.timeout_seconds, 5.0))
-            reachable = response.status_code < 500
+            reachable = response.ok
             detail = "ok" if response.ok else f"HTTP {response.status_code}"
             return ProviderHealth(self.name, True, reachable, self.model, True, True, True, detail)
         except requests.RequestException as exc:
@@ -89,6 +96,8 @@ class LocalOpenAIProvider:
             "temperature": request.temperature if request.temperature is not None else self.temperature,
             "max_tokens": min(int(request.max_tokens or self.max_tokens), self.max_tokens),
         }
+        if self.model.casefold().startswith("gpt-oss"):
+            payload["reasoning_effort"] = "low"
         if request.tools:
             payload["tools"] = request.tools
             payload["tool_choice"] = "auto"

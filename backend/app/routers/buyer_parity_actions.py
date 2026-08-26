@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
-from modules.integrations import IntegrationConfigurationService
-from services.doobie_client import DoobieClient
+from services.agent_registry import PROFILES
 from services.web_buyer_parity import records, sku_inventory_view
+from ..services.ai_runtime import run_bounded_ai
 from ..auth import RequestContext, get_request_context, get_retail_context
 from ..config import Settings, get_settings
 from ..database import get_engine
@@ -40,22 +40,6 @@ class InventoryCheckRequest(BuyerSliceRequest):
 
 class BuyerBriefRequest(BuyerSliceRequest):
     question: str = Field(default="What should I reorder right now with quantities?", max_length=2000)
-
-
-def _platform_doobie(engine: Engine, settings: Settings) -> DoobieClient:
-    try:
-        service = IntegrationConfigurationService(engine, settings.integration_encryption_key)
-        row = service.get("platform", "global", "doobie")
-    except RuntimeError as exc:
-        raise HTTPException(503, str(exc)) from exc
-    if row is None:
-        raise HTTPException(503, "Doobie is not configured. Level DEV must configure the platform Doobie integration.")
-    configuration = service.public(row).get("configuration") or {}
-    return DoobieClient(
-        base_url=str(configuration.get("base_url") or "").strip().rstrip("/"),
-        api_key=service.secret(row),
-        timeout_seconds=12,
-    )
 
 
 def _buyer_slice(payload: BuyerSliceRequest, context: RequestContext, engine: Engine):
@@ -237,14 +221,33 @@ def inventory_check(
     settings: Settings = Depends(get_settings),
 ):
     filtered, source = _buyer_slice(payload, context, engine)
-    response = _platform_doobie(engine, settings).inventory_check(
-        {"inventory": records(filtered, limit=2000), "source": source},
-        state=payload.state,
+    response = run_bounded_ai(
+        engine=engine,
+        settings=settings,
+        context=context,
+        operation_type="retail",
+        profile=PROFILES["inventory"],
         question=payload.question,
+        bounded_context={
+            "inventory": records(filtered, limit=20),
+            "source": source,
+            "filtered_row_count": int(len(filtered)),
+            "state": payload.state,
+        },
     )
     if response.get("mode") == "fallback":
-        raise HTTPException(503, str(response.get("answer") or response.get("error") or "Doobie is unavailable."))
-    return response
+        detail = str(response.get("answer") or "DoobieLogic local AI is unavailable.")
+        warnings = response.get("warnings") or []
+        if warnings:
+            detail += " | " + " | ".join(str(value) for value in warnings)
+        raise HTTPException(503, detail)
+    return {
+        **response,
+        "explanation": response.get("summary") or "",
+        "risk_flags": [],
+        "inefficiencies": [],
+        "sources": [],
+    }
 
 
 @router.post("/buyer-brief")
@@ -255,11 +258,30 @@ def buyer_brief(
     settings: Settings = Depends(get_settings),
 ):
     filtered, source = _buyer_slice(payload, context, engine)
-    response = _platform_doobie(engine, settings).buyer_brief(
-        {"inventory": records(filtered, limit=2000), "source": source},
-        state=payload.state,
+    response = run_bounded_ai(
+        engine=engine,
+        settings=settings,
+        context=context,
+        operation_type="retail",
+        profile=PROFILES["buyer"],
         question=payload.question,
+        bounded_context={
+            "inventory": records(filtered, limit=20),
+            "source": source,
+            "filtered_row_count": int(len(filtered)),
+            "state": payload.state,
+        },
     )
     if response.get("mode") == "fallback":
-        raise HTTPException(503, str(response.get("answer") or response.get("error") or "Doobie is unavailable."))
-    return response
+        detail = str(response.get("answer") or "DoobieLogic local AI is unavailable.")
+        warnings = response.get("warnings") or []
+        if warnings:
+            detail += " | " + " | ".join(str(value) for value in warnings)
+        raise HTTPException(503, detail)
+    return {
+        **response,
+        "explanation": response.get("summary") or "",
+        "risk_flags": [],
+        "inefficiencies": [],
+        "sources": [],
+    }

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
-from services.doobie_client import DoobieClient
+from services.extraction_brief import generate_extraction_brief
 from ..auth import RequestContext, get_request_context, get_production_context
 from ..database import get_engine
 from .extraction_parity import overview
@@ -33,9 +33,8 @@ def doobie_brief(
 ):
     """Generate the same grounded run-level brief used by the Streamlit Doobie panel.
 
-    Extraction intentionally stays data-first. DoobieClient.extraction_brief routes
-    to the local grounded extraction brief, which may optionally add a bounded
-    provider-neutral DoobieLogic runtime interpretation when evidence supports it.
+    Extraction intentionally stays data-first and uses the local grounded
+    extraction brief implementation directly.
     """
 
     current = overview(context=context, engine=engine)
@@ -43,7 +42,7 @@ def doobie_brief(
     if not runs:
         raise HTTPException(422, "No extraction run rows are available for the current facility.")
 
-    result = DoobieClient(base_url="", api_key="").extraction_brief(
+    result = generate_extraction_brief(
         {"runs": runs},
         state=payload.state,
         question=payload.question,
