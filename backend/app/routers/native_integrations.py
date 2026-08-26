@@ -23,6 +23,7 @@ from services.metrc_client import (
     fetch_metrc_transfer_deliveries,
 )
 from services.quickbooks_client import test_quickbooks_connection
+from services.quickbooks_sync import QuickBooksSyncError, QuickBooksSyncService
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
@@ -44,6 +45,13 @@ def _service(engine: Engine, settings: Settings) -> IntegrationConfigurationServ
         raise HTTPException(503, str(exc)) from exc
 
 
+def _qbo_sync(engine: Engine, settings: Settings) -> QuickBooksSyncService:
+    try:
+        return QuickBooksSyncService(engine, settings.integration_encryption_key)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
 def _scope(context: RequestContext) -> str:
     return context.facility_id
 
@@ -61,6 +69,21 @@ def _secret_json(service: IntegrationConfigurationService, row) -> dict[str, str
 def _safe_provider(service: IntegrationConfigurationService, provider: str, context: RequestContext) -> dict[str, Any]:
     public = service.public(service.get("facility", _scope(context), provider))
     return {**public, "provider": provider, "facility_id": context.facility_id, "facility_scoped": True}
+
+
+def _accounting_link(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "provider": row.provider,
+        "entity_type": row.entity_type,
+        "internal_id": row.internal_id,
+        "external_id": row.external_id,
+        "sync_token": row.sync_token,
+        "status": row.status,
+        "last_synced_at": row.last_synced_at,
+        "last_error": row.last_error,
+        "updated_by": row.updated_by,
+    }
 
 
 class BioTrackSave(BaseModel):
@@ -108,6 +131,12 @@ class QuickBooksSave(BaseModel):
         return clean
 
 
+class QuickBooksItemLinkSave(BaseModel):
+    product_id: str = Field(min_length=1, max_length=64)
+    qbo_item_id: str = Field(min_length=1, max_length=255)
+    sync_token: str = Field(default="", max_length=255)
+
+
 @router.get("")
 def native_integrations(
     context: RequestContext = Depends(get_request_context),
@@ -121,13 +150,24 @@ def native_integrations(
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
     return {
-        "metrc": {**metrc_public, "provider": "metrc", "facility_id": context.facility_id, "facility_scoped": True, "dispatch_operations": ["package_finish", "package_adjust"]},
+        "metrc": {
+            **metrc_public,
+            "provider": "metrc",
+            "facility_id": context.facility_id,
+            "facility_scoped": True,
+            "dispatch_operations": ["package_finish", "package_adjust"],
+        },
         "biotrack": _safe_provider(service, "biotrack", context),
         "quickbooks": _safe_provider(service, "quickbooks", context),
         "activation_rules": {
             "metrc": "Validated user API key + integrator key + matching facility license.",
             "biotrack": "State-approved API access and an explicit state contract are required; sandbox/production are never inferred.",
             "quickbooks": "Intuit OAuth credentials and a validated company realm are required; rotated refresh tokens remain encrypted.",
+        },
+        "quickbooks_sync": {
+            "managed_entities": ["customer", "invoice"],
+            "manual_mapping_required": ["product -> QuickBooks Item"],
+            "idempotent": True,
         },
     }
 
@@ -190,8 +230,21 @@ def test_biotrack(
         training=str(config.get("environment") or "sandbox") != "production",
         login_path=str(config.get("login_path") or "/v1/login"),
     )
-    updated = service.validation_result(row.id, ok=bool(result.get("ok")), error="" if result.get("ok") else str(result.get("message") or "Connection failed"))
-    return {**service.public(updated), "provider": "biotrack", "facility_id": context.facility_id, "result": {"ok": bool(result.get("ok")), "message": result.get("message"), "training": result.get("training")}}
+    updated = service.validation_result(
+        row.id,
+        ok=bool(result.get("ok")),
+        error="" if result.get("ok") else str(result.get("message") or "Connection failed"),
+    )
+    return {
+        **service.public(updated),
+        "provider": "biotrack",
+        "facility_id": context.facility_id,
+        "result": {
+            "ok": bool(result.get("ok")),
+            "message": result.get("message"),
+            "training": result.get("training"),
+        },
+    }
 
 
 @router.post("/biotrack/clear")
@@ -202,7 +255,14 @@ def clear_biotrack(
 ):
     _require_admin(context)
     service = _service(engine, settings)
-    service.clear(scope_type="facility", scope_key=_scope(context), provider="biotrack", actor=context.user_id, audit_organization_id=context.organization_id, audit_facility_id=context.facility_id)
+    service.clear(
+        scope_type="facility",
+        scope_key=_scope(context),
+        provider="biotrack",
+        actor=context.user_id,
+        audit_organization_id=context.organization_id,
+        audit_facility_id=context.facility_id,
+    )
     return _safe_provider(service, "biotrack", context)
 
 
@@ -277,9 +337,18 @@ def test_quickbooks(
             secret=json.dumps(secrets, sort_keys=True),
             actor=context.user_id,
         )
-    updated = service.validation_result(row.id, ok=bool(result.get("ok")), error="" if result.get("ok") else str(result.get("message") or "Connection failed"))
+    updated = service.validation_result(
+        row.id,
+        ok=bool(result.get("ok")),
+        error="" if result.get("ok") else str(result.get("message") or "Connection failed"),
+    )
     safe_result = {key: result.get(key) for key in ("ok", "message", "company")}
-    return {**service.public(updated), "provider": "quickbooks", "facility_id": context.facility_id, "result": safe_result}
+    return {
+        **service.public(updated),
+        "provider": "quickbooks",
+        "facility_id": context.facility_id,
+        "result": safe_result,
+    }
 
 
 @router.post("/quickbooks/clear")
@@ -290,8 +359,85 @@ def clear_quickbooks(
 ):
     _require_admin(context)
     service = _service(engine, settings)
-    service.clear(scope_type="facility", scope_key=_scope(context), provider="quickbooks", actor=context.user_id, audit_organization_id=context.organization_id, audit_facility_id=context.facility_id)
+    service.clear(
+        scope_type="facility",
+        scope_key=_scope(context),
+        provider="quickbooks",
+        actor=context.user_id,
+        audit_organization_id=context.organization_id,
+        audit_facility_id=context.facility_id,
+    )
     return _safe_provider(service, "quickbooks", context)
+
+
+@router.get("/quickbooks/links")
+def quickbooks_links(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_admin(context)
+    return [_accounting_link(row) for row in _qbo_sync(engine, settings).list_links(context.organization_id, context.facility_id)]
+
+
+@router.post("/quickbooks/item-links", status_code=201)
+def map_quickbooks_item(
+    payload: QuickBooksItemLinkSave,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_admin(context)
+    try:
+        row = _qbo_sync(engine, settings).map_product_item(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            product_id=payload.product_id,
+            qbo_item_id=payload.qbo_item_id,
+            sync_token=payload.sync_token,
+            actor=context.user_id,
+        )
+        return _accounting_link(row)
+    except QuickBooksSyncError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/quickbooks/customers/{partner_id}/sync")
+def sync_quickbooks_customer(
+    partner_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_admin(context)
+    try:
+        return _qbo_sync(engine, settings).sync_customer(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            partner_id=partner_id,
+            actor=context.user_id,
+        )
+    except QuickBooksSyncError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/quickbooks/invoices/{invoice_id}/sync")
+def sync_quickbooks_invoice(
+    invoice_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_admin(context)
+    try:
+        return _qbo_sync(engine, settings).sync_invoice(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            invoice_id=invoice_id,
+            actor=context.user_id,
+        )
+    except QuickBooksSyncError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 def _metrc_ready(engine: Engine, settings: Settings, context: RequestContext):
@@ -311,7 +457,12 @@ def metrc_incoming(
     settings: Settings = Depends(get_settings),
 ):
     metrc = _metrc_ready(engine, settings, context)
-    result = fetch_metrc_incoming_transfers(state=metrc.state, user_api_key=metrc.user_api_key, integrator_api_key=metrc.integrator_api_key, license_number=metrc.license_number)
+    result = fetch_metrc_incoming_transfers(
+        state=metrc.state,
+        user_api_key=metrc.user_api_key,
+        integrator_api_key=metrc.integrator_api_key,
+        license_number=metrc.license_number,
+    )
     if not result.get("ok"):
         raise HTTPException(502, str(result.get("message") or "Metrc incoming transfers request failed."))
     return {"provider": "metrc", "license_number": metrc.license_number, "transfers": result.get("transfers", [])}
@@ -325,7 +476,12 @@ def metrc_transfer_deliveries(
     settings: Settings = Depends(get_settings),
 ):
     metrc = _metrc_ready(engine, settings, context)
-    result = fetch_metrc_transfer_deliveries(state=metrc.state, user_api_key=metrc.user_api_key, integrator_api_key=metrc.integrator_api_key, transfer_id=transfer_id)
+    result = fetch_metrc_transfer_deliveries(
+        state=metrc.state,
+        user_api_key=metrc.user_api_key,
+        integrator_api_key=metrc.integrator_api_key,
+        transfer_id=transfer_id,
+    )
     if not result.get("ok"):
         raise HTTPException(502, str(result.get("message") or "Metrc transfer delivery request failed."))
     return {"provider": "metrc", "transfer_id": transfer_id, "deliveries": result.get("deliveries", [])}
@@ -343,16 +499,32 @@ def metrc_delivery_packages(
     settings: Settings = Depends(get_settings),
 ):
     metrc = _metrc_ready(engine, settings, context)
-    result = fetch_metrc_delivery_packages(state=metrc.state, user_api_key=metrc.user_api_key, integrator_api_key=metrc.integrator_api_key, delivery_id=delivery_id)
+    result = fetch_metrc_delivery_packages(
+        state=metrc.state,
+        user_api_key=metrc.user_api_key,
+        integrator_api_key=metrc.integrator_api_key,
+        delivery_id=delivery_id,
+    )
     if not result.get("ok"):
         raise HTTPException(502, str(result.get("message") or "Metrc delivery package request failed."))
     packages = list(result.get("packages") or [])
     lots = ComanRepository(engine).list_inventory_lots(context.organization_id, context.facility_id)
-    existing = {str(lot.compliance_package_id or "").strip() for lot in lots if str(lot.compliance_package_id or "").strip()}
+    existing = {
+        str(lot.compliance_package_id or "").strip()
+        for lot in lots
+        if str(lot.compliance_package_id or "").strip()
+    }
     reconciled = []
     for package in packages:
         label = _package_label(package)
-        reconciled.append({"package": package, "package_label": label, "inventory_status": "already_received" if label and label in existing else "new", "existing_inventory_match": bool(label and label in existing)})
+        reconciled.append(
+            {
+                "package": package,
+                "package_label": label,
+                "inventory_status": "already_received" if label and label in existing else "new",
+                "existing_inventory_match": bool(label and label in existing),
+            }
+        )
     return {
         "provider": "metrc",
         "delivery_id": delivery_id,
