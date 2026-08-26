@@ -11,7 +11,7 @@ from typing import Any
 
 import requests
 
-from services.metrc_client import MetrcConfigurationError, resolve_metrc_base_url
+from services.metrc_client import resolve_metrc_base_url
 
 
 class MetrcNativeError(RuntimeError):
@@ -36,10 +36,7 @@ def _request(
 ) -> dict[str, Any]:
     if not all(str(value or "").strip() for value in (integrator_api_key, user_api_key)):
         raise MetrcNativeError("Metrc integration credentials are incomplete.")
-    try:
-        base, _state_code = resolve_metrc_base_url(state)
-    except MetrcConfigurationError as exc:
-        raise MetrcNativeError(str(exc)) from exc
+    base, _state_code = resolve_metrc_base_url(state)
     if not base:
         raise MetrcNativeError("A valid Metrc state or API base URL is required.")
     url = f"{base.rstrip('/')}/{path.lstrip('/')}"
