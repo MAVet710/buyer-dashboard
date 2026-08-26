@@ -7,10 +7,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
+from services.traceability_dispatcher import TraceabilityDispatcher, TraceabilityDispatchError
 from ..auth import RequestContext, get_request_context
+from ..config import Settings, get_settings
 from ..database import get_engine
 
 router = APIRouter(prefix="/traceability-actions", tags=["traceability-actions"])
+DISPATCH_ROLES = {"dev", "admin", "supervisor", "qa"}
 
 ACTION_CATALOG: dict[str, dict[str, Any]] = {
     "package_create": {"entity_type": "package", "required": ("source_ids", "quantity", "unit"), "roles": {"dev", "admin", "supervisor", "operator", "qa"}},
@@ -48,7 +51,9 @@ def action_catalog(context: RequestContext = Depends(get_request_context)):
     role = context.role.casefold()
     return {
         "actions": [_catalog_row(name, spec) for name, spec in ACTION_CATALOG.items() if role in spec["roles"]],
-        "execution_boundary": "Validated intents enter the durable provider-neutral queue. Provider workers remain separately authenticated, retryable, and auditable.",
+        "automatic_dispatch_operations": ["package_finish", "package_adjust"],
+        "dispatch_roles": sorted(DISPATCH_ROLES),
+        "execution_boundary": "Validated intents enter the durable provider-neutral queue. A separately authorized provider dispatch is required; accepted still does not mean reconciled/verified.",
     }
 
 
@@ -98,7 +103,7 @@ def queue_action(payload: TraceabilityIntent, context: RequestContext = Depends(
                 transaction_id=row.id,
                 new_status="queued",
                 actor=context.user_id,
-                reason="Validated traceability intent queued for the configured provider worker.",
+                reason="Validated traceability intent queued for separately authorized provider dispatch.",
                 source="system",
             )
         return {
@@ -111,5 +116,33 @@ def queue_action(payload: TraceabilityIntent, context: RequestContext = Depends(
             "idempotency_key": row.idempotency_key,
             "provider_execution": "queued_not_assumed_successful",
         }
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/{transaction_id}/dispatch")
+def dispatch_action(
+    transaction_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    if context.role.casefold() not in DISPATCH_ROLES:
+        raise HTTPException(403, "Supervisor, QA, Admin, or DEV approval is required to dispatch a state-system mutation.")
+    if not str(settings.integration_encryption_key or "").strip():
+        raise HTTPException(503, "Integration credential encryption is not configured.")
+    try:
+        return TraceabilityDispatcher(
+            engine,
+            encryption_key=settings.integration_encryption_key,
+            metrc_integrator_api_key=settings.metrc_integrator_key,
+        ).dispatch(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            transaction_id=transaction_id,
+            actor=context.user_id,
+        )
+    except TraceabilityDispatchError as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
