@@ -160,11 +160,23 @@ class AgentRuntime:
         used_tools: list[str] = []
         decision = None
         final_response = None
+        bounded_context_used = False
         try:
             if datasets:
                 try:
-                    decision = self.provider_router.generate(request, validate=lambda response: (bool(response.tool_calls), "tool_call_required"), require_tools=True)
+                    decision = self.provider_router.generate(
+                        request,
+                        validate=lambda response: (
+                            (True, "tool_calls")
+                            if response.tool_calls
+                            else (bool(str(response.text or "").strip()), "direct_answer" if str(response.text or "").strip() else "empty_response")
+                        ),
+                        require_tools=True,
+                    )
+                    if not decision.response.tool_calls:
+                        final_response = decision.response
                 except ProviderUnavailable:
+                    bounded_context_used = True
                     context_rows = {}
                     for name in list(datasets)[:12]:
                         context_rows[name] = tools.execute("preview_dataset", {"dataset": name, "limit": 5})
@@ -192,7 +204,7 @@ class AgentRuntime:
 
         assert final_response is not None and decision is not None
         parsed = parse_structured(final_response) or {"answer": final_response.text}
-        grounding = "mixed" if citations and used_tools else "knowledge" if citations else "data" if used_tools or datasets else "general"
+        grounding = "mixed" if citations and used_tools else "knowledge" if citations else "data" if used_tools or bounded_context_used else "general"
         result = AgentResult(
             answer=str(parsed.get("answer") or final_response.text).strip(), summary=str(parsed.get("summary") or ""), priority=str(parsed.get("priority") or "normal"),
             confidence=float(parsed.get("confidence") or 0.0), grounding=grounding, sources=citations,

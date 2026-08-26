@@ -263,3 +263,81 @@ def test_deterministic_formulas_use_canonical_production_and_audit_fields():
 
     attainment = production_attainment(pd.DataFrame([{"id": "p1", "requested_units": 100}]), pd.DataFrame([{"production_order_id": "p1", "actual_units": 80}]))
     assert attainment.iloc[0]["attainment_pct"] == pytest.approx(80.0)
+
+
+def test_inventory_health_accepts_compact_upload_column_aliases():
+    inventory = pd.DataFrame([{
+        "product_name": "Product A",
+        "sku": "SKU-A",
+        "onhandunits": 10,
+        "unit_cost": 2,
+        "retail_price": 5,
+    }])
+    sales = pd.DataFrame([{
+        "product_name": "Product A",
+        "sku": "SKU-A",
+        "unitssold": 30,
+    }])
+
+    health = inventory_health(inventory, sales, sales_days=30)
+
+    assert len(health) == 1
+    assert health.iloc[0]["on_hand"] == pytest.approx(10.0)
+    assert health.iloc[0]["units_sold"] == pytest.approx(30.0)
+    assert health.iloc[0]["days_of_supply"] == pytest.approx(10.0)
+
+
+def test_runtime_accepts_direct_answer_when_tools_are_available_but_not_needed():
+    registry = DatasetRegistry()
+    registry.register(DatasetSpec(
+        key="inventory",
+        domain="retail",
+        description="inventory",
+        loader=lambda context: pd.DataFrame([{
+            "product_name": "Product A",
+            "onhandunits": 10,
+        }]),
+        allowed_agents=("ops",),
+        required_capabilities=("retail",),
+        allow_business_columns=True,
+    ))
+
+    provider = FakeProvider(
+        "local",
+        local=True,
+        response=AIResponse(
+            text="Prioritize work by urgency and operational impact.",
+            provider="local",
+            model="local-model",
+            local=True,
+        ),
+    )
+
+    runtime = AgentRuntime(
+        provider_router=ProviderRouter(
+            {"local": provider},
+            order=["local"],
+            allow_cloud_fallback=False,
+        ),
+        dataset_registry=registry,
+    )
+
+    result = runtime.run(
+        profile=PROFILES["ops"],
+        access=DatasetAccessContext(
+            "org-a",
+            "fac-a",
+            "u",
+            "buyer",
+            frozenset({"retail"}),
+        ),
+        question="How should I prioritize a facility morning workload?",
+    )
+
+    assert result.provider == "local"
+    assert result.model == "local-model"
+    assert result.local is True
+    assert result.answer == "Prioritize work by urgency and operational impact."
+    assert result.tool_calls == []
+    assert result.grounding == "general"
+    assert provider.calls == 1
