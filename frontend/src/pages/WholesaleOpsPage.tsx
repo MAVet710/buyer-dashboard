@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { CommerceStorefrontManager } from "../components/CommerceStorefrontManager";
 import { apiGet } from "../lib/api";
@@ -80,13 +80,13 @@ function Overview({inventory,commercial,pendingStorefront,openSales,onTab}:{inve
   </>;
 }
 
-function WholesaleInventoryPanel({query}:{query:ReturnType<typeof useQuery<WholesaleInventory>>}) {
+function WholesaleInventoryPanel({query}:{query:UseQueryResult<WholesaleInventory,Error>}) {
   const [kind,setKind]=useState<"all"|"bulk"|"retail_ready">("all");
   const [search,setSearch]=useState("");
   const [showBlocked,setShowBlocked]=useState(false);
   const rows=useMemo(()=>{
     const source=showBlocked?(query.data?.blocked_items??[]):(query.data?.items??[]);
-    const needle=search.trim().casefold?.() ?? search.trim().toLowerCase();
+    const needle=search.trim().toLowerCase();
     return source.filter(row=>(kind==="all"||row.inventory_type===kind)&&(!needle||[row.name,row.sku,row.package_id,row.lot_code,row.coa_reference,row.location].join(" ").toLowerCase().includes(needle)));
   },[query.data,kind,search,showBlocked]);
   if(query.isLoading)return <div className="state">Building wholesale inventory…</div>;
