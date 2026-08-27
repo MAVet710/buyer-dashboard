@@ -142,18 +142,25 @@ def test_doobie_agent_uses_the_same_non_blocking_window_contract_as_360():
     assert ".workspace-agent-window.minimized" in agent_css
 
 
-def test_distribution_and_wholesale_are_embedded_in_production_not_new_primary_silo():
+def test_wholesale_is_a_first_class_workspace_without_hiding_manufacturing_depth():
     shell = read("frontend/src/components/AppShell.tsx")
     contract = read("docs/UX_SIMPLIFICATION_EXECUTION_CONTRACT.md")
 
     production_primary = shell.split("const PRODUCTION_PRIMARY", 1)[1].split("function secondaryItems", 1)[0]
-    assert 'label: "Distribution"' not in production_primary
-    assert 'label: "Wholesale"' not in production_primary
-    assert 'label: "Orders"' not in production_primary
+    retail_primary = shell.split("const RETAIL_PRIMARY", 1)[1].split("const PRODUCTION_PRIMARY", 1)[0]
+    assert 'label: "Wholesale"' in production_primary
+    assert 'label: "Wholesale"' in retail_primary
     assert 'label: "Production"' in production_primary
 
     production_tools = shell.split('if (category === "Production") return [', 1)[1].split("];", 1)[0]
-    for capability in ("Extraction", "Orders & Fulfillment", "Warehouse Pick / Pack", "White Label / Repack"):
-        assert capability in production_tools
+    assert "Extraction" in production_tools
+    assert "White Label / Repack" in production_tools
+    assert "Orders & Fulfillment" not in production_tools
+    assert "Warehouse Pick / Pack" not in production_tools
 
-    assert "Distribution and wholesale are part of the manufacturing/Production operating model" in contract
+    wholesale_tools = shell.split('if (category === "Wholesale") return [', 1)[1].split("];", 1)[0]
+    for capability in ("Wholesale Ops", "Orders", "Fulfillment"):
+        assert capability in wholesale_tools
+
+    assert "Wholesale Ops is a first-class commercial workspace" in contract
+    assert "Production remains the manufacturing source of truth" in contract
