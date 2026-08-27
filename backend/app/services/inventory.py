@@ -181,7 +181,12 @@ class InventoryQueryService:
         usable = max(0.0, available)
         on_hand = available + reserved if physical_on_hand is None else max(0.0, physical_on_hand)
         status = str(lot.status or "available")
-        claim_sources = {str(row.get("source") or "") for row in (claims or [])}
+        claim_rows = claims or []
+        claim_sources = {str(row.get("source") or "") for row in claim_rows}
+        production_reserved = sum(float(row.get("quantity") or 0.0) for row in claim_rows if row.get("source") == "production")
+        wholesale_committed = sum(float(row.get("quantity") or 0.0) for row in claim_rows if row.get("source") == "wholesale" and row.get("claim_type") == "committed")
+        wholesale_reserved = sum(float(row.get("quantity") or 0.0) for row in claim_rows if row.get("source") == "wholesale" and row.get("claim_type") == "lot_reserved")
+        reservation_sources = list(dict.fromkeys(str(row.get("label") or row.get("reference") or row.get("source") or "").strip() for row in claim_rows if str(row.get("label") or row.get("reference") or row.get("source") or "").strip()))
         if any(token in status.casefold() for token in ("hold", "quarantine", "failed")):
             attention = "Hold"
         elif available <= 0 and on_hand <= 0:
@@ -219,8 +224,13 @@ class InventoryQueryService:
             location=lot.location_code,
             status=status.replace("_", " ").title(),
             source_name=str(metadata.get("source_name") or primary_vendor or ""),
+            on_hand=on_hand,
             available=available,
             reserved=reserved,
+            production_reserved=production_reserved,
+            wholesale_committed=wholesale_committed,
+            wholesale_reserved=wholesale_reserved,
+            reservation_sources=reservation_sources,
             usable=usable,
             unit=product.base_unit,
             received_at=lot.received_at,
