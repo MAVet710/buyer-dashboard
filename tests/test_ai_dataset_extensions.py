@@ -18,6 +18,30 @@ def _context() -> RequestContext:
     )
 
 
+def _compliance_source() -> SimpleNamespace:
+    csv_payload = b"state,scope,topic,answer,source_citation,source_url,last_updated,review_status,api_key\nMA,adult-use,labels,Reviewed answer,935 CMR 500,https://mass.gov,2026-08-01,reviewed,secret-a\nCA,adult-use,packaging,Demo answer,Demo citation,https://example.test,2026-08-01,demo-only,secret-b\n"
+    return SimpleNamespace(
+        dataset_key="compliance_sources",
+        filename="compliance.csv",
+        payload=csv_payload,
+    )
+
+
+def _install_fake_compliance_repository(monkeypatch) -> None:
+    source = _compliance_source()
+
+    class FakeDataHubRepository:
+        def __init__(self, _engine):
+            pass
+
+        def list_active_sources(self, organization_id, facility_id):
+            assert organization_id == "org-a"
+            assert facility_id == "fac-a"
+            return [source]
+
+    monkeypatch.setattr(extensions, "DataHubRepository", FakeDataHubRepository)
+
+
 def test_governed_agent_datasets_register_without_loading_database_rows():
     registry = DatasetRegistry()
     engine = create_engine("sqlite+pysqlite:///:memory:")
@@ -49,23 +73,7 @@ def test_governed_agent_datasets_register_without_loading_database_rows():
 
 
 def test_compliance_dataset_uses_structured_allowlist_and_excludes_demo_only(monkeypatch):
-    csv_payload = b"state,scope,topic,answer,source_citation,source_url,last_updated,review_status,api_key\nMA,adult-use,labels,Reviewed answer,935 CMR 500,https://mass.gov,2026-08-01,reviewed,secret-a\nCA,adult-use,packaging,Demo answer,Demo citation,https://example.test,2026-08-01,demo-only,secret-b\n"
-    source = SimpleNamespace(
-        dataset_key="compliance_sources",
-        filename="compliance.csv",
-        payload=csv_payload,
-    )
-
-    class FakeDataHubRepository:
-        def __init__(self, _engine):
-            pass
-
-        def list_active_sources(self, organization_id, facility_id):
-            assert organization_id == "org-a"
-            assert facility_id == "fac-a"
-            return [source]
-
-    monkeypatch.setattr(extensions, "DataHubRepository", FakeDataHubRepository)
+    _install_fake_compliance_repository(monkeypatch)
 
     frame = extensions._compliance_source_rows(object(), _context())
 
@@ -75,6 +83,63 @@ def test_compliance_dataset_uses_structured_allowlist_and_excludes_demo_only(mon
     assert frame.iloc[0]["review_status"] == "reviewed"
     assert "api_key" not in frame.columns
     assert "Demo answer" not in frame["answer"].tolist()
+
+
+def test_reviewed_compliance_rows_join_retrieval_as_level_two_evidence(monkeypatch):
+    _install_fake_compliance_repository(monkeypatch)
+
+    class EmptyRetriever:
+        def search(self, **_kwargs):
+            return {"results": [], "retrieval_mode": "empty"}
+
+    retriever = extensions.GovernedKnowledgeRetriever(EmptyRetriever(), object(), _context())
+    result = retriever.search(
+        scope=SimpleNamespace(organization_id="org-a", facility_id="fac-a"),
+        query="Are these label requirements compliant with our approved source?",
+        limit=8,
+        authoritative_only=True,
+    )
+
+    assert result["retrieval_mode"] == "knowledge+structured_compliance"
+    assert len(result["results"]) == 1
+    evidence = result["results"][0]
+    assert evidence["authority_level"] == 2
+    assert evidence["source_type"] == "approved_structured_compliance"
+    assert evidence["jurisdiction"] == "MA"
+    assert evidence["page_or_section"] == "935 CMR 500"
+    assert evidence["url"] == "https://mass.gov"
+    assert evidence["content"] == "Reviewed answer"
+    assert not [row for row in result["results"] if int(row["authority_level"]) <= 1]
+
+
+def test_traceability_summary_aggregates_complete_facility_counts(monkeypatch):
+    class FakeResult:
+        def all(self):
+            return [
+                ("verified", 1500),
+                ("reconciliation_required", 12),
+                ("rejected", 4),
+                ("queued", 3),
+            ]
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, _statement):
+            return FakeResult()
+
+    monkeypatch.setattr(extensions, "Session", lambda _engine: FakeSession())
+
+    summary = extensions._traceability_summary(object(), _context()).iloc[0]
+
+    assert summary["total"] == 1519
+    assert summary["verified"] == 1500
+    assert summary["needs_reconciliation"] == 16
+    assert summary["in_flight"] == 3
 
 
 def test_traceability_agent_specs_never_expose_payloads_or_user_identity():
