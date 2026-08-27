@@ -30,7 +30,7 @@ export function CommerceStorefrontManager() {
 
   const refresh=async()=>{await client.invalidateQueries({queryKey:["commerce-storefront"]});await client.invalidateQueries({queryKey:["commerce-storefront-options"]});};
   const save=useMutation({mutationFn:()=>apiPost<Storefront>("/api/v1/storefronts",{display_name:name,subdomain,headline,description,logo_url:logoUrl,hero_image_url:heroUrl,accent_color:accent,contact_email:contactEmail,order_instructions:instructions,published}),onSuccess:refresh});
-  const saveProducts=useMutation({mutationFn:()=>apiPost<Snapshot>("/api/v1/storefronts/products",{products:listings.filter(row=>row.selected).map(({selected,...row})=>({...row,active:true}))}),onSuccess:refresh});
+  const saveProducts=useMutation({mutationFn:()=>apiPost<Snapshot>("/api/v1/storefronts/products",{products:listings.filter(row=>row.selected).map(({selected: _selected,...row})=>({...row,active:true}))}),onSuccess:refresh});
   const approve=useMutation({mutationFn:(id:string)=>apiPost(`/api/v1/storefronts/orders/${id}/approve`,{note:"Approved from DoobieCommerce inbox."}),onSuccess:refresh});
   const reject=useMutation({mutationFn:(id:string)=>apiPost(`/api/v1/storefronts/orders/${id}/reject`,{note:"Rejected from DoobieCommerce inbox."}),onSuccess:refresh});
   const issue=useMutation({mutationFn:()=>apiPost<{id:string;token:string;expires_at:string;warning:string}>("/api/v1/control-tower/commerce/access",{partner_id:partnerId,expires_days:Number(days)})});
