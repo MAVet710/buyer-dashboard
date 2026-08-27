@@ -148,5 +148,18 @@ export async function apiDownload(path: string, body?: unknown): Promise<Blob> {
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+  // Safari/iOS may defer navigation after anchor.click(). Revoking the object
+  // URL synchronously races that navigation and can make report buttons appear
+  // to do nothing. Keep the URL alive long enough for the browser to consume it.
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  window.setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 60_000);
 }
