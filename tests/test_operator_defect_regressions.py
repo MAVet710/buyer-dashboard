@@ -54,11 +54,12 @@ def test_purchasing_condition_kpis_drive_inventory_status_views():
     assert "onInventoryCondition" in overview
 
 
-def test_extraction_inventory_falls_back_to_production_inventory():
+def test_extraction_inventory_uses_eligible_projection_with_full_inventory_escape_hatch():
     source = (ROOT / "frontend" / "src" / "pages" / "ExtractionUnifiedPage.tsx").read_text(encoding="utf-8")
-    assert "/api/v1/extraction/lots" in source
-    assert "/api/v1/inventory/production/packages?view=all" in source
-    assert "fallbackLots" in source
+    assert "/api/v1/extraction-inventory/lots" in source
+    assert "/api/v1/inventory/production/packages?view=all" not in source
+    assert "fallbackLots" not in source
+    assert "View all Production Inventory" in source
     assert "METRC / external package" in source
 
 
