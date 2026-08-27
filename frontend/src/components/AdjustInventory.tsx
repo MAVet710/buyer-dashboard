@@ -99,8 +99,8 @@ export function AdjustInventory({ operation, item, onClose }: { operation: "reta
       </div>
     </fieldset>
 
-    <label>{adjustmentType === "incremental" ? "Change (+ / -) *" : "New physical quantity *"}<input type="number" min={adjustmentType === "set_quantity" ? 0 : undefined} step="0.1" value={quantity} onChange={event => { setQuantity(Number(event.target.value)); setReviewed(false); }}/></label>
-    <p className="source-caption">Final physical quantity: {trimQuantity(final)} {item.unit}</p>
+    <label>{adjustmentType === "incremental" ? "Change (+ / -) *" : "New quantity *"}<input type="number" min={adjustmentType === "set_quantity" ? 0 : undefined} step="0.1" value={quantity} onChange={event => { setQuantity(Number(event.target.value)); setReviewed(false); }}/></label>
+    <p className="source-caption">Set Quantity changes the physical package quantity. Final physical quantity: {trimQuantity(final)} {item.unit}</p>
 
     <label>Reason *<select value={reason} onChange={event => { setReason(event.target.value); setReviewed(false); }}>{reasons.data?.reasons.map(row => <option value={row.name} key={row.name}>{row.name}</option>)}</select></label>
     <label>{noteRequired ? "Reason note *" : "Reason note"}<textarea value={reasonNote} onChange={event => { setReasonNote(event.target.value); setReviewed(false); }}/></label>
@@ -114,7 +114,7 @@ export function AdjustInventory({ operation, item, onClose }: { operation: "reta
 
     {invalidFinal ? <div className="form-error">Final physical quantity cannot be negative or below {trimQuantity(item.reserved)} currently committed or reserved.</div> : null}
     {noteRequired && !reasonNote.trim() ? <div className="form-error">This adjustment reason requires a note.</div> : null}
-    <label className="toggle"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)}/>I reviewed the package, final physical quantity, active commitments, and adjustment reason.</label>
+    <label className="toggle"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)}/>I reviewed the package, final quantity, and adjustment reason.</label>
     {mutation.isError ? <div className="form-error">{mutation.error.message}</div> : null}
     {mutation.data ? <div className="success-banner">Adjusted {item.package_id} by {signed(mutation.data.delta)} {mutation.data.unit} · final {trimQuantity(mutation.data.final_quantity)}. {mutation.data.metrc_status === "synced" ? "Metrc accepted and the local ledger is verified." : ""}</div> : null}
     <button className="primary submit" type="button" disabled={!canSubmit || mutation.isPending || reasons.isLoading || reasons.isError} onClick={() => mutation.mutate()}>{mutation.isPending ? "Adjusting inventory…" : "Adjust inventory"}</button>
