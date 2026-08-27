@@ -63,6 +63,7 @@ from .routers.executive_reports import router as executive_reports_router
 from .routers.coman_parity import router as coman_parity_router
 from .routers.analytics import router as analytics_router
 from .routers.control_tower import router as control_tower_router, public_router as commerce_portal_router
+from .routers.storefronts import router as storefront_router, public_router as public_storefront_router
 from .routers.external_api import router as external_api_router
 from .database import get_engine
 from .observability import install_observability
@@ -190,6 +191,9 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
         "accounting_sync_links",
         "printer_profiles",
         "label_print_jobs",
+        "commerce_storefronts",
+        "commerce_storefront_products",
+        "commerce_storefront_order_requests",
     }
     missing = required - tables
     revision_current = revision == EXPECTED_SCHEMA_REVISION or (settings.is_development and revision is None)
@@ -239,6 +243,8 @@ app.include_router(legal_router, prefix=settings.api_prefix)
 app.include_router(legacy_webhooks_router, prefix=settings.api_prefix)
 app.include_router(control_tower_router, prefix=settings.api_prefix)
 app.include_router(commerce_portal_router, prefix=settings.api_prefix)
+app.include_router(storefront_router, prefix=settings.api_prefix)
+app.include_router(public_storefront_router, prefix=settings.api_prefix)
 app.include_router(external_api_router, prefix=settings.api_prefix)
 app.include_router(printing_external_router, prefix=settings.api_prefix)
 app.include_router(admin_user_create_router, prefix=settings.api_prefix)
