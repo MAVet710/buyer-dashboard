@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from modules.coman.models import InventoryLot, Product
+from modules.commercial.repository import CommercialRepository
 from modules.inventory_availability.service import InventoryAvailabilityService
 
 from .service import CommerceStorefrontService
@@ -144,3 +145,20 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
             })
             row["available"] += float(lot["usable"])
         return sorted(by_product.values(), key=lambda row: (row["name"].casefold(), row["sku"].casefold()))
+
+    def approve_order_request(self, *, organization_id: str, facility_id: str, request_id: str, actor: str, review_note: str = "") -> dict[str, Any]:
+        result = super().approve_order_request(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            request_id=request_id,
+            actor=actor,
+            review_note=review_note,
+        )
+        order = CommercialRepository(self.engine).confirm_order(
+            result["order_id"],
+            organization_id=organization_id,
+            facility_id=facility_id,
+            actor=actor,
+        )
+        result["order_status"] = order.status
+        return result
