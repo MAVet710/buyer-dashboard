@@ -19,6 +19,7 @@ from services.ai.providers import GeminiProvider, LocalOpenAIProvider, OpenAIPro
 
 from ..auth import RequestContext
 from ..config import Settings
+from .ai_dataset_extensions import register_governed_agent_datasets
 from .ai_datasets import build_dataset_registry, facility_access
 
 
@@ -132,6 +133,7 @@ def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext
     store = KnowledgeStore(engine)
     retriever = KnowledgeRetriever(store, embeddings)
     registry = build_dataset_registry(context, engine, operation_type=operation_type)
+    register_governed_agent_datasets(registry, context, engine)
     access, organization_name, facility_name = facility_access(context, engine, operation_type=operation_type)
     runtime = AgentRuntime(
         provider_router=router,
