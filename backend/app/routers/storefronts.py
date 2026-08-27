@@ -19,10 +19,14 @@ public_router = APIRouter(prefix="/commerce-storefronts", tags=["commerce-storef
 _STORE_ROLES = {"dev", "admin", "supervisor", "buyer"}
 
 
-def _authorize(context: RequestContext, engine: Engine) -> None:
+def _authorize_read(context: RequestContext, engine: Engine) -> None:
     require_facility_capability(context, engine, "commercial")
+
+
+def _authorize_manage(context: RequestContext, engine: Engine) -> None:
+    _authorize_read(context, engine)
     if context.role.casefold() not in _STORE_ROLES:
-        raise HTTPException(403, "Your role is not authorized to manage the hosted storefront.")
+        raise HTTPException(403, "Your role is not authorized to manage the hosted storefront or approve public orders.")
 
 
 class StorefrontPayload(BaseModel):
@@ -75,13 +79,13 @@ class ReviewPayload(BaseModel):
 
 @router.get("")
 def storefront_snapshot(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize(context, engine)
+    _authorize_read(context, engine)
     return CommerceStorefrontService(engine).admin_snapshot(context.organization_id, context.facility_id)
 
 
 @router.post("")
 def save_storefront(payload: StorefrontPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize(context, engine)
+    _authorize_manage(context, engine)
     try:
         row = CommerceStorefrontService(engine).upsert_storefront(
             organization_id=context.organization_id,
@@ -96,19 +100,19 @@ def save_storefront(payload: StorefrontPayload, context: RequestContext = Depend
 
 @router.get("/wholesale-inventory")
 def wholesale_inventory(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize(context, engine)
+    _authorize_read(context, engine)
     return CommerceStorefrontService(engine).wholesale_inventory(context.organization_id, context.facility_id)
 
 
 @router.get("/catalog-options")
 def catalog_options(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize(context, engine)
+    _authorize_read(context, engine)
     return CommerceStorefrontService(engine).list_catalog_options(context.organization_id, context.facility_id)
 
 
 @router.post("/products")
 def save_storefront_products(payload: StorefrontProductsPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize(context, engine)
+    _authorize_manage(context, engine)
     try:
         service = CommerceStorefrontService(engine)
         service.set_products(
@@ -124,7 +128,7 @@ def save_storefront_products(payload: StorefrontProductsPayload, context: Reques
 
 @router.post("/orders/{request_id}/approve")
 def approve_storefront_order(request_id: str, payload: ReviewPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize(context, engine)
+    _authorize_manage(context, engine)
     try:
         return CommerceStorefrontService(engine).approve_order_request(
             organization_id=context.organization_id,
@@ -139,7 +143,7 @@ def approve_storefront_order(request_id: str, payload: ReviewPayload, context: R
 
 @router.post("/orders/{request_id}/reject")
 def reject_storefront_order(request_id: str, payload: ReviewPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize(context, engine)
+    _authorize_manage(context, engine)
     try:
         return CommerceStorefrontService(engine).reject_order_request(
             organization_id=context.organization_id,
