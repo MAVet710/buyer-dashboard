@@ -1,10 +1,16 @@
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { Maximize2, Minimize2, Minus, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type PropsWithChildren, type ReactNode } from "react";
 import "./workspace-window.css";
 
 type Position = { left: number; top: number };
 type DragState = Position & { pointerId: number; width: number; height: number; startX: number; startY: number };
+
+let workspaceWindowZIndex = 90;
+function nextWorkspaceWindowZIndex() {
+  workspaceWindowZIndex += 1;
+  return workspaceWindowZIndex;
+}
 
 type Props = PropsWithChildren<{
   open: boolean;
@@ -20,16 +26,22 @@ type Props = PropsWithChildren<{
 
 export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClose, ariaLabel, windowKey = "workspace", className = "", children }: Props) {
   const [maximized, setMaximized] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [position, setPosition] = useState<Position | null>(null);
+  const [zIndex, setZIndex] = useState(() => nextWorkspaceWindowZIndex());
   const windowRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
+
+  const bringToFront = () => setZIndex(nextWorkspaceWindowZIndex());
 
   useEffect(() => {
     if (!open) {
       setMaximized(false);
+      setMinimized(false);
       setPosition(null);
       return;
     }
+    bringToFront();
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
@@ -40,7 +52,11 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
   useEffect(() => {
     if (!open) return;
     const clamp = () => {
-      if (!position || maximized || window.innerWidth <= 720) return;
+      if (window.innerWidth <= 720) {
+        if (minimized) setMinimized(false);
+        return;
+      }
+      if (!position || maximized) return;
       const rect = windowRef.current?.getBoundingClientRect();
       if (!rect) return;
       const margin = 12;
@@ -51,9 +67,10 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
     };
     window.addEventListener("resize", clamp);
     return () => window.removeEventListener("resize", clamp);
-  }, [maximized, open, position]);
+  }, [maximized, minimized, open, position]);
 
   const beginDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    bringToFront();
     if (maximized || event.button !== 0 || window.innerWidth <= 720 || (event.target as HTMLElement).closest("button,a,input,select,textarea")) return;
     const rect = windowRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -87,19 +104,34 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
+  const toggleMaximized = () => {
+    setMinimized(false);
+    setMaximized(value => !value);
+  };
+  const toggleMinimized = () => {
+    setMaximized(false);
+    setMinimized(value => !value);
+  };
+
   if (!open || typeof document === "undefined") return null;
-  const style = position && !maximized ? ({ "--workspace-window-left": `${position.left}px`, "--workspace-window-top": `${position.top}px` } as CSSProperties) : undefined;
+  const style = {
+    ...(position && !maximized ? { "--workspace-window-left": `${position.left}px`, "--workspace-window-top": `${position.top}px` } : {}),
+    zIndex,
+  } as CSSProperties;
   const label = ariaLabel ?? (typeof title === "string" ? title : "DoobieLogic contextual workspace");
 
   return createPortal(
     <aside
       ref={windowRef}
       style={style}
-      className={`workspace-window open ${maximized ? "maximized" : ""} ${position && !maximized ? "has-custom-position" : ""} ${className}`.trim()}
+      className={`workspace-window open ${maximized ? "maximized" : ""} ${minimized ? "minimized" : ""} ${position && !maximized ? "has-custom-position" : ""} ${className}`.trim()}
       role="dialog"
       aria-modal="false"
       aria-label={label}
+      aria-expanded={!minimized}
       data-window-key={windowKey}
+      onPointerDownCapture={bringToFront}
+      onFocusCapture={bringToFront}
     >
       <div
         className="workspace-window-header"
@@ -107,7 +139,14 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
         onPointerMove={drag}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        onDoubleClick={event => { if (!(event.target as HTMLElement).closest("button") && window.innerWidth > 720) setMaximized(value => !value); }}
+        onDoubleClick={event => {
+          if ((event.target as HTMLElement).closest("button") || window.innerWidth <= 720) return;
+          if (minimized) {
+            setMinimized(false);
+            return;
+          }
+          toggleMaximized();
+        }}
       >
         <div className="workspace-window-heading">
           {eyebrow ? <div className="eyebrow">{eyebrow}</div> : null}
@@ -115,10 +154,13 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
           {subtitle ? <p>{subtitle}</p> : null}
         </div>
         <div className="workspace-window-actions">
-          <button className="icon-button workspace-window-maximize" type="button" aria-label={maximized ? "Restore window" : "Maximize window"} title={maximized ? "Restore" : "Maximize"} onClick={() => setMaximized(value => !value)}>
-            {maximized ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
+          <button className="icon-button workspace-window-minimize" type="button" aria-label={minimized ? "Restore window" : "Minimize window"} title={minimized ? "Restore" : "Minimize"} onClick={toggleMinimized}>
+            <Minus size={19}/>
           </button>
-          <button className="icon-button" type="button" aria-label="Close window" onClick={onClose}><X size={19}/></button>
+          {!minimized ? <button className="icon-button workspace-window-maximize" type="button" aria-label={maximized ? "Restore window" : "Maximize window"} title={maximized ? "Restore" : "Maximize"} onClick={toggleMaximized}>
+            {maximized ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
+          </button> : null}
+          <button className="icon-button workspace-window-close" type="button" aria-label="Close window" title="Close" onClick={onClose}><X size={20}/></button>
         </div>
       </div>
       <div className="workspace-window-body">{children}</div>
