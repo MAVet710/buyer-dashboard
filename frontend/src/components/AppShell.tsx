@@ -60,6 +60,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     ];
     if (category === "Production") return [
       { label: "Today / Production", page: "Production" },
+      { label: "Calendar", page: "Production Calendar" },
       { label: "Production Run 360", page: "Production Run 360" },
       { label: "Extraction", page: "Extraction" },
       { label: "White Label / Repack", page: "White Label / Repack" },
@@ -128,7 +129,7 @@ function categoryForPage(page: string, operation: OperationMode): PrimaryCategor
   if (["Home", "Operations Control Tower", "Enterprise Control Tower"].includes(page)) return "Home";
   if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing", "Replenishment Policies"].includes(page)) return "Buying";
   if (["Orders", "Warehouse Pick Pack"].includes(page)) return operation === "Production Ops" ? "Production" : "Inventory";
-  if (["Production", "Production Run 360", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
+  if (["Production", "Production Calendar", "Production Run 360", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
   if (["Compliance", "Compliance Q&A", "Traceability Actions", "Product Name Mapper", "Nomenclature Mapper", "Label Studio", "MA Flower Equivalency"].includes(page)) return "Compliance";
   if (["Sales & Category Trends", "Reports", "Executive Reports"].includes(page)) return "Reports";
   if (["Location Settings", "Data & Settings", "Admin", "Admin Tools", "Integrations", "AI & METRC Integrations", "METRC Integrations"].includes(page)) return "Settings";
