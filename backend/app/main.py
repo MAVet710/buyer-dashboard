@@ -74,6 +74,14 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 settings.validate_production()
 
+# Public hosted storefronts are served from customer-specific first-level
+# DoobieLogic subdomains. Keep the normal explicit origin allowlist for the
+# authenticated operations app, and allow only HTTPS origins that are actually
+# under doobielogic.io for the hosted storefront browser runtime. CORS remains
+# a browser boundary rather than an authorization mechanism; protected API
+# routes still require their existing tenant/auth dependencies.
+DOOBIELOGIC_SUBDOMAIN_ORIGIN_REGEX = r"^https://[a-z0-9-]+\.doobielogic\.io$"
+
 
 def _expected_schema_revision() -> str:
     config = AlembicConfig(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
@@ -119,6 +127,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
+    allow_origin_regex=DOOBIELOGIC_SUBDOMAIN_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
