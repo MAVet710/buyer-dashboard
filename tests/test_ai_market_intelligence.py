@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import json
 
+import pandas as pd
+import pytest
+
 from services.agent_registry import PROFILES
-from services.ai.datasets import DatasetAccessContext, DatasetRegistry
+from services.ai.datasets import DatasetAccessContext, DatasetRegistry, DatasetSpec
 from services.ai.provider import ProviderHealth
-from services.ai.retrieval.approved_sources import DEFAULT_MARKET_MANIFEST, load_approved_sources, validate_manifest
+from services.ai.retrieval.approved_sources import (
+    DEFAULT_MARKET_MANIFEST,
+    _source_allowed_domains,
+    load_approved_sources,
+    validate_manifest,
+    validate_source_url,
+)
 from services.ai.retrieval.ingestion import extract_sections
 from services.ai.router import ProviderRouter
 from services.ai.runtime import AgentRuntime
@@ -75,6 +84,29 @@ def _access() -> DatasetAccessContext:
     return DatasetAccessContext("org-a", "fac-a", "user-a", "buyer", frozenset({"retail"}))
 
 
+def _buyer_registry() -> DatasetRegistry:
+    registry = DatasetRegistry()
+    registry.register(DatasetSpec(
+        key="inventory",
+        domain="retail",
+        description="inventory",
+        loader=lambda _context: pd.DataFrame([{"Product Name": "A", "On Hand": 2, "Cost": 10, "Retail Price": 20}]),
+        allowed_agents=("buyer",),
+        required_capabilities=("retail",),
+        allow_business_columns=True,
+    ))
+    registry.register(DatasetSpec(
+        key="sales",
+        domain="retail",
+        description="sales",
+        loader=lambda _context: pd.DataFrame([{"Product Name": "A", "Units Sold": 30}]),
+        allowed_agents=("buyer",),
+        required_capabilities=("retail",),
+        allow_business_columns=True,
+    ))
+    return registry
+
+
 def test_public_market_manifest_is_merged_into_default_catalog():
     payload, allowed, sources = load_approved_sources()
     keys = {str(source["key"]) for source in sources}
@@ -88,6 +120,18 @@ def test_public_market_manifest_is_merged_into_default_catalog():
     assert "bdsa_2026_top_vape_brands" in keys
     assert "cannabis_benchmarks_us_spot_archive" in keys
     assert payload["reviewed_at"] >= "2026-08-26"
+
+
+def test_regulatory_sources_keep_their_original_redirect_domain_boundary():
+    _payload, combined_allowed, sources = load_approved_sources()
+    regulatory = next(source for source in sources if int(source.get("authority_level") or 99) == 1)
+    source_domains = _source_allowed_domains(regulatory, combined_allowed)
+
+    assert "masscannabiscontrol.com" in source_domains
+    assert "www.headset.io" not in source_domains
+    assert "bdsa.com" not in source_domains
+    with pytest.raises(ValueError):
+        validate_source_url("https://www.headset.io/markets/massachusetts", source_domains)
 
 
 def test_approved_source_manifest_accepts_public_json_and_csv_formats():
@@ -153,6 +197,30 @@ def test_buyer_agent_retrieves_market_intelligence_as_secondary_knowledge():
     assert result.sources[0]["source"] == "Headset"
     serialized_request = json.dumps(provider.last_request.messages)
     assert "retail_market_intelligence" in serialized_request
+    assert "Headset" in serialized_request
+
+
+def test_deterministic_reorder_fact_is_combined_with_retrieved_market_context():
+    provider = FakeProvider()
+    retriever = FakeMarketRetriever()
+    runtime = AgentRuntime(
+        provider_router=ProviderRouter({"local": provider}, order=["local"]),
+        dataset_registry=_buyer_registry(),
+        retriever=retriever,
+    )
+
+    result = runtime.run(
+        profile=PROFILES["buyer"],
+        access=_access(),
+        question="What should I order based on Massachusetts market trends?",
+    )
+
+    assert result.provider == "local"
+    assert result.grounding == "mixed"
+    assert "inventory_reorder_candidates" in result.tool_calls
+    assert provider.calls == 1
+    serialized_request = json.dumps(provider.last_request.messages)
+    assert "inventory_reorder_candidates" in serialized_request
     assert "Headset" in serialized_request
 
 
