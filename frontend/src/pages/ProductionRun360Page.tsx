@@ -11,12 +11,14 @@ type Detail={order:{id:string;order_number:string;product_name:string;sku:string
 type Product={id:string;sku:string;name:string;item_type:string;base_unit:string};
 type ProductionWorkspace={products:Product[]};
 
-export function ProductionRun360Page({onNavigate}:{onNavigate:(page:string)=>void}){
+export function ProductionRun360Page({onNavigate,initialOrderId=""}:{onNavigate:(page:string)=>void;initialOrderId?:string}){
   const client=useQueryClient();
   const queue=useQuery({queryKey:["production-run-queue"],queryFn:({signal})=>apiGet<QueueRow[]>("/api/v1/production/orders",signal)});
   const workspace=useQuery({queryKey:["coman-parity"],queryFn:({signal})=>apiGet<ProductionWorkspace>("/api/v1/coman-parity/workspace",signal)});
-  const [selected,setSelected]=useState("");
-  const orderId=selected||queue.data?.[0]?.order_id||"";
+  const [selected,setSelected]=useState(initialOrderId);
+  useEffect(()=>{if(initialOrderId)setSelected(initialOrderId)},[initialOrderId]);
+  const selectedExists=!selected||!queue.data?.length||queue.data.some(row=>row.order_id===selected);
+  const orderId=(selected&&selectedExists?selected:"")||queue.data?.[0]?.order_id||"";
   const detail=useQuery({queryKey:["production-run-360",orderId],enabled:Boolean(orderId),queryFn:({signal})=>apiGet<Detail>(`/api/v1/production/orders/${orderId}`,signal)});
   useEffect(()=>{if(queue.data?.length&&selected&&!queue.data.some(row=>row.order_id===selected))setSelected("")},[queue.data,selected]);
   const refresh=async()=>Promise.all([client.invalidateQueries({queryKey:["production-run-queue"]}),client.invalidateQueries({queryKey:["production-run-360",orderId]}),client.invalidateQueries({queryKey:["coman-parity"]})]);
