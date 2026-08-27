@@ -28,13 +28,17 @@ def test_workspace_routes_cover_daily_jobs_and_manufacturing_distribution():
         "/inventory/audits",
         "/production",
         "/production/extraction",
-        "/production/orders",
-        "/production/fulfillment",
+        "/wholesale",
+        "/wholesale/orders",
+        "/wholesale/fulfillment",
         "/compliance",
         "/reports",
         "/settings/data",
     ):
         assert f'path: "{path}"' in routes
+
+    assert 'aliases: ["/production/orders"]' in routes
+    assert 'aliases: ["/production/fulfillment"]' in routes
 
     for kind in ("product", "package", "production-run", "compliance-issue"):
         assert f'kind: "{kind}"' in routes
