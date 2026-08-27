@@ -51,6 +51,18 @@ def test_app_preserves_legacy_pending_page_while_browser_history_becomes_authori
     assert 'sessionStorage.removeItem("buyer-dash-pending-page")' in app
 
 
+def test_one_authoritative_operation_context_owns_inventory_mode():
+    shell = read("frontend/src/components/AppShell.tsx")
+    inventory = read("frontend/src/pages/InventoryPage.tsx")
+
+    assert shell.count('aria-label="Operation"') == 1
+    assert 'aria-label="Inventory operation"' not in inventory
+    assert 'const operation:Operation=initialOperation' in inventory
+    assert 'const [operation,setOperation]' not in inventory
+    assert 'onNavigate?.("Inventory")' in inventory
+    assert 'onNavigate?.("Production Inventory")' in inventory
+
+
 def test_360_context_is_a_non_modal_workspace_window_not_a_blocking_page_requirement():
     window = read("frontend/src/components/WorkspaceWindow.tsx")
     product = read("frontend/src/components/Product360Drawer.tsx")
