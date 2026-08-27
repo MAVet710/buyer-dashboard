@@ -82,6 +82,9 @@ def test_360_context_is_a_non_modal_workspace_window_not_a_blocking_page_require
     assert "workspace-window-close" in window
     assert "onPointerDown={beginDrag}" in window
     assert "onPointerDownCapture={bringToFront}" in window
+    assert "workspaceWindowRegistry" in window
+    assert "topWorkspaceWindowKey() === windowKey" in window
+    assert "workspaceWindowRegistry.delete(windowKey)" in window
     assert ".workspace-window.minimized" in window_css
     assert "backdrop-filter:blur(24px)" not in window_css
     assert "-webkit-backdrop-filter:blur(24px)" not in window_css
