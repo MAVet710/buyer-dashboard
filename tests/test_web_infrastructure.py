@@ -117,13 +117,13 @@ def test_fresh_database_migrates_to_head_and_latest_revision_rolls_back(tmp_path
     command.upgrade(config, "head")
     engine = create_engine(database_url, future=True)
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0047_prod_schedule"
+        assert MigrationContext.configure(connection).get_current_revision() == "0048_commerce_storefronts"
 
     command.downgrade(config, "-1")
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0046_production_bom_standards"
+        assert MigrationContext.configure(connection).get_current_revision() == "0047_prod_schedule"
 
     command.upgrade(config, "head")
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0047_prod_schedule"
+        assert MigrationContext.configure(connection).get_current_revision() == "0048_commerce_storefronts"
     engine.dispose()
