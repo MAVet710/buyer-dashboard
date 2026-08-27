@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+from sqlalchemy import func, select
+
 from . import repository as _repository_module
 from .db import create_coman_engine, resolve_database_url
 from .models import AuditEvent, InventoryLot, MaterialReservation, ProductionOrder
@@ -59,8 +61,22 @@ class ComanRepository(_BaseComanRepository):
         if delta < 0:
             with self._session_factory() as session:
                 snapshot = InventoryAvailabilityService.build(session, organization_id, facility_id)
-                available = max(0.0, float(snapshot["by_lot"].get(lot_id, {}).get("available", 0.0) or 0.0))
-            if -delta > available + 1e-9:
+                row = snapshot["by_lot"].get(lot_id, {})
+                on_hand = max(0.0, float(row.get("on_hand", 0.0) or 0.0))
+                allowed = max(0.0, float(row.get("available", 0.0) or 0.0))
+                if transaction_type == "production_consume" and production_order_id:
+                    own_reserved = float(session.scalar(select(func.coalesce(func.sum(MaterialReservation.quantity), 0.0)).where(
+                        MaterialReservation.organization_id == organization_id,
+                        MaterialReservation.facility_id == facility_id,
+                        MaterialReservation.production_order_id == production_order_id,
+                        MaterialReservation.lot_id == lot_id,
+                        MaterialReservation.status == "reserved",
+                    )) or 0.0)
+                    allowed += max(0.0, own_reserved)
+            # Preserve the legacy physical-negative error by letting the base repository
+            # handle movements larger than physical on-hand. Only block quantities that
+            # physically exist but are promised elsewhere in the organization.
+            if -delta <= on_hand + 1e-9 and -delta > allowed + 1e-9:
                 raise ValueError("Inventory movement exceeds quantity available after organization-wide commitments.")
         return super().post_inventory_transaction(
             organization_id,
