@@ -68,6 +68,7 @@ def test_one_authoritative_operation_context_owns_inventory_mode():
 
 def test_360_context_is_a_non_modal_workspace_window_not_a_blocking_page_requirement():
     window = read("frontend/src/components/WorkspaceWindow.tsx")
+    window_css = read("frontend/src/components/workspace-window.css")
     product = read("frontend/src/components/Product360Drawer.tsx")
     package = read("frontend/src/components/Package360Window.tsx")
     inventory = read("frontend/src/pages/InventoryPage.tsx")
@@ -77,7 +78,14 @@ def test_360_context_is_a_non_modal_workspace_window_not_a_blocking_page_require
     assert 'aria-modal="false"' in window
     assert "Maximize2" in window
     assert "Minimize2" in window
+    assert "workspace-window-minimize" in window
+    assert "workspace-window-close" in window
     assert "onPointerDown={beginDrag}" in window
+    assert "onPointerDownCapture={bringToFront}" in window
+    assert ".workspace-window.minimized" in window_css
+    assert "backdrop-filter:blur(24px)" not in window_css
+    assert "-webkit-backdrop-filter:blur(24px)" not in window_css
+    assert "min-width:44px;min-height:44px" in window_css
     assert "<WorkspaceWindow" in product
     assert "<WorkspaceWindow" in package
     assert "<Package360Window" in product
@@ -99,13 +107,23 @@ def test_product_360_can_open_package_360_without_destroying_parent_workspace():
     assert ">Package 360</button>" in product
 
 
-def test_doobie_agent_is_non_blocking_so_agent_and_360_can_coexist():
+def test_doobie_agent_uses_the_same_non_blocking_window_contract_as_360():
     agent = read("frontend/src/components/WorkspaceAgent.tsx")
+    agent_css = read("frontend/src/components/workspace-agent.css")
+    window = read("frontend/src/components/WorkspaceWindow.tsx")
 
-    assert 'aria-modal="false"' in agent
+    assert 'import { WorkspaceWindow } from "./WorkspaceWindow"' in agent
+    assert "<WorkspaceWindow" in agent
+    assert 'className="workspace-agent-window"' in agent
+    assert 'aria-modal="false"' in window
     assert "workspace-agent-backdrop" not in agent
-    assert "Maximize2" in agent
-    assert "Minimize2" in agent
+    assert "workspace-agent-backdrop" not in agent_css
+    assert "createPortal" not in agent
+    assert "Maximize2" not in agent
+    assert "Minimize2" not in agent
+    assert "workspace-window-close" in window
+    assert "workspace-window-minimize" in window
+    assert 'onClick={() => onNavigate("Integrations")}' in agent
 
 
 def test_distribution_and_wholesale_are_embedded_in_production_not_new_primary_silo():
