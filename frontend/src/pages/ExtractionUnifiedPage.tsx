@@ -3,16 +3,20 @@ import { useState } from "react";
 import { WorkspaceWindow } from "../components/WorkspaceWindow";
 import { apiGet } from "../lib/api";
 import type { InventoryResponse } from "../types/inventory";
+import { ExtractionAnalyticsWorkspace } from "./ExtractionAnalyticsWorkspace";
 import { ExtractionCommandCenterPage } from "./ExtractionCommandCenterPage";
 import { ExtractionOperatorWorkspace } from "./ExtractionOperatorWorkspace";
 import { ExtractionPage } from "./ExtractionPage";
 
 type View = "today" | "runs" | "inventory" | "analytics";
+type AdvancedView = "run" | "management";
 type Lot = { lot_id:string; product_name:string; lot_code:string; compliance_package_id:string; available:number; unit:string; location?:string; status?:string };
 
 export function ExtractionUnifiedPage({onNavigate}:{onNavigate:(page:string)=>void}) {
   const [view,setView]=useState<View>("today");
   const [advancedOpen,setAdvancedOpen]=useState(false);
+  const [advancedView,setAdvancedView]=useState<AdvancedView>("run");
+  const openAdvanced=()=>{setAdvancedView("run");setAdvancedOpen(true)};
   const lots=useQuery({queryKey:["extraction-unified-lots"],queryFn:({signal})=>apiGet<Lot[]>("/api/v1/extraction/lots",signal),enabled:view==="inventory"});
   const productionInventory=useQuery({queryKey:["extraction-production-inventory-fallback"],queryFn:({signal})=>apiGet<InventoryResponse>("/api/v1/inventory/production/packages?view=all",signal),enabled:view==="inventory"});
 
@@ -26,7 +30,7 @@ export function ExtractionUnifiedPage({onNavigate}:{onNavigate:(page:string)=>vo
   return <div className="page extraction-unified">
     <div className="page-heading">
       <div><div className="eyebrow">Production Ops · Extraction</div><h1>Extraction</h1><p>Run today’s work, update the current process inline and let DoobieLogic calculate what it can. Deep QA, COGS, traceability, toll processing and full run history stay available as context instead of crowding the floor.</p></div>
-      <button className="secondary" type="button" onClick={()=>setAdvancedOpen(true)}>Advanced Run 360</button>
+      <button className="secondary" type="button" onClick={openAdvanced}>Advanced Run 360</button>
     </div>
     <div className="view-tabs parity-tabs">
       <button className={view==="today"?"active":""} onClick={()=>setView("today")}>Today</button>
@@ -35,9 +39,9 @@ export function ExtractionUnifiedPage({onNavigate}:{onNavigate:(page:string)=>vo
       <button className={view==="analytics"?"active":""} onClick={()=>setView("analytics")}>Analytics</button>
     </div>
 
-    {view==="today"?<ExtractionOperatorWorkspace mode="today" onOpenAdvanced={()=>setAdvancedOpen(true)}/>:null}
-    {view==="runs"?<ExtractionOperatorWorkspace mode="runs" onOpenAdvanced={()=>setAdvancedOpen(true)}/>:null}
-    {view==="analytics"?<div className="embedded-workspace"><ExtractionCommandCenterPage onNavigate={onNavigate}/></div>:null}
+    {view==="today"?<ExtractionOperatorWorkspace mode="today" onOpenAdvanced={openAdvanced}/>:null}
+    {view==="runs"?<ExtractionOperatorWorkspace mode="runs" onOpenAdvanced={openAdvanced}/>:null}
+    {view==="analytics"?<ExtractionAnalyticsWorkspace/>:null}
     {view==="inventory"?<section className="inventory-panel">
       <div className="section-heading"><div><div className="eyebrow">Extraction Inventory</div><h2>Available input lots</h2><p>Reservation-aware facility material ready for extraction. DoobieLogic falls back to Production Inventory if the dedicated extraction feed is unavailable.</p></div></div>
       {inventoryLoading?<div className="state">Loading extraction inventory…</div>:null}
@@ -47,8 +51,9 @@ export function ExtractionUnifiedPage({onNavigate}:{onNavigate:(page:string)=>vo
       <div className="table-wrap"><table><thead><tr><th>Material</th><th>Lot</th><th>METRC / external package</th><th>Location</th><th>Available</th></tr></thead><tbody>{inventoryRows.map(row=><tr key={row.lot_id}><td><strong>{row.product_name}</strong></td><td>{row.lot_code}</td><td>{row.compliance_package_id||"—"}</td><td>{row.location||"—"}</td><td>{Number(row.available||0).toLocaleString(undefined,{maximumFractionDigits:2})} {row.unit}</td></tr>)}</tbody></table>{!inventoryLoading&&!inventoryRows.length?<div className="empty">No available extraction input lots in this facility.</div>:null}</div>
     </section>:null}
 
-    <WorkspaceWindow open={advancedOpen} onClose={()=>setAdvancedOpen(false)} eyebrow="EXTRACTION · RUN 360" title="Advanced Run 360" subtitle="QA, outputs, COGS, traceability and durable run history without leaving Extraction." ariaLabel="Advanced Extraction Run 360" windowKey="extraction-run-360">
-      <ExtractionPage onNavigate={onNavigate}/>
+    <WorkspaceWindow open={advancedOpen} onClose={()=>setAdvancedOpen(false)} eyebrow="EXTRACTION · CONTEXT" title="Extraction Run 360" subtitle="Deep run controls stay open over the floor instead of replacing it." ariaLabel="Advanced Extraction Run 360" windowKey="extraction-run-360">
+      <div className="view-tabs parity-tabs"><button className={advancedView==="run"?"active":""} onClick={()=>setAdvancedView("run")}>Run 360</button><button className={advancedView==="management"?"active":""} onClick={()=>setAdvancedView("management")}>Management & Compliance</button></div>
+      {advancedView==="run"?<ExtractionPage onNavigate={onNavigate}/>:<ExtractionCommandCenterPage onNavigate={onNavigate}/>} 
     </WorkspaceWindow>
   </div>;
 }
