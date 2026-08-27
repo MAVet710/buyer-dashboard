@@ -140,6 +140,12 @@ jobs:
           test -n "$base"
           test -n "$model"
 
+          secret_backed_auth="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_ACCESS_CLIENT_ID" or .name == "LOCAL_LLM_ACCESS_CLIENT_SECRET" or .name == "LOCAL_LLM_API_KEY") | select(.valueFrom.secretKeyRef.name != null)] | length' /tmp/restored-ai-revision.json)"
+          if [ "$secret_backed_auth" -gt 0 ]; then
+            echo "Recovered Local AI auth is backed by Secret Manager references; preserving refs without reading secret values in CI."
+            exit 0
+          fi
+
           client_id="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_ACCESS_CLIENT_ID") | .value][0] // ""' /tmp/restored-ai-revision.json)"
           client_secret="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_ACCESS_CLIENT_SECRET") | .value][0] // ""' /tmp/restored-ai-revision.json)"
           api_key="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_API_KEY") | .value][0] // ""' /tmp/restored-ai-revision.json)"
