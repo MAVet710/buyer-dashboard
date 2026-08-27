@@ -1,13 +1,13 @@
 """Add versioned production schedule placements.
 
-Revision ID: 0047_production_schedule_placements
+Revision ID: 0047_prod_schedule
 Revises: 0046_production_bom_standards
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0047_production_schedule_placements"
+revision = "0047_prod_schedule"
 down_revision = "0046_production_bom_standards"
 branch_labels = None
 depends_on = None
