@@ -2,7 +2,7 @@ import { useMemo, useState, type CSSProperties } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiPublicGet, apiPublicPost } from "../lib/api";
 
- type Storefront = {
+type Storefront = {
   id: string;
   slug: string;
   subdomain: string;
@@ -109,7 +109,7 @@ export function StorefrontPage({ slug }: { slug: string }) {
                 <div className="storefront-product-copy"><small>{item.sku}</small><h3>{item.name}</h3><p>{item.available.toLocaleString()} {item.unit} available</p></div>
                 <div className="storefront-price"><strong>{money.format(item.price_usd)}</strong><span>per {item.unit}</span></div>
                 <label>Order quantity<input type="number" min="0" max={item.available} step={item.case_quantity} value={quantity} onChange={event => setQuantities(current => ({ ...current, [item.product_id]: Math.min(item.available, Math.max(0, Number(event.target.value) || 0)) }))}/></label>
-                <small className="storefront-order-rule">Minimum {item.minimum_quantity:g} · case multiple {item.case_quantity:g}</small>
+                <small className="storefront-order-rule">Minimum {item.minimum_quantity.toLocaleString()} · case multiple {item.case_quantity.toLocaleString()}</small>
               </article>;
             })}
           </div>}
