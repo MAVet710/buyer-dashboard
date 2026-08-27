@@ -16,14 +16,14 @@ def assert_markers(path: str, *markers: str) -> None:
     assert not missing, f"{path} is missing Streamlit parity markers: {missing}"
 
 
-def test_purchasing_category_opens_full_buyer_command_center():
+def test_buying_category_opens_full_buyer_command_center():
     app = source("frontend/src/App.tsx")
     shell = source("frontend/src/components/AppShell.tsx")
     assert 'page === "Buyer Operations" || page === "Purchasing"' in app
     assert '<BuyerCommandCenterPage onNavigate={setPage} />' in app
     assert 'page === "Replenishment Policies" ? <PurchasingPage />' in app
-    assert '{ label: "Overview", page: "Buyer Operations" }' in shell
-    assert '{ label: "Replenishment Policies", page: "Replenishment Policies" }' in shell
+    assert '{ label: "What Should I Order?", page: "Buyer Operations" }' in shell
+    assert '{ label: "Planning Settings", page: "Replenishment Policies" }' in shell
 
 
 def test_retail_inventory_exposes_product_360_catalog_and_audits():
@@ -333,10 +333,12 @@ def test_traceability_keeps_queue_reconciliation_attempts_lifecycle_and_payload_
 
 def test_classic_navigation_does_not_hide_major_workspaces():
     shell = source("frontend/src/components/AppShell.tsx")
-    for category in ("Inventory", "Purchasing", "Orders", "Reports", "Compliance"):
+    for category in ("Home", "Buying", "Inventory", "Reports", "Compliance"):
         assert f'secondaryItems("{category}", operation, role)' in shell
-    for category in ("Inventory", "Production", "Orders", "Compliance"):
+    for category in ("Home", "Inventory", "Production", "Reports", "Compliance"):
         assert f'secondaryItems("{category}", operation, role)' in shell
+    for capability in ("Orders & Fulfillment", "Warehouse Pick / Pack", "Extraction", "White Label / Repack"):
+        assert capability in shell
 
 
 def test_streamlit_admin_data_compliance_and_reports_destinations_are_reachable():
