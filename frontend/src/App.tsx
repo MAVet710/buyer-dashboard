@@ -116,7 +116,8 @@ export default function App() {
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
     : page === "Replenishment Policies" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
-    : page === "Production" ? <><ProductionPlanner onOpenRun={openProductionRun360}/><ProductionCalendar onOpenRun={openProductionRun360}/><ProductionNextActions onOpenRun={openProductionRun360}/><ProductionPage /></>
+    : page === "Production" ? <><ProductionPlanner onOpenRun={openProductionRun360}/><ProductionNextActions onOpenRun={openProductionRun360}/><ProductionPage /></>
+    : page === "Production Calendar" ? <ProductionCalendar onOpenRun={openProductionRun360}/>
     : page === "Production Run 360" ? <ProductionRun360Page onNavigate={navigate} initialOrderId={run360OrderId} />
     : page === "Extraction" ? <ExtractionUnifiedPage onNavigate={navigate} />
     : page === "White Label / Repack" ? <WhiteLabelRepackPage />
