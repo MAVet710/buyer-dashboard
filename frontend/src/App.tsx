@@ -68,16 +68,19 @@ export default function App() {
     }
     routerNavigate(pathForPage(nextPage));
   };
+  // Legacy page-name callers remain valid while BrowserRouter becomes the
+  // authoritative navigation layer. Remove this alias only after all parity
+  // consumers have migrated to canonical routes.
+  const setPage = navigate;
 
   useEffect(() => {
     const pending = sessionStorage.getItem("buyer-dash-pending-page");
-    if (!pending) return;
-    sessionStorage.removeItem("buyer-dash-pending-page");
-    const pendingPath = pathForPage(pending);
-    if (pendingPath !== location.pathname) routerNavigate(pendingPath, { replace: true });
-  }, [location.pathname, routerNavigate]);
-
-  useEffect(() => {
+    if (pending) {
+      sessionStorage.removeItem("buyer-dash-pending-page");
+      const pendingPath = pathForPage(pending);
+      if (pendingPath !== location.pathname) routerNavigate(pendingPath, { replace: true });
+      return;
+    }
     if (location.pathname === "/") routerNavigate("/home", { replace: true });
   }, [location.pathname, routerNavigate]);
 
@@ -88,7 +91,7 @@ export default function App() {
   }, [client]);
 
   const content = page === "Home" ? <HomePage onNavigate={navigate} />
-    : page === "Buyer Operations" || page === "Purchasing" ? <BuyerCommandCenterPage onNavigate={navigate} />
+    : page === "Buyer Operations" || page === "Purchasing" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={navigate} />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={navigate} />
     : page === "Inventory Audits" ? <FocusedInventoryAudits />
