@@ -48,6 +48,11 @@ def safe_key(value: str) -> str:
     return cleaned[:160]
 
 
+def _source_allowed_domains(source: dict[str, Any], fallback: set[str]) -> set[str]:
+    scoped = {str(value).casefold().strip() for value in source.get("_allowed_domains") or [] if str(value).strip()}
+    return scoped or set(fallback)
+
+
 def validate_manifest(payload: dict[str, Any]) -> tuple[set[str], list[dict[str, Any]]]:
     allowed = {str(value).casefold().strip() for value in payload.get("allowed_domains") or [] if str(value).strip()}
     if not allowed:
@@ -57,14 +62,18 @@ def validate_manifest(payload: dict[str, Any]) -> tuple[set[str], list[dict[str,
         raise ValueError("Knowledge manifest requires sources.")
     keys: set[str] = set()
     validated: list[dict[str, Any]] = []
-    for source in sources:
-        if not isinstance(source, dict):
+    for raw_source in sources:
+        if not isinstance(raw_source, dict):
             raise ValueError("Each knowledge source must be an object.")
+        source = dict(raw_source)
         key = safe_key(source.get("key", ""))
         if key in keys:
             raise ValueError(f"Duplicate knowledge source key: {key}")
         keys.add(key)
-        validate_source_url(str(source.get("url") or ""), allowed)
+        source_allowed = _source_allowed_domains(source, allowed)
+        if not source_allowed.issubset(allowed):
+            raise ValueError(f"Source domain scope escapes manifest allowlist: {key}")
+        validate_source_url(str(source.get("url") or ""), source_allowed)
         source_format = str(source.get("format") or "").casefold()
         if source_format not in SUPPORTED_REMOTE_FORMATS:
             raise ValueError(f"Unsupported source format for {key}: {source_format}")
@@ -73,7 +82,7 @@ def validate_manifest(payload: dict[str, Any]) -> tuple[set[str], list[dict[str,
             raise ValueError(f"Invalid authority level for {key}")
         if authority == 1 and str(source.get("jurisdiction") or "").strip() and not bool(source.get("facility_scope", True)):
             raise ValueError(f"Jurisdiction-specific regulatory source must remain facility scoped: {key}")
-        validated.append(dict(source))
+        validated.append(source)
     return allowed, validated
 
 
@@ -87,13 +96,17 @@ def _combined_default_manifest() -> dict[str, Any]:
         return base
     market = _load_manifest(DEFAULT_MARKET_MANIFEST)
     reviewed = max(str(base.get("reviewed_at") or ""), str(market.get("reviewed_at") or ""))
+    base_domains = [str(value) for value in base.get("allowed_domains") or []]
+    market_domains = [str(value) for value in market.get("allowed_domains") or []]
+    base_sources = [{**dict(source), "_allowed_domains": base_domains} for source in base.get("sources") or []]
+    market_sources = [{**dict(source), "_allowed_domains": market_domains} for source in market.get("sources") or []]
     return {
         "schema_version": max(int(base.get("schema_version") or 1), int(market.get("schema_version") or 1)),
         "reviewed_at": reviewed,
         "default_scope": base.get("default_scope") or market.get("default_scope") or "facility",
         "notes": " ".join(str(value or "").strip() for value in (base.get("notes"), market.get("notes")) if str(value or "").strip()),
-        "allowed_domains": list(dict.fromkeys([*(base.get("allowed_domains") or []), *(market.get("allowed_domains") or [])])),
-        "sources": [*(base.get("sources") or []), *(market.get("sources") or [])],
+        "allowed_domains": list(dict.fromkeys([*base_domains, *market_domains])),
+        "sources": [*base_sources, *market_sources],
     }
 
 
@@ -177,7 +190,8 @@ def seed_approved_sources(
             results.append({"key": key, "status": "rejected_scope"})
             continue
         try:
-            payload, final_url, content_type = download_source(source, allowed_domains=allowed_domains)
+            source_domains = _source_allowed_domains(source, allowed_domains)
+            payload, final_url, content_type = download_source(source, allowed_domains=source_domains)
             digest = hashlib.sha256(payload).hexdigest()
             existing = store.find_document_by_hash(scope=scope, document_hash=digest, facility_scope=True)
             if existing and not force_reindex:
