@@ -4,10 +4,12 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthGate } from "./components/AuthGate";
+import { CommerceStorefrontLauncher } from "./components/CommerceStorefrontLauncher";
 import { AppSupportButton, MarketingContactChannels } from "./components/ContactChannels";
 import { MarketingHome } from "./pages/MarketingHome";
 import { BetaPartnerPage } from "./pages/BetaPartnerPage";
 import { CommercePortalPage } from "./pages/CommercePortalPage";
+import { StorefrontPage } from "./pages/StorefrontPage";
 import { configureSeo } from "./lib/seo";
 import { isMarketingHost } from "./lib/siteMode";
 import "./styles.css";
@@ -24,24 +26,33 @@ import "./brand-image.css";
 import "./marketing-home.css";
 import "./beta-partner.css";
 import "./contact-channels.css";
+import "./commerce-storefront.css";
+import "./commerce-launcher.css";
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
+const hostname = window.location.hostname.trim().toLowerCase().replace(/\.$/, "");
 const marketing = isMarketingHost(window.location.hostname);
 configureSeo(marketing);
 const betaPage = marketing && /^\/beta\/?$/.test(window.location.pathname);
 const portalMatch = window.location.pathname.match(/^\/portal\/([^/]+)\/?$/);
 const portalToken = portalMatch ? decodeURIComponent(portalMatch[1]) : "";
+const pathStorefrontMatch = window.location.pathname.match(/^\/store\/([^/]+)\/?$/);
+const subdomainMatch = hostname.match(/^([a-z0-9-]+)\.doobielogic\.io$/);
+const reservedHosts = new Set(["www", "ops", "api", "app", "admin", "beta", "support", "status", "mail", "store", "portal"]);
+const hostStorefront = subdomainMatch && !reservedHosts.has(subdomainMatch[1]) ? subdomainMatch[1] : "";
+const storefrontSlug = pathStorefrontMatch ? decodeURIComponent(pathStorefrontMatch[1]) : hostStorefront;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={client}>
-      {portalToken ? <CommercePortalPage token={portalToken} /> : marketing ? <>
+      {portalToken ? <CommercePortalPage token={portalToken} /> : storefrontSlug ? <StorefrontPage slug={storefrontSlug} /> : marketing ? <>
         {betaPage ? <BetaPartnerPage /> : <MarketingHome />}
         <MarketingContactChannels />
       </> : <AuthGate>
         <BrowserRouter>
           <>
             <App />
+            <CommerceStorefrontLauncher />
             <AppSupportButton />
           </>
         </BrowserRouter>

@@ -14,6 +14,8 @@ PERMITTED_PUBLIC_API_ROUTES = {
     ("POST", f"{settings.api_prefix}/account/username-login"),
     ("GET", f"{settings.api_prefix}/commerce-portal/{{token}}"),
     ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/orders"),
+    ("GET", f"{settings.api_prefix}/commerce-storefronts/{{slug}}"),
+    ("POST", f"{settings.api_prefix}/commerce-storefronts/{{slug}}/orders"),
 }
 SERVICE_ACCOUNT_PREFIX = f"{settings.api_prefix}/external/v1/"
 
@@ -68,6 +70,8 @@ def test_public_api_allowlist_is_explicit_and_bounded():
     assert ("POST", f"{settings.api_prefix}/trial/activate") in security
     assert ("POST", f"{settings.api_prefix}/beta/apply") in security
     assert ("POST", f"{settings.api_prefix}/account/username-login") in security
+    assert ("GET", f"{settings.api_prefix}/commerce-storefronts/{{slug}}") in security
+    assert ("POST", f"{settings.api_prefix}/commerce-storefronts/{{slug}}/orders") in security
 
 
 def test_external_api_uses_scoped_bearer_service_account_authentication():
