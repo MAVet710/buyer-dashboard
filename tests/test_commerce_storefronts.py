@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import create_engine
 
 from modules.coman.models import Base
 from modules.coman.repository import ComanRepository
 from modules.commercial.repository import CommercialRepository
 from modules.commerce_storefronts.service import CommerceStorefrontService
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _setup():
@@ -123,3 +128,54 @@ def test_reserved_doobielogic_subdomain_is_rejected():
         assert "reserved" in str(exc).lower()
     else:
         raise AssertionError("Reserved DoobieLogic host must not be assignable to a customer storefront")
+
+
+def test_cowboy_kush_storefront_is_discoverable_collectible_and_request_only():
+    page = (ROOT / "frontend/src/pages/StorefrontPage.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "frontend/src/cowboy-storefront.css").read_text(encoding="utf-8")
+    main = (ROOT / "frontend/src/main.tsx").read_text(encoding="utf-8")
+
+    # Cowboy Kush must be reachable by its exact hosted storefront slug while generic
+    # storefront rendering remains present for every other customer.
+    assert 'slug.trim().toLowerCase() === "cowboykush"' in page
+    assert 'data.storefront.subdomain.trim().toLowerCase() === "cowboykush"' in page
+    assert 'const storefrontSlug = pathStorefrontMatch ? decodeURIComponent(pathStorefrontMatch[1]) : hostStorefront;' in main
+    assert 'import "./cowboy-storefront.css";' in main
+    assert 'return <div className="storefront-shell" style={theme}>' in page
+
+    # This is a purpose-built wholesale ordering landing page, not a clone of the
+    # marketing site's story/farm/blog navigation.
+    assert "ROOTED IN TRADITION · GROWN FOR ADVENTURE" in page
+    assert "Premium Massachusetts" in page
+    assert ">Wholesale</a>" in page
+    assert "Our Story" not in page
+    assert "Our Farms" not in page
+    assert "Field Notes" not in page
+
+    # Collectible cards expose operationally real storefront data rather than
+    # fabricated potency/effect claims.
+    for label in ("SKU", "Pack size", "Case qty", "Wholesale", "Min order", "Status"):
+        assert label in page
+    assert "item.sku" in page
+    assert "item.available" in page
+    assert "item.price_usd" in page
+    assert "item.minimum_quantity" in page
+    assert "item.case_quantity" in page
+    assert "THC" not in page
+    assert "terpene" not in page.lower()
+
+    # Keep the existing approval-gated DoobieCommerce request endpoint. The
+    # public page never converts a submission straight into an operational order.
+    assert '/api/v1/commerce-storefronts/${encodeURIComponent(slug)}/orders' in page
+    assert "Submit order request" in page
+    assert "Inventory is not deducted until their team reviews the request." in page
+
+    # Cowboy styling is strictly scoped and stays usable at tablet/phone widths.
+    assert ".cowboy-storefront" in css
+    assert "--cowboy-slate:#536f80" in css
+    assert "--cowboy-cream:#e8e4dc" in css
+    assert "--cowboy-navy:#071d32" in css
+    assert "--cowboy-gold:#b58b3d" in css
+    assert "@media(max-width:980px)" in css
+    assert "@media(max-width:720px)" in css
+    assert ".cowboy-storefront .cowboy-cart{position:static}" in css
