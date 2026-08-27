@@ -127,6 +127,9 @@ def test_doobie_agent_uses_the_same_non_blocking_window_contract_as_360():
     assert "workspace-window-close" in window
     assert "workspace-window-minimize" in window
     assert 'onClick={() => onNavigate("Integrations")}' in agent
+    assert "top:max(6px,env(safe-area-inset-top))" in agent_css
+    assert "bottom:max(6px,env(safe-area-inset-bottom))" in agent_css
+    assert ".workspace-agent-window.minimized" in agent_css
 
 
 def test_distribution_and_wholesale_are_embedded_in_production_not_new_primary_silo():
