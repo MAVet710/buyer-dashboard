@@ -85,6 +85,12 @@ def test_360_context_is_a_non_modal_workspace_window_not_a_blocking_page_require
     assert "workspaceWindowRegistry" in window
     assert "topWorkspaceWindowKey() === windowKey" in window
     assert "workspaceWindowRegistry.delete(windowKey)" in window
+    assert "const onCloseRef = useRef(onClose)" in window
+    assert "onCloseRef.current()" in window
+    stack_effect = window.split("useEffect(() => {", 1)[1].split("useEffect(() => {", 1)[0]
+    assert "onClose," not in stack_effect
+    assert "clamp();" in window
+    assert "if (nextLeft === current.left && nextTop === current.top) return current" in window
     assert ".workspace-window.minimized" in window_css
     assert "backdrop-filter:blur(24px)" not in window_css
     assert "-webkit-backdrop-filter:blur(24px)" not in window_css
