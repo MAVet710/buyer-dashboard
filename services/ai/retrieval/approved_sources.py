@@ -15,7 +15,10 @@ from .store import KnowledgeScope, KnowledgeStore
 
 MAX_BYTES = 25 * 1024 * 1024
 USER_AGENT = "DoobieLogic-Knowledge/1.0"
-DEFAULT_MANIFEST = Path(__file__).resolve().parents[3] / "knowledge_sources" / "approved_sources.json"
+REPO_KNOWLEDGE_ROOT = Path(__file__).resolve().parents[3] / "knowledge_sources"
+DEFAULT_MANIFEST = REPO_KNOWLEDGE_ROOT / "approved_sources.json"
+DEFAULT_MARKET_MANIFEST = REPO_KNOWLEDGE_ROOT / "market_sources.json"
+SUPPORTED_REMOTE_FORMATS = {"pdf", "html", "json", "csv"}
 
 
 class SafeRedirectHandler(HTTPRedirectHandler):
@@ -63,7 +66,7 @@ def validate_manifest(payload: dict[str, Any]) -> tuple[set[str], list[dict[str,
         keys.add(key)
         validate_source_url(str(source.get("url") or ""), allowed)
         source_format = str(source.get("format") or "").casefold()
-        if source_format not in {"pdf", "html"}:
+        if source_format not in SUPPORTED_REMOTE_FORMATS:
             raise ValueError(f"Unsupported source format for {key}: {source_format}")
         authority = int(source.get("authority_level") or 0)
         if authority not in range(1, 7):
@@ -74,8 +77,28 @@ def validate_manifest(payload: dict[str, Any]) -> tuple[set[str], list[dict[str,
     return allowed, validated
 
 
+def _load_manifest(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _combined_default_manifest() -> dict[str, Any]:
+    base = _load_manifest(DEFAULT_MANIFEST)
+    if not DEFAULT_MARKET_MANIFEST.exists():
+        return base
+    market = _load_manifest(DEFAULT_MARKET_MANIFEST)
+    reviewed = max(str(base.get("reviewed_at") or ""), str(market.get("reviewed_at") or ""))
+    return {
+        "schema_version": max(int(base.get("schema_version") or 1), int(market.get("schema_version") or 1)),
+        "reviewed_at": reviewed,
+        "default_scope": base.get("default_scope") or market.get("default_scope") or "facility",
+        "notes": " ".join(str(value or "").strip() for value in (base.get("notes"), market.get("notes")) if str(value or "").strip()),
+        "allowed_domains": list(dict.fromkeys([*(base.get("allowed_domains") or []), *(market.get("allowed_domains") or [])])),
+        "sources": [*(base.get("sources") or []), *(market.get("sources") or [])],
+    }
+
+
 def load_approved_sources(path: Path = DEFAULT_MANIFEST) -> tuple[dict[str, Any], set[str], list[dict[str, Any]]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = _combined_default_manifest() if path.resolve() == DEFAULT_MANIFEST.resolve() else _load_manifest(path)
     allowed, sources = validate_manifest(payload)
     return payload, allowed, sources
 
@@ -103,7 +126,13 @@ def download_source(source: dict[str, Any], *, allowed_domains: set[str]) -> tup
     url = str(source["url"])
     validate_source_url(url, allowed_domains)
     opener = build_opener(SafeRedirectHandler(allowed_domains))
-    request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/pdf,text/html;q=0.9,*/*;q=0.1"})
+    request = Request(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/pdf,text/html,application/xhtml+xml,application/json,text/csv,text/plain;q=0.9,*/*;q=0.1",
+        },
+    )
     with opener.open(request, timeout=30) as response:
         final_url = str(response.geturl())
         validate_source_url(final_url, allowed_domains)
@@ -112,10 +141,14 @@ def download_source(source: dict[str, Any], *, allowed_domains: set[str]) -> tup
     if len(payload) > MAX_BYTES:
         raise ValueError(f"Knowledge source exceeds {MAX_BYTES} bytes: {source['key']}")
     expected = str(source.get("format") or "").casefold()
-    if expected == "pdf" and content_type != "application/pdf":
-        raise ValueError(f"Expected PDF for {source['key']}, received {content_type or 'unknown'}")
-    if expected == "html" and content_type not in {"text/html", "application/xhtml+xml"}:
-        raise ValueError(f"Expected HTML for {source['key']}, received {content_type or 'unknown'}")
+    accepted_types = {
+        "pdf": {"application/pdf"},
+        "html": {"text/html", "application/xhtml+xml"},
+        "json": {"application/json", "text/json", "text/plain", "application/octet-stream"},
+        "csv": {"text/csv", "application/csv", "text/plain", "application/octet-stream", "application/vnd.ms-excel"},
+    }
+    if content_type not in accepted_types.get(expected, set()):
+        raise ValueError(f"Expected {expected.upper()} for {source['key']}, received {content_type or 'unknown'}")
     return payload, final_url, content_type
 
 
@@ -137,9 +170,9 @@ def seed_approved_sources(
         key = str(source["key"])
         if keys and key not in keys:
             continue
-        # The built-in starter catalog deliberately does not publish jurisdiction-specific material
-        # globally or organization-wide. Facility scope is the isolation boundary until facilities
-        # have an explicit state/jurisdiction field that can be enforced at retrieval time.
+        # The built-in source catalogs deliberately do not publish jurisdiction-specific material
+        # globally. Facility scope stays the isolation boundary until facility jurisdiction can be
+        # enforced directly by retrieval policy.
         if not bool(source.get("facility_scope", True)) or bool(source.get("global_scope", False)):
             results.append({"key": key, "status": "rejected_scope"})
             continue
