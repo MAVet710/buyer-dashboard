@@ -56,6 +56,7 @@ def test_360_context_is_a_non_modal_workspace_window_not_a_blocking_page_require
     product = read("frontend/src/components/Product360Drawer.tsx")
     package = read("frontend/src/components/Package360Window.tsx")
     inventory = read("frontend/src/pages/InventoryPage.tsx")
+    app = read("frontend/src/App.tsx")
     contract = read("docs/UX_SIMPLIFICATION_EXECUTION_CONTRACT.md")
 
     assert 'aria-modal="false"' in window
@@ -68,6 +69,8 @@ def test_360_context_is_a_non_modal_workspace_window_not_a_blocking_page_require
     assert ">Product 360</button>" in inventory
     assert ">Package 360</button>" in inventory
     assert ">View lineage</button>" in inventory
+    assert 'if (nextPage === "Production Run 360"' in app
+    assert 'windowKey="production-run-360"' in app
     assert "Route = where I am working" in contract
     assert "Panel = what I am inspecting" in contract
 
@@ -79,6 +82,15 @@ def test_product_360_can_open_package_360_without_destroying_parent_workspace():
     assert "onPackage={setPackage360}" in product
     assert "<Package360Window code={package360}" in product
     assert ">Package 360</button>" in product
+
+
+def test_doobie_agent_is_non_blocking_so_agent_and_360_can_coexist():
+    agent = read("frontend/src/components/WorkspaceAgent.tsx")
+
+    assert 'aria-modal="false"' in agent
+    assert "workspace-agent-backdrop" not in agent
+    assert "Maximize2" in agent
+    assert "Minimize2" in agent
 
 
 def test_distribution_and_wholesale_are_embedded_in_production_not_new_primary_silo():
