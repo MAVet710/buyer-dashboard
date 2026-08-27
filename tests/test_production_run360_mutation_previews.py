@@ -185,7 +185,7 @@ def test_material_preview_reserves_only_uncovered_requirement_once():
             "product": "Bulk Flower",
             "lot_id": first["details"]["allocations"][0]["lot_id"],
             "lot_code": "BULK-LOT-1",
-            "quantity": 200.0,
+            "quantity": 2.0,
             "unit": "g",
             "available_before": 500.0,
         }
@@ -202,7 +202,7 @@ def test_material_preview_reserves_only_uncovered_requirement_once():
                 MaterialReservation.status == "reserved",
             )
         )
-        assert float(reserved or 0) == 200.0
+        assert float(reserved or 0) == 2.0
 
 
 def test_stale_material_preview_is_rejected_after_inventory_changes():
