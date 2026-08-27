@@ -31,7 +31,7 @@ import "./commerce-launcher.css";
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
 const hostname = window.location.hostname.trim().toLowerCase().replace(/\.$/, "");
-const marketing = isMarketingHost(hostname);
+const marketing = isMarketingHost(window.location.hostname);
 configureSeo(marketing);
 const betaPage = marketing && /^\/beta\/?$/.test(window.location.pathname);
 const portalMatch = window.location.pathname.match(/^\/portal\/([^/]+)\/?$/);
