@@ -7,9 +7,21 @@ type Position = { left: number; top: number };
 type DragState = Position & { pointerId: number; width: number; height: number; startX: number; startY: number };
 
 let workspaceWindowZIndex = 90;
+const workspaceWindowRegistry = new Map<string, number>();
 function nextWorkspaceWindowZIndex() {
   workspaceWindowZIndex += 1;
   return workspaceWindowZIndex;
+}
+function topWorkspaceWindowKey() {
+  let topKey = "";
+  let topZIndex = -Infinity;
+  for (const [key, zIndex] of workspaceWindowRegistry.entries()) {
+    if (zIndex > topZIndex) {
+      topKey = key;
+      topZIndex = zIndex;
+    }
+  }
+  return topKey;
 }
 
 type Props = PropsWithChildren<{
@@ -32,10 +44,15 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
   const windowRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
 
-  const bringToFront = useCallback(() => setZIndex(nextWorkspaceWindowZIndex()), []);
+  const bringToFront = useCallback(() => {
+    const nextZIndex = nextWorkspaceWindowZIndex();
+    workspaceWindowRegistry.set(windowKey, nextZIndex);
+    setZIndex(nextZIndex);
+  }, [windowKey]);
 
   useEffect(() => {
     if (!open) {
+      workspaceWindowRegistry.delete(windowKey);
       setMaximized(false);
       setMinimized(false);
       setPosition(null);
@@ -43,11 +60,14 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
     }
     bringToFront();
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && topWorkspaceWindowKey() === windowKey) onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [bringToFront, open, onClose]);
+    return () => {
+      workspaceWindowRegistry.delete(windowKey);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [bringToFront, open, onClose, windowKey]);
 
   useEffect(() => {
     if (!open) return;
