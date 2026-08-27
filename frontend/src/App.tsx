@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
+import { ProductionCalendar } from "./components/ProductionCalendar";
 import { ProductionNextActions } from "./components/ProductionNextActions";
 import { ProductionPlanner } from "./components/ProductionPlanner";
 import { WorkspaceWindow } from "./components/WorkspaceWindow";
@@ -115,7 +116,7 @@ export default function App() {
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
     : page === "Replenishment Policies" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
-    : page === "Production" ? <><ProductionPlanner onOpenRun={openProductionRun360}/><ProductionNextActions onOpenRun={openProductionRun360}/><ProductionPage /></>
+    : page === "Production" ? <><ProductionPlanner onOpenRun={openProductionRun360}/><ProductionCalendar onOpenRun={openProductionRun360}/><ProductionNextActions onOpenRun={openProductionRun360}/><ProductionPage /></>
     : page === "Production Run 360" ? <ProductionRun360Page onNavigate={navigate} initialOrderId={run360OrderId} />
     : page === "Extraction" ? <ExtractionUnifiedPage onNavigate={navigate} />
     : page === "White Label / Repack" ? <WhiteLabelRepackPage />
