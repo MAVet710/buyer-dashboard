@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, Factory, Home, Menu, Moon, PackageOpen, Settings, ShieldCheck, ShoppingCart, Sun } from "lucide-react";
+import { BarChart3, Boxes, Factory, Home, Menu, Moon, Settings, ShieldCheck, ShoppingCart, Sun } from "lucide-react";
 import { useEffect, useMemo, useState, type PropsWithChildren } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, clearTrialSession } from "../lib/api";
@@ -12,9 +12,10 @@ type AccessOrganization = { id: string; name: string; slug: string; facilities: 
 type AccountContext = { user: { display_name: string; email: string; role: string; must_change_password?: boolean }; organization: { id: string; name: string; slug?: string } | null; facility_id: string; capabilities: Record<Capability, boolean>; facilities: Facility[] };
 type AccessOptions = { organizations: AccessOrganization[]; organization_id: string; facility_id: string };
 type OperationMode = "Retail Ops" | "Production Ops";
-type PrimaryCategory = "Home" | "Inventory" | "Purchasing" | "Orders" | "Production" | "Reports" | "Compliance" | "Data & Settings";
+type WorkCategory = "Home" | "Buying" | "Inventory" | "Production" | "Compliance" | "Reports";
+type PrimaryCategory = WorkCategory | "Settings";
 type SecondaryItem = { label: string; page: string; roles?: readonly string[] };
-type PrimaryItem = { label: PrimaryCategory; icon: typeof Home; defaultPage: string };
+type PrimaryItem = { label: WorkCategory; icon: typeof Home; defaultPage: string };
 type BuyerDataMode = "Uploads" | "Dutchie Live";
 
 // Match modules/navigation/operation_context_bar.py exactly. Trial falls back
@@ -28,28 +29,28 @@ const NON_DEV = ["admin", "buyer", "planner", "supervisor", "operator", "qa", "r
 
 const RETAIL_PRIMARY: PrimaryItem[] = [
   { label: "Home", icon: Home, defaultPage: "Home" },
+  { label: "Buying", icon: ShoppingCart, defaultPage: "Buyer Operations" },
   { label: "Inventory", icon: Boxes, defaultPage: "Inventory" },
-  { label: "Purchasing", icon: ShoppingCart, defaultPage: "Buyer Operations" },
-  { label: "Orders", icon: PackageOpen, defaultPage: "Orders" },
-  { label: "Reports", icon: BarChart3, defaultPage: "Sales & Category Trends" },
   { label: "Compliance", icon: ShieldCheck, defaultPage: "Compliance Q&A" },
-  { label: "Data & Settings", icon: Settings, defaultPage: "Data & Settings" },
+  { label: "Reports", icon: BarChart3, defaultPage: "Sales & Category Trends" },
 ];
 
 const PRODUCTION_PRIMARY: PrimaryItem[] = [
   { label: "Home", icon: Home, defaultPage: "Home" },
   { label: "Inventory", icon: Boxes, defaultPage: "Production Inventory" },
   { label: "Production", icon: Factory, defaultPage: "Production" },
-  { label: "Orders", icon: PackageOpen, defaultPage: "Orders" },
   { label: "Compliance", icon: ShieldCheck, defaultPage: "Compliance" },
-  { label: "Data & Settings", icon: Settings, defaultPage: "Data & Settings" },
+  { label: "Reports", icon: BarChart3, defaultPage: "Executive Reports" },
 ];
 
 function secondaryItems(category: PrimaryCategory, operation: OperationMode, role: string): SecondaryItem[] {
   if (category === "Home") return [
+    { label: "Needs Attention / Today", page: "Home" },
     { label: "Operations Control Tower", page: "Operations Control Tower" },
     { label: "Enterprise Control Tower", page: "Enterprise Control Tower", roles: ADMIN },
   ];
+  if (category === "Settings") return dataSettingsItems(role);
+
   if (operation === "Production Ops") {
     if (category === "Inventory") return [
       { label: "Materials", page: "Production Inventory" },
@@ -58,42 +59,43 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
       { label: "Inventory Audits", page: "Inventory Audits" },
     ];
     if (category === "Production") return [
-      { label: "Co-Man Production", page: "Production" },
+      { label: "Today / Production", page: "Production" },
       { label: "Production Run 360", page: "Production Run 360" },
       { label: "Extraction", page: "Extraction" },
       { label: "White Label / Repack", page: "White Label / Repack" },
-    ];
-    if (category === "Orders") return [
       { label: "Orders & Fulfillment", page: "Orders" },
       { label: "Warehouse Pick / Pack", page: "Warehouse Pick Pack" },
+      { label: "Package Studio", page: "Package Studio" },
     ];
     if (category === "Compliance") return [
       { label: "Traceability", page: "Compliance" },
       { label: "State Actions", page: "Traceability Actions" },
+      { label: "Compliance Q&A", page: "Compliance Q&A" },
+      { label: "Label Studio", page: "Label Studio" },
     ];
-    if (category === "Data & Settings") return dataSettingsItems(role);
+    if (category === "Reports") return [
+      { label: "Executive Reports", page: "Executive Reports" },
+    ];
     return [];
   }
+
+  if (category === "Buying") return [
+    { label: "What Should I Order?", page: "Buyer Operations" },
+    { label: "Buying Recommendations", page: "Buying Recommendations" },
+    { label: "Purchase Orders", page: "Purchase Orders" },
+    { label: "Buying Budget", page: "Buying Budget" },
+    { label: "Delivery Performance", page: "Delivery Performance" },
+    { label: "Planning Settings", page: "Replenishment Policies" },
+  ];
   if (category === "Inventory") return [
     { label: "Inventory", page: "Inventory" },
     { label: "Product 360", page: "Retail Product 360" },
     { label: "Package 360", page: "Package 360" },
-    { label: "Catalog Administration", page: "Retail Catalog Admin" },
     { label: "Inventory Audits", page: "Inventory Audits" },
     { label: "Slow Movers", page: "Slow Movers" },
-    { label: "MA Flower Equivalency", page: "MA Flower Equivalency" },
-  ];
-  if (category === "Purchasing") return [
-    { label: "Overview", page: "Buyer Operations" },
-    { label: "Buying Recommendations", page: "Buying Recommendations" },
-    { label: "Delivery Performance", page: "Delivery Performance" },
-    { label: "Purchase Orders", page: "Purchase Orders" },
-    { label: "Buying Budget", page: "Buying Budget" },
-    { label: "Replenishment Policies", page: "Replenishment Policies" },
-  ];
-  if (category === "Orders") return [
     { label: "Orders & Fulfillment", page: "Orders" },
     { label: "Warehouse Pick / Pack", page: "Warehouse Pick Pack" },
+    { label: "Catalog Administration", page: "Retail Catalog Admin" },
   ];
   if (category === "Reports") return [
     { label: "Sales & Category Trends", page: "Sales & Category Trends" },
@@ -101,11 +103,12 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
   ];
   if (category === "Compliance") return [
     { label: "Compliance Q&A", page: "Compliance Q&A" },
-    { label: "Product Name Mapper", page: "Product Name Mapper" },
     { label: "Traceability", page: "Compliance" },
     { label: "State Actions", page: "Traceability Actions" },
+    { label: "Label Studio", page: "Label Studio" },
+    { label: "Product Name Mapper", page: "Product Name Mapper" },
+    { label: "MA Flower Equivalency", page: "MA Flower Equivalency" },
   ];
-  if (category === "Data & Settings") return dataSettingsItems(role);
   return [];
 }
 
@@ -116,21 +119,21 @@ function dataSettingsItems(role: string): SecondaryItem[] {
   ];
   if (ADMIN.includes(role as never)) rows.push({ label: "Admin Tools", page: "Admin" });
   rows.push(role === "dev"
-    ? { label: "AI & METRC Integrations", page: "Integrations", roles: DEV }
-    : { label: "METRC Integrations", page: "Integrations", roles: NON_DEV });
+    ? { label: "AI, Traceability & Accounting Integrations", page: "Integrations", roles: DEV }
+    : { label: "Traceability & Accounting Integrations", page: "Integrations", roles: NON_DEV });
   return rows;
 }
 
 function categoryForPage(page: string, operation: OperationMode): PrimaryCategory {
   if (["Home", "Operations Control Tower", "Enterprise Control Tower"].includes(page)) return "Home";
-  if (["Inventory", "Retail Product Master", "Retail Product 360", "Package 360", "Retail Catalog Admin", "Inventory Audits", "Slow Movers", "MA Flower Equivalency", "Production Inventory", "Production Product Master"].includes(page)) return "Inventory";
-  if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing", "Replenishment Policies"].includes(page)) return "Purchasing";
-  if (["Orders", "Warehouse Pick Pack"].includes(page)) return "Orders";
+  if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing", "Replenishment Policies"].includes(page)) return "Buying";
+  if (["Orders", "Warehouse Pick Pack"].includes(page)) return operation === "Production Ops" ? "Production" : "Inventory";
   if (["Production", "Production Run 360", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
+  if (["Compliance", "Compliance Q&A", "Traceability Actions", "Product Name Mapper", "Nomenclature Mapper", "Label Studio", "MA Flower Equivalency"].includes(page)) return "Compliance";
   if (["Sales & Category Trends", "Reports", "Executive Reports"].includes(page)) return "Reports";
-  if (["Compliance", "Compliance Q&A", "Traceability Actions", "Product Name Mapper", "Nomenclature Mapper"].includes(page)) return "Compliance";
-  if (["Location Settings", "Data & Settings", "Admin", "Admin Tools", "Integrations", "AI & METRC Integrations", "METRC Integrations"].includes(page)) return "Data & Settings";
-  return operation === "Production Ops" ? "Inventory" : "Inventory";
+  if (["Location Settings", "Data & Settings", "Admin", "Admin Tools", "Integrations", "AI & METRC Integrations", "METRC Integrations"].includes(page)) return "Settings";
+  if (["Inventory", "Retail Product Master", "Retail Product 360", "Package 360", "Retail Catalog Admin", "Inventory Audits", "Slow Movers", "Production Inventory", "Production Product Master"].includes(page)) return "Inventory";
+  return "Inventory";
 }
 
 export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ active: string; onNavigate: (page: string) => void }>) {
@@ -202,6 +205,8 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   const primary = operation === "Production Ops" ? PRODUCTION_PRIMARY : RETAIL_PRIMARY;
   const activeCategory = categoryForPage(active, operation);
   const secondary = secondaryItems(activeCategory, operation, role).filter(item => !item.roles || item.roles.includes(role as never));
+  const settings = dataSettingsItems(role).filter(item => !item.roles || item.roles.includes(role as never));
+
   const routeToOperation = (page: string, mode: OperationMode) => {
     const target = findOperationTarget(mode);
     if (target && target.facilityId !== context.data?.facility_id) {
@@ -225,7 +230,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     setOperation(next);
     localStorage.setItem("buyer-dash-operation", next);
     const nextPrimary = next === "Production Ops" ? PRODUCTION_PRIMARY : RETAIL_PRIMARY;
-    const target = nextPrimary.find(row => row.label === "Inventory") ?? nextPrimary[0];
+    const target = nextPrimary.find(row => row.label === "Home") ?? nextPrimary[0];
     const nextSecondary = secondaryItems(target.label, next, role).filter(item => !item.roles || item.roles.includes(role as never));
     routeToOperation(nextSecondary[0]?.page ?? target.defaultPage, next);
   };
@@ -264,11 +269,12 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     <aside className={navigationOpen ? "sidebar open" : "sidebar"} id="primary-navigation" aria-label="Primary navigation">
       <div className="brand"><span>DL</span><strong>DoobieLogic</strong></div>
       <div className="dl-nav-context"><strong>Active</strong><br/>{context.data?.organization?.name ?? "DoobieLogic"} · {selectedFacility?.name ?? "Loading facility…"} · {operation}</div>
-      <div className="sidebar-caption">Choose the work, not the architecture.</div>
+      <div className="sidebar-caption">Choose the job. Context stays with you.</div>
       {!classicNavigation ? <>
         <nav aria-label="Work areas">{primary.map(row => { const Icon = row.icon; return <button className={row.label === activeCategory ? "nav-item active" : "nav-item"} key={row.label} onClick={() => chooseCategory(row)}><Icon size={18}/><span>{row.label}</span></button>; })}</nav>
         {secondary.length ? <><div className="operation-label">Current area</div><nav className="secondary-nav" aria-label={`${activeCategory} tools`}>{secondary.map(row => <button className={row.page === active ? "nav-item active" : "nav-item"} key={row.page} onClick={() => navigate(row.page)}><span>{row.label}</span></button>)}</nav></> : null}
         {operation === "Retail Ops" ? <details className="sidebar-expander"><summary>Data source</summary><div><label className="compact-field">Buyer data mode<select className="data-mode-select" value={dataMode} onChange={event => changeDataMode(event.target.value === "Dutchie Live" ? "Dutchie Live" : "Uploads")}><option value="Uploads">📁 Uploads</option><option value="Dutchie Live">🔴 Dutchie Live</option></select></label></div></details> : null}
+        <details className="sidebar-expander"><summary><Settings size={15}/> Settings & Administration</summary><nav className="secondary-nav" aria-label="Settings and administration">{settings.map(row => <button className={row.page === active ? "nav-item active" : "nav-item"} key={row.page} onClick={() => navigate(row.page)}><span>{row.label}</span></button>)}</nav></details>
       </> : <ClassicNavigation operation={operation} role={role} active={active} onNavigate={navigate}/>} 
       <WorkspaceAgent activePage={active} operation={operation} onNavigate={navigate}/>
       <details className="sidebar-expander"><summary>Navigation options</summary><div><label className="toggle"><input type="checkbox" checked={classicNavigation} onChange={event => setClassicNavigation(event.target.checked)}/> Use classic navigation</label></div></details>
@@ -286,13 +292,14 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
         <button className="icon-button theme-toggle" title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`} onClick={() => setTheme(current => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={18}/> : <Moon size={18}/>}</button>
         <button className="user-chip" onClick={signOut}>{context.data?.user.display_name || context.data?.user.email || "Developer"} · {role}</button>
       </header>
-      <main><MobileNavigation primary={primary} category={activeCategory} secondary={secondary} active={active} operation={operation} dataMode={dataMode} onDataMode={changeDataMode} onCategory={chooseCategory} onNavigate={navigate}/><GlobalSearch onNavigate={navigate}/>{children}</main>
+      <main><MobileNavigation primary={primary} category={activeCategory} secondary={secondary} settings={settings} active={active} operation={operation} dataMode={dataMode} onDataMode={changeDataMode} onCategory={chooseCategory} onNavigate={navigate}/><GlobalSearch onNavigate={navigate}/>{children}</main>
     </section>
   </div>;
 }
 
-function MobileNavigation({ primary, category, secondary, active, operation, dataMode, onDataMode, onCategory, onNavigate }: { primary: PrimaryItem[]; category: PrimaryCategory; secondary: SecondaryItem[]; active: string; operation: OperationMode; dataMode: BuyerDataMode; onDataMode: (mode: BuyerDataMode) => void; onCategory: (item: PrimaryItem) => void; onNavigate: (page: string) => void }) {
-  return <section className="mobile-flat-navigation"><div className="eyebrow">DoobieLogic</div><select aria-label="Navigate" value={category} onChange={event => { const row = primary.find(item => item.label === event.target.value); if (row) onCategory(row); }}>{primary.map(row => <option key={row.label} value={row.label}>{row.label}</option>)}</select>{secondary.length ? <select aria-label="Tool" value={secondary.some(row => row.page === active) ? active : secondary[0].page} onChange={event => onNavigate(event.target.value)}>{secondary.map(row => <option key={row.page} value={row.page}>{row.label}</option>)}</select> : null}{operation === "Retail Ops" ? <select className="mobile-data-mode-select" aria-label="Buyer data mode" value={dataMode} onChange={event => onDataMode(event.target.value === "Dutchie Live" ? "Dutchie Live" : "Uploads")}><option value="Uploads">📁 Uploads</option><option value="Dutchie Live">🔴 Dutchie Live</option></select> : null}</section>;
+function MobileNavigation({ primary, category, secondary, settings, active, operation, dataMode, onDataMode, onCategory, onNavigate }: { primary: PrimaryItem[]; category: PrimaryCategory; secondary: SecondaryItem[]; settings: SecondaryItem[]; active: string; operation: OperationMode; dataMode: BuyerDataMode; onDataMode: (mode: BuyerDataMode) => void; onCategory: (item: PrimaryItem) => void; onNavigate: (page: string) => void }) {
+  const primaryValue = primary.some(row => row.label === category) ? category : primary[0]?.label;
+  return <section className="mobile-flat-navigation"><div className="eyebrow">DoobieLogic</div><select aria-label="Navigate" value={primaryValue} onChange={event => { const row = primary.find(item => item.label === event.target.value); if (row) onCategory(row); }}>{primary.map(row => <option key={row.label} value={row.label}>{row.label}</option>)}</select>{secondary.length ? <select aria-label="Tool" value={secondary.some(row => row.page === active) ? active : secondary[0].page} onChange={event => onNavigate(event.target.value)}>{secondary.map(row => <option key={row.page} value={row.page}>{row.label}</option>)}</select> : null}<select aria-label="Settings and administration" value={settings.some(row => row.page === active) ? active : ""} onChange={event => { if (event.target.value) onNavigate(event.target.value); }}><option value="">Settings & administration</option>{settings.map(row => <option key={row.page} value={row.page}>{row.label}</option>)}</select>{operation === "Retail Ops" ? <select className="mobile-data-mode-select" aria-label="Buyer data mode" value={dataMode} onChange={event => onDataMode(event.target.value === "Dutchie Live" ? "Dutchie Live" : "Uploads")}><option value="Uploads">📁 Uploads</option><option value="Dutchie Live">🔴 Dutchie Live</option></select> : null}</section>;
 }
 
 function ClassicNavigation({ operation, role, active, onNavigate }: { operation: OperationMode; role: string; active: string; onNavigate: (page: string) => void }) {
@@ -300,18 +307,17 @@ function ClassicNavigation({ operation, role, active, onNavigate }: { operation:
     ? [
       { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
       { label: "Production Inventory", pages: secondaryItems("Inventory", operation, role) },
-      { label: "Production Ops", pages: secondaryItems("Production", operation, role) },
-      { label: "Orders", pages: secondaryItems("Orders", operation, role) },
+      { label: "Production, Distribution & Wholesale", pages: secondaryItems("Production", operation, role) },
       { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
+      { label: "Reports", pages: secondaryItems("Reports", operation, role) },
       { label: "Data & Integrations", pages: dataSettingsItems(role) },
     ]
     : [
       { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
-      { label: "Retail Inventory", pages: secondaryItems("Inventory", operation, role) },
-      { label: "Purchasing", pages: secondaryItems("Purchasing", operation, role) },
-      { label: "Orders", pages: secondaryItems("Orders", operation, role) },
-      { label: "Reports", pages: secondaryItems("Reports", operation, role) },
+      { label: "Buying", pages: secondaryItems("Buying", operation, role) },
+      { label: "Retail Inventory & Fulfillment", pages: secondaryItems("Inventory", operation, role) },
       { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
+      { label: "Reports", pages: secondaryItems("Reports", operation, role) },
       { label: "Data & Integrations", pages: dataSettingsItems(role) },
     ];
   return <>{groups.map(group => <div key={group.label}><div className="operation-label">{group.label}</div><nav>{group.pages.filter(row => !row.roles || row.roles.includes(role as never)).map(row => <button className={active === row.page ? "nav-item active" : "nav-item"} key={`${group.label}-${row.page}`} onClick={() => onNavigate(row.page)}>{row.label}</button>)}</nav></div>)}</>;
