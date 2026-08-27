@@ -88,8 +88,15 @@ async function throwResponseError(response: Response): Promise<never> {
   throw new ApiError(errorMessage(payload, response.status), response.status);
 }
 
+function readPath(path: string): string {
+  // Older Extraction surfaces still ask for /extraction/lots. Route those
+  // reads through the same eligibility projection as Extraction Inventory so
+  // Quick Start and Run 360 do not reintroduce finished packaged inventory.
+  return path === "/api/v1/extraction/lots" ? "/api/v1/extraction-inventory/lots" : path;
+}
+
 export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await authorizedFetch(path, headers => ({ signal, headers }));
+  const response = await authorizedFetch(readPath(path), headers => ({ signal, headers }));
   if (!response.ok) return throwResponseError(response);
   return response.json() as Promise<T>;
 }
