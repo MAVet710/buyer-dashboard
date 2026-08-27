@@ -22,6 +22,8 @@ const RETAIL_PRODUCT_DEFAULTS = ["SKU", "Product", "Material Type", "Room", "Ava
 const RETAIL_PACKAGE_DEFAULTS = ["SKU", "Product", "External Package ID", "Material Type", "Room", "Available", "Unit", "Reserved", "30d Sold", "DOH", "Status", "Attention"];
 const PRODUCTION_DEFAULTS = ["SKU", "Product", "External Package ID", "Material Type", "Room", "Available", "Unit", "Status", "Attention"];
 const ALL_COLUMNS = ["SKU", "Product", "External Package ID", "Material Type", "Source / Supplier", "Room", "Available", "Unit", "Reserved", "30d Sold", "DOH", "Cost", "Retail", "Margin", "Age", "Days to Expiry", "Status", "Attention"];
+const RETAIL_CONTEXT_ROLES = ["dev","admin","buyer","supervisor","operator","qa","read_only","trial"];
+const PRODUCTION_CONTEXT_ROLES = ["dev","admin","planner","supervisor","operator","qa"];
 
 type Operation = "retail" | "production";
 type Grain = "products" | "packages" | "plants";
@@ -30,7 +32,7 @@ type DisplayRow = InventoryPackage & { package_count?: number };
 
 export function InventoryPage({ initialOperation="retail", onNavigate }: { initialOperation?:Operation; onNavigate?:(page:string)=>void } = {}) {
   const account = useQuery({ queryKey:["account-context"], queryFn:({signal})=>apiGet<{user:{role:string};capabilities:{retail:boolean;production:boolean;cultivation:boolean}}>("/api/v1/account/context",signal) });
-  const [operation,setOperation]=useState<Operation>(initialOperation);
+  const operation:Operation=initialOperation;
   const [grain,setGrain]=useState<Grain>(initialOperation === "retail" ? "products" : "packages");
   const [receiving,setReceiving]=useState(false); const [history,setHistory]=useState(false); const [studio,setStudio]=useState(false); const [receiveFlash,setReceiveFlash]=useState("");
   const [adjusting,setAdjusting]=useState(false); const [lineage,setLineage]=useState(false); const [labels,setLabels]=useState(false); const [product360,setProduct360]=useState(false); const [package360,setPackage360]=useState("");
@@ -44,6 +46,8 @@ export function InventoryPage({ initialOperation="retail", onNavigate }: { initi
   const cultivationEnabled=account.data?.capabilities.cultivation??false;
   const productionEnabled=account.data ? Boolean(account.data.capabilities.production || account.data.capabilities.cultivation) : true;
   const role=account.data?.user.role??"";
+  const retailContextAllowed=retailEnabled&&RETAIL_CONTEXT_ROLES.includes(role);
+  const productionContextAllowed=productionEnabled&&PRODUCTION_CONTEXT_ROLES.includes(role);
   const receivingAllowed=["dev","admin","buyer","planner","supervisor","operator","qa","trial"].includes(role);
   const auditAllowed=["dev","admin","buyer","supervisor","operator","qa","trial"].includes(role);
   const packageStudioAllowed=["dev","admin","buyer","planner","supervisor","operator","qa"].includes(role);
@@ -59,10 +63,21 @@ export function InventoryPage({ initialOperation="retail", onNavigate }: { initi
   const productPackages=selected.length===1?packageRows.filter(pkg=>pkg.product_id===selected[0].product_id):[];
   const facets=inventory.data?.facets; const views=operation === "production" ? PRODUCTION_VIEWS : RETAIL_VIEWS;
 
-  useEffect(()=>{ if(account.data&&operation==="production"&&!productionEnabled&&retailEnabled) changeOperation("retail"); if(account.data&&operation==="retail"&&!retailEnabled&&productionEnabled) changeOperation("production"); if(!cultivationEnabled&&grain==="plants")setGrain("packages"); },[account.data,cultivationEnabled,grain,operation,productionEnabled,retailEnabled]);
-  useEffect(()=>{setSelectedIds([]);setActionPackageId("");setPackageChoice(null);setPackage360("")},[operation,grain,view,search,status,materialType,location,source]);
+  useEffect(()=>{
+    if(!account.data)return;
+    if(operation==="production"&&!productionContextAllowed){if(retailContextAllowed)onNavigate?.("Inventory");return;}
+    if(operation==="retail"&&!retailContextAllowed){if(productionContextAllowed)onNavigate?.("Production Inventory");return;}
+    if(!cultivationEnabled&&grain==="plants")setGrain("packages");
+  },[account.data,cultivationEnabled,grain,onNavigate,operation,productionContextAllowed,retailContextAllowed]);
+  useEffect(()=>{
+    setReceiveFlash("");
+    setGrain(operation==="retail"?"products":"packages");
+    setView(operation==="retail"?"All Inventory":"All Material");
+    setColumns(operation==="retail"?RETAIL_PRODUCT_DEFAULTS:PRODUCTION_DEFAULTS);
+    setSelectedIds([]);setActionPackageId("");setPackageChoice(null);setPackage360("");setProduct360(false);
+  },[operation]);
+  useEffect(()=>{setSelectedIds([]);setActionPackageId("");setPackageChoice(null);setPackage360("")},[grain,view,search,status,materialType,location,source]);
   useEffect(()=>{if(!receivingAllowed)setReceiving(false);if(!packageStudioAllowed){setStudio(false);setPackageChoice(choice=>choice==="studio"?null:choice)}if(!adjustAllowed){setAdjusting(false);setPackageChoice(choice=>choice==="adjust"?null:choice)}},[adjustAllowed,packageStudioAllowed,receivingAllowed]);
-  function changeOperation(next:Operation){setOperation(next);setReceiveFlash("");setGrain(next==="retail"?"products":"packages");setView(next==="retail"?"All Inventory":"All Material");setColumns(next==="retail"?RETAIL_PRODUCT_DEFAULTS:PRODUCTION_DEFAULTS);}
   function clearFilters(){setSearch("");setStatus("");setMaterialType("");setLocation("");setSource("");setView(operation==="retail"?"All Inventory":"All Material");}
   function saveCurrentView(){const name=viewName.trim();if(!name)return;const next={...savedViews,[name]:{status,materialType,location,source}};setSavedViews(next);localStorage.setItem("buyer-dash-inventory-views",JSON.stringify(next));setSaveViewOpen(false);setViewName("");}
   function applySaved(name:string){const saved=savedViews[name];if(!saved)return;setStatus(saved.status);setMaterialType(saved.materialType);setLocation(saved.location);setSource(saved.source);}
@@ -82,7 +97,6 @@ export function InventoryPage({ initialOperation="retail", onNavigate }: { initi
   function closeAdjust(){setAdjusting(false);setActionPackageId("");}
 
   return <div className="page">
-    <div className="operation-switch" role="group" aria-label="Inventory operation">{retailEnabled?<button className={operation==="retail"?"active":""} onClick={()=>changeOperation("retail")}>Retail Ops</button>:null}{productionEnabled?<button className={operation==="production"?"active":""} onClick={()=>changeOperation("production")}>Production Ops</button>:null}</div>
     <div className="page-heading"><div><div className="eyebrow">{operation === "retail" ? "RETAIL OPS" : "PRODUCTION OPS"}</div><h1>Inventory</h1><p>{operation === "retail" ? "Search, decide, receive, transform, and audit without leaving Inventory." : "Bulk cannabis materials, lots, rooms, receiving, transformations, and audits."}</p></div><span className="access-badge">{rows.length.toLocaleString()} loaded row(s)</span></div>
     {receiveFlash?<div className="success-banner">{receiveFlash}</div>:null}
     <section className="inventory-panel inventory-command-toolbar"><div className="grain-control" role="group" aria-label="View">{operation==="retail"?<><button className={grain==="products"?"active":""} onClick={()=>{setGrain("products");setColumns(RETAIL_PRODUCT_DEFAULTS)}}>Products</button><button className={grain==="packages"?"active":""} onClick={()=>{setGrain("packages");setColumns(RETAIL_PACKAGE_DEFAULTS)}}>Packages</button></>:<><button className={grain==="packages"?"active":""} onClick={()=>setGrain("packages")}>Packages</button>{cultivationEnabled?<button className={grain==="plants"?"active":""} onClick={()=>setGrain("plants")}>Plants</button>:null}</>}</div><button className="secondary" onClick={()=>setActionsOpen(open=>!open)}>Actions</button><button className="secondary" onClick={()=>setHistory(true)}>Receive history</button><button className="primary" disabled={!receivingAllowed} title={receivingAllowed?"Receive inventory into the active facility":"Receiving permission required"} onClick={()=>{if(!receivingAllowed)return;setReceiveFlash("");setReceiving(true)}}>Receive inventory</button></section>
