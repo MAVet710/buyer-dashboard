@@ -3,9 +3,10 @@ import { useState } from "react";
 import { apiGet } from "../lib/api";
 import type { InventoryResponse } from "../types/inventory";
 import { ExtractionCommandCenterPage } from "./ExtractionCommandCenterPage";
+import { ExtractionOperatorWorkspace } from "./ExtractionOperatorWorkspace";
 import { ExtractionPage } from "./ExtractionPage";
 
-type View = "command" | "process" | "inventory";
+type View = "floor" | "analytics" | "inventory" | "advanced";
 type Lot = {
   lot_id: string;
   product_name: string;
@@ -18,7 +19,7 @@ type Lot = {
 };
 
 export function ExtractionUnifiedPage({ onNavigate }: { onNavigate: (page: string) => void }) {
-  const [view, setView] = useState<View>("command");
+  const [view, setView] = useState<View>("floor");
   const lots = useQuery({
     queryKey: ["extraction-unified-lots"],
     queryFn: ({ signal }) => apiGet<Lot[]>("/api/v1/extraction/lots", signal),
@@ -52,18 +53,20 @@ export function ExtractionUnifiedPage({ onNavigate }: { onNavigate: (page: strin
     <div className="page-heading">
       <div>
         <div className="eyebrow">Production Ops · Extraction</div>
-        <h1>Extraction Command Center</h1>
-        <p>The full Buyer Dash extraction workflow in one place: operating analytics, durable Run 360, process stages, inventory inputs, outputs and QA, COGS, toll work, traceability/METRC, data input and Doobie.</p>
+        <h1>Extraction</h1>
+        <p>Run the floor from the current process step, capture scale readings and operator context inline, and let DoobieLogic calculate deterministic process math. Analytics, inventory, QA, COGS, toll work and traceability remain available without crowding the operator workflow.</p>
       </div>
+      <button className="secondary" type="button" onClick={() => setView("advanced")}>Advanced Run 360</button>
     </div>
     <div className="view-tabs parity-tabs">
-      <button className={view === "command" ? "active" : ""} onClick={() => setView("command")}>Command Center</button>
-      <button className={view === "process" ? "active" : ""} onClick={() => setView("process")}>Run 360 / Process Tracker</button>
-      <button className={view === "inventory" ? "active" : ""} onClick={() => setView("inventory")}>Extraction Inventory</button>
+      <button className={view === "floor" ? "active" : ""} onClick={() => setView("floor")}>Run Floor</button>
+      <button className={view === "analytics" ? "active" : ""} onClick={() => setView("analytics")}>Analytics</button>
+      <button className={view === "inventory" ? "active" : ""} onClick={() => setView("inventory")}>Inventory</button>
     </div>
 
-    {view === "command" ? <div className="embedded-workspace"><ExtractionCommandCenterPage onNavigate={onNavigate} /></div> : null}
-    {view === "process" ? <div className="embedded-workspace"><ExtractionPage onNavigate={onNavigate} /></div> : null}
+    {view === "floor" ? <ExtractionOperatorWorkspace onOpenAdvanced={() => setView("advanced")} /> : null}
+    {view === "analytics" ? <div className="embedded-workspace"><ExtractionCommandCenterPage onNavigate={onNavigate} /></div> : null}
+    {view === "advanced" ? <div className="embedded-workspace"><div className="section-heading"><div><div className="eyebrow">Advanced extraction workspace</div><h2>Run 360, QA, COGS & traceability</h2><p>The complete durable extraction workflow remains available here for controlled actions and deeper investigation.</p></div><button className="secondary" type="button" onClick={() => setView("floor")}>Back to Run Floor</button></div><ExtractionPage onNavigate={onNavigate} /></div> : null}
     {view === "inventory" ? <section className="inventory-panel">
       <div className="section-heading"><div><div className="eyebrow">Extraction Inventory</div><h2>Available input lots</h2><p>Reservation-aware durable facility lots available to reserve into extraction runs. If that feed is unavailable, DoobieLogic falls back to the same Production Inventory package source instead of leaving this workspace blank.</p></div></div>
       {inventoryLoading ? <div className="state">Loading extraction inventory…</div> : null}
