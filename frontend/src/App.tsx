@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
+import { ProductionNextActions } from "./components/ProductionNextActions";
 import { WorkspaceWindow } from "./components/WorkspaceWindow";
 import { entityContextForPath, pageForPath, pathForPage } from "./lib/workspaceRoutes";
 
@@ -56,21 +57,24 @@ export default function App() {
   const location = useLocation();
   const routerNavigate = useNavigate();
   const [run360Open, setRun360Open] = useState(false);
+  const [run360OrderId, setRun360OrderId] = useState("");
   const page = pageForPath(location.pathname);
   const entity = entityContextForPath(location.pathname);
   const productId = entity?.kind === "product" ? entity.id : "";
   const packageCode = entity?.kind === "package" ? entity.id : "";
 
+  const openProductionRun360 = (orderId = "") => {
+    setRun360OrderId(orderId);
+    setRun360Open(true);
+  };
+
   const navigate = (nextPage: string) => {
     if (nextPage === "Production Run 360" && page !== "Production Run 360") {
-      setRun360Open(true);
+      openProductionRun360();
       return;
     }
     routerNavigate(pathForPage(nextPage));
   };
-  // Legacy page-name callers remain valid while BrowserRouter becomes the
-  // authoritative navigation layer. Remove this alias only after all parity
-  // consumers have migrated to canonical routes.
   const setPage = navigate;
 
   useEffect(() => {
@@ -110,8 +114,8 @@ export default function App() {
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
     : page === "Replenishment Policies" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
-    : page === "Production" ? <ProductionPage />
-    : page === "Production Run 360" ? <ProductionRun360Page onNavigate={navigate} />
+    : page === "Production" ? <><ProductionNextActions onOpenRun={openProductionRun360}/><ProductionPage /></>
+    : page === "Production Run 360" ? <ProductionRun360Page onNavigate={navigate} initialOrderId={run360OrderId} />
     : page === "Extraction" ? <ExtractionUnifiedPage onNavigate={navigate} />
     : page === "White Label / Repack" ? <WhiteLabelRepackPage />
     : page === "Package Studio" ? <PackageStudioPage />
@@ -137,8 +141,8 @@ export default function App() {
     <AppShell active={page ?? location.pathname} onNavigate={navigate}>
       <Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense>
     </AppShell>
-    <WorkspaceWindow open={run360Open} onClose={() => setRun360Open(false)} eyebrow="PRODUCTION · RUN 360" title="Production Run 360" subtitle="Inspect and work the run without leaving the production workspace." ariaLabel="Production Run 360" windowKey="production-run-360">
-      <Suspense fallback={<div className="state">Loading Production Run 360…</div>}><ProductionRun360Page onNavigate={navigate}/></Suspense>
+    <WorkspaceWindow open={run360Open} onClose={() => { setRun360Open(false); setRun360OrderId(""); }} eyebrow="PRODUCTION · RUN 360" title="Production Run 360" subtitle="Inspect and work the run without leaving the production workspace." ariaLabel="Production Run 360" windowKey="production-run-360">
+      <Suspense fallback={<div className="state">Loading Production Run 360…</div>}><ProductionRun360Page onNavigate={navigate} initialOrderId={run360OrderId}/></Suspense>
     </WorkspaceWindow>
   </>;
 }
