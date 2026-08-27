@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
 from modules.production_erp.mutations import MUTATION_ACTIONS, ProductionMutationService
+from modules.production_erp.run360_mutations import ProductionRun360MutationService
 from ..auth import RequestContext, get_request_context, get_production_context
 from ..database import get_engine
 
@@ -23,7 +24,7 @@ class MutationCommitRequest(MutationPreviewRequest):
 
 
 def _service(engine: Engine) -> ProductionMutationService:
-    return ProductionMutationService(engine)
+    return ProductionRun360MutationService(engine)
 
 
 def _guard_qa(action_type: str, context: RequestContext) -> None:
