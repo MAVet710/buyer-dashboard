@@ -91,6 +91,33 @@ Signals include:
 
 A true material shortage is labeled **Buyer review**. The plan never performs a purchasing mutation.
 
+### Capacity-aware Production Calendar
+
+Production scheduling is a durable execution-planning object rather than a visualization of due dates.
+
+Each run can have a versioned active schedule placement with:
+- scheduled start and end
+- assigned facility machine
+- planned crew
+- scheduling reason / note
+- immutable prior versions for audit history
+
+Before a schedule mutation is committed, DoobieLogic previews the exact proposed placement against:
+- BOM standard cycle time
+- planned crew person-hours and facility crew availability across every calendar day touched
+- required machine/resource category
+- overlapping use of the same machine
+- material balances and reservations
+- QA holds and QA release requirements
+- compliance checkpoints
+- production-order due date
+
+The preview is bound to a fingerprint of the relevant operational state. Material, reservation, crew, machine, QA, execution, BOM-standard, or current-placement changes invalidate the preview and require the planner to review it again. Schedule commits are serialized per production order to prevent two planners from committing the same stale preview concurrently.
+
+Material shortages remain advisory to Buying: the calendar can show **Buyer review required**, but it has no purchasing mutation path.
+
+Calendar placements open the exact Production Run 360 for execution.
+
 ## Existing Canix-equivalent foundation intentionally reused
 
 The production ERP already has:
@@ -106,16 +133,16 @@ The production ERP already has:
 - attainment
 - resources and crews
 - audit/evidence history
+- versioned capacity-aware schedule placements
 
 Future planning work extends these canonical objects rather than creating a second recipe/template data model.
 
 ## Next displacement slices
 
-1. Add a capacity-aware Production Calendar that warns about material, labor, machine, QA, and due-date conflicts before schedule changes are committed.
-2. Add approval state + exact mutation preview to affected 360 objects.
-3. Add draft autosave/recovery to long operator workflows.
-4. Build the global external-sync ledger and surface Metrc/BioTrack/accounting failures inside the relevant 360.
-5. Add offline/PWA action queue, then scanner, Bluetooth scale, and RFID capture adapters.
-6. Deepen Cultivation 360 with mobile scan workflows, labor/consumable costing, and demand-linked harvest/crop forecasting.
-7. Extend closed-loop costing from BOM standard -> actual run -> yield/loss -> COGS -> product/order profitability.
-8. Add accounting reconciliation depth for QuickBooks first, then Sage.
+1. Add approval state + exact mutation preview to affected 360 objects, starting with high-impact Production Run 360 actions.
+2. Add draft autosave/recovery to long operator workflows.
+3. Build the global external-sync ledger and surface Metrc/BioTrack/accounting failures inside the relevant 360.
+4. Add offline/PWA action queue, then scanner, Bluetooth scale, and RFID capture adapters.
+5. Deepen Cultivation 360 with mobile scan workflows, labor/consumable costing, and demand-linked harvest/crop forecasting.
+6. Extend closed-loop costing from BOM standard -> actual run -> yield/loss -> COGS -> product/order profitability.
+7. Add accounting reconciliation depth for QuickBooks first, then Sage.
