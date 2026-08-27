@@ -76,9 +76,12 @@ export default function App() {
   useEffect(() => {
     const pending = sessionStorage.getItem("buyer-dash-pending-page");
     if (pending) {
-      sessionStorage.removeItem("buyer-dash-pending-page");
       const pendingPath = pathForPage(pending);
-      if (pendingPath !== location.pathname) routerNavigate(pendingPath, { replace: true });
+      if (pendingPath === location.pathname) {
+        sessionStorage.removeItem("buyer-dash-pending-page");
+      } else {
+        routerNavigate(pendingPath, { replace: true });
+      }
       return;
     }
     if (location.pathname === "/") routerNavigate("/home", { replace: true });
