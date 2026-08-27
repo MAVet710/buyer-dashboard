@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
-from modules.commerce_storefronts.service import CommerceStorefrontService
+from modules.commerce_storefronts.wholesale_service import WholesaleCommerceStorefrontService as CommerceStorefrontService
 
 from ..auth import RequestContext, get_request_context, require_facility_capability
 from ..database import get_engine
@@ -92,6 +92,12 @@ def save_storefront(payload: StorefrontPayload, context: RequestContext = Depend
         return CommerceStorefrontService._storefront_dict(row)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/wholesale-inventory")
+def wholesale_inventory(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _authorize(context, engine)
+    return CommerceStorefrontService(engine).wholesale_inventory(context.organization_id, context.facility_id)
 
 
 @router.get("/catalog-options")
