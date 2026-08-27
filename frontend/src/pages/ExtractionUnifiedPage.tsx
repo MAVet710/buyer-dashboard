@@ -12,6 +12,10 @@ type View = "today" | "runs" | "inventory" | "analytics";
 type AdvancedView = "run" | "management";
 type Lot = { lot_id:string; product_name:string; lot_code:string; compliance_package_id:string; available:number; unit:string; location?:string; status?:string };
 
+// Streamlit parity compatibility: the former "Command Center" and
+// "Run 360 / Process Tracker" capabilities remain reachable inside the
+// contextual Advanced Extraction window instead of occupying primary navigation.
+
 export function ExtractionUnifiedPage({onNavigate}:{onNavigate:(page:string)=>void}) {
   const [view,setView]=useState<View>("today");
   const [advancedOpen,setAdvancedOpen]=useState(false);
