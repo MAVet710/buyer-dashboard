@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 import { apiGet, apiPost } from "../lib/api";
 import type { CultivationPlant, PlantEvent, PlantPhase } from "../types/inventory";
+import { CultivationToday } from "./CultivationToday";
 import { StreamlitDialog } from "./StreamlitDialog";
 
 const phases: PlantPhase[] = ["clone", "seedling", "vegetative", "flowering", "harvested", "destroyed"];
@@ -14,12 +15,15 @@ export function PlantInventory() {
   const canWrite = writeRoles.has(account.data?.user.role ?? "");
   const [search, setSearch] = useState(""); const [phase, setPhase] = useState(""); const [room, setRoom] = useState("");
   const [creating, setCreating] = useState(false); const [selected, setSelected] = useState<CultivationPlant | null>(null);
+  const overview = useQuery({ queryKey: ["plants-overview"], queryFn: ({ signal }) => apiGet<CultivationPlant[]>("/api/v1/inventory/production/plants", signal) });
   const query = useQuery({ queryKey: ["plants", search, phase, room], queryFn: ({ signal }) => apiGet<CultivationPlant[]>(`/api/v1/inventory/production/plants?${new URLSearchParams({ search, phase, room })}`, signal) });
-  const refresh = () => client.invalidateQueries({ queryKey: ["plants"] });
-  const rooms = [...new Set((query.data ?? []).map(plant => plant.room_code))];
+  const refresh = () => { client.invalidateQueries({ queryKey: ["plants"] }); client.invalidateQueries({ queryKey: ["plants-overview"] }); };
+  const rooms = [...new Set((overview.data ?? query.data ?? []).map(plant => plant.room_code))];
   return <>
+    {overview.data ? <CultivationToday plants={overview.data} onSelect={setSelected} /> : null}
     <div className="plant-toolbar"><input placeholder="Search tag, strain, room…" value={search} onChange={event => setSearch(event.target.value)} /><select value={phase} onChange={event => setPhase(event.target.value)}><option value="">All phases</option>{phases.map(value => <option key={value}>{value}</option>)}</select><select value={room} onChange={event => setRoom(event.target.value)}><option value="">All rooms</option>{rooms.map(value => <option key={value}>{value}</option>)}</select>{canWrite ? <button className="primary" onClick={() => setCreating(true)}>Add plant</button> : null}</div>
     {!canWrite && account.data ? <p className="source-caption">Plant inventory is read-only for the {account.data.user.role} role.</p> : null}
+    {overview.isError ? <div className="state error">Cultivation Today could not load: {overview.error.message}</div> : null}
     {query.isLoading ? <div className="state">Loading plant inventory…</div> : null}{query.isError ? <div className="state error">{query.error.message}</div> : null}
     {query.data ? <div className="table-wrap"><table><thead><tr><th>Plant tag</th><th>Strain</th><th>Phase</th><th>Room</th><th>Mother</th><th>Planted</th><th>Est. harvest</th></tr></thead><tbody>{query.data.map(plant => <tr key={plant.id} onClick={() => setSelected(plant)}><td>{plant.plant_tag}</td><td>{plant.strain_name}</td><td><span className="badge">{plant.phase}</span></td><td>{plant.room_code}</td><td>{plant.mother_plant_tag || "—"}</td><td>{plant.planted_at || "—"}</td><td>{plant.estimated_harvest_date || "—"}</td></tr>)}</tbody></table>{query.data.length === 0 ? <div className="empty">No plants match these filters.</div> : null}</div> : null}
     {creating ? <CreatePlant onClose={() => setCreating(false)} onSaved={refresh} /> : null}
