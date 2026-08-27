@@ -19,7 +19,7 @@ from services.ai.providers import GeminiProvider, LocalOpenAIProvider, OpenAIPro
 
 from ..auth import RequestContext
 from ..config import Settings
-from .ai_dataset_extensions import register_governed_agent_datasets
+from .ai_dataset_extensions import GovernedKnowledgeRetriever, register_governed_agent_datasets
 from .ai_datasets import build_dataset_registry, facility_access
 
 
@@ -131,7 +131,7 @@ def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext
         timeout_seconds=settings.local_embedding_timeout_seconds,
     ) if embedding_base and embedding_model else None
     store = KnowledgeStore(engine)
-    retriever = KnowledgeRetriever(store, embeddings)
+    retriever = GovernedKnowledgeRetriever(KnowledgeRetriever(store, embeddings), engine, context)
     registry = build_dataset_registry(context, engine, operation_type=operation_type)
     register_governed_agent_datasets(registry, context, engine)
     access, organization_name, facility_name = facility_access(context, engine, operation_type=operation_type)
