@@ -25,7 +25,7 @@ def test_schedule_migration_chains_from_bom_standards_head():
     migration = (
         ROOT / "migrations" / "versions" / "0047_production_schedule_placements.py"
     ).read_text(encoding="utf-8")
-    assert 'revision = "0047_production_schedule_placements"' in migration
+    assert 'revision = "0047_prod_schedule"' in migration
     assert 'down_revision = "0046_production_bom_standards"' in migration
     assert '"production_schedule_placements"' in migration
     assert 'sa.UniqueConstraint("production_order_id", "version"' in migration
