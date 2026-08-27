@@ -43,6 +43,8 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
   const [zIndex, setZIndex] = useState(() => nextWorkspaceWindowZIndex());
   const windowRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   const bringToFront = useCallback(() => {
     const nextZIndex = nextWorkspaceWindowZIndex();
@@ -60,14 +62,14 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
     }
     bringToFront();
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && topWorkspaceWindowKey() === windowKey) onClose();
+      if (event.key === "Escape" && topWorkspaceWindowKey() === windowKey) onCloseRef.current();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => {
       workspaceWindowRegistry.delete(windowKey);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [bringToFront, open, onClose, windowKey]);
+  }, [bringToFront, open, windowKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -80,11 +82,15 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
       const rect = windowRef.current?.getBoundingClientRect();
       if (!rect) return;
       const margin = 12;
-      setPosition(current => current ? {
-        left: Math.min(Math.max(margin, window.innerWidth - rect.width - margin), Math.max(margin, current.left)),
-        top: Math.min(Math.max(margin, window.innerHeight - rect.height - margin), Math.max(margin, current.top)),
-      } : current);
+      setPosition(current => {
+        if (!current) return current;
+        const nextLeft = Math.min(Math.max(margin, window.innerWidth - rect.width - margin), Math.max(margin, current.left));
+        const nextTop = Math.min(Math.max(margin, window.innerHeight - rect.height - margin), Math.max(margin, current.top));
+        if (nextLeft === current.left && nextTop === current.top) return current;
+        return { left: nextLeft, top: nextTop };
+      });
     };
+    clamp();
     window.addEventListener("resize", clamp);
     return () => window.removeEventListener("resize", clamp);
   }, [maximized, minimized, open, position]);
