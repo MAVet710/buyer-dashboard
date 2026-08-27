@@ -1,6 +1,6 @@
 import { Maximize2, Minimize2, Minus, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type PropsWithChildren, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type PropsWithChildren, type ReactNode } from "react";
 import "./workspace-window.css";
 
 type Position = { left: number; top: number };
@@ -32,7 +32,7 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
   const windowRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
 
-  const bringToFront = () => setZIndex(nextWorkspaceWindowZIndex());
+  const bringToFront = useCallback(() => setZIndex(nextWorkspaceWindowZIndex()), []);
 
   useEffect(() => {
     if (!open) {
@@ -47,7 +47,7 @@ export function WorkspaceWindow({ open, eyebrow, title, subtitle, footer, onClos
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [open, onClose]);
+  }, [bringToFront, open, onClose]);
 
   useEffect(() => {
     if (!open) return;
