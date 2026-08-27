@@ -1,6 +1,6 @@
 """Shared extraction-inventory eligibility rules.
 
-Extraction works from the same durable inventory ledger as Production.  This
+Extraction works from the same durable inventory ledger as Production. This
 module only defines which products belong in the Extraction working projection;
 it never changes, deletes, or moves inventory records.
 """
@@ -71,8 +71,8 @@ BULK_TERMS = (
     "work-in-process",
 )
 
-# These descriptors represent consumer-ready or unrelated production items.
-# Explicit bulk/WIP classification still wins where appropriate.
+# Consumer package descriptors used when Product Master still models flower as
+# the generic cannabis item type. Explicit bulk/WIP semantics override them.
 CONSUMER_READY_TERMS = (
     "pre-roll",
     "pre roll",
@@ -89,25 +89,25 @@ CONSUMER_READY_TERMS = (
     "1/8",
     "quarter ounce",
     "half ounce",
+    "3.5g",
+    "3.5 g",
+    "7g",
+    "7 g",
+    "14g",
+    "14 g",
+    "28g",
+    "28 g",
     "multipack",
     "multi-pack",
     "retail-ready",
     "retail ready",
 )
 
-PACKAGING_TERMS = (
-    "label",
-    "jar",
-    "bottle",
-    "cap",
-    "lid",
-    "carton",
-    "case",
-    "pouch",
-    "bag",
-    "tube",
-    "cartridge hardware",
-    "vape hardware",
+PACKAGING_CLASS_TERMS = (
+    "packaging",
+    "packaging component",
+    "hardware",
+    "label stock",
 )
 
 
@@ -134,23 +134,32 @@ def classify_extraction_inventory(
 ) -> ExtractionEligibility:
     """Classify a Product Master item for the Extraction working inventory.
 
-    The rule favors durable product semantics over package quantity.  A package
-    can contain a large or small amount without changing what the product is.
+    Product semantics win over package quantity. This keeps a 3.5g retail flower
+    SKU out while still allowing a bulk flower lot whose current balance happens
+    to be small after partial use.
     """
 
     kind = str(item_type or "").strip().casefold().replace(" ", "_")
     unit = str(base_unit or "").strip().casefold()
     text = _descriptor(product_name, sku, category, subcategory, product_format)
+    classification_text = _descriptor(category, subcategory, product_format)
     explicit_bulk = any(token in text for token in BULK_TERMS)
-    wip_like = kind == "wip" or any(token in text for token in WIP_TERMS)
+    extraction_intermediate = any(token in text for token in WIP_TERMS)
 
-    if kind == "packaging" or any(token in text for token in PACKAGING_TERMS):
+    if kind == "packaging" or any(token in classification_text for token in PACKAGING_CLASS_TERMS):
         return ExtractionEligibility(False, "excluded", "Packaging or non-cannabis production material")
 
-    if any(token in text for token in CONSUMER_READY_TERMS) and not explicit_bulk and not wip_like:
+    # A normal finished_good is consumer-ready. Only an explicitly bulk
+    # extraction output stays in the Extraction working projection.
+    if kind == "finished_good":
+        if explicit_bulk and extraction_intermediate:
+            return ExtractionEligibility(True, "bulk_output", "Explicit bulk extraction output")
+        return ExtractionEligibility(False, "excluded", "Finished packaged product")
+
+    if any(token in text for token in CONSUMER_READY_TERMS) and not explicit_bulk:
         return ExtractionEligibility(False, "excluded", "Consumer-ready packaged product")
 
-    if wip_like:
+    if kind == "wip" or extraction_intermediate:
         return ExtractionEligibility(True, "extraction_wip", "Extraction work-in-process or intermediate")
 
     if kind == "cannabis":
@@ -159,11 +168,6 @@ def classify_extraction_inventory(
         if unit in WEIGHT_UNITS:
             return ExtractionEligibility(True, "source_material", "Weight-based cannabis source material")
         return ExtractionEligibility(False, "excluded", "Cannabis item is not identified as extraction source material")
-
-    if kind == "finished_good":
-        if explicit_bulk and any(token in text for token in WIP_TERMS):
-            return ExtractionEligibility(True, "bulk_output", "Explicit bulk extraction output")
-        return ExtractionEligibility(False, "excluded", "Finished packaged product")
 
     if explicit_bulk and any(token in text for token in SOURCE_TERMS + WIP_TERMS):
         return ExtractionEligibility(True, "bulk_output", "Explicit bulk extraction material")
