@@ -21,6 +21,21 @@ from .tools import ToolRegistry
 from .validation import parse_structured, validate_agent_response
 
 
+_KNOWLEDGE_AWARE_AGENTS = {
+    "ops",
+    "buyer",
+    "purchasing",
+    "inventory",
+    "repack",
+    "coman",
+    "extraction",
+    "commercial",
+    "commercial_finance",
+    "cultivation",
+    "data_hub",
+}
+
+
 class AgentRuntime:
     """DoobieLogic-owned runtime: authorize -> deterministic -> local -> validate -> fallback."""
 
@@ -91,7 +106,8 @@ class AgentRuntime:
         legal_regulatory = bool(requires_regulatory_grounding(question))
         compliance_grounded = bool(profile.compliance_grounded_only)
         knowledge_required = legal_regulatory or compliance_grounded
-        knowledge = self._knowledge(access, question, authoritative_only=knowledge_required) if knowledge_required or profile.key in {"extraction", "data_hub"} else {"results": []}
+        knowledge_useful = knowledge_required or profile.key in _KNOWLEDGE_AWARE_AGENTS
+        knowledge = self._knowledge(access, question, authoritative_only=knowledge_required) if knowledge_useful else {"results": []}
         citations = public_citations(list(knowledge.get("results") or []))
         required_authority = 1 if legal_regulatory else 2 if compliance_grounded else 99
         authoritative_sources = [source for source in citations if int(source.get("authority_level") or 99) <= required_authority]
@@ -154,7 +170,16 @@ class AgentRuntime:
         prompt = system_prompt(profile, organization_name=organization_name, facility_name=facility_name, operation_type=access.operation_type, tool_names=tools.names(), dataset_keys=sorted(datasets), knowledge_required=knowledge_required)
         messages = [*bounded_history(history), {"role": "user", "content": question}]
         if knowledge.get("results"):
-            grounding_payload = [{key: row.get(key) for key in ("title", "source_type", "authority_level", "page_or_section", "content")} for row in knowledge["results"]]
+            grounding_payload = [
+                {
+                    key: row.get(key)
+                    for key in (
+                        "title", "source", "source_type", "authority_level", "jurisdiction", "effective_date",
+                        "updated_at", "version", "url", "page_or_section", "content"
+                    )
+                }
+                for row in knowledge["results"]
+            ]
             messages.append({"role": "user", "content": "Retrieved knowledge evidence: " + json.dumps(grounding_payload, default=str)[:16000]})
         request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=tools.schemas() if datasets else [], response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets)}})
         used_tools: list[str] = []
