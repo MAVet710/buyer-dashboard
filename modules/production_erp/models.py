@@ -125,3 +125,29 @@ class ProductionQAEvent(Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class ProductionSchedulePlacement(TimestampMixin, Base):
+    """Immutable versioned placement of one production order on the facility schedule."""
+
+    __tablename__ = "production_schedule_placements"
+    __table_args__ = (
+        UniqueConstraint("production_order_id", "version", name="uq_production_schedule_order_version"),
+        CheckConstraint("version > 0", name="ck_production_schedule_version_positive"),
+        CheckConstraint("planned_people >= 0", name="ck_production_schedule_people_nonnegative"),
+        CheckConstraint("scheduled_end_at > scheduled_start_at", name="ck_production_schedule_time_order"),
+        Index("ix_production_schedule_facility_active_start", "facility_id", "active", "scheduled_start_at"),
+        Index("ix_production_schedule_machine_active_time", "machine_id", "active", "scheduled_start_at", "scheduled_end_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
+    production_order_id: Mapped[str] = mapped_column(ForeignKey("coman_production_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    scheduled_start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    scheduled_end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    machine_id: Mapped[str | None] = mapped_column(ForeignKey("coman_facility_machines.id", ondelete="SET NULL"), nullable=True, index=True)
+    planned_people: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
