@@ -1,9 +1,8 @@
-import { BrainCircuit, Maximize2, Minimize2, Send, Sparkles, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
-import { createPortal } from "react-dom";
+import { BrainCircuit, Send, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiGet, apiPost } from "../lib/api";
+import { WorkspaceWindow } from "./WorkspaceWindow";
 import "./workspace-agent.css";
 
 type AgentProfile = {
@@ -65,9 +64,6 @@ type Props = {
   onNavigate: (page: string) => void;
 };
 
-type AgentPosition = { left: number; top: number };
-type AgentDragState = AgentPosition & { pointerId: number; width: number; height: number; startX: number; startY: number };
-
 function storageKey(scope: string) { return `workspace-agent-history-${scope}`; }
 function readHistory(scope: string): ChatMessage[] {
   try {
@@ -83,14 +79,10 @@ function saveHistory(scope: string, history: ChatMessage[]) {
 
 export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
   const [open, setOpen] = useState(false);
-  const [maximized, setMaximized] = useState(false);
-  const [position, setPosition] = useState<AgentPosition | null>(null);
   const [agentKey, setAgentKey] = useState("");
   const [question, setQuestion] = useState("");
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [lastRun, setLastRun] = useState<AgentRun | null>(null);
-  const drawerRef = useRef<HTMLElement | null>(null);
-  const dragRef = useRef<AgentDragState | null>(null);
 
   const params = useMemo(() => new URLSearchParams({ app_mode: operation, section: activePage }), [activePage, operation]);
   const directory = useQuery({
@@ -122,21 +114,6 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
     setQuestion(selected.suggested_questions[0] ?? "What needs my attention in this workspace?");
   }, [question, selected]);
 
-  useEffect(() => {
-    const clampToViewport = () => {
-      if (!position || maximized || window.innerWidth <= 720) return;
-      const rect = drawerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const margin = 12;
-      setPosition(current => current ? {
-        left: Math.min(Math.max(margin, window.innerWidth - rect.width - margin), Math.max(margin, current.left)),
-        top: Math.min(Math.max(margin, window.innerHeight - rect.height - margin), Math.max(margin, current.top)),
-      } : current);
-    };
-    window.addEventListener("resize", clampToViewport);
-    return () => window.removeEventListener("resize", clampToViewport);
-  }, [position, maximized]);
-
   const run = useMutation({
     mutationFn: () => apiPost<AgentRun>("/api/v1/ai-agents/run", {
       agent_key: effectiveKey,
@@ -164,74 +141,24 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
     saveHistory(historyScope, []);
   };
 
-  const beginDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (maximized || event.button !== 0 || window.innerWidth <= 720 || (event.target as HTMLElement).closest("button")) return;
-    const rect = drawerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      left: rect.left,
-      top: rect.top,
-      width: rect.width,
-      height: rect.height,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const dragWindow = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || maximized) return;
-    const margin = 12;
-    const maxLeft = Math.max(margin, window.innerWidth - drag.width - margin);
-    const maxTop = Math.max(margin, window.innerHeight - drag.height - margin);
-    setPosition({
-      left: Math.min(maxLeft, Math.max(margin, drag.left + event.clientX - drag.startX)),
-      top: Math.min(maxTop, Math.max(margin, drag.top + event.clientY - drag.startY)),
-    });
-  };
-
-  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragRef.current?.pointerId !== event.pointerId) return;
-    dragRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-  };
-
-  const toggleMaximized = () => setMaximized(value => !value);
-  const drawerStyle = position && !maximized
-    ? ({ "--agent-left": `${position.left}px`, "--agent-top": `${position.top}px` } as CSSProperties)
-    : undefined;
   const provider = directory.data?.provider;
   const sourceList = lastRun?.sources ?? [];
   const freshness = Object.entries(lastRun?.data_freshness ?? {});
 
-  const floatingWindow = typeof document === "undefined" ? null : createPortal(<aside
-      ref={drawerRef}
-      style={drawerStyle}
-      className={`workspace-agent-drawer ${open ? "open" : ""} ${maximized ? "maximized" : ""} ${position && !maximized ? "has-custom-position" : ""}`}
-      role="dialog"
-      aria-modal="false"
-      aria-label="DoobieLogic AI agents"
-      aria-hidden={!open}
+  return <>
+    <button className="workspace-agent-launch" type="button" onClick={() => setOpen(true)} aria-label="Open Doobie Agent">
+      <BrainCircuit size={18}/><span>{selected?.name ?? "Doobie Agent"}</span><i className={provider?.configured ? "is-connected" : ""}/>
+    </button>
+    <WorkspaceWindow
+      open={open}
+      onClose={() => setOpen(false)}
+      eyebrow={<><Sparkles size={14}/> DOOBIELOGIC INTELLIGENCE</>}
+      title="Doobie Agent"
+      subtitle="Provider-neutral specialists with read-only operational context. Keep working behind this window while the Agent stays open."
+      ariaLabel="Doobie Agent"
+      windowKey={`doobie-agent:${operation}`}
+      className="workspace-agent-window"
     >
-      <div
-        className="workspace-agent-header"
-        onPointerDown={beginDrag}
-        onPointerMove={dragWindow}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onDoubleClick={event => { if (!(event.target as HTMLElement).closest("button") && window.innerWidth > 720) toggleMaximized(); }}
-      >
-        <div><div className="eyebrow"><Sparkles size={14}/> DoobieLogic Intelligence</div><h2>Workspace AI Agents</h2><p>Provider-neutral specialists. Deterministic analytics run before model reasoning and all operational tools stay read-only.</p></div>
-        <div className="workspace-agent-window-actions">
-          <button className="icon-button workspace-agent-maximize" type="button" aria-label={maximized ? "Restore AI agent window" : "Maximize AI agent window"} title={maximized ? "Restore" : "Maximize"} onClick={toggleMaximized}>
-            {maximized ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}
-          </button>
-          <button className="icon-button" type="button" aria-label="Close AI agents" onClick={() => setOpen(false)}><X size={19}/></button>
-        </div>
-      </div>
-
       <div className="workspace-agent-body">
         {directory.isLoading ? <div className="state">Loading AI agent directory…</div> : null}
         {directory.isError ? <div className="state error">{directory.error.message}</div> : null}
@@ -239,7 +166,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
           <section className="workspace-agent-control">
             <label>Specialist<select value={effectiveKey} onChange={event => { setAgentKey(event.target.value); setQuestion(""); }}>{agents.map(agent => <option value={agent.key} key={agent.key}>{agent.name}</option>)}</select></label>
             <div className="agent-provider-line"><span className={provider?.configured ? "provider-dot connected" : "provider-dot"}/><strong>{provider?.provider ?? "AI runtime"}</strong><span>{provider?.model ? `${provider.model} · ` : ""}{provider?.local === false ? "cloud" : "local"} · {provider?.status?.replaceAll("_", " ")}</span></div>
-            {provider?.status === "deterministic_only" ? <div className="warning-banner agent-provider-warning"><p>{provider.message}</p><button className="secondary" type="button" onClick={() => { onNavigate("Integrations"); setOpen(false); }}>Open AI integrations</button></div> : null}
+            {provider?.status === "deterministic_only" ? <div className="warning-banner agent-provider-warning"><p>{provider.message}</p><button className="secondary" type="button" onClick={() => onNavigate("Integrations")}>Open AI integrations</button></div> : null}
           </section>
 
           <section className="workspace-agent-profile">
@@ -268,12 +195,6 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
           <div className="agent-footer"><span>Provider: {lastRun?.provider ?? provider?.provider ?? "Not connected"}{lastRun?.model ? ` · ${lastRun.model}` : ""}</span><button className="link-button" type="button" disabled={!history.length} onClick={clear}>Clear conversation</button></div>
         </> : null}
       </div>
-    </aside>, document.body);
-
-  return <>
-    <button className="workspace-agent-launch" type="button" onClick={() => setOpen(true)} aria-label="Open DoobieLogic AI agents">
-      <BrainCircuit size={18}/><span>{selected?.name ?? "AI Agents"}</span><i className={provider?.configured ? "is-connected" : ""}/>
-    </button>
-    {floatingWindow}
+    </WorkspaceWindow>
   </>;
 }

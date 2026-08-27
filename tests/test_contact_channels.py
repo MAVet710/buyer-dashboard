@@ -58,33 +58,39 @@ def test_contact_channel_styles_include_mobile_support_control():
 
 
 def test_workspace_agent_is_a_true_floating_window():
-    css = (ROOT / "frontend" / "src" / "components" / "workspace-agent.css").read_text(encoding="utf-8")
-    component = (ROOT / "frontend" / "src" / "components" / "WorkspaceAgent.tsx").read_text(encoding="utf-8")
+    agent_css = (ROOT / "frontend" / "src" / "components" / "workspace-agent.css").read_text(encoding="utf-8")
+    window_css = (ROOT / "frontend" / "src" / "components" / "workspace-window.css").read_text(encoding="utf-8")
+    agent = (ROOT / "frontend" / "src" / "components" / "WorkspaceAgent.tsx").read_text(encoding="utf-8")
+    window = (ROOT / "frontend" / "src" / "components" / "WorkspaceWindow.tsx").read_text(encoding="utf-8")
 
-    assert "right:28px" in css
-    assert "top:72px" in css
-    assert "height:min(700px,calc(100dvh - 144px))" in css
-    assert "border-radius:22px" in css
-    assert "backdrop-filter:blur(24px)" in css
-    assert ".workspace-agent-body{" in css
-    assert ".workspace-agent-drawer.maximized" in css
-    assert ".workspace-agent-drawer.has-custom-position" in css
-    assert "onPointerDown={beginDrag}" in component
-    assert "onPointerMove={dragWindow}" in component
-    assert "Maximize2" in component
-    assert "Minimize2" in component
-    assert "workspace-agent-maximize" in component
-    assert "right:0;top:0;height:100dvh" not in css
+    assert ".workspace-agent-window{" in agent_css
+    assert "bottom:24px" in agent_css
+    assert "<WorkspaceWindow" in agent
+    assert 'className="workspace-agent-window"' in agent
+    assert "onPointerDown={beginDrag}" in window
+    assert "Maximize2" in window
+    assert "Minimize2" in window
+    assert "workspace-window-minimize" in window
+    assert "workspace-window-maximize" in window
+    assert "workspace-window-close" in window
+    assert ".workspace-window.minimized" in window_css
+    assert "backdrop-filter:blur(24px)" not in window_css
+    assert "backdrop-filter:blur(24px)" not in agent_css
 
 
 def test_workspace_agent_portals_to_viewport_and_remains_non_blocking():
-    component = (ROOT / "frontend" / "src" / "components" / "WorkspaceAgent.tsx").read_text(encoding="utf-8")
+    agent = (ROOT / "frontend" / "src" / "components" / "WorkspaceAgent.tsx").read_text(encoding="utf-8")
+    window = (ROOT / "frontend" / "src" / "components" / "WorkspaceWindow.tsx").read_text(encoding="utf-8")
+    window_css = (ROOT / "frontend" / "src" / "components" / "workspace-window.css").read_text(encoding="utf-8")
 
-    assert 'import { createPortal } from "react-dom"' in component
-    assert "createPortal(" in component
-    assert "document.body" in component
-    assert 'aria-modal="false"' in component
-    assert "workspace-agent-backdrop" not in component
-    assert "window.innerWidth - drag.width" in component
-    assert "window.innerHeight - drag.height" in component
-    assert "window.addEventListener(\"resize\", clampToViewport)" in component
+    assert 'import { WorkspaceWindow } from "./WorkspaceWindow"' in agent
+    assert 'import { createPortal } from "react-dom"' in window
+    assert "createPortal(" in window
+    assert "document.body" in window
+    assert 'aria-modal="false"' in window
+    assert "workspace-agent-backdrop" not in agent
+    assert "workspace-window-backdrop" not in window
+    assert "window.innerWidth - state.width" in window
+    assert "window.innerHeight - state.height" in window
+    assert 'window.addEventListener("resize", clamp)' in window
+    assert "min-width:44px;min-height:44px" in window_css
