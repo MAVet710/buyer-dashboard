@@ -18,6 +18,7 @@ def test_extraction_uses_job_first_four_surface_navigation():
     assert "Command Center</button>" not in unified
     assert '<ExtractionOperatorWorkspace mode="today"' in unified
     assert '<ExtractionOperatorWorkspace mode="runs"' in unified
+    assert "<ExtractionAnalyticsWorkspace" in unified
     assert "<ExtractionCommandCenterPage" in unified
 
 
@@ -30,6 +31,7 @@ def test_advanced_run_360_is_context_not_another_navigation_destination():
     assert 'ariaLabel="Advanced Extraction Run 360"' in unified
     assert "<ExtractionPage" in unified
     assert 'type View = "today" | "runs" | "inventory" | "analytics"' in unified
+    assert "Management & Compliance" in unified
 
 
 def test_today_prioritizes_attention_running_and_next_work():
@@ -55,7 +57,7 @@ def test_new_run_starts_from_source_material_instead_of_giant_record_form():
     assert '`/api/v1/extraction/runs/${run.id}/inputs`' in floor
     assert '`/api/v1/extraction/inputs/${input.id}/consume`' in floor
     assert 'event_type:"started"' in floor
-    assert ">Start run</button>" in floor
+    assert '"Start run"' in floor
 
 
 def test_floor_operator_enters_measurements_while_system_calculates_process_math():
@@ -99,6 +101,17 @@ def test_floor_keeps_traceability_and_formulation_but_progressively_discloses_th
     assert "Calculated terpene addition" in floor
     assert "Expected formulated mass" in floor
     assert "Confirm actual scale output" in floor
+
+
+def test_primary_analytics_is_focused_on_performance_not_data_entry():
+    analytics = read("frontend/src/pages/ExtractionAnalyticsWorkspace.tsx")
+
+    assert "Extraction analytics" in analytics
+    assert "Method comparison" in analytics
+    assert "Avg yield" in analytics
+    assert "Recorded loss" in analytics
+    assert "COGS" in analytics
+    assert "Data entry stays on Today/Runs" in analytics
 
 
 def test_backend_remains_authoritative_for_deterministic_stage_loss():
