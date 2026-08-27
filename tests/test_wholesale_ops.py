@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from modules.coman.models import Base, InventoryLot
 from modules.coman.repository import ComanRepository
 from modules.commerce_storefronts.wholesale_service import WholesaleCommerceStorefrontService
+from modules.inventory_availability.service import InventoryAvailabilityService
 
 
 def _setup():
@@ -106,3 +107,66 @@ def test_public_storefront_catalog_inherits_wholesale_coa_gate():
 
     public = service.public_catalog("wholesale-qa")
     assert [row["sku"] for row in public["catalog"]] == ["PASSED"]
+
+
+def test_storefront_submission_is_demand_only_and_approval_becomes_inventory_commitment():
+    engine, coman, organization, facility = _setup()
+    product = coman.create_product(
+        organization.id,
+        sku="APPROVAL-COMMIT",
+        name="Approved Wholesale Case",
+        item_type="finished_good",
+        base_unit="case",
+        retail_price=100,
+        actor="dev",
+    )
+    lot = coman.create_inventory_lot(
+        organization.id,
+        facility.id,
+        product_id=product.id,
+        lot_code="APPROVAL-LOT",
+        actor="dev",
+        opening_quantity=10,
+        unit="case",
+    )
+    _mark_coa(engine, lot.id, state="Passed", reference="COA-APPROVAL")
+
+    service = WholesaleCommerceStorefrontService(engine)
+    service.upsert_storefront(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        actor="admin",
+        display_name="Approval QA",
+        subdomain="approval-qa",
+        published=True,
+    )
+    service.set_products(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        actor="admin",
+        products=[{"product_id": product.id, "price_usd": 80, "minimum_quantity": 1, "case_quantity": 1}],
+    )
+
+    request = service.submit_order_request(
+        slug="approval-qa",
+        buyer_company="Licensed Retailer",
+        buyer_license="MR123",
+        buyer_contact="Buyer",
+        buyer_email="buyer@example.com",
+        lines=[{"product_id": product.id, "quantity": 4}],
+    )
+    submitted = InventoryAvailabilityService(engine).facility_snapshot(organization.id, facility.id)["by_lot"][lot.id]
+    assert request.status == "submitted"
+    assert submitted["wholesale_committed"] == 0
+    assert submitted["available"] == 10
+
+    approved = service.approve_order_request(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        request_id=request.id,
+        actor="sales-manager",
+    )
+    committed = InventoryAvailabilityService(engine).facility_snapshot(organization.id, facility.id)["by_lot"][lot.id]
+    assert approved["order_status"] == "confirmed"
+    assert committed["wholesale_committed"] == 4
+    assert committed["available"] == 6
