@@ -63,6 +63,8 @@ def eligible_lots(
         if product is None:
             continue
         profile = profiles.get(product.id)
+        if profile is not None and not profile.production_enabled:
+            continue
         classification = classify_extraction_inventory(
             item_type=product.item_type,
             product_name=product.name,
