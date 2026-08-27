@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from io import BytesIO
+import csv
+from io import BytesIO, StringIO
 import hashlib
+import json
 import re
 
 from bs4 import BeautifulSoup
@@ -15,7 +17,18 @@ except Exception:  # pragma: no cover
 from .embeddings import LocalEmbeddingProvider
 from .store import KnowledgeScope, KnowledgeStore
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".markdown", ".html", ".htm"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".markdown", ".html", ".htm", ".json", ".csv"}
+
+
+def _record_sections(records: list[object], *, prefix: str, batch_size: int = 40) -> list[tuple[str, str]]:
+    sections: list[tuple[str, str]] = []
+    for start in range(0, len(records), max(1, int(batch_size))):
+        batch = records[start : start + batch_size]
+        if not batch:
+            continue
+        end = start + len(batch)
+        sections.append((f"{prefix} {start + 1}-{end}", json.dumps(batch, ensure_ascii=False, default=str)))
+    return sections
 
 
 def extract_sections(filename: str, payload: bytes) -> list[tuple[str, str]]:
@@ -34,7 +47,26 @@ def extract_sections(filename: str, payload: bytes) -> list[tuple[str, str]]:
         document = Document(BytesIO(payload))
         text = "\n".join(paragraph.text for paragraph in document.paragraphs if paragraph.text.strip())
         return [("document", text)] if text.strip() else []
-    text = payload.decode("utf-8", errors="replace")
+
+    text = payload.decode("utf-8-sig", errors="replace")
+    if lower.endswith(".json"):
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return _record_sections(list(parsed), prefix="records")
+        if isinstance(parsed, dict):
+            for key in ("data", "results", "records", "items"):
+                rows = parsed.get(key)
+                if isinstance(rows, list):
+                    header = {name: value for name, value in parsed.items() if name != key and not isinstance(value, (dict, list))}
+                    sections = [("metadata", json.dumps(header, ensure_ascii=False, default=str))] if header else []
+                    return sections + _record_sections(rows, prefix=str(key))
+            return [("document", json.dumps(parsed, ensure_ascii=False, default=str))]
+        return [("document", str(parsed))]
+
+    if lower.endswith(".csv"):
+        rows = list(csv.DictReader(StringIO(text)))
+        return _record_sections(rows, prefix="rows") if rows else []
+
     if lower.endswith((".html", ".htm")):
         soup = BeautifulSoup(text, "html.parser")
         for tag in soup.find_all(["script", "style", "nav", "footer", "header", "form", "noscript"]):
