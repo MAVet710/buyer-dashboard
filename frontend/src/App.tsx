@@ -1,7 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
+import { WorkspaceWindow } from "./components/WorkspaceWindow";
 import { entityContextForPath, pageForPath, pathForPage } from "./lib/workspaceRoutes";
 
 const HomePage = lazy(() => import("./pages/HomePage").then(module => ({ default: module.HomePage })));
@@ -54,12 +55,19 @@ export default function App() {
   const client = useQueryClient();
   const location = useLocation();
   const routerNavigate = useNavigate();
+  const [run360Open, setRun360Open] = useState(false);
   const page = pageForPath(location.pathname);
   const entity = entityContextForPath(location.pathname);
   const productId = entity?.kind === "product" ? entity.id : "";
   const packageCode = entity?.kind === "package" ? entity.id : "";
 
-  const navigate = (nextPage: string) => routerNavigate(pathForPage(nextPage));
+  const navigate = (nextPage: string) => {
+    if (nextPage === "Production Run 360" && page !== "Production Run 360") {
+      setRun360Open(true);
+      return;
+    }
+    routerNavigate(pathForPage(nextPage));
+  };
 
   useEffect(() => {
     const pending = sessionStorage.getItem("buyer-dash-pending-page");
@@ -119,7 +127,12 @@ export default function App() {
     : page === "Data & Settings" ? <DataSettingsPage onNavigate={navigate} />
     : <UnknownWorkspace path={location.pathname} onHome={() => routerNavigate("/home")} />;
 
-  return <AppShell active={page ?? location.pathname} onNavigate={navigate}>
-    <Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense>
-  </AppShell>;
+  return <>
+    <AppShell active={page ?? location.pathname} onNavigate={navigate}>
+      <Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense>
+    </AppShell>
+    <WorkspaceWindow open={run360Open} onClose={() => setRun360Open(false)} eyebrow="PRODUCTION · RUN 360" title="Production Run 360" subtitle="Inspect and work the run without leaving the production workspace." ariaLabel="Production Run 360" windowKey="production-run-360">
+      <Suspense fallback={<div className="state">Loading Production Run 360…</div>}><ProductionRun360Page onNavigate={navigate}/></Suspense>
+    </WorkspaceWindow>
+  </>;
 }
