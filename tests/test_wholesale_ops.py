@@ -31,7 +31,7 @@ def test_wholesale_inventory_requires_released_passed_coa_and_supports_bulk_and_
         organization.id,
         sku="BULK-ROSIN",
         name="Bulk Live Rosin",
-        item_type="concentrate",
+        item_type="cannabis",
         base_unit="g",
         unit_cost=8,
         retail_price=15,
