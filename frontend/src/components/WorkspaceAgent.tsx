@@ -206,12 +206,12 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
   const sourceList = lastRun?.sources ?? [];
   const freshness = Object.entries(lastRun?.data_freshness ?? {});
 
-  const floatingWindow = typeof document === "undefined" ? null : createPortal(<>
-    {open ? <div className="workspace-agent-backdrop" onClick={() => setOpen(false)} aria-hidden="true"/> : null}
-    <aside
+  const floatingWindow = typeof document === "undefined" ? null : createPortal(<aside
       ref={drawerRef}
       style={drawerStyle}
       className={`workspace-agent-drawer ${open ? "open" : ""} ${maximized ? "maximized" : ""} ${position && !maximized ? "has-custom-position" : ""}`}
+      role="dialog"
+      aria-modal="false"
       aria-label="DoobieLogic AI agents"
       aria-hidden={!open}
     >
@@ -268,8 +268,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
           <div className="agent-footer"><span>Provider: {lastRun?.provider ?? provider?.provider ?? "Not connected"}{lastRun?.model ? ` · ${lastRun.model}` : ""}</span><button className="link-button" type="button" disabled={!history.length} onClick={clear}>Clear conversation</button></div>
         </> : null}
       </div>
-    </aside>
-  </>, document.body);
+    </aside>, document.body);
 
   return <>
     <button className="workspace-agent-launch" type="button" onClick={() => setOpen(true)} aria-label="Open DoobieLogic AI agents">

@@ -23,43 +23,51 @@ def test_react_operation_roles_match_streamlit_operation_context_contract():
     assert 'const PRODUCTION_ROLES = ["dev", "admin", "planner", "supervisor", "operator", "qa"]' in shell
 
 
-def test_flat_shell_matches_streamlit_category_order_context_search_and_compatibility():
-    streamlit_nav = read("services/workspace_navigation.py")
-    streamlit_shell = read("modules/navigation/workspace_shell.py")
+def test_job_first_shell_preserves_context_search_compatibility_and_embeds_wholesale_in_production():
     shell = read("frontend/src/components/AppShell.tsx")
+    contract = read("docs/UX_SIMPLIFICATION_EXECUTION_CONTRACT.md")
 
-    categories = ["Home", "Inventory", "Purchasing", "Orders", "Production", "Reports", "Compliance", "Data & Settings"]
-    for category in categories:
-        assert f'"{category}"' in streamlit_nav
-        assert f'label: "{category}"' in shell
-
-    retail_order = ["Home", "Inventory", "Purchasing", "Orders", "Reports", "Compliance", "Data & Settings"]
+    retail_order = ["Home", "Buying", "Inventory", "Compliance", "Reports"]
     retail_block = shell.split("const RETAIL_PRIMARY", 1)[1].split("const PRODUCTION_PRIMARY", 1)[0]
     assert [retail_block.index(f'label: "{label}"') for label in retail_order] == sorted(retail_block.index(f'label: "{label}"') for label in retail_order)
+    assert 'label: "Orders"' not in retail_block
+    assert 'label: "Data & Settings"' not in retail_block
 
-    production_order = ["Home", "Inventory", "Production", "Orders", "Compliance", "Data & Settings"]
+    production_order = ["Home", "Inventory", "Production", "Compliance", "Reports"]
     production_block = shell.split("const PRODUCTION_PRIMARY", 1)[1].split("function secondaryItems", 1)[0]
     assert [production_block.index(f'label: "{label}"') for label in production_order] == sorted(production_block.index(f'label: "{label}"') for label in production_order)
+    assert 'label: "Orders"' not in production_block
+    assert 'label: "Data & Settings"' not in production_block
 
-    for contract in (
+    production_secondary = shell.split('if (category === "Production") return [', 1)[1].split("];", 1)[0]
+    for capability in ("Extraction", "Orders & Fulfillment", "Warehouse Pick / Pack", "White Label / Repack", "Production Run 360"):
+        assert capability in production_secondary
+
+    for contract_text in (
         'aria-label="Organization"',
         'aria-label="Facility"',
         'aria-label="Operation"',
         "<GlobalSearch onNavigate={navigate}/>",
         "Use classic navigation",
         'className="dl-nav-context"',
+        "Settings & Administration",
+        "Production, Distribution & Wholesale",
     ):
-        assert contract in shell
-    assert "flat_nav_tool_label" in streamlit_shell
-    assert "buyer_dash_global_search" in streamlit_shell
+        assert contract_text in shell
+
+    assert "Distribution and wholesale are part of the manufacturing/Production operating model" in contract
+    assert "Route = where I am working" in contract
+    assert "Panel = what I am inspecting" in contract
+    assert "Dialog = what I am doing" in contract
 
 
-def test_mobile_navigation_preserves_streamlit_category_tool_and_buyer_source_selectors():
+def test_mobile_navigation_preserves_category_tool_buyer_source_and_settings_access():
     streamlit = read("modules/navigation/workspace_shell.py")
     shell = read("frontend/src/components/AppShell.tsx")
 
     assert 'aria-label="Navigate"' in shell
     assert 'aria-label="Tool"' in shell
+    assert 'aria-label="Settings and administration"' in shell
     assert 'className="mobile-data-mode-select"' in shell
     assert 'aria-label="Buyer data mode"' in shell
     assert '<option value="Uploads">📁 Uploads</option>' in shell

@@ -66,7 +66,6 @@ def test_workspace_agent_is_a_true_floating_window():
     assert "height:min(700px,calc(100dvh - 144px))" in css
     assert "border-radius:22px" in css
     assert "backdrop-filter:blur(24px)" in css
-    assert "rgba(4,6,7,.12)" in css
     assert ".workspace-agent-body{" in css
     assert ".workspace-agent-drawer.maximized" in css
     assert ".workspace-agent-drawer.has-custom-position" in css
@@ -78,12 +77,14 @@ def test_workspace_agent_is_a_true_floating_window():
     assert "right:0;top:0;height:100dvh" not in css
 
 
-def test_workspace_agent_portals_to_viewport_instead_of_sidebar():
+def test_workspace_agent_portals_to_viewport_and_remains_non_blocking():
     component = (ROOT / "frontend" / "src" / "components" / "WorkspaceAgent.tsx").read_text(encoding="utf-8")
 
     assert 'import { createPortal } from "react-dom"' in component
-    assert "createPortal(<>" in component
+    assert "createPortal(" in component
     assert "document.body" in component
+    assert 'aria-modal="false"' in component
+    assert "workspace-agent-backdrop" not in component
     assert "window.innerWidth - drag.width" in component
     assert "window.innerHeight - drag.height" in component
     assert "window.addEventListener(\"resize\", clampToViewport)" in component

@@ -12,9 +12,9 @@ type Snapshot = {
   timeline:TimelineEvent[];
 };
 
-export function Package360Page({onNavigate}:{onNavigate:(page:string)=>void}){
-  const [input,setInput]=useState("");
-  const [code,setCode]=useState("");
+export function Package360Page({onNavigate,initialCode=""}:{onNavigate:(page:string)=>void;initialCode?:string}){
+  const [input,setInput]=useState(initialCode);
+  const [code,setCode]=useState(initialCode);
   const snapshot=useQuery({queryKey:["package-360",code],enabled:Boolean(code),queryFn:({signal})=>apiGet<Snapshot>(`/api/v1/package-360/resolve?code=${encodeURIComponent(code)}`,signal)});
   const data=snapshot.data;
   return <div className="page package-360-page">
