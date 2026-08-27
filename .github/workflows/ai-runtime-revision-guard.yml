@@ -1,0 +1,181 @@
+name: Preserve Local AI Runtime
+
+on:
+  workflow_run:
+    workflows: ["Deploy to DoobieLogic"]
+    types: [completed]
+
+concurrency:
+  group: doobielogic-production
+  cancel-in-progress: false
+
+env:
+  API_SERVICE: buyer-dash-api
+  REGION: us-east1
+
+jobs:
+  preserve-local-ai:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Locate durable local AI configuration
+        id: locate
+        run: |
+          set -euo pipefail
+          PROJECT="${{ secrets.GCP_PROJECT_ID }}"
+          SERVICE_JSON="$(gcloud run services describe "$API_SERVICE" --project "$PROJECT" --region "$REGION" --format=json)"
+          ACTIVE_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // .status.latestReadyRevisionName // ""')"
+          test -n "$ACTIVE_REVISION"
+          gcloud run revisions describe "$ACTIVE_REVISION" --project "$PROJECT" --region "$REGION" --format=json > /tmp/active-ai-revision.json
+
+          has_active_base="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_BASE_URL") | .value][0] // ""' /tmp/active-ai-revision.json)"
+          has_active_model="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_MODEL") | .value][0] // ""' /tmp/active-ai-revision.json)"
+          if [ -n "$has_active_base" ] && [ -n "$has_active_model" ]; then
+            echo "Local AI runtime configuration is already present on $ACTIVE_REVISION."
+            echo "restore_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          SOURCE_REVISION=""
+          while IFS= read -r revision; do
+            [ -n "$revision" ] || continue
+            [ "$revision" = "$ACTIVE_REVISION" ] && continue
+            gcloud run revisions describe "$revision" --project "$PROJECT" --region "$REGION" --format=json > /tmp/ai-source-candidate.json
+            base="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_BASE_URL") | .value][0] // ""' /tmp/ai-source-candidate.json)"
+            model="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_MODEL") | .value][0] // ""' /tmp/ai-source-candidate.json)"
+            if [ -n "$base" ] && [ -n "$model" ]; then
+              SOURCE_REVISION="$revision"
+              cp /tmp/ai-source-candidate.json /tmp/ai-source-revision.json
+              break
+            fi
+          done < <(gcloud run revisions list --service "$API_SERVICE" --project "$PROJECT" --region "$REGION" --sort-by='~metadata.creationTimestamp' --limit=30 --format='value(metadata.name)')
+
+          if [ -z "$SOURCE_REVISION" ]; then
+            echo "No prior Cloud Run revision contains a complete LOCAL_LLM_BASE_URL/LOCAL_LLM_MODEL pair."
+            exit 1
+          fi
+
+          echo "Recovering Local AI runtime configuration from historical revision $SOURCE_REVISION."
+          echo "restore_needed=true" >> "$GITHUB_OUTPUT"
+          echo "source_revision=$SOURCE_REVISION" >> "$GITHUB_OUTPUT"
+          echo "active_revision=$ACTIVE_REVISION" >> "$GITHUB_OUTPUT"
+
+      - name: Restore local AI settings without production traffic
+        id: restore
+        if: ${{ steps.locate.outputs.restore_needed == 'true' }}
+        run: |
+          set -euo pipefail
+          PROJECT="${{ secrets.GCP_PROJECT_ID }}"
+          ALLOWED='^(AI_PROVIDER_MODE|AI_PROVIDER_ORDER|AI_ALLOW_CLOUD_FALLBACK|LOCAL_LLM_BASE_URL|LOCAL_LLM_MODEL|LOCAL_LLM_API_KEY|LOCAL_LLM_ACCESS_CLIENT_ID|LOCAL_LLM_ACCESS_CLIENT_SECRET|LOCAL_LLM_TIMEOUT_SECONDS|LOCAL_LLM_MAX_TOKENS|LOCAL_LLM_TEMPERATURE|LOCAL_EMBEDDING_BASE_URL|LOCAL_EMBEDDING_MODEL|LOCAL_EMBEDDING_API_KEY|LOCAL_EMBEDDING_TIMEOUT_SECONDS)$'
+
+          mapfile -t DIRECT_ROWS < <(jq -r --arg allowed "$ALLOWED" '.spec.containers[0].env[]? | select(.name | test($allowed)) | select(.value != null) | [.name, (.value | @base64)] | @tsv' /tmp/ai-source-revision.json)
+          ENV_PAIRS=()
+          for row in "${DIRECT_ROWS[@]}"; do
+            name="${row%%$'\t'*}"
+            encoded="${row#*$'\t'}"
+            value="$(printf '%s' "$encoded" | base64 --decode)"
+            case "$name" in
+              *KEY*|*SECRET*|*CLIENT_ID*) echo "::add-mask::$value" ;;
+            esac
+            ENV_PAIRS+=("$name=$value")
+          done
+
+          mapfile -t SECRET_ROWS < <(jq -r --arg allowed "$ALLOWED" '.spec.containers[0].env[]? | select(.name | test($allowed)) | select(.valueFrom.secretKeyRef.name != null) | [.name, .valueFrom.secretKeyRef.name, (.valueFrom.secretKeyRef.key // "latest")] | @tsv' /tmp/ai-source-revision.json)
+          SECRET_PAIRS=()
+          for row in "${SECRET_ROWS[@]}"; do
+            IFS=$'\t' read -r name secret version <<< "$row"
+            SECRET_PAIRS+=("$name=$secret:$version")
+          done
+
+          if [ "${#ENV_PAIRS[@]}" -eq 0 ] && [ "${#SECRET_PAIRS[@]}" -eq 0 ]; then
+            echo "Historical Local AI revision did not contain recoverable runtime settings."
+            exit 1
+          fi
+
+          CMD=(gcloud run services update "$API_SERVICE" --project "$PROJECT" --region "$REGION" --no-traffic --quiet)
+          if [ "${#ENV_PAIRS[@]}" -gt 0 ]; then
+            ENV_JOINED="$(IFS=,; echo "${ENV_PAIRS[*]}")"
+            CMD+=(--update-env-vars "$ENV_JOINED")
+          fi
+          if [ "${#SECRET_PAIRS[@]}" -gt 0 ]; then
+            SECRET_JOINED="$(IFS=,; echo "${SECRET_PAIRS[*]}")"
+            CMD+=(--update-secrets "$SECRET_JOINED")
+          fi
+          "${CMD[@]}"
+
+          SERVICE_JSON="$(gcloud run services describe "$API_SERVICE" --project "$PROJECT" --region "$REGION" --format=json)"
+          RESTORED_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '.status.latestCreatedRevisionName // ""')"
+          test -n "$RESTORED_REVISION"
+          [ "$RESTORED_REVISION" != "${{ steps.locate.outputs.active_revision }}" ]
+          echo "restored_revision=$RESTORED_REVISION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify recovered revision and PC-hosted model path
+        if: ${{ steps.locate.outputs.restore_needed == 'true' }}
+        run: |
+          set -euo pipefail
+          PROJECT="${{ secrets.GCP_PROJECT_ID }}"
+          RESTORED_REVISION="${{ steps.restore.outputs.restored_revision }}"
+
+          ready=false
+          for attempt in $(seq 1 20); do
+            gcloud run revisions describe "$RESTORED_REVISION" --project "$PROJECT" --region "$REGION" --format=json > /tmp/restored-ai-revision.json
+            status="$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .status][0] // ""' /tmp/restored-ai-revision.json)"
+            if [ "$status" = "True" ]; then ready=true; break; fi
+            sleep 3
+          done
+          [ "$ready" = "true" ] || { echo "Recovered Local AI revision did not become Ready."; exit 1; }
+
+          base="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_BASE_URL") | .value][0] // ""' /tmp/restored-ai-revision.json)"
+          model="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_MODEL") | .value][0] // ""' /tmp/restored-ai-revision.json)"
+          test -n "$base"
+          test -n "$model"
+
+          client_id="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_ACCESS_CLIENT_ID") | .value][0] // ""' /tmp/restored-ai-revision.json)"
+          client_secret="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_ACCESS_CLIENT_SECRET") | .value][0] // ""' /tmp/restored-ai-revision.json)"
+          api_key="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_API_KEY") | .value][0] // ""' /tmp/restored-ai-revision.json)"
+          [ -n "$client_id" ] && echo "::add-mask::$client_id"
+          [ -n "$client_secret" ] && echo "::add-mask::$client_secret"
+          [ -n "$api_key" ] && echo "::add-mask::$api_key"
+
+          headers=(-H 'Accept: application/json')
+          if [ -n "$client_id" ] && [ -n "$client_secret" ]; then
+            headers+=(-H "CF-Access-Client-Id: $client_id" -H "CF-Access-Client-Secret: $client_secret")
+          fi
+          if [ -n "$api_key" ]; then
+            headers+=(-H "Authorization: Bearer $api_key")
+          fi
+
+          endpoint="${base%/}"
+          case "$endpoint" in */v1) models_url="$endpoint/models" ;; *) models_url="$endpoint/v1/models" ;; esac
+          model_http="$(curl -sS -o /tmp/local-ai-models.json -w '%{http_code}' "${headers[@]}" "$models_url" || true)"
+          if [ "$model_http" != "200" ]; then
+            echo "Recovered Local AI configuration is present, but the PC-hosted model endpoint returned HTTP $model_http."
+            exit 1
+          fi
+          echo "Recovered Local AI endpoint is reachable and the configured model path is available."
+
+      - name: Promote recovered AI revision to production
+        if: ${{ steps.locate.outputs.restore_needed == 'true' }}
+        run: |
+          set -euo pipefail
+          PROJECT="${{ secrets.GCP_PROJECT_ID }}"
+          RESTORED_REVISION="${{ steps.restore.outputs.restored_revision }}"
+          gcloud run services update-traffic "$API_SERVICE" --project "$PROJECT" --region "$REGION" --to-revisions "$RESTORED_REVISION=100" --quiet
+          for attempt in $(seq 1 20); do
+            SERVICE_JSON="$(gcloud run services describe "$API_SERVICE" --project "$PROJECT" --region "$REGION" --format=json)"
+            ACTIVE_100="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
+            [ "$ACTIVE_100" = "$RESTORED_REVISION" ] && exit 0
+            sleep 3
+          done
+          echo "Recovered Local AI revision never received 100% traffic."
+          exit 1
