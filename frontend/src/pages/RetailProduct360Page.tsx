@@ -18,9 +18,9 @@ type Product = {
   product_format: string;
 };
 
-export function RetailProduct360Page({ onNavigate }: { onNavigate: (page: string) => void }) {
+export function RetailProduct360Page({ onNavigate, initialProductId = "" }: { onNavigate: (page: string) => void; initialProductId?: string }) {
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState(initialProductId);
   const products = useQuery({
     queryKey: ["retail-product-360-list", search],
     queryFn: ({ signal }) => apiGet<Product[]>(`/api/v1/product-master?operation=retail&status=active&search=${encodeURIComponent(search)}`, signal),
