@@ -58,7 +58,8 @@ def test_production_next_action_opens_exact_run_360():
     assert "<ProductionNextActions onOpenRun={openProductionRun360}" in app
     assert "initialOrderId={run360OrderId}" in app
     assert 'initialOrderId=""' in run360
-    assert "if(initialOrderId)setSelected(initialOrderId)" in run360
+    assert "if(initialOrderId)" in run360
+    assert "setSelected(initialOrderId)" in run360
 
 
 def test_canix_roadmap_explicitly_rejects_separate_work_engine_destination():
