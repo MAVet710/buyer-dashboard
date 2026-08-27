@@ -54,8 +54,8 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
   if (category === "Settings") return dataSettingsItems(role);
   if (category === "Wholesale") return [
     { label: "Wholesale Ops", page: "Wholesale Ops" },
-    { label: "Orders", page: "Orders" },
-    { label: "Fulfillment", page: "Warehouse Pick Pack" },
+    { label: "Orders & Fulfillment", page: "Orders" },
+    { label: "Warehouse Pick / Pack", page: "Warehouse Pick Pack" },
   ];
 
   if (operation === "Production Ops") {
@@ -128,7 +128,7 @@ function dataSettingsItems(role: string): SecondaryItem[] {
   return rows;
 }
 
-function categoryForPage(page: string, operation: OperationMode): PrimaryCategory {
+function categoryForPage(page: string, _operation: OperationMode): PrimaryCategory {
   if (["Home", "Operations Control Tower", "Enterprise Control Tower"].includes(page)) return "Home";
   if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing", "Replenishment Policies"].includes(page)) return "Buying";
   if (["Wholesale Ops", "Orders", "Warehouse Pick Pack"].includes(page)) return "Wholesale";
