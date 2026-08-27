@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthGate } from "./components/AuthGate";
+import { CommerceStorefrontLauncher } from "./components/CommerceStorefrontLauncher";
 import { AppSupportButton, MarketingContactChannels } from "./components/ContactChannels";
 import { MarketingHome } from "./pages/MarketingHome";
 import { BetaPartnerPage } from "./pages/BetaPartnerPage";
@@ -26,6 +27,7 @@ import "./marketing-home.css";
 import "./beta-partner.css";
 import "./contact-channels.css";
 import "./commerce-storefront.css";
+import "./commerce-launcher.css";
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
 const hostname = window.location.hostname.trim().toLowerCase().replace(/\.$/, "");
@@ -50,6 +52,7 @@ createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
           <>
             <App />
+            <CommerceStorefrontLauncher />
             <AppSupportButton />
           </>
         </BrowserRouter>
