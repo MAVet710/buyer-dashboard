@@ -1,0 +1,39 @@
+name: Diagnose Production Readiness
+
+on:
+  push:
+    branches: ["diag/production-readiness"]
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Inspect active API revision and failing readiness request
+        run: |
+          set -euo pipefail
+          PROJECT="${{ secrets.GCP_PROJECT_ID }}"
+          REGION="us-east1"
+          SERVICE="buyer-dash-api"
+          SERVICE_JSON="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" --format=json)"
+          ACTIVE="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // .status.latestReadyRevisionName // ""')"
+          echo "active_revision=$ACTIVE"
+          test -n "$ACTIVE"
+          gcloud run revisions describe "$ACTIVE" --project "$PROJECT" --region "$REGION" --format=json > /tmp/revision.json
+          echo "revision_ready=$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .status][0] // ""' /tmp/revision.json)"
+          echo "release_sha=$(jq -r '[.spec.containers[0].env[]? | select(.name == "RELEASE_SHA") | .value][0] // ""' /tmp/revision.json)"
+          echo "declared_schema=$(jq -r '[.spec.containers[0].env[]? | select(.name == "EXPECTED_SCHEMA_HEAD") | .value][0] // ""' /tmp/revision.json)"
+          echo "env_names=$(jq -r '[.spec.containers[0].env[]?.name] | sort | join(",")' /tmp/revision.json)"
+          echo "=== exact readiness failure ==="
+          gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="buyer-dash-api" AND jsonPayload.request_id="c4d685f0-9991-4eae-8faa-98c4b1962523"' --project "$PROJECT" --limit 50 --order=asc --format='value(timestamp,severity,textPayload,jsonPayload.message,jsonPayload.exception,jsonPayload.error)' || true
+          echo "=== recent API errors ==="
+          gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="buyer-dash-api" AND severity>=ERROR' --project "$PROJECT" --freshness=30m --limit 100 --order=desc --format='value(timestamp,severity,resource.labels.revision_name,textPayload,jsonPayload.message,jsonPayload.exception,jsonPayload.error)' || true
+          echo "=== fresh readiness response ==="
+          curl -sS -i https://api.doobielogic.io/health/ready || true
