@@ -10,7 +10,7 @@ def classify(**overrides):
     values = {
         "item_type": "cannabis",
         "product_name": "GMO Bulk Flower",
-        "sku": "GMO-BULK",
+        "sku": "GMO",
         "base_unit": "g",
         "category": "Bulk Flower",
         "subcategory": "",
