@@ -167,8 +167,8 @@ jobs:
             --concurrency 40 \
             --cpu 1 \
             --memory 1Gi \
-            --set-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=${{ env.DATABASE_POOL_SIZE }}@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30@RELEASE_SHA=${{ github.sha }}@EXPECTED_SCHEMA_HEAD=$IMAGE_SCHEMA_HEAD" \
-            --set-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
+            --update-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=${{ env.DATABASE_POOL_SIZE }}@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30@RELEASE_SHA=${{ github.sha }}@EXPECTED_SCHEMA_HEAD=$IMAGE_SCHEMA_HEAD" \
+            --update-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
             --quiet
 
       - name: Verify exact API candidate revision and HTTP health

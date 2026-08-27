@@ -31,6 +31,31 @@ def test_api_deploy_preserves_dedicated_runtime_identity():
     assert "${{ secrets.GCP_SERVICE_ACCOUNT }}" not in api_deploy
 
 
+def test_api_deploy_preserves_existing_runtime_environment_and_secrets():
+    workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+
+    api_deploy = workflow.split("- name: Deploy API candidate without traffic", 1)[1].split("- name: Verify exact API candidate revision and HTTP health", 1)[0]
+    assert "--update-env-vars" in api_deploy
+    assert "--update-secrets" in api_deploy
+    assert "--set-env-vars" not in api_deploy
+    assert "--set-secrets" not in api_deploy
+
+
+def test_local_ai_runtime_has_a_self_healing_revision_guard():
+    workflow = (ROOT / ".github" / "workflows" / "ai-runtime-revision-guard.yml").read_text(encoding="utf-8")
+
+    assert 'workflows: ["Deploy to DoobieLogic"]' in workflow
+    assert "LOCAL_LLM_BASE_URL" in workflow
+    assert "LOCAL_LLM_MODEL" in workflow
+    assert "LOCAL_LLM_ACCESS_CLIENT_ID" in workflow
+    assert "LOCAL_LLM_ACCESS_CLIENT_SECRET" in workflow
+    assert "gcloud run revisions list" in workflow
+    assert "--no-traffic" in workflow
+    assert "--update-env-vars" in workflow
+    assert "--update-secrets" in workflow
+    assert "--to-revisions \"$RESTORED_REVISION=100\"" in workflow
+
+
 def test_eight_phase_execution_control_exists():
     control = (ROOT / "PARITY_EXECUTION_CONTROL.md").read_text(encoding="utf-8")
     for number in range(1, 9):
