@@ -4,10 +4,34 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from modules.coman.models import Base, TimestampMixin, new_id, utc_now
+
+
+class ProductionBomStandard(TimestampMixin, Base):
+    """Execution expectations attached 1:1 to a canonical Product BOM version."""
+
+    __tablename__ = "production_bom_standards"
+    __table_args__ = (
+        UniqueConstraint("bom_id", name="uq_production_bom_standard_bom"),
+        CheckConstraint("standard_labor_hours >= 0", name="ck_production_bom_standard_labor"),
+        CheckConstraint("standard_machine_hours >= 0", name="ck_production_bom_standard_machine"),
+        CheckConstraint("standard_cycle_hours >= 0", name="ck_production_bom_standard_cycle"),
+        Index("ix_production_bom_standard_org_bom", "organization_id", "bom_id"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    bom_id: Mapped[str] = mapped_column(ForeignKey("coman_product_boms.id", ondelete="CASCADE"), nullable=False, index=True)
+    standard_labor_hours: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    standard_machine_hours: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    standard_cycle_hours: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    resource_category: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    qa_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    compliance_checkpoint: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
 class ProductionRunEvent(Base):

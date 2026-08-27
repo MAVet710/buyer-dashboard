@@ -22,7 +22,13 @@ from modules.coman.models import (
     utc_now,
 )
 
-from .models import ProductionCostEvent, ProductionQAEvent, ProductionRunEvent, ProductionRunOutput
+from .models import (
+    ProductionBomStandard,
+    ProductionCostEvent,
+    ProductionQAEvent,
+    ProductionRunEvent,
+    ProductionRunOutput,
+)
 
 
 class ProductionERPService:
@@ -39,31 +45,155 @@ class ProductionERPService:
 
     def list_orders(self, organization_id: str, facility_id: str) -> list[ProductionOrder]:
         with self._sessions() as session:
-            return list(session.scalars(select(ProductionOrder).where(ProductionOrder.organization_id == organization_id, ProductionOrder.facility_id == facility_id).order_by(ProductionOrder.due_at.asc().nullslast(), ProductionOrder.created_at.desc())))
+            return list(
+                session.scalars(
+                    select(ProductionOrder)
+                    .where(
+                        ProductionOrder.organization_id == organization_id,
+                        ProductionOrder.facility_id == facility_id,
+                    )
+                    .order_by(ProductionOrder.due_at.asc().nullslast(), ProductionOrder.created_at.desc())
+                )
+            )
+
+    @staticmethod
+    def _variance_pct(actual: float, standard: float) -> float | None:
+        if standard <= 0:
+            return None
+        return (actual - standard) / standard * 100.0
+
+    @staticmethod
+    def _naive(value):
+        if value is None:
+            return None
+        return value.replace(tzinfo=None) if getattr(value, "tzinfo", None) is not None else value
+
+    @classmethod
+    def _actual_execution(cls, events: list[ProductionRunEvent], actual: ProductionActual | None) -> dict[str, float | None]:
+        event_labor = sum(float(row.labor_hours or 0) for row in events)
+        event_machine = sum(float(row.machine_hours or 0) for row in events)
+        actual_labor = event_labor if event_labor > 0 else float(getattr(actual, "actual_labor_hours", 0) or 0)
+        actual_machine = event_machine if event_machine > 0 else float(getattr(actual, "actual_machine_hours", 0) or 0)
+
+        started = next((row.occurred_at for row in events if row.event_type == "started"), None)
+        if started is None and events:
+            started = events[0].occurred_at
+        completed = next((row.occurred_at for row in reversed(events) if row.event_type == "completed"), None)
+        if completed is None:
+            completed = getattr(actual, "completed_at", None)
+        if started is not None and completed is None:
+            completed = utc_now()
+        cycle_hours = None
+        if started is not None and completed is not None:
+            start_value = cls._naive(started)
+            end_value = cls._naive(completed)
+            cycle_hours = max(0.0, (end_value - start_value).total_seconds() / 3600.0)
+        return {
+            "actual_labor_hours": actual_labor,
+            "actual_machine_hours": actual_machine,
+            "actual_cycle_hours": cycle_hours,
+        }
+
+    @staticmethod
+    def _standard_for_bom(session, organization_id: str, bom: ProductBom | None) -> ProductionBomStandard | None:
+        if bom is None:
+            return None
+        return session.scalar(
+            select(ProductionBomStandard).where(
+                ProductionBomStandard.organization_id == organization_id,
+                ProductionBomStandard.bom_id == bom.id,
+            )
+        )
+
+    @staticmethod
+    def _standard_scale(bom: ProductBom | None, requested_units: float) -> float:
+        if bom is None:
+            return 1.0
+        return float(requested_units or 0) / float(bom.output_quantity or 1)
 
     def order_360(self, organization_id: str, facility_id: str, order_id: str) -> dict[str, Any]:
         with self._sessions() as session:
             order = self._require_order(session, organization_id, facility_id, order_id)
             actual = session.scalar(select(ProductionActual).where(ProductionActual.production_order_id == order.id))
             reservations = list(session.scalars(select(MaterialReservation).where(MaterialReservation.production_order_id == order.id)))
-            outputs = list(session.scalars(select(ProductionRunOutput).where(ProductionRunOutput.production_order_id == order.id).order_by(ProductionRunOutput.position)))
-            events = list(session.scalars(select(ProductionRunEvent).where(ProductionRunEvent.production_order_id == order.id).order_by(ProductionRunEvent.occurred_at)))
-            costs = list(session.scalars(select(ProductionCostEvent).where(ProductionCostEvent.production_order_id == order.id).order_by(ProductionCostEvent.occurred_at)))
-            qa = list(session.scalars(select(ProductionQAEvent).where(ProductionQAEvent.production_order_id == order.id).order_by(ProductionQAEvent.occurred_at)))
+            outputs = list(
+                session.scalars(
+                    select(ProductionRunOutput)
+                    .where(ProductionRunOutput.production_order_id == order.id)
+                    .order_by(ProductionRunOutput.position)
+                )
+            )
+            events = list(
+                session.scalars(
+                    select(ProductionRunEvent)
+                    .where(ProductionRunEvent.production_order_id == order.id)
+                    .order_by(ProductionRunEvent.occurred_at)
+                )
+            )
+            costs = list(
+                session.scalars(
+                    select(ProductionCostEvent)
+                    .where(ProductionCostEvent.production_order_id == order.id)
+                    .order_by(ProductionCostEvent.occurred_at)
+                )
+            )
+            qa = list(
+                session.scalars(
+                    select(ProductionQAEvent)
+                    .where(ProductionQAEvent.production_order_id == order.id)
+                    .order_by(ProductionQAEvent.occurred_at)
+                )
+            )
             product = self._resolve_output_product(session, organization_id, order)
             bom = self._active_bom(session, organization_id, product.id) if product else None
+            standard = self._standard_for_bom(session, organization_id, bom)
             requirements = self._bom_requirements(session, bom, order.requested_units) if bom else []
+
             cogs = defaultdict(float)
             for row in costs:
                 cogs[row.category] += float(row.amount_usd or 0)
             cogs["total"] = sum(cogs.values())
+
             planned_output = sum(float(row.planned_quantity or 0) for row in outputs) or float(order.requested_units or 0)
             actual_output = sum(float(row.actual_quantity or 0) for row in outputs) or float(getattr(actual, "actual_units", 0) or 0)
+            execution = self._actual_execution(events, actual)
+            scale = self._standard_scale(bom, order.requested_units)
+            expected_labor = float(standard.standard_labor_hours or 0) * scale if standard else 0.0
+            expected_machine = float(standard.standard_machine_hours or 0) * scale if standard else 0.0
+            expected_cycle = float(standard.standard_cycle_hours or 0) * scale if standard else 0.0
+            qa_passed = any(row.result == "passed" for row in qa)
+            qa_required = bool(standard.qa_required) if standard else False
+
+            variance = {
+                "expected_output": planned_output,
+                "actual_output": actual_output,
+                "output_variance": actual_output - planned_output,
+                "output_variance_pct": self._variance_pct(actual_output, planned_output),
+                "expected_loss_pct": float(bom.expected_loss_pct or 0) if bom else 0.0,
+                "expected_labor_hours": expected_labor,
+                "actual_labor_hours": execution["actual_labor_hours"],
+                "labor_variance_hours": float(execution["actual_labor_hours"] or 0) - expected_labor,
+                "labor_variance_pct": self._variance_pct(float(execution["actual_labor_hours"] or 0), expected_labor),
+                "expected_machine_hours": expected_machine,
+                "actual_machine_hours": execution["actual_machine_hours"],
+                "machine_variance_hours": float(execution["actual_machine_hours"] or 0) - expected_machine,
+                "machine_variance_pct": self._variance_pct(float(execution["actual_machine_hours"] or 0), expected_machine),
+                "expected_cycle_hours": expected_cycle,
+                "actual_cycle_hours": execution["actual_cycle_hours"],
+                "cycle_variance_hours": (float(execution["actual_cycle_hours"] or 0) - expected_cycle) if execution["actual_cycle_hours"] is not None else None,
+                "cycle_variance_pct": self._variance_pct(float(execution["actual_cycle_hours"] or 0), expected_cycle) if execution["actual_cycle_hours"] is not None else None,
+                "qa_required": qa_required,
+                "qa_ready": (not qa_required) or qa_passed,
+                "compliance_checkpoint": standard.compliance_checkpoint if standard else "",
+                "resource_category": standard.resource_category if standard else "",
+                "standard_configured": standard is not None,
+            }
             return {
                 "order": order,
                 "actual": actual,
                 "product": product,
                 "bom": bom,
+                "standard": standard,
                 "requirements": requirements,
                 "reservations": reservations,
                 "outputs": outputs,
@@ -74,19 +204,41 @@ class ProductionERPService:
                 "planned_output": planned_output,
                 "actual_output": actual_output,
                 "attainment_pct": actual_output / planned_output * 100 if planned_output > 0 else 0.0,
+                "variance": variance,
             }
 
     @staticmethod
     def _resolve_output_product(session, organization_id: str, order: ProductionOrder) -> Product | None:
         if order.sku:
-            product = session.scalar(select(Product).where(Product.organization_id == organization_id, func.lower(Product.sku) == order.sku.casefold(), Product.active.is_(True)))
+            product = session.scalar(
+                select(Product).where(
+                    Product.organization_id == organization_id,
+                    func.lower(Product.sku) == order.sku.casefold(),
+                    Product.active.is_(True),
+                )
+            )
             if product:
                 return product
-        return session.scalar(select(Product).where(Product.organization_id == organization_id, func.lower(Product.name) == order.product_name.casefold(), Product.active.is_(True)))
+        return session.scalar(
+            select(Product).where(
+                Product.organization_id == organization_id,
+                func.lower(Product.name) == order.product_name.casefold(),
+                Product.active.is_(True),
+            )
+        )
 
     @staticmethod
     def _active_bom(session, organization_id: str, product_id: str) -> ProductBom | None:
-        return session.scalar(select(ProductBom).where(ProductBom.organization_id == organization_id, ProductBom.output_product_id == product_id, ProductBom.active.is_(True)).order_by(ProductBom.version.desc()).limit(1))
+        return session.scalar(
+            select(ProductBom)
+            .where(
+                ProductBom.organization_id == organization_id,
+                ProductBom.output_product_id == product_id,
+                ProductBom.active.is_(True),
+            )
+            .order_by(ProductBom.version.desc())
+            .limit(1)
+        )
 
     @staticmethod
     def _bom_requirements(session, bom: ProductBom, requested_units: float) -> list[dict[str, Any]]:
@@ -96,8 +248,80 @@ class ProductionERPService:
         for component in components:
             product = session.get(Product, component.input_product_id)
             needed = float(component.quantity or 0) * scale * (1 + float(component.scrap_pct or 0) / 100.0)
-            rows.append({"product_id": component.input_product_id, "product_name": product.name if product else component.input_product_id, "quantity": needed, "unit": component.unit, "scrap_pct": float(component.scrap_pct or 0)})
+            rows.append(
+                {
+                    "product_id": component.input_product_id,
+                    "product_name": product.name if product else component.input_product_id,
+                    "quantity": needed,
+                    "unit": component.unit,
+                    "scrap_pct": float(component.scrap_pct or 0),
+                }
+            )
         return rows
+
+    def upsert_bom_standard(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        order_id: str,
+        actor: str,
+        standard_labor_hours: float,
+        standard_machine_hours: float,
+        standard_cycle_hours: float,
+        resource_category: str = "",
+        qa_required: bool = False,
+        compliance_checkpoint: str = "",
+    ) -> ProductionBomStandard:
+        if min(standard_labor_hours, standard_machine_hours, standard_cycle_hours) < 0:
+            raise ValueError("Production standard hours cannot be negative.")
+        with self._sessions.begin() as session:
+            order = self._require_order(session, organization_id, facility_id, order_id)
+            product = self._resolve_output_product(session, organization_id, order)
+            if not product:
+                raise ValueError("Link this production order to a canonical Product Master item first.")
+            bom = self._active_bom(session, organization_id, product.id)
+            if not bom:
+                raise ValueError("Create an active BOM for this product before setting production standards.")
+            standard = self._standard_for_bom(session, organization_id, bom)
+            if standard is None:
+                standard = ProductionBomStandard(
+                    organization_id=organization_id,
+                    bom_id=bom.id,
+                    created_by=actor,
+                    updated_by=actor,
+                )
+                session.add(standard)
+            standard.standard_labor_hours = standard_labor_hours
+            standard.standard_machine_hours = standard_machine_hours
+            standard.standard_cycle_hours = standard_cycle_hours
+            standard.resource_category = resource_category.strip()
+            standard.qa_required = qa_required
+            standard.compliance_checkpoint = compliance_checkpoint.strip()
+            standard.updated_by = actor
+            session.add(
+                AuditEvent(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    entity_type="product_bom",
+                    entity_id=bom.id,
+                    action="production_standard_updated",
+                    actor=actor,
+                    changes_json=json.dumps(
+                        {
+                            "standard_labor_hours": standard_labor_hours,
+                            "standard_machine_hours": standard_machine_hours,
+                            "standard_cycle_hours": standard_cycle_hours,
+                            "resource_category": standard.resource_category,
+                            "qa_required": qa_required,
+                            "compliance_checkpoint": standard.compliance_checkpoint,
+                        },
+                        sort_keys=True,
+                    ),
+                )
+            )
+            session.flush()
+            return standard
 
     def reserve_bom_materials(self, *, organization_id: str, facility_id: str, order_id: str, actor: str) -> dict[str, Any]:
         """Allocate canonical lots FIFO for the order's active BOM; never over-reserve."""
@@ -111,23 +335,71 @@ class ProductionERPService:
             if not bom:
                 raise ValueError("No active BOM exists for this product.")
             requirements = self._bom_requirements(session, bom, order.requested_units)
-            existing = list(session.scalars(select(MaterialReservation).where(MaterialReservation.production_order_id == order.id, MaterialReservation.status == "reserved")))
+            existing = list(
+                session.scalars(
+                    select(MaterialReservation).where(
+                        MaterialReservation.production_order_id == order.id,
+                        MaterialReservation.status == "reserved",
+                    )
+                )
+            )
             existing_by_lot = {row.lot_id: float(row.quantity or 0) for row in existing}
             for requirement in requirements:
                 needed = float(requirement["quantity"])
-                lots = list(session.scalars(select(InventoryLot).where(InventoryLot.organization_id == organization_id, InventoryLot.facility_id == facility_id, InventoryLot.product_id == requirement["product_id"], InventoryLot.status.in_(("available", "released"))).order_by(InventoryLot.received_at.asc().nullsfirst(), InventoryLot.created_at.asc())))
+                lots = list(
+                    session.scalars(
+                        select(InventoryLot)
+                        .where(
+                            InventoryLot.organization_id == organization_id,
+                            InventoryLot.facility_id == facility_id,
+                            InventoryLot.product_id == requirement["product_id"],
+                            InventoryLot.status.in_(("available", "released")),
+                        )
+                        .order_by(InventoryLot.received_at.asc().nullsfirst(), InventoryLot.created_at.asc())
+                    )
+                )
                 for lot in lots:
                     if needed <= 1e-9:
                         break
-                    balance = float(session.scalar(select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(InventoryTransaction.lot_id == lot.id)) or 0.0)
-                    other_reserved = float(session.scalar(select(func.coalesce(func.sum(MaterialReservation.quantity), 0.0)).where(MaterialReservation.lot_id == lot.id, MaterialReservation.status == "reserved", MaterialReservation.production_order_id != order.id)) or 0.0)
+                    balance = float(
+                        session.scalar(
+                            select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(
+                                InventoryTransaction.lot_id == lot.id
+                            )
+                        )
+                        or 0.0
+                    )
+                    other_reserved = float(
+                        session.scalar(
+                            select(func.coalesce(func.sum(MaterialReservation.quantity), 0.0)).where(
+                                MaterialReservation.lot_id == lot.id,
+                                MaterialReservation.status == "reserved",
+                                MaterialReservation.production_order_id != order.id,
+                            )
+                        )
+                        or 0.0
+                    )
                     available = max(0.0, balance - other_reserved - existing_by_lot.get(lot.id, 0.0))
                     take = min(needed, available)
                     if take <= 0:
                         continue
-                    reservation = session.scalar(select(MaterialReservation).where(MaterialReservation.production_order_id == order.id, MaterialReservation.lot_id == lot.id))
+                    reservation = session.scalar(
+                        select(MaterialReservation).where(
+                            MaterialReservation.production_order_id == order.id,
+                            MaterialReservation.lot_id == lot.id,
+                        )
+                    )
                     if reservation is None:
-                        reservation = MaterialReservation(organization_id=organization_id, facility_id=facility_id, production_order_id=order.id, lot_id=lot.id, quantity=take, unit=requirement["unit"], status="reserved", reserved_by=actor)
+                        reservation = MaterialReservation(
+                            organization_id=organization_id,
+                            facility_id=facility_id,
+                            production_order_id=order.id,
+                            lot_id=lot.id,
+                            quantity=take,
+                            unit=requirement["unit"],
+                            status="reserved",
+                            reserved_by=actor,
+                        )
                         session.add(reservation)
                     else:
                         reservation.quantity = float(reservation.quantity or 0) + take
@@ -137,14 +409,56 @@ class ProductionERPService:
                     needed -= take
                     result["reserved"] += 1
                 if needed > 1e-9:
-                    result["shortages"].append({"product": requirement["product_name"], "short": needed, "unit": requirement["unit"]})
-            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="production_order", entity_id=order.id, action="bom_materials_reserved", actor=actor, changes_json=json.dumps(result, sort_keys=True)))
+                    result["shortages"].append(
+                        {"product": requirement["product_name"], "short": needed, "unit": requirement["unit"]}
+                    )
+            session.add(
+                AuditEvent(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    entity_type="production_order",
+                    entity_id=order.id,
+                    action="bom_materials_reserved",
+                    actor=actor,
+                    changes_json=json.dumps(result, sort_keys=True),
+                )
+            )
         return result
 
-    def record_event(self, *, organization_id: str, facility_id: str, order_id: str, event_type: str, actor: str, stage_key: str = "execution", quantity: float | None = None, unit: str = "unit", waste_quantity: float | None = None, labor_hours: float | None = None, machine_hours: float | None = None, machine_id: str | None = None, notes: str = "") -> ProductionRunEvent:
+    def record_event(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        order_id: str,
+        event_type: str,
+        actor: str,
+        stage_key: str = "execution",
+        quantity: float | None = None,
+        unit: str = "unit",
+        waste_quantity: float | None = None,
+        labor_hours: float | None = None,
+        machine_hours: float | None = None,
+        machine_id: str | None = None,
+        notes: str = "",
+    ) -> ProductionRunEvent:
         with self._sessions.begin() as session:
             order = self._require_order(session, organization_id, facility_id, order_id)
-            event = ProductionRunEvent(organization_id=organization_id, facility_id=facility_id, production_order_id=order.id, stage_key=stage_key, event_type=event_type, quantity=quantity, unit=unit, waste_quantity=waste_quantity, labor_hours=labor_hours, machine_hours=machine_hours, machine_id=machine_id, notes=notes, actor=actor)
+            event = ProductionRunEvent(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                production_order_id=order.id,
+                stage_key=stage_key,
+                event_type=event_type,
+                quantity=quantity,
+                unit=unit,
+                waste_quantity=waste_quantity,
+                labor_hours=labor_hours,
+                machine_hours=machine_hours,
+                machine_id=machine_id,
+                notes=notes,
+                actor=actor,
+            )
             session.add(event)
             if event_type == "started" and order.status in {"draft", "scheduled"}:
                 order.status = "in_progress"
@@ -152,9 +466,21 @@ class ProductionERPService:
                 order.status = "on_hold"
             elif event_type == "completed":
                 order.status = "complete"
-            session.flush(); return event
+            session.flush()
+            return event
 
-    def add_output(self, *, organization_id: str, facility_id: str, order_id: str, product_id: str, planned_quantity: float, actor: str, label: str = "", unit: str = "unit") -> ProductionRunOutput:
+    def add_output(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        order_id: str,
+        product_id: str,
+        planned_quantity: float,
+        actor: str,
+        label: str = "",
+        unit: str = "unit",
+    ) -> ProductionRunOutput:
         if planned_quantity < 0:
             raise ValueError("Planned output cannot be negative.")
         with self._sessions.begin() as session:
@@ -162,11 +488,41 @@ class ProductionERPService:
             product = session.get(Product, product_id)
             if not product or product.organization_id != organization_id:
                 raise ValueError("Output product was not found in this organization.")
-            position = int(session.scalar(select(func.coalesce(func.max(ProductionRunOutput.position), 0)).where(ProductionRunOutput.production_order_id == order.id)) or 0) + 1
-            output = ProductionRunOutput(organization_id=organization_id, facility_id=facility_id, production_order_id=order.id, product_id=product.id, position=position, label=label or product.name, planned_quantity=planned_quantity, actual_quantity=0.0, unit=unit or product.base_unit, status="planned", created_by=actor)
-            session.add(output); session.flush(); return output
+            position = int(
+                session.scalar(
+                    select(func.coalesce(func.max(ProductionRunOutput.position), 0)).where(
+                        ProductionRunOutput.production_order_id == order.id
+                    )
+                )
+                or 0
+            ) + 1
+            output = ProductionRunOutput(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                production_order_id=order.id,
+                product_id=product.id,
+                position=position,
+                label=label or product.name,
+                planned_quantity=planned_quantity,
+                actual_quantity=0.0,
+                unit=unit or product.base_unit,
+                status="planned",
+                created_by=actor,
+            )
+            session.add(output)
+            session.flush()
+            return output
 
-    def record_output_actual(self, *, organization_id: str, facility_id: str, output_id: str, actual_quantity: float, actor: str, lot_code: str = "") -> ProductionRunOutput:
+    def record_output_actual(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        output_id: str,
+        actual_quantity: float,
+        actor: str,
+        lot_code: str = "",
+    ) -> ProductionRunOutput:
         if actual_quantity < 0:
             raise ValueError("Actual output cannot be negative.")
         with self._sessions.begin() as session:
@@ -176,25 +532,79 @@ class ProductionERPService:
             output.actual_quantity = actual_quantity
             output.status = "quarantine"
             if lot_code and not output.lot_id:
-                lot = InventoryLot(organization_id=organization_id, facility_id=facility_id, product_id=output.product_id, lot_code=lot_code, location_code="QA-HOLD", status="quarantine", notes=f"Production output {output.id}")
-                session.add(lot); session.flush(); output.lot_id = lot.id
+                lot = InventoryLot(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    product_id=output.product_id,
+                    lot_code=lot_code,
+                    location_code="QA-HOLD",
+                    status="quarantine",
+                    notes=f"Production output {output.id}",
+                )
+                session.add(lot)
+                session.flush()
+                output.lot_id = lot.id
                 if actual_quantity > 0:
-                    session.add(InventoryTransaction(organization_id=organization_id, facility_id=facility_id, lot_id=lot.id, transaction_type="production_output", quantity_delta=actual_quantity, unit=output.unit, production_order_id=output.production_order_id, commercial_order_id=None, commercial_order_line_id=None, reason="Production output pending QA release", reference=output.id, actor=actor))
+                    session.add(
+                        InventoryTransaction(
+                            organization_id=organization_id,
+                            facility_id=facility_id,
+                            lot_id=lot.id,
+                            transaction_type="production_output",
+                            quantity_delta=actual_quantity,
+                            unit=output.unit,
+                            production_order_id=output.production_order_id,
+                            commercial_order_id=None,
+                            commercial_order_line_id=None,
+                            reason="Production output pending QA release",
+                            reference=output.id,
+                            actor=actor,
+                        )
+                    )
             return output
 
-    def record_qa(self, *, organization_id: str, facility_id: str, order_id: str, event_type: str, result: str, actor: str, output_id: str | None = None, document_reference: str = "", notes: str = "") -> ProductionQAEvent:
+    def record_qa(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        order_id: str,
+        event_type: str,
+        result: str,
+        actor: str,
+        output_id: str | None = None,
+        document_reference: str = "",
+        notes: str = "",
+    ) -> ProductionQAEvent:
         with self._sessions.begin() as session:
             order = self._require_order(session, organization_id, facility_id, order_id)
             if output_id:
                 output = session.get(ProductionRunOutput, output_id)
                 if not output or output.production_order_id != order.id:
                     raise ValueError("QA output is not part of this production order.")
-            event = ProductionQAEvent(organization_id=organization_id, facility_id=facility_id, production_order_id=order.id, output_id=output_id, event_type=event_type, result=result, document_reference=document_reference, notes=notes, actor=actor)
+            event = ProductionQAEvent(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                production_order_id=order.id,
+                output_id=output_id,
+                event_type=event_type,
+                result=result,
+                document_reference=document_reference,
+                notes=notes,
+                actor=actor,
+            )
             session.add(event)
             if event_type == "hold" or result == "failed":
                 order.status = "on_hold"
             if event_type == "release" and result == "passed":
-                targets = list(session.scalars(select(ProductionRunOutput).where(ProductionRunOutput.production_order_id == order.id, ProductionRunOutput.status == "quarantine")))
+                targets = list(
+                    session.scalars(
+                        select(ProductionRunOutput).where(
+                            ProductionRunOutput.production_order_id == order.id,
+                            ProductionRunOutput.status == "quarantine",
+                        )
+                    )
+                )
                 if output_id:
                     targets = [row for row in targets if row.id == output_id]
                 for output in targets:
@@ -202,16 +612,45 @@ class ProductionERPService:
                     if output.lot_id:
                         lot = session.get(InventoryLot, output.lot_id)
                         if lot:
-                            lot.status = "available"; lot.location_code = "UNASSIGNED" if lot.location_code == "QA-HOLD" else lot.location_code
+                            lot.status = "available"
+                            lot.location_code = "UNASSIGNED" if lot.location_code == "QA-HOLD" else lot.location_code
             return event
 
-    def add_cost(self, *, organization_id: str, facility_id: str, order_id: str, category: str, amount_usd: float, actor: str, quantity: float | None = None, unit: str = "", source_type: str = "manual", source_id: str = "", notes: str = "") -> ProductionCostEvent:
+    def add_cost(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        order_id: str,
+        category: str,
+        amount_usd: float,
+        actor: str,
+        quantity: float | None = None,
+        unit: str = "",
+        source_type: str = "manual",
+        source_id: str = "",
+        notes: str = "",
+    ) -> ProductionCostEvent:
         if amount_usd < 0:
             raise ValueError("Cost cannot be negative.")
         with self._sessions.begin() as session:
             order = self._require_order(session, organization_id, facility_id, order_id)
-            event = ProductionCostEvent(organization_id=organization_id, facility_id=facility_id, production_order_id=order.id, category=category, amount_usd=amount_usd, quantity=quantity, unit=unit, source_type=source_type, source_id=source_id, notes=notes, actor=actor)
-            session.add(event); session.flush(); return event
+            event = ProductionCostEvent(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                production_order_id=order.id,
+                category=category,
+                amount_usd=amount_usd,
+                quantity=quantity,
+                unit=unit,
+                source_type=source_type,
+                source_id=source_id,
+                notes=notes,
+                actor=actor,
+            )
+            session.add(event)
+            session.flush()
+            return event
 
     def queue_summary(self, organization_id: str, facility_id: str) -> list[dict[str, Any]]:
         rows = []
@@ -219,6 +658,39 @@ class ProductionERPService:
             snapshot = self.order_360(organization_id, facility_id, order.id)
             cogs = float(snapshot["cogs"].get("total", 0) or 0)
             actual = float(snapshot["actual_output"] or 0)
-            qa_blocked = any(event.event_type in {"hold", "fail"} and event.result != "passed" for event in snapshot["qa_events"])
-            rows.append({"order_id": order.id, "Order": order.order_number, "Product": order.product_name, "Status": order.status.replace("_", " ").title(), "Planned": order.requested_units, "Actual": actual, "Attainment %": snapshot["attainment_pct"], "COGS": cogs, "Cost / Unit": cogs / actual if actual > 0 else 0.0, "Reservations": len(snapshot["reservations"]), "QA": "HOLD" if qa_blocked else "Ready", "Attention": "QA HOLD" if qa_blocked else ("Material shortage" if snapshot["requirements"] and not snapshot["reservations"] else "Normal")})
+            qa_blocked = any(
+                event.event_type in {"hold", "fail"} and event.result != "passed"
+                for event in snapshot["qa_events"]
+            )
+            variance = snapshot["variance"]
+            standard_attention = ""
+            if variance["standard_configured"]:
+                labor_variance = variance["labor_variance_pct"]
+                output_variance = variance["output_variance_pct"]
+                if labor_variance is not None and labor_variance > 20:
+                    standard_attention = "Labor above standard"
+                elif output_variance is not None and output_variance < -10:
+                    standard_attention = "Output below standard"
+            rows.append(
+                {
+                    "order_id": order.id,
+                    "Order": order.order_number,
+                    "Product": order.product_name,
+                    "Status": order.status.replace("_", " ").title(),
+                    "Planned": order.requested_units,
+                    "Actual": actual,
+                    "Attainment %": snapshot["attainment_pct"],
+                    "COGS": cogs,
+                    "Cost / Unit": cogs / actual if actual > 0 else 0.0,
+                    "Reservations": len(snapshot["reservations"]),
+                    "QA": "HOLD" if qa_blocked else "Ready",
+                    "Attention": "QA HOLD"
+                    if qa_blocked
+                    else (
+                        "Material shortage"
+                        if snapshot["requirements"] and not snapshot["reservations"]
+                        else (standard_attention or "Normal")
+                    ),
+                }
+            )
         return rows
