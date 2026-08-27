@@ -32,7 +32,7 @@ def test_cultivation_next_actions_open_existing_plant_360():
     assert '<CultivationToday plants={overview.data} onSelect={setSelected} />' in inventory
     assert "onClick={() => onSelect(item.plant)}" in today
     assert 'eyebrow="CULTIVATION · PLANT 360"' in inventory
-    assert '<PlantDetail plant={selected}' in inventory
+    assert '<PlantDetail key={selected.id} plant={selected}' in inventory
     assert "/transition" in inventory
 
 
