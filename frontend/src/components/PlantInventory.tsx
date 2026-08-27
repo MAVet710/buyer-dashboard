@@ -29,7 +29,7 @@ export function PlantInventory() {
     {query.data ? <div className="table-wrap"><table><thead><tr><th>Plant tag</th><th>Strain</th><th>Phase</th><th>Room</th><th>Mother</th><th>Planted</th><th>Est. harvest</th></tr></thead><tbody>{query.data.map(plant => <tr key={plant.id} onClick={() => setSelected(plant)}><td>{plant.plant_tag}</td><td>{plant.strain_name}</td><td><span className="badge">{plant.phase}</span></td><td>{plant.room_code}</td><td>{plant.mother_plant_tag || "—"}</td><td>{plant.planted_at || "—"}</td><td>{plant.estimated_harvest_date || "—"}</td></tr>)}</tbody></table>{query.data.length === 0 ? <div className="empty">No plants match these filters.</div> : null}</div> : null}
     {creating ? <CreatePlant onClose={() => setCreating(false)} onSaved={refresh} /> : null}
     <WorkspaceWindow open={Boolean(selected)} onClose={() => setSelected(null)} eyebrow="CULTIVATION · PLANT 360" title={selected?.plant_tag ?? "Plant 360"} subtitle={selected ? `${selected.strain_name} · ${selected.phase} · ${selected.room_code}` : undefined} ariaLabel="Plant 360" windowKey={selected ? `plant-360-${selected.id}` : "plant-360"}>
-      {selected ? <PlantDetail plant={selected} canWrite={canWrite} onSaved={(plant) => { setSelected(plant); refresh(); }} /> : null}
+      {selected ? <PlantDetail key={selected.id} plant={selected} canWrite={canWrite} onSaved={(plant) => { setSelected(plant); refresh(); }} /> : null}
     </WorkspaceWindow>
   </>;
 }
