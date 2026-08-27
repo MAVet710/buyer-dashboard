@@ -1,7 +1,10 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from modules.production_erp.scheduling import ProductionScheduleService
 from modules.production_erp.service import ProductionERPService
 from ..auth import RequestContext, get_request_context, get_production_context
 from ..database import get_engine
@@ -59,8 +62,25 @@ class BomStandardUpdate(BaseModel):
     compliance_checkpoint: str = ""
 
 
+class SchedulePreviewRequest(BaseModel):
+    scheduled_start_at: datetime
+    scheduled_end_at: datetime
+    machine_id: str | None = None
+    planned_people: int = Field(default=0, ge=0)
+    reason: str = ""
+
+
+class ScheduleCommitRequest(SchedulePreviewRequest):
+    preview_key: str
+    accept_warnings: bool = False
+
+
 def _service(engine: Engine) -> ProductionERPService:
     return ProductionERPService(engine)
+
+
+def _schedule_service(engine: Engine) -> ProductionScheduleService:
+    return ProductionScheduleService(engine)
 
 
 def _standard_payload(row):
@@ -86,6 +106,14 @@ def _standard_payload(row):
 @router.get("/orders")
 def queue(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     return _service(engine).queue_summary(context.organization_id, context.facility_id)
+
+
+@router.get("/schedule")
+def schedule(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    return _schedule_service(engine).list_current(context.organization_id, context.facility_id)
 
 
 @router.get("/orders/{order_id}")
@@ -177,6 +205,45 @@ def order_360(
         "actual_output": snapshot["actual_output"],
         "attainment_pct": snapshot["attainment_pct"],
     }
+
+
+@router.post("/orders/{order_id}/schedule/preview")
+def preview_schedule(
+    order_id: str,
+    payload: SchedulePreviewRequest,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    try:
+        return _schedule_service(engine).preview(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            order_id=order_id,
+            **payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/orders/{order_id}/schedule")
+def commit_schedule(
+    order_id: str,
+    payload: ScheduleCommitRequest,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    if context.role.casefold() not in {"dev", "admin", "planner", "supervisor"}:
+        raise HTTPException(403, "Your role cannot commit production schedule changes.")
+    try:
+        return _schedule_service(engine).commit(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            order_id=order_id,
+            actor=context.user_id,
+            **payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/orders/{order_id}/standard")
