@@ -1,15 +1,12 @@
-"""Wholesale inventory projection layered on the existing durable production inventory ledger."""
+"""Wholesale inventory projection layered on the shared organization inventory truth."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-
-from modules.coman.models import InventoryLot, MaterialReservation, Product
-from modules.coman.repository import ComanRepository
+from modules.coman.models import InventoryLot, Product
+from modules.inventory_availability.service import InventoryAvailabilityService
 
 from .service import CommerceStorefrontService
 
@@ -54,45 +51,21 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
     """Commerce service whose catalog is restricted to truly wholesale-sellable inventory."""
 
     def wholesale_inventory(self, organization_id: str, facility_id: str) -> dict[str, Any]:
-        repo = ComanRepository(self.engine)
-        with Session(self.engine) as session:
-            lots = list(session.scalars(select(InventoryLot).where(
-                InventoryLot.organization_id == organization_id,
-                InventoryLot.facility_id == facility_id,
-            ).order_by(InventoryLot.received_at.desc().nullslast())))
-            product_ids = {lot.product_id for lot in lots}
-            products = {
-                row.id: row
-                for row in session.scalars(select(Product).where(
-                    Product.organization_id == organization_id,
-                    Product.id.in_(product_ids),
-                    Product.active.is_(True),
-                ))
-            } if product_ids else {}
-            reserved_rows = session.execute(
-                select(
-                    MaterialReservation.lot_id,
-                    func.coalesce(func.sum(MaterialReservation.quantity), 0.0),
-                ).where(
-                    MaterialReservation.organization_id == organization_id,
-                    MaterialReservation.facility_id == facility_id,
-                    MaterialReservation.status == "reserved",
-                ).group_by(MaterialReservation.lot_id)
-            ).all()
-        reserved_by_lot = {lot_id: float(quantity or 0.0) for lot_id, quantity in reserved_rows}
-
+        availability = InventoryAvailabilityService(self.engine).facility_snapshot(organization_id, facility_id)
         eligible: list[dict[str, Any]] = []
         blocked: list[dict[str, Any]] = []
-        for lot in lots:
-            product = products.get(lot.product_id)
-            if not product:
+
+        for availability_row in availability["lots"]:
+            lot = availability_row["lot"]
+            product = availability_row["product"]
+            if not product or not product.active:
                 continue
             meta = _metadata(lot)
             lab_testing_state = str(meta.get("lab_testing_state") or "").strip()
             coa_reference = str(meta.get("coa_reference") or "").strip()
-            balance = max(0.0, float(repo.inventory_balance(organization_id, lot.id) or 0.0))
-            reserved = max(0.0, reserved_by_lot.get(lot.id, 0.0))
-            usable = max(0.0, balance - reserved)
+            on_hand = max(0.0, float(availability_row["on_hand"] or 0.0))
+            reserved = max(0.0, float(availability_row["reserved"] or 0.0))
+            usable = max(0.0, float(availability_row["available"] or 0.0))
             released = str(lot.status or "").casefold() in {"available", "released"}
             coa_passed = bool(coa_reference) and _lab_state(lab_testing_state) in _PASSED_LAB_STATES
             reasons: list[str] = []
@@ -113,9 +86,13 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 "name": product.name,
                 "item_type": product.item_type,
                 "inventory_type": _inventory_type(product),
-                "available": balance,
+                "available": on_hand,
                 "reserved": reserved,
+                "production_reserved": float(availability_row["production_reserved"]),
+                "wholesale_reserved": float(availability_row["wholesale_reserved"]),
+                "wholesale_committed": float(availability_row["wholesale_committed"]),
                 "usable": usable,
+                "claims": availability_row["claims"],
                 "unit": product.base_unit,
                 "location": lot.location_code,
                 "status": lot.status,
@@ -139,11 +116,15 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 "retail_ready_lots": sum(row["inventory_type"] == "retail_ready" for row in eligible),
                 "sellable_quantity": sum(float(row["usable"]) for row in eligible),
                 "blocked_lots": len(blocked),
+                "production_reserved_quantity": sum(float(row["production_reserved"]) for row in eligible + blocked),
+                "wholesale_reserved_quantity": sum(float(row["wholesale_reserved"]) for row in eligible + blocked),
+                "wholesale_committed_quantity": sum(float(row["wholesale_committed"]) for row in eligible + blocked),
             },
             "eligibility_policy": {
                 "requires_released_inventory": True,
                 "requires_passed_coa": True,
                 "requires_positive_uncommitted_quantity": True,
+                "respects_organization_wide_commitments": True,
             },
         }
 
