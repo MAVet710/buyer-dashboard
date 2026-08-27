@@ -46,7 +46,7 @@ export function AdjustInventory({ operation, item, onClose }: { operation: "reta
     setInitialized(true);
   }, [initialized, reasons.data]);
 
-  const current = Number(item.available || 0);
+  const current = Number(item.on_hand || 0);
   const final = adjustmentType === "incremental" ? current + quantity : quantity;
   const reasonMeta = reasons.data?.reasons.find(row => row.name === reason);
   const noteRequired = Boolean(reasonMeta?.requires_note);
@@ -84,10 +84,12 @@ export function AdjustInventory({ operation, item, onClose }: { operation: "reta
     {reasons.isError ? <div className="state error">{reasons.error.message}</div> : null}
     <label>Package *<select value={item.id} disabled><option value={item.id}>{item.product_name} · {item.package_id}</option></select></label>
     <section className="quantity-summary">
-      <span>Current quantity<strong>{trimQuantity(current)} {item.unit}</strong></span>
-      <span>Reserved<strong>{trimQuantity(item.reserved)} {item.unit}</strong></span>
-      <span>Final quantity<strong>{trimQuantity(final)} {item.unit}</strong></span>
+      <span>Physical on hand<strong>{trimQuantity(current)} {item.unit}</strong></span>
+      <span>Committed / reserved<strong>{trimQuantity(item.reserved)} {item.unit}</strong></span>
+      <span>Available<strong>{trimQuantity(item.available)} {item.unit}</strong></span>
+      <span>Final physical quantity<strong>{trimQuantity(final)} {item.unit}</strong></span>
     </section>
+    {item.reservation_sources.length ? <p className="source-caption">Reserved for: {item.reservation_sources.join(" · ")}</p> : null}
 
     <fieldset className="segmented-field">
       <legend>Adjustment type *</legend>
@@ -97,8 +99,8 @@ export function AdjustInventory({ operation, item, onClose }: { operation: "reta
       </div>
     </fieldset>
 
-    <label>{adjustmentType === "incremental" ? "Change (+ / -) *" : "New quantity *"}<input type="number" min={adjustmentType === "set_quantity" ? 0 : undefined} step="0.1" value={quantity} onChange={event => { setQuantity(Number(event.target.value)); setReviewed(false); }}/></label>
-    <p className="source-caption">Final quantity: {trimQuantity(final)} {item.unit}</p>
+    <label>{adjustmentType === "incremental" ? "Change (+ / -) *" : "New physical quantity *"}<input type="number" min={adjustmentType === "set_quantity" ? 0 : undefined} step="0.1" value={quantity} onChange={event => { setQuantity(Number(event.target.value)); setReviewed(false); }}/></label>
+    <p className="source-caption">Final physical quantity: {trimQuantity(final)} {item.unit}</p>
 
     <label>Reason *<select value={reason} onChange={event => { setReason(event.target.value); setReviewed(false); }}>{reasons.data?.reasons.map(row => <option value={row.name} key={row.name}>{row.name}</option>)}</select></label>
     <label>{noteRequired ? "Reason note *" : "Reason note"}<textarea value={reasonNote} onChange={event => { setReasonNote(event.target.value); setReviewed(false); }}/></label>
@@ -110,9 +112,9 @@ export function AdjustInventory({ operation, item, onClose }: { operation: "reta
     {reasons.data && !reasons.data.metrc_ready ? <div className="info-banner">No complete Metrc connection is available for this user/facility. This adjustment will be local only.</div> : null}
     {reasons.data?.metrc_ready && reasons.data.license_number ? <p className="source-caption">Active facility license: {reasons.data.license_number}</p> : null}
 
-    {invalidFinal ? <div className="form-error">Final quantity cannot be negative or below {trimQuantity(item.reserved)} currently reserved.</div> : null}
+    {invalidFinal ? <div className="form-error">Final physical quantity cannot be negative or below {trimQuantity(item.reserved)} currently committed or reserved.</div> : null}
     {noteRequired && !reasonNote.trim() ? <div className="form-error">This adjustment reason requires a note.</div> : null}
-    <label className="toggle"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)}/>I reviewed the package, final quantity, and adjustment reason.</label>
+    <label className="toggle"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)}/>I reviewed the package, final physical quantity, active commitments, and adjustment reason.</label>
     {mutation.isError ? <div className="form-error">{mutation.error.message}</div> : null}
     {mutation.data ? <div className="success-banner">Adjusted {item.package_id} by {signed(mutation.data.delta)} {mutation.data.unit} · final {trimQuantity(mutation.data.final_quantity)}. {mutation.data.metrc_status === "synced" ? "Metrc accepted and the local ledger is verified." : ""}</div> : null}
     <button className="primary submit" type="button" disabled={!canSubmit || mutation.isPending || reasons.isLoading || reasons.isError} onClick={() => mutation.mutate()}>{mutation.isPending ? "Adjusting inventory…" : "Adjust inventory"}</button>
