@@ -150,6 +150,7 @@ class AgentRuntime:
             )
 
         tools = ToolRegistry(datasets, knowledge_search=knowledge_search if self.retriever else None)
+        precomputed_deterministic: tuple[str, dict[str, Any]] | None = None
         deterministic = deterministic_tool_for(question, tools.names())
         if deterministic:
             source_version = self._source_version(datasets)
@@ -159,13 +160,15 @@ class AgentRuntime:
                 tool_result = tools.execute(deterministic, {})
                 self.cache.set(cache_key, tool_result, ttl_seconds=60)
             if not tool_result.get("error"):
-                result = AgentResult(
-                    answer=self._format_deterministic(deterministic, tool_result), summary=deterministic.replace("_", " "), confidence=1.0,
-                    grounding="deterministic", provider="deterministic", model="python/sql", local=True, datasets=sorted(datasets),
-                    tool_calls=[deterministic], data_freshness={key: value.freshness for key, value in datasets.items()}, request_id=request_id,
-                )
-                self._record(access=access, request_id=request_id, profile=profile, task=deterministic, result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="deterministic", success=True, retrieval_count=len(citations))
-                return result
+                if not citations:
+                    result = AgentResult(
+                        answer=self._format_deterministic(deterministic, tool_result), summary=deterministic.replace("_", " "), confidence=1.0,
+                        grounding="deterministic", provider="deterministic", model="python/sql", local=True, datasets=sorted(datasets),
+                        tool_calls=[deterministic], data_freshness={key: value.freshness for key, value in datasets.items()}, request_id=request_id,
+                    )
+                    self._record(access=access, request_id=request_id, profile=profile, task=deterministic, result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="deterministic", success=True, retrieval_count=0)
+                    return result
+                precomputed_deterministic = (deterministic, tool_result)
 
         prompt = system_prompt(profile, organization_name=organization_name, facility_name=facility_name, operation_type=access.operation_type, tool_names=tools.names(), dataset_keys=sorted(datasets), knowledge_required=knowledge_required)
         messages = [*bounded_history(history), {"role": "user", "content": question}]
@@ -181,44 +184,57 @@ class AgentRuntime:
                 for row in knowledge["results"]
             ]
             messages.append({"role": "user", "content": "Retrieved knowledge evidence: " + json.dumps(grounding_payload, default=str)[:16000]})
-        request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=tools.schemas() if datasets else [], response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets)}})
-        used_tools: list[str] = []
+        if precomputed_deterministic:
+            messages.append({"role": "user", "content": tool_result_message(precomputed_deterministic[0], precomputed_deterministic[1])})
+        request = AIRequest(
+            request_id=request_id,
+            system_prompt=prompt,
+            messages=messages,
+            tools=[] if precomputed_deterministic else (tools.schemas() if datasets else []),
+            response_schema=AGENT_RESPONSE_SCHEMA,
+            metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets)}},
+        )
+        used_tools: list[str] = [precomputed_deterministic[0]] if precomputed_deterministic else []
         decision = None
         final_response = None
         bounded_context_used = False
         try:
             if datasets:
-                try:
-                    decision = self.provider_router.generate(
-                        request,
-                        validate=lambda response: (
-                            (True, "tool_calls")
-                            if response.tool_calls
-                            else (bool(str(response.text or "").strip()), "direct_answer" if str(response.text or "").strip() else "empty_response")
-                        ),
-                        require_tools=True,
-                    )
-                    if not decision.response.tool_calls:
-                        final_response = decision.response
-                except ProviderUnavailable:
-                    bounded_context_used = True
-                    context_rows = {}
-                    for name in list(datasets)[:12]:
-                        context_rows[name] = tools.execute("preview_dataset", {"dataset": name, "limit": 5})
-                    messages.append({"role": "user", "content": "Server-authorized bounded data context: " + json.dumps(context_rows, default=str)[:18000]})
-                    request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": context_rows})
+                if precomputed_deterministic:
                     decision = self.provider_router.generate(request, validate=validate_agent_response, require_structured=True)
                     final_response = decision.response
-                if decision and decision.response.tool_calls and final_response is None:
-                    for call in decision.response.tool_calls[:6]:
-                        outcome = tools.execute(call.name, call.arguments)
-                        used_tools.append(call.name)
-                        messages.append({"role": "user", "content": tool_result_message(call.name, outcome)})
-                    followup = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"tool_results_supplied": used_tools}})
-                    final_decision = self.provider_router.generate(followup, validate=validate_agent_response, require_structured=True)
-                    final_response = final_decision.response
-                    if final_decision.fallback_used and not decision.fallback_used:
-                        decision = final_decision
+                else:
+                    try:
+                        decision = self.provider_router.generate(
+                            request,
+                            validate=lambda response: (
+                                (True, "tool_calls")
+                                if response.tool_calls
+                                else (bool(str(response.text or "").strip()), "direct_answer" if str(response.text or "").strip() else "empty_response")
+                            ),
+                            require_tools=True,
+                        )
+                        if not decision.response.tool_calls:
+                            final_response = decision.response
+                    except ProviderUnavailable:
+                        bounded_context_used = True
+                        context_rows = {}
+                        for name in list(datasets)[:12]:
+                            context_rows[name] = tools.execute("preview_dataset", {"dataset": name, "limit": 5})
+                        messages.append({"role": "user", "content": "Server-authorized bounded data context: " + json.dumps(context_rows, default=str)[:18000]})
+                        request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": context_rows})
+                        decision = self.provider_router.generate(request, validate=validate_agent_response, require_structured=True)
+                        final_response = decision.response
+                    if decision and decision.response.tool_calls and final_response is None:
+                        for call in decision.response.tool_calls[:6]:
+                            outcome = tools.execute(call.name, call.arguments)
+                            used_tools.append(call.name)
+                            messages.append({"role": "user", "content": tool_result_message(call.name, outcome)})
+                        followup = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"tool_results_supplied": used_tools}})
+                        final_decision = self.provider_router.generate(followup, validate=validate_agent_response, require_structured=True)
+                        final_response = final_decision.response
+                        if final_decision.fallback_used and not decision.fallback_used:
+                            decision = final_decision
             else:
                 decision = self.provider_router.generate(request, validate=validate_agent_response, require_structured=True)
                 final_response = decision.response
