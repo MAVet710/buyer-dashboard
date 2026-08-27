@@ -43,12 +43,13 @@ def test_explicit_bulk_extraction_output_can_remain_visible():
         product_format="Bulk",
     )
     assert result.eligible
-    assert result.role == "extraction_wip" or result.role == "bulk_output"
+    assert result.role == "bulk_output"
 
 
 def test_consumer_ready_and_unrelated_items_are_excluded():
     cases = [
         dict(item_type="cannabis", product_name="GMO Pre-Roll 1g", category="Pre-Roll", product_format="1g"),
+        dict(item_type="cannabis", product_name="GMO Flower", category="Flower", product_format="3.5g"),
         dict(item_type="cannabis", product_name="GMO Packaged Flower", category="Flower", product_format="3.5g"),
         dict(item_type="finished_good", product_name="Live Resin 1g", category="Concentrate", product_format="1g Jar"),
         dict(item_type="finished_good", product_name="Blue Dream Vape Cartridge", category="Vape", product_format="Cartridge"),
