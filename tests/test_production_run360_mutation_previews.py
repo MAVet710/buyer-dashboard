@@ -11,6 +11,7 @@ from modules.coman.models import (
     Facility,
     InventoryLot,
     InventoryTransaction,
+    MaterialReservation,
     Organization,
     Product,
     ProductBom,
@@ -196,9 +197,9 @@ def test_material_preview_reserves_only_uncovered_requirement_once():
     assert second["details"]["shortages"] == []
     with Session(engine) as session:
         reserved = session.scalar(
-            select(func.coalesce(func.sum(__import__("modules.coman.models", fromlist=["MaterialReservation"]).MaterialReservation.quantity), 0.0)).where(
-                __import__("modules.coman.models", fromlist=["MaterialReservation"]).MaterialReservation.production_order_id == order_id,
-                __import__("modules.coman.models", fromlist=["MaterialReservation"]).MaterialReservation.status == "reserved",
+            select(func.coalesce(func.sum(MaterialReservation.quantity), 0.0)).where(
+                MaterialReservation.production_order_id == order_id,
+                MaterialReservation.status == "reserved",
             )
         )
         assert float(reserved or 0) == 200.0
