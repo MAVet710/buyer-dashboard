@@ -105,9 +105,13 @@ export function KnowledgeLibraryCard({ canSeedApproved }: { canSeedApproved: boo
     onSuccess: refresh,
   });
 
+  const marketSourceCount = (catalog.data?.sources ?? []).filter(source =>
+    source.source_type.includes("market") || source.source_type.includes("retail_market") || source.source_type.includes("wholesale_market")
+  ).length;
+
   return <section className="inventory-panel integration-card">
     <header>
-      <div><h2>AI Knowledge Library</h2><p>Facility-scoped SOPs, regulatory material, METRC/Dutchie guidance, manuals, and technical references used to ground DoobieLogic agents.</p></div>
+      <div><h2>AI Knowledge Library</h2><p>Facility-scoped SOPs, regulatory material, METRC/Dutchie guidance, technical references, and approved public cannabis market intelligence used to ground DoobieLogic Agents.</p></div>
       <span className={`badge ${library.data?.health.ok ? "production-ready" : ""}`}>{library.data?.health.document_count ?? 0} indexed</span>
     </header>
 
@@ -123,12 +127,12 @@ export function KnowledgeLibraryCard({ canSeedApproved }: { canSeedApproved: boo
     </div>
     <div className="audit-actions">
       <button className="primary" disabled={!file || upload.isPending} onClick={() => upload.mutate()}>{upload.isPending ? "Indexing…" : "Upload & Index"}</button>
-      {canSeedApproved ? <button className="secondary" disabled={seed.isPending} onClick={() => seed.mutate()}>{seed.isPending ? "Seeding…" : "Seed / Update Approved Sources"}</button> : null}
+      {canSeedApproved ? <button className="secondary" disabled={seed.isPending} onClick={() => seed.mutate()}>{seed.isPending ? "Updating…" : "Seed / Update Public Knowledge"}</button> : null}
     </div>
     {upload.isError ? <div className="form-error">{upload.error.message}</div> : null}
     {seed.isError ? <div className="form-error">{seed.error.message}</div> : null}
     {upload.data ? <div className="connection-result success">Indexed {upload.data.chunks} knowledge chunk(s).</div> : null}
-    {seed.data ? <div className={seed.data.failed ? "connection-result error" : "connection-result success"}>Approved sources: {seed.data.indexed} indexed · {seed.data.unchanged} unchanged · {seed.data.failed} failed.</div> : null}
+    {seed.data ? <div className={seed.data.failed ? "connection-result error" : "connection-result success"}>Public knowledge: {seed.data.indexed} indexed · {seed.data.unchanged} unchanged · {seed.data.failed} failed.</div> : null}
 
     <div style={{ marginTop: 16 }}>
       <strong>Indexed for this facility</strong>
@@ -145,8 +149,9 @@ export function KnowledgeLibraryCard({ canSeedApproved }: { canSeedApproved: boo
 
     <footer>
       <span>Approved catalog: {catalog.data?.sources.length ?? 0} source(s)</span>
+      <span>Public market intelligence: {marketSourceCount} source(s)</span>
       <span>Catalog reviewed: {catalog.data?.reviewed_at || "unavailable"}</span>
-      <span>Regulatory sources are facility-scoped; vendor docs are not legal authority.</span>
+      <span>Facility data stays primary; market sources are benchmark context only.</span>
     </footer>
   </section>;
 }
