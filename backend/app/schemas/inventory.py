@@ -15,8 +15,13 @@ class InventoryPackage(BaseModel):
     location: str
     status: str
     source_name: str = ""
+    on_hand: float = 0.0
     available: float
     reserved: float
+    production_reserved: float = 0.0
+    wholesale_committed: float = 0.0
+    wholesale_reserved: float = 0.0
+    reservation_sources: list[str] = []
     usable: float
     unit: str
     received_at: datetime | None = None
@@ -183,15 +188,15 @@ class InventoryAuditLineItem(BaseModel):
     unit: str
     reason: str
     notes: str
-    first_count_quantity: float | None = None
-    recount_quantity: float | None = None
-    counted_by: str = ""
-    sku_or_upc: str = ""
-    lot_code: str = ""
-    metrc_package: str = ""
-    primary_code: str = ""
-    unit_cost: float = 0.0
-    retail_price: float = 0.0
+    first_count_quantity: float | None
+    recount_quantity: float | None
+    counted_by: str
+    sku_or_upc: str
+    lot_code: str
+    metrc_package: str
+    primary_code: str
+    unit_cost: float
+    retail_price: float
 
 
 class InventoryAuditScanItem(BaseModel):
@@ -214,78 +219,30 @@ class InventoryAuditEventItem(BaseModel):
 class InventoryAuditDetail(BaseModel):
     audit: InventoryAuditSummary
     lines: list[InventoryAuditLineItem]
-    scans: list[InventoryAuditScanItem] = Field(default_factory=list)
-    events: list[InventoryAuditEventItem] = Field(default_factory=list)
+    scans: list[InventoryAuditScanItem]
+    events: list[InventoryAuditEventItem]
 
 
-class InventoryAuditCount(BaseModel):
-    line_id: str
-    counted_quantity: float = Field(ge=0)
-    reason: str = ""
-    notes: str = ""
-
-
-class InventoryAuditCounts(BaseModel):
-    counts: list[InventoryAuditCount]
-
-
-class InventoryAuditStatusChange(BaseModel):
-    status: Literal["draft", "in_progress", "paused", "stopped", "cancelled"]
-
-
-class InventoryAuditComplete(BaseModel):
-    post_adjustments: bool = False
-
-
-class InventoryAuditScanPreview(BaseModel):
+class InventoryAuditScanCreate(BaseModel):
     raw_code: str
-    recount: bool = False
-
-
-class InventoryAuditScanCount(InventoryAuditScanPreview):
-    quantity: float = Field(ge=0)
-    reason: str = ""
+    quantity: float | None = None
     notes: str = ""
 
 
-class RetailAuditSnapshotImport(BaseModel):
-    reference: str
-    rows: list[dict]
-    mapping: dict[str, str]
+class InventoryAuditCountCreate(BaseModel):
+    counted_quantity: float = Field(ge=0)
+    notes: str = ""
 
 
-class PackageLineageLot(BaseModel):
-    lot_id: str
-    lot_code: str
-    product_name: str = ""
-    quantity: float | None = None
-    unit: str = ""
+class InventoryAuditStopCreate(BaseModel):
+    notes: str = ""
 
 
-class PackageLineageCreation(BaseModel):
-    run_number: str
-    action_type: str
-    parents: list[PackageLineageLot]
-
-
-class PackageLineageChildOutput(BaseModel):
-    lot_id: str | None = None
-    lot_code: str
-    product_id: str
-    inventory_quantity: float
-    inventory_unit: str
-    purpose: str
-
-
-class PackageLineageUse(BaseModel):
-    run_number: str
-    action_type: str
-    quantity_consumed: float
-    unit: str
-    outputs: list[PackageLineageChildOutput]
+class InventoryAuditCompleteCreate(BaseModel):
+    notes: str = ""
 
 
 class PackageLineage(BaseModel):
     lot: dict
-    created_by: PackageLineageCreation | None
-    used_by: list[PackageLineageUse]
+    created_by: dict | None
+    used_by: list[dict]
