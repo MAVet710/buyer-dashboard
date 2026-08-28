@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RegulatoryIntelligencePanel } from "../components/RegulatoryIntelligencePanel";
 import { StreamlitDialog } from "../components/StreamlitDialog";
 import { apiGet, apiPost } from "../lib/api";
 
@@ -38,6 +39,7 @@ export function CompliancePage() {
   const canManage=MANAGE_ROLES.has(account.data?.user.role?.toLowerCase()??"");
   return <div className="page exact-traceability">
     <div className="eyebrow">TRACEABILITY OPERATIONS · BACKOFFICE</div><h1>Queue &amp; Reconciliation</h1><p className="section-note">Buyer Dash keeps the internal operational record visible even when the state system rejects, delays, or conflicts with an action.</p>
+    <RegulatoryIntelligencePanel/>
     <section className="metrics four"><Metric label="Needs reconciliation" value={queue.data?.summary.needs_reconciliation??"—"}/><Metric label="In flight" value={queue.data?.summary.in_flight??"—"}/><Metric label="Verified" value={queue.data?.summary.verified??"—"}/><Metric label="Total actions" value={queue.data?.summary.total??"—"}/></section>
     <div className="form-grid two traceability-filters"><label>Queue view<select value={queueView} onChange={event=>setQueueView(event.target.value)}>{STATUS_OPTIONS.map(([label])=><option key={label}>{label}</option>)}</select></label><label>Provider<select value={provider} onChange={event=>setProvider(event.target.value)}>{PROVIDERS.map(value=><option key={value}>{value}</option>)}</select></label></div>
     {queue.isError?<div className="warning-banner">Traceability Operations is unavailable: {queue.error.message}</div>:null}
