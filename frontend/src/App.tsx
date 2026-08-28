@@ -5,7 +5,6 @@ import { AppShell } from "./components/AppShell";
 import { ProductionCalendar } from "./components/ProductionCalendar";
 import { ProductionNextActions } from "./components/ProductionNextActions";
 import { ProductionPlanner } from "./components/ProductionPlanner";
-import { ProductionRegulatoryHealth } from "./components/ProductionRegulatoryHealth";
 import { WorkspaceWindow } from "./components/WorkspaceWindow";
 import { entityContextForPath, pageForPath, pathForPage } from "./lib/workspaceRoutes";
 
@@ -118,7 +117,7 @@ export default function App() {
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
     : page === "Replenishment Policies" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
-    : page === "Production" ? <><ProductionPlanner onOpenRun={openProductionRun360}/><ProductionNextActions onOpenRun={openProductionRun360}/><ProductionRegulatoryHealth/><ProductionPage /></>
+    : page === "Production" ? <><ProductionPlanner onOpenRun={openProductionRun360}/><ProductionNextActions onOpenRun={openProductionRun360}/><ProductionPage /></>
     : page === "Production Calendar" ? <ProductionCalendar onOpenRun={openProductionRun360}/>
     : page === "Production Run 360" ? <ProductionRun360Page onNavigate={navigate} initialOrderId={run360OrderId} />
     : page === "Wholesale Ops" ? <WholesaleOpsPage onNavigate={navigate} />
