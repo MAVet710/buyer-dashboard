@@ -2,7 +2,8 @@
 
 Only explicitly mapped operations are allowed. There is intentionally no generic
 "send arbitrary JSON" escape hatch. Every outbound write must name an explicit
-sandbox/production environment before a request can leave DoobieLogic.
+sandbox/production environment and pass the reviewed regulatory write registry
+before a request can leave DoobieLogic.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from typing import Any
 
 import requests
 
+from modules.regulatory import require_metrc_write_contract
 from services.metrc_client import resolve_metrc_base_url
 
 
@@ -117,7 +119,10 @@ def validate_metrc_action(*, operation_type: str, entity_id: str, payload: dict[
     if not entity:
         raise MetrcNativeError("A Metrc entity ID is required.")
     if operation == "package_finish":
-        return {"operation": operation, "body": [{"Label": entity, "ActualDate": str(payload.get("actual_date") or date.today().isoformat())}]}
+        return {
+            "operation": operation,
+            "body": [{"Label": entity, "ActualDate": str(payload.get("actual_date") or date.today().isoformat())}],
+        }
     if operation == "package_adjust":
         quantity = payload.get("quantity_delta")
         unit = str(payload.get("unit") or "").strip()
@@ -156,7 +161,11 @@ def _validated_transfer_template(template: dict[str, Any]) -> dict[str, Any]:
         "PhoneNumberForQuestions", "TransporterFacilityLicenseNumber", "VehicleLicensePlateNumber",
         "VehicleMake", "VehicleModel", "Destinations",
     }
-    clean: dict[str, Any] = {key: template[key] for key in allowed_template_keys if key in template and template[key] not in (None, "")}
+    clean: dict[str, Any] = {
+        key: template[key]
+        for key in allowed_template_keys
+        if key in template and template[key] not in (None, "")
+    }
     clean_destinations: list[dict[str, Any]] = []
     for raw in destinations:
         if not isinstance(raw, dict):
@@ -211,26 +220,27 @@ def submit_metrc_action(
     reason: str = "",
 ) -> dict[str, Any]:
     environment = _environment(environment)
-    validated = validate_metrc_action(operation_type=operation_type, entity_id=entity_id, payload=payload, reason=reason)
+    try:
+        contract = require_metrc_write_contract(
+            operation_type=operation_type,
+            jurisdiction=state,
+            environment=environment,
+        )
+    except ValueError as exc:
+        raise MetrcNativeError(str(exc), request_sent=False) from exc
+    validated = validate_metrc_action(
+        operation_type=operation_type,
+        entity_id=entity_id,
+        payload=payload,
+        reason=reason,
+    )
     query = f"?licenseNumber={requests.utils.quote(str(license_number).strip(), safe='')}"
-    operation = validated["operation"]
-    if operation == "transfer_template_create":
-        if str(state or "").strip().upper() != "MA" or environment != "sandbox":
-            raise MetrcNativeError("Outgoing transfer-template writes are currently enabled only for the Massachusetts Metrc sandbox.")
-        method = "POST"
-        path = f"transfers/v2/templates/outgoing{query}"
-    elif operation == "package_finish":
-        method = "PUT"
-        path = f"packages/v2/finish{query}"
-    else:
-        method = "PUT"
-        path = f"packages/v2/adjust{query}"
     return _request(
         state=state,
         environment=environment,
         integrator_api_key=integrator_api_key,
         user_api_key=user_api_key,
-        method=method,
-        path=path,
+        method=contract.method,
+        path=f"{contract.path}{query}",
         payload=validated["body"],
     )
