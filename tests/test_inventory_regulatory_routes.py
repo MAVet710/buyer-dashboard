@@ -49,14 +49,21 @@ def _metrc(*, trusted: bool = True, status: str = "connected", environment: str 
 
 
 def test_trusted_inventory_router_precedes_legacy_live_inbound_route():
-    endpoints = [
-        route.endpoint
-        for route in app.routes
-        if getattr(route, "path", "") == "/api/v1/inventory/{operation}/inbound"
-        and "GET" in getattr(route, "methods", set())
+    # API_PREFIX may be overridden by the runtime environment. Assert ordering
+    # by the registered endpoint identities instead of hardcoding /api/v1.
+    candidates = [
+        (index, route.endpoint)
+        for index, route in enumerate(app.routes)
+        if "GET" in getattr(route, "methods", set())
+        and getattr(getattr(route, "endpoint", None), "__name__", "")
+        in {"trusted_inbound_queue", "inbound_queue"}
     ]
-    assert len(endpoints) >= 2
-    assert endpoints[0].__module__ == "backend.app.routers.inventory_reconciliation"
+    trusted = next((item for item in candidates if item[1].__name__ == "trusted_inbound_queue"), None)
+    legacy = next((item for item in candidates if item[1].__name__ == "inbound_queue"), None)
+    assert trusted is not None
+    assert legacy is not None
+    assert trusted[0] < legacy[0]
+    assert trusted[1].__module__ == "backend.app.routers.inventory_reconciliation"
 
 
 def test_trusted_inbound_propagates_exact_mapping_environment(monkeypatch):
