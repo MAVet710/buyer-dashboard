@@ -106,7 +106,7 @@ export function MarketingHome() {
               Run <span>buying, inventory, production, extraction, wholesale,</span> and compliance from one place.
             </h1>
             <p>
-              DoobieLogic connects the work that keeps a licensed cannabis operation moving: purchasing and receiving, production and extraction, wholesale ordering and fulfillment, traceability, reporting, compliance, and Doobie Agent.
+              DoobieLogic gives teams one clear view of the work that keeps a licensed facility moving: purchasing and receiving, production and extraction, wholesale ordering and fulfillment, traceability, reporting, compliance, and Doobie Agent.
             </p>
 
             <div className="marketing-cta-row">
