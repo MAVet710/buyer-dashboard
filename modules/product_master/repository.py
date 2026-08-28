@@ -60,6 +60,7 @@ class ProductMasterRepository:
         strain: str = "",
         manufacturer: str = "",
         product_format: str = "",
+        image_url: str = "",
         description: str = "",
         retail_enabled: bool | None = None,
         production_enabled: bool | None = None,
@@ -71,6 +72,7 @@ class ProductMasterRepository:
             "strain": str(strain or "").strip(),
             "manufacturer": str(manufacturer or "").strip(),
             "product_format": str(product_format or "").strip(),
+            "image_url": str(image_url or "").strip(),
             "description": str(description or "").strip(),
         }
         if retail_enabled is not None:
