@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 import { apiGet, apiPost } from "../lib/api";
 import type { CultivationPlant, PlantEvent, PlantPhase } from "../types/inventory";
+import { CultivationRegulatoryHealth } from "./CultivationRegulatoryHealth";
 import { CultivationToday } from "./CultivationToday";
 import { StreamlitDialog } from "./StreamlitDialog";
 import { WorkspaceWindow } from "./WorkspaceWindow";
@@ -22,6 +23,7 @@ export function PlantInventory() {
   const rooms = [...new Set((overview.data ?? query.data ?? []).map(plant => plant.room_code))];
   return <>
     {overview.data ? <CultivationToday plants={overview.data} onSelect={setSelected} /> : null}
+    <CultivationRegulatoryHealth />
     <div className="plant-toolbar"><input placeholder="Search tag, strain, room…" value={search} onChange={event => setSearch(event.target.value)} /><select value={phase} onChange={event => setPhase(event.target.value)}><option value="">All phases</option>{phases.map(value => <option key={value}>{value}</option>)}</select><select value={room} onChange={event => setRoom(event.target.value)}><option value="">All rooms</option>{rooms.map(value => <option key={value}>{value}</option>)}</select>{canWrite ? <button className="primary" onClick={() => setCreating(true)}>Add plant</button> : null}</div>
     {!canWrite && account.data ? <p className="source-caption">Plant inventory is read-only for the {account.data.user.role} role.</p> : null}
     {overview.isError ? <div className="state error">Cultivation Today could not load: {overview.error.message}</div> : null}
