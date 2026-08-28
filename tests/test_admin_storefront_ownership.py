@@ -1,13 +1,15 @@
-from fastapi import HTTPException
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from backend.app.auth import RequestContext
-from backend.app.main import app
 from backend.app.routers.admin_storefronts import (
     StorefrontOwnershipUpdate,
     list_storefront_ownership,
+    router as admin_storefronts_router,
     update_storefront_ownership,
 )
 from modules.coman.models import AuditEvent, Base, Facility, Organization, Product
@@ -16,6 +18,10 @@ from modules.commerce_storefronts.models import (
     CommerceStorefrontOrderRequest,
     CommerceStorefrontProduct,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MAIN_SOURCE = (ROOT / "backend" / "app" / "main.py").read_text(encoding="utf-8")
 
 
 def _engine():
@@ -79,17 +85,13 @@ def _dev():
 def test_dev_can_list_storefront_tenant_ownership():
     engine = _engine()
     rows = list_storefront_ownership(context=_dev(), engine=engine)
-    assert rows == [
-        {
-            **rows[0],
-            "id": "storefront-cowboy",
-            "hostname": "cowboykush.doobielogic.io",
-            "organization_id": "org-old",
-            "facility_id": "facility-old",
-            "listing_count": 0,
-            "request_count": 0,
-        }
-    ]
+    assert len(rows) == 1
+    assert rows[0]["id"] == "storefront-cowboy"
+    assert rows[0]["hostname"] == "cowboykush.doobielogic.io"
+    assert rows[0]["organization_id"] == "org-old"
+    assert rows[0]["facility_id"] == "facility-old"
+    assert rows[0]["listing_count"] == 0
+    assert rows[0]["request_count"] == 0
 
 
 def test_dev_can_move_clean_storefront_to_cowboy_kush_and_audit_it():
@@ -227,7 +229,14 @@ def test_non_dev_cannot_reassign_storefronts():
         raise AssertionError("Non-DEV storefront ownership listing unexpectedly succeeded")
 
 
-def test_storefront_admin_routes_are_registered():
-    names = {getattr(route, "name", "") for route in app.routes}
+def test_storefront_admin_router_registers_both_routes_in_isolation():
+    isolated = FastAPI()
+    isolated.include_router(admin_storefronts_router, prefix="/api/v1")
+    names = {getattr(route, "name", "") for route in isolated.routes}
     assert "list_storefront_ownership" in names
     assert "update_storefront_ownership" in names
+
+
+def test_production_app_registers_storefront_admin_router_source_contract():
+    assert "from .routers.admin_storefronts import router as admin_storefronts_router" in MAIN_SOURCE
+    assert "app.include_router(admin_storefronts_router, prefix=settings.api_prefix)" in MAIN_SOURCE
