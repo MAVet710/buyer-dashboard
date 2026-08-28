@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import InventoryLot, InventoryTransaction
+from modules.coman.models import InventoryLot, InventoryTransaction, Product
 from modules.doobie_actions.service import DoobieActionService
 from modules.regulatory import list_metrc_write_contracts, require_metrc_write_contract
 
@@ -26,6 +26,71 @@ class RegulatoryActionProposalService:
             contract.public(jurisdiction=code, environment=env)
             for contract in list_metrc_write_contracts(jurisdiction=code, environment=env)
         ]
+
+    def package_finish_candidates(self, organization_id: str, facility_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
+        """Return depleted tracked lots that are eligible for employee review.
+
+        Candidate discovery is local/deterministic and does not call Metrc. The
+        provider contract, trusted mapping, and exact package state are checked
+        again when the proposal is built and submitted.
+        """
+
+        safe_limit = max(1, min(int(limit or 200), 500))
+        with Session(self.engine) as session:
+            lots = list(
+                session.scalars(
+                    select(InventoryLot)
+                    .where(
+                        InventoryLot.organization_id == organization_id,
+                        InventoryLot.facility_id == facility_id,
+                        InventoryLot.compliance_package_id != "",
+                    )
+                    .order_by(InventoryLot.updated_at.desc())
+                    .limit(safe_limit)
+                )
+            )
+            product_ids = {lot.product_id for lot in lots}
+            products = {
+                row.id: row
+                for row in session.scalars(
+                    select(Product).where(
+                        Product.organization_id == organization_id,
+                        Product.id.in_(product_ids),
+                    )
+                )
+            } if product_ids else {}
+            balances = {
+                lot.id: float(
+                    session.scalar(
+                        select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(
+                            InventoryTransaction.organization_id == organization_id,
+                            InventoryTransaction.facility_id == facility_id,
+                            InventoryTransaction.lot_id == lot.id,
+                        )
+                    )
+                    or 0.0
+                )
+                for lot in lots
+            }
+
+        output: list[dict[str, Any]] = []
+        for lot in lots:
+            balance = balances.get(lot.id, 0.0)
+            if abs(balance) > 1e-6:
+                continue
+            product = products.get(lot.product_id)
+            output.append({
+                "lot_id": lot.id,
+                "package_label": str(lot.compliance_package_id or "").strip(),
+                "lot_code": lot.lot_code,
+                "product_name": product.name if product else "",
+                "product_sku": product.sku if product else "",
+                "local_balance": balance,
+                "location": lot.location_code,
+                "status": lot.status,
+                "ready": True,
+            })
+        return output
 
     def package_finish_proposal(
         self,
@@ -67,7 +132,7 @@ class RegulatoryActionProposalService:
                 or 0.0
             )
 
-        if balance > 1e-6:
+        if abs(balance) > 1e-6:
             raise ValueError(
                 f"Package {package_label} still has {balance:g} local units on hand. Reconcile inventory before proposing a finish action."
             )
