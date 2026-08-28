@@ -121,7 +121,7 @@ async function setPage(page: Page, pageName: string, operation: "Retail Ops" | "
     localStorage.setItem("buyer-dash-data-mode", "Uploads");
     sessionStorage.setItem("buyer-dash-pending-page", pageName);
   }, { pageName, operation });
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "domcontentloaded" });
 }
 
 async function assertNoDocumentOverflow(page: Page) {
@@ -151,7 +151,7 @@ for (const width of WIDTHS) {
       if (!localStorage.getItem("buyer-dash-operation")) localStorage.setItem("buyer-dash-operation", "Retail Ops");
       if (!sessionStorage.getItem("buyer-dash-pending-page")) sessionStorage.setItem("buyer-dash-pending-page", "Buyer Operations");
     });
-    await page.goto("/", { waitUntil: "networkidle" });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
 
     // Operator-recorded Buyer command center: keep the recovered evidence in one continuous surface.
     await expect(page.getByRole("heading", { name: "Buyer Dashboard" })).toBeVisible();

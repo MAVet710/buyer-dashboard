@@ -66,7 +66,7 @@ async function openInventory(page: Page, width: number, activeAccount = accountC
     localStorage.setItem("buyer-dash-data-mode", "Uploads");
     sessionStorage.setItem("buyer-dash-pending-page", "Inventory");
   });
-  await page.goto("/", { waitUntil: "networkidle" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("heading", { name: "Inventory" })).toBeVisible();
 }
 
