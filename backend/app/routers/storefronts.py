@@ -107,7 +107,7 @@ def wholesale_inventory(context: RequestContext = Depends(get_request_context), 
 @router.get("/catalog-options")
 def catalog_options(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _authorize_read(context, engine)
-    return CommerceStorefrontService(engine).list_catalog_options(context.organization_id, context.facility_id)
+    return CommerceStorefrontService(engine).merchandising_catalog_options(context.organization_id, context.facility_id)
 
 
 @router.post("/products")

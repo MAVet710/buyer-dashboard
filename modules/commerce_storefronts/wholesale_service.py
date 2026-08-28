@@ -146,6 +146,38 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
             row["available"] += float(lot["usable"])
         return sorted(by_product.values(), key=lambda row: (row["name"].casefold(), row["sku"].casefold()))
 
+    def merchandising_catalog_options(self, organization_id: str, facility_id: str) -> list[dict[str, Any]]:
+        """Return every stocked product so held items can be merchandised before release.
+
+        Public catalog eligibility remains strict and continues to use
+        ``list_catalog_options``. This projection is only for the authenticated
+        storefront manager and makes each blocker explicit.
+        """
+        inventory = self.wholesale_inventory(organization_id, facility_id)
+        by_product: dict[str, dict[str, Any]] = {}
+        for lot in inventory["items"] + inventory["blocked_items"]:
+            row = by_product.setdefault(lot["product_id"], {
+                "product_id": lot["product_id"],
+                "sku": lot["sku"],
+                "name": lot["name"],
+                "unit": lot["unit"],
+                "available": 0.0,
+                "on_hand": 0.0,
+                "suggested_price_usd": lot["suggested_price_usd"],
+                "inventory_type": lot["inventory_type"],
+                "eligible": False,
+                "blocked_reasons": set(),
+            })
+            row["on_hand"] += float(lot["available"])
+            row["available"] += float(lot["usable"]) if lot["eligible"] else 0.0
+            row["eligible"] = bool(row["eligible"] or lot["eligible"])
+            row["blocked_reasons"].update(lot["blocked_reasons"])
+        result = []
+        for row in by_product.values():
+            row["blocked_reasons"] = [] if row["eligible"] else sorted(row["blocked_reasons"])
+            result.append(row)
+        return sorted(result, key=lambda row: (row["name"].casefold(), row["sku"].casefold()))
+
     def approve_order_request(self, *, organization_id: str, facility_id: str, request_id: str, actor: str, review_note: str = "") -> dict[str, Any]:
         result = super().approve_order_request(
             organization_id=organization_id,

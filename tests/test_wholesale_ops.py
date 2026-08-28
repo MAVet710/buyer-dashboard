@@ -109,6 +109,25 @@ def test_public_storefront_catalog_inherits_wholesale_coa_gate():
     assert [row["sku"] for row in public["catalog"]] == ["PASSED"]
 
 
+def test_storefront_manager_can_merchandise_blocked_inventory_without_publishing_it():
+    engine, coman, organization, facility = _setup()
+    product = coman.create_product(organization.id, sku="HELD", name="Held Product", item_type="finished_good", base_unit="unit", retail_price=12, actor="dev")
+    lot = coman.create_inventory_lot(organization.id, facility.id, product_id=product.id, lot_code="HELD-1", actor="dev", opening_quantity=40, unit="unit")
+    with Session(engine) as session, session.begin():
+        session.get(InventoryLot, lot.id).status = "hold"
+
+    service = WholesaleCommerceStorefrontService(engine)
+    options = service.merchandising_catalog_options(organization.id, facility.id)
+
+    assert len(options) == 1
+    assert options[0]["sku"] == "HELD"
+    assert options[0]["on_hand"] == 40
+    assert options[0]["available"] == 0
+    assert options[0]["eligible"] is False
+    assert "Inventory is not released" in options[0]["blocked_reasons"]
+    assert "COA reference is missing" in options[0]["blocked_reasons"]
+
+
 def test_storefront_submission_is_demand_only_and_approval_becomes_inventory_commitment():
     engine, coman, organization, facility = _setup()
     product = coman.create_product(

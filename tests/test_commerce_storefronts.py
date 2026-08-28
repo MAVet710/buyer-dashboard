@@ -179,3 +179,13 @@ def test_cowboy_kush_storefront_is_discoverable_collectible_and_request_only():
     assert "@media(max-width:980px)" in css
     assert "@media(max-width:720px)" in css
     assert ".cowboy-storefront .cowboy-cart{position:static}" in css
+
+
+def test_item_checkbox_groups_offer_select_all_controls():
+    storefront_manager = (ROOT / "frontend/src/components/CommerceStorefrontManager.tsx").read_text(encoding="utf-8")
+    admin = (ROOT / "frontend/src/pages/AdminPage.tsx").read_text(encoding="utf-8")
+
+    assert 'aria-label="Select all storefront products"' in storefront_manager
+    assert "current.map(item=>({...item,selected:e.target.checked}))" in storefront_manager
+    assert 'aria-label="Select all facilities"' in admin
+    assert "facilities.map(row=>row.id)" in admin
