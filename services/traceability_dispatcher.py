@@ -10,7 +10,7 @@ from sqlalchemy import Engine
 
 from modules.coman.models import utc_now
 from modules.integrations import IntegrationConfigurationService
-from modules.regulatory import RegulatoryMappingService
+from modules.regulatory import RegulatoryMappingService, require_metrc_write_contract
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
 from services.metrc_native import MetrcNativeError, submit_metrc_action, validate_metrc_action
 
@@ -28,11 +28,12 @@ def _json_dict(value: str) -> dict[str, Any]:
 
 
 class TraceabilityDispatcher:
-    """Dispatch only explicitly supported provider operations.
+    """Dispatch only explicitly reviewed provider operations.
 
-    Queue status is never treated as external success. The dispatcher writes an
-    attempt record first-class and transitions the canonical state machine based
-    on the actual provider response.
+    Queue status is never treated as external success. The dispatcher requires
+    an exact trusted tenant/facility mapping and an operation-specific write
+    contract before a provider request can leave DoobieLogic. Every attempt is
+    durable and uncertain outcomes reconcile instead of being blindly retried.
     """
 
     def __init__(self, engine: Engine, *, encryption_key: str, metrc_integrator_api_key: str):
@@ -86,7 +87,13 @@ class TraceabilityDispatcher:
             reason=f"{message} No external request was sent.",
             source="provider_worker",
         )
-        return {"ok": False, "status": "reconciliation_required", "provider": "metrc", "outbound_request_sent": False, "retryable": False}
+        return {
+            "ok": False,
+            "status": "reconciliation_required",
+            "provider": "metrc",
+            "outbound_request_sent": False,
+            "retryable": False,
+        }
 
     def _dispatch_metrc(self, tx, payload: dict[str, Any], actor: str) -> dict[str, Any]:
         scope_key = f"{tx.requested_by}|{tx.facility_id}"
@@ -152,17 +159,28 @@ class TraceabilityDispatcher:
                 message="An administrator must verify the exact Metrc facility, license, jurisdiction, credential, and environment mapping before writes can dispatch.",
             )
 
-        if tx.operation_type == "transfer_template_create" and (state != "MA" or environment != "sandbox"):
+        try:
+            contract = require_metrc_write_contract(
+                operation_type=tx.operation_type,
+                jurisdiction=state,
+                environment=environment,
+            )
+        except ValueError as exc:
             return self._no_request(
                 tx,
                 actor,
-                code="ma_sandbox_only",
-                message="Outgoing transfer-template submission is currently enabled only for the Massachusetts Metrc sandbox.",
+                code="write_contract_blocked",
+                message=str(exc),
             )
 
         user_api_key = self.integrations.secret(row)
         try:
-            validate_metrc_action(operation_type=tx.operation_type, entity_id=tx.entity_id, payload=payload, reason=tx.reason)
+            validate_metrc_action(
+                operation_type=tx.operation_type,
+                entity_id=tx.entity_id,
+                payload=payload,
+                reason=tx.reason,
+            )
         except MetrcNativeError as exc:
             self.traceability.record_attempt(
                 organization_id=tx.organization_id,
@@ -189,7 +207,7 @@ class TraceabilityDispatcher:
             transaction_id=tx.id,
             new_status="submitted",
             actor=actor,
-            reason=f"Provider worker began the authenticated Metrc {environment} request.",
+            reason=f"Provider worker began the authenticated Metrc {environment} {contract.operation_type} request.",
             source="provider_worker",
         )
         try:
@@ -226,7 +244,14 @@ class TraceabilityDispatcher:
                 source="provider_worker",
                 next_attempt_at=utc_now() + timedelta(minutes=5) if exc.retryable else None,
             )
-            return {"ok": False, "status": target, "provider": "metrc", "outbound_request_sent": exc.request_sent, "retryable": exc.retryable}
+            return {
+                "ok": False,
+                "status": target,
+                "provider": "metrc",
+                "outbound_request_sent": exc.request_sent,
+                "retryable": exc.retryable,
+                "blind_retry_allowed": False,
+            }
         self.traceability.record_attempt(
             organization_id=tx.organization_id,
             facility_id=tx.facility_id,
@@ -250,6 +275,8 @@ class TraceabilityDispatcher:
             "status": accepted.status,
             "provider": "metrc",
             "environment": environment,
+            "operation_type": contract.operation_type,
+            "verification_resource": contract.verification_resource,
             "outbound_request_sent": True,
             "verified": False,
             "external_reference": str(result.get("external_reference") or ""),
