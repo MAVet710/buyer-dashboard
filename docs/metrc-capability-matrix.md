@@ -25,8 +25,8 @@ This matrix records technical API-documentation evidence for DoobieLogic's Metrc
 | DC | District of Columbia | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
 | GU | Guam | Pending | Unknown capabilities fail closed |
 | IL | Illinois | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
-| KY | Kentucky | Pending | Unknown capabilities fail closed |
-| LA | Louisiana | Pending | Unknown capabilities fail closed |
+| KY | Kentucky | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
+| LA | Louisiana | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
 | ME | Maine | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
 | MD | Maryland | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
 | MA | Massachusetts | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
@@ -41,15 +41,15 @@ This matrix records technical API-documentation evidence for DoobieLogic's Metrc
 | OH | Ohio | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
 | OK | Oklahoma | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
 | OR | Oregon | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
-| RI | Rhode Island | Pending | Unknown capabilities fail closed |
+| RI | Rhode Island | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
 | SD | South Dakota | Verified | Evidence-backed capabilities allowed after tenant/facility mapping |
 | VI | U.S. Virgin Islands | Pending | Unknown capabilities fail closed |
 | VA | Virginia | Pending | Unknown capabilities fail closed |
 | WV | West Virginia | Pending | Unknown capabilities fail closed |
 
-Current directly reviewed jurisdictions: **20 of 28**.
+Current directly reviewed jurisdictions: **23 of 28**.
 
-Pending direct documentation review: **AL, GU, KY, LA, RI, VI, VA, WV**.
+Pending direct documentation review: **AL, GU, VI, VA, WV**.
 
 ## Evidence-backed endpoint families
 
