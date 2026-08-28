@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api";
+import { ProductionRegulatoryHealth } from "./ProductionRegulatoryHealth";
 
 type QueueRow = {
   order_id: string;
@@ -35,13 +36,16 @@ export function ProductionNextActions({ onOpenRun }: { onOpenRun: (orderId: stri
     return items;
   }).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.row.Order.localeCompare(b.row.Order)).slice(0, 8);
 
-  return <section className="inventory-panel production-next-actions">
-    <div className="section-heading"><div><div className="eyebrow">Production Today</div><h3>Next Actions</h3><p className="source-caption">Generated from Run 360 state. Select an action to work the exact production run.</p></div><span className="badge">{actions.length}</span></div>
-    {queue.isLoading ? <div className="state">Checking production run state…</div> : null}
-    {queue.isError ? <div className="state error">Production next actions could not load: {queue.error.message}</div> : null}
-    {!queue.isLoading && !queue.isError && actions.length === 0 ? <div className="empty">No production exceptions need attention right now.</div> : null}
-    {actions.length ? <div className="table-wrap"><table><thead><tr><th>Priority</th><th>Run</th><th>Action</th><th>Why</th></tr></thead><tbody>{actions.map((action) => <tr key={action.key} onClick={() => onOpenRun(action.row.order_id)}><td><span className="badge">{action.priority}</span></td><td><strong>{action.row.Order}</strong><br/><small>{action.row.Product} · {action.row.Status}</small></td><td>{action.label}</td><td>{action.reason}</td></tr>)}</tbody></table></div> : null}
-  </section>;
+  return <>
+    <section className="inventory-panel production-next-actions">
+      <div className="section-heading"><div><div className="eyebrow">Production Today</div><h3>Next Actions</h3><p className="source-caption">Generated from Run 360 state. Select an action to work the exact production run.</p></div><span className="badge">{actions.length}</span></div>
+      {queue.isLoading ? <div className="state">Checking production run state…</div> : null}
+      {queue.isError ? <div className="state error">Production next actions could not load: {queue.error.message}</div> : null}
+      {!queue.isLoading && !queue.isError && actions.length === 0 ? <div className="empty">No production exceptions need attention right now.</div> : null}
+      {actions.length ? <div className="table-wrap"><table><thead><tr><th>Priority</th><th>Run</th><th>Action</th><th>Why</th></tr></thead><tbody>{actions.map((action) => <tr key={action.key} onClick={() => onOpenRun(action.row.order_id)}><td><span className="badge">{action.priority}</span></td><td><strong>{action.row.Order}</strong><br/><small>{action.row.Product} · {action.row.Status}</small></td><td>{action.label}</td><td>{action.reason}</td></tr>)}</tbody></table></div> : null}
+    </section>
+    <ProductionRegulatoryHealth />
+  </>;
 }
 
 function priorityRank(value: Action["priority"]) { return value === "high" ? 0 : value === "medium" ? 1 : 2; }
