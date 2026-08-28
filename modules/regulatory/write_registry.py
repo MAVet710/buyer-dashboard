@@ -94,7 +94,7 @@ METRC_WRITE_CONTRACTS: dict[str, MetrcWriteContract] = {
         environments=frozenset({"sandbox"}),
         verification_resource="transfer_templates_outgoing",
         evidence_endpoint="POST /transfers/v2/templates/outgoing",
-        note="Pilot remains Massachusetts sandbox only; final manifest issuance is verified separately.",
+        note="Outgoing transfer-template writes are currently enabled only for the Massachusetts Metrc sandbox; final manifest issuance is verified separately.",
     ),
     "inbound_transfer_accept": MetrcWriteContract(
         operation_type="inbound_transfer_accept",
@@ -207,7 +207,7 @@ def require_metrc_write_contract(*, operation_type: str, jurisdiction: str, envi
     if get_jurisdiction(code) is None:
         raise ValueError("The Metrc write jurisdiction is not verified in the regulatory registry.")
     if code not in contract.jurisdictions or env not in contract.environments:
-        raise ValueError(f"{operation} is not enabled for {code or 'unknown jurisdiction'} {env or 'unknown environment'}.")
+        raise ValueError(contract.note or f"{operation} is not enabled for {code or 'unknown jurisdiction'} {env or 'unknown environment'}.")
     require_capability(code, contract.capability, environment=env)
     if not contract.dispatch_enabled:
         raise ValueError(
