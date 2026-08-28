@@ -86,6 +86,15 @@ def _require_adjustment(context: RequestContext) -> None:
 def _metrc_context(
     *, context: RequestContext, engine: Engine, settings: Settings, operation: str
 ):
+    """Resolve the exact facility Metrc context for live inventory reads.
+
+    An incomplete connection remains a normal, non-live state so the receiving
+    UI can render its setup guidance. Once a connection is configured, live
+    reads fail closed unless the credentials validated successfully and an
+    administrator verified the exact facility/license/jurisdiction/environment
+    mapping established by the regulatory foundation.
+    """
+
     _require_operation(operation)
     _require_receiving(context)
     require_inventory_operation_capability(context, engine, operation)
@@ -93,6 +102,18 @@ def _metrc_context(
         _, metrc = resolve_metrc_context(engine, settings, context)
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
+    if not metrc.configured:
+        return metrc
+    if metrc.status != "connected":
+        raise HTTPException(
+            status_code=409,
+            detail="Validate the Metrc connection for this exact facility before loading live regulatory data.",
+        )
+    if not metrc.trusted_mapping:
+        raise HTTPException(
+            status_code=409,
+            detail="An administrator must verify the exact Metrc facility, license, jurisdiction, credential, and environment mapping before live regulatory data can load.",
+        )
     return metrc
 
 
@@ -191,15 +212,18 @@ def inbound_queue(
         user_api_key=metrc.user_api_key,
         integrator_api_key=metrc.integrator_api_key,
         license_number=metrc.license_number,
+        environment=metrc.environment,
     )
     if not result.get("ok"):
-        raise HTTPException(502, str(result.get("message") or "METRC inbound transfer request failed."))
+        status = 409 if result.get("status") == "regulatory_read_blocked" else 502
+        raise HTTPException(status, str(result.get("message") or "Metrc inbound transfer request failed."))
     transfers = [_transfer_row(row) for row in result.get("transfers") or []]
     transfers = [row for row in transfers if row["transfer_id"]]
     return {
         "configured": True,
-        "message": "METRC inbound queue loaded. State acceptance remains read-only and must still occur in METRC.",
+        "message": "Metrc inbound queue loaded through the verified facility mapping. State acceptance remains read-only and must still occur in Metrc.",
         "license_number": metrc.license_number,
+        "environment": metrc.environment,
         "transfers": transfers,
     }
 
@@ -220,22 +244,25 @@ def inbound_transfer_details(
         user_api_key=metrc.user_api_key,
         integrator_api_key=metrc.integrator_api_key,
         transfer_id=transfer_id,
+        environment=metrc.environment,
     )
     if not deliveries_result.get("ok"):
-        raise HTTPException(502, str(deliveries_result.get("message") or "METRC transfer delivery request failed."))
+        status = 409 if deliveries_result.get("status") == "regulatory_read_blocked" else 502
+        raise HTTPException(status, str(deliveries_result.get("message") or "Metrc transfer delivery request failed."))
     deliveries = list(deliveries_result.get("deliveries") or [])
     packages: list[dict] = []
     warnings: list[str] = []
     for delivery in deliveries:
         delivery_id = str(delivery.get("Id") or delivery.get("DeliveryId") or "").strip()
         if not delivery_id:
-            warnings.append("One METRC delivery had no delivery id and could not be expanded.")
+            warnings.append("One Metrc delivery had no delivery id and could not be expanded.")
             continue
         package_result = fetch_all_delivery_packages(
             state=metrc.state,
             user_api_key=metrc.user_api_key,
             integrator_api_key=metrc.integrator_api_key,
             delivery_id=delivery_id,
+            environment=metrc.environment,
         )
         if not package_result.get("ok"):
             warnings.append(str(package_result.get("message") or f"Unable to load packages for delivery {delivery_id}."))
@@ -247,6 +274,7 @@ def inbound_transfer_details(
         "packages": packages,
         "warnings": warnings,
         "read_only_traceability": True,
+        "environment": metrc.environment,
     }
 
 
@@ -267,10 +295,17 @@ def inbound_package_lab_results(
         integrator_api_key=metrc.integrator_api_key,
         license_number=metrc.license_number,
         package_id=package_record_id,
+        environment=metrc.environment,
     )
     if not result.get("ok"):
-        raise HTTPException(502, str(result.get("message") or "METRC lab result request failed."))
-    return {"package_record_id": package_record_id, "lab_results": result.get("lab_results") or [], "read_only": True}
+        status = 409 if result.get("status") == "regulatory_read_blocked" else 502
+        raise HTTPException(status, str(result.get("message") or "Metrc lab result request failed."))
+    return {
+        "package_record_id": package_record_id,
+        "lab_results": result.get("lab_results") or [],
+        "read_only": True,
+        "environment": metrc.environment,
+    }
 
 
 @router.post("/{operation}/receipts", response_model=InventoryReceiptResult, status_code=201)
