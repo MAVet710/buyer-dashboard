@@ -129,7 +129,8 @@ def test_admin_integrations_location_and_facility_controls_survive_remigration()
 def test_production_inventory_keeps_bulk_cultivation_plants_and_inventory_controls():
     has(
         "frontend/src/pages/InventoryPage.tsx",
-        'Bulk cannabis materials, lots, rooms, receiving, transformations, and audits.',
+        'Physical production inventory with Wholesale and Production commitments reflected in real available quantity.',
+        'On Hand', 'Wholesale Committed', 'Production Reserved', 'Reserved For',
         'All Material', 'Bulk Flower', 'Biomass / Trim', 'Extraction Input', 'WIP',
         'Finished Bulk', 'Production Ready', 'Low Balance', 'Quarantine / Hold',
         '<PlantInventory/>', 'Receive history', 'Receive inventory', 'Adjust', 'Package 360',

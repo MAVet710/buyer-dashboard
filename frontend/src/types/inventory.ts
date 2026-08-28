@@ -9,8 +9,13 @@ export type InventoryPackage = {
   location: string;
   status: string;
   source_name: string;
+  on_hand: number;
   available: number;
   reserved: number;
+  production_reserved: number;
+  wholesale_committed: number;
+  wholesale_reserved: number;
+  reservation_sources: string[];
   usable: number;
   unit: string;
   received_at: string | null;

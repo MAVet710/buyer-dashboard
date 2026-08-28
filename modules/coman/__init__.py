@@ -1,6 +1,98 @@
-"""Durable co-manufacturing domain services."""
+"""Durable co-manufacturing domain services with organization-wide inventory guards."""
 
+from __future__ import annotations
+
+import json
+
+from sqlalchemy import func, select
+
+from . import repository as _repository_module
 from .db import create_coman_engine, resolve_database_url
-from .repository import ComanRepository
+from .models import AuditEvent, InventoryLot, MaterialReservation, ProductionOrder
+from .repository import ComanRepository as _BaseComanRepository
+
+
+class ComanRepository(_BaseComanRepository):
+    """Preserve the legacy repository API while honoring all active inventory claims."""
+
+    def reserve_material(self, organization_id: str, facility_id: str, *, production_order_id: str, lot_id: str, quantity: float, unit: str, actor: str) -> MaterialReservation:
+        from modules.inventory_availability.service import InventoryAvailabilityService
+
+        requested = float(quantity)
+        if requested <= 0:
+            raise ValueError("Reservation quantity must be positive.")
+        with self._session_factory.begin() as session:
+            order = session.get(ProductionOrder, production_order_id)
+            lot = session.get(InventoryLot, lot_id)
+            if not order or order.organization_id != organization_id or order.facility_id != facility_id:
+                raise ValueError("Production order was not found in this facility.")
+            if not lot or lot.organization_id != organization_id or lot.facility_id != facility_id or lot.status not in {"available", "released"}:
+                raise ValueError("An available inventory lot is required.")
+            snapshot = InventoryAvailabilityService.build(session, organization_id, facility_id)
+            available = max(0.0, float(snapshot["by_lot"].get(lot.id, {}).get("available", 0.0) or 0.0))
+            if requested > available + 1e-9:
+                raise ValueError("Reservation exceeds organization-wide available inventory after Wholesale and Production commitments.")
+            record = MaterialReservation(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                production_order_id=production_order_id,
+                lot_id=lot_id,
+                quantity=requested,
+                unit=unit,
+                reserved_by=actor,
+            )
+            session.add(record)
+            session.flush()
+            session.add(AuditEvent(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                entity_type="material_reservation",
+                entity_id=record.id,
+                action="reserved",
+                actor=actor,
+                changes_json=json.dumps({"lot_id": lot_id, "quantity": requested, "unit": unit, "available_before": available}),
+            ))
+            return record
+
+    def post_inventory_transaction(self, organization_id: str, facility_id: str, *, lot_id: str, transaction_type: str, quantity_delta: float, unit: str, actor: str, production_order_id: str | None = None, reason: str = "", reference: str = ""):
+        from modules.inventory_availability.service import InventoryAvailabilityService
+
+        delta = float(quantity_delta)
+        if delta < 0:
+            with self._session_factory() as session:
+                snapshot = InventoryAvailabilityService.build(session, organization_id, facility_id)
+                row = snapshot["by_lot"].get(lot_id, {})
+                on_hand = max(0.0, float(row.get("on_hand", 0.0) or 0.0))
+                allowed = max(0.0, float(row.get("available", 0.0) or 0.0))
+                if transaction_type == "production_consume" and production_order_id:
+                    own_reserved = float(session.scalar(select(func.coalesce(func.sum(MaterialReservation.quantity), 0.0)).where(
+                        MaterialReservation.organization_id == organization_id,
+                        MaterialReservation.facility_id == facility_id,
+                        MaterialReservation.production_order_id == production_order_id,
+                        MaterialReservation.lot_id == lot_id,
+                        MaterialReservation.status == "reserved",
+                    )) or 0.0)
+                    allowed += max(0.0, own_reserved)
+            # Preserve the legacy physical-negative error by letting the base repository
+            # handle movements larger than physical on-hand. Only block quantities that
+            # physically exist but are promised elsewhere in the organization.
+            if -delta <= on_hand + 1e-9 and -delta > allowed + 1e-9:
+                raise ValueError("Inventory movement exceeds quantity available after organization-wide commitments.")
+        return super().post_inventory_transaction(
+            organization_id,
+            facility_id,
+            lot_id=lot_id,
+            transaction_type=transaction_type,
+            quantity_delta=delta,
+            unit=unit,
+            actor=actor,
+            production_order_id=production_order_id,
+            reason=reason,
+            reference=reference,
+        )
+
+
+# Direct imports from modules.coman.repository also receive the guarded implementation.
+_repository_module.ComanRepository = ComanRepository
 
 __all__ = ["ComanRepository", "create_coman_engine", "resolve_database_url"]

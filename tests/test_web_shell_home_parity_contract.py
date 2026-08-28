@@ -23,25 +23,31 @@ def test_react_operation_roles_match_streamlit_operation_context_contract():
     assert 'const PRODUCTION_ROLES = ["dev", "admin", "planner", "supervisor", "operator", "qa"]' in shell
 
 
-def test_job_first_shell_preserves_context_search_compatibility_and_embeds_wholesale_in_production():
+def test_job_first_shell_preserves_context_search_and_promotes_wholesale_ops():
     shell = read("frontend/src/components/AppShell.tsx")
     contract = read("docs/UX_SIMPLIFICATION_EXECUTION_CONTRACT.md")
 
-    retail_order = ["Home", "Buying", "Inventory", "Compliance", "Reports"]
+    retail_order = ["Home", "Buying", "Inventory", "Wholesale", "Compliance", "Reports"]
     retail_block = shell.split("const RETAIL_PRIMARY", 1)[1].split("const PRODUCTION_PRIMARY", 1)[0]
     assert [retail_block.index(f'label: "{label}"') for label in retail_order] == sorted(retail_block.index(f'label: "{label}"') for label in retail_order)
     assert 'label: "Orders"' not in retail_block
     assert 'label: "Data & Settings"' not in retail_block
 
-    production_order = ["Home", "Inventory", "Production", "Compliance", "Reports"]
+    production_order = ["Home", "Inventory", "Production", "Wholesale", "Compliance", "Reports"]
     production_block = shell.split("const PRODUCTION_PRIMARY", 1)[1].split("function secondaryItems", 1)[0]
     assert [production_block.index(f'label: "{label}"') for label in production_order] == sorted(production_block.index(f'label: "{label}"') for label in production_order)
     assert 'label: "Orders"' not in production_block
     assert 'label: "Data & Settings"' not in production_block
 
     production_secondary = shell.split('if (category === "Production") return [', 1)[1].split("];", 1)[0]
-    for capability in ("Extraction", "Orders & Fulfillment", "Warehouse Pick / Pack", "White Label / Repack", "Production Run 360"):
+    for capability in ("Extraction", "White Label / Repack", "Production Run 360"):
         assert capability in production_secondary
+    assert "Orders & Fulfillment" not in production_secondary
+    assert "Warehouse Pick / Pack" not in production_secondary
+
+    wholesale_secondary = shell.split('if (category === "Wholesale") return [', 1)[1].split("];", 1)[0]
+    for capability in ("Wholesale Ops", "Orders", "Fulfillment"):
+        assert capability in wholesale_secondary
 
     for contract_text in (
         'aria-label="Organization"',
@@ -51,11 +57,12 @@ def test_job_first_shell_preserves_context_search_compatibility_and_embeds_whole
         "Use classic navigation",
         'className="dl-nav-context"',
         "Settings & Administration",
-        "Production, Distribution & Wholesale",
+        "Wholesale Ops",
     ):
         assert contract_text in shell
 
-    assert "Distribution and wholesale are part of the manufacturing/Production operating model" in contract
+    assert "Wholesale Ops is a first-class commercial workspace" in contract
+    assert "Production remains the manufacturing source of truth" in contract
     assert "Route = where I am working" in contract
     assert "Panel = what I am inspecting" in contract
     assert "Dialog = what I am doing" in contract

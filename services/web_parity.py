@@ -15,7 +15,6 @@ from modules.coman.models import (
     Facility,
     InventoryLot,
     InventoryTransaction,
-    MaterialReservation,
     Product,
     RetailSale,
     utc_now,
@@ -24,6 +23,7 @@ from modules.commercial.repository import CommercialRepository
 from modules.cultivation.service import CultivationService
 from modules.data_hub_repository import DataHubRepository
 from modules.extraction.repository import ExtractionRepository
+from modules.inventory_availability.service import InventoryAvailabilityService
 from modules.package_studio.service import PackageStudioService
 from modules.product_master.models import ProductMasterProfile
 from modules.production_erp.service import ProductionERPService
@@ -49,7 +49,9 @@ def run_web_parity(engine: Engine, organization_id: str, facility_id: str, get_j
             raise ValueError("Parity facility was not found in the selected organization.")
         lot_count = int(session.scalar(select(func.count()).select_from(InventoryLot).where(InventoryLot.organization_id == organization_id, InventoryLot.facility_id == facility_id)) or 0)
         balance = float(session.scalar(select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(InventoryTransaction.organization_id == organization_id, InventoryTransaction.facility_id == facility_id)) or 0)
-        reserved = float(session.scalar(select(func.coalesce(func.sum(MaterialReservation.quantity), 0.0)).where(MaterialReservation.organization_id == organization_id, MaterialReservation.facility_id == facility_id, MaterialReservation.status == "reserved")) or 0)
+        availability = InventoryAvailabilityService.build(session, organization_id, facility_id)
+        projected_available = sum(float(row["available"]) for row in availability["lots"])
+        projected_reserved = sum(float(row["reserved"]) for row in availability["lots"])
         product_rows = list(session.execute(select(Product, ProductMasterProfile).outerjoin(ProductMasterProfile, ProductMasterProfile.product_id == Product.id).where(Product.organization_id == organization_id, Product.active.is_(True))))
         retail_product_ids = sorted(row.id for row, profile in product_rows if profile is None or profile.retail_enabled)
         production_product_ids = sorted(row.id for row, profile in product_rows if profile is None or profile.production_enabled)
@@ -67,8 +69,9 @@ def run_web_parity(engine: Engine, organization_id: str, facility_id: str, get_j
             continue
         inventory = get_json(f"/api/v1/inventory/{operation}/packages")
         check(f"{operation}.inventory.package_count", lot_count, inventory["summary"]["package_count"])
-        check(f"{operation}.inventory.balance", balance, inventory["summary"]["available_quantity"], numeric=True)
-        check(f"{operation}.inventory.reserved", reserved, inventory["summary"]["reserved_quantity"], numeric=True)
+        check(f"{operation}.inventory.on_hand", balance, sum(float(row["on_hand"]) for row in inventory["items"]), numeric=True)
+        check(f"{operation}.inventory.available", projected_available, inventory["summary"]["available_quantity"], numeric=True)
+        check(f"{operation}.inventory.reserved", projected_reserved, inventory["summary"]["reserved_quantity"], numeric=True)
         expected_products = retail_product_ids if operation == "retail" else production_product_ids
         catalog = get_json(f"/api/v1/product-master?operation={operation}&status=active")
         check(f"{operation}.product_master.ids", expected_products, _ids(catalog))

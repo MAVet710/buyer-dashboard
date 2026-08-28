@@ -124,8 +124,10 @@ def test_retail_and_production_read_the_same_durable_package_ledger():
     assert production.json()["operation"] == "production"
     assert retail.json()["operation"] == "retail"
     for payload in (production.json(), retail.json()):
-        assert payload["summary"]["available_quantity"] == 100
+        assert payload["summary"]["available_quantity"] == 85
         assert payload["summary"]["reserved_quantity"] == 15
+        assert payload["items"][0]["on_hand"] == 100
+        assert payload["items"][0]["production_reserved"] == 15
         assert payload["items"][0]["usable"] == 85
         assert payload["items"][0]["package_id"] == "1A406000000001"
 
@@ -352,7 +354,9 @@ def test_retail_sales_import_is_durable_idempotent_and_audited():
     item = inventory.json()["items"][0]
     assert item["sold_30d"] == 3
     assert item["daily_velocity"] == 0.1
-    assert item["days_on_hand"] == 1000
+    assert item["on_hand"] == 100
+    assert item["available"] == 85
+    assert item["days_on_hand"] == 850
 
 
 def test_adjustment_posts_correcting_transaction_and_protects_reservations():
@@ -378,7 +382,10 @@ def test_adjustment_posts_correcting_transaction_and_protects_reservations():
     assert adjusted.json()["final_quantity"] == 90
     assert invalid.status_code == 422
     assert "reserved" in invalid.json()["detail"]
-    assert inventory.json()["items"][0]["available"] == 90
+    item = inventory.json()["items"][0]
+    assert item["on_hand"] == 90
+    assert item["reserved"] == 15
+    assert item["available"] == 75
 
 
 def test_adjustment_requires_authorized_role():
@@ -603,9 +610,7 @@ def test_production_auth_uses_database_facility_role_not_spoofable_headers(monke
 
 
 def test_data_hub_upload_is_durable_versioned_and_facility_scoped():
-    engine = _engine()
-    app.dependency_overrides[get_engine] = lambda: engine
-    client = TestClient(app)
+    engine = _engine(); app.dependency_overrides[get_engine] = lambda: engine; client = TestClient(app)
     headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1", "X-User-Id": "buyer@example.com", "X-User-Role": "admin"}
     csv = b"Product Name,Category,On Hand\nBlue Dream,Flower,42\n"
     try:
