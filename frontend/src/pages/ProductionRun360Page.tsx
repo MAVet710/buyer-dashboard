@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "../lib/api";
 
@@ -132,8 +132,10 @@ function RunDetail({ detail, products, onChanged }:{ detail:Detail; products:Pro
     commitMutation.reset();
     previewMutation.mutate(request);
   };
-  const cancelPreview=()=>{setPending(null);setPreview(null);previewMutation.reset();commitMutation.reset();};
-  useEffect(()=>{ cancelPreview(); setAppliedMessage(""); },[detail.order.id,tab]);
+  const resetPreviewMutation = previewMutation.reset;
+  const resetCommitMutation = commitMutation.reset;
+  const cancelPreview=useCallback(()=>{setPending(null);setPreview(null);resetPreviewMutation();resetCommitMutation();},[resetPreviewMutation,resetCommitMutation]);
+  useEffect(()=>{ cancelPreview(); setAppliedMessage(""); },[detail.order.id,tab,cancelPreview]);
 
   const [event,setEvent] = useState({ event_type:"started",stage_key:"execution",quantity:"",unit:"unit",waste_quantity:"",labor_hours:"",machine_hours:"",notes:"" });
   const postRoutineEvent = useMutation({ mutationFn:()=>apiPost(`/api/v1/production/orders/${detail.order.id}/events`,numbers(event)), onSuccess:()=>{ setEvent({...event,quantity:"",waste_quantity:"",labor_hours:"",machine_hours:"",notes:""}); onChanged(); } });
