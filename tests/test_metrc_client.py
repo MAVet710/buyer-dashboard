@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import requests
 
-from services.metrc_client import MetrcTransport, resolve_metrc_base_url, test_metrc_connection as run_metrc_connection_test
+from services.metrc_client import (
+    MetrcTransport,
+    fetch_metrc_resource,
+    resolve_metrc_base_url,
+    test_metrc_connection as run_metrc_connection_test,
+)
 
 
 class _DummyResponse:
@@ -133,3 +138,52 @@ def test_transport_sanitizes_non_json_provider_error():
     assert result["status"] == "provider_error"
     assert result["message"] == "Metrc returned HTTP 500."
     assert "integrator-secret" not in repr(result)
+
+
+def test_normalized_read_blocks_unverified_capability_before_network(monkeypatch):
+    calls = []
+
+    def _unexpected_get(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("network must not be called for an unverified capability")
+
+    monkeypatch.setattr(requests, "get", _unexpected_get)
+    result = fetch_metrc_resource(
+        state="RI",
+        integrator_api_key="integrator-key",
+        user_api_key="user-key",
+        resource="packages_active",
+        environment="production",
+        license_number="RI-1",
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "regulatory_read_blocked"
+    assert "unknown/unverified" in result["message"]
+    assert calls == []
+
+
+def test_normalized_read_returns_evidence_and_lossless_records(monkeypatch):
+    captured = {}
+
+    def _fake_get(url, auth=None, params=None, timeout=None, headers=None):
+        captured["url"] = url
+        captured["params"] = dict(params or {})
+        return _DummyResponse(200, {"Data": [{"Id": 7, "Label": "TAG-7", "Quantity": 3.5}], "TotalPages": 1})
+
+    monkeypatch.setattr(requests, "get", _fake_get)
+    result = fetch_metrc_resource(
+        state="MA",
+        integrator_api_key="integrator-key",
+        user_api_key="user-key",
+        resource="packages_active",
+        environment="production",
+        license_number="LIC-123",
+    )
+
+    assert result["ok"] is True
+    assert captured["url"] == "https://api-ma.metrc.com/packages/v2/active"
+    assert captured["params"]["licenseNumber"] == "LIC-123"
+    assert result["read_plan"]["evidence"]["source_url"] == "https://api-ma.metrc.com/Documentation/"
+    assert result["records"][0]["provider_id"] == "7"
+    assert result["records"][0]["source"]["Label"] == "TAG-7"
