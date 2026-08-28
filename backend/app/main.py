@@ -46,6 +46,7 @@ from .routers.beta import router as beta_router
 from .routers.legal import router as legal_router
 from .routers.admin import router as admin_router
 from .routers.admin_facilities import update_facility
+from .routers.admin_storefronts import router as admin_storefronts_router
 from .routers.admin_user_create import router as admin_user_create_router
 from .routers.admin_uploads import router as admin_uploads_router
 from .routers.integrations import router as integrations_router
@@ -73,6 +74,14 @@ from .services.sandbox_sales import sync_sandbox_retail_sales
 logger = logging.getLogger(__name__)
 settings = get_settings()
 settings.validate_production()
+
+# Public hosted storefronts are served from customer-specific first-level
+# DoobieLogic subdomains. Keep the normal explicit origin allowlist for the
+# authenticated operations app, and allow only HTTPS origins that are actually
+# under doobielogic.io for the hosted storefront browser runtime. CORS remains
+# a browser boundary rather than an authorization mechanism; protected API
+# routes still require their existing tenant/auth dependencies.
+DOOBIELOGIC_SUBDOMAIN_ORIGIN_REGEX = r"^https://[a-z0-9-]+\.doobielogic\.io$"
 
 
 def _expected_schema_revision() -> str:
@@ -119,6 +128,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
+    allow_origin_regex=DOOBIELOGIC_SUBDOMAIN_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -249,6 +259,7 @@ app.include_router(external_api_router, prefix=settings.api_prefix)
 app.include_router(printing_external_router, prefix=settings.api_prefix)
 app.include_router(admin_user_create_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
+app.include_router(admin_storefronts_router, prefix=settings.api_prefix)
 app.add_api_route(
     f"{settings.api_prefix}/admin/facilities/{{target_facility_id}}/update",
     update_facility,

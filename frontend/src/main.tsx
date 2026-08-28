@@ -27,6 +27,7 @@ import "./marketing-home.css";
 import "./beta-partner.css";
 import "./contact-channels.css";
 import "./commerce-storefront.css";
+import "./cowboy-storefront.css";
 import "./commerce-launcher.css";
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });

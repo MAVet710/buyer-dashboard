@@ -52,11 +52,29 @@ type FacilityForm = {
   commercial_enabled:boolean;
   active:boolean;
 };
+type StorefrontAdminRow = {
+  id:string;
+  display_name:string;
+  slug:string;
+  subdomain:string;
+  hostname:string;
+  published:boolean;
+  organization_id:string;
+  organization_name:string;
+  organization_slug:string;
+  facility_id:string;
+  facility_name:string;
+  facility_code:string;
+  listing_count:number;
+  request_count:number;
+  updated_at:string|null;
+};
 
 export function AdminToolsPage() {
   return <div className="admin-tools-parity">
     <AdminPage />
     <FacilityContextEditor />
+    <StorefrontOwnershipEditor />
     <AdminUploads />
     <AdminDiagnostics />
   </div>;
@@ -134,6 +152,89 @@ function FacilityContextEditor() {
         <button className="primary" type="button" disabled={!form.name.trim()||!form.code.trim()||save.isPending} onClick={()=>save.mutate()}>{save.isPending?"Saving…":"Save facility context"}</button>
         {save.isSuccess?<div className="success-banner">Facility license and capability context saved.</div>:null}
         {save.isError?<div className="form-error">Unable to save facility context: {save.error.message}</div>:null}
+      </>:null}
+    </div>
+  </details>;
+}
+
+function StorefrontOwnershipEditor() {
+  const client=useQueryClient();
+  const context=useQuery({queryKey:["account-context"],queryFn:({signal})=>apiGet<AccountContext>("/api/v1/account/context",signal)});
+  const isDev=context.data?.user.role==="dev";
+  const organizations=useQuery({
+    queryKey:["admin-organizations"],
+    queryFn:({signal})=>apiGet<OrganizationAdminRow[]>("/api/v1/admin/organizations",signal),
+    enabled:isDev,
+  });
+  const storefronts=useQuery({
+    queryKey:["admin-storefront-ownership"],
+    queryFn:({signal})=>apiGet<StorefrontAdminRow[]>("/api/v1/admin/storefronts",signal),
+    enabled:isDev,
+  });
+  const rows=storefronts.data??[];
+  const [selectedId,setSelectedId]=useState("");
+  const selected=rows.find(row=>row.id===selectedId)??rows[0];
+  const [organizationId,setOrganizationId]=useState("");
+  const [facilityId,setFacilityId]=useState("");
+  const [clearCatalog,setClearCatalog]=useState(false);
+  useEffect(()=>{
+    if(!selected)return;
+    if(!selectedId)setSelectedId(selected.id);
+    setOrganizationId(selected.organization_id);
+    setFacilityId(selected.facility_id);
+    setClearCatalog(false);
+  },[selected?.id]);
+  const targetOrganization=organizations.data?.find(org=>org.id===organizationId);
+  const targetFacilities=(targetOrganization?.facilities??[]).filter(facility=>facility.active!==false&&facility.commercial_enabled);
+  useEffect(()=>{
+    if(!organizationId)return;
+    if(!targetFacilities.some(facility=>facility.id===facilityId))setFacilityId(targetFacilities[0]?.id??"");
+  },[organizationId,targetFacilities.map(row=>row.id).join("|")]);
+  const organizationChanged=Boolean(selected&&organizationId&&organizationId!==selected.organization_id);
+  const blockedByHistory=Boolean(organizationChanged&&selected&&selected.request_count>0);
+  const requiresCatalogClear=Boolean(organizationChanged&&selected&&selected.listing_count>0);
+  const save=useMutation({
+    mutationFn:()=>apiPost<StorefrontAdminRow>(`/api/v1/admin/storefronts/${encodeURIComponent(selected!.id)}/ownership`,{
+      organization_id:organizationId,
+      facility_id:facilityId,
+      clear_catalog:clearCatalog,
+    }),
+    onSuccess:async()=>{
+      await Promise.all([
+        client.invalidateQueries({queryKey:["admin-storefront-ownership"]}),
+        client.invalidateQueries({queryKey:["storefront-admin"]}),
+        client.invalidateQueries({queryKey:["storefront-catalog-options"]}),
+      ]);
+    },
+  });
+  if(context.isLoading)return null;
+  if(!isDev)return null;
+  return <details className="streamlit-expander admin-storefront-ownership" open>
+    <summary>Storefront ownership &amp; hostname routing</summary>
+    <div className="streamlit-expander-body">
+      <p>Assign each hosted storefront to the organization and Commercial facility that owns its public catalog and incoming order requests. This is a platform-level tenant control, not just a display setting.</p>
+      {storefronts.isLoading||organizations.isLoading?<div className="state">Loading storefront ownership…</div>:null}
+      {storefronts.isError?<div className="state error">{storefronts.error.message}</div>:null}
+      {organizations.isError?<div className="state error">{organizations.error.message}</div>:null}
+      {!storefronts.isLoading&&!rows.length?<div className="info-banner">No hosted storefronts exist yet.</div>:null}
+      {selected?<>
+        <label>Storefront<select value={selected.id} onChange={event=>setSelectedId(event.target.value)}>{rows.map(row=><option key={row.id} value={row.id}>{row.display_name} · {row.hostname}</option>)}</select></label>
+        <div className="detail-facts">
+          <p><strong>Hostname:</strong> {selected.hostname}</p>
+          <p><strong>Current owner:</strong> {selected.organization_name} · {selected.facility_name} ({selected.facility_code||"no code"})</p>
+          <p><strong>Status:</strong> {selected.published?"Published":"Draft"}</p>
+          <p><strong>Catalog listings:</strong> {selected.listing_count}</p>
+          <p><strong>Order requests:</strong> {selected.request_count}</p>
+        </div>
+        <div className="form-grid two">
+          <label>Organization<select value={organizationId} onChange={event=>setOrganizationId(event.target.value)}>{(organizations.data??[]).filter(org=>org.active).map(org=><option key={org.id} value={org.id}>{org.name} · {org.slug}</option>)}</select></label>
+          <label>Commercial facility<select value={facilityId} onChange={event=>setFacilityId(event.target.value)}>{targetFacilities.map(facility=><option key={facility.id} value={facility.id}>{facility.name} · {facility.code}</option>)}</select></label>
+        </div>
+        {blockedByHistory?<div className="warning-banner">This storefront already has order-request history. DoobieLogic will not move it across organizations because that would rewrite tenant history. Create a new storefront instead.</div>:null}
+        {requiresCatalogClear&&!blockedByHistory?<label className="warning-banner"><input type="checkbox" checked={clearCatalog} onChange={event=>setClearCatalog(event.target.checked)}/> Clear the existing catalog before moving organizations. Product IDs from the old organization will not be carried into the new tenant.</label>:null}
+        <button className="primary" type="button" disabled={!organizationId||!facilityId||blockedByHistory||(requiresCatalogClear&&!clearCatalog)||save.isPending} onClick={()=>save.mutate()}>{save.isPending?"Saving ownership…":"Save storefront ownership"}</button>
+        {save.isSuccess?<div className="success-banner">Storefront ownership saved. Public catalog and new order requests now resolve through the selected organization/facility.</div>:null}
+        {save.isError?<div className="form-error">Unable to save storefront ownership: {save.error.message}</div>:null}
       </>:null}
     </div>
   </details>;
