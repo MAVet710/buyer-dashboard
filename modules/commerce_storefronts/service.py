@@ -196,6 +196,7 @@ class CommerceStorefrontService:
                 "minimum_quantity": float(listing.minimum_quantity),
                 "case_quantity": float(listing.case_quantity),
                 "featured": bool(listing.featured),
+                "orderable": bool(option.get("orderable", True)),
             })
         return {"storefront": self._storefront_dict(storefront), "catalog": catalog}
 
@@ -216,6 +217,8 @@ class CommerceStorefrontService:
             item = by_product.get(str(raw.get("product_id") or ""))
             if not item:
                 raise ValueError("A requested product is not currently available on this storefront.")
+            if not item.get("orderable", True):
+                raise ValueError(f"{item['name']} is test-preview inventory and cannot be ordered.")
             quantity = float(raw.get("quantity") or 0.0)
             if quantity < item["minimum_quantity"] or quantity > item["available"]:
                 raise ValueError(f"Quantity for {item['name']} must be between {item['minimum_quantity']:g} and {item['available']:g} {item['unit']}.")

@@ -128,6 +128,30 @@ def test_storefront_manager_can_merchandise_blocked_inventory_without_publishing
     assert "COA reference is missing" in options[0]["blocked_reasons"]
 
 
+def test_test_preview_inventory_is_visible_but_cannot_be_ordered():
+    engine, coman, organization, facility = _setup()
+    product = coman.create_product(organization.id, sku="TEST-PREVIEW", name="Test Preview Product", item_type="finished_good", base_unit="unit", retail_price=10, actor="dev")
+    lot = coman.create_inventory_lot(organization.id, facility.id, product_id=product.id, lot_code="TEST-PREVIEW-1", actor="dev", opening_quantity=100, unit="unit")
+    with Session(engine) as session, session.begin():
+        row = session.get(InventoryLot, lot.id)
+        row.status = "available"
+        row.notes = json.dumps({"lab_testing_state": "Passed", "coa_reference": "TEST-COA", "test_data": True})
+
+    service = WholesaleCommerceStorefrontService(engine)
+    service.upsert_storefront(organization_id=organization.id, facility_id=facility.id, actor="admin", display_name="Test Preview", subdomain="test-preview", published=True)
+    service.set_products(organization_id=organization.id, facility_id=facility.id, actor="admin", products=[{"product_id": product.id, "price_usd": 5}])
+
+    catalog = service.public_catalog("test-preview")
+    assert catalog["catalog"][0]["available"] == 100
+    assert catalog["catalog"][0]["orderable"] is False
+    try:
+        service.submit_order_request(slug="test-preview", buyer_company="Buyer", buyer_contact="Person", buyer_email="buyer@example.com", lines=[{"product_id": product.id, "quantity": 1}])
+    except ValueError as exc:
+        assert "test-preview inventory" in str(exc)
+    else:
+        raise AssertionError("Test-preview inventory must never create an order request")
+
+
 def test_storefront_submission_is_demand_only_and_approval_becomes_inventory_commitment():
     engine, coman, organization, facility = _setup()
     product = coman.create_product(

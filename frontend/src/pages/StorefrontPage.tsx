@@ -28,6 +28,7 @@ type CatalogItem = {
   minimum_quantity: number;
   case_quantity: number;
   featured: boolean;
+  orderable: boolean;
 };
 
 type PublicCatalog = { storefront: Storefront; catalog: CatalogItem[] };
@@ -72,7 +73,7 @@ export function StorefrontPage({ slug }: { slug: string }) {
   const lines = useMemo(() => (catalog.data?.catalog ?? []).map(item => ({
     item,
     quantity: Math.max(0, Number(quantities[item.product_id] ?? 0)),
-  })).filter(row => row.quantity > 0), [catalog.data, quantities]);
+  })).filter(row => row.item.orderable && row.quantity > 0), [catalog.data, quantities]);
   const subtotal = lines.reduce((sum, row) => sum + row.quantity * row.item.price_usd, 0);
 
   const submit = useMutation({
@@ -100,6 +101,7 @@ export function StorefrontPage({ slug }: { slug: string }) {
     : ({ "--storefront-accent": data.storefront.accent_color || "#8abf55" } as CSSProperties);
 
   const setItemQuantity = (item: CatalogItem, raw: number) => {
+    if (!item.orderable) return;
     const quantity = Math.min(item.available, Math.max(0, raw || 0));
     setQuantities(current => ({ ...current, [item.product_id]: quantity }));
   };
@@ -158,12 +160,12 @@ export function StorefrontPage({ slug }: { slug: string }) {
                     <div><dt>Case qty</dt><dd>{item.case_quantity.toLocaleString()}</dd></div>
                     <div><dt>Wholesale</dt><dd>{money.format(item.price_usd)}</dd></div>
                     <div><dt>Min order</dt><dd>{item.minimum_quantity.toLocaleString()} {item.unit}</dd></div>
-                    <div><dt>Status</dt><dd>In stock</dd></div>
+                    <div><dt>Status</dt><dd>{item.orderable ? "In stock" : "Test preview"}</dd></div>
                   </dl>
 
                   <div className="cowboy-card-order">
-                    <label>Qty<input type="number" min="0" max={item.available} step={item.case_quantity} value={quantity} onChange={event => setItemQuantity(item, Number(event.target.value))} /></label>
-                    <button type="button" onClick={() => addMinimum(item)}>{quantity > 0 ? "Add case" : "Add to order"} <span>＋</span></button>
+                    <label>Qty<input disabled={!item.orderable} type="number" min="0" max={item.available} step={item.case_quantity} value={quantity} onChange={event => setItemQuantity(item, Number(event.target.value))} /></label>
+                    <button disabled={!item.orderable} type="button" onClick={() => addMinimum(item)}>{item.orderable ? (quantity > 0 ? "Add case" : "Add to order") : "Preview only"} <span>＋</span></button>
                   </div>
                   <small className="storefront-order-rule">Minimum {item.minimum_quantity.toLocaleString()} · case multiple {item.case_quantity.toLocaleString()}</small>
                 </article>;
@@ -237,7 +239,7 @@ export function StorefrontPage({ slug }: { slug: string }) {
                 {item.featured ? <span className="storefront-featured">Featured</span> : null}
                 <div className="storefront-product-copy"><small>{item.sku}</small><h3>{item.name}</h3><p>{item.available.toLocaleString()} {item.unit} available</p></div>
                 <div className="storefront-price"><strong>{money.format(item.price_usd)}</strong><span>per {item.unit}</span></div>
-                <label>Order quantity<input type="number" min="0" max={item.available} step={item.case_quantity} value={quantity} onChange={event => setItemQuantity(item, Number(event.target.value))}/></label>
+                <label>{item.orderable ? "Order quantity" : "Test preview only"}<input disabled={!item.orderable} type="number" min="0" max={item.available} step={item.case_quantity} value={quantity} onChange={event => setItemQuantity(item, Number(event.target.value))}/></label>
                 <small className="storefront-order-rule">Minimum {item.minimum_quantity.toLocaleString()} · case multiple {item.case_quantity.toLocaleString()}</small>
               </article>;
             })}
