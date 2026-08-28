@@ -104,6 +104,9 @@ class RegulatoryActionProposalService:
         license_number: str,
         actual_date: str,
     ):
+        environment = str(environment or "").strip().casefold()
+        if environment != "sandbox":
+            raise ValueError("New Doobie regulatory action workflows remain sandbox-only until authenticated provider validation is complete.")
         contract = require_metrc_write_contract(
             operation_type="package_finish",
             jurisdiction=jurisdiction_code,
@@ -144,7 +147,7 @@ class RegulatoryActionProposalService:
             "entity_id": package_label,
             "license_number": str(license_number or "").strip(),
             "jurisdiction_code": str(jurisdiction_code or "").strip().upper(),
-            "environment": str(environment or "").strip().casefold(),
+            "environment": environment,
             "request_payload": {"actual_date": finish_date.isoformat()},
             "reason": "Finish a depleted tracked package after employee review.",
         }
