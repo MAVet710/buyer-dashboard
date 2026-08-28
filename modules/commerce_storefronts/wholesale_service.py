@@ -99,6 +99,7 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 "status": lot.status,
                 "lab_testing_state": lab_testing_state,
                 "coa_reference": coa_reference,
+                "test_data": bool(meta.get("test_data", False)),
                 "received_at": lot.received_at,
                 "expiration_at": lot.expiration_at,
                 "unit_cost": float(product.unit_cost or 0.0),
@@ -142,8 +143,16 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 "suggested_price_usd": lot["suggested_price_usd"],
                 "inventory_type": lot["inventory_type"],
                 "coa_passed": True,
+                "test_quantity": 0.0,
             })
             row["available"] += float(lot["usable"])
+            if lot["test_data"]:
+                row["test_quantity"] += float(lot["usable"])
+        for row in by_product.values():
+            real_quantity = row["available"] - row["test_quantity"]
+            row["orderable"] = real_quantity > 0
+            if row["orderable"]:
+                row["available"] = real_quantity
         return sorted(by_product.values(), key=lambda row: (row["name"].casefold(), row["sku"].casefold()))
 
     def merchandising_catalog_options(self, organization_id: str, facility_id: str) -> list[dict[str, Any]]:
