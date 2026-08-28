@@ -110,7 +110,6 @@ _MARKETS = {
     "VI": "US Virgin Islands", "VA": "Virginia", "WV": "West Virginia",
 }
 
-# Explicit verified hosts. Never derive one by interpolating an arbitrary code.
 _VERIFIED_API_BASES = {
     "AL": "https://api-al.metrc.com",
     "AK": "https://api-ak.metrc.com",
@@ -145,19 +144,12 @@ _VERIFIED_API_BASES = {
 _NAME_ALIASES = {name.casefold(): code for code, name in _MARKETS.items()}
 _NAME_ALIASES.update({"washington dc": "DC", "washington d.c.": "DC", "u.s. virgin islands": "VI", "virgin islands": "VI"})
 
-# Current official v2 documentation was directly inspected on 2026-08-28 for
-# these jurisdictions. The remaining jurisdictions stay fail-closed until the
-# same endpoint-family evidence can be retrieved and reviewed. This prevents a
-# temporarily unavailable documentation host from becoming an invented claim.
 DOCUMENTATION_VERIFIED_JURISDICTIONS = frozenset({
     "AK", "CA", "CO", "DC", "IL", "KY", "LA", "ME", "MD", "MA", "MI", "MN",
     "MS", "MO", "MT", "NV", "NJ", "NY", "OH", "OK", "OR", "RI", "SD",
 })
+DOCUMENTATION_PENDING_JURISDICTIONS = frozenset(set(_MARKETS) - DOCUMENTATION_VERIFIED_JURISDICTIONS)
 
-# Evidence anchors intentionally use one representative official endpoint per
-# capability family. Presence means the family is documented for the market;
-# runtime authorization still depends on the exact tenant, facility, license,
-# credential, environment, and Metrc permissions.
 DOCUMENTED_V2_CAPABILITY_ENDPOINTS = {
     "employee_permissions": "GET /employees/v2/permissions",
     "items": "GET /items/v2/active",
@@ -232,6 +224,18 @@ for _code in DOCUMENTATION_VERIFIED_JURISDICTIONS:
             endpoint=_endpoint,
             source_url=_profile.documentation_url,
         )
+
+# Massachusetts' reviewed Packages v2 index has adjustment/finish operations,
+# while waste is exposed under plant/plant-batch/harvest families rather than a
+# dedicated package-waste endpoint. Record the reviewed absence instead of
+# leaving this as an unexplained unknown or inventing a package mutation.
+_REGISTRY["MA"].capabilities["package_waste"] = CapabilityStatus.UNSUPPORTED
+_REGISTRY["MA"].capability_evidence["package_waste"] = CapabilityEvidence(
+    capability="package_waste",
+    endpoint="NO DEDICATED /packages/v2/*/waste ENDPOINT",
+    source_url=_REGISTRY["MA"].documentation_url,
+    note="Reviewed Massachusetts v2 documentation does not list a dedicated package-waste endpoint; plant, plant-batch, and harvest waste are separate endpoint families.",
+)
 
 
 def normalize_jurisdiction(value: str) -> str:
