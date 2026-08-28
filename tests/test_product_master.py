@@ -89,6 +89,7 @@ def test_product_profile_and_snapshot_preserve_canonical_product_id(product_mast
         strain="GMO",
         manufacturer="Buyer Dash Labs",
         product_format="1g pre-roll",
+        image_url="/products/cowboy-kush/pre-roll.png",
         description="Canonical finished-good identity.",
     )
     assert profile.product_id == ids["product"]
@@ -98,6 +99,7 @@ def test_product_profile_and_snapshot_preserve_canonical_product_id(product_mast
     assert snapshot["profile"].brand == "House Brand"
     assert snapshot["profile"].strain == "GMO"
     assert snapshot["profile"].product_format == "1g pre-roll"
+    assert snapshot["profile"].image_url == "/products/cowboy-kush/pre-roll.png"
 
 
 def test_vendor_links_enforce_vendor_role_and_single_primary(product_master_env):
