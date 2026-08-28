@@ -15,8 +15,13 @@ class InventoryPackage(BaseModel):
     location: str
     status: str
     source_name: str = ""
+    on_hand: float = 0.0
     available: float
     reserved: float
+    production_reserved: float = 0.0
+    wholesale_committed: float = 0.0
+    wholesale_reserved: float = 0.0
+    reservation_sources: list[str] = Field(default_factory=list)
     usable: float
     unit: str
     received_at: datetime | None = None

@@ -33,12 +33,15 @@ const ROUTES: RouteEntry[] = [
   { page: "Production Inventory", path: "/production/inventory" },
   { page: "Production Product Master", path: "/production/products" },
   { page: "Production", path: "/production" },
+  { page: "Production Calendar", path: "/production/calendar" },
   { page: "Production Run 360", path: "/production/runs" },
   { page: "Extraction", path: "/production/extraction" },
   { page: "White Label / Repack", path: "/production/repack" },
   { page: "Package Studio", path: "/production/package-studio" },
-  { page: "Orders", path: "/production/orders" },
-  { page: "Warehouse Pick Pack", path: "/production/fulfillment" },
+
+  { page: "Wholesale Ops", path: "/wholesale" },
+  { page: "Orders", path: "/wholesale/orders", aliases: ["/production/orders"] },
+  { page: "Warehouse Pick Pack", path: "/wholesale/fulfillment", aliases: ["/production/fulfillment"] },
 
   { page: "Compliance", path: "/compliance" },
   { page: "Traceability Actions", path: "/compliance/actions" },

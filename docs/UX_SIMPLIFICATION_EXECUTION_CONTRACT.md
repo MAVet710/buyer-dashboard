@@ -31,30 +31,44 @@ The daily operational surface is intentionally smaller than the complete capabil
 - Home
 - Buying
 - Inventory
+- Wholesale
 - Compliance
 - Reports
 
-Retail fulfillment remains available from Inventory because it is an inventory execution job, not a separate architecture silo.
+Retail inventory remains the physical source of truth for retail-licensed facilities. Wholesale is a separate commercial job surface when the active facility has commercial capability rather than being hidden under Inventory.
 
 ### Production Ops
 
 - Home
 - Inventory
 - Production
+- Wholesale
 - Compliance
 - Reports
 
-**Distribution and wholesale are part of the manufacturing/Production operating model.** They are not a separate top-level operational mode or primary navigation silo. Production includes:
+**Wholesale Ops is a first-class commercial workspace.** Production remains the manufacturing source of truth, but sales execution no longer needs to be buried inside the Production navigation. Production continues to own:
 
 - production planning and execution
 - extraction
 - co-manufacturing
 - white label / repack
-- orders and fulfillment
-- warehouse pick / pack
-- distribution / wholesale execution
 - production inventory and BOM
 - labor, machines, resources, actuals, recommendations, optimization, and run economics
+
+Wholesale Ops owns the commercial execution layer:
+
+- sellable wholesale inventory projections
+- direct, account, private-portal, and hosted-storefront orders
+- approval-gated storefront demand
+- customer and retailer accounts
+- lot allocation
+- warehouse pick / pack
+- fulfillment and shipment execution
+- wholesale pricing and storefront publishing
+
+**Production remains the manufacturing source of truth.** Wholesale Ops does not create a second inventory ledger. Both workspaces must use the same organization/facility inventory balances, reservations, allocations, compliance status, and traceability records.
+
+An approved wholesale order becomes an organizational inventory commitment. A submitted storefront request is demand only and does not reduce availability until it is approved. When a specific package or lot is allocated, the soft wholesale commitment becomes a hard lot reservation without double-counting. Production reservations, wholesale commitments, wholesale lot allocations, holds, and physical inventory transactions must all affect the same Available quantity shown throughout DoobieLogic.
 
 Extraction remains a first-class Production capability and must be prominent for extraction/manufacturing facilities.
 
@@ -71,6 +85,23 @@ The application shell owns the authoritative context for:
 - connection/sync state
 
 Individual workspaces must not introduce competing Retail/Production selectors. Facility and operational context changes must continue to respect organization, tenant, license, METRC, BioTrack, and sandbox boundaries.
+
+## Shared inventory availability contract
+
+Physical inventory remains append-only through the canonical inventory transaction ledger. Operational workspaces layer claims onto that physical balance rather than creating competing inventory totals.
+
+For each package or lot, DoobieLogic must distinguish:
+
+- **On Hand** — physical quantity in the inventory ledger
+- **Production Reserved** — quantity reserved for an active production job
+- **Wholesale Committed** — approved sales-order quantity not yet allocated to a specific package or lot
+- **Wholesale Reserved** — quantity allocated to a specific package or lot for a sales order
+- **Available** — physical quantity remaining after every active organizational claim that prevents reuse
+- **Pending Demand** — submitted but unapproved order requests; visible for planning but excluded from reservation math
+
+Active Inventory, Production, Wholesale Ops, Warehouse/Fulfillment, storefront availability, and Doobie Agent inventory reasoning must consume the same availability projection. A module may add workflow-specific filters, but it may not independently calculate a conflicting sellable or usable balance.
+
+Cancellation or release must restore availability. Fulfillment converts the applicable reservation into an inventory decrement. Production consumption converts its reservation into an inventory decrement. Inventory adjustments and outbound movements may not reduce a lot below active commitments/reservations.
 
 ## Workspace state contract
 
@@ -118,14 +149,15 @@ The long-term differentiator is cross-functional operational reasoning across Bu
 | Production planning / schedule / queue / resources / labor / machines | Required | Today-first surface: Running, Next Up, Blocked, Behind, Completed |
 | Extraction | Required | First-class Production workspace with source, yield, waste, testing, compliance, cost |
 | Co-Man / white label / repack | Required | Production sub-workspaces |
-| Orders / fulfillment / warehouse pick-pack | Required | Embedded in Production for manufacturing/distribution; available to Retail from Inventory |
-| Distribution / wholesale | Required | Baked into manufacturing/Production rather than a separate top-level silo |
+| Orders / fulfillment / warehouse pick-pack | Required | First-class Wholesale Ops execution; legacy production URLs remain compatibility aliases |
+| Distribution / wholesale | Required | First-class Wholesale Ops workspace connected directly to manufacturing inventory |
+| Inventory commitments / reservations | Required | One shared availability calculation across Production, Wholesale, Warehouse, Inventory, storefront, and Agent |
 | Compliance / traceability / state actions | Required | Issue-first operator language with evidence/technical detail progressively disclosed |
 | Label Studio / LabelGuard / nomenclature / MA flower equivalency | Required | Compliance tools remain accessible without dominating first layer |
 | METRC / BioTrack / QuickBooks / printing / signed webhooks | Required | Settings/Integration surface; no security or tenant-boundary regression |
 | Operational / enterprise control towers | Required | Available from Home without making Home a directory |
 | Executive reporting / sales/category trends / profitability | Required | Reports with role-aware starting views |
-| Commerce portals / service APIs / telemetry | Required | Preserved; configuration moved out of daily nav where appropriate |
+| Commerce portals / hosted storefronts / service APIs / telemetry | Required | Customer-facing commerce remains connected to Wholesale Ops and canonical commercial orders |
 | SOP library / cultivation / harvest economics | Required | Preserved and exposed contextually by capability/role |
 | Doobie Agent / provider-neutral AI runtime | Required | Persistent contextual pop-out with safe scoped context |
 | Users / roles / permissions / orgs / facilities / sandbox | Required | No auth, permission, tenant, or sandbox regression |
@@ -158,6 +190,8 @@ Initial target contracts:
 | Ask Doobie about selected entity | selected context already attached when safe |
 | Identify next production job | visible on Production Today without opening planning settings |
 | Inspect run and return | production queue/schedule state preserved |
+| See inventory promised to wholesale | Active Inventory shows reduced Available quantity and reservation/commitment context |
+| Fulfill wholesale order | approval -> commitment -> lot allocation -> pick/pack -> shipment without duplicate inventory entry |
 
 ## Real routing migration
 
@@ -175,12 +209,15 @@ Canonical route families:
 - `/production`
 - `/production/runs/:id`
 - `/production/extraction`
-- `/production/orders`
-- `/production/fulfillment`
+- `/wholesale`
+- `/wholesale/orders`
+- `/wholesale/fulfillment`
 - `/compliance`
 - `/compliance/issues/:id`
 - `/reports`
 - `/settings`
+
+Legacy `/production/orders` and `/production/fulfillment` remain compatibility aliases during the routing migration.
 
 Back, forward, refresh, deep-link, bookmark, and legacy pending-page behavior are release gates.
 
@@ -198,6 +235,8 @@ Validate at minimum:
 - track yield, waste, and loss
 - inspect package lineage
 - create sales/wholesale order
+- approve storefront demand without reserving unapproved requests
+- expose wholesale commitments in Active Inventory
 - pick and pack order
 - transfer inventory
 - reconcile traceability
@@ -226,11 +265,12 @@ High-frequency workflows may not remain undocumented Distru advantages at projec
 6. Home attention/continue/today redesign
 7. Inventory and Receiving
 8. Buying
-9. Production, Extraction, Distribution/Wholesale, Fulfillment
-10. Compliance
-11. Data / Settings / Admin simplification
-12. Mobile, keyboard, focus, accessibility, responsive polish
-13. Full parity/security/regression testing
-14. Competitive displacement validation
+9. Production and Extraction
+10. Wholesale Ops, Distribution, Orders, and Fulfillment
+11. Compliance
+12. Data / Settings / Admin simplification
+13. Mobile, keyboard, focus, accessibility, responsive polish
+14. Full parity/security/regression testing
+15. Competitive displacement validation
 
 No giant uncontrolled rewrite. Each phase must leave the application operable and preserve security and tenant isolation.

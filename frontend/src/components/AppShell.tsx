@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, Factory, Home, Menu, Moon, Settings, ShieldCheck, ShoppingCart, Sun } from "lucide-react";
+import { BarChart3, Boxes, Factory, Home, Menu, Moon, Settings, ShieldCheck, ShoppingCart, Store, Sun } from "lucide-react";
 import { useEffect, useMemo, useState, type PropsWithChildren } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, clearTrialSession } from "../lib/api";
@@ -12,7 +12,7 @@ type AccessOrganization = { id: string; name: string; slug: string; facilities: 
 type AccountContext = { user: { display_name: string; email: string; role: string; must_change_password?: boolean }; organization: { id: string; name: string; slug?: string } | null; facility_id: string; capabilities: Record<Capability, boolean>; facilities: Facility[] };
 type AccessOptions = { organizations: AccessOrganization[]; organization_id: string; facility_id: string };
 type OperationMode = "Retail Ops" | "Production Ops";
-type WorkCategory = "Home" | "Buying" | "Inventory" | "Production" | "Compliance" | "Reports";
+type WorkCategory = "Home" | "Buying" | "Inventory" | "Production" | "Wholesale" | "Compliance" | "Reports";
 type PrimaryCategory = WorkCategory | "Settings";
 type SecondaryItem = { label: string; page: string; roles?: readonly string[] };
 type PrimaryItem = { label: WorkCategory; icon: typeof Home; defaultPage: string };
@@ -31,6 +31,7 @@ const RETAIL_PRIMARY: PrimaryItem[] = [
   { label: "Home", icon: Home, defaultPage: "Home" },
   { label: "Buying", icon: ShoppingCart, defaultPage: "Buyer Operations" },
   { label: "Inventory", icon: Boxes, defaultPage: "Inventory" },
+  { label: "Wholesale", icon: Store, defaultPage: "Wholesale Ops" },
   { label: "Compliance", icon: ShieldCheck, defaultPage: "Compliance Q&A" },
   { label: "Reports", icon: BarChart3, defaultPage: "Sales & Category Trends" },
 ];
@@ -39,6 +40,7 @@ const PRODUCTION_PRIMARY: PrimaryItem[] = [
   { label: "Home", icon: Home, defaultPage: "Home" },
   { label: "Inventory", icon: Boxes, defaultPage: "Production Inventory" },
   { label: "Production", icon: Factory, defaultPage: "Production" },
+  { label: "Wholesale", icon: Store, defaultPage: "Wholesale Ops" },
   { label: "Compliance", icon: ShieldCheck, defaultPage: "Compliance" },
   { label: "Reports", icon: BarChart3, defaultPage: "Executive Reports" },
 ];
@@ -50,6 +52,11 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     { label: "Enterprise Control Tower", page: "Enterprise Control Tower", roles: ADMIN },
   ];
   if (category === "Settings") return dataSettingsItems(role);
+  if (category === "Wholesale") return [
+    { label: "Wholesale Ops", page: "Wholesale Ops" },
+    { label: "Orders & Fulfillment", page: "Orders" },
+    { label: "Warehouse Pick / Pack", page: "Warehouse Pick Pack" },
+  ];
 
   if (operation === "Production Ops") {
     if (category === "Inventory") return [
@@ -60,11 +67,10 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     ];
     if (category === "Production") return [
       { label: "Today / Production", page: "Production" },
+      { label: "Calendar", page: "Production Calendar" },
       { label: "Production Run 360", page: "Production Run 360" },
       { label: "Extraction", page: "Extraction" },
       { label: "White Label / Repack", page: "White Label / Repack" },
-      { label: "Orders & Fulfillment", page: "Orders" },
-      { label: "Warehouse Pick / Pack", page: "Warehouse Pick Pack" },
       { label: "Package Studio", page: "Package Studio" },
     ];
     if (category === "Compliance") return [
@@ -93,8 +99,6 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     { label: "Package 360", page: "Package 360" },
     { label: "Inventory Audits", page: "Inventory Audits" },
     { label: "Slow Movers", page: "Slow Movers" },
-    { label: "Orders & Fulfillment", page: "Orders" },
-    { label: "Warehouse Pick / Pack", page: "Warehouse Pick Pack" },
     { label: "Catalog Administration", page: "Retail Catalog Admin" },
   ];
   if (category === "Reports") return [
@@ -124,11 +128,11 @@ function dataSettingsItems(role: string): SecondaryItem[] {
   return rows;
 }
 
-function categoryForPage(page: string, operation: OperationMode): PrimaryCategory {
+function categoryForPage(page: string, _operation: OperationMode): PrimaryCategory {
   if (["Home", "Operations Control Tower", "Enterprise Control Tower"].includes(page)) return "Home";
   if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing", "Replenishment Policies"].includes(page)) return "Buying";
-  if (["Orders", "Warehouse Pick Pack"].includes(page)) return operation === "Production Ops" ? "Production" : "Inventory";
-  if (["Production", "Production Run 360", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
+  if (["Wholesale Ops", "Orders", "Warehouse Pick Pack"].includes(page)) return "Wholesale";
+  if (["Production", "Production Calendar", "Production Run 360", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
   if (["Compliance", "Compliance Q&A", "Traceability Actions", "Product Name Mapper", "Nomenclature Mapper", "Label Studio", "MA Flower Equivalency"].includes(page)) return "Compliance";
   if (["Sales & Category Trends", "Reports", "Executive Reports"].includes(page)) return "Reports";
   if (["Location Settings", "Data & Settings", "Admin", "Admin Tools", "Integrations", "AI & METRC Integrations", "METRC Integrations"].includes(page)) return "Settings";
@@ -202,7 +206,8 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [navigationOpen]);
 
-  const primary = operation === "Production Ops" ? PRODUCTION_PRIMARY : RETAIL_PRIMARY;
+  const primaryBase = operation === "Production Ops" ? PRODUCTION_PRIMARY : RETAIL_PRIMARY;
+  const primary = context.data?.capabilities.commercial === false ? primaryBase.filter(row => row.label !== "Wholesale") : primaryBase;
   const activeCategory = categoryForPage(active, operation);
   const secondary = secondaryItems(activeCategory, operation, role).filter(item => !item.roles || item.roles.includes(role as never));
   const settings = dataSettingsItems(role).filter(item => !item.roles || item.roles.includes(role as never));
@@ -307,7 +312,8 @@ function ClassicNavigation({ operation, role, active, onNavigate }: { operation:
     ? [
       { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
       { label: "Production Inventory", pages: secondaryItems("Inventory", operation, role) },
-      { label: "Production, Distribution & Wholesale", pages: secondaryItems("Production", operation, role) },
+      { label: "Production & Extraction", pages: secondaryItems("Production", operation, role) },
+      { label: "Wholesale Ops", pages: secondaryItems("Wholesale", operation, role) },
       { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
       { label: "Reports", pages: secondaryItems("Reports", operation, role) },
       { label: "Data & Integrations", pages: dataSettingsItems(role) },
@@ -315,7 +321,8 @@ function ClassicNavigation({ operation, role, active, onNavigate }: { operation:
     : [
       { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
       { label: "Buying", pages: secondaryItems("Buying", operation, role) },
-      { label: "Retail Inventory & Fulfillment", pages: secondaryItems("Inventory", operation, role) },
+      { label: "Retail Inventory", pages: secondaryItems("Inventory", operation, role) },
+      { label: "Wholesale Ops", pages: secondaryItems("Wholesale", operation, role) },
       { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
       { label: "Reports", pages: secondaryItems("Reports", operation, role) },
       { label: "Data & Integrations", pages: dataSettingsItems(role) },

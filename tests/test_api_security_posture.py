@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
 
 import backend.app.main as main_module
 from backend.app.auth import get_request_context
@@ -14,6 +15,8 @@ PERMITTED_PUBLIC_API_ROUTES = {
     ("POST", f"{settings.api_prefix}/account/username-login"),
     ("GET", f"{settings.api_prefix}/commerce-portal/{{token}}"),
     ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/orders"),
+    ("GET", f"{settings.api_prefix}/commerce-storefronts/{{slug}}"),
+    ("POST", f"{settings.api_prefix}/commerce-storefronts/{{slug}}/orders"),
 }
 SERVICE_ACCOUNT_PREFIX = f"{settings.api_prefix}/external/v1/"
 
@@ -68,6 +71,43 @@ def test_public_api_allowlist_is_explicit_and_bounded():
     assert ("POST", f"{settings.api_prefix}/trial/activate") in security
     assert ("POST", f"{settings.api_prefix}/beta/apply") in security
     assert ("POST", f"{settings.api_prefix}/account/username-login") in security
+    assert ("GET", f"{settings.api_prefix}/commerce-storefronts/{{slug}}") in security
+    assert ("POST", f"{settings.api_prefix}/commerce-storefronts/{{slug}}/orders") in security
+
+
+def test_hosted_storefront_subdomain_cors_is_exact_and_bounded():
+    client = TestClient(app)
+    preflight_path = f"{settings.api_prefix}/commerce-storefronts/cowboykush"
+
+    allowed = client.options(
+        preflight_path,
+        headers={
+            "Origin": "https://cowboykush.doobielogic.io",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert allowed.status_code == 200
+    assert allowed.headers["access-control-allow-origin"] == "https://cowboykush.doobielogic.io"
+
+    malicious_suffix = client.options(
+        preflight_path,
+        headers={
+            "Origin": "https://cowboykush.doobielogic.io.evil.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert "access-control-allow-origin" not in malicious_suffix.headers
+
+    insecure_scheme = client.options(
+        preflight_path,
+        headers={
+            "Origin": "http://cowboykush.doobielogic.io",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert "access-control-allow-origin" not in insecure_scheme.headers
+
+    assert main_module.DOOBIELOGIC_SUBDOMAIN_ORIGIN_REGEX == r"^https://[a-z0-9-]+\.doobielogic\.io$"
 
 
 def test_external_api_uses_scoped_bearer_service_account_authentication():

@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import Engine, func, or_, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import AuditEvent, InventoryLot, InventoryTransaction, MaterialReservation, Product, RetailSale, TradePartner, utc_now
+from modules.coman.models import AuditEvent, InventoryLot, InventoryTransaction, Product, RetailSale, TradePartner, utc_now
+from modules.inventory_availability.service import InventoryAvailabilityService
 from modules.product_master.models import ProductMasterProfile, ProductVendorLink
 
 from ..schemas.inventory import (
@@ -24,7 +25,7 @@ from ..schemas.inventory import (
 
 
 class InventoryQueryService:
-    """Read durable package inventory without depending on Streamlit state."""
+    """Read durable package inventory through the shared organization availability truth."""
 
     def __init__(self, engine: Engine):
         self.engine = engine
@@ -54,19 +55,6 @@ class InventoryQueryService:
             .group_by(InventoryTransaction.lot_id)
             .subquery()
         )
-        reservations = (
-            select(
-                MaterialReservation.lot_id.label("lot_id"),
-                func.coalesce(func.sum(MaterialReservation.quantity), 0.0).label("reserved"),
-            )
-            .where(
-                MaterialReservation.organization_id == organization_id,
-                MaterialReservation.facility_id == facility_id,
-                MaterialReservation.status == "reserved",
-            )
-            .group_by(MaterialReservation.lot_id)
-            .subquery()
-        )
         sales = (
             select(
                 RetailSale.product_id.label("product_id"),
@@ -86,12 +74,10 @@ class InventoryQueryService:
                 InventoryLot,
                 Product,
                 func.coalesce(balance.c.balance, 0.0),
-                func.coalesce(reservations.c.reserved, 0.0),
                 func.coalesce(sales.c.sold_30d, 0.0),
             )
             .join(Product, Product.id == InventoryLot.product_id)
             .outerjoin(balance, balance.c.lot_id == InventoryLot.id)
-            .outerjoin(reservations, reservations.c.lot_id == InventoryLot.id)
             .outerjoin(sales, sales.c.product_id == Product.id)
             .where(
                 InventoryLot.organization_id == organization_id,
@@ -124,33 +110,33 @@ class InventoryQueryService:
             ).all() if product_ids else []
             primary_vendors = {product_id: name for product_id, name in vendor_rows}
 
+        availability = InventoryAvailabilityService(self.engine).facility_snapshot(organization_id, facility_id)
+        by_lot = availability["by_lot"]
         rows = [
             row for row in rows
             if row[1].id not in profiles
-            or (
-                operation == "retail" and profiles[row[1].id].retail_enabled
-            )
-            or (
-                operation == "production" and profiles[row[1].id].production_enabled
-            )
+            or (operation == "retail" and profiles[row[1].id].retail_enabled)
+            or (operation == "production" and profiles[row[1].id].production_enabled)
         ]
-        items = [
-            self._package(
+        items = []
+        for lot, product, physical_on_hand, sold_30d in rows:
+            claim = by_lot.get(lot.id, {})
+            effective_available = max(0.0, float(claim.get("available", physical_on_hand) or 0.0))
+            reserved = max(0.0, float(claim.get("reserved", 0.0) or 0.0))
+            claims = list(claim.get("claims") or [])
+            items.append(self._package(
                 lot,
                 product,
-                float(available),
-                float(reserved),
+                effective_available,
+                reserved,
                 float(sold_30d),
                 operation,
-                material_type=(
-                    profiles[product.id].category
-                    or profiles[product.id].product_format
-                    if product.id in profiles else ""
-                ),
+                physical_on_hand=float(physical_on_hand),
+                claims=claims,
+                material_type=(profiles[product.id].category or profiles[product.id].product_format if product.id in profiles else ""),
                 primary_vendor=primary_vendors.get(product.id, ""),
-            )
-            for lot, product, available, reserved, sold_30d in rows
-        ]
+            ))
+
         facets = InventoryFacets(
             statuses=sorted({item.status for item in items}),
             material_types=sorted({item.material_type for item in items}),
@@ -167,31 +153,16 @@ class InventoryQueryService:
                 available_quantity=sum(item.available for item in items),
                 reserved_quantity=sum(item.reserved for item in items),
                 hold_count=sum(item.attention == "Hold" for item in items),
-                low_balance_count=sum(item.attention == "Low balance" for item in items),
+                low_balance_count=sum(item.attention in {"Low balance", "Committed"} for item in items),
             ),
         )
 
     def list_production_packages(self, organization_id: str, facility_id: str, **filters) -> InventoryResponse:
-        return self.list_packages(
-            organization_id,
-            facility_id,
-            operation="production",
-            **filters,
-        )
+        return self.list_packages(organization_id, facility_id, operation="production", **filters)
 
     def list_retail_packages(self, organization_id: str, facility_id: str, **filters) -> InventoryResponse:
-        """Read the same durable ledger through the retail operating projection.
-
-        The facility/license context separates retail inventory from production;
-        product item type must not be used as a proxy because sellable flower can
-        still be a cannabis item.
-        """
-        return self.list_packages(
-            organization_id,
-            facility_id,
-            operation="retail",
-            **filters,
-        )
+        """Read the same durable ledger through the retail operating projection."""
+        return self.list_packages(organization_id, facility_id, operation="retail", **filters)
 
     @staticmethod
     def _package(
@@ -202,17 +173,30 @@ class InventoryQueryService:
         sold_30d: float,
         operation: str,
         *,
+        physical_on_hand: float | None = None,
+        claims: list[dict] | None = None,
         material_type: str = "",
         primary_vendor: str = "",
     ) -> InventoryPackage:
-        usable = max(0.0, available - reserved)
+        usable = max(0.0, available)
+        on_hand = available + reserved if physical_on_hand is None else max(0.0, physical_on_hand)
         status = str(lot.status or "available")
+        claim_rows = claims or []
+        claim_sources = {str(row.get("source") or "") for row in claim_rows}
+        production_reserved = sum(float(row.get("quantity") or 0.0) for row in claim_rows if row.get("source") == "production")
+        wholesale_committed = sum(float(row.get("quantity") or 0.0) for row in claim_rows if row.get("source") == "wholesale" and row.get("claim_type") == "committed")
+        wholesale_reserved = sum(float(row.get("quantity") or 0.0) for row in claim_rows if row.get("source") == "wholesale" and row.get("claim_type") == "lot_reserved")
+        reservation_sources = list(dict.fromkeys(str(row.get("label") or row.get("reference") or row.get("source") or "").strip() for row in claim_rows if str(row.get("label") or row.get("reference") or row.get("source") or "").strip()))
         if any(token in status.casefold() for token in ("hold", "quarantine", "failed")):
             attention = "Hold"
-        elif available <= 0:
+        elif available <= 0 and on_hand <= 0:
             attention = "Empty"
-        elif usable <= 10:
+        elif reserved > 0 and available <= 10:
+            attention = "Committed"
+        elif available <= 10:
             attention = "Low balance"
+        elif reserved > 0 and "wholesale" in claim_sources:
+            attention = "Committed"
         else:
             attention = "Production ready"
         velocity = sold_30d / 30.0 if operation == "retail" else 0.0
@@ -240,8 +224,13 @@ class InventoryQueryService:
             location=lot.location_code,
             status=status.replace("_", " ").title(),
             source_name=str(metadata.get("source_name") or primary_vendor or ""),
+            on_hand=on_hand,
             available=available,
             reserved=reserved,
+            production_reserved=production_reserved,
+            wholesale_committed=wholesale_committed,
+            wholesale_reserved=wholesale_reserved,
+            reservation_sources=reservation_sources,
             usable=usable,
             unit=product.base_unit,
             received_at=lot.received_at,
@@ -258,15 +247,7 @@ class InventoryQueryService:
         )
 
     @staticmethod
-    def _filter(
-        items: list[InventoryPackage],
-        search: str,
-        status: str,
-        material_type: str,
-        location: str,
-        source: str,
-        view: str,
-    ) -> list[InventoryPackage]:
+    def _filter(items: list[InventoryPackage], search: str, status: str, material_type: str, location: str, source: str, view: str) -> list[InventoryPackage]:
         needle = search.strip().casefold()
         result = items
         if needle:
@@ -311,23 +292,10 @@ class InventoryQueryService:
 
     def list_products(self, organization_id: str) -> list[ProductOption]:
         with Session(self.engine) as session:
-            products = session.scalars(
-                select(Product).where(
-                    Product.organization_id == organization_id,
-                    Product.active.is_(True),
-                ).order_by(Product.name)
-            ).all()
+            products = session.scalars(select(Product).where(Product.organization_id == organization_id, Product.active.is_(True)).order_by(Product.name)).all()
         return [ProductOption(id=p.id, sku=p.sku, name=p.name, item_type=p.item_type, base_unit=p.base_unit) for p in products]
 
-    def receive(
-        self,
-        organization_id: str,
-        facility_id: str,
-        *,
-        operation: str,
-        payload: InventoryReceiptCreate,
-        actor: str,
-    ) -> InventoryReceiptResult:
+    def receive(self, organization_id: str, facility_id: str, *, operation: str, payload: InventoryReceiptCreate, actor: str) -> InventoryReceiptResult:
         if operation not in {"retail", "production"}:
             raise ValueError("Unsupported inventory operation.")
         lot_code = (payload.lot_code or payload.package_id).strip()
@@ -354,11 +322,7 @@ class InventoryQueryService:
             duplicate_conditions = [InventoryLot.lot_code == lot_code]
             if package_id:
                 duplicate_conditions.append(InventoryLot.compliance_package_id == package_id)
-            duplicate = session.scalar(select(InventoryLot.id).where(
-                InventoryLot.organization_id == organization_id,
-                InventoryLot.facility_id == facility_id,
-                or_(*duplicate_conditions),
-            ))
+            duplicate = session.scalar(select(InventoryLot.id).where(InventoryLot.organization_id == organization_id, InventoryLot.facility_id == facility_id, or_(*duplicate_conditions)))
             if duplicate:
                 raise ValueError("That package or lot already exists in the active facility.")
             lot = InventoryLot(
@@ -442,13 +406,7 @@ class InventoryQueryService:
                 break
         return history
 
-    def import_retail_sales(
-        self,
-        organization_id: str,
-        facility_id: str,
-        payload: RetailSalesImport,
-        actor: str,
-    ) -> RetailSalesImportResult:
+    def import_retail_sales(self, organization_id: str, facility_id: str, payload: RetailSalesImport, actor: str) -> RetailSalesImportResult:
         source = payload.source_system.strip().casefold()
         if not source:
             raise ValueError("A sales source system is required.")
@@ -500,13 +458,7 @@ class InventoryQueryService:
             ))
         return RetailSalesImportResult(imported=imported, skipped_duplicates=skipped, unmapped_products=unmapped)
 
-    def adjust_inventory(
-        self,
-        organization_id: str,
-        facility_id: str,
-        payload: InventoryAdjustmentCreate,
-        actor: str,
-    ) -> InventoryAdjustmentResult:
+    def adjust_inventory(self, organization_id: str, facility_id: str, payload: InventoryAdjustmentCreate, actor: str) -> InventoryAdjustmentResult:
         reason = payload.reason.strip()
         if not reason:
             raise ValueError("An adjustment reason is required.")
@@ -519,17 +471,13 @@ class InventoryQueryService:
                 InventoryTransaction.facility_id == facility_id,
                 InventoryTransaction.lot_id == lot.id,
             )) or 0.0)
-            reserved = float(session.scalar(select(func.coalesce(func.sum(MaterialReservation.quantity), 0.0)).where(
-                MaterialReservation.organization_id == organization_id,
-                MaterialReservation.facility_id == facility_id,
-                MaterialReservation.lot_id == lot.id,
-                MaterialReservation.status == "reserved",
-            )) or 0.0)
+            availability = InventoryAvailabilityService.build(session, organization_id, facility_id)
+            reserved = max(0.0, float(availability["by_lot"].get(lot.id, {}).get("reserved", 0.0) or 0.0))
             final = previous + payload.quantity if payload.adjustment_type == "incremental" else payload.quantity
             if final < 0:
                 raise ValueError("Final inventory quantity cannot be negative.")
             if final + 1e-9 < reserved:
-                raise ValueError(f"Final inventory quantity cannot be below {reserved:g} reserved.")
+                raise ValueError(f"Final inventory quantity cannot be below {reserved:g} committed or reserved.")
             delta = final - previous
             if abs(delta) <= 1e-9:
                 raise ValueError("The adjustment does not change inventory quantity.")
@@ -548,15 +496,27 @@ class InventoryQueryService:
             session.add(transaction)
             session.flush()
             changes = {
-                "previous_quantity": previous, "delta": delta, "final_quantity": final,
-                "reserved_quantity": reserved, "unit": unit, "reason": reason,
-                "reason_note": payload.reason_note.strip(), "transaction_id": transaction.id,
+                "previous_quantity": previous,
+                "delta": delta,
+                "final_quantity": final,
+                "reserved_quantity": reserved,
+                "unit": unit,
+                "reason": reason,
+                "reason_note": payload.reason_note.strip(),
+                "transaction_id": transaction.id,
             }
             session.add(AuditEvent(
-                organization_id=organization_id, facility_id=facility_id,
-                entity_type="inventory_lot", entity_id=lot.id,
-                action="inventory_adjusted", actor=actor,
+                organization_id=organization_id,
+                facility_id=facility_id,
+                entity_type="inventory_lot",
+                entity_id=lot.id,
+                action="inventory_adjusted",
+                actor=actor,
                 changes_json=json.dumps(changes, sort_keys=True),
             ))
-            result = InventoryAdjustmentResult(transaction_id=transaction.id, lot_id=lot.id, **{key: changes[key] for key in ("previous_quantity", "delta", "final_quantity", "reserved_quantity", "unit", "reason")})
+            result = InventoryAdjustmentResult(
+                transaction_id=transaction.id,
+                lot_id=lot.id,
+                **{key: changes[key] for key in ("previous_quantity", "delta", "final_quantity", "reserved_quantity", "unit", "reason")},
+            )
         return result
