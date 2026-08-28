@@ -25,6 +25,7 @@ ALLOWED_ACTIONS = {
     "reserve_production_materials",
     "send_invoice",
     "queue_traceability",
+    "prepare_transfer_manifest",
 }
 
 
@@ -38,6 +39,7 @@ class DoobieActionService:
             "reserve_production_materials": self._reserve_production_materials,
             "send_invoice": self._send_invoice,
             "queue_traceability": self._queue_traceability,
+            "prepare_transfer_manifest": self._prepare_transfer_manifest,
         }
 
     def propose(
@@ -206,6 +208,17 @@ class DoobieActionService:
     def _send_invoice(self, proposal: ActionProposal, payload: dict[str, Any], actor: str) -> dict[str, Any]:
         invoice = CommercialFinanceService(self.engine).send_invoice(organization_id=proposal.organization_id, facility_id=proposal.facility_id, invoice_id=str(payload["invoice_id"]))
         return {"action": "invoice_sent", "invoice_id": invoice.id, "status": invoice.status}
+
+    def _prepare_transfer_manifest(self, proposal: ActionProposal, payload: dict[str, Any], actor: str) -> dict[str, Any]:
+        if str(proposal.source_type or "").casefold() != "doobie_agent":
+            raise ValueError("Transfer manifest proposals must be created through the governed Doobie manifest builder.")
+        request_payload = payload.get("request_payload")
+        if str(payload.get("operation_type") or "").casefold() != "transfer_template_create" or not isinstance(request_payload, dict):
+            raise ValueError("Manifest proposal is missing its governed transfer-template payload.")
+        template = request_payload.get("template")
+        if not isinstance(template, dict) or not template.get("Destinations"):
+            raise ValueError("Manifest proposal does not contain a transfer-template destination.")
+        return self._queue_traceability(proposal, payload, actor)
 
     def _queue_traceability(self, proposal: ActionProposal, payload: dict[str, Any], actor: str) -> dict[str, Any]:
         repo = TraceabilityBackofficeRepository(self.engine)
