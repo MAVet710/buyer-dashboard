@@ -1,76 +1,100 @@
 from __future__ import annotations
 
 import os
+import time
+import uuid
+from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
 import requests
 
+from modules.regulatory.registry import resolve_metrc_base_url
 
-STATE_HOSTS = {
-    "AL": "https://api-al.metrc.com",
-    "AK": "https://api-ak.metrc.com",
-    "CA": "https://api-ca.metrc.com",
-    "CO": "https://api-co.metrc.com",
-    "DC": "https://api-dc.metrc.com",
-    "GU": "https://api-gu.metrc.com",
-    "IL": "https://api-il.metrc.com",
-    "KY": "https://api-ky.metrc.com",
-    "LA": "https://api-la.metrc.com",
-    "ME": "https://api-me.metrc.com",
-    "MD": "https://api-md.metrc.com",
-    "MA": "https://api-ma.metrc.com",
-    "MI": "https://api-mi.metrc.com",
-    "MN": "https://api-mn.metrc.com",
-    "MS": "https://api-ms.metrc.com",
-    "MO": "https://api-mo.metrc.com",
-    "MT": "https://api-mt.metrc.com",
-    "NV": "https://api-nv.metrc.com",
-    "NJ": "https://api-nj.metrc.com",
-    "NY": "https://api-ny.metrc.com",
-    "OH": "https://api-oh.metrc.com",
-    "OK": "https://api-ok.metrc.com",
-    "OR": "https://api-or.metrc.com",
-    "RI": "https://api-ri.metrc.com",
-    "SD": "https://api-sd.metrc.com",
-    "VI": "https://api-vi.metrc.com",
-    "VA": "https://api-va.metrc.com",
-    "WV": "https://api-wv.metrc.com",
-}
 
-STATE_NAMES = {
-    "ALABAMA": "AL",
-    "ALASKA": "AK",
-    "CALIFORNIA": "CA",
-    "COLORADO": "CO",
-    "DISTRICT OF COLUMBIA": "DC",
-    "WASHINGTON DC": "DC",
-    "WASHINGTON D.C.": "DC",
-    "GUAM": "GU",
-    "ILLINOIS": "IL",
-    "KENTUCKY": "KY",
-    "LOUISIANA": "LA",
-    "MAINE": "ME",
-    "MARYLAND": "MD",
-    "MASSACHUSETTS": "MA",
-    "MICHIGAN": "MI",
-    "MINNESOTA": "MN",
-    "MISSISSIPPI": "MS",
-    "MISSOURI": "MO",
-    "MONTANA": "MT",
-    "NEVADA": "NV",
-    "NEW JERSEY": "NJ",
-    "NEW YORK": "NY",
-    "OHIO": "OH",
-    "OKLAHOMA": "OK",
-    "OREGON": "OR",
-    "RHODE ISLAND": "RI",
-    "SOUTH DAKOTA": "SD",
-    "US VIRGIN ISLANDS": "VI",
-    "U.S. VIRGIN ISLANDS": "VI",
-    "VIRGIN ISLANDS": "VI",
-    "VIRGINIA": "VA",
-    "WEST VIRGINIA": "WV",
-}
+@dataclass(frozen=True)
+class MetrcTransport:
+    """Reusable read transport with bounded retries and sanitized evidence."""
+
+    state: str
+    integrator_api_key: str
+    user_api_key: str
+    timeout_seconds: int = 12
+    max_attempts: int = 3
+    request_get: Callable[..., Any] | None = None
+    sleeper: Callable[[float], None] = time.sleep
+
+    def get(self, path: str, params: dict[str, Any] | None = None, *, correlation_id: str = "") -> dict[str, Any]:
+        base_url, state_code = resolve_metrc_base_url(self.state)
+        correlation_id = str(correlation_id or uuid.uuid4())
+        if not base_url:
+            return self._error("missing_state", "Select a verified Metrc jurisdiction.", correlation_id, state_code, base_url)
+        if not str(self.integrator_api_key or "").strip():
+            return self._error("missing_integrator_key", "METRC_INTEGRATOR_API_KEY is not configured.", correlation_id, state_code, base_url)
+        if not str(self.user_api_key or "").strip():
+            return self._error("missing_user_key", "A Metrc user API key is required.", correlation_id, state_code, base_url)
+        attempts = max(1, min(int(self.max_attempts), 5))
+        url = f"{base_url}/{str(path).lstrip('/')}"
+        for attempt in range(1, attempts + 1):
+            try:
+                response = (self.request_get or requests.get)(
+                    url,
+                    auth=(self.integrator_api_key, self.user_api_key),
+                    params=params or {},
+                    timeout=self.timeout_seconds,
+                    headers={"Accept": "application/json", "X-Correlation-ID": correlation_id},
+                )
+            except requests.Timeout:
+                if attempt < attempts:
+                    self.sleeper(min(0.1 * (2 ** (attempt - 1)), 0.5))
+                    continue
+                return self._error("timeout", "Metrc did not respond before the timeout.", correlation_id, state_code, base_url, attempts=attempt)
+            except requests.RequestException as exc:
+                if attempt < attempts:
+                    self.sleeper(min(0.1 * (2 ** (attempt - 1)), 0.5))
+                    continue
+                return self._error("request_error", f"Metrc request failed: {type(exc).__name__}.", correlation_id, state_code, base_url, attempts=attempt)
+
+            retryable = response.status_code == 429 or response.status_code >= 500
+            if retryable and attempt < attempts:
+                retry_after = _bounded_retry_after(response.headers.get("Retry-After"))
+                self.sleeper(retry_after if retry_after is not None else min(0.1 * (2 ** (attempt - 1)), 0.5))
+                continue
+            result = self._response(response, correlation_id, state_code, base_url, attempt)
+            return result
+        return self._error("request_error", "Metrc request failed.", correlation_id, state_code, base_url, attempts=attempts)
+
+    @staticmethod
+    def _error(status: str, message: str, correlation_id: str, state: str, base_url: str, *, attempts: int = 0) -> dict[str, Any]:
+        return {"ok": False, "status": status, "message": message, "correlation_id": correlation_id,
+                "state": state, "base_url": base_url, "attempts": attempts}
+
+    @staticmethod
+    def _response(response: Any, correlation_id: str, state: str, base_url: str, attempts: int) -> dict[str, Any]:
+        status_code = int(response.status_code)
+        result: dict[str, Any] = {"ok": status_code == 200, "http_status": status_code, "state": state,
+                                  "base_url": base_url, "correlation_id": correlation_id, "attempts": attempts,
+                                  "rate_limit_remaining": response.headers.get("X-RateLimit-Remaining", "")}
+        if status_code == 401:
+            return result | {"status": "auth_failed", "message": "Metrc rejected the saved API keys."}
+        if status_code == 403:
+            return result | {"status": "forbidden", "message": "The Metrc user lacks permission for this resource."}
+        if status_code == 429:
+            return result | {"status": "rate_limited", "message": "Metrc rate limited the request.", "retry_after": response.headers.get("Retry-After", "")}
+        if status_code >= 400:
+            return result | {"status": "provider_error", "message": f"Metrc returned HTTP {status_code}."}
+        try:
+            payload = response.json()
+        except ValueError:
+            return result | {"ok": False, "status": "invalid_json", "message": "Metrc returned an invalid JSON response."}
+        return result | {"status": "connected", "message": "Metrc request succeeded.", "payload": payload}
+
+
+def _bounded_retry_after(value: Any) -> float | None:
+    try:
+        return max(0.0, min(float(value), 0.5))
+    except (TypeError, ValueError):
+        return None
 
 
 def get_default_metrc_integrator_key() -> dict[str, str]:
@@ -83,20 +107,6 @@ def get_default_metrc_integrator_key() -> dict[str, str]:
         "api_key": key,
         "source": "env" if key else "unavailable",
     }
-
-
-def resolve_metrc_base_url(state_or_url: str) -> tuple[str, str]:
-    raw = str(state_or_url or "").strip()
-    if raw.lower().startswith(("https://", "http://")):
-        return raw.rstrip("/"), raw
-
-    token = raw.upper().strip()
-    token = STATE_NAMES.get(token, token)
-    token = "".join(ch for ch in token if ch.isalnum())
-    token = STATE_NAMES.get(token, token)
-    if token in STATE_HOSTS:
-        return STATE_HOSTS[token], token
-    return "", token
 
 
 def _extract_facility_license(facility: Any) -> str:
@@ -138,57 +148,15 @@ def _metrc_get(
     path: str,
     params: dict[str, Any] | None = None,
     timeout_seconds: int = 12,
+    correlation_id: str = "",
 ) -> dict[str, Any]:
     """Perform one authenticated, read-only Metrc v2 request."""
-
-    base_url, state_code = resolve_metrc_base_url(state)
-    user_api_key = str(user_api_key or "").strip()
-    integrator_api_key = str(integrator_api_key or "").strip()
-    if not base_url:
-        return {"ok": False, "status": "missing_state", "message": "Enter a valid Metrc state or API base URL."}
-    if not integrator_api_key:
-        return {"ok": False, "status": "missing_integrator_key", "message": "METRC_INTEGRATOR_API_KEY is not configured.", "state": state_code, "base_url": base_url}
-    if not user_api_key:
-        return {"ok": False, "status": "missing_user_key", "message": "A Metrc user API key is required.", "state": state_code, "base_url": base_url}
-
-    try:
-        response = requests.get(
-            f"{base_url}/{str(path).lstrip('/')}",
-            auth=(integrator_api_key, user_api_key),
-            params=params or {},
-            timeout=timeout_seconds,
-            headers={"Accept": "application/json"},
-        )
-    except requests.Timeout:
-        return {"ok": False, "status": "timeout", "message": "Metrc did not respond before the timeout.", "state": state_code, "base_url": base_url}
-    except requests.RequestException as exc:
-        return {"ok": False, "status": "request_error", "message": f"Metrc request failed: {type(exc).__name__}.", "state": state_code, "base_url": base_url}
-
-    result: dict[str, Any] = {
-        "ok": response.status_code == 200,
-        "http_status": int(response.status_code),
-        "state": state_code,
-        "base_url": base_url,
-    }
-    if response.status_code == 401:
-        result.update(status="auth_failed", message="Metrc rejected the integrator/user API key pair.")
-        return result
-    if response.status_code == 403:
-        result.update(status="forbidden", message="Metrc authenticated the keys, but this user does not have permission for this transfer endpoint.")
-        return result
-    if response.status_code == 429:
-        result.update(status="rate_limited", message="Metrc rate limited the request.", retry_after=response.headers.get("Retry-After", ""))
-        return result
-    if response.status_code >= 400:
-        result.update(status="http_error", message=f"Metrc returned HTTP {response.status_code}.")
-        return result
-    try:
-        payload = response.json()
-    except ValueError:
-        result.update(ok=False, status="invalid_json", message="Metrc returned an invalid JSON response.")
-        return result
-    result.update(status="connected", message="Metrc request succeeded.", payload=payload)
-    return result
+    return MetrcTransport(
+        state=state,
+        user_api_key=str(user_api_key or "").strip(),
+        integrator_api_key=str(integrator_api_key or "").strip(),
+        timeout_seconds=timeout_seconds,
+    ).get(path, params, correlation_id=correlation_id)
 
 
 def _payload_rows(payload: Any) -> list[dict[str, Any]]:

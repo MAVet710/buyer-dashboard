@@ -135,19 +135,17 @@ def test_lab_result_lookup_is_read_only_get_with_package_and_license(monkeypatch
 
     assert result["ok"] is True
     assert len(result["lab_results"]) == 1
-    assert calls == [
-        {
-            "url": "https://api-ma.metrc.com/labtests/v2/results",
-            "auth": ("integrator-key", "user-key"),
-            "params": {
-                "packageId": "501",
-                "licenseNumber": "LIC-123",
-                "pageSize": 20,
-                "pageNumber": 1,
-            },
-            "headers": {"Accept": "application/json"},
-        }
-    ]
+    assert len(calls) == 1
+    assert calls[0]["url"] == "https://api-ma.metrc.com/labtests/v2/results"
+    assert calls[0]["auth"] == ("integrator-key", "user-key")
+    assert calls[0]["params"] == {
+        "packageId": "501",
+        "licenseNumber": "LIC-123",
+        "pageSize": 20,
+        "pageNumber": 1,
+    }
+    assert calls[0]["headers"]["Accept"] == "application/json"
+    assert calls[0]["headers"]["X-Correlation-ID"]
 
 
 def test_metrc_receive_reads_stop_on_auth_failure(monkeypatch):

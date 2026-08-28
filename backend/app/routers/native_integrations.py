@@ -447,6 +447,8 @@ def _metrc_ready(engine: Engine, settings: Settings, context: RequestContext):
         raise HTTPException(503, str(exc)) from exc
     if not metrc.configured or not metrc.row or metrc.status != "connected":
         raise HTTPException(409, "Validate the Metrc connection for this facility before loading live receiving data.")
+    if not metrc.trusted_mapping:
+        raise HTTPException(409, "An administrator must verify the Metrc facility, license, jurisdiction, credential, and environment mapping first.")
     return metrc
 
 

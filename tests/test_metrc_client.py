@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import requests
 
-from services.metrc_client import resolve_metrc_base_url, test_metrc_connection as run_metrc_connection_test
+from services.metrc_client import MetrcTransport, resolve_metrc_base_url, test_metrc_connection as run_metrc_connection_test
 
 
 class _DummyResponse:
@@ -18,7 +18,11 @@ class _DummyResponse:
 def test_resolve_metrc_base_url_state_code():
     assert resolve_metrc_base_url("MA") == ("https://api-ma.metrc.com", "MA")
     assert resolve_metrc_base_url("California") == ("https://api-ca.metrc.com", "CA")
-    assert resolve_metrc_base_url("https://api-mi.metrc.com/") == ("https://api-mi.metrc.com", "https://api-mi.metrc.com/")
+    assert resolve_metrc_base_url("https://api-mi.metrc.com/") == ("https://api-mi.metrc.com", "MI")
+
+
+def test_resolver_rejects_unverified_arbitrary_metrc_url():
+    assert resolve_metrc_base_url("https://api-zz.metrc.com") == ("", "HTTPS://API-ZZ.METRC.COM")
 
 
 def test_metrc_connection_success_with_license_match(monkeypatch):
@@ -95,3 +99,37 @@ def test_metrc_connection_rate_limit_includes_retry_after(monkeypatch):
     assert result["ok"] is False
     assert result["status"] == "rate_limited"
     assert result["retry_after"] == "30"
+
+
+def test_transport_retries_transient_failure_and_preserves_correlation_without_secrets():
+    calls = []
+    responses = iter((_DummyResponse(503, {"message": "temporary"}), _DummyResponse(200, [{"Id": 1}], {"X-RateLimit-Remaining": "19"})))
+
+    def request_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return next(responses)
+
+    result = MetrcTransport(
+        state="OR", integrator_api_key="integrator-secret", user_api_key="user-secret",
+        request_get=request_get, sleeper=lambda _seconds: None,
+    ).get("facilities/v2/", correlation_id="corr-123")
+
+    assert result["ok"] is True
+    assert result["attempts"] == 2
+    assert result["correlation_id"] == "corr-123"
+    assert result["rate_limit_remaining"] == "19"
+    assert calls[0][1]["auth"] == ("integrator-secret", "user-secret")
+    assert calls[0][1]["headers"]["X-Correlation-ID"] == "corr-123"
+    assert "integrator-secret" not in repr(result)
+    assert "user-secret" not in repr(result)
+
+
+def test_transport_sanitizes_non_json_provider_error():
+    response = _DummyResponse(500, None)
+    result = MetrcTransport(
+        state="OR", integrator_api_key="integrator-secret", user_api_key="user-secret",
+        max_attempts=1, request_get=lambda *args, **kwargs: response,
+    ).get("packages/v2/active")
+    assert result["status"] == "provider_error"
+    assert result["message"] == "Metrc returned HTTP 500."
+    assert "integrator-secret" not in repr(result)

@@ -6,6 +6,8 @@ from sqlalchemy import Engine
 
 from modules.integrations import IntegrationConfigurationService
 from modules.integrations.models import IntegrationConfiguration
+from modules.regulatory import RegulatoryMappingService
+from modules.regulatory.models import RegulatoryFacilityMapping
 from ..auth import RequestContext
 from ..config import Settings
 
@@ -18,8 +20,11 @@ class MetrcContext:
     user_api_key: str = ""
     integrator_api_key: str = ""
     status: str = "not_connected"
+    environment: str = "production"
+    trusted_mapping: bool = False
     message: str = ""
     row: IntegrationConfiguration | None = None
+    mapping: RegulatoryFacilityMapping | None = None
 
 
 def metrc_scope_key(context: RequestContext) -> str:
@@ -72,6 +77,19 @@ def resolve_metrc_context(
     secret = service.secret(row)
     state = str(config.get("state") or "").strip()
     license_number = str(config.get("license_number") or "").strip()
+    environment = str(config.get("environment") or "production").strip().casefold()
+    mapping = RegulatoryMappingService(engine).get(
+        organization_id=context.organization_id,
+        facility_id=context.facility_id,
+        provider="metrc",
+        license_number=license_number,
+        environment=environment,
+    ) if state and license_number and environment in {"sandbox", "production"} else None
+    trusted_mapping = bool(
+        mapping
+        and mapping.integration_configuration_id == row.id
+        and mapping.jurisdiction_code == state.upper()
+    )
     configured = bool(secret and state and license_number and settings.metrc_integrator_key)
     return service, MetrcContext(
         configured=configured,
@@ -80,6 +98,15 @@ def resolve_metrc_context(
         user_api_key=secret,
         integrator_api_key=settings.metrc_integrator_key,
         status=str(public.get("status") or "not_connected"),
-        message=("METRC inbound queue is ready." if configured else "Save and validate METRC credentials for this facility before loading inbound transfers."),
+        environment=environment,
+        trusted_mapping=trusted_mapping,
+        message=(
+            "METRC connection and trusted facility mapping are ready."
+            if configured and trusted_mapping
+            else "An administrator must verify the facility, license, jurisdiction, provider, credential, and environment mapping before live regulatory operations."
+            if configured
+            else "Save and validate METRC credentials for this facility before loading inbound transfers."
+        ),
         row=row,
+        mapping=mapping,
     )
