@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -6,10 +7,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from backend.app.auth import RequestContext
+import backend.app.routers.admin_storefronts as admin_storefronts_module
 from backend.app.routers.admin_storefronts import (
     StorefrontOwnershipUpdate,
     list_storefront_ownership,
-    router as admin_storefronts_router,
     update_storefront_ownership,
 )
 from modules.coman.models import AuditEvent, Base, Facility, Organization, Product
@@ -229,9 +230,10 @@ def test_non_dev_cannot_reassign_storefronts():
         raise AssertionError("Non-DEV storefront ownership listing unexpectedly succeeded")
 
 
-def test_storefront_admin_router_registers_both_routes_in_isolation():
+def test_storefront_admin_router_registers_both_routes_from_fresh_import():
+    fresh_module = importlib.reload(admin_storefronts_module)
     isolated = FastAPI()
-    isolated.include_router(admin_storefronts_router, prefix="/api/v1")
+    isolated.include_router(fresh_module.router, prefix="/api/v1")
     names = {getattr(route, "name", "") for route in isolated.routes}
     assert "list_storefront_ownership" in names
     assert "update_storefront_ownership" in names
