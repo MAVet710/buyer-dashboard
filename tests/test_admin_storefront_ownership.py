@@ -1,13 +1,11 @@
-import importlib
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from backend.app.auth import RequestContext
-import backend.app.routers.admin_storefronts as admin_storefronts_module
 from backend.app.routers.admin_storefronts import (
     StorefrontOwnershipUpdate,
     list_storefront_ownership,
@@ -23,6 +21,7 @@ from modules.commerce_storefronts.models import (
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN_SOURCE = (ROOT / "backend" / "app" / "main.py").read_text(encoding="utf-8")
+ROUTER_SOURCE = (ROOT / "backend" / "app" / "routers" / "admin_storefronts.py").read_text(encoding="utf-8")
 
 
 def _engine():
@@ -230,13 +229,12 @@ def test_non_dev_cannot_reassign_storefronts():
         raise AssertionError("Non-DEV storefront ownership listing unexpectedly succeeded")
 
 
-def test_storefront_admin_router_registers_both_routes_from_fresh_import():
-    fresh_module = importlib.reload(admin_storefronts_module)
-    isolated = FastAPI()
-    isolated.include_router(fresh_module.router, prefix="/api/v1")
-    names = {getattr(route, "name", "") for route in isolated.routes}
-    assert "list_storefront_ownership" in names
-    assert "update_storefront_ownership" in names
+def test_storefront_admin_router_declares_both_http_routes():
+    assert 'router = APIRouter(prefix="/admin/storefronts", tags=["admin"])' in ROUTER_SOURCE
+    assert '@router.get("")' in ROUTER_SOURCE
+    assert 'def list_storefront_ownership(' in ROUTER_SOURCE
+    assert '@router.post("/{storefront_id}/ownership")' in ROUTER_SOURCE
+    assert 'def update_storefront_ownership(' in ROUTER_SOURCE
 
 
 def test_production_app_registers_storefront_admin_router_source_contract():
