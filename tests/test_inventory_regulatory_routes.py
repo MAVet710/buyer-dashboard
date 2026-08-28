@@ -49,21 +49,19 @@ def _metrc(*, trusted: bool = True, status: str = "connected", environment: str 
 
 
 def test_trusted_inventory_router_precedes_legacy_live_inbound_route():
-    # API_PREFIX may be overridden by the runtime environment. Assert ordering
-    # by the registered endpoint identities instead of hardcoding /api/v1.
-    candidates = [
-        (index, route.endpoint)
-        for index, route in enumerate(app.routes)
+    # API_PREFIX is configurable, and FastAPI may wrap endpoint metadata when a
+    # router is included. Dispatch itself is path-order based, so assert the
+    # concrete invariant used at runtime: the trusted duplicate GET path must be
+    # registered before the legacy duplicate GET path.
+    matches = [
+        route
+        for route in app.routes
         if "GET" in getattr(route, "methods", set())
-        and getattr(getattr(route, "endpoint", None), "__name__", "")
-        in {"trusted_inbound_queue", "inbound_queue"}
+        and str(getattr(route, "path", "")).endswith("/inventory/{operation}/inbound")
     ]
-    trusted = next((item for item in candidates if item[1].__name__ == "trusted_inbound_queue"), None)
-    legacy = next((item for item in candidates if item[1].__name__ == "inbound_queue"), None)
-    assert trusted is not None
-    assert legacy is not None
-    assert trusted[0] < legacy[0]
-    assert trusted[1].__module__ == "backend.app.routers.inventory_reconciliation"
+    assert len(matches) >= 2
+    assert getattr(matches[0], "name", "") == "trusted_inbound_queue"
+    assert getattr(matches[1], "name", "") == "inbound_queue"
 
 
 def test_trusted_inbound_propagates_exact_mapping_environment(monkeypatch):
