@@ -34,8 +34,9 @@ _CURATED_SOURCES: tuple[dict[str, Any], ...] = (
 
 
 def _source_path(source: dict[str, Any]) -> Path:
-    relative = Path(str(source.get("curated_path") or ""))
-    if relative.is_absolute() or ".." in relative.parts:
+    raw_path = str(source.get("curated_path") or "")
+    relative = Path(raw_path)
+    if raw_path.startswith(("/", "\\")) or relative.is_absolute() or relative.drive or ".." in relative.parts:
         raise ValueError("Curated knowledge path must be repository-relative.")
     resolved = (REPO_ROOT / relative).resolve()
     if CURATED_ROOT not in resolved.parents:

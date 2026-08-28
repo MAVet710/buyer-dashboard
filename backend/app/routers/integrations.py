@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import Engine
 
 from modules.integrations import IntegrationConfigurationService
+from modules.regulatory import RegulatoryMappingError, RegulatoryMappingService, get_jurisdiction, list_jurisdictions
 from services.doobie_connection import DEFAULT_DOOBIE_BASE_URL, test_doobie_connection
 from services.metrc_client import test_metrc_connection
 from ..auth import RequestContext, get_request_context
@@ -18,7 +19,33 @@ router = APIRouter(prefix="/integrations", tags=["integrations"])
 class MetrcSave(BaseModel):
     state: str = Field(default="", max_length=128)
     license_number: str = Field(default="", max_length=128)
+    environment: str = Field(default="production", max_length=24)
     api_key: str | None = Field(default=None, max_length=1024)
+
+    @field_validator("state")
+    @classmethod
+    def verified_jurisdiction(cls, value: str) -> str:
+        profile = get_jurisdiction(value)
+        if profile is None:
+            raise ValueError("Select a verified Metrc jurisdiction.")
+        return profile.code
+
+    @field_validator("environment")
+    @classmethod
+    def explicit_environment(cls, value: str) -> str:
+        normalized = str(value or "").strip().casefold()
+        if normalized not in {"sandbox", "production"}:
+            raise ValueError("Environment must be sandbox or production.")
+        return normalized
+
+
+class RegulatoryMappingSave(BaseModel):
+    provider: str = Field(default="metrc", max_length=32)
+    jurisdiction_code: str = Field(min_length=2, max_length=16)
+    license_number: str = Field(min_length=1, max_length=160)
+    provider_facility_id: str = Field(default="", max_length=255)
+    environment: str = Field(default="production", max_length=24)
+    integration_configuration_id: str | None = Field(default=None, max_length=36)
 
 
 class DoobieSave(BaseModel):
@@ -93,6 +120,59 @@ def _require_dev(context: RequestContext) -> None:
         raise HTTPException(403, "Level DEV access is required for platform AI settings.")
 
 
+def _require_regulatory_admin(context: RequestContext) -> None:
+    if context.role.casefold() not in {"dev", "admin"}:
+        raise HTTPException(403, "Administrator access is required to verify regulatory mappings.")
+
+
+@router.get("/regulatory/jurisdictions")
+def regulatory_jurisdictions(context: RequestContext = Depends(get_request_context)):
+    return [profile.public() for profile in list_jurisdictions()]
+
+
+@router.get("/regulatory/mappings")
+def regulatory_mappings(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_regulatory_admin(context)
+    service = RegulatoryMappingService(engine)
+    return [service.public(row) for row in service.list_for_facility(context.organization_id, context.facility_id)]
+
+
+@router.post("/regulatory/mappings")
+def verify_regulatory_mapping(
+    payload: RegulatoryMappingSave,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_regulatory_admin(context)
+    provider = payload.provider.strip().casefold()
+    credential_id = payload.integration_configuration_id
+    if provider == "metrc" and not credential_id:
+        try:
+            row = IntegrationConfigurationService(engine, settings.integration_encryption_key).get("user", metrc_scope_key(context), "metrc")
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        credential_id = row.id if row else None
+    try:
+        mapping = RegulatoryMappingService(engine).verify(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            provider=provider,
+            jurisdiction_code=payload.jurisdiction_code,
+            license_number=payload.license_number,
+            provider_facility_id=payload.provider_facility_id,
+            environment=payload.environment,
+            integration_configuration_id=credential_id,
+            actor=context.user_id,
+        )
+    except (RegulatoryMappingError, RuntimeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return RegulatoryMappingService.public(mapping)
+
+
 @router.get("")
 def integrations(
     context: RequestContext = Depends(get_request_context),
@@ -135,7 +215,7 @@ def save_metrc(
         provider="metrc",
         organization_id=context.organization_id,
         facility_id=context.facility_id,
-        configuration={"state": payload.state.strip(), "license_number": payload.license_number.strip()},
+        configuration={"state": payload.state, "license_number": payload.license_number.strip(), "environment": payload.environment},
         secret=payload.api_key,
         actor=context.user_id,
     )
