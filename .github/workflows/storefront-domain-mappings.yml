@@ -41,6 +41,9 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
+      - name: Install Cloud Run beta commands non-interactively
+        run: gcloud components install beta --quiet
+
       - name: Ensure exact Cloud Run storefront mappings
         shell: bash
         run: |

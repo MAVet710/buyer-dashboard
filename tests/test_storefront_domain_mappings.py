@@ -35,6 +35,12 @@ def test_storefront_domain_validator_rejects_wildcards_reserved_and_noncanonical
         load_domains(path)
 
 
+def test_storefront_mapping_workflow_installs_beta_noninteractively_before_mapping():
+    install = WORKFLOW.index("gcloud components install beta --quiet")
+    describe = WORKFLOW.index("gcloud beta run domain-mappings describe")
+    assert install < describe
+
+
 def test_storefront_mapping_workflow_is_idempotent_and_service_scoped():
     assert "gcloud beta run domain-mappings describe" in WORKFLOW
     assert "gcloud beta run domain-mappings create" in WORKFLOW
