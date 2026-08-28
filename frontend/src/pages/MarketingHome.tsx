@@ -1,6 +1,5 @@
 import {
   ArrowRight,
-  BarChart3,
   Bot,
   Boxes,
   CircleCheck,
