@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { CommerceStorefrontManager } from "../components/CommerceStorefrontManager";
+import { WholesaleRegulatoryHealth } from "../components/WholesaleRegulatoryHealth";
 import { apiGet } from "../lib/api";
 import { OrdersPage } from "./OrdersPage";
 import { WarehousePickPackPage } from "./WarehousePickPackPage";
@@ -69,6 +70,7 @@ function Overview({inventory,commercial,pendingStorefront,openSales,onTab}:{inve
       <Metric label="Storefront approvals" value={pendingStorefront} meta="Public requests awaiting review"/>
       <Metric label="Fill rate" value={commercial?`${commercial.metrics.fill_rate_pct.toFixed(1)}%`:"—"} meta={`${commercial?.metrics.overdue_orders??0} overdue orders`}/>
     </section>
+    <WholesaleRegulatoryHealth />
     <section className="wholesale-action-grid">
       <Action title="Wholesale Inventory" note="Only released lots with a passed COA and positive uncommitted quantity are sellable." action="Review inventory" onClick={()=>onTab("inventory")}/>
       <Action title="Orders" note="Storefront, direct, and account orders converge into the same commercial sales-order engine." action="Work orders" onClick={()=>onTab("orders")}/>
