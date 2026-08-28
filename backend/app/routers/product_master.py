@@ -40,6 +40,7 @@ class ProfileUpdate(BaseModel):
     strain: str = ""
     manufacturer: str = ""
     product_format: str = ""
+    image_url: str = Field(default="", max_length=1024)
     description: str = ""
     retail_enabled: bool = True
     production_enabled: bool = True
@@ -95,7 +96,7 @@ def _snapshot(engine: Engine, organization_id: str, product_id: str) -> dict:
     profile = snap["profile"]
     return {
         "product": _identity(snap["product"]),
-        "profile": {key: getattr(profile, key) for key in ("brand", "category", "subcategory", "strain", "manufacturer", "product_format", "description", "retail_enabled", "production_enabled")} if profile else None,
+        "profile": {key: getattr(profile, key) for key in ("brand", "category", "subcategory", "strain", "manufacturer", "product_format", "image_url", "description", "retail_enabled", "production_enabled")} if profile else None,
         "vendors": [{"id": item["link"].id, "partner_id": item["link"].partner_id, "partner_name": item["partner"].name if item["partner"] else "Unknown vendor", "vendor_sku": item["link"].vendor_sku, "is_primary": item["link"].is_primary, "lead_time_days": item["link"].lead_time_days, "minimum_order_quantity": item["link"].minimum_order_quantity, "case_pack": item["link"].case_pack} for item in snap["vendors"]],
         "mappings": [{key: getattr(row, key) for key in ("id", "system_name", "external_id", "external_name", "active")} for row in snap["mappings"]],
         "aliases": [{key: getattr(row, key) for key in ("id", "alias", "source", "active")} for row in snap["aliases"]],
@@ -138,7 +139,7 @@ def list_products(search: str = Query(default="", max_length=200), status: str =
             production_enabled = profile.production_enabled if profile else True
             if operation == "retail" and not retail_enabled: continue
             if operation == "production" and not production_enabled: continue
-            result.append({**_identity(row), "retail_enabled": retail_enabled, "production_enabled": production_enabled, "brand": profile.brand if profile else "", "category": profile.category if profile else "", "product_format": profile.product_format if profile else ""})
+            result.append({**_identity(row), "retail_enabled": retail_enabled, "production_enabled": production_enabled, "brand": profile.brand if profile else "", "category": profile.category if profile else "", "product_format": profile.product_format if profile else "", "image_url": profile.image_url if profile else ""})
         return result
 
 
