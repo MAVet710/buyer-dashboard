@@ -16,6 +16,7 @@ from .routers.inventory import router as inventory_router
 from .routers.audits import router as audit_router
 from .routers.plants import router as plants_router
 from .routers.production import router as production_router
+from .routers.production_mutations import router as production_mutations_router
 from .routers.commercial import router as commercial_router
 from .routers.warehouse import router as warehouse_router
 from .routers.enterprise_control import router as enterprise_control_router
@@ -224,6 +225,7 @@ app.include_router(inventory_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
+app.include_router(production_mutations_router, prefix=settings.api_prefix)
 app.include_router(commercial_router, prefix=settings.api_prefix)
 app.include_router(warehouse_router, prefix=settings.api_prefix)
 app.include_router(enterprise_control_router, prefix=settings.api_prefix)
