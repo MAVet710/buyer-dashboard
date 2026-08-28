@@ -1,4 +1,5 @@
 # Approved public DoobieCommerce storefront hostnames.
 # One exact first-level doobielogic.io hostname per line. Wildcards and reserved
 # platform hosts are intentionally forbidden by scripts/validate_storefront_domains.py.
+# Touch 2026-08-27: retry mapping after base-domain ownership verification.
 cowboykush.doobielogic.io
