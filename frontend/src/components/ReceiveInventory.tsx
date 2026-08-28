@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "../lib/api";
 import type { InventoryReceipt, ProductOption } from "../types/inventory";
+import { InventoryReconciliationControl } from "./InventoryReconciliationControl";
 import { StreamlitDialog } from "./StreamlitDialog";
 
 type Stage = "queue" | "details" | "review" | "complete" | "manual";
@@ -126,6 +127,7 @@ export function ReceiveInventory({ operation, onClose }: { operation: "retail" |
         {queue.isLoading ? <div className="state">Loading inbound transfers for the active facility license…</div> : null}
         {queue.isError ? <div className="state error">{queue.error.message}</div> : null}
         {queue.data?.configured && queue.data.license_number ? <p className="source-caption">Active facility license: {queue.data.license_number}</p> : null}
+        <InventoryReconciliationControl operation={operation}/>
         {queue.data?.transfers.length ? <div className="receive-queue-list">{queue.data.transfers.map(transfer => <button className="receive-queue-row" type="button" key={transfer.transfer_id} onClick={() => chooseTransfer(transfer)}><span><strong>{transfer.manifest || `Transfer ${transfer.transfer_id}`}</strong><small>{transfer.vendor || "Unknown source"}{transfer.vendor_license ? ` · ${transfer.vendor_license}` : ""}</small></span><span><b>{transfer.package_count}</b><small>packages</small></span><span><b>{transfer.received_count}</b><small>received</small></span><em>Receive Details →</em></button>)}</div> : !queue.isLoading && !queue.isError ? <div className="empty">No pending inbound transfers are visible for this facility.</div> : null}
         {!queue.data?.configured ? <div className="warning-banner">Connect METRC for this exact facility under Data &amp; Settings → Integrations to load the live inbound queue. Retail and production/cultivation facilities keep separate license context.</div> : null}
         <details className="streamlit-expander"><summary>Manual receipt (additive fallback)</summary><div className="streamlit-expander-body"><p className="source-caption">Use only when the inbound transfer is not available through the configured facility traceability connection.</p><button className="secondary" type="button" onClick={() => setStage("manual")}>Open manual receipt</button></div></details>
