@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
 from ..services.ai_runtime import build_runtime, diagnostics, runtime_configuration
+from ..services.regulatory_intelligence import RegulatoryIntelligenceService
 
 router = APIRouter(prefix="/ai-agents", tags=["ai-agents"])
 KNOWLEDGE_ROLES = {"dev", "admin", "supervisor", "qa"}
@@ -154,6 +156,46 @@ def _knowledge_authority(source_type: str) -> tuple[str, int]:
     return normalized, SOURCE_AUTHORITY[normalized]
 
 
+def _regulatory_agent_context(engine: Engine, settings: Settings, context: RequestContext) -> tuple[dict[str, Any], str]:
+    report = RegulatoryIntelligenceService(engine, settings).collect(context)
+    bounded = {
+        "generated_at": report.get("generated_at"),
+        "ready": report.get("ready"),
+        "scope": report.get("scope") or {},
+        "summary": report.get("summary") or {},
+        "findings": [
+            {
+                key: row.get(key)
+                for key in (
+                    "severity",
+                    "domain",
+                    "code",
+                    "title",
+                    "message",
+                    "entity_type",
+                    "entity_id",
+                    "source",
+                    "recommended_review",
+                    "jurisdiction_code",
+                    "license_number",
+                    "environment",
+                )
+            }
+            for row in (report.get("findings") or [])[:100]
+            if isinstance(row, dict)
+        ],
+        "warnings": [str(value) for value in (report.get("warnings") or [])[:30]],
+        "snapshots": report.get("snapshots") or {},
+    }
+    context_message = (
+        "Server-authorized live regulatory intelligence for the active facility. "
+        "Treat these as observed operational/provider signals, not as legal conclusions. "
+        "Any claim that something is compliant, required, prohibited, or legally sufficient must still be supported by the authoritative retrieved sources required by Compliance Agent policy. "
+        + json.dumps(bounded, default=str)[:16000]
+    )
+    return report, context_message
+
+
 @router.get("")
 def agents(
     app_mode: str = "",
@@ -188,15 +230,27 @@ def run_agent(
     profile = _active_profile(payload.agent_key, payload.app_mode, payload.section)
     operation = _operation_type(payload.app_mode, profile)
     runtime, access, organization_name, facility_name, _status = build_runtime(engine=engine, settings=settings, context=context, operation_type=operation)
+    history = [item.model_dump() for item in payload.history][-20:]
+    regulatory_report: dict[str, Any] | None = None
+    if profile.key == "compliance":
+        regulatory_report, context_message = _regulatory_agent_context(engine, settings, context)
+        history = [*history, {"role": "user", "content": context_message}]
     result = runtime.run(
         profile=profile,
         access=access,
         question=payload.question.strip(),
-        history=[item.model_dump() for item in payload.history][-20:],
+        history=history,
         organization_name=organization_name,
         facility_name=facility_name,
     )
-    return {**result.as_dict(), "agent": _profile_payload(profile)}
+    output = {**result.as_dict(), "agent": _profile_payload(profile)}
+    if regulatory_report is not None:
+        output["datasets"] = sorted(set([*(output.get("datasets") or []), "regulatory_intelligence"]))
+        freshness = dict(output.get("data_freshness") or {})
+        freshness["regulatory_intelligence"] = str(regulatory_report.get("generated_at") or "live check")
+        output["data_freshness"] = freshness
+        output["regulatory_summary"] = regulatory_report.get("summary") or {}
+    return output
 
 
 @router.get("/diagnostics")
