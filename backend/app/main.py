@@ -222,8 +222,10 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
 
 app.include_router(trial_router, prefix=settings.api_prefix)
 app.include_router(beta_router, prefix=settings.api_prefix)
-app.include_router(inventory_router, prefix=settings.api_prefix)
+# Register trusted regulatory inventory GET routes before the legacy inventory
+# router so the same browser URLs fail closed on exact Metrc mapping/environment.
 app.include_router(inventory_reconciliation_router, prefix=settings.api_prefix)
+app.include_router(inventory_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
