@@ -223,10 +223,9 @@ def wholesale_regulatory_snapshot(
 ):
     """Read the exact commercial license's outbound Metrc transport state.
 
-    The snapshot expands at most 50 active outgoing transfers. This protects the
-    operator from an accidental high-fanout request while still surfacing the
-    transfer, manifest, delivery, wholesale-package, driver, and vehicle state
-    needed to work current distribution operations.
+    The snapshot expands at most 50 active outgoing transfers for delivery/package
+    details, but top-level transfer and manifest counts cover the complete paged
+    result set. This keeps summary metrics accurate without creating high fanout.
     """
 
     metrc = resolve_trusted_regulatory_metrc(
@@ -271,13 +270,15 @@ def wholesale_regulatory_snapshot(
     warnings: list[str] = []
     delivery_count = 0
     wholesale_package_count = 0
-    manifest_count = 0
+    manifest_count = sum(
+        1
+        for transfer in transfer_rows
+        if _source_string(transfer, "ManifestNumber", "Manifest", "ManifestNo")
+    )
 
     for transfer in transfer_rows[:50]:
         transfer_id = _source_string(transfer, "Id", "TransferId")
         manifest = _source_string(transfer, "ManifestNumber", "Manifest", "ManifestNo")
-        if manifest:
-            manifest_count += 1
         transfer_view = {
             "transfer_id": transfer_id,
             "manifest_number": manifest,
@@ -334,7 +335,7 @@ def wholesale_regulatory_snapshot(
         projected.append(transfer_view)
 
     if expansion_limited:
-        warnings.append("Only the first 50 outgoing transfers were expanded into deliveries and wholesale packages.")
+        warnings.append("Only the first 50 outgoing transfers were expanded into deliveries and wholesale packages; summary transfer/manifest counts include all loaded transfers.")
 
     outgoing_plan = outgoing.get("read_plan") if isinstance(outgoing.get("read_plan"), dict) else {}
     return {
