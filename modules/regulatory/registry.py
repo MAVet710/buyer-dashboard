@@ -150,8 +150,8 @@ _NAME_ALIASES.update({"washington dc": "DC", "washington d.c.": "DC", "u.s. virg
 # same endpoint-family evidence can be retrieved and reviewed. This prevents a
 # temporarily unavailable documentation host from becoming an invented claim.
 DOCUMENTATION_VERIFIED_JURISDICTIONS = frozenset({
-    "AK", "CA", "CO", "DC", "IL", "ME", "MD", "MA", "MI", "MN",
-    "MS", "MO", "MT", "NV", "NJ", "NY", "OH", "OK", "OR", "SD",
+    "AK", "CA", "CO", "DC", "IL", "KY", "LA", "ME", "MD", "MA", "MI", "MN",
+    "MS", "MO", "MT", "NV", "NJ", "NY", "OH", "OK", "OR", "RI", "SD",
 })
 
 # Evidence anchors intentionally use one representative official endpoint per
