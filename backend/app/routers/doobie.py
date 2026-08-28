@@ -1,7 +1,7 @@
 import json
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
@@ -12,6 +12,7 @@ from ..auth import RequestContext, get_request_context, require_facility_capabil
 from ..config import Settings, get_settings
 from ..database import get_engine
 from ..services.manifest_drafts import ManifestDraftService
+from ..services.manifest_lifecycle import ManifestLifecycleError, ManifestLifecycleService
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
 
 router = APIRouter(prefix="/doobie", tags=["doobie"])
@@ -198,3 +199,73 @@ def submit_manifest_draft(
         "dispatch": dispatch,
         "message": "The authorized employee submitted the approved outgoing transfer template to the Massachusetts Metrc sandbox. Final manifest issuance remains a separate Metrc state that DoobieLogic must verify.",
     }
+
+
+@router.get("/manifest-drafts/{proposal_id}/lifecycle")
+def manifest_lifecycle(
+    proposal_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    require_facility_capability(context, engine, "commercial")
+    metrc = resolve_trusted_regulatory_metrc(
+        context=context,
+        engine=engine,
+        settings=settings,
+        facility_capability="commercial",
+    )
+    if not metrc.configured or metrc.state.upper() != "MA" or metrc.environment != "sandbox":
+        raise HTTPException(409, "Manifest lifecycle verification is currently enabled only through the trusted Massachusetts Metrc sandbox mapping.")
+    try:
+        return ManifestLifecycleService(engine).inspect(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            proposal_id=proposal_id,
+            actor=context.user_id,
+            state=metrc.state,
+            environment=metrc.environment,
+            license_number=metrc.license_number,
+            user_api_key=metrc.user_api_key,
+            integrator_api_key=metrc.integrator_api_key,
+        )
+    except ManifestLifecycleError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/manifest-drafts/{proposal_id}/manifest.pdf")
+def manifest_pdf(
+    proposal_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    require_facility_capability(context, engine, "commercial")
+    metrc = resolve_trusted_regulatory_metrc(
+        context=context,
+        engine=engine,
+        settings=settings,
+        facility_capability="commercial",
+    )
+    if not metrc.configured or metrc.state.upper() != "MA" or metrc.environment != "sandbox":
+        raise HTTPException(409, "Manifest PDF retrieval is currently enabled only through the trusted Massachusetts Metrc sandbox mapping.")
+    try:
+        content, manifest_number = ManifestLifecycleService(engine).manifest_pdf(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            proposal_id=proposal_id,
+            actor=context.user_id,
+            state=metrc.state,
+            environment=metrc.environment,
+            license_number=metrc.license_number,
+            user_api_key=metrc.user_api_key,
+            integrator_api_key=metrc.integrator_api_key,
+        )
+    except ManifestLifecycleError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    safe_name = "".join(character for character in manifest_number if character.isalnum() or character in {"-", "_"}) or "metrc-manifest"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.pdf"'},
+    )
