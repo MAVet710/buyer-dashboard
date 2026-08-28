@@ -142,7 +142,7 @@ def test_wholesale_optional_transport_resources_report_unavailable_without_hidin
     assert result["resources"]["transporter_vehicles"]["available"] is False
 
 
-def test_wholesale_snapshot_caps_high_fanout_transfer_expansion(monkeypatch):
+def test_wholesale_snapshot_caps_high_fanout_transfer_expansion_without_losing_manifest_counts(monkeypatch):
     engine = _engine()
     monkeypatch.setattr(inventory_reconciliation, "resolve_trusted_regulatory_metrc", lambda **_kwargs: _metrc())
     rows = [{"Id": index, "ManifestNumber": f"MAN-{index}"} for index in range(1, 52)]
@@ -163,8 +163,9 @@ def test_wholesale_snapshot_caps_high_fanout_transfer_expansion(monkeypatch):
     )
 
     assert result["summary"]["outgoing_transfer_count"] == 51
+    assert result["summary"]["manifest_reference_count"] == 51
     assert result["summary"]["expanded_transfer_count"] == 50
     assert result["summary"]["expansion_limited"] is True
     assert len(expanded) == 50
     assert len(result["transfers"]) == 50
-    assert any("first 50" in warning for warning in result["warnings"])
+    assert any("summary transfer/manifest counts include all loaded transfers" in warning for warning in result["warnings"])
