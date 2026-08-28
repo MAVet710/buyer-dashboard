@@ -13,6 +13,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
 from .routers.inventory import router as inventory_router
+from .routers.inventory_reconciliation import router as inventory_reconciliation_router
 from .routers.audits import router as audit_router
 from .routers.plants import router as plants_router
 from .routers.production import router as production_router
@@ -222,6 +223,7 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
 app.include_router(trial_router, prefix=settings.api_prefix)
 app.include_router(beta_router, prefix=settings.api_prefix)
 app.include_router(inventory_router, prefix=settings.api_prefix)
+app.include_router(inventory_reconciliation_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
