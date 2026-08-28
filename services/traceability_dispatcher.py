@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 
 from modules.coman.models import utc_now
 from modules.integrations import IntegrationConfigurationService
+from modules.regulatory import RegulatoryMappingService
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
 from services.metrc_native import MetrcNativeError, submit_metrc_action, validate_metrc_action
 
@@ -68,6 +69,25 @@ class TraceabilityDispatcher:
             return {"ok": False, "status": "reconciliation_required", "provider": "biotrack", "outbound_request_sent": False}
         raise TraceabilityDispatchError(f"Automatic dispatch is not implemented for provider '{tx.provider}'.")
 
+    def _no_request(self, tx, actor: str, *, code: str, message: str) -> dict[str, Any]:
+        self.traceability.record_attempt(
+            organization_id=tx.organization_id,
+            facility_id=tx.facility_id,
+            transaction_id=tx.id,
+            error_code=code,
+            error_message=message,
+        )
+        self.traceability.transition_logged(
+            organization_id=tx.organization_id,
+            facility_id=tx.facility_id,
+            transaction_id=tx.id,
+            new_status="reconciliation_required",
+            actor=actor,
+            reason=f"{message} No external request was sent.",
+            source="provider_worker",
+        )
+        return {"ok": False, "status": "reconciliation_required", "provider": "metrc", "outbound_request_sent": False, "retryable": False}
+
     def _dispatch_metrc(self, tx, payload: dict[str, Any], actor: str) -> dict[str, Any]:
         scope_key = f"{tx.requested_by}|{tx.facility_id}"
         row = self.integrations.get("user", scope_key, "metrc")
@@ -76,31 +96,71 @@ class TraceabilityDispatcher:
             if legacy is not None and str(legacy.facility_id or "") == str(tx.facility_id):
                 row = legacy
         if row is None or row.status != "connected":
-            self.traceability.record_attempt(
-                organization_id=tx.organization_id,
-                facility_id=tx.facility_id,
-                transaction_id=tx.id,
-                error_code="provider_not_connected",
-                error_message="The requesting user's Metrc connection is not validated for this facility.",
+            return self._no_request(
+                tx,
+                actor,
+                code="provider_not_connected",
+                message="The requesting user's Metrc connection is not validated for this facility.",
             )
-            self.traceability.transition_logged(
-                organization_id=tx.organization_id,
-                facility_id=tx.facility_id,
-                transaction_id=tx.id,
-                new_status="reconciliation_required",
-                actor=actor,
-                reason="Metrc credential owner is not connected for this facility; no external request was sent.",
-                source="provider_worker",
+        if str(row.organization_id or "") != str(tx.organization_id) or str(row.facility_id or "") != str(tx.facility_id):
+            return self._no_request(
+                tx,
+                actor,
+                code="credential_scope_mismatch",
+                message="The validated Metrc credential does not belong to this exact organization and facility.",
             )
-            return {"ok": False, "status": "reconciliation_required", "provider": "metrc", "outbound_request_sent": False}
+
         config = self.integrations.public(row).get("configuration", {})
-        state = str(config.get("state") or "").strip()
+        state = str(config.get("state") or "").strip().upper()
         configured_license = str(config.get("license_number") or "").strip()
+        environment = str(config.get("environment") or "").strip().casefold()
+        if environment not in {"sandbox", "production"}:
+            return self._no_request(
+                tx,
+                actor,
+                code="environment_not_verified",
+                message="The Metrc write environment must be explicitly saved as sandbox or production.",
+            )
+        if not state or not configured_license:
+            return self._no_request(
+                tx,
+                actor,
+                code="facility_mapping_incomplete",
+                message="The Metrc jurisdiction and facility license must be saved before a write can dispatch.",
+            )
         license_number = str(tx.license_number or configured_license).strip()
         if tx.license_number and configured_license and tx.license_number != configured_license:
             raise TraceabilityDispatchError("Transaction license does not match the validated Metrc facility credential.")
-        user_api_key = self.integrations.secret(row)
 
+        mapping = RegulatoryMappingService(self.engine).get(
+            organization_id=tx.organization_id,
+            facility_id=tx.facility_id,
+            provider="metrc",
+            license_number=configured_license,
+            environment=environment,
+        )
+        trusted_mapping = bool(
+            mapping
+            and mapping.integration_configuration_id == row.id
+            and str(mapping.jurisdiction_code or "").strip().upper() == state
+        )
+        if not trusted_mapping:
+            return self._no_request(
+                tx,
+                actor,
+                code="trusted_mapping_required",
+                message="An administrator must verify the exact Metrc facility, license, jurisdiction, credential, and environment mapping before writes can dispatch.",
+            )
+
+        if tx.operation_type == "transfer_template_create" and (state != "MA" or environment != "sandbox"):
+            return self._no_request(
+                tx,
+                actor,
+                code="ma_sandbox_only",
+                message="Outgoing transfer-template submission is currently enabled only for the Massachusetts Metrc sandbox.",
+            )
+
+        user_api_key = self.integrations.secret(row)
         try:
             validate_metrc_action(operation_type=tx.operation_type, entity_id=tx.entity_id, payload=payload, reason=tx.reason)
         except MetrcNativeError as exc:
@@ -129,12 +189,13 @@ class TraceabilityDispatcher:
             transaction_id=tx.id,
             new_status="submitted",
             actor=actor,
-            reason="Provider worker began the authenticated Metrc request.",
+            reason=f"Provider worker began the authenticated Metrc {environment} request.",
             source="provider_worker",
         )
         try:
             result = submit_metrc_action(
                 state=state,
+                environment=environment,
                 license_number=license_number,
                 integrator_api_key=self.metrc_integrator_api_key,
                 user_api_key=user_api_key,
@@ -182,5 +243,14 @@ class TraceabilityDispatcher:
             actor=actor,
             reason="Metrc accepted the authenticated request. Verification remains a separate reconciliation step.",
             source="provider_worker",
+            external_reference=str(result.get("external_reference") or ""),
         )
-        return {"ok": True, "status": accepted.status, "provider": "metrc", "outbound_request_sent": True, "verified": False}
+        return {
+            "ok": True,
+            "status": accepted.status,
+            "provider": "metrc",
+            "environment": environment,
+            "outbound_request_sent": True,
+            "verified": False,
+            "external_reference": str(result.get("external_reference") or ""),
+        }

@@ -27,6 +27,14 @@ _PROVIDER_SPECS = {
         "allowed": ("state", "license_number", "base_url", "notes"),
         "resources": ("packages", "transfers", "items"),
         "future_use": "Traceability reads, guarded writes, reconciliation, package and transfer workflows.",
+        "reference_jurisdiction": "MA",
+        "documentation_url": "https://api-ma.metrc.com/Documentation",
+        "documented_sandbox_endpoints": (
+            "POST /sandbox/v2/integrator/setup",
+            "POST /sandbox/v2/packages/create",
+            "POST /sandbox/v2/facility/tags",
+            "GET /sandbox/v2/tagtypes",
+        ),
     },
     "dutchie": {
         "label": "Dutchie Sandbox",
@@ -120,7 +128,7 @@ def _public_provider(service: IntegrationConfigurationService, context: RequestC
     provider_id, spec = _provider_spec(provider)
     row = service.get("facility", _scope_key(context), provider_id)
     public = service.public(row)
-    return {
+    response = {
         "provider": provider,
         "provider_id": provider_id,
         "label": spec["label"],
@@ -134,6 +142,14 @@ def _public_provider(service: IntegrationConfigurationService, context: RequestC
         "production_writes_enabled": False,
         **public,
     }
+    if provider == "metrc":
+        response.update({
+            "reference_jurisdiction": spec["reference_jurisdiction"],
+            "documentation_url": spec["documentation_url"],
+            "documented_sandbox_endpoints": list(spec["documented_sandbox_endpoints"]),
+            "manifest_write_pilot": "MA sandbox only",
+        })
+    return response
 
 
 @router.get("")
