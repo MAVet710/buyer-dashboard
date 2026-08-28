@@ -26,11 +26,24 @@ def test_massachusetts_package_plan_is_license_scoped_and_evidence_backed():
 def test_unverified_jurisdiction_resource_fails_closed():
     with pytest.raises(RegulatoryReadError, match="unknown/unverified"):
         build_metrc_read_plan(
-            jurisdiction="RI",
+            jurisdiction="AL",
             resource="packages_active",
             environment="production",
-            license_number="RI-1",
+            license_number="AL-1",
         )
+
+
+def test_newly_verified_rhode_island_resource_builds_from_official_evidence():
+    plan = build_metrc_read_plan(
+        jurisdiction="RI",
+        resource="incoming_transfers",
+        environment="production",
+        license_number="RI-1",
+    )
+    assert plan.path == "transfers/v2/incoming"
+    assert plan.params["licenseNumber"] == "RI-1"
+    assert plan.evidence is not None
+    assert plan.evidence.source_url == "https://api-ri.metrc.com/Documentation/"
 
 
 def test_plan_rejects_license_substitution_in_query_parameters():

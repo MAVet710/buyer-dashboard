@@ -149,12 +149,12 @@ def test_normalized_read_blocks_unverified_capability_before_network(monkeypatch
 
     monkeypatch.setattr(requests, "get", _unexpected_get)
     result = fetch_metrc_resource(
-        state="RI",
+        state="AL",
         integrator_api_key="integrator-key",
         user_api_key="user-key",
         resource="packages_active",
         environment="production",
-        license_number="RI-1",
+        license_number="AL-1",
     )
 
     assert result["ok"] is False
