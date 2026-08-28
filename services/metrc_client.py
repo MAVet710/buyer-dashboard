@@ -9,6 +9,7 @@ from typing import Any
 
 import requests
 
+from modules.regulatory import RegulatoryReadError, build_metrc_read_plan, normalize_metrc_payload
 from modules.regulatory.registry import resolve_metrc_base_url
 
 
@@ -169,29 +170,87 @@ def _payload_rows(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def fetch_metrc_resource(
+    *,
+    state: str,
+    user_api_key: str,
+    integrator_api_key: str,
+    resource: str,
+    environment: str = "production",
+    license_number: str = "",
+    path_parameters: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+    page_size: int = 20,
+    page_number: int = 1,
+    timeout_seconds: int = 12,
+) -> dict[str, Any]:
+    """Fetch one normalized, capability-gated Metrc read resource.
+
+    The exact read plan is built before the request. Unverified jurisdiction /
+    capability combinations fail closed and never reach the network.
+    """
+
+    try:
+        plan = build_metrc_read_plan(
+            jurisdiction=state,
+            resource=resource,
+            environment=environment,
+            license_number=license_number,
+            path_parameters=path_parameters,
+            query=query,
+            page_size=page_size,
+            page_number=page_number,
+        )
+    except RegulatoryReadError as exc:
+        return {
+            "ok": False,
+            "status": "regulatory_read_blocked",
+            "message": str(exc),
+            "resource": str(resource or ""),
+        }
+
+    result = _metrc_get(
+        state=plan.jurisdiction_code,
+        user_api_key=user_api_key,
+        integrator_api_key=integrator_api_key,
+        path=plan.path,
+        params=plan.params,
+        timeout_seconds=timeout_seconds,
+    )
+    result["read_plan"] = plan.public()
+    result["resource"] = plan.resource
+    result["capability"] = plan.capability
+    if result.get("ok"):
+        result["records"] = normalize_metrc_payload(
+            jurisdiction=plan.jurisdiction_code,
+            resource=plan.resource,
+            payload=result.get("payload"),
+        )
+    return result
+
+
 def fetch_metrc_incoming_transfers(
     *,
     state: str,
     user_api_key: str,
     integrator_api_key: str,
     license_number: str,
+    environment: str = "production",
     timeout_seconds: int = 12,
 ) -> dict[str, Any]:
     """Fetch the facility's current incoming transfer queue without mutating Metrc."""
 
-    license_number = str(license_number or "").strip()
-    if not license_number:
-        return {"ok": False, "status": "missing_license", "message": "A Metrc facility license is required."}
-    result = _metrc_get(
+    result = fetch_metrc_resource(
         state=state,
         user_api_key=user_api_key,
         integrator_api_key=integrator_api_key,
-        path="transfers/v2/incoming",
-        params={"licenseNumber": license_number, "pageSize": 20, "pageNumber": 1},
+        resource="incoming_transfers",
+        environment=environment,
+        license_number=license_number,
         timeout_seconds=timeout_seconds,
     )
     if result.get("ok"):
-        result["transfers"] = _payload_rows(result.get("payload"))
+        result["transfers"] = [record["source"] for record in result.get("records", [])]
     return result
 
 
@@ -201,20 +260,22 @@ def fetch_metrc_transfer_deliveries(
     user_api_key: str,
     integrator_api_key: str,
     transfer_id: int | str,
+    environment: str = "production",
     timeout_seconds: int = 12,
 ) -> dict[str, Any]:
     """Fetch deliveries associated with one inbound transfer."""
 
-    result = _metrc_get(
+    result = fetch_metrc_resource(
         state=state,
         user_api_key=user_api_key,
         integrator_api_key=integrator_api_key,
-        path=f"transfers/v2/{transfer_id}/deliveries",
-        params={"pageSize": 20, "pageNumber": 1},
+        resource="transfer_deliveries",
+        environment=environment,
+        path_parameters={"transfer_id": transfer_id},
         timeout_seconds=timeout_seconds,
     )
     if result.get("ok"):
-        result["deliveries"] = _payload_rows(result.get("payload"))
+        result["deliveries"] = [record["source"] for record in result.get("records", [])]
     return result
 
 
@@ -224,20 +285,22 @@ def fetch_metrc_delivery_packages(
     user_api_key: str,
     integrator_api_key: str,
     delivery_id: int | str,
+    environment: str = "production",
     timeout_seconds: int = 12,
 ) -> dict[str, Any]:
     """Fetch package details for one inbound transfer delivery."""
 
-    result = _metrc_get(
+    result = fetch_metrc_resource(
         state=state,
         user_api_key=user_api_key,
         integrator_api_key=integrator_api_key,
-        path=f"transfers/v2/deliveries/{delivery_id}/packages",
-        params={"pageSize": 20, "pageNumber": 1},
+        resource="delivery_packages",
+        environment=environment,
+        path_parameters={"delivery_id": delivery_id},
         timeout_seconds=timeout_seconds,
     )
     if result.get("ok"):
-        result["packages"] = _payload_rows(result.get("payload"))
+        result["packages"] = [record["source"] for record in result.get("records", [])]
     return result
 
 
