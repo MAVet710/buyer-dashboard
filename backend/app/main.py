@@ -46,6 +46,7 @@ from .routers.beta import router as beta_router
 from .routers.legal import router as legal_router
 from .routers.admin import router as admin_router
 from .routers.admin_facilities import update_facility
+from .routers.admin_storefronts import router as admin_storefronts_router
 from .routers.admin_user_create import router as admin_user_create_router
 from .routers.admin_uploads import router as admin_uploads_router
 from .routers.integrations import router as integrations_router
@@ -258,6 +259,7 @@ app.include_router(external_api_router, prefix=settings.api_prefix)
 app.include_router(printing_external_router, prefix=settings.api_prefix)
 app.include_router(admin_user_create_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
+app.include_router(admin_storefronts_router, prefix=settings.api_prefix)
 app.add_api_route(
     f"{settings.api_prefix}/admin/facilities/{{target_facility_id}}/update",
     update_facility,
