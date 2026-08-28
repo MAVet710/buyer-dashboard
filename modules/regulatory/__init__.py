@@ -1,6 +1,20 @@
+from .metrc_resources import (
+    METRC_READ_RESOURCES,
+    MetrcReadPlan,
+    MetrcReadResourceSpec,
+    RegulatoryReadError,
+    build_metrc_read_plan,
+    list_metrc_read_resources,
+    normalize_metrc_payload,
+    payload_rows,
+)
 from .registry import (
+    DOCUMENTATION_VERIFIED_JURISDICTIONS,
+    DOCUMENTED_V2_CAPABILITY_ENDPOINTS,
+    CapabilityEvidence,
     CapabilityStatus,
     JurisdictionProfile,
+    capability_evidence,
     capability_status,
     get_jurisdiction,
     list_jurisdictions,
@@ -10,13 +24,25 @@ from .registry import (
 from .service import RegulatoryMappingError, RegulatoryMappingService
 
 __all__ = [
+    "CapabilityEvidence",
     "CapabilityStatus",
+    "DOCUMENTATION_VERIFIED_JURISDICTIONS",
+    "DOCUMENTED_V2_CAPABILITY_ENDPOINTS",
     "JurisdictionProfile",
+    "METRC_READ_RESOURCES",
+    "MetrcReadPlan",
+    "MetrcReadResourceSpec",
     "RegulatoryMappingError",
     "RegulatoryMappingService",
+    "RegulatoryReadError",
+    "build_metrc_read_plan",
+    "capability_evidence",
     "capability_status",
     "get_jurisdiction",
     "list_jurisdictions",
+    "list_metrc_read_resources",
+    "normalize_metrc_payload",
+    "payload_rows",
     "require_capability",
     "resolve_metrc_base_url",
 ]
