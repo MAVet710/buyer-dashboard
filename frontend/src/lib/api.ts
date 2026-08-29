@@ -37,6 +37,10 @@ function validationDetails(detail: unknown): string {
 }
 
 export function errorMessage(payload: ErrorPayload, status: number): string {
+  // FastAPI returns useful field-level validation information in `detail`, while
+  // our observability envelope also carries a generic `error.message`. Prefer
+  // the actionable field errors so operators can fix a form instead of seeing
+  // only "One or more request fields are invalid."
   const fieldErrors = validationDetails(payload.detail);
   if (fieldErrors) return fieldErrors;
   if (typeof payload.detail === "string" && payload.detail.trim()) return payload.detail;
