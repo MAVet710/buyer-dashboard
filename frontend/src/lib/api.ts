@@ -40,6 +40,7 @@ function validationDetails(detail: unknown): string {
 export function errorMessage(payload: ErrorPayload, status: number): string {
   const fieldErrors = validationDetails(payload.detail);
   if (fieldErrors) return fieldErrors;
+  if (Array.isArray(payload.detail) && payload.error?.message) return payload.error.message;
   if (Array.isArray(payload.detail)) return "One or more request fields are invalid";
   if (typeof payload.detail === "string" && payload.detail.trim()) return payload.detail;
   if (payload.error?.message) return payload.error.message;
