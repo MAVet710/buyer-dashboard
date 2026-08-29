@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from modules.coman.models import Base, TimestampMixin, new_id, utc_now
+from modules.coman.models import Base, TimestampMixin, new_id
 
 
 class CommerceStorefront(TimestampMixin, Base):
@@ -17,7 +17,6 @@ class CommerceStorefront(TimestampMixin, Base):
         UniqueConstraint("subdomain", name="uq_commerce_storefront_subdomain"),
         Index("ix_commerce_storefront_facility", "facility_id", "published"),
     )
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -45,7 +44,6 @@ class CommerceStorefrontProduct(TimestampMixin, Base):
         CheckConstraint("case_quantity > 0", name="ck_commerce_storefront_product_case"),
         Index("ix_commerce_storefront_products_storefront", "storefront_id", "active", "sort_order"),
     )
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     storefront_id: Mapped[str] = mapped_column(ForeignKey("commerce_storefronts.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -53,6 +51,7 @@ class CommerceStorefrontProduct(TimestampMixin, Base):
     price_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     minimum_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     case_quantity: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    quantity_breaks_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     featured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -64,7 +63,6 @@ class CommerceStorefrontOrderRequest(TimestampMixin, Base):
         CheckConstraint("status in ('submitted','approved','rejected')", name="ck_commerce_storefront_request_status"),
         Index("ix_commerce_storefront_request_facility_status", "facility_id", "status", "created_at"),
     )
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -76,6 +74,7 @@ class CommerceStorefrontOrderRequest(TimestampMixin, Base):
     buyer_phone: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     purchase_order_reference: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     requested_delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    requested_delivery_window: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     lines_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     estimated_subtotal: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -85,3 +84,21 @@ class CommerceStorefrontOrderRequest(TimestampMixin, Base):
     reviewed_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class CommerceStorefrontOrderAttachment(TimestampMixin, Base):
+    __tablename__ = "commerce_storefront_order_attachments"
+    __table_args__ = (
+        UniqueConstraint("request_id", "kind", name="uq_commerce_storefront_order_attachment_kind"),
+        Index("ix_commerce_storefront_order_attachment_request", "organization_id", "facility_id", "request_id"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    request_id: Mapped[str] = mapped_column(ForeignKey("commerce_storefront_order_requests.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, default="purchase_order")
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    content_bytes: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
