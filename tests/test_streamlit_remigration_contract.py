@@ -146,7 +146,7 @@ def test_inventory_receiving_keeps_traceability_mapping_labs_atomic_post_and_lab
         'METRC',
         'Mapped Product',
         'Pull read-only METRC lab results',
-        '/inventory/regulatory/metrc/receiving/preflights/',
+        '/preflight/commit',
         'Print labels',
         'Manual receipt',
     )
