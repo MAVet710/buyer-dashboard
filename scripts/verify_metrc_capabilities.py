@@ -22,7 +22,12 @@ from typing import Any
 
 import requests
 
-from modules.regulatory import DOCUMENTED_V2_CAPABILITY_ENDPOINTS, get_jurisdiction, list_jurisdictions
+from modules.regulatory import (
+    DOCUMENTATION_PENDING_JURISDICTIONS,
+    DOCUMENTED_V2_CAPABILITY_ENDPOINTS,
+    get_jurisdiction,
+    list_jurisdictions,
+)
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -50,7 +55,7 @@ def inspect_documentation(jurisdiction: str, *, timeout_seconds: int = 12) -> di
             timeout=timeout_seconds,
             headers={
                 "Accept": "text/html,application/xhtml+xml",
-                "User-Agent": "DoobieLogic-Metrc-Capability-Audit/1.0",
+                "User-Agent": "DoobieLogic-Metrc-Capability-Audit/2.0",
             },
         )
         response.raise_for_status()
@@ -61,6 +66,7 @@ def inspect_documentation(jurisdiction: str, *, timeout_seconds: int = 12) -> di
             "name": profile.name,
             "documentation_url": profile.documentation_url,
             "status": "documentation_unavailable",
+            "registry_fail_closed": profile.code in DOCUMENTATION_PENDING_JURISDICTIONS,
             "message": f"Public documentation request failed: {type(exc).__name__}.",
         }
 
@@ -83,6 +89,7 @@ def inspect_documentation(jurisdiction: str, *, timeout_seconds: int = 12) -> di
         "documentation_url": profile.documentation_url,
         "http_status": int(response.status_code),
         "status": "verified" if facilities_present else "facilities_evidence_missing",
+        "registry_fail_closed": profile.code in DOCUMENTATION_PENDING_JURISDICTIONS,
         "facilities_present": facilities_present,
         "documented_capability_count": present_count,
         "expected_capability_count": len(DOCUMENTED_V2_CAPABILITY_ENDPOINTS),
@@ -92,11 +99,20 @@ def inspect_documentation(jurisdiction: str, *, timeout_seconds: int = 12) -> di
 
 
 def _endpoint_present(text: str, endpoint: str) -> bool:
-    method, _, path = str(endpoint or "").partition(" ")
-    if not method or not path:
+    """Require the HTTP method and exact path to occur as one endpoint token.
+
+    The previous implementation independently searched for the method and path,
+    which could falsely verify ``POST /x`` when the page contained ``POST /y``
+    and ``GET /x``. Normalizing whitespace and matching the combined token keeps
+    the evidence check conservative while still tolerating HTML formatting.
+    """
+
+    method, separator, path = str(endpoint or "").strip().partition(" ")
+    if not separator or not method or not path:
         return False
-    normalized = text.casefold()
-    return method.casefold() in normalized and path.casefold() in normalized
+    normalized = _SPACE_RE.sub(" ", unescape(str(text or ""))).casefold()
+    target = _SPACE_RE.sub(" ", f"{method.strip()} {path.strip()}").casefold()
+    return target in normalized
 
 
 def build_report(*, jurisdiction: str = "", timeout_seconds: int = 12) -> dict[str, Any]:
@@ -109,6 +125,7 @@ def build_report(*, jurisdiction: str = "", timeout_seconds: int = 12) -> dict[s
         "source": "Official public Metrc jurisdiction API documentation",
         "automatic_registry_updates": False,
         "human_review_required": True,
+        "pending_fail_closed_jurisdictions": sorted(DOCUMENTATION_PENDING_JURISDICTIONS),
         "jurisdictions": rows,
         "summary": {
             "checked": len(rows),

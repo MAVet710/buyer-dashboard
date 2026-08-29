@@ -9,6 +9,7 @@ import {
   FlaskConical,
   ShieldCheck,
   ShoppingCart,
+  Store,
   Warehouse,
 } from "lucide-react";
 import { apiPublicPost } from "../lib/api";
@@ -34,7 +35,7 @@ const pillars = [
     label: "COMPLIANCE",
     icon: ClipboardCheck,
     title: "Compliance Workflows",
-    body: "Bring compliance checks closer to the work itself with tools designed around cannabis labels, records, inventory, and operational controls.",
+    body: "Bring compliance checks closer to the work itself with tools designed around cannabis labels, records, inventory, and human-approved regulatory controls.",
   },
   {
     number: "04",
@@ -52,17 +53,24 @@ const pillars = [
   },
   {
     number: "06",
-    label: "DOOBIE AGENT",
-    icon: Bot,
-    title: "Operational Intelligence",
-    body: "Doobie Agent works across DoobieLogic to surface what needs attention and what should happen next. It connects purchasing, inventory, compliance, production, extraction, and reporting data to explain exceptions, answer operational questions, surface risks, and provide recommendations grounded in what is actually happening inside the business.",
+    label: "WHOLESALE + PORTAL",
+    icon: Store,
+    title: "Wholesale & Customer Portal",
+    body: "Publish a branded wholesale storefront, let licensed customers submit order requests, approve them into the same commercial order engine, allocate production inventory, work fulfillment, and keep manifest readiness tied to the shipment.",
   },
   {
     number: "07",
+    label: "DOOBIE AGENT",
+    icon: Bot,
+    title: "Operational Intelligence",
+    body: "Doobie Agent works across DoobieLogic to surface what needs attention and what should happen next. It connects purchasing, inventory, compliance, production, extraction, wholesale, and reporting data to explain exceptions and prepare governed actions for employee review.",
+  },
+  {
+    number: "08",
     label: "REPORTING",
     icon: BarChart3,
     title: "Reports That Matter",
-    body: "Move from raw exports to information operators can actually use, share, and act on across purchasing, inventory, compliance, production, and extraction.",
+    body: "Move from raw exports to information operators can actually use, share, and act on across purchasing, inventory, compliance, production, extraction, and wholesale.",
   },
 ] as const;
 
@@ -127,7 +135,7 @@ export function BetaPartnerPage() {
             <div className="marketing-eyebrow">DoobieLogic Beta Partner Program</div>
             <h1>Help build the operating system <span>cannabis deserves.</span></h1>
             <p>
-              DoobieLogic brings purchasing, inventory, receiving, compliance, production, extraction, and operational intelligence into one platform built for the people actually running cannabis businesses.
+              DoobieLogic brings purchasing, inventory, receiving, compliance, production, extraction, wholesale, customer ordering, and operational intelligence into one platform built for the people actually running cannabis businesses.
             </p>
             <div className="beta-hero-actions">
               <a className="marketing-primary" href="#apply">Apply for Free Beta Access <ArrowRight size={18} /></a>
@@ -160,7 +168,7 @@ export function BetaPartnerPage() {
             <div className="beta-section-heading">
               <div className="marketing-eyebrow">One operational platform</div>
               <h2>Built inside cannabis operations. Not outside looking in.</h2>
-              <p>Buyer Dash has grown into DoobieLogic: a connected operations platform designed around the problems buyers, inventory teams, compliance managers, production teams, extraction teams, and operators deal with every day.</p>
+              <p>Buyer Dash has grown into DoobieLogic: a connected operations platform designed around the problems buyers, inventory teams, compliance managers, production teams, extraction teams, sales teams, and operators deal with every day.</p>
             </div>
             <div className="beta-pillar-grid">
               {pillars.map(({ number, label, icon: Icon, title, body }) => (
@@ -220,7 +228,7 @@ export function BetaPartnerPage() {
             <div className="beta-apply-copy">
               <div className="marketing-eyebrow">Apply to join</div>
               <h2>We want operators who will push the platform.</h2>
-              <p>Retail. Cultivation. Manufacturing. Extraction. Vertically integrated. We want partners who understand the work and aren&apos;t afraid to tell us what isn&apos;t good enough yet.</p>
+              <p>Retail. Cultivation. Manufacturing. Extraction. Wholesale. Vertically integrated. We want partners who understand the work and aren&apos;t afraid to tell us what isn&apos;t good enough yet.</p>
               <div className="beta-steps">
                 <span><b>1</b> Tell us about your operation.</span>
                 <span><b>2</b> We review fit for the current beta phase.</span>
@@ -239,7 +247,7 @@ export function BetaPartnerPage() {
                 <label>Work email<input name="email" type="email" autoComplete="email" required placeholder="you@company.com" /></label>
                 <label>Company<input name="company" autoComplete="organization" required placeholder="Cannabis business" /></label>
                 <label>Your role<input name="role" required placeholder="Buyer, GM, Compliance..." /></label>
-                <label>Operation type<select name="operation" required defaultValue=""><option value="" disabled>Select one</option><option>Retail</option><option>Cultivation</option><option>Manufacturing / Production</option><option>Extraction</option><option>Vertically Integrated</option><option>Other</option></select></label>
+                <label>Operation type<select name="operation" required defaultValue=""><option value="" disabled>Select one</option><option>Retail</option><option>Cultivation</option><option>Manufacturing / Production</option><option>Extraction</option><option>Wholesale / Distribution</option><option>Vertically Integrated</option><option>Other</option></select></label>
                 <label>Facilities / licenses<select name="facilities" required defaultValue=""><option value="" disabled>Select range</option><option>1</option><option>2–3</option><option>4–10</option><option>11+</option></select></label>
                 <label>Primary POS / ERP<input name="stack" placeholder="Dutchie, Treez, spreadsheets..." /></label>
                 <label>State<input name="state" required placeholder="MA" /></label>

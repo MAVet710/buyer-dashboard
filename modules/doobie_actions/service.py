@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 import json
 from typing import Any, Callable
 
@@ -14,6 +14,7 @@ from modules.coman.repository import ComanRepository
 from modules.commercial.repository import CommercialRepository
 from modules.commercial_finance.service import CommercialFinanceService
 from modules.production_erp.service import ProductionERPService
+from modules.regulatory import require_metrc_write_contract
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
 
 from .models import ActionExecution, ActionProposal
@@ -26,6 +27,7 @@ ALLOWED_ACTIONS = {
     "send_invoice",
     "queue_traceability",
     "prepare_transfer_manifest",
+    "prepare_regulatory_action",
 }
 
 
@@ -40,6 +42,7 @@ class DoobieActionService:
             "send_invoice": self._send_invoice,
             "queue_traceability": self._queue_traceability,
             "prepare_transfer_manifest": self._prepare_transfer_manifest,
+            "prepare_regulatory_action": self._prepare_regulatory_action,
         }
 
     def propose(
@@ -65,10 +68,15 @@ class DoobieActionService:
         if not str(idempotency_key or "").strip():
             raise ValueError("Action proposal requires an idempotency key.")
         risk_level = str(risk_level or "medium").strip().casefold()
-        if risk_level not in {"low","medium","high","compliance"}:
+        if risk_level not in {"low", "medium", "high", "compliance"}:
             raise ValueError("Unsupported action risk level.")
         with self._sessions.begin() as session:
-            existing = session.scalar(select(ActionProposal).where(ActionProposal.organization_id == organization_id, ActionProposal.idempotency_key == idempotency_key))
+            existing = session.scalar(
+                select(ActionProposal).where(
+                    ActionProposal.organization_id == organization_id,
+                    ActionProposal.idempotency_key == idempotency_key,
+                )
+            )
             if existing:
                 return existing
             proposal = ActionProposal(
@@ -87,20 +95,49 @@ class DoobieActionService:
                 source_id=str(source_id or ""),
                 created_by=str(actor or "system"),
             )
-            session.add(proposal); session.flush()
-            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="action_proposal", entity_id=proposal.id, action="proposed", actor=str(actor or "system"), changes_json=json.dumps({"action_type": action_type, "risk_level": risk_level}, sort_keys=True)))
+            session.add(proposal)
+            session.flush()
+            session.add(
+                AuditEvent(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    entity_type="action_proposal",
+                    entity_id=proposal.id,
+                    action="proposed",
+                    actor=str(actor or "system"),
+                    changes_json=json.dumps({"action_type": action_type, "risk_level": risk_level}, sort_keys=True),
+                )
+            )
             return proposal
 
-    def list_proposals(self, organization_id: str, facility_id: str, *, statuses: tuple[str, ...] = ("proposed","approved","failed"), limit: int = 100) -> list[ActionProposal]:
+    def list_proposals(
+        self,
+        organization_id: str,
+        facility_id: str,
+        *,
+        statuses: tuple[str, ...] = ("proposed", "approved", "failed"),
+        limit: int = 100,
+    ) -> list[ActionProposal]:
         with self._sessions() as session:
-            return list(session.scalars(select(ActionProposal).where(ActionProposal.organization_id == organization_id, ActionProposal.facility_id == facility_id, ActionProposal.status.in_(statuses)).order_by(ActionProposal.financial_impact_usd.desc(), ActionProposal.created_at.desc()).limit(max(1, min(limit, 500)))))
+            return list(
+                session.scalars(
+                    select(ActionProposal)
+                    .where(
+                        ActionProposal.organization_id == organization_id,
+                        ActionProposal.facility_id == facility_id,
+                        ActionProposal.status.in_(statuses),
+                    )
+                    .order_by(ActionProposal.financial_impact_usd.desc(), ActionProposal.created_at.desc())
+                    .limit(max(1, min(limit, 500)))
+                )
+            )
 
     def approve(self, *, organization_id: str, facility_id: str, proposal_id: str, actor: str) -> ActionProposal:
         with self._sessions.begin() as session:
             proposal = session.get(ActionProposal, proposal_id)
             if not proposal or proposal.organization_id != organization_id or proposal.facility_id != facility_id:
                 raise ValueError("Action proposal was not found in the active facility.")
-            if proposal.status not in {"proposed","failed"}:
+            if proposal.status not in {"proposed", "failed"}:
                 raise ValueError("Only proposed or failed actions can be approved.")
             if proposal.expires_at and proposal.expires_at < utc_now():
                 proposal.status = "expired"
@@ -108,7 +145,17 @@ class DoobieActionService:
             proposal.status = "approved"
             proposal.approved_by = str(actor or "system")
             proposal.approved_at = utc_now()
-            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="action_proposal", entity_id=proposal.id, action="approved", actor=str(actor or "system"), changes_json="{}"))
+            session.add(
+                AuditEvent(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    entity_type="action_proposal",
+                    entity_id=proposal.id,
+                    action="approved",
+                    actor=str(actor or "system"),
+                    changes_json="{}",
+                )
+            )
             return proposal
 
     def reject(self, *, organization_id: str, facility_id: str, proposal_id: str, actor: str) -> ActionProposal:
@@ -119,7 +166,17 @@ class DoobieActionService:
             if proposal.status == "executed":
                 raise ValueError("Executed actions cannot be rejected retroactively.")
             proposal.status = "rejected"
-            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="action_proposal", entity_id=proposal.id, action="rejected", actor=str(actor or "system"), changes_json="{}"))
+            session.add(
+                AuditEvent(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    entity_type="action_proposal",
+                    entity_id=proposal.id,
+                    action="rejected",
+                    actor=str(actor or "system"),
+                    changes_json="{}",
+                )
+            )
             return proposal
 
     def execute(self, *, organization_id: str, facility_id: str, proposal_id: str, actor: str) -> dict[str, Any]:
@@ -128,12 +185,34 @@ class DoobieActionService:
             if not proposal or proposal.organization_id != organization_id or proposal.facility_id != facility_id:
                 raise ValueError("Action proposal was not found in the active facility.")
             if proposal.status == "executed":
-                latest = session.scalar(select(ActionExecution).where(ActionExecution.proposal_id == proposal.id, ActionExecution.status == "succeeded").order_by(ActionExecution.attempt_number.desc()).limit(1))
+                latest = session.scalar(
+                    select(ActionExecution)
+                    .where(
+                        ActionExecution.proposal_id == proposal.id,
+                        ActionExecution.status == "succeeded",
+                    )
+                    .order_by(ActionExecution.attempt_number.desc())
+                    .limit(1)
+                )
                 return json.loads(latest.result_json or "{}") if latest else {"status": "already_executed"}
             if proposal.status != "approved":
                 raise ValueError("Approve the preview before executing this action.")
-            attempt_number = int(session.scalar(select(func.coalesce(func.max(ActionExecution.attempt_number), 0)).where(ActionExecution.proposal_id == proposal.id)) or 0) + 1
-            execution = ActionExecution(organization_id=organization_id, facility_id=facility_id, proposal_id=proposal.id, attempt_number=attempt_number, status="started", actor=str(actor or "system"))
+            attempt_number = int(
+                session.scalar(
+                    select(func.coalesce(func.max(ActionExecution.attempt_number), 0)).where(
+                        ActionExecution.proposal_id == proposal.id
+                    )
+                )
+                or 0
+            ) + 1
+            execution = ActionExecution(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                proposal_id=proposal.id,
+                attempt_number=attempt_number,
+                status="started",
+                actor=str(actor or "system"),
+            )
             session.add(execution)
             proposal.status = "executing"
             session.flush()
@@ -145,22 +224,52 @@ class DoobieActionService:
         except Exception as exc:
             with self._sessions.begin() as session:
                 current = session.get(ActionProposal, proposal.id)
-                execution = session.scalar(select(ActionExecution).where(ActionExecution.proposal_id == proposal.id, ActionExecution.attempt_number == attempt_number))
+                execution = session.scalar(
+                    select(ActionExecution).where(
+                        ActionExecution.proposal_id == proposal.id,
+                        ActionExecution.attempt_number == attempt_number,
+                    )
+                )
                 current.status = "failed"
                 execution.status = "failed"
                 execution.error_message = f"{type(exc).__name__}: {str(exc)}"[:4000]
                 execution.completed_at = utc_now()
-                session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="action_proposal", entity_id=proposal.id, action="execution_failed", actor=str(actor or "system"), changes_json=json.dumps({"error_type": type(exc).__name__})))
+                session.add(
+                    AuditEvent(
+                        organization_id=organization_id,
+                        facility_id=facility_id,
+                        entity_type="action_proposal",
+                        entity_id=proposal.id,
+                        action="execution_failed",
+                        actor=str(actor or "system"),
+                        changes_json=json.dumps({"error_type": type(exc).__name__}),
+                    )
+                )
             raise
 
         with self._sessions.begin() as session:
             current = session.get(ActionProposal, proposal.id)
-            execution = session.scalar(select(ActionExecution).where(ActionExecution.proposal_id == proposal.id, ActionExecution.attempt_number == attempt_number))
+            execution = session.scalar(
+                select(ActionExecution).where(
+                    ActionExecution.proposal_id == proposal.id,
+                    ActionExecution.attempt_number == attempt_number,
+                )
+            )
             current.status = "executed"
             execution.status = "succeeded"
             execution.result_json = json.dumps(result or {}, default=str, sort_keys=True)
             execution.completed_at = utc_now()
-            session.add(AuditEvent(organization_id=organization_id, facility_id=facility_id, entity_type="action_proposal", entity_id=proposal.id, action="executed", actor=str(actor or "system"), changes_json=execution.result_json))
+            session.add(
+                AuditEvent(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    entity_type="action_proposal",
+                    entity_id=proposal.id,
+                    action="executed",
+                    actor=str(actor or "system"),
+                    changes_json=execution.result_json,
+                )
+            )
         return result
 
     def _create_purchase_order(self, proposal: ActionProposal, payload: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -202,11 +311,20 @@ class DoobieActionService:
         return {"production_order_id": order.id, "order_number": order.order_number, "action": "production_order_created"}
 
     def _reserve_production_materials(self, proposal: ActionProposal, payload: dict[str, Any], actor: str) -> dict[str, Any]:
-        result = ProductionERPService(self.engine).reserve_bom_materials(organization_id=proposal.organization_id, facility_id=proposal.facility_id, order_id=str(payload["production_order_id"]), actor=actor)
+        result = ProductionERPService(self.engine).reserve_bom_materials(
+            organization_id=proposal.organization_id,
+            facility_id=proposal.facility_id,
+            order_id=str(payload["production_order_id"]),
+            actor=actor,
+        )
         return {"action": "materials_reserved", **result}
 
     def _send_invoice(self, proposal: ActionProposal, payload: dict[str, Any], actor: str) -> dict[str, Any]:
-        invoice = CommercialFinanceService(self.engine).send_invoice(organization_id=proposal.organization_id, facility_id=proposal.facility_id, invoice_id=str(payload["invoice_id"]))
+        invoice = CommercialFinanceService(self.engine).send_invoice(
+            organization_id=proposal.organization_id,
+            facility_id=proposal.facility_id,
+            invoice_id=str(payload["invoice_id"]),
+        )
         return {"action": "invoice_sent", "invoice_id": invoice.id, "status": invoice.status}
 
     def _prepare_transfer_manifest(self, proposal: ActionProposal, payload: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -218,6 +336,22 @@ class DoobieActionService:
         template = request_payload.get("template")
         if not isinstance(template, dict) or not template.get("Destinations"):
             raise ValueError("Manifest proposal does not contain a transfer-template destination.")
+        return self._queue_traceability(proposal, payload, actor)
+
+    def _prepare_regulatory_action(self, proposal: ActionProposal, payload: dict[str, Any], actor: str) -> dict[str, Any]:
+        if str(proposal.source_type or "").casefold() != "doobie_agent":
+            raise ValueError("Regulatory actions must be prepared through a governed deterministic Doobie workflow.")
+        request_payload = payload.get("request_payload")
+        if not isinstance(request_payload, dict):
+            raise ValueError("Regulatory proposal is missing its deterministic provider payload.")
+        operation_type = str(payload.get("operation_type") or "").strip().casefold()
+        jurisdiction_code = str(payload.get("jurisdiction_code") or "").strip().upper()
+        environment = str(payload.get("environment") or "").strip().casefold()
+        require_metrc_write_contract(
+            operation_type=operation_type,
+            jurisdiction=jurisdiction_code,
+            environment=environment,
+        )
         return self._queue_traceability(proposal, payload, actor)
 
     def _queue_traceability(self, proposal: ActionProposal, payload: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -236,7 +370,23 @@ class DoobieActionService:
             reason=str(payload.get("reason") or proposal.rationale or proposal.title),
         )
         if tx.status == "requested":
-            tx = repo.transition_logged(organization_id=proposal.organization_id, facility_id=proposal.facility_id, transaction_id=tx.id, new_status="validated", actor=actor, reason="Approved Doobie action validated for provider queue.", source="system")
+            tx = repo.transition_logged(
+                organization_id=proposal.organization_id,
+                facility_id=proposal.facility_id,
+                transaction_id=tx.id,
+                new_status="validated",
+                actor=actor,
+                reason="Approved Doobie action validated for provider queue.",
+                source="system",
+            )
         if tx.status == "validated":
-            tx = repo.transition_logged(organization_id=proposal.organization_id, facility_id=proposal.facility_id, transaction_id=tx.id, new_status="queued", actor=actor, reason="Approved Doobie action queued; provider worker submission remains separately auditable.", source="system")
+            tx = repo.transition_logged(
+                organization_id=proposal.organization_id,
+                facility_id=proposal.facility_id,
+                transaction_id=tx.id,
+                new_status="queued",
+                actor=actor,
+                reason="Approved Doobie action queued; provider worker submission remains separately auditable.",
+                source="system",
+            )
         return {"action": "traceability_queued", "transaction_id": tx.id, "status": tx.status}
