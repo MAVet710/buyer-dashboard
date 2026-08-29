@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
@@ -42,11 +42,17 @@ class StorefrontPayload(BaseModel):
     published: bool = False
 
 
+class QuantityBreakPayload(BaseModel):
+    minimum_quantity: float = Field(gt=0)
+    price_usd: float = Field(ge=0)
+
+
 class StorefrontProductPayload(BaseModel):
     product_id: str
     price_usd: float = Field(ge=0)
     minimum_quantity: float = Field(default=1, gt=0)
     case_quantity: float = Field(default=1, gt=0)
+    quantity_breaks: list[QuantityBreakPayload] = Field(default_factory=list, max_length=20)
     featured: bool = False
     active: bool = True
     sort_order: int = 0
@@ -69,7 +75,11 @@ class PublicOrderPayload(BaseModel):
     buyer_phone: str = Field(default="", max_length=64)
     lines: list[PublicOrderLine] = Field(min_length=1, max_length=250)
     requested_delivery_date: date | None = None
+    requested_delivery_window: str = Field(default="", max_length=80)
     purchase_order_reference: str = Field(default="", max_length=255)
+    purchase_order_attachment_name: str = Field(default="", max_length=255)
+    purchase_order_attachment_type: str = Field(default="", max_length=128)
+    purchase_order_attachment_base64: str = Field(default="", max_length=4_500_000)
     notes: str = Field(default="", max_length=5000)
 
 
@@ -136,14 +146,7 @@ def save_storefront_products(payload: StorefrontProductsPayload, context: Reques
 def approve_storefront_order(request_id: str, payload: ReviewPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _authorize_manage(context, engine)
     try:
-        return CommerceStorefrontService(engine).approve_order_request(
-            organization_id=context.organization_id,
-            facility_id=context.facility_id,
-            request_id=request_id,
-            actor=context.user_id,
-            review_note=payload.note,
-            approved_lines=[row.model_dump() for row in payload.lines] if payload.lines is not None else None,
-        )
+        return CommerceStorefrontService(engine).approve_order_request(organization_id=context.organization_id, facility_id=context.facility_id, request_id=request_id, actor=context.user_id, review_note=payload.note, approved_lines=[row.model_dump() for row in payload.lines] if payload.lines is not None else None)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -155,6 +158,16 @@ def reject_storefront_order(request_id: str, payload: ReviewPayload, context: Re
         return CommerceStorefrontService(engine).reject_order_request(organization_id=context.organization_id, facility_id=context.facility_id, request_id=request_id, actor=context.user_id, review_note=payload.note)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/orders/{request_id}/purchase-order")
+def download_purchase_order(request_id: str, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _authorize_read(context, engine)
+    try:
+        attachment = CommerceStorefrontService(engine).purchase_order_attachment(organization_id=context.organization_id, facility_id=context.facility_id, request_id=request_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return Response(content=attachment["content"], media_type=attachment["content_type"], headers={"Content-Disposition": f'attachment; filename="{attachment["file_name"].replace(chr(34), "_")}"', "X-Content-SHA256": attachment["sha256"]})
 
 
 @router.get("/agent/snapshot")
