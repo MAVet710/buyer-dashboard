@@ -12,7 +12,7 @@ from ..services.receiving_preflight import ReceivingPreflightService
 from .inventory import _metrc_context
 
 
-router = APIRouter(prefix="/inventory", tags=["inventory"])
+router = APIRouter(tags=["inventory"])
 
 
 class ReceivingPreflightCommit(BaseModel):
