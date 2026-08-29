@@ -1,4 +1,4 @@
-"""Tenant-safe hosted storefront publishing and approval-gated wholesale order intake."""
+"""Tenant-safe hosted-storefront publishing and approval-gated wholesale order intake."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import sessionmaker
 
-from modules.coman.models import Product, TradePartner, utc_now
+from modules.coman.models import CommercialOrder, Product, TradePartner, utc_now
 from modules.coman.repository import ComanRepository
 from modules.commercial.repository import CommercialRepository
 
@@ -114,6 +114,7 @@ class CommerceStorefrontService:
             "unit": product.base_unit,
             "available": balances.get(product.id, 0.0),
             "suggested_price_usd": float(product.retail_price or 0.0),
+            "orderable": balances.get(product.id, 0.0) > 0,
         } for product in products if product.active]
 
     def set_products(self, *, organization_id: str, facility_id: str, actor: str, products: list[dict[str, Any]]) -> list[CommerceStorefrontProduct]:
@@ -180,23 +181,27 @@ class CommerceStorefrontService:
                 CommerceStorefrontProduct.active.is_(True),
             ).order_by(CommerceStorefrontProduct.featured.desc(), CommerceStorefrontProduct.sort_order, CommerceStorefrontProduct.created_at)))
             products = {row.id: row for row in session.scalars(select(Product).where(Product.organization_id == storefront.organization_id))}
-        catalog = []
+        catalog: list[dict[str, Any]] = []
         for listing in listings:
             product = products.get(listing.product_id)
-            option = options.get(listing.product_id)
-            if not product or not option or float(option["available"]) <= 0:
+            if not product:
                 continue
+            option = options.get(listing.product_id) or {}
+            available = max(0.0, float(option.get("available") or 0.0))
+            orderable = bool(option.get("orderable", available > 0)) and available > 0
             catalog.append({
                 "product_id": product.id,
                 "sku": product.sku,
                 "name": product.name,
                 "unit": product.base_unit,
-                "available": float(option["available"]),
+                "available": available,
                 "price_usd": float(listing.price_usd),
                 "minimum_quantity": float(listing.minimum_quantity),
                 "case_quantity": float(listing.case_quantity),
                 "featured": bool(listing.featured),
-                "orderable": bool(option.get("orderable", True)),
+                "orderable": orderable,
+                "availability_status": "in_stock" if orderable else ("preview" if available > 0 else "coming_soon"),
+                "listed_at": listing.created_at,
             })
         return {"storefront": self._storefront_dict(storefront), "catalog": catalog}
 
@@ -211,24 +216,21 @@ class CommerceStorefrontService:
         by_product = {row["product_id"]: row for row in catalog["catalog"]}
         if not lines:
             raise ValueError("Add at least one product to the order request.")
-        snapshots = []
+        snapshots: list[dict[str, Any]] = []
         subtotal = 0.0
         for raw in lines:
             item = by_product.get(str(raw.get("product_id") or ""))
-            if not item:
-                raise ValueError("A requested product is not currently available on this storefront.")
-            if not item.get("orderable", True):
-                raise ValueError(f"{item['name']} is test-preview inventory and cannot be ordered.")
+            if not item or not item.get("orderable", True):
+                raise ValueError("A requested product is not currently orderable on this storefront.")
             quantity = float(raw.get("quantity") or 0.0)
             if quantity < item["minimum_quantity"] or quantity > item["available"]:
                 raise ValueError(f"Quantity for {item['name']} must be between {item['minimum_quantity']:g} and {item['available']:g} {item['unit']}.")
             case = float(item["case_quantity"] or 1.0)
-            multiple = quantity / case
-            if abs(multiple - round(multiple)) > 1e-7:
+            if abs((quantity / case) - round(quantity / case)) > 1e-7:
                 raise ValueError(f"{item['name']} must be ordered in multiples of {case:g} {item['unit']}.")
             line_total = quantity * float(item["price_usd"])
             subtotal += line_total
-            snapshots.append({**item, "quantity": quantity, "line_total": line_total})
+            snapshots.append({**item, "quantity": quantity, "requested_quantity": quantity, "line_total": line_total})
         with self._sessions.begin() as session:
             storefront = session.get(CommerceStorefront, storefront_data["id"])
             row = CommerceStorefrontOrderRequest(
@@ -250,6 +252,30 @@ class CommerceStorefrontService:
             session.flush()
             return row
 
+    def public_order_status(self, *, slug: str, request_id: str, buyer_email: str) -> dict[str, Any]:
+        storefront = self.resolve_public(slug)
+        email = str(buyer_email or "").strip().casefold()
+        with self._sessions() as session:
+            row = session.get(CommerceStorefrontOrderRequest, str(request_id or "").strip())
+            if not row or row.storefront_id != storefront.id or row.buyer_email.strip().casefold() != email:
+                raise ValueError("Order request was not found for this storefront and email.")
+            order = session.get(CommercialOrder, row.commercial_order_id) if row.commercial_order_id else None
+            request = self._request_dict(row)
+        fulfillment = order.status if order else ("awaiting_review" if row.status == "submitted" else row.status)
+        return {
+            "request_id": row.id,
+            "status": row.status,
+            "fulfillment_status": fulfillment,
+            "order_number": order.order_number if order else "",
+            "commercial_order_id": row.commercial_order_id,
+            "estimated_subtotal": request["estimated_subtotal"],
+            "lines": request["lines"],
+            "requested_delivery_date": request["requested_delivery_date"],
+            "review_note": row.review_note,
+            "created_at": row.created_at,
+            "reviewed_at": row.reviewed_at,
+        }
+
     def list_order_requests(self, organization_id: str, facility_id: str) -> list[dict[str, Any]]:
         with self._sessions() as session:
             rows = list(session.scalars(select(CommerceStorefrontOrderRequest).where(
@@ -258,7 +284,7 @@ class CommerceStorefrontService:
             ).order_by(CommerceStorefrontOrderRequest.created_at.desc()).limit(250)))
         return [self._request_dict(row) for row in rows]
 
-    def approve_order_request(self, *, organization_id: str, facility_id: str, request_id: str, actor: str, review_note: str = "") -> dict[str, Any]:
+    def approve_order_request(self, *, organization_id: str, facility_id: str, request_id: str, actor: str, review_note: str = "", approved_lines: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         with self._sessions() as session:
             request = session.get(CommerceStorefrontOrderRequest, request_id)
             if not request or request.organization_id != organization_id or request.facility_id != facility_id:
@@ -267,20 +293,38 @@ class CommerceStorefrontService:
                 raise ValueError("Only submitted storefront orders can be approved.")
             storefront = session.get(CommerceStorefront, request.storefront_id)
             original_lines = _load(request.lines_json, [])
+        originals = {str(row.get("product_id") or ""): row for row in original_lines}
+        requested = approved_lines if approved_lines is not None else original_lines
+        if not requested:
+            raise ValueError("Approve at least one order line or reject the request.")
         current = {row["product_id"]: row for row in self.public_catalog(storefront.slug)["catalog"]}
-        order_lines = []
-        for original in original_lines:
-            item = current.get(original.get("product_id"))
-            quantity = float(original.get("quantity") or 0.0)
-            if not item or quantity > float(item["available"]):
+        order_lines: list[dict[str, Any]] = []
+        approved_snapshots: list[dict[str, Any]] = []
+        subtotal = 0.0
+        seen: set[str] = set()
+        for raw in requested:
+            product_id = str(raw.get("product_id") or "")
+            if not product_id or product_id in seen or product_id not in originals:
+                raise ValueError("Approved lines must be a unique subset of the customer's request.")
+            seen.add(product_id)
+            original = originals[product_id]
+            item = current.get(product_id)
+            if not item or not item.get("orderable", False):
                 raise ValueError(f"Inventory changed for {original.get('name') or 'a requested product'}. Review the request before approval.")
-            order_lines.append({
-                "product_id": item["product_id"],
-                "quantity": quantity,
-                "unit": item["unit"],
-                "unit_price": float(original.get("price_usd") or item["price_usd"]),
-                "description": item["name"],
-            })
+            quantity = float(raw.get("quantity") if raw.get("quantity") is not None else original.get("quantity") or 0.0)
+            original_quantity = float(original.get("requested_quantity") or original.get("quantity") or 0.0)
+            if quantity <= 0 or quantity > original_quantity or quantity > float(item["available"]):
+                raise ValueError(f"Approved quantity for {item['name']} must be greater than zero and cannot exceed the customer request or live availability.")
+            case = float(item.get("case_quantity") or 1.0)
+            if abs((quantity / case) - round(quantity / case)) > 1e-7:
+                raise ValueError(f"{item['name']} must be approved in multiples of {case:g} {item['unit']}.")
+            price = float(raw.get("price_usd") if raw.get("price_usd") is not None else original.get("price_usd") or item["price_usd"])
+            if price < 0:
+                raise ValueError("Approved unit price cannot be negative.")
+            line_total = quantity * price
+            subtotal += line_total
+            order_lines.append({"product_id": product_id, "quantity": quantity, "unit": item["unit"], "unit_price": price, "description": item["name"]})
+            approved_snapshots.append({**item, "quantity": quantity, "requested_quantity": original_quantity, "price_usd": price, "line_total": line_total})
         partner = self._resolve_or_create_partner(request, actor)
         order_number = f"WEB-{utc_now().strftime('%Y%m%d%H%M%S')}-{request.id[:6].upper()}"
         order = CommercialRepository(self.engine).create_order(
@@ -306,6 +350,9 @@ class CommerceStorefrontService:
             row.reviewed_by = actor
             row.reviewed_at = utc_now()
             row.review_note = str(review_note or "").strip()
+            row.lines_json = _json(approved_snapshots)
+            row.estimated_subtotal = subtotal
+            session.flush()
         return {"request": self._request_dict(row), "order_id": order.id, "order_number": order.order_number, "order_status": order.status}
 
     def reject_order_request(self, *, organization_id: str, facility_id: str, request_id: str, actor: str, review_note: str = "") -> dict[str, Any]:
@@ -347,60 +394,14 @@ class CommerceStorefrontService:
 
     @staticmethod
     def _storefront_dict(row: CommerceStorefront) -> dict[str, Any]:
-        return {
-            "id": row.id,
-            "organization_id": row.organization_id,
-            "facility_id": row.facility_id,
-            "slug": row.slug,
-            "subdomain": row.subdomain,
-            "url": f"https://{row.subdomain}.doobielogic.io",
-            "display_name": row.display_name,
-            "headline": row.headline,
-            "description": row.description,
-            "logo_url": row.logo_url,
-            "hero_image_url": row.hero_image_url,
-            "accent_color": row.accent_color,
-            "contact_email": row.contact_email,
-            "order_instructions": row.order_instructions,
-            "published": row.published,
-        }
+        return {"id": row.id, "organization_id": row.organization_id, "facility_id": row.facility_id, "slug": row.slug, "subdomain": row.subdomain, "url": f"https://{row.subdomain}.doobielogic.io", "display_name": row.display_name, "headline": row.headline, "description": row.description, "logo_url": row.logo_url, "hero_image_url": row.hero_image_url, "accent_color": row.accent_color, "contact_email": row.contact_email, "order_instructions": row.order_instructions, "published": row.published}
 
     @staticmethod
     def _listing_dict(row: CommerceStorefrontProduct, product: Product | None) -> dict[str, Any]:
-        return {
-            "id": row.id,
-            "product_id": row.product_id,
-            "sku": product.sku if product else "",
-            "name": product.name if product else "Unknown product",
-            "unit": product.base_unit if product else "unit",
-            "price_usd": float(row.price_usd),
-            "minimum_quantity": float(row.minimum_quantity),
-            "case_quantity": float(row.case_quantity),
-            "featured": bool(row.featured),
-            "active": bool(row.active),
-            "sort_order": int(row.sort_order),
-        }
+        return {"id": row.id, "product_id": row.product_id, "sku": product.sku if product else "", "name": product.name if product else "Unknown product", "unit": product.base_unit if product else "unit", "price_usd": float(row.price_usd), "minimum_quantity": float(row.minimum_quantity), "case_quantity": float(row.case_quantity), "featured": bool(row.featured), "active": bool(row.active), "sort_order": int(row.sort_order)}
 
     @staticmethod
     def _request_dict(row: CommerceStorefrontOrderRequest) -> dict[str, Any]:
-        return {
-            "id": row.id,
-            "storefront_id": row.storefront_id,
-            "buyer_company": row.buyer_company,
-            "buyer_license": row.buyer_license,
-            "buyer_contact": row.buyer_contact,
-            "buyer_email": row.buyer_email,
-            "buyer_phone": row.buyer_phone,
-            "purchase_order_reference": row.purchase_order_reference,
-            "requested_delivery_date": row.requested_delivery_date,
-            "notes": row.notes,
-            "lines": _load(row.lines_json, []),
-            "estimated_subtotal": float(row.estimated_subtotal),
-            "status": row.status,
-            "partner_id": row.partner_id,
-            "commercial_order_id": row.commercial_order_id,
-            "reviewed_by": row.reviewed_by,
-            "reviewed_at": row.reviewed_at,
-            "review_note": row.review_note,
-            "created_at": row.created_at,
-        }
+        lines = _load(row.lines_json, [])
+        partial = any(float(line.get("quantity") or 0) < float(line.get("requested_quantity") or line.get("quantity") or 0) for line in lines)
+        return {"id": row.id, "storefront_id": row.storefront_id, "buyer_company": row.buyer_company, "buyer_license": row.buyer_license, "buyer_contact": row.buyer_contact, "buyer_email": row.buyer_email, "buyer_phone": row.buyer_phone, "purchase_order_reference": row.purchase_order_reference, "requested_delivery_date": row.requested_delivery_date, "notes": row.notes, "lines": lines, "estimated_subtotal": float(row.estimated_subtotal), "status": row.status, "approval_mode": "partial" if row.status == "approved" and partial else ("full" if row.status == "approved" else "pending"), "partner_id": row.partner_id, "commercial_order_id": row.commercial_order_id, "reviewed_by": row.reviewed_by, "reviewed_at": row.reviewed_at, "review_note": row.review_note, "created_at": row.created_at}
