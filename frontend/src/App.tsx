@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
-import { ProductionPlanningWorkspace } from "./components/ProductionPlanningWorkspace";
 import { WorkspaceWindow } from "./components/WorkspaceWindow";
 import { entityContextForPath, pageForPath, pathForPage } from "./lib/workspaceRoutes";
 
@@ -20,6 +19,7 @@ const ProductMasterPage = lazy(() => import("./pages/ProductMasterPage").then(mo
 const RetailProduct360Page = lazy(() => import("./pages/RetailProduct360Page").then(module => ({ default: module.RetailProduct360Page })));
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
 const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
+const ProductionPlanningWorkspace = lazy(() => import("./components/ProductionPlanningWorkspace").then(module => ({ default: module.ProductionPlanningWorkspace })));
 const ProductionRun360Page = lazy(() => import("./pages/ProductionRun360Page").then(module => ({ default: module.ProductionRun360Page })));
 const WholesaleOpsPage = lazy(() => import("./pages/WholesaleOpsPage").then(module => ({ default: module.WholesaleOpsPage })));
 const ExtractionUnifiedPage = lazy(() => import("./pages/ExtractionUnifiedPage").then(module => ({ default: module.ExtractionUnifiedPage })));
