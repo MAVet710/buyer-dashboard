@@ -227,13 +227,15 @@ class ReceivingPreflightService:
         operation: str,
         actor: str,
         preflight_id: str,
+        transfer_id: str,
         rows: list[InventoryReceiptCreate],
         metrc: Any,
     ) -> dict[str, Any]:
         now = utc_now()
+        expected_transfer_id = str(transfer_id or "").strip()
         stale_error = ""
         stored_snapshot: dict[str, Any] = {}
-        transfer_id = ""
+        stored_transfer_id = ""
         stored_digest = ""
         with Session(self.engine) as session, session.begin():
             row = self._load_for_update(
@@ -243,6 +245,8 @@ class ReceivingPreflightService:
                 facility_id=facility_id,
                 operation=operation,
             )
+            if row.transfer_id != expected_transfer_id:
+                raise ValueError("The receiving preflight does not belong to this inbound transfer.")
             if row.status == "consumed":
                 return {"preflight": _public(row), "receipts": json.loads(row.local_result_json or "[]"), "idempotent": True}
             if row.status == "processing":
@@ -265,12 +269,12 @@ class ReceivingPreflightService:
                 stale_error = "The active Metrc facility mapping changed. Prepare a new receiving preflight."
             else:
                 stored_snapshot = json.loads(row.snapshot_json or "{}")
-                transfer_id = row.transfer_id
+                stored_transfer_id = row.transfer_id
                 stored_digest = row.snapshot_digest
         if stale_error:
             raise ValueError(stale_error)
 
-        fresh_snapshot = self._read_snapshot(metrc=metrc, transfer_id=transfer_id)
+        fresh_snapshot = self._read_snapshot(metrc=metrc, transfer_id=stored_transfer_id)
         fresh_digest = _digest(fresh_snapshot)
         if fresh_digest != stored_digest:
             with Session(self.engine) as session, session.begin():
