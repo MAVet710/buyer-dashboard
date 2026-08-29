@@ -3,8 +3,8 @@ APP_TITLE = "DoobieLogic Platform"
 APP_SUBTITLE = "Commercial-ready cannabis intelligence system"
 LICENSE_FOOTER = "Semper Paratus • Powered by Good Weed and Data"
 
-# Carry forward the original branded image from the legacy app
-PRIMARY_BRAND_IMAGE_URL = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/IMG_7158.PNG"
+# Shared DoobieLogic master image used by legacy Streamlit branding surfaces.
+PRIMARY_BRAND_IMAGE_URL = "https://raw.githubusercontent.com/MAVet710/buyer-dashboard/main/frontend/public/doobielogic-logo.webp"
 FAVICON_URL = PRIMARY_BRAND_IMAGE_URL
 BACKGROUND_URL = PRIMARY_BRAND_IMAGE_URL
 
