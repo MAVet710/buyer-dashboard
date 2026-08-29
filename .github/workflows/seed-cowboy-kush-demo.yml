@@ -1,0 +1,64 @@
+name: Seed Cowboy Kush Demo Data
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/seed_cowboy_kush_ma_coa_demo.py
+      - .github/workflows/seed-cowboy-kush-demo.yml
+  workflow_dispatch:
+
+concurrency:
+  group: cowboy-kush-demo-seed
+  cancel-in-progress: false
+
+env:
+  REGISTRY: us-east1-docker.pkg.dev
+  REGION: us-east1
+  SEED_JOB: cowboy-kush-demo-seed
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build immutable seed image
+        run: |
+          set -euo pipefail
+          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/cowboy-kush-demo-seed:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          docker build -f Dockerfile.api -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "SEED_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Apply Cowboy Kush OpenCOA demo inventory and storefront listings
+        run: |
+          set -euo pipefail
+          gcloud run jobs deploy "${{ env.SEED_JOB }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --image "$SEED_IMAGE" \
+            --region "${{ env.REGION }}" \
+            --service-account "buyer-dash-migrate@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --command python \
+            --args scripts/seed_cowboy_kush_ma_coa_demo.py,--apply \
+            --max-retries 0 \
+            --task-timeout 15m \
+            --set-env-vars APP_ENV=production \
+            --set-secrets DL_PROD_DB_URL=buyer-dash-database-url:latest \
+            --quiet
+          gcloud run jobs execute "${{ env.SEED_JOB }}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ env.REGION }}" \
+            --wait
