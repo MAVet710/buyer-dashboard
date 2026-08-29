@@ -62,7 +62,7 @@ jobs:
             --region "${{ env.REGION }}" \
             --service-account "buyer-dash-migrate@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --command python \
-            --args scripts/seed_cowboy_kush_ma_coa_demo.py,--apply \
+            --args=-m,scripts.seed_cowboy_kush_ma_coa_demo,--apply \
             --max-retries 0 \
             --task-timeout 15m \
             --set-env-vars APP_ENV=production \
