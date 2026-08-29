@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 const API_URL = import.meta.env.VITE_API_URL ?? "";
+const PUBLIC_POST_TIMEOUT_MS = 30_000;
 
 export function apiUrl(path: string): string { return `${API_URL}${path}`; }
 
@@ -37,10 +38,6 @@ function validationDetails(detail: unknown): string {
 }
 
 export function errorMessage(payload: ErrorPayload, status: number): string {
-  // FastAPI returns useful field-level validation information in `detail`, while
-  // our observability envelope also carries a generic `error.message`. Prefer
-  // the actionable field errors so operators can fix a form instead of seeing
-  // only "One or more request fields are invalid."
   const fieldErrors = validationDetails(payload.detail);
   if (fieldErrors) return fieldErrors;
   if (typeof payload.detail === "string" && payload.detail.trim()) return payload.detail;
@@ -111,13 +108,25 @@ export async function apiPublicGet<T>(path: string, signal?: AbortSignal): Promi
 }
 
 export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) return throwResponseError(response);
-  return response.json() as Promise<T>;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), PUBLIC_POST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!response.ok) return throwResponseError(response);
+    return response.json() as Promise<T>;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiError("Storefront request timed out. Nothing was confirmed; please try again.", 408);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
