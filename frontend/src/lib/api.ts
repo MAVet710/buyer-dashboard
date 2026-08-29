@@ -122,7 +122,7 @@ export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> 
     return response.json() as Promise<T>;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new ApiError("The storefront request timed out. Please try again.", 408);
+      throw new ApiError("Storefront request timed out. Please try again.", 408);
     }
     throw error;
   } finally {
