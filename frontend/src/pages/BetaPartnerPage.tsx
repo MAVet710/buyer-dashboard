@@ -135,7 +135,7 @@ export function BetaPartnerPage() {
             <div className="marketing-eyebrow">DoobieLogic Beta Partner Program</div>
             <h1>Help us build cannabis software <span>people actually want to use.</span></h1>
             <p>
-              We&apos;re building DoobieLogic for the people doing the work: buyers, inventory teams, production crews, extractors, compliance managers, sales teams, and operators. The beta is where we find out what works in the real world and what still needs to get out of your way.
+              We&apos;re building DoobieLogic for the people doing the work: buyers, inventory teams, production crews, extractors, compliance managers, sales teams, and operators. The beta is where we find out what works in a real operation and what still needs to get out of your way.
             </p>
             <div className="beta-hero-actions">
               <a className="marketing-primary" href="#apply">Apply for Free Beta Access <ArrowRight size={18} /></a>
@@ -167,8 +167,8 @@ export function BetaPartnerPage() {
           <div className="beta-section-inner">
             <div className="beta-section-heading">
               <div className="marketing-eyebrow">What you&apos;ll be testing</div>
-              <h2>One operation. Fewer places to go hunting for the answer.</h2>
-              <p>DoobieLogic connects the work cannabis teams already do across purchasing, inventory, compliance, production, extraction, wholesale, and reporting. We&apos;re not trying to make a dispensary behave like a manufacturing floor or a cultivation team behave like retail. Different licenses have different problems.</p>
+              <h2>Keep the operation together without flattening every license into the same workflow.</h2>
+              <p>DoobieLogic connects purchasing, inventory, compliance, production, extraction, wholesale, and reporting while keeping the differences that matter. A dispensary, a cultivation facility, and a manufacturing floor do not run the same way, and the software should know that.</p>
             </div>
             <div className="beta-pillar-grid">
               {pillars.map(({ number, label, icon: Icon, title, body }) => (
@@ -176,7 +176,7 @@ export function BetaPartnerPage() {
                   <div className="beta-pillar-top"><span>{number} / {label}</span><Icon size={22} /></div>
                   <h3>{title}</h3>
                   <p>{body}</p>
-                  {label === "DOOBIE AGENT" && <strong className="beta-agent-line">Less digging through reports. More knowing where to look next.</strong>}
+                  {label === "DOOBIE AGENT" && <strong className="beta-agent-line">Spend less time digging through reports and more time knowing where to look next.</strong>}
                 </article>
               ))}
             </div>
@@ -216,7 +216,7 @@ export function BetaPartnerPage() {
             <div className="beta-data-card" id="data">
               <ShieldCheck size={30} />
               <div>
-                <h3>Your data stays yours. We&apos;re here to learn from the workflow, not own your business.</h3>
+                <h3>Your data stays yours. We&apos;re here to learn from the workflow.</h3>
                 <p>Beta partners help us understand how DoobieLogic behaves inside real cannabis operations. Approved usage and diagnostic information helps us find bugs, confusing workflows, and missing functionality. Your operational data remains yours, and access stays governed by the beta agreement.</p>
               </div>
             </div>
@@ -227,8 +227,8 @@ export function BetaPartnerPage() {
           <div className="beta-apply-layout beta-section-inner">
             <div className="beta-apply-copy">
               <div className="marketing-eyebrow">Apply to join</div>
-              <h2>We&apos;re looking for operators, not professional beta testers.</h2>
-              <p>Retail. Cultivation. Manufacturing. Extraction. Wholesale. Vertically integrated. If you know the work, know where the headaches are, and will tell us when something doesn&apos;t make sense, we want to hear from you.</p>
+              <h2>We&apos;re looking for operators who know the work.</h2>
+              <p>Retail, cultivation, manufacturing, extraction, wholesale, or vertically integrated — if you know where the headaches are and you&apos;ll tell us when something doesn&apos;t make sense, we want to hear from you.</p>
               <div className="beta-steps">
                 <span><b>1</b> Tell us about your operation.</span>
                 <span><b>2</b> We review fit for the current beta phase.</span>
