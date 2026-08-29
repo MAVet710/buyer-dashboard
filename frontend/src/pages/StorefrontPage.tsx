@@ -18,6 +18,9 @@ type Storefront = {
   published: boolean;
 };
 
+type LabRange = { minimum: number | null; maximum: number | null };
+type LabStats = { thca: LabRange; tac: LabRange; terpenes: LabRange };
+
 type CatalogItem = {
   product_id: string;
   sku: string;
@@ -29,6 +32,7 @@ type CatalogItem = {
   case_quantity: number;
   featured: boolean;
   orderable: boolean;
+  lab_stats?: LabStats;
 };
 
 type PublicCatalog = { storefront: Storefront; catalog: CatalogItem[] };
@@ -39,6 +43,15 @@ const COWBOY_LOGO = "https://cdn.prod.website-files.com/67e2f0206a0ebdea924dda1f
 const COWBOY_PRE_ROLL_IMAGE = "https://cdn.prod.website-files.com/67e2f0206a0ebdea924dda1f/684605625f427990b7edb4b3_CK%20Pre%20Roll%20Tube-3.avif";
 const COWBOY_FLOWER_IMAGE = "https://cdn.prod.website-files.com/67e2f0206a0ebdea924dda1f/6a7b9448313dd1e154bea918_Cowboy%20Kush%20Bag%202%20%28small%29.jpg";
 const COWBOY_HERO_IMAGE = "https://cdn.prod.website-files.com/67e2f0206a0ebdea924dda1f/67e2f62c209cf18cde199520_696388bc840836ba53c0fc037ab51c30_cowboy-kush-man%20in%20cannabis%20field.avif";
+
+function labPercent(range?: LabRange) {
+  if (!range || range.minimum == null || range.maximum == null) return "—";
+  const minimum = Number(range.minimum);
+  const maximum = Number(range.maximum);
+  if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) return "—";
+  if (Math.abs(maximum - minimum) < 0.005) return `${minimum.toFixed(1)}%`;
+  return `${minimum.toFixed(1)}–${maximum.toFixed(1)}%`;
+}
 
 function cowboyProductMeta(item: CatalogItem) {
   const text = `${item.name} ${item.sku}`.toLowerCase();
@@ -155,6 +168,9 @@ export function StorefrontPage({ slug }: { slug: string }) {
                   <div className="storefront-product-copy cowboy-card-copy"><small>{meta.type}</small><h3>{item.name}</h3><p>{item.available.toLocaleString()} {item.unit} available</p></div>
 
                   <dl className="cowboy-card-stats">
+                    <div><dt>THCA</dt><dd>{labPercent(item.lab_stats?.thca)}</dd></div>
+                    <div><dt>TAC</dt><dd>{labPercent(item.lab_stats?.tac)}</dd></div>
+                    <div><dt>TERPS</dt><dd>{labPercent(item.lab_stats?.terpenes)}</dd></div>
                     <div><dt>SKU</dt><dd>{item.sku}</dd></div>
                     <div><dt>Pack size</dt><dd>{meta.packSize}</dd></div>
                     <div><dt>Case qty</dt><dd>{item.case_quantity.toLocaleString()}</dd></div>
@@ -167,7 +183,7 @@ export function StorefrontPage({ slug }: { slug: string }) {
                     <label>Qty<input disabled={!item.orderable} type="number" min="0" max={item.available} step={item.case_quantity} value={quantity} onChange={event => setItemQuantity(item, Number(event.target.value))} /></label>
                     <button disabled={!item.orderable} type="button" onClick={() => addMinimum(item)}>{item.orderable ? (quantity > 0 ? "Add case" : "Add to order") : "Preview only"} <span>＋</span></button>
                   </div>
-                  <small className="storefront-order-rule">Minimum {item.minimum_quantity.toLocaleString()} · case multiple {item.case_quantity.toLocaleString()}</small>
+                  <small className="storefront-order-rule">Lab values reflect currently sellable passed-COA batches · Minimum {item.minimum_quantity.toLocaleString()} · case multiple {item.case_quantity.toLocaleString()}</small>
                 </article>;
               })}
             </div>}
@@ -238,6 +254,7 @@ export function StorefrontPage({ slug }: { slug: string }) {
               return <article className={`storefront-product${item.featured ? " featured" : ""}`} key={item.product_id}>
                 {item.featured ? <span className="storefront-featured">Featured</span> : null}
                 <div className="storefront-product-copy"><small>{item.sku}</small><h3>{item.name}</h3><p>{item.available.toLocaleString()} {item.unit} available</p></div>
+                <small className="storefront-order-rule">THCA {labPercent(item.lab_stats?.thca)} · TAC {labPercent(item.lab_stats?.tac)} · Terps {labPercent(item.lab_stats?.terpenes)}</small>
                 <div className="storefront-price"><strong>{money.format(item.price_usd)}</strong><span>per {item.unit}</span></div>
                 <label>{item.orderable ? "Order quantity" : "Test preview only"}<input disabled={!item.orderable} type="number" min="0" max={item.available} step={item.case_quantity} value={quantity} onChange={event => setItemQuantity(item, Number(event.target.value))}/></label>
                 <small className="storefront-order-rule">Minimum {item.minimum_quantity.toLocaleString()} · case multiple {item.case_quantity.toLocaleString()}</small>
