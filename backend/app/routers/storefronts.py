@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import Engine
 
 from modules.commerce_storefronts.intelligence import StorefrontWholesaleIntelligenceService
+from modules.commerce_storefronts.studio import CommerceStorefrontStudioService
 from modules.commerce_storefronts.wholesale_service import WholesaleCommerceStorefrontService as CommerceStorefrontService
 
 from ..auth import RequestContext, get_request_context, require_facility_capability
@@ -54,6 +55,38 @@ class StorefrontPayload(BaseModel):
     contact_email: str = Field(default="", max_length=320)
     order_instructions: str = Field(default="", max_length=5000)
     published: bool = False
+
+
+class StudioDesignPayload(BaseModel):
+    theme_preset: str = Field(default="clean", max_length=24)
+    font_preset: str = Field(default="modern", max_length=24)
+    card_style: str = Field(default="collectible", max_length=24)
+    card_image_style: str = Field(default="cover", max_length=24)
+    accent_color: str = Field(default="#8abf55", min_length=7, max_length=7)
+    secondary_color: str = Field(default="#173127", min_length=7, max_length=7)
+    surface_color: str = Field(default="#f7f5ef", min_length=7, max_length=7)
+    announcement_enabled: bool = False
+    announcement_text: str = Field(default="", max_length=240)
+    show_hero: bool = True
+    show_featured: bool = True
+    show_about: bool = False
+    about_heading: str = Field(default="Brand story", max_length=120)
+    about_body: str = Field(default="", max_length=4000)
+    show_contact: bool = True
+    show_footer: bool = True
+    section_order: list[str] = Field(default_factory=lambda: ["hero", "featured", "catalog", "about", "contact"], max_length=5)
+    visible_stats: list[str] = Field(default_factory=lambda: ["thca", "tac", "terpenes", "batch", "coa", "harvest_date", "available"], max_length=16)
+    badges: list[str] = Field(default_factory=lambda: ["featured", "new_drop", "limited"], max_length=8)
+    logo_asset_id: str = Field(default="", max_length=36)
+    hero_asset_id: str = Field(default="", max_length=36)
+    favicon_asset_id: str = Field(default="", max_length=36)
+
+
+class StudioAssetPayload(BaseModel):
+    kind: str = Field(max_length=24)
+    file_name: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(min_length=1, max_length=64)
+    content_base64: str = Field(min_length=4, max_length=6_000_000)
 
 
 class QuantityBreakPayload(BaseModel):
@@ -155,7 +188,10 @@ class AgentQuestionPayload(BaseModel):
 @router.get("")
 def storefront_snapshot(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _authorize_read(context, engine)
-    return CommerceStorefrontService(engine).admin_snapshot(context.organization_id, context.facility_id)
+    service = CommerceStorefrontService(engine)
+    snapshot = service.admin_snapshot(context.organization_id, context.facility_id)
+    snapshot["studio"] = CommerceStorefrontStudioService(engine).snapshot(context.organization_id, context.facility_id) if snapshot.get("storefront") else None
+    return snapshot
 
 
 @router.post("")
@@ -166,6 +202,74 @@ def save_storefront(payload: StorefrontPayload, context: RequestContext = Depend
         return CommerceStorefrontService._storefront_dict(row)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/studio")
+def storefront_studio(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _authorize_read(context, engine)
+    try:
+        return CommerceStorefrontStudioService(engine).snapshot(context.organization_id, context.facility_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/studio")
+def save_storefront_studio(payload: StudioDesignPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _authorize_manage(context, engine)
+    try:
+        return CommerceStorefrontStudioService(engine).save_draft(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            actor=context.user_id,
+            design=payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/studio/publish")
+def publish_storefront_studio(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _authorize_manage(context, engine)
+    try:
+        return CommerceStorefrontStudioService(engine).publish_draft(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            actor=context.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/studio/assets")
+def upload_storefront_studio_asset(payload: StudioAssetPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _authorize_manage(context, engine)
+    try:
+        return CommerceStorefrontStudioService(engine).upload_asset(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            actor=context.user_id,
+            **payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/studio/assets/{asset_id}")
+def admin_storefront_studio_asset(asset_id: str, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _authorize_read(context, engine)
+    try:
+        asset = CommerceStorefrontStudioService(engine).get_admin_asset(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            asset_id=asset_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return Response(
+        content=asset["content"],
+        media_type=asset["content_type"],
+        headers={"Cache-Control": "private, no-store, max-age=0", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/wholesale-inventory")
@@ -249,10 +353,29 @@ def storefront_order_status(slug: str, payload: PublicStatusPayload, engine: Eng
         raise HTTPException(404, str(exc)) from exc
 
 
+@public_router.get("/{slug}/assets/{asset_id}")
+def public_storefront_asset(slug: str, asset_id: str, engine: Engine = Depends(get_engine)):
+    try:
+        asset = CommerceStorefrontStudioService(engine).get_public_asset(slug=slug, asset_id=asset_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return Response(
+        content=asset["content"],
+        media_type=asset["content_type"],
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "ETag": f'"{asset["sha256"]}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @public_router.get("/{slug}")
 def public_storefront(slug: str, engine: Engine = Depends(get_engine)):
     try:
-        return CommerceStorefrontService(engine).public_catalog(slug)
+        result = CommerceStorefrontService(engine).public_catalog(slug)
+        result["storefront"]["studio"] = CommerceStorefrontStudioService(engine).public_design(slug)
+        return result
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
 

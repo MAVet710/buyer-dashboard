@@ -57,6 +57,45 @@ class CommerceStorefrontProduct(TimestampMixin, Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
+class CommerceStorefrontStudio(TimestampMixin, Base):
+    """Draft and published visual configuration for one hosted storefront."""
+
+    __tablename__ = "commerce_storefront_studio"
+    __table_args__ = (
+        UniqueConstraint("storefront_id", name="uq_commerce_storefront_studio_storefront"),
+        Index("ix_commerce_storefront_studio_scope", "organization_id", "facility_id"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    storefront_id: Mapped[str] = mapped_column(ForeignKey("commerce_storefronts.id", ondelete="CASCADE"), nullable=False, index=True)
+    draft_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    published_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
+class CommerceStorefrontAsset(TimestampMixin, Base):
+    """Tenant-scoped image asset referenced by Storefront Studio configuration."""
+
+    __tablename__ = "commerce_storefront_assets"
+    __table_args__ = (
+        Index("ix_commerce_storefront_asset_scope", "organization_id", "facility_id", "storefront_id"),
+        Index("ix_commerce_storefront_asset_kind", "storefront_id", "kind", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    storefront_id: Mapped[str] = mapped_column(ForeignKey("commerce_storefronts.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_bytes: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
 class CommerceStorefrontOrderRequest(TimestampMixin, Base):
     __tablename__ = "commerce_storefront_order_requests"
     __table_args__ = (

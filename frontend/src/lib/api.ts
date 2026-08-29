@@ -1,6 +1,8 @@
 import { supabase } from "./supabase";
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 
+export function apiUrl(path: string): string { return `${API_URL}${path}`; }
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -71,9 +73,6 @@ async function requestHeaders(json = false): Promise<Record<string, string>> {
 
 async function authorizedFetch(path: string, makeInit: (headers: Record<string, string>) => RequestInit): Promise<Response> {
   let response = await fetch(`${API_URL}${path}`, makeInit(await requestHeaders()));
-  // A restored browser session can briefly hold an expired Supabase JWT even
-  // though the refresh token is still valid. Refresh once centrally so every
-  // workspace does not have to implement its own login-recovery loop.
   if (response.status === 401 && supabase) {
     const refreshed = await supabase.auth.refreshSession();
     if (!refreshed.error && refreshed.data.session) {
@@ -89,9 +88,6 @@ async function throwResponseError(response: Response): Promise<never> {
 }
 
 function readPath(path: string): string {
-  // Older Extraction surfaces still ask for /extraction/lots. Route those
-  // reads through the same eligibility projection as Extraction Inventory so
-  // Quick Start and Run 360 do not reintroduce finished packaged inventory.
   return path === "/api/v1/extraction/lots" ? "/api/v1/extraction-inventory/lots" : path;
 }
 
@@ -131,9 +127,6 @@ export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
 }
 
 export async function apiDownload(path: string, body?: unknown): Promise<Blob> {
-  // Streamlit keeps a generated White Label/Repack payload in session state so
-  // it can join the Retail/Company executive packs. Preserve that session-level
-  // report availability after the web user generates the same report.
   if (path === "/api/v1/executive-reports/white-label.pdf" && body !== undefined) {
     try { sessionStorage.setItem("white-label-current-report-payload", JSON.stringify(body)); } catch { /* storage may be unavailable */ }
   }
@@ -148,9 +141,6 @@ export async function apiDownload(path: string, body?: unknown): Promise<Blob> {
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
-  // Safari/iOS may defer navigation after anchor.click(). Revoking the object
-  // URL synchronously races that navigation and can make report buttons appear
-  // to do nothing. Keep the URL alive long enough for the browser to consume it.
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
