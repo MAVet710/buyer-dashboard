@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { apiDownload, apiGet, apiPost, downloadBlob } from "../lib/api";
+import { UserPermissionManager } from "../components/UserPermissionManager";
 import { AdminPage } from "./AdminPage";
 
 type UploadRow = {
@@ -73,6 +74,7 @@ type StorefrontAdminRow = {
 export function AdminToolsPage() {
   return <div className="admin-tools-parity">
     <AdminPage />
+    <UserPermissionManager />
     <FacilityContextEditor />
     <StorefrontOwnershipEditor />
     <AdminUploads />
