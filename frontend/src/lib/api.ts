@@ -40,6 +40,7 @@ function validationDetails(detail: unknown): string {
 export function errorMessage(payload: ErrorPayload, status: number): string {
   const fieldErrors = validationDetails(payload.detail);
   if (fieldErrors) return fieldErrors;
+  if (Array.isArray(payload.detail)) return "One or more request fields are invalid";
   if (typeof payload.detail === "string" && payload.detail.trim()) return payload.detail;
   if (payload.error?.message) return payload.error.message;
   return `Request failed (${status})`;
@@ -120,8 +121,8 @@ export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> 
     if (!response.ok) return throwResponseError(response);
     return response.json() as Promise<T>;
   } catch (error) {
-    if (controller.signal.aborted) {
-      throw new ApiError("Storefront request timed out. Nothing was confirmed; please try again.", 408);
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("The storefront request timed out. Please try again.", 408);
     }
     throw error;
   } finally {
