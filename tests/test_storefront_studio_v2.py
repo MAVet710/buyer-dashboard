@@ -95,7 +95,7 @@ def test_studio_assets_are_tenant_scoped_signature_checked_and_public_only_when_
     public_asset = studio.get_public_asset(slug="studio-brand", asset_id=asset["id"])
     assert public_asset["content"] == png
 
-    other_facility = repo.create_facility(organization.id, "Other Wholesale", "WHOLESALE")
+    other_facility = repo.create_facility(organization.id, "Other Wholesale", "WHOLESALE-2")
     wholesale.upsert_storefront(
         organization_id=organization.id,
         facility_id=other_facility.id,
