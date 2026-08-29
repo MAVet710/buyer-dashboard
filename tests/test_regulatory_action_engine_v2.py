@@ -83,12 +83,9 @@ def test_pending_jurisdictions_stay_explicitly_fail_closed():
         assert capability_status(code, "transfers") == CapabilityStatus.UNKNOWN
 
 
-def test_ma_package_waste_is_resolved_as_unsupported_not_guessed():
-    assert capability_status("MA", "package_waste") == CapabilityStatus.UNSUPPORTED
-    evidence = capability_evidence("MA", "package_waste")
-    assert evidence is not None
-    assert "NO DEDICATED" in evidence.endpoint
-    assert "plant" in evidence.note.casefold()
+def test_ma_package_waste_stays_unknown_without_direct_endpoint_evidence():
+    assert capability_status("MA", "package_waste") == CapabilityStatus.UNKNOWN
+    assert capability_evidence("MA", "package_waste") is None
 
 
 def test_write_registry_enables_only_verified_payload_contracts():
