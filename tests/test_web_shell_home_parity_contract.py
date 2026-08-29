@@ -90,19 +90,26 @@ def test_home_restores_role_aware_streamlit_decision_surface():
     home = read("frontend/src/pages/HomePage.tsx")
     backend = read("backend/app/routers/home.py")
 
-    for label in (
+    shared_labels = (
         "Review inventory",
         "Start inventory audit",
         "Traceability queue",
         "Open Package Studio",
         "Build purchasing decisions",
-        "Plan Co-Man production",
         "Review extraction",
         "Manage orders",
         "Import operational data",
-    ):
+    )
+    for label in shared_labels:
         assert label in streamlit
         assert label in home
+
+    # Streamlit retains the legacy workspace name as a compatibility surface,
+    # while the production React application uses the broader human-facing name.
+    assert "Plan Co-Man production" in streamlit
+    assert "Plan production" in home
+    assert "Plan Co-Man production" not in home
+
     for metric in ("Needs attention", "Low stock", "Open POs", "Data sources ready"):
         assert metric in streamlit
         assert metric in home
