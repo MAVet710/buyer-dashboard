@@ -1,4 +1,4 @@
-"""Per-listing storefront sales-unit controls with tenant-safe conversion."""
+"""Per-listing storefront display-unit controls that preserve base inventory truth."""
 
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ from modules.commerce_storefronts.models import CommerceStorefrontProduct
 from modules.commerce_storefronts.sales_units import (
     StorefrontProductSalesUnit,
     compatible_sales_units,
-    convert_quantity,
-    convert_unit_price,
     normalize_unit,
 )
 from modules.commerce_storefronts.wholesale_service import WholesaleCommerceStorefrontService
@@ -77,11 +75,17 @@ def update_storefront_sales_unit(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    """Save only the customer-facing display unit for a storefront listing.
+
+    Inventory, Metrc quantities, listing minimums/case quantities, volume tiers,
+    and stored pricing remain in their operational base unit. Conversion is a
+    storefront projection only and must never rewrite compliance/source data.
+    """
     _authorize(context, engine, write=True)
     service = WholesaleCommerceStorefrontService(engine)
     storefront = service.get_storefront(context.organization_id, context.facility_id)
     if not storefront:
-        raise HTTPException(404, "Create the storefront before changing listing sales units.")
+        raise HTTPException(404, "Create the storefront before changing listing display units.")
 
     with Session(engine) as session, session.begin():
         product = session.get(Product, product_id)
@@ -110,18 +114,6 @@ def update_storefront_sales_unit(
             )
         )
         old_unit = normalize_unit(setting.sales_unit) if setting else base_unit
-        if target_unit != old_unit:
-            try:
-                listing.minimum_quantity = convert_quantity(listing.minimum_quantity, old_unit, target_unit)
-                listing.case_quantity = convert_quantity(listing.case_quantity, old_unit, target_unit)
-                listing.price_usd = convert_unit_price(listing.price_usd, old_unit, target_unit)
-                tiers = json.loads(listing.quantity_breaks_json or "[]")
-                for tier in tiers:
-                    tier["minimum_quantity"] = convert_quantity(float(tier.get("minimum_quantity") or 0.0), old_unit, target_unit)
-                    tier["price_usd"] = convert_unit_price(float(tier.get("price_usd") or 0.0), old_unit, target_unit)
-                listing.quantity_breaks_json = json.dumps(tiers, sort_keys=True, separators=(",", ":"))
-            except ValueError as exc:
-                raise HTTPException(422, str(exc)) from exc
 
         if setting is None:
             setting = StorefrontProductSalesUnit(
@@ -143,16 +135,17 @@ def update_storefront_sales_unit(
                 facility_id=context.facility_id,
                 entity_type="commerce_storefront_product",
                 entity_id=listing.id,
-                action="storefront_sales_unit_changed",
+                action="storefront_display_unit_changed",
                 actor=context.user_id,
                 changes_json=json.dumps(
                     {
                         "product_id": product.id,
-                        "from_unit": old_unit,
-                        "to_unit": target_unit,
-                        "minimum_quantity": listing.minimum_quantity,
-                        "case_quantity": listing.case_quantity,
-                        "price_usd": listing.price_usd,
+                        "base_unit": base_unit,
+                        "from_display_unit": old_unit,
+                        "to_display_unit": target_unit,
+                        "inventory_quantity_mutated": False,
+                        "listing_terms_mutated": False,
+                        "metrc_quantity_mutated": False,
                     },
                     sort_keys=True,
                 ),
@@ -163,5 +156,5 @@ def update_storefront_sales_unit(
     refreshed = service.admin_snapshot(context.organization_id, context.facility_id)
     row = next((item for item in refreshed.get("products", []) if item.get("product_id") == product_id), None)
     if not row:
-        raise HTTPException(500, "Sales unit saved but refreshed listing could not be resolved.")
+        raise HTTPException(500, "Display unit saved but refreshed listing could not be resolved.")
     return row
