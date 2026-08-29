@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ProductionPage } from "../pages/ProductionPage";
 import "../production-planning.css";
 import { ProductionCalendar } from "./ProductionCalendar";
@@ -21,6 +21,10 @@ export function ProductionPlanningWorkspace({
   initialView?: PlanningView;
 }) {
   const [view, setView] = useState<PlanningView>(initialView);
+
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
 
   return (
     <div className="page production-planning-workspace">
