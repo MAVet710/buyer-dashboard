@@ -2,9 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
-import { ProductionCalendar } from "./components/ProductionCalendar";
-import { ProductionNextActions } from "./components/ProductionNextActions";
-import { ProductionPlanner } from "./components/ProductionPlanner";
+import { ProductionPlanningWorkspace } from "./components/ProductionPlanningWorkspace";
 import { WorkspaceWindow } from "./components/WorkspaceWindow";
 import { entityContextForPath, pageForPath, pathForPage } from "./lib/workspaceRoutes";
 
@@ -22,7 +20,6 @@ const ProductMasterPage = lazy(() => import("./pages/ProductMasterPage").then(mo
 const RetailProduct360Page = lazy(() => import("./pages/RetailProduct360Page").then(module => ({ default: module.RetailProduct360Page })));
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
 const PurchasingPage = lazy(() => import("./pages/PurchasingPage").then(module => ({ default: module.PurchasingPage })));
-const ProductionPage = lazy(() => import("./pages/ProductionPage").then(module => ({ default: module.ProductionPage })));
 const ProductionRun360Page = lazy(() => import("./pages/ProductionRun360Page").then(module => ({ default: module.ProductionRun360Page })));
 const WholesaleOpsPage = lazy(() => import("./pages/WholesaleOpsPage").then(module => ({ default: module.WholesaleOpsPage })));
 const ExtractionUnifiedPage = lazy(() => import("./pages/ExtractionUnifiedPage").then(module => ({ default: module.ExtractionUnifiedPage })));
@@ -117,8 +114,8 @@ export default function App() {
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
     : page === "Replenishment Policies" ? <PurchasingPage />
     : page === "Reports" ? <RetailInsightsPage />
-    : page === "Production" ? <><ProductionPlanner onOpenRun={openProductionRun360}/><ProductionNextActions onOpenRun={openProductionRun360}/><ProductionPage /></>
-    : page === "Production Calendar" ? <ProductionCalendar onOpenRun={openProductionRun360}/>
+    : page === "Production" ? <ProductionPlanningWorkspace onOpenRun={openProductionRun360} />
+    : page === "Production Calendar" ? <ProductionPlanningWorkspace onOpenRun={openProductionRun360} initialView="Calendar" />
     : page === "Production Run 360" ? <ProductionRun360Page onNavigate={navigate} initialOrderId={run360OrderId} />
     : page === "Wholesale Ops" ? <WholesaleOpsPage onNavigate={navigate} />
     : page === "Extraction" ? <ExtractionUnifiedPage onNavigate={navigate} />
