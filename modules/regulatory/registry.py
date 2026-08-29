@@ -225,17 +225,9 @@ for _code in DOCUMENTATION_VERIFIED_JURISDICTIONS:
             source_url=_profile.documentation_url,
         )
 
-# Massachusetts' reviewed Packages v2 index has adjustment/finish operations,
-# while waste is exposed under plant/plant-batch/harvest families rather than a
-# dedicated package-waste endpoint. Record the reviewed absence instead of
-# leaving this as an unexplained unknown or inventing a package mutation.
-_REGISTRY["MA"].capabilities["package_waste"] = CapabilityStatus.UNSUPPORTED
-_REGISTRY["MA"].capability_evidence["package_waste"] = CapabilityEvidence(
-    capability="package_waste",
-    endpoint="NO DEDICATED /packages/v2/*/waste ENDPOINT",
-    source_url=_REGISTRY["MA"].documentation_url,
-    note="Reviewed Massachusetts v2 documentation does not list a dedicated package-waste endpoint; plant, plant-batch, and harvest waste are separate endpoint families.",
-)
+# Absence from an endpoint index is not enough evidence to declare a regulatory
+# capability unsupported. Package waste therefore remains unknown/unverified
+# until direct provider documentation establishes the exact package-waste API.
 
 
 def normalize_jurisdiction(value: str) -> str:
