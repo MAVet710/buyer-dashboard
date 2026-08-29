@@ -16,6 +16,7 @@ from modules.coman.models import (
     Organization,
     Product,
 )
+from modules.commerce_storefronts.models import CommerceStorefront, CommerceStorefrontProduct
 from modules.product_master.models import ProductMasterProfile
 
 ORGANIZATION_SLUG = "cbk"
@@ -34,7 +35,7 @@ class DemoBatch:
     tested_at: str
     coa_url: str
     thca_percent: float
-    tac_percent: float
+    total_thc_percent: float
     terpenes_percent: float
     quantity: float
     name: str = ""
@@ -43,6 +44,7 @@ class DemoBatch:
     product_format: str = ""
     base_unit: str = "unit"
     bulk: bool = False
+    source_lot_code: str = ""
 
 
 # Real Massachusetts COA facts sourced from OpenCOA. Cowboy Kush product identity,
@@ -56,18 +58,17 @@ BATCHES = (
     DemoBatch("CBK-FLR-MOTORBREATH-35G", "MOBR250813-2-6A1", "NA50902001-004", "1A40A030000012E000101613", "Kaycha MA, LLC", "2025-09-04", "https://opencoa.org/coa/019f4e7a-ef4d-7056-819a-4ae4461614fb/mobr250813-2-6a1", 31.44, 27.73, 3.79, 84),
     DemoBatch("CBK-FLR-GELATO-35G", "Gelato-LDF-2025-14.2", "AL51212009-003", "", "Kaycha MA, LLC", "2025-12-16", "https://opencoa.org/coa/019eb5a9-2e78-7188-852b-63667ce36699/gelato-ldf-2025-14-2", 26.43, 23.67, 2.03, 108),
     DemoBatch("CBK-FLR-BLUE-DREAM-35G", "OB5-110625(816)", "NA51229001-003", "1A40A0300010D89000000821", "Kaycha MA, LLC", "2025-12-31", "https://opencoa.org/coa/019f42d8-d3be-70e6-ab42-559844f5ef76/ob5-110625-816", 26.30, 23.32, 0.92, 132),
-
-    # Bulk wholesale flower. Quantities are demo grams; lab facts and COA URLs are real.
     DemoBatch(
         sku="CBK-BULK-GELATO-SUNRISE",
-        lot_code="H36-GSR-20251023-A1",
+        lot_code="DEMO-BULK-H36-GSR-20251023-A1",
+        source_lot_code="H36-GSR-20251023-A1",
         sample_id="NA51028009-016",
         tracking_number="",
         lab="Kaycha MA, LLC",
         tested_at="2025-11-03",
         coa_url="https://opencoa.org/coa/019f4f5a-f4c8-71bf-ae1d-4d03648c2cca/h36-gsr-20251023-a1",
         thca_percent=26.93,
-        tac_percent=24.08,
+        total_thc_percent=24.08,
         terpenes_percent=3.40,
         quantity=4535.92,
         name="Gelato Sunrise Bulk Flower",
@@ -79,14 +80,15 @@ BATCHES = (
     ),
     DemoBatch(
         sku="CBK-BULK-PERMANENT-MARKER",
-        lot_code="PRM-F3-08062025-CD",
+        lot_code="DEMO-BULK-PRM-F3-08062025-CD",
+        source_lot_code="PRM-F3-08062025-CD",
         sample_id="NA50903005-010",
         tracking_number="",
         lab="Kaycha MA, LLC",
         tested_at="2025-09-06",
         coa_url="https://opencoa.org/coa/019f4e80-f041-73e0-8ce5-bfc5c72ae4c2/prm-f3-08062025-cd",
         thca_percent=26.73,
-        tac_percent=24.23,
+        total_thc_percent=24.23,
         terpenes_percent=4.20,
         quantity=3628.74,
         name="Permanent Marker Bulk Flower",
@@ -98,14 +100,15 @@ BATCHES = (
     ),
     DemoBatch(
         sku="CBK-BULK-WEDDING-CAKE",
-        lot_code="WECA-F1H4-2026.06.29-B-BULK",
+        lot_code="DEMO-BULK-WECA-F1H4-2026.06.29-B",
+        source_lot_code="WECA-F1H4-2026.06.29-B",
         sample_id="NA60717003-021",
         tracking_number="1A40A0300008C3D000035718",
         lab="Kaycha MA, LLC",
         tested_at="2026-07-22",
         coa_url="https://opencoa.org/coa/019f9446-8169-72c3-98de-354d7f760eb0/weca-f1h4-2026-06-29-b",
         thca_percent=31.83,
-        tac_percent=28.10,
+        total_thc_percent=28.10,
         terpenes_percent=1.81,
         quantity=2267.96,
         name="Wedding Cake Bulk Flower",
@@ -117,14 +120,15 @@ BATCHES = (
     ),
     DemoBatch(
         sku="CBK-BULK-MOTORBREATH",
-        lot_code="MOBR250813-2-6A1-BULK",
+        lot_code="DEMO-BULK-MOBR250813-2-6A1",
+        source_lot_code="MOBR250813-2-6A1",
         sample_id="NA50902001-004",
         tracking_number="1A40A030000012E000101613",
         lab="Kaycha MA, LLC",
         tested_at="2025-09-04",
         coa_url="https://opencoa.org/coa/019f4e7a-ef4d-7056-819a-4ae4461614fb/mobr250813-2-6a1",
         thca_percent=31.44,
-        tac_percent=27.73,
+        total_thc_percent=27.73,
         terpenes_percent=3.79,
         quantity=2721.55,
         name="Motorbreath Bulk Flower",
@@ -177,6 +181,51 @@ def _ensure_bulk_product(session: Session, organization: Organization, batch: De
     return product
 
 
+def _ensure_storefront_listing(
+    session: Session,
+    organization: Organization,
+    facility: Facility,
+    product: Product,
+    batch: DemoBatch,
+) -> str:
+    storefront = session.scalar(
+        select(CommerceStorefront).where(
+            CommerceStorefront.organization_id == organization.id,
+            CommerceStorefront.facility_id == facility.id,
+        ).order_by(CommerceStorefront.created_at.asc())
+    )
+    if storefront is None:
+        return "missing"
+    listing = session.scalar(
+        select(CommerceStorefrontProduct).where(
+            CommerceStorefrontProduct.storefront_id == storefront.id,
+            CommerceStorefrontProduct.product_id == product.id,
+        )
+    )
+    result = "updated"
+    if listing is None:
+        listing = CommerceStorefrontProduct(
+            organization_id=organization.id,
+            storefront_id=storefront.id,
+            product_id=product.id,
+            price_usd=float(product.retail_price or 0.0),
+            minimum_quantity=28.0 if batch.bulk else 1.0,
+            case_quantity=28.0 if batch.bulk else 1.0,
+            quantity_breaks_json="[]",
+            featured=False,
+            active=True,
+            sort_order=500 if batch.bulk else 250,
+        )
+        session.add(listing)
+        result = "created"
+    else:
+        listing.active = True
+        if batch.bulk:
+            listing.minimum_quantity = max(float(listing.minimum_quantity or 0.0), 28.0)
+            listing.case_quantity = max(float(listing.case_quantity or 0.0), 28.0)
+    return result
+
+
 def _set_opening_balance(session: Session, organization_id: str, facility_id: str, lot: InventoryLot, target: float, unit: str) -> None:
     current = float(session.scalar(select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(InventoryTransaction.lot_id == lot.id)) or 0.0)
     delta = round(float(target) - current, 4)
@@ -196,7 +245,17 @@ def _set_opening_balance(session: Session, organization_id: str, facility_id: st
 
 def seed(database_url: str, *, apply: bool) -> dict[str, int]:
     engine = create_engine(database_url.replace("postgresql://", "postgresql+psycopg://", 1))
-    stats = {"batches": len(BATCHES), "bulk_batches": sum(batch.bulk for batch in BATCHES), "products_created_or_updated": 0, "lots_created": 0, "lots_updated": 0, "missing_products": 0}
+    stats = {
+        "batches": len(BATCHES),
+        "bulk_batches": sum(batch.bulk for batch in BATCHES),
+        "products_created_or_updated": 0,
+        "lots_created": 0,
+        "lots_updated": 0,
+        "missing_products": 0,
+        "storefront_listings_created": 0,
+        "storefront_listings_updated": 0,
+        "storefront_missing": 0,
+    }
     with Session(engine) as session, session.begin():
         organization = session.scalar(select(Organization).where(Organization.slug == ORGANIZATION_SLUG))
         if not organization or not organization.active:
@@ -218,20 +277,22 @@ def seed(database_url: str, *, apply: bool) -> dict[str, int]:
                     continue
 
             lot = session.scalar(select(InventoryLot).where(InventoryLot.facility_id == facility.id, InventoryLot.lot_code == batch.lot_code))
+            source_lot_code = batch.source_lot_code or batch.lot_code
             metadata = {
                 "demo_data": True,
                 "demo_source": "OpenCOA Massachusetts",
                 "source_attribution": "Laboratory facts sourced from the linked OpenCOA record; Cowboy Kush product/inventory context is demo-only.",
                 "lab_testing_state": "Passed",
-                "coa_reference": batch.sample_id or batch.lot_code,
+                "coa_reference": batch.sample_id or source_lot_code,
                 "coa_url": batch.coa_url,
-                "batch_name": batch.lot_code,
+                "batch_name": source_lot_code,
+                "source_lot_code": source_lot_code,
                 "sample_id": batch.sample_id,
                 "source_tracking_number": batch.tracking_number,
                 "laboratory": batch.lab,
                 "analysis_date": batch.tested_at,
                 "thca_percent": batch.thca_percent,
-                "tac_percent": batch.tac_percent,
+                "total_thc_percent": batch.total_thc_percent,
                 "total_terpenes_percent": batch.terpenes_percent,
                 "inventory_quantity": batch.quantity,
                 "inventory_type": "bulk" if batch.bulk else "retail_ready",
@@ -243,9 +304,9 @@ def seed(database_url: str, *, apply: bool) -> dict[str, int]:
                     facility_id=facility.id,
                     product_id=product.id,
                     lot_code=batch.lot_code,
-                    compliance_package_id=batch.tracking_number,
-                    external_inventory_id=f"OPENCOA:{batch.sample_id}",
-                    barcode_value=batch.sample_id or batch.lot_code,
+                    compliance_package_id="",
+                    external_inventory_id=f"OPENCOA:{batch.sample_id}:{batch.sku}",
+                    barcode_value=f"{batch.sample_id}:{batch.sku}" if batch.sample_id else batch.lot_code,
                     location_code="DEMO-BULK-WHOLESALE" if batch.bulk else "DEMO-WHOLESALE",
                     status="available",
                     notes=json.dumps(metadata, sort_keys=True),
@@ -255,14 +316,22 @@ def seed(database_url: str, *, apply: bool) -> dict[str, int]:
                 stats["lots_created"] += 1
             else:
                 lot.product_id = product.id
-                lot.compliance_package_id = batch.tracking_number
-                lot.external_inventory_id = f"OPENCOA:{batch.sample_id}"
+                lot.compliance_package_id = ""
+                lot.external_inventory_id = f"OPENCOA:{batch.sample_id}:{batch.sku}"
+                lot.barcode_value = f"{batch.sample_id}:{batch.sku}" if batch.sample_id else batch.lot_code
                 lot.location_code = "DEMO-BULK-WHOLESALE" if batch.bulk else "DEMO-WHOLESALE"
                 lot.status = "available"
                 lot.notes = json.dumps(metadata, sort_keys=True)
                 stats["lots_updated"] += 1
 
             _set_opening_balance(session, organization.id, facility.id, lot, batch.quantity, batch.base_unit or product.base_unit)
+            listing_state = _ensure_storefront_listing(session, organization, facility, product, batch)
+            if listing_state == "created":
+                stats["storefront_listings_created"] += 1
+            elif listing_state == "updated":
+                stats["storefront_listings_updated"] += 1
+            else:
+                stats["storefront_missing"] += 1
             session.add(AuditEvent(
                 organization_id=organization.id,
                 facility_id=facility.id,
@@ -270,7 +339,7 @@ def seed(database_url: str, *, apply: bool) -> dict[str, int]:
                 entity_id=lot.id,
                 action="demo_ma_coa_attached",
                 actor=ACTOR,
-                changes_json=json.dumps({"sku": batch.sku, "lot_code": batch.lot_code, "coa_url": batch.coa_url, "quantity": batch.quantity, "bulk": batch.bulk}, sort_keys=True),
+                changes_json=json.dumps({"sku": batch.sku, "lot_code": batch.lot_code, "source_lot_code": source_lot_code, "coa_url": batch.coa_url, "quantity": batch.quantity, "bulk": batch.bulk}, sort_keys=True),
             ))
         if not apply:
             session.rollback()
@@ -278,7 +347,7 @@ def seed(database_url: str, *, apply: bool) -> dict[str, int]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Seed Cowboy Kush demo inventory with real Massachusetts OpenCOA lab facts, including bulk flower.")
+    parser = argparse.ArgumentParser(description="Seed Cowboy Kush demo inventory with real Massachusetts OpenCOA lab facts, including bulk flower and storefront listings.")
     parser.add_argument("--apply", action="store_true", help="Commit changes; default is a rolled-back dry run.")
     args = parser.parse_args()
     result = seed(os.environ["DL_PROD_DB_URL"], apply=args.apply)

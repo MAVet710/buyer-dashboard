@@ -9,7 +9,7 @@ def test_demo_coas_are_https_open_coa_passed_batch_inputs():
     assert all(batch.coa_url.startswith("https://opencoa.org/coa/") for batch in BATCHES)
     assert all(batch.quantity > 0 for batch in BATCHES)
     assert all(0 <= batch.thca_percent <= 100 for batch in BATCHES)
-    assert all(0 <= batch.tac_percent <= 100 for batch in BATCHES)
+    assert all(0 <= batch.total_thc_percent <= 100 for batch in BATCHES)
     assert all(0 <= batch.terpenes_percent <= 100 for batch in BATCHES)
 
 
@@ -29,6 +29,8 @@ def test_bulk_demo_inventory_contains_high_terp_and_high_potency_flower():
     bulk = [batch for batch in BATCHES if batch.bulk]
     assert len(bulk) >= 4
     assert all(batch.sku.startswith("CBK-BULK-") for batch in bulk)
+    assert all(batch.lot_code.startswith("DEMO-BULK-") for batch in bulk)
+    assert all(batch.source_lot_code and batch.source_lot_code != batch.lot_code for batch in bulk)
     assert all(batch.base_unit == "g" for batch in bulk)
     assert all(batch.category == "Bulk Flower" for batch in bulk)
     assert max(batch.terpenes_percent for batch in bulk) >= 4.0
@@ -36,3 +38,8 @@ def test_bulk_demo_inventory_contains_high_terp_and_high_potency_flower():
     assert any(batch.strain == "Permanent Marker" and batch.terpenes_percent == 4.20 for batch in bulk)
     assert any(batch.strain == "Gelato Sunrise" and batch.terpenes_percent == 3.40 for batch in bulk)
     assert any(batch.strain == "Motorbreath" and batch.thca_percent == 31.44 and batch.terpenes_percent == 3.79 for batch in bulk)
+
+
+def test_open_coa_total_thc_is_not_mislabeled_as_tac():
+    assert all(hasattr(batch, "total_thc_percent") for batch in BATCHES)
+    assert all(not hasattr(batch, "tac_percent") for batch in BATCHES)
