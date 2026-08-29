@@ -44,7 +44,9 @@ def test_inventory_actions_receiving_and_operation_aware_audits_are_one_workflow
     assert 'initialLotId={actionPackage?.id}' in page
     assert 'const selectedPackages=grain==="packages"?selected:packageRows.filter' in page
     assert 'setPackageChoice(action)' in page
-    assert "Inbound Queue → Receive Details → Review → Post Inventory → Labels" in retail_receive
+    assert "Inbound Queue → Receive Details → Provider Check → Post Inventory → Labels" in retail_receive
+    assert "Confirm provider state & review" in retail_receive
+    assert "Verify again & Post Inventory" in retail_receive
     assert "PRODUCTION / CULTIVATION RECEIVING" in production_receive
     assert "Retail inventory is never modified." in production_receive
     assert 'type Operation = "retail" | "production"' in focus
