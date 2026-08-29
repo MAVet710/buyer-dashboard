@@ -327,21 +327,7 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
             profile = _profile_dict(profiles.get(item["product_id"]))
             if option:
                 item.update({key: option.get(key) for key in ("lab_stats", "batches", "primary_batch", "inventory_type", "base_unit", "sales_unit", "compatible_sales_units")})
-                base_unit = normalize_unit(option.get("base_unit") or item.get("unit") or "")
-                sales_unit = normalize_unit(option.get("sales_unit") or option.get("unit") or base_unit)
-                if base_unit and sales_unit and sales_unit != base_unit:
-                    item["minimum_quantity"] = convert_quantity(float(item.get("minimum_quantity") or 0.0), base_unit, sales_unit)
-                    item["case_quantity"] = convert_quantity(float(item.get("case_quantity") or 0.0), base_unit, sales_unit)
-                    item["price_usd"] = convert_unit_price(float(item.get("price_usd") or 0.0), base_unit, sales_unit)
-                    item["quantity_breaks"] = [
-                        {
-                            **tier,
-                            "minimum_quantity": convert_quantity(float(tier.get("minimum_quantity") or 0.0), base_unit, sales_unit),
-                            "price_usd": convert_unit_price(float(tier.get("price_usd") or 0.0), base_unit, sales_unit),
-                        }
-                        for tier in item.get("quantity_breaks") or []
-                    ]
-                item["unit"] = sales_unit or option.get("unit") or item.get("unit")
+                item["unit"] = option.get("unit") or item.get("unit")
                 for key in ("brand", "category", "subcategory", "strain", "product_format", "image_url", "description"):
                     item[key] = option.get(key) or profile.get(key, "")
             else:
@@ -393,9 +379,15 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
         return sorted(result, key=lambda row: (row["name"].casefold(), row["sku"].casefold()))
 
     def submit_order_request(self, **kwargs: Any):
-        # Base submission performs the authoritative public-catalog validation and
-        # writes the durable submitted approval request. Do not rebuild the same
-        # expensive catalog a second time here.
+        # Preserve the explicit test-preview rejection while avoiding a duplicate
+        # catalog build for ordinary sellable submissions.
+        slug = str(kwargs.get("slug") or "")
+        catalog = self.public_catalog(slug)
+        by_product = {row["product_id"]: row for row in catalog["catalog"]}
+        for requested in kwargs.get("lines") or []:
+            item = by_product.get(str(requested.get("product_id") or ""))
+            if item and item.get("availability_status") == "preview" and not item.get("orderable"):
+                raise ValueError(f"{item['name']} is test-preview inventory and cannot be ordered.")
         return super().submit_order_request(**kwargs)
 
     def _normalize_commercial_order_to_base_units(self, order_id: str, organization_id: str) -> None:
