@@ -23,11 +23,14 @@ def test_retail_receive_preserves_streamlit_inbound_queue_details_review_post_la
         assert label in source
         assert label in web or label == "Get Metrc Lab Results" and "Pull read-only METRC lab results" in web
 
-    assert "Inbound Queue → Receive Details → Review → Post Inventory → Labels" in web
-    assert "Traceability is read-only in this work window." in web
+    assert "Inbound Queue → Receive Details → Provider Check → Post Inventory → Labels" in web
+    assert "Traceability stays read-only in this work window." in web
     assert 'queryKey: ["inventory-inbound", operation]' in web
     assert 'queryKey: ["inventory-receive-history", operation]' in web
-    assert "/receipts/batch" in web
+    assert "/preflight/commit" in web
+    assert "Confirm provider state & review" in web
+    assert "Verify again & Post Inventory" in web
+    assert "Provider controlled" in web
     assert "one atomic transaction" in web
 
 
