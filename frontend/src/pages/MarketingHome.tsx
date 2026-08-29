@@ -33,45 +33,45 @@ const featureCards = [
   {
     icon: FlaskConical,
     title: "Extraction Command Center",
-    body: "Track what went in, what came out, what it cost, and where the run actually stands. No end-of-week archaeology through notebooks and spreadsheets.",
+    body: "Track inputs, outputs, yields, recovery, cost, and run status while the work is happening. No Friday-afternoon scavenger hunt through notebooks, texts, and somebody's mystery spreadsheet.",
   },
   {
     icon: Store,
     title: "Wholesale & Customer Portal",
-    body: "Publish a branded wholesale storefront, collect licensed-customer order requests, approve them into the same order engine, allocate production inventory, and work fulfillment without rebuilding the order by hand.",
+    body: "Give licensed buyers a branded place to order, then bring approved orders straight into inventory allocation and fulfillment. Fewer screenshots. Fewer retyped orders. Much less 'did anyone enter that yet?'",
   },
   {
     icon: Bot,
     title: "Doobie Agent",
-    body: "Ask operational questions across the facility, surface regulatory exceptions, and prepare governed actions for employee review. The agent can recommend and prepare; regulated provider writes stay human-controlled.",
+    body: "Ask what's going on across the facility and get answers tied to the operation, not generic chatbot filler. Doobie can surface issues and prepare the next move; regulated actions still stay under employee control.",
   },
   {
     icon: Workflow,
     title: "METRC Integration",
-    body: "Keep packages, manifests, transfers, facility mappings, controlled actions, and reconciliation tied to the work instead of treating METRC like a disconnected second system.",
+    body: "Keep packages, transfers, manifests, facility mappings, reconciliation, and controlled actions tied to the workflow that created them instead of treating METRC like a second job with worse hours.",
   },
   {
     icon: Warehouse,
     title: "Inventory & Receiving",
-    body: "Know what is on hand, what is moving, what needs a count, and what is about to become somebody's problem before it gets there.",
+    body: "See what you have, what moved, what is aging, what needs a count, and what purchasing should care about before the answer becomes 'we're out.'",
   },
   {
     icon: Factory,
     title: "Production & QA",
-    body: "Follow material from bulk input through finished goods with production, packaging, QA, yields, costing, and wholesale readiness connected the whole way.",
+    body: "Plan work, follow bulk material into finished goods, track yields and QA, and keep production inventory connected to what sales and wholesale can actually promise.",
   },
   {
     icon: FileCheck2,
     title: "Compliance Evidence & Reporting",
-    body: "Keep the receipts: who did what, when they did it, what data backed it up, and what report proves it when somebody comes asking.",
+    body: "Keep the record behind the work: who did it, when, what changed, what data supported it, and what you can hand over when someone asks six months later.",
   },
 ];
 
 const workflow = [
-  ["01", "Plug in the operation", "Set up the facilities, people, roles, licenses, and data your team already uses. No ceremonial software rollout required."],
-  ["02", "See what is actually going on", "Spot inventory pressure, purchasing needs, active runs, holds, customer orders, receiving work, and compliance problems before they turn into fire drills."],
-  ["03", "Do the work where the data lives", "Receive it, count it, buy it, make it, extract it, sell it wholesale, investigate it, and report it without bouncing through five different systems."],
-  ["04", "Keep the human in control", "Doobie can surface the issue and prepare the next move. High-value and regulated actions keep an employee approval, provider attempt, and reconciliation trail."],
+  ["01", "Set up the operation you actually have", "Facilities, licenses, roles, people, and the systems your team already uses. DoobieLogic should fit the operation, not make the operation cosplay as software."],
+  ["02", "See what needs attention", "Inventory pressure, purchasing needs, active runs, holds, receiving work, customer orders, and compliance issues show up where the team can act on them."],
+  ["03", "Do the work in context", "Receive it, count it, buy it, make it, extract it, sell it, investigate it, and report it without rebuilding the same story in five places."],
+  ["04", "Keep people in control", "Doobie can point out the problem and prepare the next step. High-value and regulated actions keep approval, submission, and reconciliation visible."],
 ];
 
 export function MarketingHome() {
@@ -101,22 +101,22 @@ export function MarketingHome() {
       <main id="top">
         <section className="marketing-hero">
           <div className="marketing-hero-copy">
-            <div className="marketing-eyebrow">Cannabis ops without the spreadsheet circus</div>
+            <div className="marketing-eyebrow">Cannabis operations, minus the scavenger hunt</div>
             <h1>
-              Run <span>buying, inventory, production, extraction, wholesale,</span> and compliance from one place.
+              Run <span>buying, inventory, production, extraction, wholesale,</span> and compliance without stitching the story together by hand.
             </h1>
             <p>
-              DoobieLogic gives teams one clear view of the work that keeps a licensed facility moving: purchasing and receiving, production and extraction, wholesale ordering and fulfillment, traceability, reporting, compliance, and Doobie Agent.
+              DoobieLogic brings the work that actually runs a cannabis business into one place. Purchasing. Receiving. Production. Extraction. Wholesale. Traceability. Reporting. Compliance. And an agent that understands the facility it is talking about.
             </p>
 
             <div className="marketing-cta-row">
               <a className="marketing-primary" href="/beta">Join the DoobieLogic Beta <ArrowRight size={18} /></a>
-              <a className="marketing-secondary" href="#platform">See what it does</a>
+              <a className="marketing-secondary" href="#platform">See how it works</a>
             </div>
 
             <div className="marketing-proof-line">
               <span><CircleCheck size={16} /> Facility-scoped</span>
-              <span><LockKeyhole size={16} /> Role-aware</span>
+              <span><LockKeyhole size={16} /> User-permission controlled</span>
               <span><ShieldCheck size={16} /> Human-approved regulated actions</span>
             </div>
           </div>
@@ -140,8 +140,8 @@ export function MarketingHome() {
               <div className="marketing-preview-heading">
                 <div>
                   <small>OPERATIONS HOME</small>
-                  <h3>Morning. Here&apos;s what&apos;s actually going on.</h3>
-                  <p>The stuff worth looking at before it becomes your whole afternoon.</p>
+                  <h3>Morning. Here&apos;s what needs your attention.</h3>
+                  <p>The important stuff, before it turns into everybody&apos;s problem.</p>
                 </div>
                 <span>Live workspace</span>
               </div>
@@ -150,7 +150,7 @@ export function MarketingHome() {
                 <article><span>Active Runs</span><strong>14</strong><small>3 need a look</small></article>
                 <article><span>Inventory Risk</span><strong>12</strong><small>6 urgent reorders</small></article>
                 <article><span>Open Orders</span><strong>8</strong><small>2 ready to fulfill</small></article>
-                <article><span>Compliance Flags</span><strong>2</strong><small>worth fixing now</small></article>
+                <article><span>Compliance Flags</span><strong>2</strong><small>better now than later</small></article>
               </div>
 
               <div className="marketing-preview-grid">
@@ -184,7 +184,7 @@ export function MarketingHome() {
               </div>
 
               <div className="marketing-sync-bar">
-                <div><ShieldCheck size={19}/><span><strong>Nothing hiding in the weeds</strong><small>Inventory, production, commerce, and compliance read the same facility context.</small></span></div>
+                <div><ShieldCheck size={19}/><span><strong>Same facility. Same story.</strong><small>Inventory, production, commerce, and compliance read from the same operating context.</small></span></div>
                 <div className="marketing-sync-stat"><strong>8</strong><small>Open orders</small></div>
                 <div className="marketing-sync-stat"><strong>1</strong><small>Approval waiting</small></div>
                 <div className="marketing-sync-stat"><strong>2 mins</strong><small>Last sync</small></div>
@@ -199,9 +199,9 @@ export function MarketingHome() {
 
         <section className="marketing-section marketing-feature-section" id="platform">
           <div className="marketing-section-heading">
-            <div className="marketing-eyebrow">One operational platform</div>
-            <h2>Built inside cannabis operations. Not outside looking in.</h2>
-            <p>Spreadsheets, POS exports, METRC, whiteboards, customer texts, sales portals, chat threads, and that one person who somehow knows everything. DoobieLogic pulls the operation back into one place without flattening every license into the same workflow.</p>
+            <div className="marketing-eyebrow">One place to run the work</div>
+            <h2>Because “check the spreadsheet” is not an operating system.</h2>
+            <p>Most cannabis teams are already running the business across METRC, POS exports, spreadsheets, whiteboards, texts, email, sales portals, and the one employee everyone asks because they somehow know where everything is. DoobieLogic connects that work without pretending every license operates the same way.</p>
           </div>
 
           <div className="marketing-feature-grid">
@@ -219,41 +219,41 @@ export function MarketingHome() {
         <section className="marketing-operations" id="extraction">
           <div className="marketing-operations-copy">
             <div className="marketing-eyebrow">Retail + Production + Wholesale</div>
-            <h2>A retail vault, an extraction lab, and a wholesale shipment are not the same inventory problem.</h2>
+            <h2>A dispensary vault, an extraction lab, and a pallet of bulk flower are not the same inventory problem.</h2>
             <p>
               Retail cares about sellable units, turns, receiving, and reorders. Production and cultivation care about bulk material,
-              plants, runs, yields, QA, and traceability. Wholesale cares about customers, allocations, fulfillment, transport, and manifests. DoobieLogic keeps each license and workflow in its lane while using the same underlying operation.
+              plants, runs, yields, QA, and traceability. Wholesale cares about customers, pricing, allocations, fulfillment, transport, and manifests. DoobieLogic keeps those workflows distinct while still connecting the operation behind them.
             </p>
             <div className="marketing-operation-list">
               <span><Boxes size={18}/> Retail inventory, buying, receiving, and sales</span>
               <span><FlaskConical size={18}/> Extraction runs, yields, inputs, outputs, and costing</span>
-              <span><Factory size={18}/> Production, packaging, QA, and Co-Man</span>
-              <span><Store size={18}/> Wholesale orders, customer portal, fulfillment, and manifest readiness</span>
+              <span><Factory size={18}/> Production, packaging, QA, planning, and Co-Man</span>
+              <span><Store size={18}/> Wholesale storefronts, pricing, customer orders, fulfillment, and manifest readiness</span>
             </div>
           </div>
 
           <div className="marketing-operations-panel">
             <div className="marketing-panel-label">License context matters</div>
-            <article className="marketing-license-card retail"><span>Retail</span><strong>Adult-use store</strong><p>Sellable inventory, buying, sales, receiving, counts, compliance, and the stuff your store actually lives in.</p></article>
-            <article className="marketing-license-card production"><span>Production</span><strong>Manufacturing / cultivation / wholesale</strong><p>Bulk inventory, plants, extraction, runs, QA, materials, costing, customer orders, capacity, fulfillment, and traceability without pretending it is retail.</p></article>
+            <article className="marketing-license-card retail"><span>Retail</span><strong>Adult-use store</strong><p>Sellable inventory, buying, sales, receiving, counts, compliance, and the day-to-day work that keeps the store moving.</p></article>
+            <article className="marketing-license-card production"><span>Production</span><strong>Manufacturing / cultivation / wholesale</strong><p>Bulk inventory, plants, extraction, runs, QA, materials, costing, production planning, customer orders, capacity, fulfillment, and traceability. No retail-shaped square peg.</p></article>
           </div>
         </section>
 
         <section className="marketing-trust-band" id="compliance">
           <div className="marketing-trust-intro">
             <span className="marketing-trust-shield"><ShieldCheck size={28}/></span>
-            <div><h3>Built for cannabis, where “close enough” gets expensive.</h3><p>Keep the operation clean, the records useful, and the compliance story easy to prove.</p></div>
+            <div><h3>Built for cannabis, where “close enough” can get expensive.</h3><p>Make the right thing easier to do and the history easier to prove.</p></div>
           </div>
-          <article><ShieldCheck size={21}/><div><strong>State Compliance</strong><p>Keep regulated work grounded in verified facility context, endpoint evidence, and the rules and procedures that actually apply.</p></div></article>
-          <article><Workflow size={21}/><div><strong>Controlled Traceability</strong><p>Separate recommendation, employee approval, provider submission, and readback instead of calling a request “done” too early.</p></div></article>
-          <article><ClipboardCheck size={21}/><div><strong>Audit Ready</strong><p>When somebody asks what happened, have the record instead of a story.</p></div></article>
-          <article><LockKeyhole size={21}/><div><strong>Facility Controls</strong><p>People see the facilities and tools they should see. That&apos;s it.</p></div></article>
+          <article><ShieldCheck size={21}/><div><strong>State Compliance</strong><p>Keep regulated work tied to the correct facility, verified context, and the rules that actually apply there.</p></div></article>
+          <article><Workflow size={21}/><div><strong>Controlled Traceability</strong><p>Keep recommendation, employee approval, provider submission, and reconciliation separate so “we clicked it” never gets mistaken for “it is reconciled.”</p></div></article>
+          <article><ClipboardCheck size={21}/><div><strong>Audit Ready</strong><p>When somebody asks what happened, pull the record instead of assembling a group chat and hoping for the best.</p></div></article>
+          <article><LockKeyhole size={21}/><div><strong>User & Facility Controls</strong><p>People see the facilities and functions they are actually allowed to use. Pricing, approvals, and sensitive operations can be permission-controlled down to the user.</p></div></article>
         </section>
 
         <section className="marketing-section" id="workflow">
           <div className="marketing-section-heading compact">
             <div className="marketing-eyebrow">How it works</div>
-            <h2>From messy data to a clear next move.</h2>
+            <h2>Less hunting for answers. More running the operation.</h2>
           </div>
           <div className="marketing-workflow-grid">
             {workflow.map(([number,title,body]) => (
@@ -266,7 +266,7 @@ export function MarketingHome() {
           <div>
             <div className="marketing-eyebrow">DoobieLogic Beta</div>
             <h2>Good weed deserves better operations.</h2>
-            <p>Get early access, put DoobieLogic through real cannabis workflows, and help shape what ships next.</p>
+            <p>Put DoobieLogic through real cannabis workflows, tell us where it still annoys you, and help shape what ships next.</p>
           </div>
           <a className="marketing-primary" href="/beta">Apply for Beta Access <ArrowRight size={18}/></a>
         </section>
@@ -275,7 +275,7 @@ export function MarketingHome() {
       <footer className="marketing-footer">
         <div className="marketing-footer-brand">
           <div className="marketing-brand"><img className="marketing-brand-image" src={BRAND_IMAGE_URL} alt="DoobieLogic" /><span className="marketing-wordmark"><strong>Doobie</strong><em>Logic</em></span></div>
-          <small>Cannabis Operations Intelligence</small>
+          <small>Cannabis Operations Software</small>
         </div>
         <div className="marketing-footer-links"><a href="#platform">Platform</a><a href="#extraction">Operations</a><a href="#compliance">Compliance</a><a href="/beta">Join Beta</a><a href={APP_URL}>Log in</a></div>
         <div className="marketing-footer-motto"><strong>Semper Paratus</strong><span>•</span><span>Powered by Good Weed and Data</span></div>
