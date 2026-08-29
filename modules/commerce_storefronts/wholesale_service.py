@@ -313,12 +313,15 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
 
     def public_catalog(self, slug: str) -> dict[str, Any]:
         storefront = self.resolve_public(slug)
+        sales_units = self._sales_units(storefront.id)
         sellable = {row["product_id"]: row for row in self.list_catalog_options(storefront.organization_id, storefront.facility_id)}
         merch = {row["product_id"]: row for row in self.merchandising_catalog_options(storefront.organization_id, storefront.facility_id)}
         result = super().public_catalog(slug)
         profiles = self._profiles(storefront.organization_id)
         safe_catalog: list[dict[str, Any]] = []
         for item in result["catalog"]:
+            base_unit = normalize_unit(item.get("unit") or "")
+            sales_unit = sales_units.get(item["product_id"]) or base_unit
             option = sellable.get(item["product_id"])
             merch_row = merch.get(item["product_id"], {})
             blocked_reasons = set(merch_row.get("blocked_reasons") or [])
@@ -327,7 +330,6 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
             profile = _profile_dict(profiles.get(item["product_id"]))
             if option:
                 item.update({key: option.get(key) for key in ("lab_stats", "batches", "primary_batch", "inventory_type", "base_unit", "sales_unit", "compatible_sales_units")})
-                item["unit"] = option.get("unit") or item.get("unit")
                 for key in ("brand", "category", "subcategory", "strain", "product_format", "image_url", "description"):
                     item[key] = option.get(key) or profile.get(key, "")
             else:
@@ -335,6 +337,23 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 item["batches"] = []
                 item["primary_batch"] = None
                 item.update(profile)
+                item["base_unit"] = base_unit
+                item["sales_unit"] = sales_unit
+                item["compatible_sales_units"] = compatible_sales_units(base_unit)
+            if base_unit and sales_unit and sales_unit != base_unit:
+                item["minimum_quantity"] = convert_quantity(float(item.get("minimum_quantity") or 0.0), base_unit, sales_unit)
+                item["case_quantity"] = convert_quantity(float(item.get("case_quantity") or 0.0), base_unit, sales_unit)
+                item["price_usd"] = convert_unit_price(float(item.get("price_usd") or 0.0), base_unit, sales_unit)
+                projected_breaks: list[dict[str, Any]] = []
+                for raw_tier in item.get("quantity_breaks") or []:
+                    tier = dict(raw_tier)
+                    if tier.get("minimum_quantity") is not None:
+                        tier["minimum_quantity"] = convert_quantity(float(tier["minimum_quantity"]), base_unit, sales_unit)
+                    if tier.get("price_usd") is not None:
+                        tier["price_usd"] = convert_unit_price(float(tier["price_usd"]), base_unit, sales_unit)
+                    projected_breaks.append(tier)
+                item["quantity_breaks"] = projected_breaks
+            item["unit"] = sales_unit
             if item.get("orderable"):
                 item["availability_status"] = "in_stock"
             elif option and option.get("test_preview"):
