@@ -251,6 +251,7 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
         for row in by_product.values():
             real_quantity = row["available"] - row["test_quantity"]
             row["orderable"] = real_quantity > 0
+            row["test_preview"] = not row["orderable"] and row["test_quantity"] > 0
             if row["orderable"]:
                 row["available"] = real_quantity
             values = row.pop("_lab_values")
@@ -265,9 +266,13 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
         merch = {row["product_id"]: row for row in self.merchandising_catalog_options(storefront.organization_id, storefront.facility_id)}
         result = super().public_catalog(slug)
         profiles = self._profiles(storefront.organization_id)
+        safe_catalog: list[dict[str, Any]] = []
         for item in result["catalog"]:
             option = sellable.get(item["product_id"])
             merch_row = merch.get(item["product_id"], {})
+            blocked_reasons = set(merch_row.get("blocked_reasons") or [])
+            if "COA is not in a passed/released state" in blocked_reasons:
+                continue
             profile = _profile_dict(profiles.get(item["product_id"]))
             if option:
                 item.update({key: option.get(key) for key in ("lab_stats", "batches", "primary_batch", "inventory_type")})
@@ -280,10 +285,14 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 item.update(profile)
             if item.get("orderable"):
                 item["availability_status"] = "in_stock"
+            elif option and option.get("test_preview"):
+                item["availability_status"] = "preview"
             elif float(merch_row.get("on_hand") or 0) > 0:
                 item["availability_status"] = "coming_soon"
             else:
                 item["availability_status"] = "sold_out"
+            safe_catalog.append(item)
+        result["catalog"] = safe_catalog
         return result
 
     def merchandising_catalog_options(self, organization_id: str, facility_id: str) -> list[dict[str, Any]]:
@@ -305,6 +314,16 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
             row["blocked_reasons"] = [] if row["eligible"] else sorted(row["blocked_reasons"])
             result.append(row)
         return sorted(result, key=lambda row: (row["name"].casefold(), row["sku"].casefold()))
+
+    def submit_order_request(self, **kwargs: Any):
+        slug = str(kwargs.get("slug") or "")
+        catalog = self.public_catalog(slug)
+        by_product = {row["product_id"]: row for row in catalog["catalog"]}
+        for requested in kwargs.get("lines") or []:
+            item = by_product.get(str(requested.get("product_id") or ""))
+            if item and item.get("availability_status") == "preview" and not item.get("orderable"):
+                raise ValueError(f"{item['name']} is test-preview inventory and cannot be ordered.")
+        return super().submit_order_request(**kwargs)
 
     def approve_order_request(self, *, organization_id: str, facility_id: str, request_id: str, actor: str, review_note: str = "", approved_lines: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         result = super().approve_order_request(organization_id=organization_id, facility_id=facility_id, request_id=request_id, actor=actor, review_note=review_note, approved_lines=approved_lines)
