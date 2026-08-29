@@ -2,8 +2,9 @@
 
 These tables are provider-neutral infrastructure for Metrc, BioTrack, or future
 state systems. They record Buyer Dash intent, validation/submission state,
-provider responses, retry/reconciliation state, immutable attempts, and an
-append-only lifecycle history. They do not store API keys or other credentials.
+provider responses, retry/reconciliation state, immutable attempts, receiving
+preflight evidence, and an append-only lifecycle history. They do not store API
+keys or other credentials.
 """
 
 from __future__ import annotations
@@ -35,44 +36,16 @@ class TraceabilityTransaction(TimestampMixin, Base):
 
     __tablename__ = "traceability_transactions"
     __table_args__ = (
-        UniqueConstraint(
-            "organization_id",
-            "facility_id",
-            "provider",
-            "idempotency_key",
-            name="uq_traceability_tx_scope_idempotency",
-        ),
-        CheckConstraint(
-            "provider in ('metrc','biotrack','other')",
-            name="ck_traceability_tx_provider",
-        ),
-        CheckConstraint(
-            "status in ('requested','validated','queued','submitted','accepted','rejected','verified','reconciliation_required','cancelled')",
-            name="ck_traceability_tx_status",
-        ),
+        UniqueConstraint("organization_id", "facility_id", "provider", "idempotency_key", name="uq_traceability_tx_scope_idempotency"),
+        CheckConstraint("provider in ('metrc','biotrack','other')", name="ck_traceability_tx_provider"),
+        CheckConstraint("status in ('requested','validated','queued','submitted','accepted','rejected','verified','reconciliation_required','cancelled')", name="ck_traceability_tx_status"),
         CheckConstraint("attempt_count >= 0", name="ck_traceability_tx_attempt_count"),
-        Index(
-            "ix_traceability_tx_facility_status",
-            "facility_id",
-            "status",
-            "requested_at",
-        ),
-        Index(
-            "ix_traceability_tx_entity",
-            "organization_id",
-            "entity_type",
-            "entity_id",
-            "requested_at",
-        ),
+        Index("ix_traceability_tx_facility_status", "facility_id", "status", "requested_at"),
+        Index("ix_traceability_tx_entity", "organization_id", "entity_type", "entity_id", "requested_at"),
     )
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    facility_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
-    )
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
     provider: Mapped[str] = mapped_column(String(24), nullable=False)
     license_number: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     operation_type: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -97,32 +70,16 @@ class TraceabilityTransaction(TimestampMixin, Base):
 
 class TraceabilityTransactionAttempt(Base):
     """Immutable record of one provider call attempt for a traceability action."""
-
     __tablename__ = "traceability_transaction_attempts"
     __table_args__ = (
-        UniqueConstraint(
-            "transaction_id",
-            "attempt_number",
-            name="uq_traceability_attempt_number",
-        ),
+        UniqueConstraint("transaction_id", "attempt_number", name="uq_traceability_attempt_number"),
         CheckConstraint("attempt_number > 0", name="ck_traceability_attempt_number"),
-        Index(
-            "ix_traceability_attempt_tx_time",
-            "transaction_id",
-            "started_at",
-        ),
+        Index("ix_traceability_attempt_tx_time", "transaction_id", "started_at"),
     )
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    facility_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
-    )
-    transaction_id: Mapped[str] = mapped_column(
-        ForeignKey("traceability_transactions.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
+    transaction_id: Mapped[str] = mapped_column(ForeignKey("traceability_transactions.id", ondelete="CASCADE"), nullable=False, index=True)
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
     request_payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     response_payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
@@ -135,37 +92,56 @@ class TraceabilityTransactionAttempt(Base):
 
 class TraceabilityStatusEvent(Base):
     """Append-only evidence of every traceability lifecycle decision."""
-
     __tablename__ = "traceability_status_events"
     __table_args__ = (
-        CheckConstraint(
-            "from_status in ('requested','validated','queued','submitted','accepted','rejected','verified','reconciliation_required','cancelled')",
-            name="ck_traceability_event_from_status",
-        ),
-        CheckConstraint(
-            "to_status in ('requested','validated','queued','submitted','accepted','rejected','verified','reconciliation_required','cancelled')",
-            name="ck_traceability_event_to_status",
-        ),
-        Index(
-            "ix_traceability_status_event_tx_time",
-            "transaction_id",
-            "occurred_at",
-        ),
+        CheckConstraint("from_status in ('requested','validated','queued','submitted','accepted','rejected','verified','reconciliation_required','cancelled')", name="ck_traceability_event_from_status"),
+        CheckConstraint("to_status in ('requested','validated','queued','submitted','accepted','rejected','verified','reconciliation_required','cancelled')", name="ck_traceability_event_to_status"),
+        Index("ix_traceability_status_event_tx_time", "transaction_id", "occurred_at"),
     )
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    facility_id: Mapped[str] = mapped_column(
-        ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True
-    )
-    transaction_id: Mapped[str] = mapped_column(
-        ForeignKey("traceability_transactions.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
+    transaction_id: Mapped[str] = mapped_column(ForeignKey("traceability_transactions.id", ondelete="CASCADE"), nullable=False, index=True)
     from_status: Mapped[str] = mapped_column(String(32), nullable=False)
     to_status: Mapped[str] = mapped_column(String(32), nullable=False)
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
     reason: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="system")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class ReceivingPreflight(TimestampMixin, Base):
+    """Durable provider snapshot that gates a local inbound inventory receipt.
+
+    This is deliberately not a provider-write record. It proves what the state
+    system reported before local inventory is posted and is consumed only after
+    a fresh readback matches the prepared package snapshot. `processing` is an
+    intentional unknown-outcome state: an interrupted post is never retried
+    automatically until local inventory is reconciled.
+    """
+    __tablename__ = "traceability_receiving_preflights"
+    __table_args__ = (
+        CheckConstraint("provider in ('metrc','biotrack','other')", name="ck_receiving_preflight_provider"),
+        CheckConstraint("operation in ('retail','production')", name="ck_receiving_preflight_operation"),
+        CheckConstraint("status in ('prepared','processing','consumed','stale','cancelled')", name="ck_receiving_preflight_status"),
+        Index("ix_receiving_preflight_scope_status", "organization_id", "facility_id", "status", "expires_at"),
+        Index("ix_receiving_preflight_transfer", "organization_id", "facility_id", "transfer_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(24), nullable=False, default="metrc")
+    operation: Mapped[str] = mapped_column(String(24), nullable=False)
+    transfer_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    jurisdiction: Mapped[str] = mapped_column(String(16), nullable=False)
+    environment: Mapped[str] = mapped_column(String(24), nullable=False)
+    license_number: Mapped[str] = mapped_column(String(255), nullable=False)
+    snapshot_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="prepared")
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    consumed_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    local_result_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
