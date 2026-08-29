@@ -53,11 +53,15 @@ def test_schedule_preview_is_required_before_authorized_commit():
 
 def test_calendar_surfaces_conflicts_before_mutation_and_opens_run_360():
     app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+    planning = (
+        ROOT / "frontend" / "src" / "components" / "ProductionPlanningWorkspace.tsx"
+    ).read_text(encoding="utf-8")
     calendar = (
         ROOT / "frontend" / "src" / "components" / "ProductionCalendar.tsx"
     ).read_text(encoding="utf-8")
 
-    assert "<ProductionCalendar onOpenRun={openProductionRun360}/>" in app
+    assert 'import("./components/ProductionPlanningWorkspace")' in app
+    assert "<ProductionCalendar onOpenRun={onOpenRun} />" in planning
     assert "Preview Schedule" in calendar
     assert "Exact Change Preview" in calendar
     assert "I reviewed these conflicts" in calendar

@@ -10,10 +10,13 @@ def read(path: str) -> str:
 
 def test_production_plan_is_decision_first_and_opens_existing_run_360():
     app = read("frontend/src/App.tsx")
+    workspace = read("frontend/src/components/ProductionPlanningWorkspace.tsx")
     planner = read("frontend/src/components/ProductionPlanner.tsx")
 
-    assert 'import { ProductionPlanner } from "./components/ProductionPlanner"' in app
-    assert "<ProductionPlanner onOpenRun={openProductionRun360}" in app
+    assert 'import("./components/ProductionPlanningWorkspace")' in app
+    assert '<ProductionPlanningWorkspace onOpenRun={openProductionRun360}' in app
+    assert 'import { ProductionPlanner } from "./ProductionPlanner"' in workspace
+    assert "<ProductionPlanner onOpenRun={onOpenRun} />" in workspace
     assert "What should we run next?" in planner
     assert 'type Decision = "CONTINUE" | "RUN NOW" | "RUN NEXT" | "AT RISK" | "BLOCKED"' in planner
     assert "onClick={() => onOpenRun(row.orderId)}" in planner

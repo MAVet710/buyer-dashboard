@@ -51,11 +51,13 @@ def test_production_next_actions_are_generated_from_durable_run_state():
 
 def test_production_next_action_opens_exact_run_360():
     app = read("frontend/src/App.tsx")
+    planning = read("frontend/src/components/ProductionPlanningWorkspace.tsx")
     actions = read("frontend/src/components/ProductionNextActions.tsx")
     run360 = read("frontend/src/pages/ProductionRun360Page.tsx")
     assert "onOpenRun(action.row.order_id)" in actions
     assert "setRun360OrderId(orderId)" in app
-    assert "<ProductionNextActions onOpenRun={openProductionRun360}" in app
+    assert "<ProductionNextActions onOpenRun={onOpenRun}" in planning
+    assert '<ProductionPlanningWorkspace onOpenRun={openProductionRun360}' in app
     assert "initialOrderId={run360OrderId}" in app
     assert 'initialOrderId=""' in run360
     assert "if(initialOrderId)" in run360
@@ -79,3 +81,4 @@ def test_canix_displacement_scorecard_preserves_360_as_execution_surface():
     assert "Generated Next Actions attached to 360 objects; no separate task silo" in scorecard
     assert "Every action must execute through the existing durable 360/context" in scorecard
     assert "Production Next Actions -> Production Run 360" in scorecard
+    assert "Plant 360" in scorecard

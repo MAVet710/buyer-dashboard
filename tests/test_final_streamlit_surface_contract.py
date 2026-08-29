@@ -48,7 +48,7 @@ def test_home_matches_role_aware_streamlit_task_and_inbox_contract():
         "frontend/src/pages/HomePage.tsx",
         'Operations Home', 'Needs attention · Operations Inbox', 'Start a Task',
         'Review inventory', 'Start inventory audit', 'Traceability queue',
-        'Open Package Studio', 'Build purchasing decisions', 'Plan Co-Man production',
+        'Open Package Studio', 'Build purchasing decisions', 'Plan production',
         'Review extraction', 'Manage orders', 'Import operational data',
         'Product360Drawer', '/api/v1/home/inbox', '/api/v1/home/summary',
     )

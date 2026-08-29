@@ -1,0 +1,238 @@
+.production-planning-workspace {
+  display: grid;
+  gap: 1rem;
+}
+
+.production-planning-workspace > .page-heading {
+  margin-bottom: 0;
+}
+
+.production-planning-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.production-planning-tabs button {
+  min-width: 7rem;
+}
+
+.production-planning-tab-copy {
+  margin: -0.25rem 0 0.25rem;
+}
+
+.production-planning-operations > .page {
+  padding: 0;
+}
+
+.production-planning-operations > .page > .page-heading {
+  display: none;
+}
+
+.production-planning-operations > .page > .state {
+  font-size: 0;
+}
+
+.production-planning-operations > .page > .state::after {
+  content: "Loading production operations…";
+  font-size: 0.95rem;
+}
+
+.production-calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0 1rem;
+}
+
+.production-calendar-toolbar-actions,
+.production-calendar-toolbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.production-calendar-month-title {
+  min-width: 12rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.production-calendar-scroll {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.production-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  min-width: 760px;
+  border: 1px solid rgba(127, 127, 127, 0.2);
+  border-radius: 0.9rem;
+  overflow: hidden;
+}
+
+.production-calendar-weekday {
+  padding: 0.65rem 0.5rem;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-right: 1px solid rgba(127, 127, 127, 0.16);
+  border-bottom: 1px solid rgba(127, 127, 127, 0.2);
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.production-calendar-weekday:nth-child(7) {
+  border-right: 0;
+}
+
+.production-calendar-day {
+  min-height: 8.5rem;
+  padding: 0.55rem;
+  border-right: 1px solid rgba(127, 127, 127, 0.16);
+  border-bottom: 1px solid rgba(127, 127, 127, 0.16);
+  background: rgba(127, 127, 127, 0.02);
+}
+
+.production-calendar-day:nth-child(7n) {
+  border-right: 0;
+}
+
+.production-calendar-day.outside-month {
+  opacity: 0.48;
+}
+
+.production-calendar-day.today {
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+.production-calendar-day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+
+.production-calendar-day-head > strong {
+  font-size: 0.92rem;
+}
+
+.production-calendar-add-day {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.2rem 0.3rem;
+  border-radius: 0.4rem;
+}
+
+.production-calendar-add-day:hover,
+.production-calendar-add-day:focus-visible {
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.production-calendar-events {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.production-calendar-event {
+  display: grid;
+  gap: 0.1rem;
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(127, 127, 127, 0.18);
+  border-radius: 0.55rem;
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+  padding: 0.42rem 0.48rem;
+  cursor: pointer;
+}
+
+.production-calendar-event:hover,
+.production-calendar-event:focus-visible {
+  background: rgba(127, 127, 127, 0.14);
+}
+
+.production-calendar-event strong,
+.production-calendar-event span,
+.production-calendar-event small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.production-calendar-event strong {
+  font-size: 0.78rem;
+}
+
+.production-calendar-event span,
+.production-calendar-event small {
+  font-size: 0.72rem;
+}
+
+.production-calendar-more {
+  font-size: 0.72rem;
+  opacity: 0.72;
+}
+
+.production-calendar-scheduler {
+  margin-top: 1rem;
+}
+
+.production-calendar-scheduler .section-heading {
+  margin-top: 0;
+}
+
+@media (max-width: 700px) {
+  .production-planning-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .production-planning-tabs button {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .production-calendar-scroll {
+    overflow: visible;
+  }
+
+  .production-calendar-grid {
+    display: block;
+    min-width: 0;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .production-calendar-weekday {
+    display: none;
+  }
+
+  .production-calendar-day {
+    min-height: 0;
+    border: 1px solid rgba(127, 127, 127, 0.16);
+    border-radius: 0.75rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .production-calendar-day.outside-month {
+    display: none;
+  }
+
+  .production-calendar-month-title {
+    min-width: 0;
+    text-align: left;
+  }
+}
