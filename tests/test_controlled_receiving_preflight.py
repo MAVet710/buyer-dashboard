@@ -298,7 +298,7 @@ def test_receiving_preflight_contract_is_registered_read_only_and_migrated():
     regulatory_router = (root / "backend/app/routers/inventory_reconciliation.py").read_text(encoding="utf-8")
     helper = (root / "services/metrc_receiving.py").read_text(encoding="utf-8")
     frontend = (root / "frontend/src/components/ReceiveInventory.tsx").read_text(encoding="utf-8")
-    migration = (root / "migrations/versions/0053_receiving_preflight.py").read_text(encoding="utf-8")
+    migration = (root / "migrations/versions/0055_receiving_preflight.py").read_text(encoding="utf-8")
 
     assert '@router.post("/{operation}/inbound/{transfer_id}/preflight"' in router
     assert '@router.post("/{operation}/inbound/{transfer_id}/preflight/commit")' in router
@@ -308,5 +308,5 @@ def test_receiving_preflight_contract_is_registered_read_only_and_migrated():
     assert "Confirm provider state & review" in frontend
     assert "Verify again & Post Inventory" in frontend
     assert "Provider controlled" in frontend
-    assert 'revision = "0053_receiving_preflight"' in migration
-    assert 'down_revision = "0052_storefront_studio"' in migration
+    assert 'revision = "0055_receiving_preflight"' in migration
+    assert 'down_revision = "0054_storefront_sales_units"' in migration
