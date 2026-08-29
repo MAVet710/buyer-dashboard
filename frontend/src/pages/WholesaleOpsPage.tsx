@@ -1,13 +1,14 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { CommerceStorefrontManager } from "../components/CommerceStorefrontManager";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { ManifestDraftControl } from "../components/ManifestDraftControl";
-import { StorefrontSalesUnitManager } from "../components/StorefrontSalesUnitManager";
 import { WholesaleRegulatoryHealth } from "../components/WholesaleRegulatoryHealth";
 import { apiGet } from "../lib/api";
-import { OrdersPage } from "./OrdersPage";
-import { WarehousePickPackPage } from "./WarehousePickPackPage";
 import "../wholesale-ops.css";
+
+const CommerceStorefrontManager = lazy(() => import("../components/CommerceStorefrontManager").then(module => ({ default: module.CommerceStorefrontManager })));
+const StorefrontSalesUnitManager = lazy(() => import("../components/StorefrontSalesUnitManager").then(module => ({ default: module.StorefrontSalesUnitManager })));
+const OrdersPage = lazy(() => import("./OrdersPage").then(module => ({ default: module.OrdersPage })));
+const WarehousePickPackPage = lazy(() => import("./WarehousePickPackPage").then(module => ({ default: module.WarehousePickPackPage })));
 
 type Tab = "overview" | "inventory" | "orders" | "fulfillment" | "customers" | "storefront";
 type WholesaleLot = {
@@ -50,11 +51,34 @@ const TABS:[Tab,string][] = [
   ["storefront","Storefront"],
 ];
 
+function DeferredWorkspace({children}:{children:React.ReactNode}) {
+  return <Suspense fallback={<div className="state">Loading workspace…</div>}>{children}</Suspense>;
+}
+
 export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) {
   const [tab,setTab]=useState<Tab>("overview");
-  const inventory=useQuery({queryKey:["wholesale-inventory"],queryFn:({signal})=>apiGet<WholesaleInventory>("/api/v1/storefronts/wholesale-inventory",signal)});
-  const commercial=useQuery({queryKey:["commercial-workspace"],queryFn:({signal})=>apiGet<CommercialWorkspace>("/api/v1/commercial/workspace",signal)});
-  const storefront=useQuery({queryKey:["commerce-storefront"],queryFn:({signal})=>apiGet<StorefrontSnapshot>("/api/v1/storefronts",signal),refetchInterval:tab==="overview"||tab==="storefront"?30_000:false});
+  const inventoryNeeded=tab==="overview"||tab==="inventory";
+  const commercialNeeded=tab==="overview"||tab==="customers";
+  const storefrontNeeded=tab==="overview"||tab==="storefront";
+  const inventory=useQuery({
+    queryKey:["wholesale-inventory"],
+    queryFn:({signal})=>apiGet<WholesaleInventory>("/api/v1/storefronts/wholesale-inventory",signal),
+    enabled:inventoryNeeded,
+    staleTime:20_000,
+  });
+  const commercial=useQuery({
+    queryKey:["commercial-workspace"],
+    queryFn:({signal})=>apiGet<CommercialWorkspace>("/api/v1/commercial/workspace",signal),
+    enabled:commercialNeeded,
+    staleTime:30_000,
+  });
+  const storefront=useQuery({
+    queryKey:["commerce-storefront"],
+    queryFn:({signal})=>apiGet<StorefrontSnapshot>("/api/v1/storefronts",signal),
+    enabled:storefrontNeeded,
+    staleTime:15_000,
+    refetchInterval:storefrontNeeded?30_000:false,
+  });
   const pendingOrders=(storefront.data?.pending_orders??[]).filter(row=>row.status==="submitted");
   const pendingStorefront=pendingOrders.length;
   const openSales=(commercial.data?.orders??[]).filter(row=>row.order_type==="sales"&&!["fulfilled","cancelled"].includes(row.status)).length;
@@ -68,10 +92,10 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
 
     {tab==="overview"?<Overview inventory={inventory.data} commercial={commercial.data} pendingOrders={pendingOrders} openSales={openSales} storefrontLoading={storefront.isLoading} storefrontError={storefront.isError?storefront.error.message:""} onTab={setTab}/>:null}
     {tab==="inventory"?<WholesaleInventoryPanel query={inventory}/>:null}
-    {tab==="orders"?<OrdersPage/>:null}
-    {tab==="fulfillment"?<WarehousePickPackPage onNavigate={page=>page==="Orders"?setTab("orders"):onNavigate(page)}/>:null}
+    {tab==="orders"?<DeferredWorkspace><OrdersPage/></DeferredWorkspace>:null}
+    {tab==="fulfillment"?<DeferredWorkspace><WarehousePickPackPage onNavigate={page=>page==="Orders"?setTab("orders"):onNavigate(page)}/></DeferredWorkspace>:null}
     {tab==="customers"?<CustomersPanel commercial={commercial.data} loading={commercial.isLoading} error={commercial.isError?commercial.error.message:""}/>:null}
-    {tab==="storefront"?<><StorefrontSalesUnitManager/><CommerceStorefrontManager/></>:null}
+    {tab==="storefront"?<DeferredWorkspace><StorefrontSalesUnitManager/><CommerceStorefrontManager/></DeferredWorkspace>:null}
   </div>;
 }
 
