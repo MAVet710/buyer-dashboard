@@ -206,7 +206,7 @@ def test_home_keeps_operations_inbox_and_role_aware_task_launchers():
         'Traceability queue',
         'Open Package Studio',
         'Build purchasing decisions',
-        'Plan Co-Man production',
+        'Plan production',
         'Review extraction',
         'Manage orders',
         'Import operational data',
