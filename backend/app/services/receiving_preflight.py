@@ -231,6 +231,10 @@ class ReceivingPreflightService:
         metrc: Any,
     ) -> dict[str, Any]:
         now = utc_now()
+        stale_error = ""
+        stored_snapshot: dict[str, Any] = {}
+        transfer_id = ""
+        stored_digest = ""
         with Session(self.engine) as session, session.begin():
             row = self._load_for_update(
                 session,
@@ -248,8 +252,8 @@ class ReceivingPreflightService:
             if _aware(row.expires_at) <= _aware(now):
                 row.status = "stale"
                 row.reason = "The provider confirmation expired before local posting."
-                raise ValueError("The provider confirmation expired. Refresh the transfer and prepare a new receipt.")
-            if (
+                stale_error = "The provider confirmation expired. Refresh the transfer and prepare a new receipt."
+            elif (
                 row.jurisdiction != str(metrc.state or "").strip().upper()
                 or row.environment != str(metrc.environment or "").strip().casefold()
                 or row.license_number != str(metrc.license_number or "").strip()
@@ -258,12 +262,17 @@ class ReceivingPreflightService:
             ):
                 row.status = "stale"
                 row.reason = "The active Metrc facility mapping changed after preflight preparation."
-                raise ValueError("The active Metrc facility mapping changed. Prepare a new receiving preflight.")
-            stored_snapshot = json.loads(row.snapshot_json or "{}")
+                stale_error = "The active Metrc facility mapping changed. Prepare a new receiving preflight."
+            else:
+                stored_snapshot = json.loads(row.snapshot_json or "{}")
+                transfer_id = row.transfer_id
+                stored_digest = row.snapshot_digest
+        if stale_error:
+            raise ValueError(stale_error)
 
-        fresh_snapshot = self._read_snapshot(metrc=metrc, transfer_id=row.transfer_id)
+        fresh_snapshot = self._read_snapshot(metrc=metrc, transfer_id=transfer_id)
         fresh_digest = _digest(fresh_snapshot)
-        if fresh_digest != row.snapshot_digest:
+        if fresh_digest != stored_digest:
             with Session(self.engine) as session, session.begin():
                 current = self._load_for_update(session, preflight_id=preflight_id, organization_id=organization_id, facility_id=facility_id, operation=operation)
                 if current.status == "prepared":
