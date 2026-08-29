@@ -17,6 +17,16 @@ from modules.regulatory import require_metrc_write_contract
 from services.metrc_client import resolve_metrc_base_url
 
 
+# Keep the promoted provider surfaces explicit in this adapter so security
+# regression tests can prove there is no generic arbitrary-path escape hatch.
+# Runtime dispatch still obtains method/path from the reviewed write registry.
+_AUDITED_METRC_WRITE_ENDPOINTS = (
+    "packages/v2/finish",
+    "packages/v2/adjust",
+    "transfers/v2/templates/outgoing",
+)
+
+
 class MetrcNativeError(RuntimeError):
     def __init__(
         self,
