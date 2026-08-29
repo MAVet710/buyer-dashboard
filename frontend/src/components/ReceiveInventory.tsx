@@ -37,6 +37,18 @@ type TransferDetails = { transfer_id: string; packages: InboundPackage[]; warnin
 type LocationSettings = { auto_map_products_during_receive: boolean; default_receiving_room: string };
 type MappedPackage = InboundPackage & { product_id: string; location: string; coa_reference: string; notes: string };
 type LabPayload = { package_record_id: string; lab_results: Record<string, unknown>[]; read_only: boolean };
+type ReceivingPreflight = {
+  id: string;
+  status: "prepared" | "processing" | "consumed" | "stale" | "cancelled";
+  transfer_id: string;
+  jurisdiction: string;
+  environment: string;
+  license_number: string;
+  snapshot_digest: string;
+  expires_at: string;
+  reason: string;
+};
+type ReceivingCommit = { preflight: ReceivingPreflight; receipts: Array<{ lot_id: string }>; idempotent: boolean };
 
 const empty: InventoryReceipt = { product_id: "", package_id: "", lot_code: "", quantity: 0, unit: "g", location: "RECEIVING", source_name: "", manifest_reference: "", lab_testing_state: "TestPassed", coa_reference: "", notes: "" };
 
@@ -45,6 +57,7 @@ export function ReceiveInventory({ operation, onClose }: { operation: "retail" |
   const [stage, setStage] = useState<Stage>("queue");
   const [selected, setSelected] = useState<InboundTransfer | null>(null);
   const [mapped, setMapped] = useState<MappedPackage[]>([]);
+  const [preflight, setPreflight] = useState<ReceivingPreflight | null>(null);
   const [postedCount, setPostedCount] = useState(0);
   const [labs, setLabs] = useState<Record<string, LabPayload>>({});
   const [labLoading, setLabLoading] = useState("");
@@ -81,10 +94,27 @@ export function ReceiveInventory({ operation, onClose }: { operation: "retail" |
     notes: row.notes,
   })), [mapped, selected, settings.data?.default_receiving_room]);
 
+  const preparePreflight = useMutation({
+    mutationFn: () => {
+      if (!selected) throw new Error("Choose an inbound transfer before review.");
+      return apiPost<ReceivingPreflight>(`/api/v1/inventory/${operation}/inbound/${encodeURIComponent(selected.transfer_id)}/preflight`, {});
+    },
+    onSuccess: result => {
+      setPreflight(result);
+      setStage("review");
+    },
+  });
   const postBatch = useMutation({
-    mutationFn: () => apiPost<Array<{ lot_id: string }>>(`/api/v1/inventory/${operation}/receipts/batch`, reviewedReceipts),
+    mutationFn: () => {
+      if (!selected || !preflight) throw new Error("A fresh provider confirmation is required before posting inventory.");
+      return apiPost<ReceivingCommit>(`/api/v1/inventory/${operation}/inbound/${encodeURIComponent(selected.transfer_id)}/preflight/commit`, {
+        preflight_id: preflight.id,
+        receipts: reviewedReceipts,
+      });
+    },
     onSuccess: async result => {
-      setPostedCount(result.length);
+      setPreflight(result.preflight);
+      setPostedCount(result.receipts.length);
       await queryClient.invalidateQueries({ queryKey: ["inventory"] });
       await queryClient.invalidateQueries({ queryKey: ["inventory-receive-history", operation] });
       await queryClient.invalidateQueries({ queryKey: ["inventory-inbound", operation] });
@@ -101,8 +131,9 @@ export function ReceiveInventory({ operation, onClose }: { operation: "retail" |
     },
   });
 
-  const chooseTransfer = (transfer: InboundTransfer) => { setSelected(transfer); setMapped([]); setLabs({}); setLabError(""); setStage("details"); };
-  const backToQueue = () => { setSelected(null); setMapped([]); setLabs({}); setStage("queue"); };
+  const chooseTransfer = (transfer: InboundTransfer) => { setSelected(transfer); setMapped([]); setPreflight(null); setLabs({}); setLabError(""); setStage("details"); };
+  const backToQueue = () => { setSelected(null); setMapped([]); setPreflight(null); setLabs({}); setStage("queue"); };
+  const backToDetails = () => { setPreflight(null); setStage("details"); };
   const updateMapped = (index: number, patch: Partial<MappedPackage>) => setMapped(rows => rows.map((row, position) => position === index ? { ...row, ...patch } : row));
   const updateManual = (key: keyof InventoryReceipt, value: string | number) => setManual(current => ({ ...current, [key]: value }));
   const loadLabs = async (row: MappedPackage) => {
@@ -117,9 +148,9 @@ export function ReceiveInventory({ operation, onClose }: { operation: "retail" |
   };
 
   const title = operation === "production" ? "Receive production inventory" : "Receive inventory";
-  return <StreamlitDialog open onClose={onClose} eyebrow={operation === "production" ? "Production Ops · Inbound Inventory" : "Retail Ops · Inbound Inventory"} title={title} subtitle="Inbound Queue → Receive Details → Review → Post Inventory → Labels">
+  return <StreamlitDialog open onClose={onClose} eyebrow={operation === "production" ? "Production Ops · Inbound Inventory" : "Retail Ops · Inbound Inventory"} title={title} subtitle="Inbound Queue → Receive Details → Provider Check → Post Inventory → Labels">
     <div className="receive-workflow">
-      <div className="info-banner"><strong>Traceability is read-only in this work window.</strong> State transfer acceptance still happens in METRC first. DoobieLogic receives the physical inventory into the selected facility only after review.</div>
+      <div className="info-banner"><strong>Traceability stays read-only in this work window.</strong> State transfer acceptance still happens in METRC. Before local inventory is posted, DoobieLogic verifies the exact pending package set twice against the active facility license.</div>
       <StageRail stage={stage}/>
 
       {stage === "queue" ? <>
@@ -143,28 +174,30 @@ export function ReceiveInventory({ operation, onClose }: { operation: "retail" |
           <div className="form-grid two">
             <label>Mapped Product<select value={row.product_id} onChange={event => { const product = products.data?.find(item => item.id === event.target.value); updateMapped(index, { product_id: event.target.value, unit: row.unit || product?.base_unit || "unit" }); }}><option value="">Choose catalog product…</option>{products.data?.map(product => <option value={product.id} key={product.id}>{product.name} · {product.sku}</option>)}</select></label>
             <label>Receiving room<input value={row.location} onChange={event => updateMapped(index, { location: event.target.value })}/></label>
-            <label>Quantity<input type="number" min="0.000001" step="any" value={row.quantity} onChange={event => updateMapped(index, { quantity: Number(event.target.value) })}/></label>
-            <label>Unit<input value={row.unit} onChange={event => updateMapped(index, { unit: event.target.value })}/></label>
-            <label>Lab testing state<input value={row.lab_testing_state} onChange={event => updateMapped(index, { lab_testing_state: event.target.value })}/></label>
+            <label>METRC quantity<input type="number" value={row.quantity} readOnly/><small>Provider controlled</small></label>
+            <label>METRC unit<input value={row.unit} readOnly/><small>Provider controlled</small></label>
+            <label>METRC lab state<input value={row.lab_testing_state} readOnly/><small>Provider controlled</small></label>
             <label>COA reference<input value={row.coa_reference} onChange={event => updateMapped(index, { coa_reference: event.target.value })}/></label>
           </div>
           <label>Receive notes<input value={row.notes} onChange={event => updateMapped(index, { notes: event.target.value })}/></label>
           <div className="receive-lab-actions"><button className="secondary" type="button" disabled={!row.package_record_id || labLoading === row.package_record_id} onClick={() => loadLabs(row)}>{labLoading === row.package_record_id ? "Loading labs…" : "Pull read-only METRC lab results"}</button>{labs[row.package_record_id] ? <span>{labs[row.package_record_id].lab_results.length} lab result row(s) loaded</span> : null}</div>
         </article>)}</div> : !details.isLoading && !details.isError ? <div className="empty">This transfer has no remaining packages to receive.</div> : null}
         {labError ? <div className="state error">{labError}</div> : null}
-        <div className="audit-actions"><button className="primary" type="button" disabled={!readyToReview} onClick={() => setStage("review")}>Review physical receipt</button></div>
+        {preparePreflight.isError ? <div className="state error">{preparePreflight.error.message}</div> : null}
+        <div className="audit-actions"><button className="primary" type="button" disabled={!readyToReview || preparePreflight.isPending} onClick={() => preparePreflight.mutate()}>{preparePreflight.isPending ? "Confirming with METRC…" : "Confirm provider state & review"}</button></div>
       </> : null}
 
       {stage === "review" ? <>
-        <div className="section-heading"><button className="secondary" type="button" onClick={() => setStage("details")}>← Receive Details</button><div><h3>Review</h3><p>Confirm the complete physical receipt before any durable inventory is posted.</p></div></div>
+        <div className="section-heading"><button className="secondary" type="button" onClick={backToDetails}>← Receive Details</button><div><h3>Review</h3><p>Confirm the complete physical receipt before any durable inventory is posted.</p></div></div>
+        {preflight ? <div className="success-banner"><strong>Provider preflight confirmed.</strong><br/>METRC {preflight.jurisdiction} · {preflight.environment} · license {preflight.license_number} · evidence {preflight.snapshot_digest.slice(0, 12)}… · expires {new Date(preflight.expires_at).toLocaleTimeString()}</div> : null}
         <div className="table-wrap"><table><thead><tr><th>Incoming Item</th><th>Mapped Product</th><th>Package</th><th>Qty</th><th>Room</th><th>Lab State</th></tr></thead><tbody>{mapped.map((row, index) => { const product = products.data?.find(item => item.id === row.product_id); return <tr key={index}><td>{row.item_name}</td><td>{product?.name || "—"}</td><td>{row.package_id || row.package_record_id}</td><td>{row.quantity.toLocaleString()} {row.unit}</td><td>{row.location}</td><td>{row.lab_testing_state || "—"}</td></tr>; })}</tbody></table></div>
-        <div className="info-banner">Posting creates {mapped.length} durable inventory lot(s) in the active {operation} facility in one atomic transaction. If any row fails validation, none of the receipt is posted.</div>
+        <div className="info-banner">Posting performs a second fresh METRC read. Only an exact package/quantity/unit match can create {mapped.length} durable inventory lot(s), and the local receipt remains one atomic transaction.</div>
         {postBatch.isError ? <div className="state error">{postBatch.error.message}</div> : null}
-        <div className="audit-actions"><button className="primary" type="button" disabled={postBatch.isPending} onClick={() => postBatch.mutate()}>{postBatch.isPending ? "Posting inventory…" : "Post Inventory"}</button></div>
+        <div className="audit-actions"><button className="primary" type="button" disabled={!preflight || postBatch.isPending} onClick={() => postBatch.mutate()}>{postBatch.isPending ? "Rechecking METRC & posting…" : "Verify again & Post Inventory"}</button></div>
       </> : null}
 
       {stage === "complete" ? <>
-        <div className="success-banner"><strong>Inventory receipt posted.</strong><br/>{postedCount} package(s) were added to the active {operation} facility.</div>
+        <div className="success-banner"><strong>Inventory receipt posted.</strong><br/>{postedCount} package(s) were added to the active {operation} facility after matching provider readback.</div>
         <section className="inventory-panel"><h3>Labels</h3><p className="source-caption">Print the reviewed package labels now or close this work window and return to Inventory.</p><div className="label-sheet">{reviewedReceipts.slice(0, 24).map((row, index) => { const product = products.data?.find(item => item.id === row.product_id); return <article className="inventory-label" key={index}><strong>{product?.name || "Received inventory"}</strong><span>{row.package_id || row.lot_code}</span><b>{row.quantity.toLocaleString()} {row.unit}</b><small>{row.location} · {row.manifest_reference}</small></article>; })}</div></section>
         <div className="audit-actions"><button className="secondary" type="button" onClick={() => window.print()}>Print labels</button><button className="primary" type="button" onClick={onClose}>Done</button></div>
       </> : null}
@@ -195,5 +228,5 @@ function StageRail({ stage }: { stage: Stage }) {
   const stages: Stage[] = ["queue", "details", "review", "complete"];
   if (stage === "manual") return null;
   const current = stages.indexOf(stage);
-  return <ol className="receive-stage-rail">{["Inbound Queue", "Receive Details", "Review", "Post Inventory / Labels"].map((label, index) => <li className={index === current ? "active" : index < current ? "done" : ""} key={label}><span>{index + 1}</span>{label}</li>)}</ol>;
+  return <ol className="receive-stage-rail">{["Inbound Queue", "Receive Details", "Provider Check", "Post Inventory / Labels"].map((label, index) => <li className={index === current ? "active" : index < current ? "done" : ""} key={label}><span>{index + 1}</span>{label}</li>)}</ol>;
 }
