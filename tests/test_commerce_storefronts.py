@@ -152,17 +152,21 @@ def test_cowboy_kush_storefront_is_discoverable_collectible_and_request_only():
     assert "Our Farms" not in page
     assert "Field Notes" not in page
 
-    # Collectible cards expose operationally real storefront data rather than
-    # fabricated potency/effect claims.
-    for label in ("SKU", "Pack size", "Case qty", "Wholesale", "Min order", "Status"):
+    # Collectible cards expose operationally real storefront data and explicitly
+    # surface verified batch lab values instead of fabricated potency claims.
+    for label in ("THCA", "TAC", "TERPS", "SKU", "Pack size", "Case qty", "Wholesale", "Min order", "Status"):
         assert label in page
     assert "item.sku" in page
     assert "item.available" in page
     assert "item.price_usd" in page
     assert "item.minimum_quantity" in page
     assert "item.case_quantity" in page
-    assert "THC" not in page
-    assert "terpene" not in page.lower()
+    assert "item.lab_stats?.thca" in page
+    assert "item.lab_stats?.tac" in page
+    assert "item.lab_stats?.terpenes" in page
+    assert "Lab values reflect currently sellable passed-COA batches" in page
+    assert "24.0%" not in page
+    assert "30.0%" not in page
 
     # Keep the existing approval-gated DoobieCommerce request endpoint. The
     # public page never converts a submission straight into an operational order.

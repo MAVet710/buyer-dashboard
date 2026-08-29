@@ -20,10 +20,10 @@ def _setup():
     return engine, coman, organization, facility
 
 
-def _mark_coa(engine, lot_id: str, *, state: str, reference: str) -> None:
+def _mark_coa(engine, lot_id: str, *, state: str, reference: str, **lab_values) -> None:
     with Session(engine) as session, session.begin():
         lot = session.get(InventoryLot, lot_id)
-        lot.notes = json.dumps({"lab_testing_state": state, "coa_reference": reference})
+        lot.notes = json.dumps({"lab_testing_state": state, "coa_reference": reference, **lab_values})
 
 
 def test_wholesale_inventory_requires_released_passed_coa_and_supports_bulk_and_retail_ready():
@@ -77,14 +77,22 @@ def test_wholesale_inventory_requires_released_passed_coa_and_supports_bulk_and_
     assert "COA reference is missing" in inventory["blocked_items"][0]["blocked_reasons"]
 
 
-def test_public_storefront_catalog_inherits_wholesale_coa_gate():
+def test_public_storefront_catalog_inherits_wholesale_coa_gate_and_verified_lab_stats():
     engine, coman, organization, facility = _setup()
     passed = coman.create_product(organization.id, sku="PASSED", name="Passed Product", item_type="finished_good", base_unit="case", retail_price=100, actor="dev")
     blocked = coman.create_product(organization.id, sku="BLOCKED", name="Blocked Product", item_type="finished_good", base_unit="case", retail_price=100, actor="dev")
     passed_lot = coman.create_inventory_lot(organization.id, facility.id, product_id=passed.id, lot_code="PASS-1", actor="dev", opening_quantity=10, unit="case")
     blocked_lot = coman.create_inventory_lot(organization.id, facility.id, product_id=blocked.id, lot_code="BLOCK-1", actor="dev", opening_quantity=10, unit="case")
-    _mark_coa(engine, passed_lot.id, state="Passed", reference="COA-PASS")
-    _mark_coa(engine, blocked_lot.id, state="Failed", reference="COA-FAIL")
+    _mark_coa(
+        engine,
+        passed_lot.id,
+        state="Passed",
+        reference="COA-PASS",
+        thca_percent="28.4%",
+        tac_percent=31.2,
+        total_terpenes_percent=2.73,
+    )
+    _mark_coa(engine, blocked_lot.id, state="Failed", reference="COA-FAIL", thca_percent=99, tac_percent=99, total_terpenes_percent=99)
 
     service = WholesaleCommerceStorefrontService(engine)
     service.upsert_storefront(
@@ -107,6 +115,31 @@ def test_public_storefront_catalog_inherits_wholesale_coa_gate():
 
     public = service.public_catalog("wholesale-qa")
     assert [row["sku"] for row in public["catalog"]] == ["PASSED"]
+    stats = public["catalog"][0]["lab_stats"]
+    assert stats["thca"] == {"minimum": 28.4, "maximum": 28.4}
+    assert stats["tac"] == {"minimum": 31.2, "maximum": 31.2}
+    assert stats["terpenes"] == {"minimum": 2.73, "maximum": 2.73}
+
+
+def test_storefront_lab_stats_use_ranges_across_real_sellable_batches_and_ignore_test_data():
+    engine, coman, organization, facility = _setup()
+    product = coman.create_product(organization.id, sku="RANGE", name="Range Flower", item_type="finished_good", base_unit="case", retail_price=100, actor="dev")
+    first = coman.create_inventory_lot(organization.id, facility.id, product_id=product.id, lot_code="RANGE-1", actor="dev", opening_quantity=10, unit="case")
+    second = coman.create_inventory_lot(organization.id, facility.id, product_id=product.id, lot_code="RANGE-2", actor="dev", opening_quantity=10, unit="case")
+    preview = coman.create_inventory_lot(organization.id, facility.id, product_id=product.id, lot_code="RANGE-TEST", actor="dev", opening_quantity=100, unit="case")
+    _mark_coa(engine, first.id, state="Passed", reference="COA-1", thca=24.5, total_active_cannabinoids=27.1, total_terpenes=1.8)
+    _mark_coa(engine, second.id, state="Passed", reference="COA-2", thca=29.2, total_active_cannabinoids=31.7, total_terpenes=2.6)
+    _mark_coa(engine, preview.id, state="Passed", reference="COA-TEST", thca=99, total_active_cannabinoids=99, total_terpenes=99, test_data=True)
+
+    service = WholesaleCommerceStorefrontService(engine)
+    service.upsert_storefront(organization_id=organization.id, facility_id=facility.id, actor="admin", display_name="Range QA", subdomain="range-qa", published=True)
+    service.set_products(organization_id=organization.id, facility_id=facility.id, actor="admin", products=[{"product_id": product.id, "price_usd": 80}])
+
+    item = service.public_catalog("range-qa")["catalog"][0]
+    assert item["available"] == 20
+    assert item["lab_stats"]["thca"] == {"minimum": 24.5, "maximum": 29.2}
+    assert item["lab_stats"]["tac"] == {"minimum": 27.1, "maximum": 31.7}
+    assert item["lab_stats"]["terpenes"] == {"minimum": 1.8, "maximum": 2.6}
 
 
 def test_storefront_manager_can_merchandise_blocked_inventory_without_publishing_it():
@@ -135,7 +168,7 @@ def test_test_preview_inventory_is_visible_but_cannot_be_ordered():
     with Session(engine) as session, session.begin():
         row = session.get(InventoryLot, lot.id)
         row.status = "available"
-        row.notes = json.dumps({"lab_testing_state": "Passed", "coa_reference": "TEST-COA", "test_data": True})
+        row.notes = json.dumps({"lab_testing_state": "Passed", "coa_reference": "TEST-COA", "test_data": True, "thca_percent": 99, "tac_percent": 99, "total_terpenes_percent": 99})
 
     service = WholesaleCommerceStorefrontService(engine)
     service.upsert_storefront(organization_id=organization.id, facility_id=facility.id, actor="admin", display_name="Test Preview", subdomain="test-preview", published=True)
@@ -144,6 +177,7 @@ def test_test_preview_inventory_is_visible_but_cannot_be_ordered():
     catalog = service.public_catalog("test-preview")
     assert catalog["catalog"][0]["available"] == 100
     assert catalog["catalog"][0]["orderable"] is False
+    assert catalog["catalog"][0]["lab_stats"]["thca"] == {"minimum": None, "maximum": None}
     try:
         service.submit_order_request(slug="test-preview", buyer_company="Buyer", buyer_contact="Person", buyer_email="buyer@example.com", lines=[{"product_id": product.id, "quantity": 1}])
     except ValueError as exc:

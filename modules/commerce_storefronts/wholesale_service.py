@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from modules.coman.models import InventoryLot, Product
@@ -26,6 +27,8 @@ _BULK_TOKENS = (
     "concentrate",
     "oil",
 )
+_LAB_CONTAINER_KEYS = ("coa", "lab", "lab_results", "potency", "cannabinoids", "results")
+_LAB_VALUE_KEYS = ("value", "result", "test_result", "testresult", "percent", "percentage")
 
 
 def _metadata(lot: InventoryLot) -> dict[str, Any]:
@@ -46,6 +49,82 @@ def _inventory_type(product: Product) -> str:
     if unit in _BULK_UNITS or any(token in descriptor for token in _BULK_TOKENS):
         return "bulk"
     return "retail_ready"
+
+
+def _normalized_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+
+
+def _percent_number(value: Any) -> float | None:
+    if isinstance(value, dict):
+        for key in _LAB_VALUE_KEYS:
+            for raw_key, raw_value in value.items():
+                if _normalized_key(raw_key) == _normalized_key(key):
+                    return _percent_number(raw_value)
+        return None
+    if value is None or isinstance(value, bool):
+        return None
+    raw = str(value).strip().replace("%", "").replace(",", "")
+    if not raw:
+        return None
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if number < 0 or number > 100:
+        return None
+    return round(number, 4)
+
+
+def _lab_containers(meta: dict[str, Any]) -> list[dict[str, Any]]:
+    containers: list[dict[str, Any]] = [meta]
+    for key in _LAB_CONTAINER_KEYS:
+        nested = meta.get(key)
+        if isinstance(nested, dict):
+            containers.append(nested)
+        elif isinstance(nested, list):
+            containers.extend(row for row in nested if isinstance(row, dict))
+    return containers
+
+
+def _lab_percent(meta: dict[str, Any], *aliases: str) -> float | None:
+    alias_keys = {_normalized_key(alias) for alias in aliases}
+    for container in _lab_containers(meta):
+        for raw_key, raw_value in container.items():
+            if _normalized_key(raw_key) in alias_keys:
+                parsed = _percent_number(raw_value)
+                if parsed is not None:
+                    return parsed
+
+        test_name = next(
+            (
+                value
+                for key, value in container.items()
+                if _normalized_key(key) in {"testtypename", "testname", "analyte", "name"}
+            ),
+            None,
+        )
+        if _normalized_key(test_name) in alias_keys:
+            for key, value in container.items():
+                if _normalized_key(key) in {_normalized_key(candidate) for candidate in _LAB_VALUE_KEYS}:
+                    parsed = _percent_number(value)
+                    if parsed is not None:
+                        return parsed
+    return None
+
+
+def _lab_range(values: list[float]) -> dict[str, float | None]:
+    if not values:
+        return {"minimum": None, "maximum": None}
+    return {"minimum": round(min(values), 2), "maximum": round(max(values), 2)}
+
+
+def _empty_lab_stats() -> dict[str, dict[str, float | None]]:
+    return {
+        "thca": _lab_range([]),
+        "tac": _lab_range([]),
+        "terpenes": _lab_range([]),
+    }
 
 
 class WholesaleCommerceStorefrontService(CommerceStorefrontService):
@@ -99,6 +178,9 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 "status": lot.status,
                 "lab_testing_state": lab_testing_state,
                 "coa_reference": coa_reference,
+                "thca_percent": _lab_percent(meta, "thca", "thca_percent", "thca_pct", "thc acid", "tetrahydrocannabinolic acid"),
+                "tac_percent": _lab_percent(meta, "tac", "tac_percent", "total active cannabinoids", "total_active_cannabinoids", "total_active_cannabinoids_percent"),
+                "terpenes_percent": _lab_percent(meta, "terpenes", "terps", "terpenes_percent", "total terpenes", "total_terpenes", "total_terpenes_percent"),
                 "test_data": bool(meta.get("test_data", False)),
                 "received_at": lot.received_at,
                 "expiration_at": lot.expiration_at,
@@ -127,6 +209,7 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 "requires_passed_coa": True,
                 "requires_positive_uncommitted_quantity": True,
                 "respects_organization_wide_commitments": True,
+                "lab_stats_use_passed_real_batches_only": True,
             },
         }
 
@@ -144,16 +227,35 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 "inventory_type": lot["inventory_type"],
                 "coa_passed": True,
                 "test_quantity": 0.0,
+                "_lab_values": {"thca": [], "tac": [], "terpenes": []},
             })
             row["available"] += float(lot["usable"])
             if lot["test_data"]:
                 row["test_quantity"] += float(lot["usable"])
+            else:
+                for metric, source_key in (("thca", "thca_percent"), ("tac", "tac_percent"), ("terpenes", "terpenes_percent")):
+                    value = lot[source_key]
+                    if value is not None:
+                        row["_lab_values"][metric].append(float(value))
         for row in by_product.values():
             real_quantity = row["available"] - row["test_quantity"]
             row["orderable"] = real_quantity > 0
             if row["orderable"]:
                 row["available"] = real_quantity
+            values = row.pop("_lab_values")
+            row["lab_stats"] = {metric: _lab_range(metric_values) for metric, metric_values in values.items()}
         return sorted(by_product.values(), key=lambda row: (row["name"].casefold(), row["sku"].casefold()))
+
+    def public_catalog(self, slug: str) -> dict[str, Any]:
+        storefront = self.resolve_public(slug)
+        lab_by_product = {
+            row["product_id"]: row.get("lab_stats", _empty_lab_stats())
+            for row in self.list_catalog_options(storefront.organization_id, storefront.facility_id)
+        }
+        result = super().public_catalog(slug)
+        for item in result["catalog"]:
+            item["lab_stats"] = lab_by_product.get(item["product_id"], _empty_lab_stats())
+        return result
 
     def merchandising_catalog_options(self, organization_id: str, facility_id: str) -> list[dict[str, Any]]:
         """Return every stocked product so held items can be merchandised before release.
