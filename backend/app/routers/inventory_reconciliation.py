@@ -21,6 +21,7 @@ from ..database import get_engine
 from ..services.inventory_reconciliation import InventoryMetrcReconciliationService
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
 from .inventory import _metrc_context
+from .receiving_preflight import router as receiving_preflight_router
 
 
 router = APIRouter(prefix="/inventory", tags=["inventory-reconciliation"])
@@ -368,3 +369,6 @@ def wholesale_regulatory_snapshot(
         "transfers": projected,
         "warnings": warnings[:100],
     }
+
+
+router.include_router(receiving_preflight_router)
