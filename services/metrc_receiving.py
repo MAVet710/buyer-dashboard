@@ -8,6 +8,7 @@ network request is made.
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from modules.regulatory import RegulatoryReadError, build_metrc_read_plan, normalize_metrc_payload, payload_rows
@@ -187,3 +188,129 @@ def fetch_metrc_lab_results(
     if result.get("ok"):
         result["lab_results"] = list(result.get("rows") or [])
     return result
+
+
+def _decimal_text(value: Any) -> str:
+    try:
+        number = Decimal(str(value or 0))
+    except (InvalidOperation, ValueError):
+        number = Decimal("0")
+    if number == 0:
+        return "0"
+    return format(number.normalize(), "f")
+
+
+def _transfer_id(row: dict[str, Any]) -> str:
+    return str(row.get("Id") or row.get("TransferId") or "").strip()
+
+
+def _canonical_inbound_package(row: dict[str, Any], delivery: dict[str, Any]) -> dict[str, str] | None:
+    shipped = Decimal(_decimal_text(row.get("ShippedQuantity") or row.get("Quantity") or 0))
+    received = Decimal(_decimal_text(row.get("ReceivedQuantity") or 0))
+    remaining = max(Decimal("0"), shipped - received) if shipped else received
+    if remaining <= 0:
+        return None
+    record_id = str(row.get("Id") or row.get("PackageId") or "").strip()
+    package_label = str(row.get("PackageLabel") or row.get("Label") or row.get("PackageTag") or "").strip()
+    identity = package_label or record_id
+    if not identity:
+        return None
+    unit = str(row.get("ShippedUnitOfMeasureName") or row.get("UnitOfMeasureName") or row.get("Unit") or "unit").strip() or "unit"
+    return {
+        "package_record_id": record_id,
+        "package_id": package_label,
+        "identity": identity,
+        "quantity": _decimal_text(remaining),
+        "unit": unit,
+        "unit_key": unit.casefold(),
+        "lab_testing_state": str(row.get("LabTestingState") or row.get("LabTestResultStatus") or "").strip(),
+        "delivery_id": str(delivery.get("Id") or delivery.get("DeliveryId") or "").strip(),
+    }
+
+
+def fetch_confirmed_inbound_snapshot(
+    *,
+    state: str,
+    user_api_key: str,
+    integrator_api_key: str,
+    license_number: str,
+    transfer_id: int | str,
+    environment: str = "production",
+    timeout_seconds: int = 12,
+) -> dict[str, Any]:
+    """Return a strict, license-scoped snapshot for one pending inbound transfer.
+
+    This helper intentionally performs no write. The transfer must first be
+    present in the incoming queue for the exact verified facility license, and
+    every delivery package page must load successfully. Any missing expansion
+    fails the preflight closed instead of producing a partial receipt snapshot.
+    """
+
+    requested_id = str(transfer_id or "").strip()
+    if not requested_id:
+        return {"ok": False, "status": "missing_transfer", "message": "A Metrc transfer id is required."}
+
+    incoming = fetch_all_incoming_transfers(
+        state=state,
+        user_api_key=user_api_key,
+        integrator_api_key=integrator_api_key,
+        license_number=license_number,
+        environment=environment,
+        timeout_seconds=timeout_seconds,
+    )
+    if not incoming.get("ok"):
+        return incoming
+    transfer = next((row for row in incoming.get("transfers") or [] if _transfer_id(row) == requested_id), None)
+    if transfer is None:
+        return {
+            "ok": False,
+            "status": "transfer_not_pending",
+            "message": "The transfer is no longer present in the exact facility inbound queue.",
+        }
+
+    deliveries_result = fetch_all_transfer_deliveries(
+        state=state,
+        user_api_key=user_api_key,
+        integrator_api_key=integrator_api_key,
+        transfer_id=requested_id,
+        environment=environment,
+        timeout_seconds=timeout_seconds,
+    )
+    if not deliveries_result.get("ok"):
+        return deliveries_result
+
+    packages: list[dict[str, str]] = []
+    for delivery in deliveries_result.get("deliveries") or []:
+        delivery_id = str(delivery.get("Id") or delivery.get("DeliveryId") or "").strip()
+        if not delivery_id:
+            return {
+                "ok": False,
+                "status": "incomplete_transfer",
+                "message": "A Metrc delivery has no id, so the inbound snapshot cannot be verified completely.",
+            }
+        package_result = fetch_all_delivery_packages(
+            state=state,
+            user_api_key=user_api_key,
+            integrator_api_key=integrator_api_key,
+            delivery_id=delivery_id,
+            environment=environment,
+            timeout_seconds=timeout_seconds,
+        )
+        if not package_result.get("ok"):
+            return package_result
+        for row in package_result.get("packages") or []:
+            canonical = _canonical_inbound_package(row, delivery)
+            if canonical is not None:
+                packages.append(canonical)
+
+    packages.sort(key=lambda row: (row["identity"].casefold(), row["delivery_id"], row["package_record_id"]))
+    return {
+        "ok": True,
+        "status": "verified_read",
+        "message": "The pending inbound transfer was read through the exact verified facility mapping.",
+        "transfer_id": requested_id,
+        "manifest": str(transfer.get("ManifestNumber") or "").strip(),
+        "vendor": str(transfer.get("ShipperFacilityName") or transfer.get("ShipperFacilityLicenseNumber") or "").strip(),
+        "vendor_license": str(transfer.get("ShipperFacilityLicenseNumber") or "").strip(),
+        "packages": packages,
+    }
