@@ -65,7 +65,7 @@ def test_inventory_cross_workspace_actions_receiving_and_history_are_preserved()
     has(
         "frontend/src/components/ReceiveInventory.tsx",
         'Inbound Queue', 'Receive Details', 'Review', 'Post Inventory', 'Labels',
-        'Mapped Product', 'Pull read-only METRC lab results', '/inventory/regulatory/metrc/receiving/preflights/', 'Print labels',
+        'Mapped Product', 'Pull read-only METRC lab results', '/preflight/commit', 'Print labels',
     )
     has(
         "frontend/src/components/ProductionReceiveInventory.tsx",
