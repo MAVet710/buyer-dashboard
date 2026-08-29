@@ -28,7 +28,18 @@ type CommercialWorkspace = {
   partners:Partner[];
   orders:{id:string;order_type:string;status:string;order_total:number}[];
 };
-type StorefrontSnapshot = { storefront:{published:boolean}|null; pending_orders:{id:string;status:string}[] };
+type PendingStorefrontOrder = {
+  id:string;
+  status:string;
+  buyer_company?:string;
+  buyer_contact?:string;
+  buyer_email?:string;
+  buyer_license?:string;
+  estimated_subtotal?:number;
+  created_at?:string|null;
+  lines?:Array<{product_id:string;name?:string;quantity:number;unit?:string}>;
+};
+type StorefrontSnapshot = { storefront:{published:boolean}|null; pending_orders:PendingStorefrontOrder[] };
 
 const TABS:[Tab,string][] = [
   ["overview","Overview"],
@@ -43,8 +54,9 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
   const [tab,setTab]=useState<Tab>("overview");
   const inventory=useQuery({queryKey:["wholesale-inventory"],queryFn:({signal})=>apiGet<WholesaleInventory>("/api/v1/storefronts/wholesale-inventory",signal)});
   const commercial=useQuery({queryKey:["commercial-workspace"],queryFn:({signal})=>apiGet<CommercialWorkspace>("/api/v1/commercial/workspace",signal)});
-  const storefront=useQuery({queryKey:["commerce-storefront"],queryFn:({signal})=>apiGet<StorefrontSnapshot>("/api/v1/storefronts",signal)});
-  const pendingStorefront=(storefront.data?.pending_orders??[]).filter(row=>row.status==="submitted").length;
+  const storefront=useQuery({queryKey:["commerce-storefront"],queryFn:({signal})=>apiGet<StorefrontSnapshot>("/api/v1/storefronts",signal),refetchInterval:tab==="overview"||tab==="storefront"?30_000:false});
+  const pendingOrders=(storefront.data?.pending_orders??[]).filter(row=>row.status==="submitted");
+  const pendingStorefront=pendingOrders.length;
   const openSales=(commercial.data?.orders??[]).filter(row=>row.order_type==="sales"&&!["fulfilled","cancelled"].includes(row.status)).length;
 
   return <div className="page wholesale-ops-page">
@@ -52,9 +64,9 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
       <div><div className="eyebrow">WHOLESALE OPS</div><h1>Sellable inventory to fulfilled order.</h1><p>One commercial workspace for passed-COA inventory, wholesale orders, fulfillment, customers, and the hosted storefront.</p></div>
       <div className="wholesale-flow"><span>Production</span><b>→</b><span>COA Passed</span><b>→</b><span>Wholesale</span><b>→</b><span>Fulfillment</span></div>
     </div>
-    <div className="view-tabs parity-tabs wholesale-tabs" role="tablist">{TABS.map(([key,label])=><button key={key} role="tab" aria-selected={tab===key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{label}</button>)}</div>
+    <div className="view-tabs parity-tabs wholesale-tabs" role="tablist">{TABS.map(([key,label])=><button key={key} role="tab" aria-selected={tab===key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{label}{key==="storefront"&&pendingStorefront>0?<span className="status-pill" style={{marginLeft:8}}>{pendingStorefront}</span>:null}</button>)}</div>
 
-    {tab==="overview"?<Overview inventory={inventory.data} commercial={commercial.data} pendingStorefront={pendingStorefront} openSales={openSales} onTab={setTab}/>:null}
+    {tab==="overview"?<Overview inventory={inventory.data} commercial={commercial.data} pendingOrders={pendingOrders} openSales={openSales} storefrontLoading={storefront.isLoading} storefrontError={storefront.isError?storefront.error.message:""} onTab={setTab}/>:null}
     {tab==="inventory"?<WholesaleInventoryPanel query={inventory}/>:null}
     {tab==="orders"?<OrdersPage/>:null}
     {tab==="fulfillment"?<WarehousePickPackPage onNavigate={page=>page==="Orders"?setTab("orders"):onNavigate(page)}/>:null}
@@ -63,7 +75,8 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
   </div>;
 }
 
-function Overview({inventory,commercial,pendingStorefront,openSales,onTab}:{inventory:WholesaleInventory|undefined;commercial:CommercialWorkspace|undefined;pendingStorefront:number;openSales:number;onTab:(tab:Tab)=>void}) {
+function Overview({inventory,commercial,pendingOrders,openSales,storefrontLoading,storefrontError,onTab}:{inventory:WholesaleInventory|undefined;commercial:CommercialWorkspace|undefined;pendingOrders:PendingStorefrontOrder[];openSales:number;storefrontLoading:boolean;storefrontError:string;onTab:(tab:Tab)=>void}) {
+  const pendingStorefront=pendingOrders.length;
   return <>
     <section className="metrics wholesale-metrics">
       <Metric label="Sellable lots" value={inventory?.summary.sellable_lots??"—"} meta={`${inventory?.summary.bulk_lots??0} bulk · ${inventory?.summary.retail_ready_lots??0} retail ready`}/>
@@ -72,17 +85,31 @@ function Overview({inventory,commercial,pendingStorefront,openSales,onTab}:{inve
       <Metric label="Storefront approvals" value={pendingStorefront} meta="Public requests awaiting review"/>
       <Metric label="Fill rate" value={commercial?`${commercial.metrics.fill_rate_pct.toFixed(1)}%`:"—"} meta={`${commercial?.metrics.overdue_orders??0} overdue orders`}/>
     </section>
+    <StorefrontApprovalQueue orders={pendingOrders} loading={storefrontLoading} error={storefrontError} onReview={()=>onTab("storefront")}/>
     <WholesaleRegulatoryHealth />
     <ManifestDraftControl />
     <section className="wholesale-action-grid">
       <Action title="Wholesale Inventory" note="Only released lots with a passed COA and positive uncommitted quantity are sellable." action="Review inventory" onClick={()=>onTab("inventory")}/>
-      <Action title="Orders" note="Storefront, direct, and account orders converge into the same commercial sales-order engine." action="Work orders" onClick={()=>onTab("orders")}/>
+      <Action title="Orders" note="Approved storefront, direct, and account orders converge into the same commercial sales-order engine." action="Work orders" onClick={()=>onTab("orders")}/>
       <Action title="Fulfillment" note="Allocate, scan, pick, pack, and ship against the actual package or lot selected for the order." action="Open fulfillment" onClick={()=>onTab("fulfillment")}/>
       <Action title="Customers" note="Keep retailer licenses, contacts, payment terms, and account relationships attached to the commercial record." action="View customers" onClick={()=>onTab("customers")}/>
-      <Action title="Storefront" note="Publish only inventory that Wholesale Ops currently considers legally and operationally sellable." action="Manage storefront" onClick={()=>onTab("storefront")}/>
+      <Action title="Storefront" note="Review incoming storefront orders and manage what inventory customers can order." action={pendingStorefront?`Review ${pendingStorefront} pending`:"Manage storefront"} onClick={()=>onTab("storefront")}/>
     </section>
     {inventory?.summary.blocked_lots?<div className="info-banner"><strong>{inventory.summary.blocked_lots} inventory lot{inventory.summary.blocked_lots===1?" is":"s are"} intentionally excluded from wholesale.</strong><br/>Missing/failed COA, hold status, or fully committed inventory never flows into the sellable catalog.</div>:null}
   </>;
+}
+
+function StorefrontApprovalQueue({orders,loading,error,onReview}:{orders:PendingStorefrontOrder[];loading:boolean;error:string;onReview:()=>void}) {
+  return <section className="inventory-panel storefront-approval-queue">
+    <div className="page-heading" style={{marginBottom:12}}>
+      <div><div className="eyebrow">NEEDS APPROVAL</div><h2>Pending Storefront Orders</h2><p className="section-note">Orders submitted from hosted storefronts land here before they become commercial sales orders or reserve inventory.</p></div>
+      {orders.length?<button className="primary" type="button" onClick={onReview}>Review approvals</button>:null}
+    </div>
+    {loading?<div className="state">Checking for new storefront orders…</div>:null}
+    {error?<div className="warning-banner">Storefront approval queue could not be loaded: {error}</div>:null}
+    {!loading&&!error&&!orders.length?<div className="success-banner"><strong>No storefront orders are waiting for approval.</strong><br/><span>New customer submissions will appear here automatically.</span></div>:null}
+    {orders.length?<div className="table-wrap"><table><thead><tr><th>Customer</th><th>Contact</th><th>License</th><th>Items</th><th>Estimated total</th><th>Submitted</th><th></th></tr></thead><tbody>{orders.slice(0,8).map(order=><tr key={order.id}><td><strong>{order.buyer_company||"Wholesale customer"}</strong><br/><small>{order.id.slice(0,8).toUpperCase()}</small></td><td>{order.buyer_contact||"—"}<br/><small>{order.buyer_email||"—"}</small></td><td>{order.buyer_license||"Not supplied"}</td><td>{order.lines?.length??0}</td><td><strong>{money(order.estimated_subtotal??0)}</strong></td><td>{dateTime(order.created_at)}</td><td><button className="secondary" type="button" onClick={onReview}>Review order</button></td></tr>)}</tbody></table></div>:null}
+  </section>;
 }
 
 function WholesaleInventoryPanel({query}:{query:UseQueryResult<WholesaleInventory,Error>}) {
@@ -116,3 +143,4 @@ function Metric({label,value,meta}:{label:string;value:string|number;meta:string
 function Action({title,note,action,onClick}:{title:string;note:string;action:string;onClick:()=>void}){return <article className="inventory-panel wholesale-action"><div><h3>{title}</h3><p>{note}</p></div><button className="secondary" onClick={onClick}>{action}</button></article>}
 function number(value:number){return Number(value||0).toLocaleString(undefined,{maximumFractionDigits:2})}
 function money(value:number){return Number(value||0).toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0})}
+function dateTime(value:string|null|undefined){if(!value)return"—";const date=new Date(value);return Number.isNaN(date.getTime())?String(value):date.toLocaleString()}
