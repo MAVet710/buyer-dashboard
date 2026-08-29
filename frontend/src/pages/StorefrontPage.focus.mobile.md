@@ -1,0 +1,1 @@
+Acceptance criteria: typing multiple characters in storefront search, quantity, business name, license, contact, email, phone, PO reference, and notes must retain focus on mobile Safari instead of dismissing the keyboard after the first state update.
