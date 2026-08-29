@@ -30,7 +30,7 @@ const HOME_ACTIONS: HomeAction[] = [
   { label: "Traceability queue", description: "Review pending, rejected, and reconciliation-required state-system actions.", page: "Compliance", roles: ["dev", "admin", "buyer", "supervisor", "operator", "qa", "read_only"] },
   { label: "Open Package Studio", description: "Break down, pack down, build, sample, correct, and trace packages.", page: "Package Studio", roles: ["dev", "admin", "buyer", "planner", "supervisor", "operator", "qa"] },
   { label: "Build purchasing decisions", description: "Recommendations, budget, deliveries, and POs.", page: "Purchase Orders", roles: ["dev", "admin", "buyer"] },
-  { label: "Plan Co-Man production", description: "Balance orders, machines, crews, and hand labor.", page: "Production", roles: ["dev", "admin", "planner", "supervisor", "operator", "qa"] },
+  { label: "Plan production", description: "See what runs next, place work on the calendar, and balance orders, machines, crews, materials, and deadlines.", page: "Production", roles: ["dev", "admin", "planner", "supervisor", "operator", "qa"] },
   { label: "Review extraction", description: "Inspect run performance, yields, QA, and production risks.", page: "Extraction", roles: ["dev", "admin", "planner", "supervisor", "operator", "qa"] },
   { label: "Manage orders", description: "Track customer orders and fulfillment readiness.", page: "Orders", roles: ["dev", "admin", "buyer", "planner", "supervisor"] },
   { label: "Import operational data", description: "Load, map, review, and reuse operational sources.", page: "Data & Settings" },
