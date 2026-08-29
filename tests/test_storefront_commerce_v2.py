@@ -123,7 +123,7 @@ def test_storefront_v2_frontend_contract_covers_browsing_cart_batch_and_agent_wo
     css = (ROOT / "frontend/src/storefront-commerce-v2.css").read_text(encoding="utf-8")
     for token in ("Search wholesale catalog", "Filter category", "Sort catalog", "Featured Drops", "View / download COA", "Sellable batch", "Check order status", "localStorage", "Coming soon", "Sold out"):
         assert token in page
-    for token in ("Approve / apply changes", "License supplied", "License missing", "DOOBIE AGENT · WHOLESALE", "Which manifests still need verification?", "Customer-specific pricing & terms"):
+    for token in ("Approve / apply changes", "Supplied — not externally verified", "Local customer match", "License missing", "DOOBIE AGENT · WHOLESALE", "Which manifests still need verification?", "Customer-specific pricing & terms"):
         assert token in manager
     assert ".commerce-v2-lab-strip" in css
     assert ".commerce-v2-batch-grid" in css

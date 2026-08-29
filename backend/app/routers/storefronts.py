@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import Engine
 
 from modules.commerce_storefronts.intelligence import StorefrontWholesaleIntelligenceService
@@ -17,6 +19,8 @@ from ..database import get_engine
 router = APIRouter(prefix="/storefronts", tags=["storefronts"])
 public_router = APIRouter(prefix="/commerce-storefronts", tags=["commerce-storefronts"])
 _STORE_ROLES = {"dev", "admin", "supervisor", "buyer"}
+_ALLOWED_PO_TYPES = {"application/pdf", "image/png", "image/jpeg"}
+_MAX_PO_BYTES = 3 * 1024 * 1024
 
 
 def _authorize_read(context: RequestContext, engine: Engine) -> None:
@@ -27,6 +31,16 @@ def _authorize_manage(context: RequestContext, engine: Engine) -> None:
     _authorize_read(context, engine)
     if context.role.casefold() not in _STORE_ROLES:
         raise HTTPException(403, "Your role is not authorized to manage the hosted storefront or approve public orders.")
+
+
+def _po_signature_matches(content_type: str, content: bytes) -> bool:
+    if content_type == "application/pdf":
+        return content.startswith(b"%PDF-")
+    if content_type == "image/png":
+        return content.startswith(b"\x89PNG\r\n\x1a\n")
+    if content_type == "image/jpeg":
+        return content.startswith(b"\xff\xd8\xff")
+    return False
 
 
 class StorefrontPayload(BaseModel):
@@ -42,14 +56,30 @@ class StorefrontPayload(BaseModel):
     published: bool = False
 
 
+class QuantityBreakPayload(BaseModel):
+    minimum_quantity: float = Field(gt=0)
+    price_usd: float = Field(ge=0)
+
+
 class StorefrontProductPayload(BaseModel):
     product_id: str
     price_usd: float = Field(ge=0)
     minimum_quantity: float = Field(default=1, gt=0)
     case_quantity: float = Field(default=1, gt=0)
+    quantity_breaks: list[QuantityBreakPayload] = Field(default_factory=list, max_length=20)
     featured: bool = False
     active: bool = True
     sort_order: int = 0
+
+    @model_validator(mode="after")
+    def validate_quantity_break_thresholds(self):
+        seen: set[float] = set()
+        for tier in self.quantity_breaks:
+            threshold = round(float(tier.minimum_quantity), 7)
+            if threshold in seen:
+                raise ValueError("Quantity-break minimums must be unique.")
+            seen.add(threshold)
+        return self
 
 
 class StorefrontProductsPayload(BaseModel):
@@ -69,8 +99,37 @@ class PublicOrderPayload(BaseModel):
     buyer_phone: str = Field(default="", max_length=64)
     lines: list[PublicOrderLine] = Field(min_length=1, max_length=250)
     requested_delivery_date: date | None = None
+    requested_delivery_window: str = Field(default="", max_length=80)
     purchase_order_reference: str = Field(default="", max_length=255)
+    purchase_order_attachment_name: str = Field(default="", max_length=255)
+    purchase_order_attachment_type: str = Field(default="", max_length=128)
+    purchase_order_attachment_base64: str = Field(default="", max_length=4_500_000)
     notes: str = Field(default="", max_length=5000)
+
+    @model_validator(mode="after")
+    def validate_purchase_order_attachment(self):
+        encoded = self.purchase_order_attachment_base64.strip()
+        if not encoded:
+            if self.purchase_order_attachment_name or self.purchase_order_attachment_type:
+                raise ValueError("Purchase-order attachment metadata requires file content.")
+            return self
+        content_type = self.purchase_order_attachment_type.strip().casefold()
+        if content_type not in _ALLOWED_PO_TYPES:
+            raise ValueError("Purchase-order attachment must be a PDF, PNG, or JPEG.")
+        raw = encoded
+        if raw.casefold().startswith("data:") and "," in raw:
+            raw = raw.split(",", 1)[1]
+        try:
+            content = base64.b64decode(raw, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Purchase-order attachment is not valid base64 data.") from exc
+        if not content:
+            raise ValueError("Purchase-order attachment is empty.")
+        if len(content) > _MAX_PO_BYTES:
+            raise ValueError("Purchase-order attachment must be 3 MB or smaller.")
+        if not _po_signature_matches(content_type, content):
+            raise ValueError("Purchase-order attachment contents do not match the declared file type.")
+        return self
 
 
 class ReviewLinePayload(BaseModel):
@@ -136,14 +195,7 @@ def save_storefront_products(payload: StorefrontProductsPayload, context: Reques
 def approve_storefront_order(request_id: str, payload: ReviewPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _authorize_manage(context, engine)
     try:
-        return CommerceStorefrontService(engine).approve_order_request(
-            organization_id=context.organization_id,
-            facility_id=context.facility_id,
-            request_id=request_id,
-            actor=context.user_id,
-            review_note=payload.note,
-            approved_lines=[row.model_dump() for row in payload.lines] if payload.lines is not None else None,
-        )
+        return CommerceStorefrontService(engine).approve_order_request(organization_id=context.organization_id, facility_id=context.facility_id, request_id=request_id, actor=context.user_id, review_note=payload.note, approved_lines=[row.model_dump() for row in payload.lines] if payload.lines is not None else None)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -155,6 +207,26 @@ def reject_storefront_order(request_id: str, payload: ReviewPayload, context: Re
         return CommerceStorefrontService(engine).reject_order_request(organization_id=context.organization_id, facility_id=context.facility_id, request_id=request_id, actor=context.user_id, review_note=payload.note)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/orders/{request_id}/purchase-order")
+def download_purchase_order(request_id: str, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _authorize_read(context, engine)
+    try:
+        attachment = CommerceStorefrontService(engine).purchase_order_attachment(organization_id=context.organization_id, facility_id=context.facility_id, request_id=request_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    safe_name = attachment["file_name"].replace('"', "_").replace("\r", "_").replace("\n", "_")
+    return Response(
+        content=attachment["content"],
+        media_type=attachment["content_type"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}"',
+            "X-Content-SHA256": attachment["sha256"],
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store, max-age=0",
+        },
+    )
 
 
 @router.get("/agent/snapshot")

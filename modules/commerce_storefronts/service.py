@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 from datetime import date
+import hashlib
 import json
 import re
 from typing import Any
@@ -14,9 +16,11 @@ from modules.coman.models import CommercialOrder, Product, TradePartner, utc_now
 from modules.coman.repository import ComanRepository
 from modules.commercial.repository import CommercialRepository
 
-from .models import CommerceStorefront, CommerceStorefrontOrderRequest, CommerceStorefrontProduct
+from .models import CommerceStorefront, CommerceStorefrontOrderAttachment, CommerceStorefrontOrderRequest, CommerceStorefrontProduct
 
 _RESERVED_SUBDOMAINS = {"www", "api", "ops", "app", "admin", "beta", "support", "status", "mail", "store", "portal"}
+_ALLOWED_PO_TYPES = {"application/pdf", "image/png", "image/jpeg"}
+_MAX_PO_BYTES = 3 * 1024 * 1024
 
 
 def _json(value: Any) -> str:
@@ -39,6 +43,58 @@ def _slug(value: str) -> str:
     return clean
 
 
+def _quantity_breaks(raw: Any, minimum_quantity: float, case_quantity: float) -> list[dict[str, float]]:
+    if raw in (None, "", []):
+        return []
+    rows = _load(raw, []) if isinstance(raw, str) else raw
+    if not isinstance(rows, list):
+        raise ValueError("Quantity breaks must be a list.")
+    normalized: dict[float, float] = {}
+    for item in rows:
+        if not isinstance(item, dict):
+            raise ValueError("Each quantity break must include minimum_quantity and price_usd.")
+        threshold = float(item.get("minimum_quantity") or 0)
+        price = float(item.get("price_usd") if item.get("price_usd") is not None else -1)
+        if threshold < minimum_quantity or price < 0:
+            raise ValueError("Quantity-break minimums must meet the listing minimum and prices cannot be negative.")
+        multiple = threshold / case_quantity
+        if abs(multiple - round(multiple)) > 1e-7:
+            raise ValueError("Quantity-break minimums must align to the listing case quantity.")
+        normalized[threshold] = price
+    return [{"minimum_quantity": threshold, "price_usd": normalized[threshold]} for threshold in sorted(normalized)]
+
+
+def _effective_price(base_price: float, breaks: list[dict[str, float]], quantity: float) -> tuple[float, str]:
+    price = float(base_price)
+    source = "base"
+    for tier in breaks:
+        if quantity + 1e-7 >= float(tier["minimum_quantity"]):
+            price = float(tier["price_usd"])
+            source = "quantity_break"
+    return price, source
+
+
+def _decode_po_attachment(name: str, content_type: str, encoded: str) -> tuple[str, str, bytes] | None:
+    if not encoded:
+        return None
+    clean_name = re.sub(r"[^A-Za-z0-9._ -]+", "_", str(name or "purchase-order").strip())[:255] or "purchase-order"
+    clean_type = str(content_type or "").strip().casefold()
+    if clean_type not in _ALLOWED_PO_TYPES:
+        raise ValueError("Purchase-order attachment must be a PDF, PNG, or JPEG.")
+    raw = encoded.strip()
+    if "," in raw and raw.casefold().startswith("data:"):
+        raw = raw.split(",", 1)[1]
+    try:
+        content = base64.b64decode(raw, validate=True)
+    except Exception as exc:
+        raise ValueError("Purchase-order attachment is not valid base64 data.") from exc
+    if not content:
+        raise ValueError("Purchase-order attachment is empty.")
+    if len(content) > _MAX_PO_BYTES:
+        raise ValueError("Purchase-order attachment must be 3 MB or smaller.")
+    return clean_name, clean_type, content
+
+
 class CommerceStorefrontService:
     def __init__(self, engine: Engine):
         self.engine = engine
@@ -46,10 +102,7 @@ class CommerceStorefrontService:
 
     def get_storefront(self, organization_id: str, facility_id: str) -> CommerceStorefront | None:
         with self._sessions() as session:
-            return session.scalar(select(CommerceStorefront).where(
-                CommerceStorefront.organization_id == organization_id,
-                CommerceStorefront.facility_id == facility_id,
-            ).order_by(CommerceStorefront.created_at.asc()))
+            return session.scalar(select(CommerceStorefront).where(CommerceStorefront.organization_id == organization_id, CommerceStorefront.facility_id == facility_id).order_by(CommerceStorefront.created_at.asc()))
 
     def upsert_storefront(self, *, organization_id: str, facility_id: str, actor: str, display_name: str, subdomain: str, headline: str = "Wholesale ordering", description: str = "", logo_url: str = "", hero_image_url: str = "", accent_color: str = "#8abf55", contact_email: str = "", order_instructions: str = "", published: bool = False) -> CommerceStorefront:
         clean_subdomain = _slug(subdomain)
@@ -63,26 +116,12 @@ class CommerceStorefrontService:
             if value and not str(value).strip().lower().startswith("https://"):
                 raise ValueError(f"{label} must use HTTPS.")
         with self._sessions.begin() as session:
-            row = session.scalar(select(CommerceStorefront).where(
-                CommerceStorefront.organization_id == organization_id,
-                CommerceStorefront.facility_id == facility_id,
-            ).order_by(CommerceStorefront.created_at.asc()))
-            collision = session.scalar(select(CommerceStorefront).where(
-                CommerceStorefront.subdomain == clean_subdomain,
-                CommerceStorefront.id != (row.id if row else ""),
-            ))
+            row = session.scalar(select(CommerceStorefront).where(CommerceStorefront.organization_id == organization_id, CommerceStorefront.facility_id == facility_id).order_by(CommerceStorefront.created_at.asc()))
+            collision = session.scalar(select(CommerceStorefront).where(CommerceStorefront.subdomain == clean_subdomain, CommerceStorefront.id != (row.id if row else "")))
             if collision:
                 raise ValueError("That DoobieLogic subdomain is already in use.")
             if row is None:
-                row = CommerceStorefront(
-                    organization_id=organization_id,
-                    facility_id=facility_id,
-                    slug=clean_subdomain,
-                    subdomain=clean_subdomain,
-                    display_name=clean_name,
-                    created_by=actor,
-                    updated_by=actor,
-                )
+                row = CommerceStorefront(organization_id=organization_id, facility_id=facility_id, slug=clean_subdomain, subdomain=clean_subdomain, display_name=clean_name, created_by=actor, updated_by=actor)
                 session.add(row)
             row.slug = clean_subdomain
             row.subdomain = clean_subdomain
@@ -107,15 +146,7 @@ class CommerceStorefrontService:
         for lot in lots:
             if lot.status in {"available", "released"}:
                 balances[lot.product_id] = balances.get(lot.product_id, 0.0) + max(0.0, repo.inventory_balance(organization_id, lot.id))
-        return [{
-            "product_id": product.id,
-            "sku": product.sku,
-            "name": product.name,
-            "unit": product.base_unit,
-            "available": balances.get(product.id, 0.0),
-            "suggested_price_usd": float(product.retail_price or 0.0),
-            "orderable": balances.get(product.id, 0.0) > 0,
-        } for product in products if product.active]
+        return [{"product_id": product.id, "sku": product.sku, "name": product.name, "unit": product.base_unit, "available": balances.get(product.id, 0.0), "suggested_price_usd": float(product.retail_price or 0.0), "orderable": balances.get(product.id, 0.0) > 0} for product in products if product.active]
 
     def set_products(self, *, organization_id: str, facility_id: str, actor: str, products: list[dict[str, Any]]) -> list[CommerceStorefrontProduct]:
         storefront = self.get_storefront(organization_id, facility_id)
@@ -134,6 +165,7 @@ class CommerceStorefrontService:
                 case = float(raw.get("case_quantity") or 1.0)
                 if price < 0 or minimum <= 0 or case <= 0:
                     raise ValueError("Storefront price cannot be negative and order quantities must be greater than zero.")
+                breaks = _quantity_breaks(raw.get("quantity_breaks"), minimum, case)
                 wanted.add(product_id)
                 row = current.get(product_id)
                 if row is None:
@@ -142,6 +174,7 @@ class CommerceStorefrontService:
                 row.price_usd = price
                 row.minimum_quantity = minimum
                 row.case_quantity = case
+                row.quantity_breaks_json = _json(breaks)
                 row.featured = bool(raw.get("featured", False))
                 row.active = bool(raw.get("active", True))
                 row.sort_order = int(raw.get("sort_order") if raw.get("sort_order") is not None else index)
@@ -158,11 +191,7 @@ class CommerceStorefrontService:
         with self._sessions() as session:
             listings = list(session.scalars(select(CommerceStorefrontProduct).where(CommerceStorefrontProduct.storefront_id == storefront.id).order_by(CommerceStorefrontProduct.sort_order, CommerceStorefrontProduct.created_at)))
             products = {row.id: row for row in session.scalars(select(Product).where(Product.organization_id == organization_id))}
-        return {
-            "storefront": self._storefront_dict(storefront),
-            "products": [self._listing_dict(row, products.get(row.product_id)) for row in listings],
-            "pending_orders": self.list_order_requests(organization_id, facility_id),
-        }
+        return {"storefront": self._storefront_dict(storefront), "products": [self._listing_dict(row, products.get(row.product_id)) for row in listings], "pending_orders": self.list_order_requests(organization_id, facility_id)}
 
     def resolve_public(self, slug: str) -> CommerceStorefront:
         clean = _slug(slug)
@@ -176,10 +205,7 @@ class CommerceStorefrontService:
         storefront = self.resolve_public(slug)
         options = {row["product_id"]: row for row in self.list_catalog_options(storefront.organization_id, storefront.facility_id)}
         with self._sessions() as session:
-            listings = list(session.scalars(select(CommerceStorefrontProduct).where(
-                CommerceStorefrontProduct.storefront_id == storefront.id,
-                CommerceStorefrontProduct.active.is_(True),
-            ).order_by(CommerceStorefrontProduct.featured.desc(), CommerceStorefrontProduct.sort_order, CommerceStorefrontProduct.created_at)))
+            listings = list(session.scalars(select(CommerceStorefrontProduct).where(CommerceStorefrontProduct.storefront_id == storefront.id, CommerceStorefrontProduct.active.is_(True)).order_by(CommerceStorefrontProduct.featured.desc(), CommerceStorefrontProduct.sort_order, CommerceStorefrontProduct.created_at)))
             products = {row.id: row for row in session.scalars(select(Product).where(Product.organization_id == storefront.organization_id))}
         catalog: list[dict[str, Any]] = []
         for listing in listings:
@@ -189,28 +215,17 @@ class CommerceStorefrontService:
             option = options.get(listing.product_id) or {}
             available = max(0.0, float(option.get("available") or 0.0))
             orderable = bool(option.get("orderable", available > 0)) and available > 0
-            catalog.append({
-                "product_id": product.id,
-                "sku": product.sku,
-                "name": product.name,
-                "unit": product.base_unit,
-                "available": available,
-                "price_usd": float(listing.price_usd),
-                "minimum_quantity": float(listing.minimum_quantity),
-                "case_quantity": float(listing.case_quantity),
-                "featured": bool(listing.featured),
-                "orderable": orderable,
-                "availability_status": "in_stock" if orderable else ("preview" if available > 0 else "coming_soon"),
-                "listed_at": listing.created_at,
-            })
+            catalog.append({"product_id": product.id, "sku": product.sku, "name": product.name, "unit": product.base_unit, "available": available, "price_usd": float(listing.price_usd), "minimum_quantity": float(listing.minimum_quantity), "case_quantity": float(listing.case_quantity), "quantity_breaks": _load(listing.quantity_breaks_json, []), "featured": bool(listing.featured), "orderable": orderable, "availability_status": "in_stock" if orderable else ("preview" if available > 0 else "coming_soon"), "listed_at": listing.created_at})
         return {"storefront": self._storefront_dict(storefront), "catalog": catalog}
 
-    def submit_order_request(self, *, slug: str, buyer_company: str, buyer_contact: str, buyer_email: str, lines: list[dict[str, Any]], buyer_license: str = "", buyer_phone: str = "", requested_delivery_date: date | None = None, purchase_order_reference: str = "", notes: str = "") -> CommerceStorefrontOrderRequest:
+    def submit_order_request(self, *, slug: str, buyer_company: str, buyer_contact: str, buyer_email: str, lines: list[dict[str, Any]], buyer_license: str = "", buyer_phone: str = "", requested_delivery_date: date | None = None, requested_delivery_window: str = "", purchase_order_reference: str = "", purchase_order_attachment_name: str = "", purchase_order_attachment_type: str = "", purchase_order_attachment_base64: str = "", notes: str = "") -> CommerceStorefrontOrderRequest:
         company = str(buyer_company or "").strip()
         contact = str(buyer_contact or "").strip()
         email = str(buyer_email or "").strip()
         if not company or not contact or "@" not in email:
             raise ValueError("Business name, contact name, and a valid email are required.")
+        delivery_window = str(requested_delivery_window or "").strip()[:80]
+        attachment = _decode_po_attachment(purchase_order_attachment_name, purchase_order_attachment_type, purchase_order_attachment_base64)
         catalog = self.public_catalog(slug)
         storefront_data = catalog["storefront"]
         by_product = {row["product_id"]: row for row in catalog["catalog"]}
@@ -228,27 +243,18 @@ class CommerceStorefrontService:
             case = float(item["case_quantity"] or 1.0)
             if abs((quantity / case) - round(quantity / case)) > 1e-7:
                 raise ValueError(f"{item['name']} must be ordered in multiples of {case:g} {item['unit']}.")
-            line_total = quantity * float(item["price_usd"])
+            unit_price, price_source = _effective_price(float(item["price_usd"]), item.get("quantity_breaks") or [], quantity)
+            line_total = quantity * unit_price
             subtotal += line_total
-            snapshots.append({**item, "quantity": quantity, "requested_quantity": quantity, "line_total": line_total})
+            snapshots.append({**item, "price_usd": unit_price, "base_price_usd": float(item["price_usd"]), "price_source": price_source, "quantity": quantity, "requested_quantity": quantity, "line_total": line_total})
         with self._sessions.begin() as session:
             storefront = session.get(CommerceStorefront, storefront_data["id"])
-            row = CommerceStorefrontOrderRequest(
-                organization_id=storefront.organization_id,
-                facility_id=storefront.facility_id,
-                storefront_id=storefront.id,
-                buyer_company=company,
-                buyer_license=str(buyer_license or "").strip(),
-                buyer_contact=contact,
-                buyer_email=email,
-                buyer_phone=str(buyer_phone or "").strip(),
-                purchase_order_reference=str(purchase_order_reference or "").strip(),
-                requested_delivery_date=requested_delivery_date,
-                notes=str(notes or "").strip(),
-                lines_json=_json(snapshots),
-                estimated_subtotal=subtotal,
-            )
+            row = CommerceStorefrontOrderRequest(organization_id=storefront.organization_id, facility_id=storefront.facility_id, storefront_id=storefront.id, buyer_company=company, buyer_license=str(buyer_license or "").strip(), buyer_contact=contact, buyer_email=email, buyer_phone=str(buyer_phone or "").strip(), purchase_order_reference=str(purchase_order_reference or "").strip(), requested_delivery_date=requested_delivery_date, requested_delivery_window=delivery_window, notes=str(notes or "").strip(), lines_json=_json(snapshots), estimated_subtotal=subtotal)
             session.add(row)
+            session.flush()
+            if attachment:
+                file_name, content_type, content = attachment
+                session.add(CommerceStorefrontOrderAttachment(organization_id=storefront.organization_id, facility_id=storefront.facility_id, request_id=row.id, kind="purchase_order", file_name=file_name, content_type=content_type, content_bytes=content, byte_size=len(content), sha256=hashlib.sha256(content).hexdigest()))
             session.flush()
             return row
 
@@ -262,27 +268,33 @@ class CommerceStorefrontService:
             order = session.get(CommercialOrder, row.commercial_order_id) if row.commercial_order_id else None
             request = self._request_dict(row)
         fulfillment = order.status if order else ("awaiting_review" if row.status == "submitted" else row.status)
-        return {
-            "request_id": row.id,
-            "status": row.status,
-            "fulfillment_status": fulfillment,
-            "order_number": order.order_number if order else "",
-            "commercial_order_id": row.commercial_order_id,
-            "estimated_subtotal": request["estimated_subtotal"],
-            "lines": request["lines"],
-            "requested_delivery_date": request["requested_delivery_date"],
-            "review_note": row.review_note,
-            "created_at": row.created_at,
-            "reviewed_at": row.reviewed_at,
-        }
+        return {"request_id": row.id, "status": row.status, "fulfillment_status": fulfillment, "order_number": order.order_number if order else "", "commercial_order_id": row.commercial_order_id, "estimated_subtotal": request["estimated_subtotal"], "lines": request["lines"], "requested_delivery_date": request["requested_delivery_date"], "requested_delivery_window": request["requested_delivery_window"], "review_note": row.review_note, "created_at": row.created_at, "reviewed_at": row.reviewed_at}
 
     def list_order_requests(self, organization_id: str, facility_id: str) -> list[dict[str, Any]]:
         with self._sessions() as session:
-            rows = list(session.scalars(select(CommerceStorefrontOrderRequest).where(
-                CommerceStorefrontOrderRequest.organization_id == organization_id,
-                CommerceStorefrontOrderRequest.facility_id == facility_id,
-            ).order_by(CommerceStorefrontOrderRequest.created_at.desc()).limit(250)))
-        return [self._request_dict(row) for row in rows]
+            rows = list(session.scalars(select(CommerceStorefrontOrderRequest).where(CommerceStorefrontOrderRequest.organization_id == organization_id, CommerceStorefrontOrderRequest.facility_id == facility_id).order_by(CommerceStorefrontOrderRequest.created_at.desc()).limit(250)))
+            attachments = {row.request_id: row for row in session.scalars(select(CommerceStorefrontOrderAttachment).where(CommerceStorefrontOrderAttachment.organization_id == organization_id, CommerceStorefrontOrderAttachment.facility_id == facility_id, CommerceStorefrontOrderAttachment.kind == "purchase_order"))}
+            partners = list(session.scalars(select(TradePartner).where(TradePartner.organization_id == organization_id, TradePartner.active.is_(True), TradePartner.partner_type.in_(("customer", "both")))))
+        partner_licenses = {str(row.license_or_registration or "").strip().casefold() for row in partners if str(row.license_or_registration or "").strip()}
+        result = []
+        for row in rows:
+            item = self._request_dict(row)
+            license_number = str(row.buyer_license or "").strip()
+            item["license_verification"] = "missing" if not license_number else ("matched_local_customer" if license_number.casefold() in partner_licenses else "supplied_unverified")
+            attachment = attachments.get(row.id)
+            item["purchase_order_attachment"] = {"file_name": attachment.file_name, "content_type": attachment.content_type, "byte_size": attachment.byte_size, "sha256": attachment.sha256} if attachment else None
+            result.append(item)
+        return result
+
+    def purchase_order_attachment(self, *, organization_id: str, facility_id: str, request_id: str) -> dict[str, Any]:
+        with self._sessions() as session:
+            request = session.get(CommerceStorefrontOrderRequest, request_id)
+            if not request or request.organization_id != organization_id or request.facility_id != facility_id:
+                raise ValueError("Storefront order request was not found in this facility.")
+            attachment = session.scalar(select(CommerceStorefrontOrderAttachment).where(CommerceStorefrontOrderAttachment.organization_id == organization_id, CommerceStorefrontOrderAttachment.facility_id == facility_id, CommerceStorefrontOrderAttachment.request_id == request_id, CommerceStorefrontOrderAttachment.kind == "purchase_order"))
+            if not attachment:
+                raise ValueError("This storefront order does not have a purchase-order attachment.")
+            return {"file_name": attachment.file_name, "content_type": attachment.content_type, "content": bytes(attachment.content_bytes), "sha256": attachment.sha256}
 
     def approve_order_request(self, *, organization_id: str, facility_id: str, request_id: str, actor: str, review_note: str = "", approved_lines: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         with self._sessions() as session:
@@ -327,19 +339,8 @@ class CommerceStorefrontService:
             approved_snapshots.append({**item, "quantity": quantity, "requested_quantity": original_quantity, "price_usd": price, "line_total": line_total})
         partner = self._resolve_or_create_partner(request, actor)
         order_number = f"WEB-{utc_now().strftime('%Y%m%d%H%M%S')}-{request.id[:6].upper()}"
-        order = CommercialRepository(self.engine).create_order(
-            organization_id=organization_id,
-            facility_id=facility_id,
-            partner_id=partner.id,
-            order_number=order_number,
-            order_type="sales",
-            order_date=date.today(),
-            due_date=request.requested_delivery_date,
-            lines=order_lines,
-            actor=actor,
-            external_reference=request.purchase_order_reference,
-            notes=(request.notes + "\n" if request.notes else "") + f"Approved from hosted storefront {storefront.subdomain}.doobielogic.io request {request.id}.",
-        )
+        delivery_note = f"Requested delivery window: {request.requested_delivery_window}." if request.requested_delivery_window else ""
+        order = CommercialRepository(self.engine).create_order(organization_id=organization_id, facility_id=facility_id, partner_id=partner.id, order_number=order_number, order_type="sales", order_date=date.today(), due_date=request.requested_delivery_date, lines=order_lines, actor=actor, external_reference=request.purchase_order_reference, notes="\n".join(value for value in (request.notes, delivery_note, f"Approved from hosted storefront {storefront.subdomain}.doobielogic.io request {request.id}.") if value))
         with self._sessions.begin() as session:
             row = session.get(CommerceStorefrontOrderRequest, request.id)
             if row.status != "submitted":
@@ -381,16 +382,7 @@ class CommerceStorefrontService:
                 if partner.partner_type not in {"customer", "both"}:
                     raise ValueError("The matching trade partner is not configured as a customer.")
                 return partner
-        return CommercialRepository(self.engine).create_trade_partner(
-            request.organization_id,
-            name=request.buyer_company,
-            partner_type="customer",
-            actor=actor,
-            license_or_registration=request.buyer_license,
-            contact_name=request.buyer_contact,
-            contact_email=request.buyer_email,
-            contact_phone=request.buyer_phone,
-        )
+        return CommercialRepository(self.engine).create_trade_partner(request.organization_id, name=request.buyer_company, partner_type="customer", actor=actor, license_or_registration=request.buyer_license, contact_name=request.buyer_contact, contact_email=request.buyer_email, contact_phone=request.buyer_phone)
 
     @staticmethod
     def _storefront_dict(row: CommerceStorefront) -> dict[str, Any]:
@@ -398,10 +390,10 @@ class CommerceStorefrontService:
 
     @staticmethod
     def _listing_dict(row: CommerceStorefrontProduct, product: Product | None) -> dict[str, Any]:
-        return {"id": row.id, "product_id": row.product_id, "sku": product.sku if product else "", "name": product.name if product else "Unknown product", "unit": product.base_unit if product else "unit", "price_usd": float(row.price_usd), "minimum_quantity": float(row.minimum_quantity), "case_quantity": float(row.case_quantity), "featured": bool(row.featured), "active": bool(row.active), "sort_order": int(row.sort_order)}
+        return {"id": row.id, "product_id": row.product_id, "sku": product.sku if product else "", "name": product.name if product else "Unknown product", "unit": product.base_unit if product else "unit", "price_usd": float(row.price_usd), "minimum_quantity": float(row.minimum_quantity), "case_quantity": float(row.case_quantity), "quantity_breaks": _load(row.quantity_breaks_json, []), "featured": bool(row.featured), "active": bool(row.active), "sort_order": int(row.sort_order)}
 
     @staticmethod
     def _request_dict(row: CommerceStorefrontOrderRequest) -> dict[str, Any]:
         lines = _load(row.lines_json, [])
         partial = any(float(line.get("quantity") or 0) < float(line.get("requested_quantity") or line.get("quantity") or 0) for line in lines)
-        return {"id": row.id, "storefront_id": row.storefront_id, "buyer_company": row.buyer_company, "buyer_license": row.buyer_license, "buyer_contact": row.buyer_contact, "buyer_email": row.buyer_email, "buyer_phone": row.buyer_phone, "purchase_order_reference": row.purchase_order_reference, "requested_delivery_date": row.requested_delivery_date, "notes": row.notes, "lines": lines, "estimated_subtotal": float(row.estimated_subtotal), "status": row.status, "approval_mode": "partial" if row.status == "approved" and partial else ("full" if row.status == "approved" else "pending"), "partner_id": row.partner_id, "commercial_order_id": row.commercial_order_id, "reviewed_by": row.reviewed_by, "reviewed_at": row.reviewed_at, "review_note": row.review_note, "created_at": row.created_at}
+        return {"id": row.id, "storefront_id": row.storefront_id, "buyer_company": row.buyer_company, "buyer_license": row.buyer_license, "buyer_contact": row.buyer_contact, "buyer_email": row.buyer_email, "buyer_phone": row.buyer_phone, "purchase_order_reference": row.purchase_order_reference, "requested_delivery_date": row.requested_delivery_date, "requested_delivery_window": row.requested_delivery_window, "notes": row.notes, "lines": lines, "estimated_subtotal": float(row.estimated_subtotal), "status": row.status, "approval_mode": "partial" if row.status == "approved" and partial else ("full" if row.status == "approved" else "pending"), "partner_id": row.partner_id, "commercial_order_id": row.commercial_order_id, "reviewed_by": row.reviewed_by, "reviewed_at": row.reviewed_at, "review_note": row.review_note, "created_at": row.created_at}
