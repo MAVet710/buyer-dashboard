@@ -38,8 +38,18 @@ jobs:
       - name: Build immutable seed image
         run: |
           set -euo pipefail
+          BASE_IMAGE="cowboy-kush-demo-seed-base:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
           IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/cowboy-kush-demo-seed:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
-          docker build -f Dockerfile.api -t "$IMAGE" .
+          docker build -f Dockerfile.api -t "$BASE_IMAGE" .
+          cat > /tmp/Dockerfile.cowboy-seed <<'EOF'
+          ARG BASE_IMAGE
+          FROM ${BASE_IMAGE}
+          USER root
+          COPY --chown=buyer:buyer scripts /app/scripts
+          USER buyer
+          EOF
+          docker build --build-arg BASE_IMAGE="$BASE_IMAGE" -f /tmp/Dockerfile.cowboy-seed -t "$IMAGE" .
+          docker run --rm --entrypoint python "$IMAGE" -c "from scripts.seed_cowboy_kush_ma_coa_demo import BATCHES; assert len(BATCHES) >= 10; print('Cowboy Kush seed image verified')"
           docker push "$IMAGE"
           echo "SEED_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
@@ -58,7 +68,27 @@ jobs:
             --set-env-vars APP_ENV=production \
             --set-secrets DL_PROD_DB_URL=buyer-dash-database-url:latest \
             --quiet
-          gcloud run jobs execute "${{ env.SEED_JOB }}" \
+          if ! gcloud run jobs execute "${{ env.SEED_JOB }}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --region "${{ env.REGION }}" \
-            --wait
+            --wait; then
+            EXECUTION="$(gcloud run jobs executions list \
+              --job "${{ env.SEED_JOB }}" \
+              --project "${{ secrets.GCP_PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --limit 1 \
+              --format='value(metadata.name)')"
+            if [ -n "$EXECUTION" ]; then
+              gcloud run jobs executions describe "$EXECUTION" \
+                --project "${{ secrets.GCP_PROJECT_ID }}" \
+                --region "${{ env.REGION }}" \
+                --format='yaml(metadata.name,status.conditions,status.failedCount,status.succeededCount)' || true
+              gcloud logging read \
+                "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${{ env.SEED_JOB }}\"" \
+                --project "${{ secrets.GCP_PROJECT_ID }}" \
+                --limit 100 \
+                --order=desc \
+                --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
+            fi
+            exit 1
+          fi
