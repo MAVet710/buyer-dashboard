@@ -17,6 +17,7 @@ PERMITTED_PUBLIC_API_ROUTES = {
     ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/orders"),
     ("GET", f"{settings.api_prefix}/commerce-storefronts/{{slug}}"),
     ("POST", f"{settings.api_prefix}/commerce-storefronts/{{slug}}/orders"),
+    ("POST", f"{settings.api_prefix}/commerce-storefronts/{{slug}}/orders/status"),
 }
 SERVICE_ACCOUNT_PREFIX = f"{settings.api_prefix}/external/v1/"
 
@@ -73,6 +74,7 @@ def test_public_api_allowlist_is_explicit_and_bounded():
     assert ("POST", f"{settings.api_prefix}/account/username-login") in security
     assert ("GET", f"{settings.api_prefix}/commerce-storefronts/{{slug}}") in security
     assert ("POST", f"{settings.api_prefix}/commerce-storefronts/{{slug}}/orders") in security
+    assert ("POST", f"{settings.api_prefix}/commerce-storefronts/{{slug}}/orders/status") in security
 
 
 def test_hosted_storefront_subdomain_cors_is_exact_and_bounded():
