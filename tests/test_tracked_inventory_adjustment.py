@@ -4,7 +4,13 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from modules.coman.models import Facility, Organization
+from modules.coman.models import (
+    Facility,
+    InventoryLot,
+    InventoryTransaction,
+    Organization,
+    Product,
+)
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
 from modules.traceability.inventory_adjustment import run_tracked_metrc_adjustment
 from modules.traceability.models import (
@@ -18,6 +24,9 @@ def _engine():
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
     Organization.__table__.create(engine)
     Facility.__table__.create(engine)
+    Product.__table__.create(engine)
+    InventoryLot.__table__.create(engine)
+    InventoryTransaction.__table__.create(engine)
     TraceabilityTransaction.__table__.create(engine)
     TraceabilityTransactionAttempt.__table__.create(engine)
     TraceabilityStatusEvent.__table__.create(engine)
