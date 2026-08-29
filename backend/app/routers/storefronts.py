@@ -1,4 +1,4 @@
-"""DoobieCommerce hosted storefront builder, public catalog, and approval queue."""
+"""DoobieCommerce hosted storefront builder, public catalog, approval queue, and wholesale intelligence."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from modules.commerce_storefronts.intelligence import StorefrontWholesaleIntelligenceService
 from modules.commerce_storefronts.wholesale_service import WholesaleCommerceStorefrontService as CommerceStorefrontService
 
 from ..auth import RequestContext, get_request_context, require_facility_capability
@@ -15,7 +16,6 @@ from ..database import get_engine
 
 router = APIRouter(prefix="/storefronts", tags=["storefronts"])
 public_router = APIRouter(prefix="/commerce-storefronts", tags=["commerce-storefronts"])
-
 _STORE_ROLES = {"dev", "admin", "supervisor", "buyer"}
 
 
@@ -73,8 +73,24 @@ class PublicOrderPayload(BaseModel):
     notes: str = Field(default="", max_length=5000)
 
 
+class ReviewLinePayload(BaseModel):
+    product_id: str
+    quantity: float = Field(gt=0)
+    price_usd: float = Field(ge=0)
+
+
 class ReviewPayload(BaseModel):
     note: str = Field(default="", max_length=2000)
+    lines: list[ReviewLinePayload] | None = Field(default=None, max_length=250)
+
+
+class PublicStatusPayload(BaseModel):
+    request_id: str = Field(min_length=6, max_length=64)
+    buyer_email: str = Field(min_length=3, max_length=320)
+
+
+class AgentQuestionPayload(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
 
 
 @router.get("")
@@ -87,12 +103,7 @@ def storefront_snapshot(context: RequestContext = Depends(get_request_context), 
 def save_storefront(payload: StorefrontPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _authorize_manage(context, engine)
     try:
-        row = CommerceStorefrontService(engine).upsert_storefront(
-            organization_id=context.organization_id,
-            facility_id=context.facility_id,
-            actor=context.user_id,
-            **payload.model_dump(),
-        )
+        row = CommerceStorefrontService(engine).upsert_storefront(organization_id=context.organization_id, facility_id=context.facility_id, actor=context.user_id, **payload.model_dump())
         return CommerceStorefrontService._storefront_dict(row)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -115,12 +126,7 @@ def save_storefront_products(payload: StorefrontProductsPayload, context: Reques
     _authorize_manage(context, engine)
     try:
         service = CommerceStorefrontService(engine)
-        service.set_products(
-            organization_id=context.organization_id,
-            facility_id=context.facility_id,
-            actor=context.user_id,
-            products=[row.model_dump() for row in payload.products],
-        )
+        service.set_products(organization_id=context.organization_id, facility_id=context.facility_id, actor=context.user_id, products=[row.model_dump() for row in payload.products])
         return service.admin_snapshot(context.organization_id, context.facility_id)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -136,6 +142,7 @@ def approve_storefront_order(request_id: str, payload: ReviewPayload, context: R
             request_id=request_id,
             actor=context.user_id,
             review_note=payload.note,
+            approved_lines=[row.model_dump() for row in payload.lines] if payload.lines is not None else None,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -145,15 +152,29 @@ def approve_storefront_order(request_id: str, payload: ReviewPayload, context: R
 def reject_storefront_order(request_id: str, payload: ReviewPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _authorize_manage(context, engine)
     try:
-        return CommerceStorefrontService(engine).reject_order_request(
-            organization_id=context.organization_id,
-            facility_id=context.facility_id,
-            request_id=request_id,
-            actor=context.user_id,
-            review_note=payload.note,
-        )
+        return CommerceStorefrontService(engine).reject_order_request(organization_id=context.organization_id, facility_id=context.facility_id, request_id=request_id, actor=context.user_id, review_note=payload.note)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/agent/snapshot")
+def storefront_agent_snapshot(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _authorize_read(context, engine)
+    return StorefrontWholesaleIntelligenceService(engine).snapshot(context.organization_id, context.facility_id)
+
+
+@router.post("/agent/ask")
+def storefront_agent_ask(payload: AgentQuestionPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _authorize_read(context, engine)
+    return StorefrontWholesaleIntelligenceService(engine).answer(context.organization_id, context.facility_id, payload.question)
+
+
+@public_router.post("/{slug}/orders/status")
+def storefront_order_status(slug: str, payload: PublicStatusPayload, engine: Engine = Depends(get_engine)):
+    try:
+        return CommerceStorefrontService(engine).public_order_status(slug=slug, request_id=payload.request_id, buyer_email=payload.buyer_email)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @public_router.get("/{slug}")
@@ -168,11 +189,6 @@ def public_storefront(slug: str, engine: Engine = Depends(get_engine)):
 def submit_storefront_order(slug: str, payload: PublicOrderPayload, engine: Engine = Depends(get_engine)):
     try:
         row = CommerceStorefrontService(engine).submit_order_request(slug=slug, **payload.model_dump())
-        return {
-            "request_id": row.id,
-            "status": row.status,
-            "estimated_subtotal": row.estimated_subtotal,
-            "message": "Order request submitted for supplier approval.",
-        }
+        return {"request_id": row.id, "status": row.status, "estimated_subtotal": row.estimated_subtotal, "message": "Order request submitted for supplier approval."}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
