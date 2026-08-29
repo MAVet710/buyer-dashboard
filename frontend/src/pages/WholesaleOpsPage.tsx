@@ -2,6 +2,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { CommerceStorefrontManager } from "../components/CommerceStorefrontManager";
 import { ManifestDraftControl } from "../components/ManifestDraftControl";
+import { StorefrontSalesUnitManager } from "../components/StorefrontSalesUnitManager";
 import { WholesaleRegulatoryHealth } from "../components/WholesaleRegulatoryHealth";
 import { apiGet } from "../lib/api";
 import { OrdersPage } from "./OrdersPage";
@@ -58,7 +59,7 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
     {tab==="orders"?<OrdersPage/>:null}
     {tab==="fulfillment"?<WarehousePickPackPage onNavigate={page=>page==="Orders"?setTab("orders"):onNavigate(page)}/>:null}
     {tab==="customers"?<CustomersPanel commercial={commercial.data} loading={commercial.isLoading} error={commercial.isError?commercial.error.message:""}/>:null}
-    {tab==="storefront"?<CommerceStorefrontManager/>:null}
+    {tab==="storefront"?<><StorefrontSalesUnitManager/><CommerceStorefrontManager/></>:null}
   </div>;
 }
 
