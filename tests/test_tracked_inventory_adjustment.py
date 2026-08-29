@@ -31,7 +31,10 @@ def _engine():
 def _credentials():
     return SimpleNamespace(
         configured=True,
+        status="connected",
+        trusted_mapping=True,
         state="MA",
+        environment="sandbox",
         user_api_key="runtime-user",
         integrator_api_key="runtime-integrator",
         license_number="MR123",
