@@ -1,0 +1,79 @@
+.public-age-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top, rgba(202, 168, 78, 0.16), transparent 42%),
+    #0b120f;
+  color: #f7f5ef;
+}
+
+.public-age-gate-card {
+  width: min(100%, 560px);
+  padding: clamp(28px, 6vw, 48px);
+  border: 1px solid rgba(247, 245, 239, 0.14);
+  border-radius: 24px;
+  background: rgba(18, 31, 25, 0.96);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+  text-align: center;
+}
+
+.public-age-gate-mark {
+  width: 84px;
+  height: 84px;
+  margin: 0 auto 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 2px solid #caa84e;
+  color: #caa84e;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.public-age-gate-card h1 {
+  margin: 8px 0 14px;
+  font-size: clamp(30px, 7vw, 44px);
+  line-height: 1.05;
+}
+
+.public-age-gate-card p {
+  margin: 0 auto;
+  max-width: 46ch;
+  color: rgba(247, 245, 239, 0.82);
+  line-height: 1.6;
+}
+
+.public-age-gate-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 28px 0 18px;
+}
+
+.public-age-gate-actions button {
+  min-height: 48px;
+}
+
+.public-age-gate-note {
+  margin-top: 18px !important;
+  font-size: 13px;
+  color: rgba(247, 245, 239, 0.58) !important;
+}
+
+@media (max-width: 560px) {
+  .public-age-gate {
+    padding: 16px;
+  }
+
+  .public-age-gate-card {
+    padding: 30px 20px;
+    border-radius: 20px;
+  }
+
+  .public-age-gate-actions {
+    grid-template-columns: 1fr;
+  }
+}

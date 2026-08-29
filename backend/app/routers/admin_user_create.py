@@ -7,13 +7,15 @@ from urllib.request import Request as UrlRequest, urlopen
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, delete, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import AppUser, AuditEvent, utc_now
+from modules.coman.models import AppUser, AppUserFacilityRole, AuditEvent, Facility, utc_now
+from modules.coman.permissions import AppUserPermissionOverride
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
+from ..permissions import PERMISSION_REGISTRY, ROLE_DEFAULTS, permission_snapshot
 from ..services.spacemail import SpacemailError, resolve_spacemail_settings, send_welcome_email
 from .admin import UserLink, _link, _require_admin, _serialize_user, _username, _validate_role
 
@@ -33,10 +35,6 @@ class UserCreate(BaseModel):
     @field_validator("username", "display_name", "email", "role", "organization_id", mode="before")
     @classmethod
     def normalize_text_fields(cls, value):
-        # Browser/account context can legitimately provide optional values as
-        # null during a context refresh. Treat optional text consistently rather
-        # than rejecting the whole create-user request before the route can give
-        # an actionable validation message.
         return "" if value is None else str(value).strip()
 
     @field_validator("facility_ids", mode="before")
@@ -53,48 +51,35 @@ class UserCreate(BaseModel):
         return value.casefold()
 
 
+class UserPermissionUpdate(BaseModel):
+    facility_id: str = Field(min_length=1, max_length=36)
+    overrides: dict[str, str] = Field(default_factory=dict)
+
+
+
 def _service_headers(settings: Settings) -> dict[str, str]:
-    """Build Supabase admin headers for both modern and legacy server keys.
-
-    Supabase's ``sb_secret_`` keys are API keys, not JWTs, and must not be sent
-    as an Authorization bearer token. Legacy ``service_role`` keys are JWTs and
-    still require the bearer header for the Auth admin API. Supporting both here
-    lets existing deployments migrate keys without breaking user management.
-    """
-
     url = settings.supabase_url.strip()
     key = settings.supabase_service_role_key.strip()
     if not url or not key:
         raise HTTPException(503, "Supabase administrator user creation is not configured.")
     if key.startswith("sb_publishable_"):
         raise HTTPException(503, "Supabase administrator user creation requires a server secret key, not the publishable browser key.")
-    headers = {
-        "apikey": key,
-        "Content-Type": "application/json",
-    }
+    headers = {"apikey": key, "Content-Type": "application/json"}
     if not key.startswith("sb_secret_"):
         headers["Authorization"] = f"Bearer {key}"
     return headers
 
 
+
 def _credential_error() -> HTTPException:
-    return HTTPException(
-        502,
-        "Supabase rejected the server-side administrator credential. Verify the configured Supabase secret/service-role key belongs to this project's SUPABASE_URL.",
-    )
+    return HTTPException(502, "Supabase rejected the server-side administrator credential. Verify the configured Supabase secret/service-role key belongs to this project's SUPABASE_URL.")
+
 
 
 def _create_auth_user(settings: Settings, *, email: str, password: str, display_name: str) -> str:
     request = UrlRequest(
         f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users",
-        data=json.dumps(
-            {
-                "email": email,
-                "password": password,
-                "email_confirm": True,
-                "user_metadata": {"display_name": display_name},
-            }
-        ).encode(),
+        data=json.dumps({"email": email, "password": password, "email_confirm": True, "user_metadata": {"display_name": display_name}}).encode(),
         headers=_service_headers(settings),
         method="POST",
     )
@@ -116,6 +101,7 @@ def _create_auth_user(settings: Settings, *, email: str, password: str, display_
     return user_id
 
 
+
 def _auth_request(settings: Settings, user_id: str, payload: dict) -> dict:
     request = UrlRequest(
         f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users/{user_id}",
@@ -133,6 +119,7 @@ def _auth_request(settings: Settings, user_id: str, payload: dict) -> dict:
         raise HTTPException(502, f"Supabase account metadata sync failed: {detail}") from exc
     except URLError as exc:
         raise HTTPException(502, "Supabase administrator service is unavailable.") from exc
+
 
 
 def _sync_auth_identity(settings: Settings, snapshot: dict, *, organization_id: str, facility_id: str) -> None:
@@ -155,21 +142,155 @@ def _sync_auth_identity(settings: Settings, snapshot: dict, *, organization_id: 
     )
 
 
+
 def _delete_auth_user(settings: Settings, user_id: str) -> None:
     if not user_id:
         return
     try:
-        request = UrlRequest(
-            f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users/{user_id}",
-            headers=_service_headers(settings),
-            method="DELETE",
-        )
+        request = UrlRequest(f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users/{user_id}", headers=_service_headers(settings), method="DELETE")
         with urlopen(request, timeout=10):
             pass
     except Exception:
-        # Best-effort rollback only. The durable transaction is still rolled back
-        # and a later DEV reconciliation can remove an orphaned Auth identity.
         return
+
+
+
+def _permission_target(session: Session, context: RequestContext, user_id: str, facility_id: str) -> tuple[AppUser, Facility]:
+    target = session.get(AppUser, user_id)
+    if not target or not target.active:
+        raise HTTPException(404, "User was not found or is inactive.")
+    if target.role == "dev" and context.role.casefold() != "dev":
+        raise HTTPException(403, "Only Level DEV can manage Level DEV permissions.")
+    if context.role.casefold() != "dev" and target.organization_id != context.organization_id:
+        raise HTTPException(403, "Company administrators cannot manage another organization.")
+    organization_id = target.organization_id or context.organization_id
+    facility = session.get(Facility, facility_id)
+    if not facility or not facility.active or facility.organization_id != organization_id:
+        raise HTTPException(422, "Choose an active facility in the user's organization.")
+    if target.role not in {"dev", "admin"}:
+        assignment = session.scalar(
+            select(AppUserFacilityRole).where(
+                AppUserFacilityRole.user_id == target.id,
+                AppUserFacilityRole.organization_id == organization_id,
+                AppUserFacilityRole.facility_id == facility.id,
+            )
+        )
+        if assignment is None:
+            raise HTTPException(422, "The user must be assigned to this facility before receiving facility permissions.")
+    return target, facility
+
+
+
+def _permission_admin_snapshot(engine: Engine, target: AppUser, facility: Facility) -> dict:
+    target_context = RequestContext(target.id, facility.organization_id, facility.id, target.role, "Uploads")
+    snapshot = permission_snapshot(target_context, engine)
+    with Session(engine) as session:
+        rows = session.scalars(
+            select(AppUserPermissionOverride).where(
+                AppUserPermissionOverride.user_id == target.id,
+                AppUserPermissionOverride.organization_id == facility.organization_id,
+                AppUserPermissionOverride.facility_id == facility.id,
+            )
+        ).all()
+    explicit = {row.permission: row.effect for row in rows if row.permission in PERMISSION_REGISTRY}
+    return {
+        "user_id": target.id,
+        "facility_id": facility.id,
+        "role": target.role,
+        "role_defaults": {key: key in ROLE_DEFAULTS.get(target.role, frozenset()) for key in PERMISSION_REGISTRY},
+        "overrides": explicit,
+        "effective": snapshot["effective"],
+        "source": snapshot["source"],
+    }
+
+
+@router.get("/permission-registry")
+def permission_registry(context: RequestContext = Depends(get_request_context)):
+    _require_admin(context)
+    return [{"key": key, **metadata} for key, metadata in PERMISSION_REGISTRY.items()]
+
+
+@router.get("/users/{user_id}/permissions")
+def user_permissions(
+    user_id: str,
+    facility_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_admin(context)
+    with Session(engine) as session:
+        target, facility = _permission_target(session, context, user_id, facility_id)
+        target.id, target.role
+    return _permission_admin_snapshot(engine, target, facility)
+
+
+@router.post("/users/{user_id}/permissions")
+def update_user_permissions(
+    user_id: str,
+    payload: UserPermissionUpdate,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_admin(context)
+    normalized: dict[str, str] = {}
+    for permission, effect in payload.overrides.items():
+        if permission not in PERMISSION_REGISTRY:
+            raise HTTPException(422, f"Unknown permission: {permission}")
+        value = str(effect or "inherit").strip().casefold()
+        if value not in {"allow", "deny", "inherit"}:
+            raise HTTPException(422, "Permission overrides must be allow, deny, or inherit.")
+        normalized[permission] = value
+
+    with Session(engine, expire_on_commit=False) as session, session.begin():
+        target, facility = _permission_target(session, context, user_id, payload.facility_id)
+        if target.role == "dev":
+            raise HTTPException(422, "Level DEV always has platform permissions and cannot be overridden.")
+        existing = {
+            row.permission: row.effect
+            for row in session.scalars(
+                select(AppUserPermissionOverride).where(
+                    AppUserPermissionOverride.user_id == target.id,
+                    AppUserPermissionOverride.organization_id == facility.organization_id,
+                    AppUserPermissionOverride.facility_id == facility.id,
+                )
+            ).all()
+        }
+        for permission, effect in normalized.items():
+            session.execute(
+                delete(AppUserPermissionOverride).where(
+                    AppUserPermissionOverride.user_id == target.id,
+                    AppUserPermissionOverride.organization_id == facility.organization_id,
+                    AppUserPermissionOverride.facility_id == facility.id,
+                    AppUserPermissionOverride.permission == permission,
+                )
+            )
+            if effect != "inherit":
+                session.add(
+                    AppUserPermissionOverride(
+                        user_id=target.id,
+                        organization_id=facility.organization_id,
+                        facility_id=facility.id,
+                        permission=permission,
+                        effect=effect,
+                        created_by=context.user_id,
+                        updated_by=context.user_id,
+                    )
+                )
+        session.add(
+            AuditEvent(
+                organization_id=facility.organization_id,
+                facility_id=facility.id,
+                entity_type="app_user",
+                entity_id=target.id,
+                action="user_permissions_updated",
+                actor=context.user_id,
+                changes_json=json.dumps({"before": existing, "requested": normalized}, sort_keys=True),
+            )
+        )
+    with Session(engine) as session:
+        target, facility = _permission_target(session, context, user_id, payload.facility_id)
+        target.id, target.role
+    return _permission_admin_snapshot(engine, target, facility)
 
 
 @router.post("/users/create", status_code=201)
@@ -179,14 +300,6 @@ def create_user_with_temporary_password(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    """Create the same account shape as Streamlit, backed by Supabase Auth.
-
-    Existing migrated users are never recreated or re-keyed. This endpoint is
-    only for a brand-new account created by an authorized admin. When a real
-    contact email is supplied, onboarding is completed only after the branded
-    DoobieLogic welcome message has been accepted by Spacemail SMTP.
-    """
-
     _require_admin(context)
     role = _validate_role(context, payload.role)
     username, normalized_username = _username(payload.username, payload.username)
@@ -199,23 +312,12 @@ def create_user_with_temporary_password(
         raise HTTPException(422, "Enter a valid email address or leave Email optional blank.")
     mail_settings = resolve_spacemail_settings(engine, settings)
     if contact_email and mail_settings.spacemail_welcome_email_enabled and not mail_settings.spacemail_is_configured:
-        raise HTTPException(
-            503,
-            "Spacemail welcome email delivery is not configured. Save the mailbox credential in Data & Settings > AI & METRC Integrations before creating emailed accounts.",
-        )
+        raise HTTPException(503, "Spacemail welcome email delivery is not configured. Save the mailbox credential in Data & Settings > AI & METRC Integrations before creating emailed accounts.")
 
-    # Synthetic identities must remain valid email addresses even when the
-    # legacy username contains characters such as '@' or '+'. Preserve the real
-    # username in app_metadata while using a safe local-part for Supabase Auth.
     safe_local_part = "".join(character if character.isalnum() or character in "._-" else "-" for character in normalized_username).strip(".-")
     safe_local_part = safe_local_part or "doobielogic-user"
     auth_email = contact_email or f"{safe_local_part}@users.doobielogic.io"
-    auth_user_id = _create_auth_user(
-        settings,
-        email=auth_email,
-        password=payload.password,
-        display_name=payload.display_name.strip() or username,
-    )
+    auth_user_id = _create_auth_user(settings, email=auth_email, password=payload.password, display_name=payload.display_name.strip() or username)
 
     try:
         link = UserLink(
@@ -257,15 +359,7 @@ def create_user_with_temporary_password(
             )
             session.flush()
             snapshot = _serialize_user(session, row)
-            # Keep the database and Supabase Auth identity atomic from the admin's
-            # point of view. If Auth metadata sync fails, session.begin() rolls
-            # the durable row back before the best-effort Auth cleanup below.
-            _sync_auth_identity(
-                settings,
-                snapshot,
-                organization_id=metadata_org_id,
-                facility_id=metadata_facility_id,
-            )
+            _sync_auth_identity(settings, snapshot, organization_id=metadata_org_id, facility_id=metadata_facility_id)
             if contact_email and mail_settings.spacemail_welcome_email_enabled:
                 try:
                     send_welcome_email(
@@ -285,13 +379,7 @@ def create_user_with_temporary_password(
                         entity_id=row.id,
                         action="welcome_email_sent",
                         actor=context.user_id,
-                        changes_json=json.dumps(
-                            {
-                                "delivery": "sent",
-                                "sender": mail_settings.spacemail_from_email,
-                            },
-                            sort_keys=True,
-                        ),
+                        changes_json=json.dumps({"delivery": "sent", "sender": mail_settings.spacemail_from_email}, sort_keys=True),
                     )
                 )
                 snapshot["welcome_email_sent"] = True

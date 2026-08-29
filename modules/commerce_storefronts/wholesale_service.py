@@ -9,11 +9,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import InventoryLot, Product
+from modules.coman.models import CommercialOrderLine, InventoryLot, Product
 from modules.commercial.repository import CommercialRepository
 from modules.inventory_availability.service import InventoryAvailabilityService
 from modules.product_master.models import ProductMasterProfile
 
+from .sales_units import StorefrontProductSalesUnit, compatible_sales_units, conversion_factor, convert_quantity, convert_unit_price, normalize_unit
 from .service import CommerceStorefrontService
 
 _PASSED_LAB_STATES = {"passed", "testpassed", "released", "pass"}
@@ -139,6 +140,22 @@ def _profile_dict(profile: ProductMasterProfile | None) -> dict[str, Any]:
 class WholesaleCommerceStorefrontService(CommerceStorefrontService):
     """Commerce service whose catalog is restricted to truly wholesale-sellable inventory."""
 
+    def _sales_units(self, storefront_id: str) -> dict[str, str]:
+        if not storefront_id:
+            return {}
+        with Session(self.engine) as session:
+            return {
+                row.product_id: normalize_unit(row.sales_unit)
+                for row in session.scalars(
+                    select(StorefrontProductSalesUnit).where(StorefrontProductSalesUnit.storefront_id == storefront_id)
+                )
+            }
+
+    def _listing_sales_unit(self, storefront_id: str, product: Product | None) -> str:
+        if not product:
+            return ""
+        return self._sales_units(storefront_id).get(product.id) or normalize_unit(product.base_unit)
+
     def wholesale_inventory(self, organization_id: str, facility_id: str) -> dict[str, Any]:
         availability = InventoryAvailabilityService(self.engine).facility_snapshot(organization_id, facility_id)
         eligible: list[dict[str, Any]] = []
@@ -226,6 +243,8 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
     def list_catalog_options(self, organization_id: str, facility_id: str) -> list[dict[str, Any]]:
         inventory = self.wholesale_inventory(organization_id, facility_id)
         profiles = self._profiles(organization_id)
+        storefront = self.get_storefront(organization_id, facility_id)
+        sales_units = self._sales_units(storefront.id) if storefront else {}
         by_product: dict[str, dict[str, Any]] = {}
         for lot in inventory["items"]:
             row = by_product.setdefault(lot["product_id"], {
@@ -258,7 +277,39 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
             row["lab_stats"] = {metric: _lab_range(metric_values) for metric, metric_values in values.items()}
             row["batches"].sort(key=lambda batch: str(batch.get("received_at") or ""), reverse=True)
             row["primary_batch"] = row["batches"][0] if row["batches"] else None
+            base_unit = normalize_unit(row["unit"])
+            sales_unit = sales_units.get(row["product_id"]) or base_unit
+            row["base_unit"] = base_unit
+            row["sales_unit"] = sales_unit
+            row["compatible_sales_units"] = compatible_sales_units(base_unit)
+            if sales_unit != base_unit:
+                row["available"] = convert_quantity(row["available"], base_unit, sales_unit)
+                row["test_quantity"] = convert_quantity(row["test_quantity"], base_unit, sales_unit)
+                for batch in row["batches"]:
+                    batch["available"] = convert_quantity(batch["available"], base_unit, sales_unit)
+                    batch["unit"] = sales_unit
+            row["unit"] = sales_unit
         return sorted(by_product.values(), key=lambda row: (row["name"].casefold(), row["sku"].casefold()))
+
+    def admin_snapshot(self, organization_id: str, facility_id: str) -> dict[str, Any]:
+        result = super().admin_snapshot(organization_id, facility_id)
+        storefront = self.get_storefront(organization_id, facility_id)
+        if not storefront:
+            return result
+        sales_units = self._sales_units(storefront.id)
+        with Session(self.engine) as session:
+            products = {row.id: row for row in session.scalars(select(Product).where(Product.organization_id == organization_id))}
+        for item in result.get("products", []):
+            product = products.get(item.get("product_id"))
+            if not product:
+                continue
+            base_unit = normalize_unit(product.base_unit)
+            sales_unit = sales_units.get(product.id) or base_unit
+            item["base_unit"] = base_unit
+            item["sales_unit"] = sales_unit
+            item["unit"] = sales_unit
+            item["compatible_sales_units"] = compatible_sales_units(base_unit)
+        return result
 
     def public_catalog(self, slug: str) -> dict[str, Any]:
         storefront = self.resolve_public(slug)
@@ -275,7 +326,8 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 continue
             profile = _profile_dict(profiles.get(item["product_id"]))
             if option:
-                item.update({key: option.get(key) for key in ("lab_stats", "batches", "primary_batch", "inventory_type")})
+                item.update({key: option.get(key) for key in ("lab_stats", "batches", "primary_batch", "inventory_type", "base_unit", "sales_unit", "compatible_sales_units")})
+                item["unit"] = option.get("unit") or item.get("unit")
                 for key in ("brand", "category", "subcategory", "strain", "product_format", "image_url", "description"):
                     item[key] = option.get(key) or profile.get(key, "")
             else:
@@ -298,6 +350,8 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
     def merchandising_catalog_options(self, organization_id: str, facility_id: str) -> list[dict[str, Any]]:
         inventory = self.wholesale_inventory(organization_id, facility_id)
         profiles = self._profiles(organization_id)
+        storefront = self.get_storefront(organization_id, facility_id)
+        sales_units = self._sales_units(storefront.id) if storefront else {}
         by_product: dict[str, dict[str, Any]] = {}
         for lot in inventory["items"] + inventory["blocked_items"]:
             row = by_product.setdefault(lot["product_id"], {
@@ -312,6 +366,15 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
         result = []
         for row in by_product.values():
             row["blocked_reasons"] = [] if row["eligible"] else sorted(row["blocked_reasons"])
+            base_unit = normalize_unit(row["unit"])
+            sales_unit = sales_units.get(row["product_id"]) or base_unit
+            row["base_unit"] = base_unit
+            row["sales_unit"] = sales_unit
+            row["compatible_sales_units"] = compatible_sales_units(base_unit)
+            if sales_unit != base_unit:
+                row["available"] = convert_quantity(row["available"], base_unit, sales_unit)
+                row["on_hand"] = convert_quantity(row["on_hand"], base_unit, sales_unit)
+            row["unit"] = sales_unit
             result.append(row)
         return sorted(result, key=lambda row: (row["name"].casefold(), row["sku"].casefold()))
 
@@ -325,8 +388,30 @@ class WholesaleCommerceStorefrontService(CommerceStorefrontService):
                 raise ValueError(f"{item['name']} is test-preview inventory and cannot be ordered.")
         return super().submit_order_request(**kwargs)
 
+    def _normalize_commercial_order_to_base_units(self, order_id: str, organization_id: str) -> None:
+        with Session(self.engine) as session, session.begin():
+            lines = list(session.scalars(select(CommercialOrderLine).where(CommercialOrderLine.commercial_order_id == order_id, CommercialOrderLine.organization_id == organization_id)))
+            for line in lines:
+                product = session.get(Product, line.product_id)
+                if not product:
+                    continue
+                base_unit = normalize_unit(product.base_unit)
+                sales_unit = normalize_unit(line.unit)
+                if not base_unit or not sales_unit or base_unit == sales_unit:
+                    continue
+                factor = conversion_factor(sales_unit, base_unit)
+                line.quantity = float(line.quantity) * factor
+                line.fulfilled_quantity = float(line.fulfilled_quantity or 0.0) * factor
+                line.unit_price = convert_unit_price(float(line.unit_price), sales_unit, base_unit)
+                original_note = str(line.notes or "").strip()
+                unit_note = f"Storefront sales unit: {sales_unit}; operational inventory unit: {base_unit}."
+                line.notes = " ".join(value for value in (original_note, unit_note) if value)
+                line.unit = base_unit
+            session.flush()
+
     def approve_order_request(self, *, organization_id: str, facility_id: str, request_id: str, actor: str, review_note: str = "", approved_lines: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         result = super().approve_order_request(organization_id=organization_id, facility_id=facility_id, request_id=request_id, actor=actor, review_note=review_note, approved_lines=approved_lines)
+        self._normalize_commercial_order_to_base_units(result["order_id"], organization_id)
         order = CommercialRepository(self.engine).confirm_order(result["order_id"], organization_id=organization_id, facility_id=facility_id, actor=actor)
         result["order_status"] = order.status
         return result

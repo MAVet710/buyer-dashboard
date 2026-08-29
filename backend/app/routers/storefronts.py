@@ -16,22 +16,21 @@ from modules.commerce_storefronts.wholesale_service import WholesaleCommerceStor
 
 from ..auth import RequestContext, get_request_context, require_facility_capability
 from ..database import get_engine
+from ..permissions import has_permission, permission_snapshot, require_permission
 
 router = APIRouter(prefix="/storefronts", tags=["storefronts"])
 public_router = APIRouter(prefix="/commerce-storefronts", tags=["commerce-storefronts"])
-_STORE_ROLES = {"dev", "admin", "supervisor", "buyer"}
 _ALLOWED_PO_TYPES = {"application/pdf", "image/png", "image/jpeg"}
 _MAX_PO_BYTES = 3 * 1024 * 1024
 
 
-def _authorize_read(context: RequestContext, engine: Engine) -> None:
+def _authorize(context: RequestContext, engine: Engine, permission: str) -> None:
     require_facility_capability(context, engine, "commercial")
+    require_permission(context, engine, permission)
 
 
-def _authorize_manage(context: RequestContext, engine: Engine) -> None:
-    _authorize_read(context, engine)
-    if context.role.casefold() not in _STORE_ROLES:
-        raise HTTPException(403, "Your role is not authorized to manage the hosted storefront or approve public orders.")
+def _authorize_read(context: RequestContext, engine: Engine) -> None:
+    _authorize(context, engine, "wholesale.view")
 
 
 def _po_signature_matches(content_type: str, content: bytes) -> bool:
@@ -185,18 +184,48 @@ class AgentQuestionPayload(BaseModel):
     question: str = Field(min_length=1, max_length=500)
 
 
+def _tier_signature(row: dict) -> tuple:
+    return tuple((round(float(tier.get("minimum_quantity") or 0), 7), round(float(tier.get("price_usd") or 0), 2)) for tier in row.get("quantity_breaks") or [])
+
+
+def _validate_product_permissions(payload: StorefrontProductsPayload, context: RequestContext, engine: Engine, service: CommerceStorefrontService) -> None:
+    can_price = has_permission(context, engine, "wholesale.manage_pricing")
+    can_volume = has_permission(context, engine, "wholesale.manage_volume_pricing")
+    existing = {row["product_id"]: row for row in service.admin_snapshot(context.organization_id, context.facility_id).get("products", [])}
+    for incoming_model in payload.products:
+        incoming = incoming_model.model_dump()
+        current = existing.get(incoming["product_id"])
+        if current is None:
+            if not can_price:
+                raise HTTPException(403, "Adding a wholesale item requires wholesale pricing permission.")
+            if not can_volume:
+                raise HTTPException(403, "Adding a wholesale item requires volume-pricing permission.")
+            continue
+        if not can_price and round(float(incoming["price_usd"]), 2) != round(float(current.get("price_usd") or 0), 2):
+            raise HTTPException(403, "Your account cannot change wholesale base pricing.")
+        if not can_volume:
+            volume_changed = (
+                round(float(incoming["minimum_quantity"]), 7) != round(float(current.get("minimum_quantity") or 0), 7)
+                or round(float(incoming["case_quantity"]), 7) != round(float(current.get("case_quantity") or 0), 7)
+                or _tier_signature(incoming) != _tier_signature(current)
+            )
+            if volume_changed:
+                raise HTTPException(403, "Your account cannot change wholesale minimums, cases, or volume pricing.")
+
+
 @router.get("")
 def storefront_snapshot(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _authorize_read(context, engine)
     service = CommerceStorefrontService(engine)
     snapshot = service.admin_snapshot(context.organization_id, context.facility_id)
     snapshot["studio"] = CommerceStorefrontStudioService(engine).snapshot(context.organization_id, context.facility_id) if snapshot.get("storefront") else None
+    snapshot["permissions"] = permission_snapshot(context, engine)
     return snapshot
 
 
 @router.post("")
 def save_storefront(payload: StorefrontPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize_manage(context, engine)
+    _authorize(context, engine, "wholesale.publish_storefront")
     try:
         row = CommerceStorefrontService(engine).upsert_storefront(organization_id=context.organization_id, facility_id=context.facility_id, actor=context.user_id, **payload.model_dump())
         return CommerceStorefrontService._storefront_dict(row)
@@ -215,41 +244,28 @@ def storefront_studio(context: RequestContext = Depends(get_request_context), en
 
 @router.post("/studio")
 def save_storefront_studio(payload: StudioDesignPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize_manage(context, engine)
+    _authorize(context, engine, "wholesale.manage_design")
     try:
-        return CommerceStorefrontStudioService(engine).save_draft(
-            organization_id=context.organization_id,
-            facility_id=context.facility_id,
-            actor=context.user_id,
-            design=payload.model_dump(),
-        )
+        return CommerceStorefrontStudioService(engine).save_draft(organization_id=context.organization_id, facility_id=context.facility_id, actor=context.user_id, design=payload.model_dump())
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/studio/publish")
 def publish_storefront_studio(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize_manage(context, engine)
+    _authorize(context, engine, "wholesale.manage_design")
+    require_permission(context, engine, "wholesale.publish_storefront")
     try:
-        return CommerceStorefrontStudioService(engine).publish_draft(
-            organization_id=context.organization_id,
-            facility_id=context.facility_id,
-            actor=context.user_id,
-        )
+        return CommerceStorefrontStudioService(engine).publish_draft(organization_id=context.organization_id, facility_id=context.facility_id, actor=context.user_id)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/studio/assets")
 def upload_storefront_studio_asset(payload: StudioAssetPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize_manage(context, engine)
+    _authorize(context, engine, "wholesale.manage_design")
     try:
-        return CommerceStorefrontStudioService(engine).upload_asset(
-            organization_id=context.organization_id,
-            facility_id=context.facility_id,
-            actor=context.user_id,
-            **payload.model_dump(),
-        )
+        return CommerceStorefrontStudioService(engine).upload_asset(organization_id=context.organization_id, facility_id=context.facility_id, actor=context.user_id, **payload.model_dump())
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -258,18 +274,10 @@ def upload_storefront_studio_asset(payload: StudioAssetPayload, context: Request
 def admin_storefront_studio_asset(asset_id: str, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _authorize_read(context, engine)
     try:
-        asset = CommerceStorefrontStudioService(engine).get_admin_asset(
-            organization_id=context.organization_id,
-            facility_id=context.facility_id,
-            asset_id=asset_id,
-        )
+        asset = CommerceStorefrontStudioService(engine).get_admin_asset(organization_id=context.organization_id, facility_id=context.facility_id, asset_id=asset_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
-    return Response(
-        content=asset["content"],
-        media_type=asset["content_type"],
-        headers={"Cache-Control": "private, no-store, max-age=0", "X-Content-Type-Options": "nosniff"},
-    )
+    return Response(content=asset["content"], media_type=asset["content_type"], headers={"Cache-Control": "private, no-store, max-age=0", "X-Content-Type-Options": "nosniff"})
 
 
 @router.get("/wholesale-inventory")
@@ -286,18 +294,21 @@ def catalog_options(context: RequestContext = Depends(get_request_context), engi
 
 @router.post("/products")
 def save_storefront_products(payload: StorefrontProductsPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize_manage(context, engine)
+    _authorize(context, engine, "wholesale.edit_items")
     try:
         service = CommerceStorefrontService(engine)
+        _validate_product_permissions(payload, context, engine, service)
         service.set_products(organization_id=context.organization_id, facility_id=context.facility_id, actor=context.user_id, products=[row.model_dump() for row in payload.products])
-        return service.admin_snapshot(context.organization_id, context.facility_id)
+        result = service.admin_snapshot(context.organization_id, context.facility_id)
+        result["permissions"] = permission_snapshot(context, engine)
+        return result
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/orders/{request_id}/approve")
 def approve_storefront_order(request_id: str, payload: ReviewPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize_manage(context, engine)
+    _authorize(context, engine, "wholesale.approve_orders")
     try:
         return CommerceStorefrontService(engine).approve_order_request(organization_id=context.organization_id, facility_id=context.facility_id, request_id=request_id, actor=context.user_id, review_note=payload.note, approved_lines=[row.model_dump() for row in payload.lines] if payload.lines is not None else None)
     except ValueError as exc:
@@ -306,7 +317,7 @@ def approve_storefront_order(request_id: str, payload: ReviewPayload, context: R
 
 @router.post("/orders/{request_id}/reject")
 def reject_storefront_order(request_id: str, payload: ReviewPayload, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    _authorize_manage(context, engine)
+    _authorize(context, engine, "wholesale.approve_orders")
     try:
         return CommerceStorefrontService(engine).reject_order_request(organization_id=context.organization_id, facility_id=context.facility_id, request_id=request_id, actor=context.user_id, review_note=payload.note)
     except ValueError as exc:
@@ -321,16 +332,7 @@ def download_purchase_order(request_id: str, context: RequestContext = Depends(g
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     safe_name = attachment["file_name"].replace('"', "_").replace("\r", "_").replace("\n", "_")
-    return Response(
-        content=attachment["content"],
-        media_type=attachment["content_type"],
-        headers={
-            "Content-Disposition": f'attachment; filename="{safe_name}"',
-            "X-Content-SHA256": attachment["sha256"],
-            "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "private, no-store, max-age=0",
-        },
-    )
+    return Response(content=attachment["content"], media_type=attachment["content_type"], headers={"Content-Disposition": f'attachment; filename="{safe_name}"', "X-Content-SHA256": attachment["sha256"], "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store, max-age=0"})
 
 
 @router.get("/agent/snapshot")
@@ -359,15 +361,7 @@ def public_storefront_asset(slug: str, asset_id: str, engine: Engine = Depends(g
         asset = CommerceStorefrontStudioService(engine).get_public_asset(slug=slug, asset_id=asset_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
-    return Response(
-        content=asset["content"],
-        media_type=asset["content_type"],
-        headers={
-            "Cache-Control": "public, max-age=31536000, immutable",
-            "ETag": f'"{asset["sha256"]}"',
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
+    return Response(content=asset["content"], media_type=asset["content_type"], headers={"Cache-Control": "public, max-age=31536000, immutable", "ETag": f'"{asset["sha256"]}"', "X-Content-Type-Options": "nosniff"})
 
 
 @public_router.get("/{slug}")

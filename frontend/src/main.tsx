@@ -6,6 +6,7 @@ import App from "./App";
 import { AuthGate } from "./components/AuthGate";
 import { CommerceStorefrontLauncher } from "./components/CommerceStorefrontLauncher";
 import { AppSupportButton, MarketingContactChannels } from "./components/ContactChannels";
+import { PublicStorefrontAgeGate } from "./components/PublicStorefrontAgeGate";
 import { MarketingHome } from "./pages/MarketingHome";
 import { BetaPartnerPage } from "./pages/BetaPartnerPage";
 import { CommercePortalPage } from "./pages/CommercePortalPage";
@@ -46,7 +47,7 @@ const storefrontSlug = pathStorefrontMatch ? decodeURIComponent(pathStorefrontMa
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={client}>
-      {portalToken ? <CommercePortalPage token={portalToken} /> : storefrontSlug ? <StorefrontPage slug={storefrontSlug} /> : marketing ? <>
+      {portalToken ? <CommercePortalPage token={portalToken} /> : storefrontSlug ? <PublicStorefrontAgeGate><StorefrontPage slug={storefrontSlug} /></PublicStorefrontAgeGate> : marketing ? <>
         {betaPage ? <BetaPartnerPage /> : <MarketingHome />}
         <MarketingContactChannels />
       </> : <AuthGate>
