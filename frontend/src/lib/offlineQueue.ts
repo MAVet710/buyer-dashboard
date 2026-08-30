@@ -15,6 +15,7 @@ export type OfflineMutation = {
   facilityId: string;
   safetyClass: OfflineSafetyClass;
   idempotencyKey: string;
+  entityKey: string;
   createdAt: string;
   updatedAt: string;
   attempts: number;
@@ -29,6 +30,7 @@ export type QueueOfflineMutationInput = {
   facilityId: string;
   safetyClass: OfflineSafetyClass;
   idempotencyKey?: string;
+  entityKey?: string;
 };
 
 const REGULATORY_BLOCKLIST = [
@@ -40,6 +42,10 @@ const REGULATORY_BLOCKLIST = [
   "/integrations",
   "/manifest",
   "/transfer",
+];
+
+const APPROVED_REPLAY_ROUTES = [
+  /^\/api\/v1\/inventory\/(retail|production)\/audits\/[^/]+\/scan\/count\/replay$/,
 ];
 
 function normalizePath(path: string): string {
@@ -55,8 +61,9 @@ export function isOfflineReplayAllowed(path: string, safetyClass: OfflineSafetyC
   } catch {
     return false;
   }
-  if (safetyClass !== "local_draft" && safetyClass !== "physical_capture") return false;
-  return !REGULATORY_BLOCKLIST.some(fragment => normalized.includes(fragment));
+  if (safetyClass !== "physical_capture") return false;
+  if (REGULATORY_BLOCKLIST.some(fragment => normalized.includes(fragment))) return false;
+  return APPROVED_REPLAY_ROUTES.some(pattern => pattern.test(normalized));
 }
 
 function assertScope(organizationId: string, facilityId: string): void {
@@ -105,7 +112,7 @@ export async function queueOfflineMutation(input: QueueOfflineMutationInput): Pr
   const path = normalizePath(input.path);
   assertScope(input.organizationId, input.facilityId);
   if (!isOfflineReplayAllowed(path, input.safetyClass)) {
-    throw new Error("This action cannot be queued offline because it may change regulatory or provider state.");
+    throw new Error("This action is not an approved offline replay workflow.");
   }
   const now = new Date().toISOString();
   const id = typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -120,6 +127,7 @@ export async function queueOfflineMutation(input: QueueOfflineMutationInput): Pr
     facilityId: input.facilityId.trim(),
     safetyClass: input.safetyClass,
     idempotencyKey: input.idempotencyKey?.trim() || id,
+    entityKey: input.entityKey?.trim() || "",
     createdAt: now,
     updatedAt: now,
     attempts: 0,
