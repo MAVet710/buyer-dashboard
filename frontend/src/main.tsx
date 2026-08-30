@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, StrictMode, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { OfflineStatusBar } from "./components/OfflineStatusBar";
+import { registerDoobieLogicServiceWorker } from "./lib/pwa";
 import { configureSeo } from "./lib/seo";
 import { isMarketingHost } from "./lib/siteMode";
 import "./styles.css";
@@ -21,6 +23,7 @@ import "./contact-channels.css";
 import "./commerce-storefront.css";
 import "./cowboy-storefront.css";
 import "./commerce-launcher.css";
+import "./offline.css";
 
 const App = lazy(() => import("./App"));
 const AuthGate = lazy(() => import("./components/AuthGate").then(module => ({ default: module.AuthGate })));
@@ -68,6 +71,7 @@ function SiteMode() {
         <App />
         <CommerceStorefrontLauncher />
         <AppSupportButton />
+        <OfflineStatusBar />
       </>
     </BrowserRouter>
   </AuthGate>;
@@ -80,3 +84,5 @@ createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </StrictMode>,
 );
+
+void registerDoobieLogicServiceWorker();

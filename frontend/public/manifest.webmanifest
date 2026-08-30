@@ -1,0 +1,20 @@
+{
+  "name": "DoobieLogic Cannabis Operations",
+  "short_name": "DoobieLogic",
+  "description": "Cannabis operations workspace for inventory, receiving, cultivation, production, extraction, wholesale, compliance, and reporting.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    {
+      "src": "/doobielogic-logo.webp",
+      "sizes": "any",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    }
+  ]
+}
