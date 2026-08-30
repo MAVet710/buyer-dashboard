@@ -96,6 +96,7 @@ class AgentResult:
     fallback_reason: str = ""
     datasets: list[str] = field(default_factory=list)
     tool_calls: list[str] = field(default_factory=list)
+    action_results: list[dict[str, Any]] = field(default_factory=list)
     data_freshness: dict[str, str] = field(default_factory=dict)
     request_id: str = ""
     read_only: bool = True
@@ -118,9 +119,10 @@ class AgentResult:
             "fallback_reason": self.fallback_reason,
             "datasets": self.datasets,
             "tool_calls": self.tool_calls,
+            "action_results": self.action_results,
             "data_freshness": self.data_freshness,
             "request_id": self.request_id,
-            "read_only": True,
+            "read_only": bool(self.read_only),
         }
 
 
