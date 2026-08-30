@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ChangeEvent } from "react";
 import { apiGet, apiPost } from "../lib/api";
 import type { CultivationPlant, PlantEvent, PlantPhase } from "../types/inventory";
+import { CultivationIntelligencePanel } from "./CultivationIntelligencePanel";
 import { CultivationOperationsControl } from "./CultivationOperationsControl";
 import { CultivationRegulatoryHealth } from "./CultivationRegulatoryHealth";
 import { CultivationToday } from "./CultivationToday";
@@ -20,11 +21,12 @@ export function PlantInventory() {
   const [creating, setCreating] = useState(false); const [selected, setSelected] = useState<CultivationPlant | null>(null);
   const overview = useQuery({ queryKey: ["plants-overview"], queryFn: ({ signal }) => apiGet<CultivationPlant[]>("/api/v1/inventory/production/plants", signal) });
   const query = useQuery({ queryKey: ["plants", search, phase, room], queryFn: ({ signal }) => apiGet<CultivationPlant[]>(`/api/v1/inventory/production/plants?${new URLSearchParams({ search, phase, room })}`, signal) });
-  const refresh = () => { client.invalidateQueries({ queryKey: ["plants"] }); client.invalidateQueries({ queryKey: ["plants-overview"] }); };
+  const refresh = () => { client.invalidateQueries({ queryKey: ["plants"] }); client.invalidateQueries({ queryKey: ["plants-overview"] }); client.invalidateQueries({ queryKey: ["cultivation-intelligence"] }); };
   const rooms = [...new Set((overview.data ?? query.data ?? []).map(plant => plant.room_code))];
   return <>
     {overview.data ? <CultivationToday plants={overview.data} onSelect={setSelected} /> : null}
     {overview.data ? <CultivationOperationsControl plants={overview.data} canWrite={canWrite} onSelectPlant={setSelected} /> : null}
+    <CultivationIntelligencePanel />
     <CultivationRegulatoryHealth />
     <div className="plant-toolbar"><input placeholder="Search tag, strain, room…" value={search} onChange={event => setSearch(event.target.value)} /><select value={phase} onChange={event => setPhase(event.target.value)}><option value="">All phases</option>{phases.map(value => <option key={value}>{value}</option>)}</select><select value={room} onChange={event => setRoom(event.target.value)}><option value="">All rooms</option>{rooms.map(value => <option key={value}>{value}</option>)}</select>{canWrite ? <button className="primary" onClick={() => setCreating(true)}>Add plant</button> : null}</div>
     {!canWrite && account.data ? <p className="source-caption">Plant inventory is read-only for the {account.data.user.role} role.</p> : null}
