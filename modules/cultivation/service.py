@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import date
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import sessionmaker
 
 from modules.coman.models import InventoryLot, utc_now
@@ -26,8 +26,8 @@ TRANSITIONS = {
 }
 HARVEST_TRANSITIONS = {
     "planned": {"active", "cancelled"},
-    "active": {"drying", "finished", "cancelled"},
-    "drying": {"finished", "cancelled"},
+    "active": {"drying", "finished"},
+    "drying": {"finished"},
     "finished": set(),
     "cancelled": set(),
 }
