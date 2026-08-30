@@ -20,9 +20,17 @@ from services.metrc_client import resolve_metrc_base_url
 # Keep the promoted provider surfaces explicit in this adapter so security
 # regression tests can prove there is no generic arbitrary-path escape hatch.
 # Runtime dispatch still obtains method/path from the reviewed write registry.
+#
+# Phase 1B note: package move/unfinish/item/note now have deterministic payload
+# builders below, but their registry contracts intentionally remain dispatch-
+# disabled until a real Metrc sandbox write + fresh readback proves the contract.
 _AUDITED_METRC_WRITE_ENDPOINTS = (
     "packages/v2/finish",
+    "packages/v2/unfinish",
     "packages/v2/adjust",
+    "packages/v2/location",
+    "packages/v2/item",
+    "packages/v2/note",
     "transfers/v2/templates/outgoing",
 )
 
@@ -123,7 +131,21 @@ def _external_reference(payload: Any) -> str:
     return ""
 
 
+def _required_text(value: Any, message: str) -> str:
+    clean = str(value or "").strip()
+    if not clean:
+        raise MetrcNativeError(message)
+    return clean
+
+
 def validate_metrc_action(*, operation_type: str, entity_id: str, payload: dict[str, Any], reason: str = "") -> dict[str, Any]:
+    """Build the exact reviewed provider payload for a named Metrc operation.
+
+    This function only constructs deterministic payloads. It does not grant
+    dispatch permission. ``submit_metrc_action`` still calls the independent
+    write registry, so a payload can be implemented/tested while the network
+    write remains fail-closed pending sandbox verification.
+    """
     operation = str(operation_type or "").strip().casefold()
     entity = str(entity_id or "").strip()
     if not entity:
@@ -132,6 +154,37 @@ def validate_metrc_action(*, operation_type: str, entity_id: str, payload: dict[
         return {
             "operation": operation,
             "body": [{"Label": entity, "ActualDate": str(payload.get("actual_date") or date.today().isoformat())}],
+        }
+    if operation == "package_unfinish":
+        return {
+            "operation": operation,
+            "body": [{"Label": entity}],
+        }
+    if operation == "package_move":
+        destination = _required_text(
+            payload.get("destination_location") or payload.get("location"),
+            "Metrc package move requires destination_location.",
+        )
+        body: dict[str, Any] = {
+            "Label": entity,
+            "Location": destination,
+            "MoveDate": str(payload.get("move_date") or date.today().isoformat()),
+        }
+        sublocation = str(payload.get("sublocation") or "").strip()
+        if sublocation:
+            body["Sublocation"] = sublocation
+        return {"operation": operation, "body": [body]}
+    if operation == "package_item_update":
+        item = _required_text(payload.get("item"), "Metrc package item update requires item.")
+        return {
+            "operation": operation,
+            "body": [{"Label": entity, "Item": item}],
+        }
+    if operation == "package_note_update":
+        note = _required_text(payload.get("note"), "Metrc package note update requires note.")
+        return {
+            "operation": operation,
+            "body": [{"PackageLabel": entity, "Note": note}],
         }
     if operation == "package_adjust":
         quantity = payload.get("quantity_delta")
