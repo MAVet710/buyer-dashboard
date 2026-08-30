@@ -1,7 +1,10 @@
-"""Add room capacity, harvest execution and cultivation costing.
+"""Add cultivation room capacity, harvest plant assignment, and costing.
 
 Revision ID: 0057_cultivation_operations
 Revises: 0056_trace_reconciliation
+
+The canonical cultivation_harvests table already exists in operational_moats.
+This migration intentionally does not recreate or redefine that table.
 """
 
 import sqlalchemy as sa
@@ -37,36 +40,6 @@ def upgrade() -> None:
     op.create_index("ix_cultivation_rooms_organization_id", "cultivation_rooms", ["organization_id"])
     op.create_index("ix_cultivation_rooms_facility_id", "cultivation_rooms", ["facility_id"])
     op.create_index("ix_cultivation_rooms_facility_active", "cultivation_rooms", ["facility_id", "active"])
-
-    op.create_table(
-        "cultivation_harvests",
-        sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("organization_id", sa.String(36), sa.ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("facility_id", sa.String(36), sa.ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False),
-        sa.Column("harvest_code", sa.String(160), nullable=False),
-        sa.Column("strain_name", sa.String(255), nullable=False, server_default=""),
-        sa.Column("room_code", sa.String(120), nullable=False, server_default=""),
-        sa.Column("status", sa.String(24), nullable=False, server_default="planned"),
-        sa.Column("planned_date", sa.Date(), nullable=True),
-        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("wet_weight", sa.Float(), nullable=False, server_default="0"),
-        sa.Column("dry_weight", sa.Float(), nullable=False, server_default="0"),
-        sa.Column("waste_weight", sa.Float(), nullable=False, server_default="0"),
-        sa.Column("unit", sa.String(24), nullable=False, server_default="g"),
-        sa.Column("notes", sa.Text(), nullable=False, server_default=""),
-        sa.Column("created_by", sa.String(255), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.UniqueConstraint("facility_id", "harvest_code", name="uq_cultivation_harvest_facility_code"),
-        sa.CheckConstraint("status in ('planned','active','drying','finished','cancelled')", name="ck_cultivation_harvest_status"),
-        sa.CheckConstraint("wet_weight >= 0", name="ck_cultivation_harvest_wet_weight"),
-        sa.CheckConstraint("dry_weight >= 0", name="ck_cultivation_harvest_dry_weight"),
-        sa.CheckConstraint("waste_weight >= 0", name="ck_cultivation_harvest_waste_weight"),
-    )
-    op.create_index("ix_cultivation_harvests_organization_id", "cultivation_harvests", ["organization_id"])
-    op.create_index("ix_cultivation_harvests_facility_id", "cultivation_harvests", ["facility_id"])
-    op.create_index("ix_cultivation_harvests_facility_status", "cultivation_harvests", ["facility_id", "status", "planned_date"])
 
     op.create_table(
         "cultivation_harvest_plants",
@@ -114,5 +87,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("cultivation_cost_entries")
     op.drop_table("cultivation_harvest_plants")
-    op.drop_table("cultivation_harvests")
     op.drop_table("cultivation_rooms")
