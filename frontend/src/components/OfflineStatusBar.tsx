@@ -67,7 +67,10 @@ export function OfflineStatusBar() {
       void flushQueue();
     };
     const handleOffline = () => setOnline(false);
-    const handleQueue = () => { void refreshQueue(); };
+    const handleQueue = () => {
+      void refreshQueue();
+      if (navigator.onLine) void flushQueue();
+    };
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     window.addEventListener("storage", handleQueue);
