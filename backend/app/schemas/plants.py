@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 PlantPhase = Literal["clone", "seedling", "vegetative", "flowering", "harvested", "destroyed"]
-HarvestStatus = Literal["planned", "active", "drying", "finished", "cancelled"]
+HarvestStatus = Literal["planned", "active", "drying", "completed", "cancelled"]
 CostType = Literal["labor", "material", "overhead"]
 CostEntityType = Literal["plant", "harvest", "room"]
 
@@ -58,9 +58,8 @@ class CultivationRoomUpsert(BaseModel):
     notes: str = Field(default="", max_length=4000)
 
 class CultivationHarvestCreate(BaseModel):
-    harvest_code: str = Field(min_length=1, max_length=160)
+    harvest_code: str = Field(min_length=1, max_length=120)
     plant_ids: list[str] = Field(min_length=1, max_length=5000)
-    planned_date: date | None = None
     notes: str = Field(default="", max_length=4000)
 
 class CultivationHarvestTransition(BaseModel):
@@ -68,7 +67,7 @@ class CultivationHarvestTransition(BaseModel):
     wet_weight: float | None = Field(default=None, ge=0)
     dry_weight: float | None = Field(default=None, ge=0)
     waste_weight: float | None = Field(default=None, ge=0)
-    unit: str = Field(default="", max_length=24)
+    unit: str = Field(default="g", max_length=24)
     notes: str = Field(default="", max_length=4000)
 
 class CultivationCostCreate(BaseModel):
