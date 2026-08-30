@@ -87,7 +87,18 @@ class AgentRuntime:
         facility_name: str = "",
     ) -> AgentResult:
         request_id = uuid.uuid4().hex
-        datasets = self.dataset_registry.load_for_agent(profile.key, access)
+        dataset_agent_key = profile.dataset_agent_key or profile.key
+        base_datasets = self.dataset_registry.load_for_agent(dataset_agent_key, access)
+        if profile.key == "wholesale":
+            # The Wholesale specialist inherits the existing tenant-safe Commercial
+            # ledger and layers canonical storefront/COA/account intelligence in
+            # front of it. Keeping wholesale rows first also makes bounded-context
+            # fallback prioritize the data most relevant to the specialist.
+            from services.wholesale_agent import load_wholesale_datasets
+
+            datasets = {**load_wholesale_datasets(access), **base_datasets}
+        else:
+            datasets = base_datasets
         legal_regulatory = bool(requires_regulatory_grounding(question))
         compliance_grounded = bool(profile.compliance_grounded_only)
         knowledge_required = legal_regulatory or compliance_grounded
