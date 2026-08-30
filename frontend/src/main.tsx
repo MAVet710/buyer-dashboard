@@ -1,16 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import App from "./App";
-import { AuthGate } from "./components/AuthGate";
-import { CommerceStorefrontLauncher } from "./components/CommerceStorefrontLauncher";
-import { AppSupportButton, MarketingContactChannels } from "./components/ContactChannels";
-import { PublicStorefrontAgeGate } from "./components/PublicStorefrontAgeGate";
-import { MarketingHome } from "./pages/MarketingHome";
-import { BetaPartnerPage } from "./pages/BetaPartnerPage";
-import { CommercePortalPage } from "./pages/CommercePortalPage";
-import { StorefrontPage } from "./pages/StorefrontPage";
 import { configureSeo } from "./lib/seo";
 import { isMarketingHost } from "./lib/siteMode";
 import "./styles.css";
@@ -31,7 +22,26 @@ import "./commerce-storefront.css";
 import "./cowboy-storefront.css";
 import "./commerce-launcher.css";
 
-const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
+const App = lazy(() => import("./App"));
+const AuthGate = lazy(() => import("./components/AuthGate").then(module => ({ default: module.AuthGate })));
+const CommerceStorefrontLauncher = lazy(() => import("./components/CommerceStorefrontLauncher").then(module => ({ default: module.CommerceStorefrontLauncher })));
+const AppSupportButton = lazy(() => import("./components/ContactChannels").then(module => ({ default: module.AppSupportButton })));
+const MarketingContactChannels = lazy(() => import("./components/ContactChannels").then(module => ({ default: module.MarketingContactChannels })));
+const PublicStorefrontAgeGate = lazy(() => import("./components/PublicStorefrontAgeGate").then(module => ({ default: module.PublicStorefrontAgeGate })));
+const MarketingHome = lazy(() => import("./pages/MarketingHome").then(module => ({ default: module.MarketingHome })));
+const BetaPartnerPage = lazy(() => import("./pages/BetaPartnerPage").then(module => ({ default: module.BetaPartnerPage })));
+const CommercePortalPage = lazy(() => import("./pages/CommercePortalPage").then(module => ({ default: module.CommercePortalPage })));
+const StorefrontPage = lazy(() => import("./pages/StorefrontPage").then(module => ({ default: module.StorefrontPage })));
+
+const client = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 const hostname = window.location.hostname.trim().toLowerCase().replace(/\.$/, "");
 const marketing = isMarketingHost(window.location.hostname);
 configureSeo(marketing);
@@ -44,21 +54,29 @@ const reservedHosts = new Set(["www", "ops", "api", "app", "admin", "beta", "sup
 const hostStorefront = subdomainMatch && !reservedHosts.has(subdomainMatch[1]) ? subdomainMatch[1] : "";
 const storefrontSlug = pathStorefrontMatch ? decodeURIComponent(pathStorefrontMatch[1]) : hostStorefront;
 
+function ModeBoundary({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<div className="state">Loading DoobieLogic…</div>}>{children}</Suspense>;
+}
+
+function SiteMode() {
+  if (portalToken) return <CommercePortalPage token={portalToken} />;
+  if (storefrontSlug) return <PublicStorefrontAgeGate><StorefrontPage slug={storefrontSlug} /></PublicStorefrontAgeGate>;
+  if (marketing) return <>{betaPage ? <BetaPartnerPage /> : <MarketingHome />}<MarketingContactChannels /></>;
+  return <AuthGate>
+    <BrowserRouter>
+      <>
+        <App />
+        <CommerceStorefrontLauncher />
+        <AppSupportButton />
+      </>
+    </BrowserRouter>
+  </AuthGate>;
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={client}>
-      {portalToken ? <CommercePortalPage token={portalToken} /> : storefrontSlug ? <PublicStorefrontAgeGate><StorefrontPage slug={storefrontSlug} /></PublicStorefrontAgeGate> : marketing ? <>
-        {betaPage ? <BetaPartnerPage /> : <MarketingHome />}
-        <MarketingContactChannels />
-      </> : <AuthGate>
-        <BrowserRouter>
-          <>
-            <App />
-            <CommerceStorefrontLauncher />
-            <AppSupportButton />
-          </>
-        </BrowserRouter>
-      </AuthGate>}
+      <ModeBoundary><SiteMode /></ModeBoundary>
     </QueryClientProvider>
   </StrictMode>,
 );
