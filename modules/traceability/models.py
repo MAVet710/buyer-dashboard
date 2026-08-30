@@ -3,8 +3,8 @@
 These tables are provider-neutral infrastructure for Metrc, BioTrack, or future
 state systems. They record Buyer Dash intent, validation/submission state,
 provider responses, retry/reconciliation state, immutable attempts, receiving
-preflight evidence, and an append-only lifecycle history. They do not store API
-keys or other credentials.
+preflight evidence, receiving discrepancies, and an append-only lifecycle
+history. They do not store API keys or other credentials.
 """
 
 from __future__ import annotations
@@ -155,3 +155,37 @@ class ReceivingPreflight(TimestampMixin, Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     local_result_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class ReceivingDiscrepancy(TimestampMixin, Base):
+    """Durable physical-vs-provider exception recorded during inbound receiving.
+
+    Discrepancies never mutate provider truth and never adjust inventory. An open
+    discrepancy blocks the associated preflight from posting local inventory
+    until an authorized reviewer resolves it and a fresh exact physical count is
+    supplied at commit time.
+    """
+
+    __tablename__ = "traceability_receiving_discrepancies"
+    __table_args__ = (
+        CheckConstraint("status in ('open','resolved','cancelled')", name="ck_receiving_discrepancy_status"),
+        CheckConstraint("discrepancy_type in ('short','over','missing','unexpected','damaged','other')", name="ck_receiving_discrepancy_type"),
+        Index("ix_receiving_discrepancy_preflight_status", "preflight_id", "status", "created_at"),
+        Index("ix_receiving_discrepancy_scope_transfer", "organization_id", "facility_id", "transfer_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
+    preflight_id: Mapped[str] = mapped_column(ForeignKey("traceability_receiving_preflights.id", ondelete="CASCADE"), nullable=False, index=True)
+    transfer_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    package_identity: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_quantity: Mapped[str] = mapped_column(String(64), nullable=False, default="0")
+    observed_quantity: Mapped[str] = mapped_column(String(64), nullable=False, default="0")
+    unit: Mapped[str] = mapped_column(String(64), nullable=False, default="unit")
+    discrepancy_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="open")
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    recorded_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    resolved_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
