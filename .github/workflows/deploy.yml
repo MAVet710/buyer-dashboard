@@ -77,6 +77,29 @@ jobs:
 
       - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
+      - name: Resolve durable Local AI runtime configuration
+        run: |
+          set -euo pipefail
+          state="${{ vars.LOCAL_AI_RUNTIME_STATE }}"
+          case "$state" in
+            enabled)
+              base_url="${{ vars.LOCAL_LLM_BASE_URL }}"
+              model="${{ vars.LOCAL_LLM_MODEL }}"
+              embedding_base_url="${{ vars.LOCAL_EMBEDDING_BASE_URL }}"
+              embedding_model="${{ vars.LOCAL_EMBEDDING_MODEL }}"
+              [ -n "$base_url" ] && [ -n "$model" ] && [ -n "$embedding_base_url" ] && [ -n "$embedding_model" ] || { echo "Local AI is enabled, but its declared URL/model variables are incomplete."; exit 1; }
+              case "$base_url" in https://*) ;; *) echo "LOCAL_LLM_BASE_URL must use HTTPS."; exit 1 ;; esac
+              case "$embedding_base_url" in https://*) ;; *) echo "LOCAL_EMBEDDING_BASE_URL must use HTTPS."; exit 1 ;; esac
+              echo "LOCAL_AI_ENV=^@^AI_PROVIDER_MODE=local_only@AI_PROVIDER_ORDER=local@AI_ALLOW_CLOUD_FALLBACK=false@LOCAL_LLM_BASE_URL=$base_url@LOCAL_LLM_MODEL=$model@LOCAL_LLM_TIMEOUT_SECONDS=${{ vars.LOCAL_LLM_TIMEOUT_SECONDS || '120' }}@LOCAL_LLM_MAX_TOKENS=${{ vars.LOCAL_LLM_MAX_TOKENS || '1400' }}@LOCAL_LLM_TEMPERATURE=${{ vars.LOCAL_LLM_TEMPERATURE || '0.2' }}@LOCAL_EMBEDDING_BASE_URL=$embedding_base_url@LOCAL_EMBEDDING_MODEL=$embedding_model@LOCAL_EMBEDDING_TIMEOUT_SECONDS=${{ vars.LOCAL_EMBEDDING_TIMEOUT_SECONDS || '120' }}" >> "$GITHUB_ENV"
+              echo "LOCAL_AI_SECRETS=LOCAL_LLM_ACCESS_CLIENT_ID=doobielogic-ai-cf-access-client-id:latest,LOCAL_LLM_ACCESS_CLIENT_SECRET=doobielogic-ai-cf-access-client-secret:latest" >> "$GITHUB_ENV"
+              ;;
+            disabled)
+              echo "LOCAL_AI_ENV=^@^AI_PROVIDER_MODE=disabled@AI_PROVIDER_ORDER=none@AI_ALLOW_CLOUD_FALLBACK=false" >> "$GITHUB_ENV"
+              echo "LOCAL_AI_SECRETS=" >> "$GITHUB_ENV"
+              ;;
+            *) echo "LOCAL_AI_RUNTIME_STATE must be explicitly set to enabled or disabled."; exit 1 ;;
+          esac
+
       - name: Build, identify, and push immutable production API image
         run: |
           set -euo pipefail
@@ -167,8 +190,8 @@ jobs:
             --concurrency 40 \
             --cpu 1 \
             --memory 1Gi \
-            --update-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=${{ env.DATABASE_POOL_SIZE }}@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30@RELEASE_SHA=${{ github.sha }}@EXPECTED_SCHEMA_HEAD=$IMAGE_SCHEMA_HEAD" \
-            --update-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest" \
+            --update-env-vars "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=api.doobielogic.io,*.run.app@DATABASE_POOL_SIZE=${{ env.DATABASE_POOL_SIZE }}@DATABASE_MAX_OVERFLOW=0@DATABASE_POOL_TIMEOUT=30@RELEASE_SHA=${{ github.sha }}@EXPECTED_SCHEMA_HEAD=$IMAGE_SCHEMA_HEAD@${LOCAL_AI_ENV#^@^}" \
+            --update-secrets "DATABASE_URL=buyer-dash-database-url:latest,SUPABASE_URL=buyer-dash-supabase-url:latest,SUPABASE_JWKS_URL=buyer-dash-supabase-jwks-url:latest,SUPABASE_SERVICE_ROLE_KEY=buyer-dash-supabase-service-role:latest,INTEGRATION_ENCRYPTION_KEY=buyer-dash-integration-encryption-key:latest${LOCAL_AI_SECRETS:+,$LOCAL_AI_SECRETS}" \
             --quiet
 
       - name: Verify exact API candidate revision and HTTP health
@@ -229,11 +252,23 @@ jobs:
           REV_RELEASE="$(jq -r '[.spec.containers[0].env[]? | select(.name == "RELEASE_SHA") | .value][0] // ""' /tmp/api-candidate-revision.json)"
           REV_SCHEMA="$(jq -r '[.spec.containers[0].env[]? | select(.name == "EXPECTED_SCHEMA_HEAD") | .value][0] // ""' /tmp/api-candidate-revision.json)"
           REV_IMAGE="$(jq -r '.spec.containers[0].image // ""' /tmp/api-candidate-revision.json)"
+          REV_AI_MODE="$(jq -r '[.spec.containers[0].env[]? | select(.name == "AI_PROVIDER_MODE") | .value][0] // ""' /tmp/api-candidate-revision.json)"
           echo "candidate=$CREATED_API_REVISION ready=$READY_STATUS release=$REV_RELEASE schema=$REV_SCHEMA image=$REV_IMAGE"
 
           [ "$READY_STATUS" = "True" ] || { echo "API candidate is not Ready."; exit 1; }
           [ "$REV_RELEASE" = "${{ github.sha }}" ] || { echo "API candidate RELEASE_SHA does not match github.sha."; exit 1; }
           [ "$REV_SCHEMA" = "$IMAGE_SCHEMA_HEAD" ] || { echo "API candidate EXPECTED_SCHEMA_HEAD does not match image Alembic head."; exit 1; }
+          if [ "${{ vars.LOCAL_AI_RUNTIME_STATE }}" = "enabled" ]; then
+            REV_AI_BASE="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_BASE_URL") | .value][0] // ""' /tmp/api-candidate-revision.json)"
+            REV_AI_MODEL="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_MODEL") | .value][0] // ""' /tmp/api-candidate-revision.json)"
+            REV_AI_AUTH_REFS="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_ACCESS_CLIENT_ID" or .name == "LOCAL_LLM_ACCESS_CLIENT_SECRET") | select(.valueFrom.secretKeyRef.name != null)] | length' /tmp/api-candidate-revision.json)"
+            [ "$REV_AI_MODE" = "local_only" ] || { echo "Enabled Local AI candidate is not local_only."; exit 1; }
+            [ "$REV_AI_BASE" = "${{ vars.LOCAL_LLM_BASE_URL }}" ] || { echo "Candidate Local AI URL differs from declared configuration."; exit 1; }
+            [ "$REV_AI_MODEL" = "${{ vars.LOCAL_LLM_MODEL }}" ] || { echo "Candidate Local AI model differs from declared configuration."; exit 1; }
+            [ "$REV_AI_AUTH_REFS" = "2" ] || { echo "Candidate Local AI Access credentials are not Secret Manager backed."; exit 1; }
+          else
+            [ "$REV_AI_MODE" = "disabled" ] || { echo "Intentionally disabled Local AI candidate has an invalid state."; exit 1; }
+          fi
           case "$REV_IMAGE" in
             *@"$API_IMAGE_DIGEST") ;;
             *) echo "API candidate is not running the image digest built by this workflow."; exit 1 ;;

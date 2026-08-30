@@ -41,19 +41,21 @@ def test_api_deploy_preserves_existing_runtime_environment_and_secrets():
     assert "--set-secrets" not in api_deploy
 
 
-def test_local_ai_runtime_has_a_self_healing_revision_guard():
+def test_local_ai_runtime_uses_durable_declared_configuration():
+    deploy = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github" / "workflows" / "ai-runtime-revision-guard.yml").read_text(encoding="utf-8")
 
     assert 'workflows: ["Deploy to DoobieLogic"]' in workflow
+    assert "LOCAL_AI_RUNTIME_STATE" in deploy
+    assert "LOCAL_AI_RUNTIME_STATE" in workflow
     assert "LOCAL_LLM_BASE_URL" in workflow
     assert "LOCAL_LLM_MODEL" in workflow
     assert "LOCAL_LLM_ACCESS_CLIENT_ID" in workflow
     assert "LOCAL_LLM_ACCESS_CLIENT_SECRET" in workflow
-    assert "gcloud run revisions list" in workflow
-    assert "--no-traffic" in workflow
-    assert "--update-env-vars" in workflow
-    assert "--update-secrets" in workflow
-    assert "--to-revisions \"$RESTORED_REVISION=100\"" in workflow
+    assert "gcloud run revisions list" not in workflow
+    assert "historical revision" not in workflow.lower()
+    assert "--to-revisions" not in workflow
+    assert "Candidate Local AI URL differs from declared configuration." in deploy
 
 
 def test_eight_phase_execution_control_exists():
