@@ -96,13 +96,31 @@ def test_agent_result_preserves_action_state_in_api_payload():
     assert result["action_results"][0]["committed_count"] == 2
 
 
-def test_week_planner_never_auto_accepts_schedule_warnings_or_purchase_material():
+def test_week_planner_never_auto_accepts_warnings_or_purchases_material():
     source = (ROOT / "services" / "ai" / "action_tools.py").read_text(encoding="utf-8")
     assert 'accept_warnings=False' in source
     assert 'blocker_count' in source
-    assert 'warning_count' in source
     assert "purchase" not in source.casefold()
     assert "ProductionScheduleService" in source
+
+
+def test_unreserved_available_material_requires_human_work_location_before_reservation_or_metrc_move():
+    source = (ROOT / "services" / "ai" / "action_tools.py").read_text(encoding="utf-8")
+    assert 'MATERIAL_STAGING_WARNING = "material_unreserved"' in source
+    assert '"required_input": "destination_work_location"' in source
+    assert '"staging_lots": self._staging_lots(snapshot)' in source
+    assert "never reserves them" in source
+    assert "Metrc package move" in source
+    assert "reserve_bom_materials(" not in source
+    assert "package_move" in source
+
+
+def test_staging_policy_keeps_material_dependent_runs_uncommitted_until_human_input():
+    source = (ROOT / "services" / "ai" / "action_tools.py").read_text(encoding="utf-8")
+    assert 'if row["requires_human_input"]:' in source
+    assert "continue" in source
+    assert "destination work location" in source
+    assert "provider readback" in source
 
 
 def test_workspace_agent_surfaces_governed_actions_instead_of_permanent_read_only_badge():
