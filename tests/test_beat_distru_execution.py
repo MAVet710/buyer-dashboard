@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from backend.app.auth import RequestContext
 from backend.app.routers.enterprise_control import enterprise_control_tower
 from backend.app.routers.package_360 import _snapshot, package_360
-from backend.app.routers.traceability_actions import TraceabilityIntent, queue_action
+from backend.app.routers.traceability_actions import TraceabilityIntent, queue_action, traceability_ledger
 from backend.app.routers.warehouse import PickAction, pick_action, pick_queue
 from modules.coman.models import Base, InventoryLot
 from modules.coman.repository import ComanRepository
@@ -36,6 +36,7 @@ def test_package_360_builds_facility_scoped_timeline_and_rejects_cross_tenant_ac
     result = _snapshot(lot, context, engine)
     assert result["package"]["balance"] == 12
     assert result["product"]["name"] == "Package Product"
+    assert result["traceability"]["operator_status"] == "Not Requested"
     assert any(row["event_type"] == "receipt" for row in result["timeline"])
 
     other = coman.create_organization("Hidden Tenant")
@@ -91,17 +92,37 @@ def test_enterprise_control_tower_rolls_up_only_current_organization_facilities(
 
 def test_typed_traceability_intents_validate_required_fields_and_are_idempotent():
     engine, _coman, organization, facility, context = _setup()
-    missing = TraceabilityIntent(provider="metrc", operation_type="package_adjust", entity_id="PKG-1", payload={"quantity_delta": -1}, reason="Cycle count correction", idempotency_key="adjust-1")
+    unscoped = TraceabilityIntent(provider="metrc", operation_type="package_finish", entity_id="PKG-1", payload={}, reason="Finish package", idempotency_key="finish-1")
+    with pytest.raises(HTTPException) as scope_error:
+        queue_action(unscoped, context, engine)
+    assert scope_error.value.status_code == 422
+    assert "Jurisdiction, environment, and license" in str(scope_error.value.detail)
+
+    missing = TraceabilityIntent(provider="metrc", jurisdiction="MA", environment="sandbox", license_number="MP-TEST", operation_type="package_adjust", entity_id="PKG-1", payload={"quantity_delta": -1}, reason="Cycle count correction", idempotency_key="adjust-1")
     with pytest.raises(HTTPException) as exc:
         queue_action(missing, context, engine)
     assert exc.value.status_code == 422
 
-    payload = TraceabilityIntent(provider="metrc", operation_type="package_adjust", entity_id="PKG-1", payload={"quantity_delta": -1, "unit": "g", "reason": "Cycle count"}, reason="Approved cycle-count correction", idempotency_key="adjust-1")
+    payload = TraceabilityIntent(provider="metrc", jurisdiction="MA", environment="sandbox", license_number="MP-TEST", operation_type="package_adjust", entity_id="PKG-1", payload={"quantity_delta": -1, "unit": "g", "reason": "Cycle count"}, reason="Approved cycle-count correction", idempotency_key="adjust-1")
     first = queue_action(payload, context, engine)
     second = queue_action(payload, context, engine)
     assert first["id"] == second["id"]
     assert first["status"] == "queued"
     assert first["provider_execution"] == "queued_not_assumed_successful"
+
+    ledger = traceability_ledger(
+        statuses="queued",
+        provider="metrc",
+        entity_type="package",
+        entity_id="PKG-1",
+        limit=25,
+        context=context,
+        engine=engine,
+    )
+    assert ledger["summary"]["total"] == 1
+    assert ledger["transactions"][0]["operator_status"] == "Pending"
+    assert ledger["transactions"][0]["organization_id"] == organization.id
+    assert ledger["transactions"][0]["facility_id"] == facility.id
 
 
 def test_production_run_360_material_output_qa_and_cost_flow_stays_on_canonical_ledgers():

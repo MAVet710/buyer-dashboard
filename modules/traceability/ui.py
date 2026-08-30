@@ -57,11 +57,14 @@ def transaction_rows(transactions) -> pd.DataFrame:
                 "ID": transaction.id,
                 "Status": STATUS_LABELS.get(transaction.status, transaction.status),
                 "Provider": str(transaction.provider or "").upper(),
+                "Jurisdiction": transaction.jurisdiction,
+                "Environment": transaction.environment,
                 "Operation": transaction.operation_type,
                 "Entity Type": transaction.entity_type,
                 "Entity": transaction.entity_id,
                 "External Ref": transaction.external_reference,
                 "Attempts": int(transaction.attempt_count or 0),
+                "Retry Eligible": bool(transaction.retry_eligible),
                 "Requested By": transaction.requested_by,
                 "Requested At": transaction.requested_at,
                 "Error": transaction.error_message or transaction.error_code,
@@ -113,11 +116,17 @@ def _render_transaction_detail(
         st.write(
             {
                 "license": transaction.license_number,
+                "jurisdiction": transaction.jurisdiction,
+                "environment": transaction.environment,
+                "direction": transaction.direction,
                 "reason": transaction.reason,
                 "requested_at": str(transaction.requested_at),
                 "submitted_at": str(transaction.submitted_at or ""),
                 "completed_at": str(transaction.completed_at or ""),
                 "next_attempt_at": str(transaction.next_attempt_at or ""),
+                "last_attempt_at": str(transaction.last_attempt_at or ""),
+                "retry_eligible": bool(transaction.retry_eligible),
+                "mismatch_reason": transaction.mismatch_reason,
                 "idempotency_key": transaction.idempotency_key,
             }
         )
@@ -166,6 +175,18 @@ def _render_transaction_detail(
         with response_col:
             st.caption("SANITIZED RESPONSE")
             st.json(_json_payload(transaction.response_payload_json))
+        st.caption("LOCAL ↔ PROVIDER RECONCILIATION")
+        local_col, provider_col = st.columns(2)
+        with local_col:
+            st.caption("LOCAL STATE")
+            st.json(_json_payload(transaction.local_state_json))
+        with provider_col:
+            st.caption("PROVIDER STATE")
+            st.json(_json_payload(transaction.provider_state_json))
+        st.caption("READBACK RESULT")
+        st.json(_json_payload(transaction.readback_result_json))
+        st.caption("RECONCILIATION EVIDENCE")
+        st.json(_json_payload(transaction.reconciliation_evidence_json))
 
     if not can_manage_traceability(state):
         st.info("Your role can review traceability state but cannot change queue or reconciliation status.")

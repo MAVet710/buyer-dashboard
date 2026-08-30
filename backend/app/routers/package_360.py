@@ -48,6 +48,20 @@ def _sort_timestamp(value: datetime | None) -> float:
     return normalized.timestamp()
 
 
+def _sync_label(status: str) -> str:
+    return {
+        "requested": "Pending",
+        "validated": "Pending",
+        "queued": "Pending",
+        "submitted": "Awaiting Verification",
+        "accepted": "Provider Accepted",
+        "verified": "Synced",
+        "rejected": "Failed",
+        "reconciliation_required": "Reconciliation Required",
+        "cancelled": "Blocked",
+    }.get(status, "Needs Review")
+
+
 def _snapshot(lot: InventoryLot, context: RequestContext, engine: Engine) -> dict[str, Any]:
     with Session(engine) as session:
         product = session.get(Product, lot.product_id)
@@ -165,6 +179,7 @@ def _snapshot(lot: InventoryLot, context: RequestContext, engine: Engine) -> dic
         events.append(_event(occurred_at=tx.requested_at, area="Traceability", event_type=tx.operation_type, title=f"{tx.provider.upper()} · {tx.operation_type.replace('_', ' ')}", detail=tx.reason or tx.error_message, actor=tx.requested_by, reference=tx.external_reference or tx.id, status=tx.status))
 
     events.sort(key=lambda row: _sort_timestamp(row["occurred_at"]), reverse=True)
+    latest_trace = trace_rows[-1] if trace_rows else None
     return {
         "package": {
             "id": lot.id,
@@ -185,6 +200,32 @@ def _snapshot(lot: InventoryLot, context: RequestContext, engine: Engine) -> dic
             "audits": len(audit_rows),
             "order_allocations": len(allocation_rows),
             "traceability_actions": len(trace_rows),
+        },
+        "traceability": {
+            "operator_status": _sync_label(latest_trace.status) if latest_trace else "Not Requested",
+            "latest_transaction_id": latest_trace.id if latest_trace else "",
+            "latest_operation": latest_trace.operation_type if latest_trace else "",
+            "provider": latest_trace.provider if latest_trace else "",
+            "jurisdiction": latest_trace.jurisdiction if latest_trace else "",
+            "environment": latest_trace.environment if latest_trace else "",
+            "license_number": latest_trace.license_number if latest_trace else "",
+            "provider_reference": latest_trace.external_reference if latest_trace else "",
+            "attempt_count": latest_trace.attempt_count if latest_trace else 0,
+            "last_attempt_at": latest_trace.last_attempt_at if latest_trace else None,
+            "retry_eligible": latest_trace.retry_eligible if latest_trace else False,
+            "mismatch_reason": latest_trace.mismatch_reason if latest_trace else "",
+            "latest_error": (latest_trace.error_message or latest_trace.error_code) if latest_trace else "",
+            "actions": [
+                {
+                    "id": row.id,
+                    "operation": row.operation_type,
+                    "status": row.status,
+                    "operator_status": _sync_label(row.status),
+                    "provider": row.provider,
+                    "requested_at": row.requested_at,
+                }
+                for row in reversed(trace_rows)
+            ],
         },
         "timeline": events,
     }

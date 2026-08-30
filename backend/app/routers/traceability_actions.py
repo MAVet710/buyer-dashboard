@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
@@ -50,6 +50,9 @@ class TraceabilityIntent(BaseModel):
     operation_type: str
     entity_id: str = Field(min_length=1, max_length=255)
     license_number: str = ""
+    jurisdiction: str = Field(default="", max_length=16)
+    environment: str = Field(default="", max_length=24)
+    direction: str = Field(default="outbound", pattern="^(inbound|outbound)$")
     payload: dict[str, Any] = Field(default_factory=dict)
     reason: str = Field(min_length=3, max_length=255)
     idempotency_key: str = Field(min_length=3, max_length=255)
@@ -74,6 +77,60 @@ def _catalog_row(name: str, spec: dict[str, Any]) -> dict[str, Any]:
         "required_fields": list(spec["required"]),
         "roles": sorted(spec["roles"]),
         "action_class": str(spec.get("class") or "compliance"),
+    }
+
+
+def _json_value(raw: str) -> Any:
+    try:
+        return json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {"unparseable": True}
+
+
+def _operator_status(status: str) -> str:
+    return {
+        "requested": "Pending",
+        "validated": "Pending",
+        "queued": "Pending",
+        "submitted": "Awaiting Verification",
+        "accepted": "Provider Accepted",
+        "verified": "Synced",
+        "rejected": "Failed",
+        "reconciliation_required": "Reconciliation Required",
+        "cancelled": "Blocked",
+    }.get(status, "Needs Review")
+
+
+def _transaction_view(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "provider": row.provider,
+        "jurisdiction": row.jurisdiction,
+        "environment": row.environment,
+        "organization_id": row.organization_id,
+        "facility_id": row.facility_id,
+        "license_number": row.license_number,
+        "entity_type": row.entity_type,
+        "entity_id": row.entity_id,
+        "operation": row.operation_type,
+        "direction": row.direction,
+        "provider_reference": row.external_reference,
+        "status": row.status,
+        "operator_status": _operator_status(row.status),
+        "attempt_count": row.attempt_count,
+        "last_attempt_at": row.last_attempt_at,
+        "next_attempt_at": row.next_attempt_at,
+        "retry_eligible": row.retry_eligible,
+        "latest_error": row.error_message or row.error_code,
+        "local_state": _json_value(row.local_state_json),
+        "provider_state": _json_value(row.provider_state_json),
+        "readback_result": _json_value(row.readback_result_json),
+        "mismatch_reason": row.mismatch_reason,
+        "reconciliation_evidence": _json_value(row.reconciliation_evidence_json),
+        "actor": row.requested_by,
+        "requested_at": row.requested_at,
+        "submitted_at": row.submitted_at,
+        "completed_at": row.completed_at,
     }
 
 
@@ -225,6 +282,11 @@ def queue_action(payload: TraceabilityIntent, context: RequestContext = Depends(
     provider = payload.provider.strip().casefold()
     if provider not in {"metrc", "biotrack", "other"}:
         raise HTTPException(422, "Provider must be metrc, biotrack, or other.")
+    if provider in {"metrc", "biotrack"}:
+        if not payload.jurisdiction.strip() or not payload.environment.strip() or not payload.license_number.strip():
+            raise HTTPException(422, "Jurisdiction, environment, and license number are required for state-system actions.")
+        if payload.environment.strip().casefold() not in {"sandbox", "production"}:
+            raise HTTPException(422, "State-system environment must be sandbox or production.")
     missing = [field for field in spec["required"] if payload.payload.get(field) in (None, "", [], {})]
     if missing:
         raise HTTPException(422, f"Traceability payload is missing required field(s): {', '.join(missing)}")
@@ -240,6 +302,9 @@ def queue_action(payload: TraceabilityIntent, context: RequestContext = Depends(
             idempotency_key=payload.idempotency_key,
             actor=context.user_id,
             license_number=payload.license_number,
+            jurisdiction=payload.jurisdiction.strip().upper(),
+            environment=payload.environment.strip().casefold(),
+            direction=payload.direction,
             request_payload=payload.payload,
             reason=payload.reason,
         )
@@ -275,6 +340,70 @@ def queue_action(payload: TraceabilityIntent, context: RequestContext = Depends(
         }
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/ledger")
+def traceability_ledger(
+    statuses: str = Query(default="", max_length=255),
+    provider: str = Query(default="", max_length=24),
+    entity_type: str = Query(default="", max_length=64),
+    entity_id: str = Query(default="", max_length=255),
+    limit: int = Query(default=250, ge=1, le=1000),
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    repository = TraceabilityBackofficeRepository(engine)
+    rows = repository.list_transactions(
+        context.organization_id,
+        context.facility_id,
+        statuses=tuple(value.strip() for value in statuses.split(",") if value.strip()),
+        provider=provider,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        limit=limit,
+    )
+    return {
+        "summary": repository.summary(context.organization_id, context.facility_id),
+        "transactions": [_transaction_view(row) for row in rows],
+    }
+
+
+@router.get("/ledger/{transaction_id}")
+def traceability_ledger_detail(
+    transaction_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    repository = TraceabilityBackofficeRepository(engine)
+    try:
+        row = repository.get_transaction(context.organization_id, context.facility_id, transaction_id)
+        detail = _transaction_view(row)
+        detail["attempts"] = [
+            {
+                "attempt_number": attempt.attempt_number,
+                "http_status": attempt.http_status,
+                "error": attempt.error_message or attempt.error_code,
+                "request": _json_value(attempt.request_payload_json),
+                "response": _json_value(attempt.response_payload_json),
+                "started_at": attempt.started_at,
+                "completed_at": attempt.completed_at,
+            }
+            for attempt in repository.list_attempts(context.organization_id, context.facility_id, transaction_id)
+        ]
+        detail["events"] = [
+            {
+                "from_status": event.from_status,
+                "to_status": event.to_status,
+                "actor": event.actor,
+                "reason": event.reason,
+                "source": event.source,
+                "occurred_at": event.occurred_at,
+            }
+            for event in repository.list_status_events(context.organization_id, context.facility_id, transaction_id)
+        ]
+        return detail
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.post("/{transaction_id}/dispatch")

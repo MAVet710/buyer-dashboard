@@ -101,7 +101,11 @@ class TraceabilityRepository:
         idempotency_key: str,
         actor: str,
         license_number: str = "",
+        jurisdiction: str = "",
+        environment: str = "",
+        direction: str = "outbound",
         request_payload: Mapping[str, Any] | None = None,
+        local_state: Mapping[str, Any] | None = None,
         reason: str = "",
     ) -> TraceabilityTransaction:
         normalized_provider = _clean(provider).casefold()
@@ -112,6 +116,9 @@ class TraceabilityRepository:
         clean_entity_id = _clean(entity_id)
         clean_idempotency = _clean(idempotency_key)
         clean_actor = _clean(actor)
+        clean_direction = _clean(direction).casefold() or "outbound"
+        if clean_direction not in {"inbound", "outbound"}:
+            raise ValueError("Traceability direction must be inbound or outbound.")
         if not all((clean_operation, clean_entity_type, clean_entity_id, clean_idempotency, clean_actor)):
             raise ValueError("Operation, entity, idempotency key, and actor are required.")
 
@@ -135,12 +142,16 @@ class TraceabilityRepository:
                 organization_id=organization_id,
                 facility_id=facility_id,
                 provider=normalized_provider,
+                jurisdiction=_clean(jurisdiction).upper(),
+                environment=_clean(environment).casefold(),
                 license_number=_clean(license_number),
+                direction=clean_direction,
                 operation_type=clean_operation,
                 entity_type=clean_entity_type,
                 entity_id=clean_entity_id,
                 idempotency_key=clean_idempotency,
                 request_payload_json=_payload_json(request_payload),
+                local_state_json=_payload_json(local_state),
                 reason=_clean(reason),
                 requested_by=clean_actor,
             )
@@ -198,6 +209,7 @@ class TraceabilityRepository:
             transaction.error_code = _clean(error_code)
             transaction.error_message = _clean(error_message)
             transaction.next_attempt_at = next_attempt_at
+            transaction.retry_eligible = target in {"rejected", "reconciliation_required"} and next_attempt_at is not None
             if target == "submitted" and transaction.submitted_at is None:
                 transaction.submitted_at = utc_now()
             if target in {"verified", "cancelled"}:
@@ -205,6 +217,8 @@ class TraceabilityRepository:
             if target in {"validated", "queued", "submitted", "accepted", "verified"}:
                 transaction.error_code = ""
                 transaction.error_message = ""
+            if target in {"queued", "submitted", "accepted", "verified", "cancelled"}:
+                transaction.retry_eligible = False
             if actor and target in {"queued", "submitted", "accepted", "verified"}:
                 transaction.approved_by = _clean(actor)
             session.flush()
@@ -231,6 +245,7 @@ class TraceabilityRepository:
                 transaction_id,
             )
             transaction.attempt_count += 1
+            transaction.last_attempt_at = completed_at or utc_now()
             attempt = TraceabilityTransactionAttempt(
                 organization_id=organization_id,
                 facility_id=facility_id,
@@ -241,7 +256,7 @@ class TraceabilityRepository:
                 http_status=http_status,
                 error_code=_clean(error_code),
                 error_message=_clean(error_message),
-                completed_at=completed_at or utc_now(),
+                completed_at=transaction.last_attempt_at,
             )
             session.add(attempt)
             session.flush()
