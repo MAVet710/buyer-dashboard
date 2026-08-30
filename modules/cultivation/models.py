@@ -68,34 +68,6 @@ class CultivationRoom(TimestampMixin, Base):
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
-class CultivationHarvest(TimestampMixin, Base):
-    __tablename__ = "cultivation_harvests"
-    __table_args__ = (
-        UniqueConstraint("facility_id", "harvest_code", name="uq_cultivation_harvest_facility_code"),
-        CheckConstraint("status in ('planned','active','drying','finished','cancelled')", name="ck_cultivation_harvest_status"),
-        CheckConstraint("wet_weight >= 0", name="ck_cultivation_harvest_wet_weight"),
-        CheckConstraint("dry_weight >= 0", name="ck_cultivation_harvest_dry_weight"),
-        CheckConstraint("waste_weight >= 0", name="ck_cultivation_harvest_waste_weight"),
-        Index("ix_cultivation_harvests_facility_status", "facility_id", "status", "planned_date"),
-    )
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
-    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
-    harvest_code: Mapped[str] = mapped_column(String(160), nullable=False)
-    strain_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    room_code: Mapped[str] = mapped_column(String(120), nullable=False, default="")
-    status: Mapped[str] = mapped_column(String(24), nullable=False, default="planned")
-    planned_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    wet_weight: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    dry_weight: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    waste_weight: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    unit: Mapped[str] = mapped_column(String(24), nullable=False, default="g")
-    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
-
-
 class CultivationHarvestPlant(Base):
     __tablename__ = "cultivation_harvest_plants"
     __table_args__ = (
