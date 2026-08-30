@@ -151,10 +151,40 @@ class LocalOpenAIProvider:
         detail = " ".join(str(raw or "").split())
         return detail[:200]
 
+    @staticmethod
+    def _structured_response_format(schema: dict[str, Any]) -> dict[str, Any]:
+        """Build the OpenAI-compatible JSON-schema request shape supported by Ollama."""
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "doobielogic_agent_response",
+                "schema": schema,
+                "strict": True,
+            },
+        }
+
+    @staticmethod
+    def _structured_system_prompt(system_prompt: str, schema: dict[str, Any]) -> str:
+        """Reinforce the schema contract for local models without weakening validation."""
+        compact_schema = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+        return (
+            f"{system_prompt}\n\n"
+            "Return only valid JSON matching the supplied response schema. "
+            "The top-level `answer` field is required and must contain the user-facing answer. "
+            "Do not wrap the JSON in Markdown fences or add prose outside the JSON object. "
+            f"Response schema: {compact_schema}"
+        )
+
     def generate(self, request: AIRequest) -> AIResponse:
         if not self.base_url or not self.model:
             raise ProviderUnavailable("Local AI endpoint/model is not configured.")
-        messages = [{"role": "system", "content": request.system_prompt}, *request.messages]
+        structured_request = bool(request.response_schema and not request.tools)
+        system_prompt = (
+            self._structured_system_prompt(request.system_prompt, request.response_schema)
+            if structured_request and request.response_schema is not None
+            else request.system_prompt
+        )
+        messages = [{"role": "system", "content": system_prompt}, *request.messages]
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -166,8 +196,8 @@ class LocalOpenAIProvider:
         if request.tools:
             payload["tools"] = request.tools
             payload["tool_choice"] = "auto"
-        if request.response_schema and not request.tools:
-            payload["response_format"] = {"type": "json_object"}
+        if structured_request and request.response_schema is not None:
+            payload["response_format"] = self._structured_response_format(request.response_schema)
         started = time.perf_counter()
         try:
             response = requests.post(
