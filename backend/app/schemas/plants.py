@@ -1,8 +1,11 @@
 from datetime import date, datetime
 from typing import Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 PlantPhase = Literal["clone", "seedling", "vegetative", "flowering", "harvested", "destroyed"]
+HarvestStatus = Literal["planned", "active", "drying", "finished", "cancelled"]
+CostType = Literal["labor", "material", "overhead"]
+CostEntityType = Literal["plant", "harvest", "room"]
 
 class PlantCreate(BaseModel):
     plant_tag: str
@@ -43,3 +46,39 @@ class PlantEventItem(BaseModel):
     notes: str
     actor: str
     occurred_at: datetime
+
+class CultivationRoomUpsert(BaseModel):
+    room_code: str = Field(min_length=1, max_length=120)
+    display_name: str = Field(default="", max_length=255)
+    phase: str = Field(default="", max_length=24)
+    plant_capacity: int = Field(default=0, ge=0, le=1_000_000)
+    square_feet: float = Field(default=0, ge=0)
+    target_cycle_days: int = Field(default=0, ge=0, le=3650)
+    active: bool = True
+    notes: str = Field(default="", max_length=4000)
+
+class CultivationHarvestCreate(BaseModel):
+    harvest_code: str = Field(min_length=1, max_length=160)
+    plant_ids: list[str] = Field(min_length=1, max_length=5000)
+    planned_date: date | None = None
+    notes: str = Field(default="", max_length=4000)
+
+class CultivationHarvestTransition(BaseModel):
+    status: HarvestStatus
+    wet_weight: float | None = Field(default=None, ge=0)
+    dry_weight: float | None = Field(default=None, ge=0)
+    waste_weight: float | None = Field(default=None, ge=0)
+    unit: str = Field(default="", max_length=24)
+    notes: str = Field(default="", max_length=4000)
+
+class CultivationCostCreate(BaseModel):
+    entity_type: CostEntityType
+    entity_id: str = Field(min_length=1, max_length=64)
+    cost_type: CostType
+    description: str = Field(default="", max_length=255)
+    quantity: float = Field(default=0, ge=0)
+    unit: str = Field(default="", max_length=32)
+    unit_cost: float = Field(default=0, ge=0)
+    amount: float | None = Field(default=None, ge=0)
+    occurred_on: date | None = None
+    notes: str = Field(default="", max_length=4000)
