@@ -6,8 +6,9 @@ from typing import Any
 
 from services.agent_registry import AgentProfile
 
+from .action_tools import AgentActionRegistry
 from .cache import TenantCache
-from .context import bounded_history, system_prompt, tool_result_message
+from .context import action_result_message, bounded_history, system_prompt, tool_result_message
 from .datasets import DatasetAccessContext, DatasetRegistry
 from .policy import deterministic_tool_for, requires_regulatory_grounding
 from .provider import ProviderUnavailable
@@ -22,7 +23,7 @@ from .validation import parse_structured, validate_agent_response
 
 
 class AgentRuntime:
-    """DoobieLogic-owned runtime: authorize -> deterministic -> local -> validate -> fallback."""
+    """DoobieLogic-owned runtime: authorize -> deterministic/action -> local -> validate -> fallback."""
 
     def __init__(
         self,
@@ -90,10 +91,6 @@ class AgentRuntime:
         dataset_agent_key = profile.dataset_agent_key or profile.key
         base_datasets = self.dataset_registry.load_for_agent(dataset_agent_key, access)
         if profile.key == "wholesale":
-            # The Wholesale specialist inherits the existing tenant-safe Commercial
-            # ledger and layers canonical storefront/COA/account intelligence in
-            # front of it. Keeping wholesale rows first also makes bounded-context
-            # fallback prioritize the data most relevant to the specialist.
             from services.wholesale_agent import load_wholesale_datasets
 
             datasets = {**load_wholesale_datasets(access), **base_datasets}
@@ -145,6 +142,31 @@ class AgentRuntime:
             )
 
         tools = ToolRegistry(datasets, knowledge_search=knowledge_search if self.retriever else None)
+        actions = AgentActionRegistry(profile=profile, access=access, question=question)
+
+        deterministic_action = actions.deterministic_request()
+        if deterministic_action:
+            action_name, action_args = deterministic_action
+            action_result = actions.execute(action_name, action_args)
+            if not action_result.get("error"):
+                result = AgentResult(
+                    answer=actions.format_result(action_result),
+                    summary=action_name.replace("_", " "),
+                    confidence=1.0,
+                    grounding="deterministic",
+                    provider="deterministic",
+                    model="python/sql",
+                    local=True,
+                    datasets=sorted(datasets),
+                    tool_calls=[action_name],
+                    action_results=actions.results,
+                    data_freshness={key: value.freshness for key, value in datasets.items()},
+                    request_id=request_id,
+                    read_only=not actions.mutation_performed,
+                )
+                self._record(access=access, request_id=request_id, profile=profile, task=action_name, result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="deterministic_action", success=True, retrieval_count=len(citations))
+                return result
+
         deterministic = deterministic_tool_for(question, tools.names())
         if deterministic:
             source_version = self._source_version(datasets)
@@ -162,18 +184,28 @@ class AgentRuntime:
                 self._record(access=access, request_id=request_id, profile=profile, task=deterministic, result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="deterministic", success=True, retrieval_count=len(citations))
                 return result
 
-        prompt = system_prompt(profile, organization_name=organization_name, facility_name=facility_name, operation_type=access.operation_type, tool_names=tools.names(), dataset_keys=sorted(datasets), knowledge_required=knowledge_required)
+        prompt = system_prompt(
+            profile,
+            organization_name=organization_name,
+            facility_name=facility_name,
+            operation_type=access.operation_type,
+            tool_names=tools.names(),
+            action_tool_names=actions.names(),
+            dataset_keys=sorted(datasets),
+            knowledge_required=knowledge_required,
+        )
         messages = [*bounded_history(history), {"role": "user", "content": question}]
         if knowledge.get("results"):
             grounding_payload = [{key: row.get(key) for key in ("title", "source_type", "authority_level", "page_or_section", "content")} for row in knowledge["results"]]
             messages.append({"role": "user", "content": "Retrieved knowledge evidence: " + json.dumps(grounding_payload, default=str)[:16000]})
-        request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=tools.schemas() if datasets else [], response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets)}})
+        available_schemas = [*tools.schemas(), *actions.schemas()]
+        request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=available_schemas, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets), "action_tools": list(actions.names())}})
         used_tools: list[str] = []
         decision = None
         final_response = None
         bounded_context_used = False
         try:
-            if datasets:
+            if datasets or actions.names():
                 try:
                     decision = self.provider_router.generate(
                         request,
@@ -197,10 +229,14 @@ class AgentRuntime:
                     final_response = decision.response
                 if decision and decision.response.tool_calls and final_response is None:
                     for call in decision.response.tool_calls[:6]:
-                        outcome = tools.execute(call.name, call.arguments)
+                        if call.name in actions.names():
+                            outcome = actions.execute(call.name, call.arguments)
+                            messages.append({"role": "user", "content": action_result_message(call.name, outcome)})
+                        else:
+                            outcome = tools.execute(call.name, call.arguments)
+                            messages.append({"role": "user", "content": tool_result_message(call.name, outcome)})
                         used_tools.append(call.name)
-                        messages.append({"role": "user", "content": tool_result_message(call.name, outcome)})
-                    followup = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"tool_results_supplied": used_tools}})
+                    followup = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"tool_results_supplied": used_tools, "action_results": actions.results}})
                     final_decision = self.provider_router.generate(followup, validate=validate_agent_response, require_structured=True)
                     final_response = final_decision.response
                     if final_decision.fallback_used and not decision.fallback_used:
@@ -209,6 +245,25 @@ class AgentRuntime:
                 decision = self.provider_router.generate(request, validate=validate_agent_response, require_structured=True)
                 final_response = decision.response
         except ProviderUnavailable as exc:
+            if actions.results:
+                answer = " ".join(actions.format_result(row) for row in actions.results)
+                result = AgentResult(
+                    answer=answer,
+                    summary="Agent operational action",
+                    confidence=1.0,
+                    grounding="deterministic",
+                    provider="deterministic",
+                    model="python/sql",
+                    local=True,
+                    datasets=sorted(datasets),
+                    tool_calls=used_tools,
+                    action_results=actions.results,
+                    data_freshness={key: value.freshness for key, value in datasets.items()},
+                    request_id=request_id,
+                    read_only=not actions.mutation_performed,
+                )
+                self._record(access=access, request_id=request_id, profile=profile, task="agent_action_provider_fallback", result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="action_completed_model_unavailable", success=True, retrieval_count=len(citations))
+                return result
             result = AgentResult(answer="DoobieLogic AI is currently unavailable. Operational pages and deterministic workflows remain available.", summary="AI provider unavailable", confidence=1.0, grounding="general", warnings=[str(exc)], provider="unavailable", local=True, datasets=sorted(datasets), request_id=request_id)
             self._record(access=access, request_id=request_id, profile=profile, task="provider_unavailable", result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="provider_unavailable", success=False, retrieval_count=len(citations))
             return result
@@ -221,7 +276,8 @@ class AgentRuntime:
             confidence=float(parsed.get("confidence") or 0.0), grounding=grounding, sources=citations,
             recommendations=[str(value) for value in parsed.get("recommendations") or []][:20], warnings=[str(value) for value in parsed.get("warnings") or []][:20], missing_data=[str(value) for value in parsed.get("missing_data") or []][:20],
             provider=final_response.provider, model=final_response.model, local=final_response.local, fallback_used=decision.fallback_used, fallback_reason=decision.fallback_reason,
-            datasets=sorted(datasets), tool_calls=used_tools, data_freshness={key: value.freshness for key, value in datasets.items()}, request_id=request_id,
+            datasets=sorted(datasets), tool_calls=used_tools, action_results=actions.results, data_freshness={key: value.freshness for key, value in datasets.items()}, request_id=request_id,
+            read_only=not actions.mutation_performed,
         )
         self._record(access=access, request_id=request_id, profile=profile, task="agent_reasoning", result=result, latency_ms=final_response.latency_ms, input_tokens=final_response.input_tokens, output_tokens=final_response.output_tokens, validation="ok", success=True, retrieval_count=len(citations))
         return result
