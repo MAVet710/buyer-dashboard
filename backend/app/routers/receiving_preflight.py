@@ -111,13 +111,7 @@ def receiving_discrepancies(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
-    _require_preflight_transfer(
-        engine=engine,
-        context=context,
-        operation=operation,
-        transfer_id=transfer_id,
-        preflight_id=preflight_id,
-    )
+    _require_preflight_transfer(engine=engine, context=context, operation=operation, transfer_id=transfer_id, preflight_id=preflight_id)
     service = ReceivingPreflightService(engine)
     try:
         rows = service.list_discrepancies(
@@ -145,13 +139,7 @@ def record_receiving_discrepancies(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
-    _require_preflight_transfer(
-        engine=engine,
-        context=context,
-        operation=operation,
-        transfer_id=transfer_id,
-        preflight_id=payload.preflight_id,
-    )
+    _require_preflight_transfer(engine=engine, context=context, operation=operation, transfer_id=transfer_id, preflight_id=payload.preflight_id)
     try:
         result = ReceivingPreflightService(engine).record_observations(
             organization_id=context.organization_id,
@@ -180,13 +168,7 @@ def resolve_receiving_discrepancy(
 ):
     if not _can_resolve(context):
         raise HTTPException(status_code=403, detail="Only an authorized supervisor, QA, admin, or developer can resolve receiving discrepancies.")
-    _require_preflight_transfer(
-        engine=engine,
-        context=context,
-        operation=operation,
-        transfer_id=transfer_id,
-        preflight_id=preflight_id,
-    )
+    _require_preflight_transfer(engine=engine, context=context, operation=operation, transfer_id=transfer_id, preflight_id=preflight_id)
     service = ReceivingPreflightService(engine)
     try:
         rows = service.list_discrepancies(
@@ -224,22 +206,31 @@ def commit_receiving_preflight(
 
     If physical observations are supplied, their package set/count/unit/condition
     must exactly match the prepared provider snapshot. Any previously recorded
-    physical discrepancy must be resolved. A second provider read must also
-    exactly match the prepared snapshot. No Metrc write is issued here.
+    physical discrepancy must be resolved. After any discrepancy history exists,
+    an exact fresh physical observation set is mandatory before posting. A
+    second provider read must also exactly match the prepared snapshot. No Metrc
+    write is issued here.
     """
 
-    _require_preflight_transfer(
-        engine=engine,
-        context=context,
-        operation=operation,
-        transfer_id=transfer_id,
-        preflight_id=payload.preflight_id,
-    )
+    _require_preflight_transfer(engine=engine, context=context, operation=operation, transfer_id=transfer_id, preflight_id=payload.preflight_id)
+    service = ReceivingPreflightService(engine)
+    try:
+        discrepancy_history = service.list_discrepancies(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            operation=operation,
+            preflight_id=payload.preflight_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if discrepancy_history and not payload.observations:
+        raise HTTPException(status_code=409, detail="A fresh exact physical count is required after a receiving discrepancy before local inventory can be posted.")
+
     metrc = _metrc_context(context=context, engine=engine, settings=settings, operation=operation)
     if not metrc.configured:
         raise HTTPException(status_code=422, detail=metrc.message)
     try:
-        return ReceivingPreflightService(engine).commit(
+        return service.commit(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             operation=operation,
