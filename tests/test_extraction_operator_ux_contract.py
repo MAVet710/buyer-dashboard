@@ -74,10 +74,15 @@ def test_selected_run_and_new_run_are_mutually_exclusive():
 def test_floor_has_explicit_preflight_before_consumption_and_start():
     floor = read("frontend/src/pages/ExtractionOperatorWorkspace.tsx")
 
-    for marker in ("Preflight", "Material verified", "Equipment / area ready", "Documentation ready"):
+    for marker in (
+        "Preflight",
+        "Source package/material verified",
+        "Required equipment/work area ready",
+        "Required SOP/batch documentation ready",
+    ):
         assert marker in floor
     assert "Start run & consume reserved material" in floor
-    assert '/api/v1/extraction/inputs/${row.id}/consume' in floor
+    assert '/api/v1/extraction/inputs/${input.id}/consume' in floor
     assert 'event_type:"started"' in floor
 
 
@@ -119,7 +124,8 @@ def test_floor_hands_output_qa_release_and_deep_traceability_to_run_360():
     floor = read("frontend/src/pages/ExtractionOperatorWorkspace.tsx")
 
     assert "Open Run 360" in floor
-    assert "Outputs / QA / Release" in floor
+    assert "Create intermediate / output" in floor
+    assert "QA / COA / release" in floor
     assert "METRC stage input ID" in floor
     assert "METRC stage output ID" in floor
     assert "Intermediate product type" in floor
