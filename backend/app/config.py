@@ -48,7 +48,10 @@ class Settings(BaseSettings):
     local_llm_access_client_id: str = ""
     local_llm_access_client_secret: str = ""
     local_llm_model: str = ""
-    local_llm_timeout_seconds: float = 30.0
+    # Workstation-hosted models can legitimately take longer than SaaS APIs,
+    # especially through a secured tunnel and during model warm-up. Keep this
+    # below Cloudflare's current 125-second default proxy read timeout.
+    local_llm_timeout_seconds: float = 120.0
     local_llm_max_tokens: int = 1400
     local_llm_temperature: float = 0.2
     local_embedding_base_url: str = ""
