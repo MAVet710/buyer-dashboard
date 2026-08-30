@@ -90,6 +90,12 @@ function readPath(path: string): string {
   return path === "/api/v1/extraction/lots" ? "/api/v1/extraction-inventory/lots" : path;
 }
 
+export function isApiNetworkError(error: unknown): boolean {
+  if (error instanceof ApiError) return false;
+  if (error instanceof DOMException && error.name === "AbortError") return false;
+  return error instanceof TypeError || (error instanceof Error && /network|fetch|offline|connection/i.test(error.message));
+}
+
 export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await authorizedFetch(readPath(path), headers => ({ signal, headers }));
   if (!response.ok) return throwResponseError(response);
@@ -99,6 +105,23 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const serialized = JSON.stringify(body);
   const response = await authorizedFetch(path, headers => ({ method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: serialized }));
+  if (!response.ok) return throwResponseError(response);
+  return response.json() as Promise<T>;
+}
+
+export async function apiPostIdempotent<T>(path: string, body: unknown, idempotencyKey: string): Promise<T> {
+  const key = String(idempotencyKey || "").trim();
+  if (!key) throw new Error("An idempotency key is required for this request.");
+  const serialized = JSON.stringify(body);
+  const response = await authorizedFetch(path, headers => ({
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json",
+      "X-Idempotency-Key": key,
+    },
+    body: serialized,
+  }));
   if (!response.ok) return throwResponseError(response);
   return response.json() as Promise<T>;
 }
