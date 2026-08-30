@@ -34,6 +34,8 @@ def system_prompt(
     knowledge_required: bool = False,
 ) -> str:
     focus = ", ".join(profile.focus)
+    playbook = "\n".join(f"- {instruction}" for instruction in profile.operating_instructions)
+    playbook_section = f"\nSpecialist operating playbook:\n{playbook}\n" if playbook else ""
     compliance = (
         "Regulatory claims require retrieved authoritative sources. Never declare compliant/noncompliant from model memory. "
         "If authoritative evidence is unavailable, say the requirement could not be verified."
@@ -48,7 +50,7 @@ Operation: {operation_type}
 Specialist focus: {focus}
 Authorized datasets: {', '.join(dataset_keys) or 'none'}
 Authorized read-only tools: {', '.join(tool_names) or 'none'}
-
+{playbook_section}
 Rules:
 - You are read-only. You may analyze and recommend, never submit or mutate operational data.
 - Organization/facility scope is fixed by the server. Never ask a tool to change tenant scope.
