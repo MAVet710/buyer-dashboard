@@ -29,7 +29,7 @@ class ReceivingObservation(BaseModel):
 class ReceivingPreflightCommit(BaseModel):
     preflight_id: str = Field(min_length=1, max_length=64)
     receipts: list[InventoryReceiptCreate] = Field(min_length=1, max_length=500)
-    observations: list[ReceivingObservation] = Field(min_length=1, max_length=500)
+    observations: list[ReceivingObservation] = Field(default_factory=list, max_length=500)
 
 
 class ReceivingDiscrepancyRecord(BaseModel):
@@ -143,8 +143,9 @@ def resolve_receiving_discrepancy(
 ):
     if not _can_resolve(context):
         raise HTTPException(status_code=403, detail="Only an authorized supervisor, QA, admin, or developer can resolve receiving discrepancies.")
+    service = ReceivingPreflightService(engine)
     try:
-        rows = ReceivingPreflightService(engine).list_discrepancies(
+        rows = service.list_discrepancies(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             operation=operation,
@@ -153,7 +154,7 @@ def resolve_receiving_discrepancy(
         target = next((row for row in rows if row["id"] == discrepancy_id), None)
         if target is None or str(target.get("transfer_id") or "") != str(transfer_id):
             raise ValueError("Receiving discrepancy was not found for this inbound transfer.")
-        return ReceivingPreflightService(engine).resolve_discrepancy(
+        return service.resolve_discrepancy(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             operation=operation,
@@ -175,14 +176,12 @@ def commit_receiving_preflight(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    """Fresh-read Metrc and post the physically matching local receipt atomically.
+    """Fresh-read Metrc and post the reviewed local receipt atomically.
 
-    The physical package set/count/unit must exactly match the prepared provider
-    snapshot and there must be no unresolved receiving discrepancy. A second
-    provider read must also exactly match the prepared snapshot. Provider
-    package identity, remaining quantity, unit, manifest/source and lab state
-    remain authoritative. Product mapping, room and operator notes remain the
-    reviewed local fields. No Metrc write is issued by this endpoint.
+    If physical observations are supplied, their package set/count/unit/condition
+    must exactly match the prepared provider snapshot. Any previously recorded
+    physical discrepancy must be resolved. A second provider read must also
+    exactly match the prepared snapshot. No Metrc write is issued here.
     """
 
     metrc = _metrc_context(context=context, engine=engine, settings=settings, operation=operation)
