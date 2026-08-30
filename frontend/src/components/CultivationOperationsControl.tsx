@@ -112,7 +112,6 @@ function Metric({label,value}:{label:string;value:string|number}) {return <artic
 function title(value:string){return (value||"").replaceAll("_"," ").replace(/\b\w/g,char=>char.toUpperCase())}
 function money(value:number){return new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:2}).format(value||0)}
 function number(value:number){return new Intl.NumberFormat("en-US",{maximumFractionDigits:2}).format(value||0)}
-function dateTime(value:string|null|undefined){if(!value)return "—";const parsed=new Date(value);return Number.isNaN(parsed.getTime())?value:parsed.toLocaleString()}
 function numOrNull(value:string){return value===""?null:Number(value)}
-function harvestNext(status:string){return status==="planned"?["active","cancelled"]:status==="active"?["drying","finished","cancelled"]:status==="drying"?["finished","cancelled"]:[]}
+function harvestNext(status:string){return status==="planned"?["active","cancelled"]:status==="active"?["drying","finished"]:status==="drying"?["finished"]:[]}
 function harvestAction(status:string){return status==="active"?"Start harvest":status==="drying"?"Move to drying":status==="finished"?"Finish harvest":"Cancel harvest"}
