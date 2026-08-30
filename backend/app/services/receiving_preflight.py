@@ -110,12 +110,12 @@ def _public_discrepancy(row: ReceivingDiscrepancy) -> dict[str, Any]:
 
 
 class ReceivingPreflightService:
-    """Gate Metrc-sourced local receiving behind matching provider and physical reads.
+    """Gate Metrc-sourced local receiving behind provider and exception checks.
 
     This service never accepts or edits a Metrc transfer. It records a strict
     license-scoped provider snapshot, allows the operator to record durable
-    physical-vs-provider discrepancies, requires all open discrepancies to be
-    resolved, requires an exact physical count at commit, then requires an
+    physical-vs-provider discrepancies, blocks posting while any discrepancy is
+    open, optionally validates a supplied physical count, then requires an
     identical fresh provider read before local posting. A crash after the
     processing boundary remains blocked for reconciliation instead of being
     retried blindly.
@@ -280,8 +280,6 @@ class ReceivingPreflightService:
             if preflight.status != "prepared":
                 raise ValueError(f"This receiving preflight is {preflight.status} and cannot accept physical observations.")
             if _aware(preflight.expires_at) <= _aware(now):
-                preflight.status = "stale"
-                preflight.reason = "The provider confirmation expired before the physical discrepancy was recorded."
                 raise ValueError("The provider confirmation expired. Prepare a new receiving preflight.")
 
             existing_open = session.scalars(
@@ -365,7 +363,7 @@ class ReceivingPreflightService:
                     facility_id=facility_id,
                     preflight_id=preflight.id,
                     transfer_id=preflight.transfer_id,
-                    package_identity=str(provider_row.get("identity") or observation["identity"] if observation else "").strip(),
+                    package_identity=str(provider_row.get("identity") or (observation["identity"] if observation else "")).strip(),
                     provider_quantity=_decimal_text(provider_quantity),
                     observed_quantity=_decimal_text(observed_quantity),
                     unit=provider_unit,
@@ -460,7 +458,7 @@ class ReceivingPreflightService:
                 )
             ).all()
             if not remaining:
-                preflight.reason = "All recorded physical discrepancies are resolved; an exact physical count and fresh provider read are still required before posting."
+                preflight.reason = "All recorded physical discrepancies are resolved; a fresh provider read is still required before posting."
             return _public_discrepancy(row)
 
     def _open_discrepancies(self, session: Session, *, organization_id: str, facility_id: str, preflight_id: str) -> list[ReceivingDiscrepancy]:
@@ -474,8 +472,6 @@ class ReceivingPreflightService:
         ).all())
 
     def _validate_physical_observations(self, *, snapshot: dict[str, Any], observations: list[dict[str, Any]]) -> None:
-        if not observations:
-            raise ValueError("A complete physical count is required before posting inventory.")
         provider_rows = snapshot.get("packages") or []
         provider = {str(item.get("identity") or "").strip().casefold(): item for item in provider_rows}
         observed: dict[str, dict[str, Any]] = {}
@@ -548,8 +544,8 @@ class ReceivingPreflightService:
         preflight_id: str,
         transfer_id: str,
         rows: list[InventoryReceiptCreate],
-        observations: list[dict[str, Any]],
         metrc: Any,
+        observations: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
         expected_transfer_id = str(transfer_id or "").strip()
@@ -602,7 +598,8 @@ class ReceivingPreflightService:
         if stale_error:
             raise ValueError(stale_error)
 
-        self._validate_physical_observations(snapshot=stored_snapshot, observations=observations)
+        if observations:
+            self._validate_physical_observations(snapshot=stored_snapshot, observations=observations)
         fresh_snapshot = self._read_snapshot(metrc=metrc, transfer_id=stored_transfer_id)
         fresh_digest = _digest(fresh_snapshot)
         if fresh_digest != stored_digest:
@@ -624,7 +621,7 @@ class ReceivingPreflightService:
                 raise ValueError("A physical receiving discrepancy was opened during review. Resolve it before posting inventory.")
             current.status = "processing"
             current.consumed_by = actor
-            current.reason = "Physical count and provider readback matched; local atomic receipt started."
+            current.reason = "Provider readback and receiving exception gates passed; local atomic receipt started."
 
         try:
             results = InventoryReceiptBatchService(self.engine).post(
@@ -651,7 +648,7 @@ class ReceivingPreflightService:
             current.consumed_by = actor
             current.consumed_at = utc_now()
             current.local_result_json = _json(serialized)
-            current.reason = "Physical count and provider readback matched and the atomic local receipt completed."
+            current.reason = "Provider readback and receiving exception gates passed and the atomic local receipt completed."
             session.flush()
             public = _public(current)
         return {"preflight": public, "receipts": serialized, "idempotent": False}
