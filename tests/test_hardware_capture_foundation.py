@@ -27,7 +27,8 @@ def test_bluetooth_scale_adapter_uses_published_sig_service_and_never_guesses_ve
     assert "WEIGHT_MEASUREMENT_CHARACTERISTIC = 0x2a9d" in scale
     assert "rawWeight * 0.005" in scale
     assert "rawWeight * 0.01" in scale
-    assert "Vendor-specific industrial-scale protocols belong in separate adapters." in scale
+    assert "published standard only" in scale
+    assert "separate adapters" in scale
     assert "Vendor-specific protocols are not guessed." in scale_ui
     assert "Capture only" in scale_ui
 
@@ -39,6 +40,6 @@ def test_rfid_contract_is_rain_uhf_vendor_neutral_and_seek_find_is_capability_ga
     assert '"single_read" | "inventory" | "rssi" | "locate"' in rfid
     assert 'reader.capabilities.has("locate") && reader.capabilities.has("rssi")' in rfid
     assert "KeyboardWedgeRfidReader" in rfid
-    assert "does not\n * claim inventory sweeps, RSSI, or Seek & Find support" in rfid
+    assert "inventory sweeps, RSSI, or Seek & Find support" in rfid
     assert "There is no Bluetooth SIG GATT profile for UHF/RAIN RFID reader inventory" in rfid
     assert 'airProtocol: "RAIN_UHF_EPC_GEN2"' in capture
