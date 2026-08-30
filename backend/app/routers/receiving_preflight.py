@@ -9,6 +9,7 @@ from ..config import Settings, get_settings
 from ..database import get_engine
 from ..schemas.inventory import InventoryReceiptCreate
 from ..services.receiving_preflight import ReceivingPreflightService
+from ..services.transfer_control import TransferControlService
 from .inventory import _metrc_context
 
 
@@ -18,6 +19,25 @@ router = APIRouter(tags=["inventory"])
 class ReceivingPreflightCommit(BaseModel):
     preflight_id: str = Field(min_length=1, max_length=64)
     receipts: list[InventoryReceiptCreate] = Field(min_length=1, max_length=500)
+
+
+@router.get("/transfer-control")
+def transfer_control_snapshot(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    """Return one durable outgoing/inbound transfer control surface.
+
+    This endpoint performs no provider network request and enables no regulatory
+    write. It exposes only tenant/facility-scoped Doobie action, traceability,
+    and receiving-preflight state so operators can work exceptions without
+    depending on live sandbox credentials.
+    """
+
+    return TransferControlService(engine).snapshot(
+        context.organization_id,
+        context.facility_id,
+    )
 
 
 @router.post("/{operation}/inbound/{transfer_id}/preflight", status_code=201)
