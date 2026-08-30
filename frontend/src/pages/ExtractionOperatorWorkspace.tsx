@@ -11,19 +11,19 @@ type Run = {
   formulation_used?:boolean; formulation_base_g?:number; terpene_handling_mode?:string; terpene_type?:string; terpene_source?:string;
   terpene_percentage?:number; terpene_weight_g?:number;
 };
-type RunInput = { id:string; lot_id:string; reserved_quantity:number; consumed_quantity:number; unit:string };
+type RunInput = { id:string; lot_id:string; reserved_quantity:number; consumed_quantity:number; unit:string; status?:string };
 type Lot = { lot_id:string; product_name:string; lot_code:string; compliance_package_id:string; available:number; unit:string; location?:string };
 type StageEvent = {
   id:string; stage_key:string; event_type:string; input_weight_g:number|null; output_weight_g:number|null; loss_weight_g:number|null;
   loss_reason:string; stage_output_field?:string; metrc_stage_input_id?:string; metrc_stage_output_id?:string; operator:string; notes:string; occurred_at:string;
 };
-type Detail = { run:Run; workflow:Workflow; events:StageEvent[]; mass_balance:Record<string,number>; cogs:Record<string,number> };
+type Detail = { run:Run; workflow:Workflow; inputs:RunInput[]; events:StageEvent[]; mass_balance:Record<string,number>; cogs:Record<string,number> };
 type StageForm = {
   input_weight_g:number; output_weight_g:number; loss_reason:string; notes:string; stage_output_field:string;
   metrc_stage_input_id:string; metrc_stage_output_id:string; intermediate_product_type:string; final_product_type:string;
   formulation_base_g:number; terpene_handling_mode:string; terpene_type:string; terpene_source:string; terpene_percentage:number; terpene_weight_g:number;
 };
-type StageAction = "started" | "measurement" | "completed" | "hold" | "released";
+type StageAction = "started" | "measurement" | "completed" | "hold" | "released" | "note" | "deviation";
 
 const CLOSED = new Set(["complete", "cancelled", "failed"]);
 const TERPENE_MODES = ["Native / No Add-Back", "Reintroduced Cannabis Terpenes", "Botanically Derived Terpenes", "Terp Fraction Recombined", "Custom Blend"];
@@ -53,15 +53,20 @@ export function ExtractionOperatorWorkspace({ mode, onOpenAdvanced }: { mode:Ope
     return [row.batch_number, row.strain, row.method, row.current_stage_key, row.status].join(" ").toLowerCase().includes(search.trim().toLowerCase());
   }), [runs.data, search, showClosed]);
 
+  const selectRun=(runId:string)=>{setSelected(runId);setCreating(false)};
+  const openNewRun=()=>{setSelected("");setCreating(true)};
+
   useEffect(() => {
-    if (selected) return;
+    if (selected || creating) return;
     const preferred = attentionRuns[0] ?? runningRuns[0] ?? nextRuns[0] ?? filtered[0];
     if (preferred) setSelected(preferred.id);
-  }, [attentionRuns, filtered, nextRuns, runningRuns, selected]);
+  }, [attentionRuns, creating, filtered, nextRuns, runningRuns, selected]);
 
   const refreshAll = (runId = selected) => {
     void client.invalidateQueries({ queryKey:["extraction-runs"] });
     void client.invalidateQueries({ queryKey:["extraction-parity-overview"] });
+    void client.invalidateQueries({ queryKey:["extraction-lots"] });
+    void client.invalidateQueries({ queryKey:["extraction-eligible-lots"] });
     if (runId) void client.invalidateQueries({ queryKey:["extraction-run", runId] });
   };
 
@@ -71,11 +76,11 @@ export function ExtractionOperatorWorkspace({ mode, onOpenAdvanced }: { mode:Ope
         <div>
           <div className="eyebrow">Extractor workspace</div>
           <h2>{mode === "today" ? "Today" : "Runs"}</h2>
-          <p>{mode === "today" ? "See what needs attention, what is running now and what is next. Select a run to update its current process step inline." : "Search every active or historical extraction run without leaving the operator workspace."}</p>
+          <p>{mode === "today" ? "See what needs attention, what is running now and what is next. Select a run to work its current process step." : "Search every active or historical extraction run without leaving the operator workspace."}</p>
         </div>
         <div className="heading-actions">
-          <button className="primary" type="button" onClick={()=>setCreating(value=>!value)}>{creating ? "Close new run" : "New run"}</button>
-          <button className="secondary" type="button" onClick={()=>onOpenAdvanced(selected || undefined)}>Advanced Run 360</button>
+          <button className="primary" type="button" onClick={creating?()=>setCreating(false):openNewRun}>{creating ? "Close new run" : "New run"}</button>
+          <button className="secondary" type="button" disabled={!selected} onClick={()=>onOpenAdvanced(selected || undefined)}>Advanced Run 360</button>
         </div>
       </div>
 
@@ -83,19 +88,19 @@ export function ExtractionOperatorWorkspace({ mode, onOpenAdvanced }: { mode:Ope
         <Metric label="Running now" value={runningRuns.length}/><Metric label="Needs attention" value={attentionRuns.length}/><Metric label="Next / queued" value={nextRuns.length}/>
       </div>
 
-      {creating ? <QuickStartRun onCreated={runId=>{ setSelected(runId); setCreating(false); refreshAll(runId); }} /> : null}
+      {creating ? <QuickStartRun onCreated={runId=>{ selectRun(runId); refreshAll(runId); }} /> : null}
       {runs.isError ? <div className="state error">{runs.error.message}</div> : null}
 
       {mode === "today" ? <div className="two-column-grid">
-        <RunGroup title="Needs attention" empty="No held or QA-gated runs." rows={attentionRuns} selected={selected} onSelect={setSelected}/>
-        <RunGroup title="Running now" empty="No runs are currently active." rows={runningRuns} selected={selected} onSelect={setSelected}/>
-        <RunGroup title="Next up" empty="No queued runs." rows={nextRuns} selected={selected} onSelect={setSelected}/>
+        <RunGroup title="Needs attention" empty="No held or QA-gated runs." rows={attentionRuns} selected={selected} onSelect={selectRun}/>
+        <RunGroup title="Running now" empty="No runs are currently active." rows={runningRuns} selected={selected} onSelect={selectRun}/>
+        <RunGroup title="Next up" empty="No queued runs." rows={nextRuns} selected={selected} onSelect={selectRun}/>
       </div> : <>
         <div className="inventory-toolbar extraction-board-filters">
           <label className="inventory-search"><span>Find run</span><input aria-label="Find extraction run" value={search} placeholder="Batch, strain, method…" onChange={event=>setSearch(event.target.value)}/></label>
           <label className="checkbox-field"><input type="checkbox" checked={showClosed} onChange={event=>setShowClosed(event.target.checked)}/> Closed runs</label>
         </div>
-        <div className="table-wrap"><table><thead><tr><th>Run</th><th>Stage</th><th>Method</th><th>Strain</th><th>Latest output</th><th>Status</th></tr></thead><tbody>{filtered.map(row=><tr key={row.id} className={`selectable-row ${selected===row.id?"selected":""}`} onClick={()=>setSelected(row.id)}><td><strong>{row.batch_number}</strong></td><td>{title(row.current_stage_key)}</td><td>{row.method}</td><td>{row.strain||"—"}</td><td>{row.final_output_g?`${formatNumber(row.final_output_g)} g`:"—"}</td><td>{title(row.status)}</td></tr>)}</tbody></table>{!runs.isLoading&&!filtered.length?<div className="empty">No matching extraction runs.</div>:null}</div>
+        <div className="table-wrap"><table><thead><tr><th>Run</th><th>Stage</th><th>Method</th><th>Strain</th><th>Latest output</th><th>Status</th></tr></thead><tbody>{filtered.map(row=><tr key={row.id} className={`selectable-row ${selected===row.id?"selected":""}`} onClick={()=>selectRun(row.id)}><td><strong>{row.batch_number}</strong></td><td>{title(row.current_stage_key)}</td><td>{row.method}</td><td>{row.strain||"—"}</td><td>{row.final_output_g?`${formatNumber(row.final_output_g)} g`:"—"}</td><td>{title(row.status)}</td></tr>)}</tbody></table>{!runs.isLoading&&!filtered.length?<div className="empty">No matching extraction runs.</div>:null}</div>
       </>}
     </section>
 
@@ -118,33 +123,32 @@ function QuickStartRun({onCreated}:{onCreated:(runId:string)=>void}) {
   const workflow=workflows.data?.find(row=>row.key===workflowKey);
   const lot=lots.data?.find(row=>row.lot_id===lotId);
 
-  const start=useMutation({
+  const plan=useMutation({
     mutationFn:async()=>{
-      if(!workflow||!lot||quantity<=0) throw new Error("Choose a workflow, source lot and positive input amount.");
+      if(!workflow||!lot||quantity<=0) throw new Error("Choose a workflow, source lot and positive reserve amount.");
       const run=await apiPost<Run>("/api/v1/extraction/runs",{
         batch_number:batchNumber.trim()||suggestBatchNumber(), workflow_key:workflow.key, method:workflow.method,
         product_family:workflow.label, strain:"", operator:"", compliance_provider:"metrc", license_number:"", notes:"",
         metrc_input_package_id:lot.compliance_package_id||"",
       });
-      const input=await apiPost<RunInput>(`/api/v1/extraction/runs/${run.id}/inputs`,{lot_id:lot.lot_id,quantity,unit:lot.unit,role:"primary_input",source_reference:lot.compliance_package_id||lot.lot_code});
-      await apiPost<RunInput>(`/api/v1/extraction/inputs/${input.id}/consume`,{quantity,reason:"Extraction run start"});
-      await apiPost<StageEvent>(`/api/v1/extraction/runs/${run.id}/events`,{stage_key:run.current_stage_key,event_type:"started",input_weight_g:quantity,output_weight_g:null,loss_weight_g:null,loss_reason:"",operator:"",notes:"Run started from Extraction Today."});
+      await apiPost<RunInput>(`/api/v1/extraction/runs/${run.id}/inputs`,{lot_id:lot.lot_id,quantity,unit:lot.unit,role:"primary_input",source_reference:lot.compliance_package_id||lot.lot_code});
       return run;
     },
     onSuccess:run=>onCreated(run.id),
   });
 
   return <section className="inventory-panel">
-    <div className="section-heading"><div><div className="eyebrow">New run</div><h3>Start from source material</h3><p>Pick what you are making, choose the inventory lot and enter how much is actually going into the run. DoobieLogic carries the source package, facility context, workflow and inventory movement.</p></div></div>
+    <div className="section-heading"><div><div className="eyebrow">Plan run</div><h3>Reserve source material</h3><p>Create the run and reserve inventory first. Material is not consumed until preflight is complete and an operator explicitly starts the run.</p></div></div>
     <div className="form-grid">
-      <label>What are you making?<select value={workflowKey} onChange={event=>setWorkflowKey(event.target.value)}>{workflows.data?.map(row=><option value={row.key} key={row.key}>{row.label}</option>)}</select></label>
+      <label>Process / target<select value={workflowKey} onChange={event=>setWorkflowKey(event.target.value)}>{workflows.data?.map(row=><option value={row.key} key={row.key}>{row.label}</option>)}</select></label>
       <label>Source material<select value={lotId} onChange={event=>{const next=lots.data?.find(row=>row.lot_id===event.target.value);setLotId(event.target.value);setQuantity(next?.available??0)}}>{lots.data?.map(row=><option value={row.lot_id} key={row.lot_id}>{row.product_name} · {row.lot_code} · {formatNumber(row.available)} {row.unit}</option>)}</select></label>
-      <NumberField label="Amount going into run" value={quantity} max={lot?.available} step={0.1} onChange={setQuantity}/>
+      <NumberField label="Amount to reserve" value={quantity} max={lot?.available} step={0.1} onChange={setQuantity}/>
       <Field label="Run ID" value={batchNumber} onChange={setBatchNumber}/>
     </div>
-    {lot?<div className="info-banner">Source package: <strong>{lot.compliance_package_id||"No external package ID"}</strong> · Available: <strong>{formatNumber(lot.available)} {lot.unit}</strong>{lot.location?` · ${lot.location}`:""}. Known source data is carried into the run automatically.</div>:<div className="info-banner">No released extraction inventory is currently available.</div>}
-    <button className="primary submit" type="button" disabled={!workflow||!lot||quantity<=0||quantity>Number(lot?.available??0)||start.isPending} onClick={()=>start.mutate()}>{start.isPending?"Starting run…":"Start run"}</button>
-    {start.isError?<div className="form-error">{start.error.message}</div>:null}
+    {workflow?<div className="info-banner"><strong>{workflow.label}</strong> process: {workflow.stages.map(stage=>`${stage.label}${stage.optional?" (optional)":""}`).join(" → ")}</div>:null}
+    {lot?<div className="info-banner">Source package: <strong>{lot.compliance_package_id||"No external package ID"}</strong> · Available: <strong>{formatNumber(lot.available)} {lot.unit}</strong>{lot.location?` · ${lot.location}`:""}. Reserving does not consume the package.</div>:<div className="info-banner">No released extraction inventory is currently available.</div>}
+    <button className="primary submit" type="button" disabled={!workflow||!lot||quantity<=0||quantity>Number(lot?.available??0)||plan.isPending} onClick={()=>plan.mutate()}>{plan.isPending?"Planning run…":"Plan run & reserve"}</button>
+    {plan.isError?<div className="form-error">{plan.error.message}</div>:null}
   </section>;
 }
 
@@ -160,18 +164,22 @@ function CurrentRun({detail,onSaved,onOpenAdvanced}:{detail:Detail;onSaved:()=>v
   const previousStage=detail.workflow.stages[stageIndex-1];
   const previousEvent=previousStage?latestByStage.get(previousStage.key):undefined;
   const consumed=Number(detail.mass_balance.consumed_input??0);
-  const suggestedInput=Number(currentEvent?.input_weight_g??previousEvent?.output_weight_g??consumed??0);
+  const reserved=detail.inputs.reduce((sum,row)=>sum+Math.max(0,Number(row.reserved_quantity||0)-Number(row.consumed_quantity||0)),0);
+  const carried=Number(currentEvent?.input_weight_g??previousEvent?.output_weight_g??(consumed>0?consumed:reserved));
   const [form,setForm]=useState<StageForm>(emptyForm);
   const [advanced,setAdvanced]=useState(false);
+  const [materialVerified,setMaterialVerified]=useState(false);
+  const [equipmentReady,setEquipmentReady]=useState(false);
+  const [documentationReady,setDocumentationReady]=useState(false);
 
   useEffect(()=>{const stageEvent=latestByStage.get(currentStage.key);setForm({
-    input_weight_g:Number(stageEvent?.input_weight_g??previousEvent?.output_weight_g??consumed??0), output_weight_g:Number(stageEvent?.output_weight_g??0),
+    input_weight_g:Number(stageEvent?.input_weight_g??previousEvent?.output_weight_g??(consumed>0?consumed:reserved)), output_weight_g:Number(stageEvent?.output_weight_g??0),
     loss_reason:stageEvent?.loss_reason??"", notes:"", stage_output_field:stageEvent?.stage_output_field??currentStage.output_fields?.[0]??"",
     metrc_stage_input_id:stageEvent?.metrc_stage_input_id??"", metrc_stage_output_id:stageEvent?.metrc_stage_output_id??"",
     intermediate_product_type:detail.run.intermediate_product_type??"", final_product_type:detail.run.final_product_type??"",
     formulation_base_g:Number(detail.run.formulation_base_g??previousEvent?.output_weight_g??consumed??0), terpene_handling_mode:detail.run.terpene_handling_mode??"Native / No Add-Back",
     terpene_type:detail.run.terpene_type??"", terpene_source:detail.run.terpene_source??"", terpene_percentage:Number(detail.run.terpene_percentage??0), terpene_weight_g:Number(detail.run.terpene_weight_g??0),
-  });setAdvanced(false)},[consumed,currentStage.key,currentStage.output_fields,detail.run,latestByStage,previousEvent]);
+  });setAdvanced(false)},[consumed,currentStage.key,currentStage.output_fields,detail.run,latestByStage,previousEvent,reserved]);
 
   const hasOutput=form.output_weight_g>0;
   const stageLoss=hasOutput?Math.max(0,form.input_weight_g-form.output_weight_g):0;
@@ -186,6 +194,21 @@ function CurrentRun({detail,onSaved,onOpenAdvanced}:{detail:Detail;onSaved:()=>v
   const unexplainedVariance=Math.max(0,massReduction-recordedStageLoss);
   const overallYield=consumed>0&&Number(latestMeasuredOutput||0)>0?Number(latestMeasuredOutput)/consumed*100:Number(detail.mass_balance.yield_pct??0);
   const isQaGate=Boolean(currentStage.qa_gate);const isReleaseGate=Boolean(currentStage.release_gate);const isFormulation=currentStage.key==="formulation";const outputFields=currentStage.output_fields??[];const requiresOutput=outputFields.length>0||currentStage.key==="final_output";
+  const awaitingStart=["planned","queued"].includes(detail.run.status)&&consumed<=0;
+
+  const startRun=useMutation({mutationFn:async()=>{
+    if(!materialVerified||!equipmentReady||!documentationReady)throw new Error("Complete all preflight confirmations before starting the run.");
+    const openInputs=detail.inputs.filter(row=>Number(row.reserved_quantity||0)>Number(row.consumed_quantity||0));
+    if(!openInputs.length)throw new Error("This run has no reserved material available to consume.");
+    let total=0;
+    for(const input of openInputs){
+      const quantity=Math.max(0,Number(input.reserved_quantity||0)-Number(input.consumed_quantity||0));
+      if(quantity<=0)continue;
+      await apiPost<RunInput>(`/api/v1/extraction/inputs/${input.id}/consume`,{quantity,reason:"Extraction run start after preflight"});
+      total+=quantity;
+    }
+    await apiPost<StageEvent>(`/api/v1/extraction/runs/${detail.run.id}/events`,{stage_key:currentStage.key,event_type:"started",input_weight_g:total||null,output_weight_g:null,loss_weight_g:null,loss_reason:"",operator:"",notes:"Run started after operator preflight confirmation."});
+  },onSuccess:onSaved});
 
   const mutation=useMutation({mutationFn:(eventType:StageAction)=>apiPost(`/api/v1/extraction/runs/${detail.run.id}/events`,{
     stage_key:currentStage.key,event_type:eventType,input_weight_g:form.input_weight_g>0?form.input_weight_g:null,output_weight_g:form.output_weight_g>0?form.output_weight_g:null,
@@ -198,17 +221,18 @@ function CurrentRun({detail,onSaved,onOpenAdvanced}:{detail:Detail;onSaved:()=>v
 
   return <section className="inventory-panel">
     <div className="section-heading"><div><div className="eyebrow">{detail.run.method} · {detail.workflow.label}</div><h2>{detail.run.batch_number}</h2><p>{detail.run.strain||"Source-linked run"} · {title(detail.run.status)} · current stage: <strong>{currentStage.label}</strong></p></div><button className="secondary" type="button" onClick={onOpenAdvanced}>Open Run 360</button></div>
-    <div className="metrics"><Metric label="Consumed input" value={`${formatNumber(consumed)} g`}/><Metric label="Latest measured output" value={`${formatNumber(Number(latestMeasuredOutput||0))} g`}/><Metric label="Overall yield" value={`${formatNumber(overallYield,1)}%`}/><Metric label="Recorded process loss" value={`${formatNumber(recordedStageLoss)} g`}/><Metric label="Unexplained variance" value={`${formatNumber(unexplainedVariance)} g`}/></div>
-    <div className="detail-facts"><p><strong>Progress:</strong> Step {stageIndex+1} of {detail.workflow.stages.length}</p><p><strong>Operator:</strong> {detail.run.operator||"Authenticated operator"}</p><p><strong>Release:</strong> {title(detail.run.release_status)}</p><p><strong>Input carried forward:</strong> {formatNumber(suggestedInput)} g</p></div>
+    <div className="metrics"><Metric label="Reserved input" value={`${formatNumber(reserved)} g`}/><Metric label="Consumed input" value={`${formatNumber(consumed)} g`}/><Metric label="Latest measured output" value={`${formatNumber(Number(latestMeasuredOutput||0))} g`}/><Metric label="Overall yield" value={`${formatNumber(overallYield,1)}%`}/><Metric label="Unexplained variance" value={`${formatNumber(unexplainedVariance)} g`}/></div>
+    <div className="detail-facts"><p><strong>Progress:</strong> Step {stageIndex+1} of {detail.workflow.stages.length}</p><p><strong>Operator:</strong> {detail.run.operator||"Authenticated operator"}</p><p><strong>Release:</strong> {title(detail.run.release_status)}</p><p><strong>Input carried forward:</strong> {formatNumber(carried)} g</p></div>
     <progress max={Math.max(detail.workflow.stages.length,1)} value={stageIndex+1}/><div className="view-tabs parity-tabs">{detail.workflow.stages.map((stage,index)=><button key={stage.key} type="button" disabled className={stage.key===currentStage.key?"active":""}>{index<stageIndex?"✓ ":""}{stage.label}{stage.optional?" · optional":""}</button>)}</div>
-    {isQaGate||isReleaseGate?<div className="info-banner">{isQaGate?"This run is at the QA / COA gate.":"This run is at the release gate."} Complete the controlled action in Run 360 without leaving this Extraction workspace.</div>:<>
-      <div className="section-heading"><div><div className="eyebrow">Current step</div><h3>{currentStage.label}</h3><p>Enter the real measurement. DoobieLogic carries the previous weight forward and calculates everything deterministic.</p></div></div>
-      <div className="form-grid"><NumberField label="Stage input (g)" value={form.input_weight_g} onChange={value=>setForm({...form,input_weight_g:value})}/><NumberField label="Scale output (g)" value={form.output_weight_g} onChange={value=>setForm({...form,output_weight_g:value})}/>{outputFields.length>1?<label>What was measured?<select value={form.stage_output_field} onChange={event=>setForm({...form,stage_output_field:event.target.value})}>{outputFields.map(field=><option value={field} key={field}>{title(field)}</option>)}</select></label>:null}<label className="span-2">Quick note<textarea value={form.notes} placeholder="Optional operator note…" onChange={event=>setForm({...form,notes:event.target.value})}/></label></div>
-      {hasOutput?<div className="metrics"><Metric label="Calculated stage loss" value={`${formatNumber(stageLoss)} g`}/><Metric label="Loss %" value={`${formatNumber(lossPct,1)}%`}/><Metric label="Stage yield" value={`${formatNumber(stageYield,1)}%`}/>{stageGain>0?<Metric label="Net addition / gain" value={`${formatNumber(stageGain)} g`}/>:null}</div>:<div className="info-banner">Enter the scale output and DoobieLogic calculates loss and yield automatically. Manual loss entry is not part of the normal workflow.</div>}
-      {isFormulation?<section className="inventory-panel"><div className="section-heading"><div><div className="eyebrow">Formulation</div><h3>Blend calculation</h3></div></div><div className="form-grid"><NumberField label="Base material (g)" value={form.formulation_base_g} onChange={value=>setForm({...form,formulation_base_g:value})}/><label>Terpene handling<select value={form.terpene_handling_mode} onChange={event=>setForm({...form,terpene_handling_mode:event.target.value,terpene_weight_g:event.target.value==="Native / No Add-Back"?0:form.terpene_weight_g})}>{TERPENE_MODES.map(mode=><option key={mode}>{mode}</option>)}</select></label>{form.terpene_handling_mode!=="Native / No Add-Back"?<><Field label="Terpene type" value={form.terpene_type} onChange={value=>setForm({...form,terpene_type:value})}/><Field label="Terpene source" value={form.terpene_source} onChange={value=>setForm({...form,terpene_source:value})}/><NumberField label="Terpene %" value={form.terpene_percentage} max={20} step={.1} onChange={value=>setForm({...form,terpene_percentage:value,terpene_weight_g:0})}/><NumberField label="Weight override (g)" value={form.terpene_weight_g} step={.1} onChange={value=>setForm({...form,terpene_weight_g:value})}/></>:null}</div><div className="info-banner">Calculated terpene addition: <strong>{formatNumber(calculatedTerpene,3)} g</strong> · Expected formulated mass: <strong>{formatNumber(expectedFormulatedMass,3)} g</strong>. Confirm actual scale output after blending.</div></section>:null}
-      <details open={advanced} onToggle={event=>setAdvanced((event.currentTarget as HTMLDetailsElement).open)}><summary>More details / traceability</summary><div className="form-grid"><Field label="Loss / variance reason" value={form.loss_reason} onChange={value=>setForm({...form,loss_reason:value})}/><Field label="METRC stage input ID" value={form.metrc_stage_input_id} onChange={value=>setForm({...form,metrc_stage_input_id:value})}/><Field label="METRC stage output ID" value={form.metrc_stage_output_id} onChange={value=>setForm({...form,metrc_stage_output_id:value})}/><Field label="Intermediate product type" value={form.intermediate_product_type} onChange={value=>setForm({...form,intermediate_product_type:value})}/><Field label="Final product type" value={form.final_product_type} onChange={value=>setForm({...form,final_product_type:value})}/></div></details>
-      <div className="heading-actions">{detail.run.status==="hold"?<button className="secondary" type="button" disabled={mutation.isPending} onClick={()=>mutation.mutate("released")}>Resume run</button>:<button className="secondary" type="button" disabled={mutation.isPending} onClick={()=>mutation.mutate("hold")}>Put on hold</button>}<button className="secondary" type="button" disabled={mutation.isPending} onClick={()=>mutation.mutate("started")}>Start / mark active</button><button className="secondary" type="button" disabled={mutation.isPending||(requiresOutput&&!hasOutput)} onClick={()=>mutation.mutate("measurement")}>Save update</button><button className="primary" type="button" disabled={mutation.isPending||!canComplete} onClick={()=>mutation.mutate("completed")}>{mutation.isPending?"Saving…":"Complete & move to next"}</button></div>
-      {mutation.isError?<div className="form-error">{mutation.error.message}</div>:null}{mutation.isSuccess?<div className="success-banner">Run updated. Calculations and stage status refreshed.</div>:null}
+
+    {awaitingStart?<section className="inventory-panel"><div className="section-heading"><div><div className="eyebrow">Preflight</div><h3>Ready to start this run?</h3><p>The material is reserved but has not been consumed. Confirm the floor is actually ready before starting.</p></div></div><div className="form-grid"><label className="checkbox-field"><input type="checkbox" checked={materialVerified} onChange={event=>setMaterialVerified(event.target.checked)}/> Source package/material verified</label><label className="checkbox-field"><input type="checkbox" checked={equipmentReady} onChange={event=>setEquipmentReady(event.target.checked)}/> Required equipment/work area ready</label><label className="checkbox-field"><input type="checkbox" checked={documentationReady} onChange={event=>setDocumentationReady(event.target.checked)}/> Required SOP/batch documentation ready</label></div><div className="info-banner">Starting the run consumes the reserved source material and records the first process-stage start. Planning or selecting a run does not.</div><button className="primary" type="button" disabled={startRun.isPending||!materialVerified||!equipmentReady||!documentationReady} onClick={()=>startRun.mutate()}>{startRun.isPending?"Starting run…":"Start run & consume reserved material"}</button>{startRun.isError?<div className="form-error">{startRun.error.message}</div>:null}</section>:isQaGate||isReleaseGate?<div className="info-banner">{isQaGate?"This run is at the QA / COA gate.":"This run is at the release gate."} Use Run 360 for testing, output disposition, release and traceability controls.</div>:<>
+      <div className="section-heading"><div><div className="eyebrow">Current process step</div><h3>{currentStage.label}</h3><p>Record the real floor event. Measurements, holds, deviations and optional branches are kept separate so the run history reflects what actually happened.</p></div></div>
+      <div className="form-grid"><NumberField label="Stage input (g)" value={form.input_weight_g} onChange={value=>setForm({...form,input_weight_g:value})}/><NumberField label="Scale output (g)" value={form.output_weight_g} onChange={value=>setForm({...form,output_weight_g:value})}/>{outputFields.length>1?<label>What was measured?<select value={form.stage_output_field} onChange={event=>setForm({...form,stage_output_field:event.target.value})}>{outputFields.map(field=><option value={field} key={field}>{title(field)}</option>)}</select></label>:null}<label className="span-2">Operator note<textarea value={form.notes} placeholder="What happened at this step?" onChange={event=>setForm({...form,notes:event.target.value})}/></label></div>
+      {hasOutput?<div className="metrics"><Metric label="Calculated stage loss" value={`${formatNumber(stageLoss)} g`}/><Metric label="Loss %" value={`${formatNumber(lossPct,1)}%`}/><Metric label="Stage yield" value={`${formatNumber(stageYield,1)}%`}/>{stageGain>0?<Metric label="Net addition / gain" value={`${formatNumber(stageGain)} g`}/>:null}</div>:<div className="info-banner">Enter an output when this step produces measurable material. Notes, holds and deviations can be recorded without forcing a fake output value.</div>}
+      {isFormulation?<section className="inventory-panel"><div className="section-heading"><div><div className="eyebrow">Formulation</div><h3>Blend calculation</h3></div></div><div className="form-grid"><NumberField label="Base material (g)" value={form.formulation_base_g} onChange={value=>setForm({...form,formulation_base_g:value})}/><label>Terpene handling<select value={form.terpene_handling_mode} onChange={event=>setForm({...form,terpene_handling_mode:event.target.value,terpene_weight_g:event.target.value==="Native / No Add-Back"?0:form.terpene_weight_g})}>{TERPENE_MODES.map(mode=><option key={mode}>{mode}</option>)}</select></label>{form.terpene_handling_mode!=="Native / No Add-Back"?<><Field label="Terpene type" value={form.terpene_type} onChange={value=>setForm({...form,terpene_type:value})}/><Field label="Terpene source" value={form.terpene_source} onChange={value=>setForm({...form,terpene_source:value})}/><NumberField label="Terpene %" value={form.terpene_percentage} max={20} step={.1} onChange={value=>setForm({...form,terpene_percentage:value,terpene_weight_g:0})}/><NumberField label="Weight override (g)" value={form.terpene_weight_g} step={.1} onChange={value=>setForm({...form,terpene_weight_g:value})}/></>:null}</div><div className="info-banner">Calculated terpene addition: <strong>{formatNumber(calculatedTerpene,3)} g</strong> · Expected formulated mass: <strong>{formatNumber(expectedFormulatedMass,3)} g</strong>. Confirm the actual scale output after blending.</div></section>:null}
+      <details open={advanced} onToggle={event=>setAdvanced((event.currentTarget as HTMLDetailsElement).open)}><summary>More process / traceability options</summary><div className="form-grid"><Field label="Loss / variance / deviation reason" value={form.loss_reason} onChange={value=>setForm({...form,loss_reason:value})}/><Field label="METRC stage input ID" value={form.metrc_stage_input_id} onChange={value=>setForm({...form,metrc_stage_input_id:value})}/><Field label="METRC stage output ID" value={form.metrc_stage_output_id} onChange={value=>setForm({...form,metrc_stage_output_id:value})}/><Field label="Intermediate product type" value={form.intermediate_product_type} onChange={value=>setForm({...form,intermediate_product_type:value})}/><Field label="Final product type" value={form.final_product_type} onChange={value=>setForm({...form,final_product_type:value})}/></div><div className="heading-actions"><button className="secondary" type="button" disabled={mutation.isPending||!form.notes.trim()} onClick={()=>mutation.mutate("note")}>Add process note</button><button className="secondary" type="button" disabled={mutation.isPending||(!form.notes.trim()&&!form.loss_reason.trim())} onClick={()=>mutation.mutate("deviation")}>Record deviation / rework</button><button className="secondary" type="button" onClick={onOpenAdvanced}>Create intermediate / output</button><button className="secondary" type="button" onClick={onOpenAdvanced}>QA / COA / release</button></div></details>
+      <div className="heading-actions">{detail.run.status==="hold"?<button className="secondary" type="button" disabled={mutation.isPending} onClick={()=>mutation.mutate("released")}>Resume run</button>:<button className="secondary" type="button" disabled={mutation.isPending} onClick={()=>mutation.mutate("hold")}>Put on hold</button>}<button className="secondary" type="button" disabled={mutation.isPending||(requiresOutput&&!hasOutput)} onClick={()=>mutation.mutate("measurement")}>Save measurement</button>{currentStage.optional?<button className="secondary" type="button" disabled={mutation.isPending} onClick={()=>mutation.mutate("completed")}>Skip optional step</button>:null}<button className="primary" type="button" disabled={mutation.isPending||!canComplete} onClick={()=>mutation.mutate("completed")}>{mutation.isPending?"Saving…":"Complete step & continue"}</button></div>
+      {mutation.isError?<div className="form-error">{mutation.error.message}</div>:null}{mutation.isSuccess?<div className="success-banner">Process event saved and run status refreshed.</div>:null}
     </>}
     <details><summary>Recent process history</summary><div className="table-wrap"><table><thead><tr><th>Time</th><th>Stage</th><th>Update</th><th>Input</th><th>Output</th><th>Loss</th><th>Operator</th></tr></thead><tbody>{recentEvents.map(event=><tr key={event.id}><td>{dateTime(event.occurred_at)}</td><td>{detail.workflow.stages.find(stage=>stage.key===event.stage_key)?.label??title(event.stage_key)}</td><td>{title(event.event_type)}</td><td>{event.input_weight_g==null?"—":`${formatNumber(event.input_weight_g)} g`}</td><td>{event.output_weight_g==null?"—":`${formatNumber(event.output_weight_g)} g`}</td><td>{event.loss_weight_g==null?"—":`${formatNumber(event.loss_weight_g)} g`}</td><td>{event.operator||"—"}</td></tr>)}</tbody></table>{!recentEvents.length?<div className="empty">No process updates recorded yet.</div>:null}</div></details>
   </section>;
