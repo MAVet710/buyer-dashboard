@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from modules.coman.models import Base, TimestampMixin, new_id, utc_now
@@ -47,7 +47,10 @@ class TraceabilityTransaction(TimestampMixin, Base):
     organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="RESTRICT"), nullable=False, index=True)
     provider: Mapped[str] = mapped_column(String(24), nullable=False)
+    jurisdiction: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    environment: Mapped[str] = mapped_column(String(24), nullable=False, default="")
     license_number: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    direction: Mapped[str] = mapped_column(String(16), nullable=False, default="outbound")
     operation_type: Mapped[str] = mapped_column(String(120), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -59,7 +62,14 @@ class TraceabilityTransaction(TimestampMixin, Base):
     error_code: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retry_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    local_state_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    provider_state_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    readback_result_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    mismatch_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    reconciliation_evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     reason: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
     approved_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")

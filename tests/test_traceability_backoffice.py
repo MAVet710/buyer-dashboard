@@ -173,6 +173,48 @@ def test_backoffice_queue_summary_filters_and_tenant_scope():
     assert repo.list_transactions("org-1", "fac-1", provider="metrc")[0].id == first.id
 
 
+def test_reconciliation_facts_are_sanitized_scoped_and_do_not_imply_verification():
+    repo = _repository()
+    transaction = repo.create_transaction(
+        organization_id="org-1",
+        facility_id="fac-1",
+        provider="metrc",
+        jurisdiction="MA",
+        environment="sandbox",
+        direction="outbound",
+        operation_type="package_adjust",
+        entity_type="package",
+        entity_id="PKG-RECON",
+        idempotency_key="recon-1",
+        actor="operator",
+        license_number="MP-TEST",
+        local_state={"quantity": 10, "user_api_key": "never-store-this"},
+    )
+    transaction = repo.record_reconciliation(
+        organization_id="org-1",
+        facility_id="fac-1",
+        transaction_id=transaction.id,
+        actor="qa@example",
+        local_state={"quantity": 10, "user_api_key": "never-store-this"},
+        provider_state={"quantity": 9, "authorization": "secret"},
+        readback_result={"matched": False},
+        mismatch_reason="Quantity differs by 1 g",
+        evidence={"provider_request_id": "REQ-1"},
+        retry_eligible=True,
+    )
+
+    assert transaction.status == "requested"
+    assert transaction.jurisdiction == "MA"
+    assert transaction.environment == "sandbox"
+    assert transaction.direction == "outbound"
+    assert transaction.retry_eligible is True
+    assert transaction.mismatch_reason == "Quantity differs by 1 g"
+    assert "never-store-this" not in transaction.local_state_json
+    assert "secret" not in transaction.provider_state_json
+    assert "qa@example" in transaction.reconciliation_evidence_json
+    assert repo.list_transactions("org-2", "fac-2", entity_id="PKG-RECON") == []
+
+
 def test_traceability_console_helpers_are_role_safe_and_hide_internal_ids_from_table():
     repo = _repository()
     transaction = _transaction(repo)

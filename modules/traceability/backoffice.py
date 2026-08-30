@@ -27,6 +27,8 @@ class TraceabilityBackofficeRepository(TraceabilityRepository):
         *,
         statuses: Sequence[str] | None = None,
         provider: str = "",
+        entity_type: str = "",
+        entity_id: str = "",
         limit: int = 250,
     ) -> list[TraceabilityTransaction]:
         safe_limit = max(1, min(int(limit or 250), 1000))
@@ -43,6 +45,12 @@ class TraceabilityBackofficeRepository(TraceabilityRepository):
             normalized_provider = _clean(provider).casefold()
             if normalized_provider:
                 statement = statement.where(TraceabilityTransaction.provider == normalized_provider)
+            normalized_entity_type = _clean(entity_type)
+            normalized_entity_id = _clean(entity_id)
+            if normalized_entity_type:
+                statement = statement.where(TraceabilityTransaction.entity_type == normalized_entity_type)
+            if normalized_entity_id:
+                statement = statement.where(TraceabilityTransaction.entity_id == normalized_entity_id)
             statement = statement.order_by(TraceabilityTransaction.requested_at.desc()).limit(safe_limit)
             return list(session.scalars(statement))
 
@@ -82,6 +90,43 @@ class TraceabilityBackofficeRepository(TraceabilityRepository):
                     .order_by(TraceabilityStatusEvent.occurred_at)
                 )
             )
+
+    def record_reconciliation(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        transaction_id: str,
+        actor: str,
+        local_state: Mapping[str, Any] | None = None,
+        provider_state: Mapping[str, Any] | None = None,
+        readback_result: Mapping[str, Any] | None = None,
+        mismatch_reason: str = "",
+        evidence: Mapping[str, Any] | None = None,
+        retry_eligible: bool = False,
+    ) -> TraceabilityTransaction:
+        """Persist sanitized comparison evidence without claiming verification.
+
+        Lifecycle transitions remain separate so a provider readback can be
+        inspected before an authorized caller marks the action verified.
+        """
+        clean_actor = _clean(actor)
+        if not clean_actor:
+            raise ValueError("An actor is required for reconciliation evidence.")
+        with self._session_factory.begin() as session:
+            transaction = self._require_transaction(
+                session, organization_id, facility_id, transaction_id
+            )
+            transaction.local_state_json = _payload_json(local_state)
+            transaction.provider_state_json = _payload_json(provider_state)
+            transaction.readback_result_json = _payload_json(readback_result)
+            transaction.mismatch_reason = _clean(mismatch_reason)
+            transaction.reconciliation_evidence_json = _payload_json(
+                {**dict(evidence or {}), "recorded_by": clean_actor}
+            )
+            transaction.retry_eligible = bool(retry_eligible)
+            session.flush()
+            return transaction
 
     def transition_logged(
         self,
@@ -131,6 +176,7 @@ class TraceabilityBackofficeRepository(TraceabilityRepository):
             transaction.error_code = _clean(error_code)
             transaction.error_message = _clean(error_message)
             transaction.next_attempt_at = next_attempt_at
+            transaction.retry_eligible = target in {"rejected", "reconciliation_required"} and next_attempt_at is not None
             if target == "submitted" and transaction.submitted_at is None:
                 transaction.submitted_at = utc_now()
             if target in TERMINAL_STATUSES:
@@ -138,6 +184,8 @@ class TraceabilityBackofficeRepository(TraceabilityRepository):
             if target in {"validated", "queued", "submitted", "accepted", "verified"}:
                 transaction.error_code = ""
                 transaction.error_message = ""
+            if target in {"queued", "submitted", "accepted", "verified", "cancelled"}:
+                transaction.retry_eligible = False
             if target in {"queued", "submitted", "accepted", "verified"}:
                 transaction.approved_by = clean_actor
 
