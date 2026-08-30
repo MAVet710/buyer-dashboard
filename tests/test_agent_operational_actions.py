@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from services.agent_registry import PROFILES
 from services.ai.action_tools import AgentActionRegistry, ProductionWeekActionPlanner
@@ -60,7 +62,7 @@ def test_exact_user_request_resolves_to_deterministic_calendar_action_and_explic
     assert arguments["days"] == 5
 
 
-def test_schedule_preview_language_does_not_become_mutation_permission():
+def test_schedule_preview_language_does_not_become_mutation_permission_and_honors_next_week():
     actions = AgentActionRegistry(
         profile=PROFILES["coman"],
         access=_access(),
@@ -70,6 +72,7 @@ def test_schedule_preview_language_does_not_become_mutation_permission():
     assert resolved is not None
     assert resolved[0] == "production_schedule_week"
     assert resolved[1]["commit"] is False
+    assert resolved[1]["week_start"] == "next_week"
 
 
 def test_model_cannot_force_commit_when_user_only_requested_preview():
@@ -96,12 +99,12 @@ def test_agent_result_preserves_action_state_in_api_payload():
     assert result["action_results"][0]["committed_count"] == 2
 
 
-def test_week_planner_never_auto_accepts_warnings_or_purchases_material():
+def test_week_planner_never_auto_accepts_warnings_or_buys_material():
     source = (ROOT / "services" / "ai" / "action_tools.py").read_text(encoding="utf-8")
     assert 'accept_warnings=False' in source
     assert 'blocker_count' in source
-    assert "purchase" not in source.casefold()
     assert "ProductionScheduleService" in source
+    assert "create_purchase_order" not in source
 
 
 def test_unreserved_available_material_requires_human_work_location_before_reservation_or_metrc_move():
@@ -123,6 +126,38 @@ def test_staging_policy_keeps_material_dependent_runs_uncommitted_until_human_in
     assert "provider readback" in source
 
 
+def test_held_runs_are_excluded_from_automatic_candidate_selection_contract():
+    source = (ROOT / "services" / "ai" / "action_tools.py").read_text(encoding="utf-8")
+    assert 'HELD_STATUSES = {"on_hold", "hold", "held"}' in source
+    assert "status in CLOSED_STATUSES or status in HELD_STATUSES" in source
+
+
+def test_next_week_token_resolves_to_following_monday():
+    assert ProductionWeekActionPlanner._next_week_start(date(2026, 8, 30)) == date(2026, 8, 31)
+    assert ProductionWeekActionPlanner._next_week_start(date(2026, 8, 31)) == date(2026, 9, 7)
+    resolved = ProductionWeekActionPlanner._resolve_start_day(
+        "next_week",
+        ZoneInfo("America/New_York"),
+        today=date(2026, 8, 30),
+    )
+    assert resolved == date(2026, 8, 31)
+
+
+def test_same_day_slot_rounding_always_moves_into_the_future():
+    tz = ZoneInfo("America/New_York")
+    value = datetime(2026, 8, 31, 10, 12, 17, tzinfo=tz)
+    rounded = ProductionWeekActionPlanner._ceil_to_half_hour(value)
+    assert rounded > value
+    assert rounded.hour == 10
+    assert rounded.minute == 30
+
+    half_hour = datetime(2026, 8, 31, 10, 30, 0, tzinfo=tz)
+    rounded_half = ProductionWeekActionPlanner._ceil_to_half_hour(half_hour)
+    assert rounded_half > half_hour
+    assert rounded_half.hour == 11
+    assert rounded_half.minute == 0
+
+
 def test_workspace_agent_surfaces_governed_actions_instead_of_permanent_read_only_badge():
     source = (ROOT / "frontend" / "src" / "components" / "WorkspaceAgent.tsx").read_text(encoding="utf-8")
     assert "Operational actions" in source
@@ -141,7 +176,5 @@ def test_action_prompt_keeps_read_tools_read_only_and_blocks_warning_bypass():
 
 
 def test_business_day_helper_skips_weekends():
-    from datetime import date
-
     days = ProductionWeekActionPlanner._business_days(date(2026, 8, 28), 3)
     assert [value.isoformat() for value in days] == ["2026-08-28", "2026-08-31", "2026-09-01"]
