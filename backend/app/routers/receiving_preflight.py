@@ -4,8 +4,10 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
 
+from modules.traceability.models import ReceivingPreflight
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
@@ -43,6 +45,29 @@ class ReceivingDiscrepancyResolution(BaseModel):
 
 def _can_resolve(context: RequestContext) -> bool:
     return context.role.casefold() in DISCREPANCY_RESOLUTION_ROLES
+
+
+def _require_preflight_transfer(
+    *,
+    engine: Engine,
+    context: RequestContext,
+    operation: str,
+    transfer_id: str,
+    preflight_id: str,
+) -> None:
+    """Fail closed when a preflight is not bound to this exact facility/transfer."""
+    with Session(engine) as session:
+        row = session.scalar(
+            select(ReceivingPreflight).where(
+                ReceivingPreflight.id == preflight_id,
+                ReceivingPreflight.organization_id == context.organization_id,
+                ReceivingPreflight.facility_id == context.facility_id,
+                ReceivingPreflight.operation == operation,
+                ReceivingPreflight.transfer_id == str(transfer_id or "").strip(),
+            )
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Receiving preflight was not found for this inbound transfer and active facility.")
 
 
 @router.post("/{operation}/inbound/{transfer_id}/preflight", status_code=201)
@@ -86,6 +111,13 @@ def receiving_discrepancies(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    _require_preflight_transfer(
+        engine=engine,
+        context=context,
+        operation=operation,
+        transfer_id=transfer_id,
+        preflight_id=preflight_id,
+    )
     service = ReceivingPreflightService(engine)
     try:
         rows = service.list_discrepancies(
@@ -96,8 +128,6 @@ def receiving_discrepancies(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if rows and any(str(row.get("transfer_id") or "") != str(transfer_id) for row in rows):
-        raise HTTPException(status_code=404, detail="Receiving discrepancy was not found for this inbound transfer.")
     return {
         "preflight_id": preflight_id,
         "transfer_id": transfer_id,
@@ -115,6 +145,13 @@ def record_receiving_discrepancies(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
+    _require_preflight_transfer(
+        engine=engine,
+        context=context,
+        operation=operation,
+        transfer_id=transfer_id,
+        preflight_id=payload.preflight_id,
+    )
     try:
         result = ReceivingPreflightService(engine).record_observations(
             organization_id=context.organization_id,
@@ -143,6 +180,13 @@ def resolve_receiving_discrepancy(
 ):
     if not _can_resolve(context):
         raise HTTPException(status_code=403, detail="Only an authorized supervisor, QA, admin, or developer can resolve receiving discrepancies.")
+    _require_preflight_transfer(
+        engine=engine,
+        context=context,
+        operation=operation,
+        transfer_id=transfer_id,
+        preflight_id=preflight_id,
+    )
     service = ReceivingPreflightService(engine)
     try:
         rows = service.list_discrepancies(
@@ -152,7 +196,7 @@ def resolve_receiving_discrepancy(
             preflight_id=preflight_id,
         )
         target = next((row for row in rows if row["id"] == discrepancy_id), None)
-        if target is None or str(target.get("transfer_id") or "") != str(transfer_id):
+        if target is None:
             raise ValueError("Receiving discrepancy was not found for this inbound transfer.")
         return service.resolve_discrepancy(
             organization_id=context.organization_id,
@@ -184,6 +228,13 @@ def commit_receiving_preflight(
     exactly match the prepared snapshot. No Metrc write is issued here.
     """
 
+    _require_preflight_transfer(
+        engine=engine,
+        context=context,
+        operation=operation,
+        transfer_id=transfer_id,
+        preflight_id=payload.preflight_id,
+    )
     metrc = _metrc_context(context=context, engine=engine, settings=settings, operation=operation)
     if not metrc.configured:
         raise HTTPException(status_code=422, detail=metrc.message)
