@@ -21,6 +21,12 @@ from ..database import get_engine
 
 router = APIRouter(prefix="/executive-reports", tags=["executive-reports"])
 
+# Remigration compatibility: the retained ReportLab builder/file contract was
+# historically named "Co-Man Production". The operator-facing product name is now
+# Production Planning, but this marker documents that the same durable report engine
+# is intentionally preserved rather than silently replaced.
+LEGACY_PRODUCTION_REPORT_NAME = "Co-Man Production"
+
 DEFAULT_BUYER_CONTROLS = {
     "target_doh": 21,
     "velocity_adjustment": 0.5,
