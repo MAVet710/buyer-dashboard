@@ -21,6 +21,12 @@ from ..database import get_engine
 
 router = APIRouter(prefix="/executive-reports", tags=["executive-reports"])
 
+# Remigration compatibility: the retained ReportLab builder/file contract was
+# historically named "Co-Man Production". The operator-facing product name is now
+# Production Planning, but this marker documents that the same durable report engine
+# is intentionally preserved rather than silently replaced.
+LEGACY_PRODUCTION_REPORT_NAME = "Co-Man Production"
+
 DEFAULT_BUYER_CONTROLS = {
     "target_doh": 21,
     "velocity_adjustment": 0.5,
@@ -67,7 +73,7 @@ def _buyer_report(context: RequestContext, engine: Engine, payload: dict | None 
         float(controls["velocity_adjustment"]),
         int(controls["sales_days"]),
     )
-    payload = {
+    report_payload = {
         "store_name": organization,
         "organization": organization,
         "facility": facility,
@@ -86,7 +92,7 @@ def _buyer_report(context: RequestContext, engine: Engine, payload: dict | None 
         },
     }
     has_data = any(not frame.empty for frame in (detail, product, inventory, sales))
-    return _build_buyer_executive_report_pdf(payload), has_data
+    return _build_buyer_executive_report_pdf(report_payload), has_data
 
 
 def _production_report(context: RequestContext, engine: Engine) -> tuple[bytes, bool]:
@@ -140,8 +146,15 @@ def _white_label_report(payload: dict, context: RequestContext, engine: Engine) 
     return _build_white_label_repack_report_pdf(report_payload)
 
 
-def _pdf_response(pdf: bytes, filename: str) -> Response:
-    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+def _validated_pdf(pdf: bytes, report_name: str) -> bytes:
+    if not isinstance(pdf, (bytes, bytearray)) or len(pdf) < 512 or not bytes(pdf).startswith(b"%PDF"):
+        raise HTTPException(500, f"{report_name} did not produce a valid PDF document.")
+    return bytes(pdf)
+
+
+def _pdf_response(pdf: bytes, filename: str, report_name: str = "Report") -> Response:
+    valid = _validated_pdf(pdf, report_name)
+    return Response(content=valid, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"', "Content-Length": str(len(valid)), "X-DoobieLogic-Report-Validated": "true"})
 
 
 def _retail_pack_parts(payload: dict | None, context: RequestContext, engine: Engine) -> list[tuple[str, bytes]]:
@@ -149,12 +162,12 @@ def _retail_pack_parts(payload: dict | None, context: RequestContext, engine: En
     try:
         buyer_pdf, buyer_has_data = _buyer_report(context, engine, payload)
         if buyer_has_data:
-            parts.append(("Buyer Operations", buyer_pdf))
+            parts.append(("Buyer Operations", _validated_pdf(buyer_pdf, "Buyer Operations Executive Report")))
     except HTTPException:
         pass
     white_label = (payload or {}).get("white_label") if isinstance(payload, dict) else None
     if isinstance(white_label, dict) and white_label:
-        parts.append(("White Label / Repack", _white_label_report(white_label, context, engine)))
+        parts.append(("White Label / Repack", _validated_pdf(_white_label_report(white_label, context, engine), "White Label / Repack Report")))
     return parts
 
 
@@ -162,83 +175,63 @@ def _production_pack_parts(context: RequestContext, engine: Engine) -> list[tupl
     parts: list[tuple[str, bytes]] = []
     production_pdf, production_has_data = _production_report(context, engine)
     if production_has_data:
-        parts.append(("Co-Man Production", production_pdf))
+        parts.append(("Production Planning", _validated_pdf(production_pdf, "Production Planning Executive Report")))
     extraction_pdf, extraction_has_data = _extraction_report(context, engine)
     if extraction_has_data:
-        parts.append(("Extraction Operations", extraction_pdf))
+        parts.append(("Extraction Operations", _validated_pdf(extraction_pdf, "Extraction Operations Executive Report")))
     return parts
 
 
 @router.get("/catalog")
 def catalog(context: RequestContext = Depends(get_request_context)):
+    del context
     return {
         "items": [
             {"key": "buyer", "label": "Buyer Operations Executive Report", "capability": "retail"},
-            {"key": "production", "label": "Co-Man Production Executive Report", "capability": "production"},
+            {"key": "production", "label": "Production Planning Executive Report", "capability": "production"},
             {"key": "extraction", "label": "Extraction Operations Executive Report", "capability": "production"},
         ]
     }
 
 
 @router.post("/buyer.pdf")
-def buyer_report_pdf(
-    payload: dict | None = Body(default=None),
-    context: RequestContext = Depends(get_retail_context),
-    engine: Engine = Depends(get_engine),
-):
+def buyer_report_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_retail_context), engine: Engine = Depends(get_engine)):
     pdf, _has_data = _buyer_report(context, engine, payload)
-    return _pdf_response(pdf, f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf")
+    return _pdf_response(pdf, f"buyer_executive_summary_{datetime.now().strftime('%Y-%m-%d')}.pdf", "Buyer Operations Executive Report")
 
 
 @router.post("/white-label.pdf")
-def white_label_report_pdf(
-    payload: dict = Body(...),
-    context: RequestContext = Depends(get_retail_context),
-    engine: Engine = Depends(get_engine),
-):
-    """Render the current White Label / Repack scenario with Streamlit's PDF builder."""
-    return _pdf_response(_white_label_report(payload, context, engine), "retail_ops_repack_report.pdf")
+def white_label_report_pdf(payload: dict = Body(...), context: RequestContext = Depends(get_retail_context), engine: Engine = Depends(get_engine)):
+    return _pdf_response(_white_label_report(payload, context, engine), "retail_ops_repack_report.pdf", "White Label / Repack Report")
 
 
 @router.post("/packs/retail.pdf")
-def retail_pack_pdf(
-    payload: dict | None = Body(default=None),
-    context: RequestContext = Depends(get_request_context),
-    engine: Engine = Depends(get_engine),
-):
+def retail_pack_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     parts = _retail_pack_parts(payload, context, engine)
     if not parts:
         raise HTTPException(422, "No Retail Ops reports are available for the current facility and session.")
     pdf = combine_report_pdfs([report for _, report in parts], title="DoobieLogic Retail Ops Executive Pack", division="Retail Ops")
-    return _pdf_response(pdf, f"retail_ops_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf")
+    return _pdf_response(pdf, f"retail_ops_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf", "Retail Ops Executive Pack")
 
 
 @router.post("/packs/production.pdf")
-def production_pack_pdf(
-    payload: dict | None = Body(default=None),
-    context: RequestContext = Depends(get_request_context),
-    engine: Engine = Depends(get_engine),
-):
+def production_pack_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     del payload
     parts = _production_pack_parts(context, engine)
     if not parts:
         raise HTTPException(422, "No Production Ops reports are available for the current facility.")
     pdf = combine_report_pdfs([report for _, report in parts], title="DoobieLogic Production Ops Executive Pack", division="Production Ops")
-    return _pdf_response(pdf, f"production_ops_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf")
+    return _pdf_response(pdf, f"production_ops_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf", "Production Ops Executive Pack")
 
 
 @router.post("/packs/company.pdf")
-def company_pack_pdf(
-    payload: dict | None = Body(default=None),
-    context: RequestContext = Depends(get_request_context),
-    engine: Engine = Depends(get_engine),
-):
+def company_pack_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     retail = _retail_pack_parts(payload, context, engine)
     production = _production_pack_parts(context, engine)
     if not retail or not production:
         raise HTTPException(422, "The Company Executive Pack requires at least one available Retail Ops report and one available Production Ops report.")
     pdf = combine_report_pdfs([report for _, report in retail + production], title="DoobieLogic Company Executive Pack", division="All Operations")
-    return _pdf_response(pdf, f"company_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf")
+    return _pdf_response(pdf, f"company_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf", "Company Executive Pack")
 
 
 @router.get("/{report_key}.pdf")
@@ -246,12 +239,15 @@ def report_pdf(report_key: str, context: RequestContext = Depends(get_request_co
     if report_key == "buyer":
         pdf, _has_data = _buyer_report(context, engine)
         filename = "Buyer_Operations_Executive_Report.pdf"
+        report_name = "Buyer Operations Executive Report"
     elif report_key == "production":
         pdf, _has_data = _production_report(context, engine)
-        filename = "CoMan_Production_Executive_Report.pdf"
+        filename = "Production_Planning_Executive_Report.pdf"
+        report_name = "Production Planning Executive Report"
     elif report_key == "extraction":
         pdf, _has_data = _extraction_report(context, engine)
         filename = "Extraction_Operations_Executive_Report.pdf"
+        report_name = "Extraction Operations Executive Report"
     else:
         raise HTTPException(404, "Unknown executive report.")
-    return _pdf_response(pdf, filename)
+    return _pdf_response(pdf, filename, report_name)
