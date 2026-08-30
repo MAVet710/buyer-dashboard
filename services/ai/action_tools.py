@@ -18,6 +18,8 @@ from .datasets import DatasetAccessContext
 
 ACTION_ROLES = {"dev", "admin", "planner", "supervisor"}
 MATERIAL_STAGING_WARNING = "material_unreserved"
+HELD_STATUSES = {"on_hold", "hold", "held"}
+CLOSED_STATUSES = {"complete", "completed", "cancelled", "canceled"}
 
 ActionHandler = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -42,11 +44,11 @@ class ActionToolSpec:
 
 
 class AgentActionRegistry:
-    """Server-authorized operational actions for selected Agent profiles.
+    """Server-owned, role-gated operational actions for Doobie Agent.
 
-    Read tools remain separate. Action scope comes only from trusted request context;
-    the model cannot choose organization/facility/user scope. Mutations require an
-    authorized role plus explicit user intent and must reuse canonical domain services.
+    Read tools remain separate from operational actions. Organization, facility,
+    user and capability scope come only from trusted request context. The model
+    cannot choose tenant scope, bypass warnings, or manufacture approval.
     """
 
     def __init__(self, *, profile: AgentProfile, access: DatasetAccessContext, question: str) -> None:
@@ -73,26 +75,25 @@ class AgentActionRegistry:
             ActionToolSpec(
                 name="production_schedule_week",
                 description=(
-                    "Build a deterministic production week using production orders, BOM standards, available inventory, existing "
-                    "reservations, crew, active machines, the current calendar, QA and due dates. The tool may commit only placements "
-                    "whose materials are already reserved and whose canonical schedule preflight has no actionable warnings. If material "
-                    "is available but not reserved, return a proposed time plus the exact staging lots and require a human-selected work "
-                    "location before any reservation or Metrc package-location move occurs. Never guess a work location, buy missing "
-                    "material, reserve material silently, or auto-accept warnings/blockers."
+                    "Build a deterministic production week from current production orders using BOM standards, available inventory, "
+                    "existing reservations, crew, active machines, current calendar placements, QA state and due dates. Commit only "
+                    "fully ready placements. If material exists but is not staged, return the exact candidate lots and require a human-"
+                    "selected destination work location before any reservation or Metrc package move. Never guess the work location, "
+                    "silently reserve material, or auto-accept warnings/blockers."
                 ),
                 parameters={
                     "type": "object",
                     "properties": {
                         "week_start": {
                             "type": "string",
-                            "description": "Optional YYYY-MM-DD facility-local date. Omit to start on the next available business day.",
+                            "description": "Optional YYYY-MM-DD facility-local date, or internal token next_week.",
                         },
                         "days": {"type": "integer", "minimum": 1, "maximum": 7, "default": 5},
                         "max_runs": {"type": "integer", "minimum": 1, "maximum": 20, "default": 12},
                         "commit": {
                             "type": "boolean",
                             "default": False,
-                            "description": "Commit only fully ready placements. Staging-required placements remain proposals pending human location input.",
+                            "description": "Commit only fully ready placements. Staging-dependent placements remain proposed.",
                         },
                     },
                 },
@@ -121,7 +122,12 @@ class AgentActionRegistry:
         try:
             result = spec.handler(dict(arguments or {}))
         except Exception as exc:
-            result = {"error": "action_failed", "tool": name, "detail": str(exc)[:500] or exc.__class__.__name__}
+            result = {
+                "error": "action_failed",
+                "tool": name,
+                "detail": str(exc)[:500] or exc.__class__.__name__,
+                "mutation_performed": False,
+            }
         result.setdefault("tool", spec.name)
         if bool(result.get("mutation_performed")):
             self._mutated = True
@@ -131,22 +137,25 @@ class AgentActionRegistry:
     def deterministic_request(self) -> tuple[str, dict[str, Any]] | None:
         if "production_schedule_week" not in self._tools:
             return None
-        text = self.question.casefold()
-        has_period = any(token in text for token in ("week", "weekly", "five day", "5 day", "next 5"))
-        has_schedule_target = any(token in text for token in ("calendar", "schedule", "scheduling"))
-        has_production = any(token in text for token in ("production", "run", "runs", "jobs", "co-man", "coman"))
+        text_value = self.question.casefold()
+        has_period = any(token in text_value for token in ("week", "weekly", "five day", "5 day", "next 5"))
+        has_schedule_target = any(token in text_value for token in ("calendar", "schedule", "scheduling"))
+        has_production = any(token in text_value for token in ("production", "run", "runs", "jobs", "co-man", "coman"))
         if not (has_period and has_schedule_target and has_production):
             return None
-        return "production_schedule_week", {
-            "commit": self._explicit_mutation_intent(text),
+        arguments: dict[str, Any] = {
+            "commit": self._explicit_mutation_intent(text_value),
             "days": 5,
             "max_runs": 12,
         }
+        if "next week" in text_value or "next week's" in text_value or "next weeks" in text_value:
+            arguments["week_start"] = "next_week"
+        return "production_schedule_week", arguments
 
     @staticmethod
-    def _explicit_mutation_intent(text: str) -> bool:
+    def _explicit_mutation_intent(text_value: str) -> bool:
         return any(
-            phrase in text
+            phrase in text_value
             for phrase in (
                 "schedule it",
                 "schedule the",
@@ -197,7 +206,7 @@ class AgentActionRegistry:
             opening = f"I built a {len(placements)}-run production plan for {start} through {end}."
         else:
             opening = f"I could not place any additional production runs safely for {start} through {end}."
-        details = []
+        details: list[str] = []
         for row in placements[:6]:
             state = "scheduled" if row.get("committed") else "needs work location" if row.get("requires_human_input") else "planned"
             details.append(
@@ -208,7 +217,7 @@ class AgentActionRegistry:
         if staging:
             input_text = (
                 f" {len(staging)} run{'s' if len(staging) != 1 else ''} have inventory available but need staging. "
-                "Choose the production/work location before Doobie reserves those lots or prepares the corresponding Metrc package move."
+                "Choose the destination work location before Doobie reserves those lots or prepares the corresponding Metrc package move."
             )
         blocked = int(result.get("blocked_count") or 0)
         blocked_text = f" {blocked} additional run{'s' if blocked != 1 else ''} remain blocked." if blocked else ""
@@ -216,12 +225,12 @@ class AgentActionRegistry:
 
 
 class ProductionWeekActionPlanner:
-    """Greedy deterministic week planner that reuses canonical schedule preflight.
+    """Deterministic production-week planner using canonical schedule preflight.
 
-    A material_unreserved warning is special: it proves material exists but does not
-    prove physical staging. Those runs may receive a proposed slot, but the planner
-    never reserves them and never commits them until a human supplies the destination
-    work location and the Metrc package move is completed/verified by its own workflow.
+    A material_unreserved warning proves material exists but does not prove physical
+    staging. Those runs may receive a proposed slot, but this planner never reserves them
+    and never commits them until a human selects the destination work location and the
+    separate Metrc package_move workflow completes provider readback.
     """
 
     def __init__(self, access: DatasetAccessContext) -> None:
@@ -233,7 +242,8 @@ class ProductionWeekActionPlanner:
 
     def plan(self, *, week_start: str, days: int, max_runs: int, commit: bool, reason: str) -> dict[str, Any]:
         tz = self._facility_timezone()
-        start_day = self._resolve_start_day(week_start, tz)
+        now_local = datetime.now(tz)
+        start_day = self._resolve_start_day(week_start, tz, today=now_local.date())
         work_days = self._business_days(start_day, days)
         current = self.schedule.list_current(self.access.organization_id, self.access.facility_id)
         scheduled_order_ids = {str(row.get("production_order_id") or "") for row in current}
@@ -272,6 +282,7 @@ class ProductionWeekActionPlanner:
                 crew=crew,
                 simulated=simulated,
                 reason=reason,
+                now_local=now_local,
             )
             if preview is None or slot is None:
                 blocked.append(self._blocked(order, "no_safe_slot", "No safe material/capacity/QA slot was found in the requested week."))
@@ -297,12 +308,14 @@ class ProductionWeekActionPlanner:
                 "committed": False,
             }
             placements.append(row)
-            simulated.append({
-                "start": slot["start"],
-                "end": slot["end"],
-                "machine_id": slot.get("machine_id"),
-                "planned_people": slot["planned_people"],
-            })
+            simulated.append(
+                {
+                    "start": slot["start"],
+                    "end": slot["end"],
+                    "machine_id": slot.get("machine_id"),
+                    "planned_people": slot["planned_people"],
+                }
+            )
 
         commit_errors: list[dict[str, Any]] = []
         if commit:
@@ -326,7 +339,13 @@ class ProductionWeekActionPlanner:
                     row["committed"] = True
                     row["placement_id"] = committed.get("id")
                 except ValueError as exc:
-                    commit_errors.append({"order_id": row["order_id"], "order_number": row["order_number"], "message": str(exc)})
+                    commit_errors.append(
+                        {
+                            "order_id": row["order_id"],
+                            "order_number": row["order_number"],
+                            "message": str(exc),
+                        }
+                    )
 
         committed_count = sum(bool(row.get("committed")) for row in placements)
         human_input_count = sum(bool(row.get("requires_human_input")) for row in placements)
@@ -356,32 +375,42 @@ class ProductionWeekActionPlanner:
             return []
         lots = self.schedule.repo.list_inventory_lots(self.access.organization_id, self.access.facility_id)
         reservations = self.schedule.repo.list_material_reservations(self.access.organization_id, self.access.facility_id)
-        balances = {lot.id: float(self.schedule.repo.inventory_balance(self.access.organization_id, lot.id)) for lot in lots}
+        balances = {
+            lot.id: float(self.schedule.repo.inventory_balance(self.access.organization_id, lot.id))
+            for lot in lots
+        }
         reserved_by_lot: dict[str, float] = {}
         for reservation in reservations:
             if reservation.status == "reserved":
-                reserved_by_lot[reservation.lot_id] = reserved_by_lot.get(reservation.lot_id, 0.0) + float(reservation.quantity or 0.0)
+                reserved_by_lot[reservation.lot_id] = (
+                    reserved_by_lot.get(reservation.lot_id, 0.0) + float(reservation.quantity or 0.0)
+                )
         rows: list[dict[str, Any]] = []
         for requirement in requirements:
             remaining = float(requirement.get("quantity") or 0.0)
             product_id = str(requirement.get("product_id") or "")
-            candidates = [lot for lot in lots if lot.product_id == product_id and lot.status in {"available", "released"}]
-            candidates.sort(key=lambda lot: (lot.received_at is not None, lot.received_at or datetime.min.replace(tzinfo=timezone.utc), lot.created_at))
+            candidates = [
+                lot for lot in lots
+                if lot.product_id == product_id and lot.status in {"available", "released"}
+            ]
+            candidates.sort(key=lambda lot: (lot.received_at is None, str(lot.received_at or ""), str(lot.created_at or "")))
             for lot in candidates:
                 available = max(0.0, balances.get(lot.id, 0.0) - reserved_by_lot.get(lot.id, 0.0))
                 take = min(remaining, available)
                 if take <= 0:
                     continue
-                rows.append({
-                    "lot_id": lot.id,
-                    "lot_code": lot.lot_code,
-                    "package_id": lot.compliance_package_id or lot.lot_code,
-                    "product_id": product_id,
-                    "product_name": requirement.get("product_name"),
-                    "quantity_to_stage": round(take, 6),
-                    "unit": requirement.get("unit"),
-                    "current_location": lot.location_code,
-                })
+                rows.append(
+                    {
+                        "lot_id": lot.id,
+                        "lot_code": lot.lot_code,
+                        "package_id": lot.compliance_package_id or lot.lot_code,
+                        "product_id": product_id,
+                        "product_name": requirement.get("product_name"),
+                        "quantity_to_stage": round(take, 6),
+                        "unit": requirement.get("unit"),
+                        "current_location": lot.location_code,
+                    }
+                )
                 remaining -= take
                 if remaining <= 1e-9:
                     break
@@ -395,18 +424,28 @@ class ProductionWeekActionPlanner:
         except Exception:
             return ZoneInfo("America/New_York")
 
-    @staticmethod
-    def _resolve_start_day(raw: str, tz: ZoneInfo) -> date:
+    @classmethod
+    def _resolve_start_day(cls, raw: str, tz: ZoneInfo, *, today: date | None = None) -> date:
+        local_today = today or datetime.now(tz).date()
+        normalized = raw.strip().casefold()
+        if normalized == "next_week":
+            return cls._next_week_start(local_today)
         if raw.strip():
             try:
                 candidate = date.fromisoformat(raw.strip())
             except ValueError as exc:
                 raise ValueError("week_start must be YYYY-MM-DD.") from exc
+            if candidate < local_today:
+                candidate = local_today
         else:
-            candidate = datetime.now(tz).date()
+            candidate = local_today
         while candidate.weekday() >= 5:
             candidate += timedelta(days=1)
         return candidate
+
+    @staticmethod
+    def _next_week_start(today: date) -> date:
+        return today + timedelta(days=(7 - today.weekday()))
 
     @staticmethod
     def _business_days(start: date, count: int) -> list[date]:
@@ -426,33 +465,37 @@ class ProductionWeekActionPlanner:
                     ProductionOrder.facility_id == self.access.facility_id,
                 )
             ).all()
+        active = []
+        for row in rows:
+            status = str(row.status or "").casefold()
+            if row.id in scheduled_order_ids or status in CLOSED_STATUSES or status in HELD_STATUSES:
+                continue
+            active.append(row)
         priority_rank = {"urgent": 0, "high": 1, "normal": 2, "medium": 2, "low": 3}
-        active = [
-            row for row in rows
-            if row.id not in scheduled_order_ids and str(row.status or "").casefold() not in {"complete", "completed", "cancelled", "canceled"}
-        ]
         return sorted(
             active,
             key=lambda row: (
                 priority_rank.get(str(row.priority or "normal").casefold(), 2),
                 row.due_at is None,
-                row.due_at or datetime.max.replace(tzinfo=timezone.utc),
-                row.created_at,
+                str(row.due_at or "9999-12-31"),
+                str(row.created_at or ""),
             ),
         )
 
     def _machines(self) -> list[tuple[FacilityMachine, MachineModel]]:
         with Session(self.engine) as session:
-            return list(session.execute(
-                select(FacilityMachine, MachineModel)
-                .join(MachineModel, MachineModel.id == FacilityMachine.machine_model_id)
-                .where(
-                    FacilityMachine.organization_id == self.access.organization_id,
-                    FacilityMachine.facility_id == self.access.facility_id,
-                    FacilityMachine.active.is_(True),
-                )
-                .order_by(FacilityMachine.display_name.asc())
-            ).all())
+            return list(
+                session.execute(
+                    select(FacilityMachine, MachineModel)
+                    .join(MachineModel, MachineModel.id == FacilityMachine.machine_model_id)
+                    .where(
+                        FacilityMachine.organization_id == self.access.organization_id,
+                        FacilityMachine.facility_id == self.access.facility_id,
+                        FacilityMachine.active.is_(True),
+                    )
+                    .order_by(FacilityMachine.display_name.asc())
+                ).all()
+            )
 
     def _crew(self, work_days: list[date]) -> dict[date, dict[str, float]]:
         with Session(self.engine) as session:
@@ -465,12 +508,14 @@ class ProductionWeekActionPlanner:
             ).all()
         output: dict[date, dict[str, float]] = {}
         for row in rows:
-            score = float(row.available_people or 0) * float(row.shift_hours or 0)
-            existing = output.get(row.work_date)
-            if existing is None or score > existing["person_hours"]:
+            people = float(row.available_people or 0)
+            hours = float(row.shift_hours or 0)
+            score = people * hours
+            current = output.get(row.work_date)
+            if current is None or score > current["person_hours"]:
                 output[row.work_date] = {
-                    "available_people": float(row.available_people or 0),
-                    "shift_hours": float(row.shift_hours or 0),
+                    "available_people": people,
+                    "shift_hours": hours,
                     "person_hours": score,
                 }
         return output
@@ -501,6 +546,7 @@ class ProductionWeekActionPlanner:
         crew: dict[date, dict[str, float]],
         simulated: list[dict[str, Any]],
         reason: str,
+        now_local: datetime,
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         tz = self._facility_timezone()
         for work_day in work_days:
@@ -513,13 +559,22 @@ class ProductionWeekActionPlanner:
                     shift_hours = max(0.5, float(crew_day["shift_hours"] or 0))
                 else:
                     shift_hours = float(crew_day["shift_hours"] if crew_day else 8.0)
-                cursor = datetime.combine(work_day, time(hour=8), tzinfo=tz)
-                day_end = cursor + timedelta(hours=shift_hours)
+                day_start = datetime.combine(work_day, time(hour=8), tzinfo=tz)
+                day_end = day_start + timedelta(hours=shift_hours)
+                cursor = day_start
+                if work_day == now_local.date() and cursor <= now_local:
+                    cursor = self._ceil_to_half_hour(now_local)
                 duration = timedelta(hours=duration_hours)
                 while cursor + duration <= day_end:
+                    if cursor <= now_local:
+                        cursor += timedelta(minutes=30)
+                        continue
                     end = cursor + duration
                     machine_id = machine.id if machine is not None else None
-                    if self._machine_conflict(simulated, machine_id, cursor, end) or self._crew_conflict(simulated, crew_day, planned_people, cursor, end):
+                    if self._machine_conflict(simulated, machine_id, cursor, end):
+                        cursor += timedelta(minutes=30)
+                        continue
+                    if self._crew_conflict(simulated, crew_day, planned_people, cursor, end):
                         cursor += timedelta(minutes=30)
                         continue
                     preview = self.schedule.preview(
@@ -535,9 +590,23 @@ class ProductionWeekActionPlanner:
                     actionable = [row for row in preview.get("warnings") or [] if row.get("severity") != "info"]
                     safe = not actionable or all(row.get("code") == MATERIAL_STAGING_WARNING for row in actionable)
                     if int(preview.get("blocker_count") or 0) == 0 and safe:
-                        return preview, {"start": cursor, "end": end, "machine_id": machine_id, "planned_people": planned_people}
+                        return preview, {
+                            "start": cursor,
+                            "end": end,
+                            "machine_id": machine_id,
+                            "planned_people": planned_people,
+                        }
                     cursor += timedelta(minutes=30)
         return None, None
+
+    @staticmethod
+    def _ceil_to_half_hour(value: datetime) -> datetime:
+        rounded = value.replace(second=0, microsecond=0)
+        if rounded.minute == 0:
+            return rounded + timedelta(minutes=30)
+        if rounded.minute <= 30:
+            return rounded.replace(minute=30) + timedelta(microseconds=1)
+        return (rounded + timedelta(hours=1)).replace(minute=0) + timedelta(microseconds=1)
 
     @staticmethod
     def _planned_people(expected_labor: float, duration: float, machine: FacilityMachine | None) -> int:
@@ -552,6 +621,7 @@ class ProductionWeekActionPlanner:
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=tz)
             return dt.astimezone(tz)
+
         return {
             "start": local(row["scheduled_start_at"]),
             "end": local(row["scheduled_end_at"]),
@@ -564,10 +634,19 @@ class ProductionWeekActionPlanner:
         return start < other_end and end > other_start
 
     @classmethod
-    def _machine_conflict(cls, placements: list[dict[str, Any]], machine_id: str | None, start: datetime, end: datetime) -> bool:
+    def _machine_conflict(
+        cls,
+        placements: list[dict[str, Any]],
+        machine_id: str | None,
+        start: datetime,
+        end: datetime,
+    ) -> bool:
         if not machine_id:
             return False
-        return any(row.get("machine_id") == machine_id and cls._overlap(start, end, row["start"], row["end"]) for row in placements)
+        return any(
+            row.get("machine_id") == machine_id and cls._overlap(start, end, row["start"], row["end"])
+            for row in placements
+        )
 
     @classmethod
     def _crew_conflict(
