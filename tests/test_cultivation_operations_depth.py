@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from modules.coman.models import Base, Facility, Organization
 from modules.cultivation.models import CultivationPlant
 from modules.cultivation.service import CultivationService
+from modules.operational_moats.models import CultivationHarvest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,7 +67,7 @@ def test_room_capacity_and_phase_fit_are_derived_from_live_plants():
     assert current["next_estimated_harvest"] == "2026-09-10"
 
 
-def test_harvest_360_tracks_assignment_yield_and_true_cogs():
+def test_harvest_360_reuses_canonical_harvest_table_and_tracks_yield_and_cogs():
     engine = _engine()
     organization_id, facility_id = _scope(engine)
     service = CultivationService(engine)
@@ -79,32 +80,39 @@ def test_harvest_360_tracks_assignment_yield_and_true_cogs():
         harvest_code="HARV-001",
         plant_ids=[first.id, second.id],
         actor="tester",
-        planned_date=date(2026, 9, 15),
     )
     assert harvest["status"] == "planned"
     assert harvest["plant_count"] == 2
     assert harvest["strain_name"] == "GMO"
     assert harvest["room_code"] == "FLOWER-A"
 
+    with Session(engine) as session:
+        canonical = session.get(CultivationHarvest, harvest["id"])
+        assert canonical is not None
+        assert canonical.strain == "GMO"
+        assert canonical.room == "FLOWER-A"
+        assert canonical.plant_count == 2
+
     service.add_cost(organization_id, facility_id, entity_type="harvest", entity_id=harvest["id"], cost_type="labor", description="Harvest crew", quantity=4, unit="hr", unit_cost=25, actor="tester")
     service.add_cost(organization_id, facility_id, entity_type="harvest", entity_id=harvest["id"], cost_type="material", description="Drying supplies", amount=50, actor="tester")
     active = service.transition_harvest(organization_id, facility_id, harvest["id"], status="active", actor="tester", wet_weight=1000, unit="g")
     assert active["status"] == "active"
+    assert active["labor_hours"] == 4.0
 
     with Session(engine) as session:
         phases = list(session.scalars(select(CultivationPlant.phase).where(CultivationPlant.id.in_([first.id, second.id]))))
     assert phases == ["harvested", "harvested"]
 
-    drying = service.transition_harvest(organization_id, facility_id, harvest["id"], status="drying", actor="tester", dry_weight=250, waste_weight=75, unit="g")
+    drying = service.transition_harvest(organization_id, facility_id, harvest["id"], status="drying", actor="tester", dry_weight=250, waste_weight=75, unit="grams")
     assert drying["dry_yield_pct"] == 25.0
     assert drying["labor_cost_usd"] == 100.0
     assert drying["material_cost_usd"] == 50.0
     assert drying["total_cogs_usd"] == 150.0
     assert drying["cost_per_dry_unit"] == 0.6
 
-    finished = service.transition_harvest(organization_id, facility_id, harvest["id"], status="finished", actor="tester")
-    assert finished["status"] == "finished"
-    assert finished["finished_at"]
+    completed = service.transition_harvest(organization_id, facility_id, harvest["id"], status="completed", actor="tester")
+    assert completed["status"] == "completed"
+    assert completed["finished_at"]
 
 
 def test_started_harvest_cannot_be_cancelled_after_plants_are_retired():
@@ -133,6 +141,16 @@ def test_planned_harvest_can_be_cancelled_without_retiring_plants():
         assert current.retired_at is None
 
 
+def test_harvest_weights_are_canonical_grams():
+    engine = _engine()
+    organization_id, facility_id = _scope(engine)
+    service = CultivationService(engine)
+    plant = service.create_plant(organization_id, facility_id, plant_tag="P-40", strain_name="GMO", phase="flowering", room_code="FLOWER-A", actor="tester")
+    harvest = service.create_harvest(organization_id, facility_id, harvest_code="HARV-004", plant_ids=[plant.id], actor="tester")
+    with pytest.raises(ValueError, match="canonical harvest weights in grams"):
+        service.transition_harvest(organization_id, facility_id, harvest["id"], status="active", actor="tester", wet_weight=2, unit="lb")
+
+
 def test_harvest_operations_do_not_import_or_dispatch_metrc_writes():
     service_source = (ROOT / "modules" / "cultivation" / "service.py").read_text(encoding="utf-8")
     component_source = (ROOT / "frontend" / "src" / "components" / "CultivationOperationsControl.tsx").read_text(encoding="utf-8")
@@ -142,11 +160,12 @@ def test_harvest_operations_do_not_import_or_dispatch_metrc_writes():
     assert "Metrc plant/harvest writes remain separately fail-closed" in component_source
 
 
-def test_cultivation_api_and_frontend_expose_room_harvest_and_cost_depth():
+def test_cultivation_api_and_frontend_expose_room_harvest_and_cost_depth_without_recreating_harvest_table():
     router = (ROOT / "backend" / "app" / "routers" / "plants.py").read_text(encoding="utf-8")
     plant_ui = (ROOT / "frontend" / "src" / "components" / "PlantInventory.tsx").read_text(encoding="utf-8")
     operations_ui = (ROOT / "frontend" / "src" / "components" / "CultivationOperationsControl.tsx").read_text(encoding="utf-8")
     migration = (ROOT / "migrations" / "versions" / "0057_cultivation_operations.py").read_text(encoding="utf-8")
+    models = (ROOT / "modules" / "cultivation" / "models.py").read_text(encoding="utf-8")
     for route in ('@router.get("/rooms")', '@router.post("/rooms")', '@router.get("/harvests")', '@router.post("/harvests")', '@router.post("/costs"'):
         assert route in router
     assert "CultivationOperationsControl" in plant_ui
@@ -155,3 +174,6 @@ def test_cultivation_api_and_frontend_expose_room_harvest_and_cost_depth():
     assert "Cultivation COGS" in operations_ui
     assert 'revision = "0057_cultivation_operations"' in migration
     assert 'down_revision = "0056_trace_reconciliation"' in migration
+    assert 'op.create_table(\n        "cultivation_harvests"' not in migration
+    assert 'class CultivationHarvest(' not in models
+    assert 'from modules.operational_moats.models import CultivationHarvest' in (ROOT / "modules" / "cultivation" / "service.py").read_text(encoding="utf-8")
