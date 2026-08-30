@@ -11,6 +11,9 @@ def test_pwa_manifest_and_service_worker_are_wired_without_api_caching():
     main = (ROOT / "frontend" / "src" / "main.tsx").read_text(encoding="utf-8")
 
     assert 'rel="manifest" href="/manifest.webmanifest"' in index
+    assert '"id": "/"' in manifest
+    assert '"start_url": "/"' in manifest
+    assert '"scope": "/"' in manifest
     assert '"display": "standalone"' in manifest
     assert 'url.pathname.startsWith("/api/")' in worker
     assert 'if (url.origin !== self.location.origin || isApiRequest(url)) return;' in worker
