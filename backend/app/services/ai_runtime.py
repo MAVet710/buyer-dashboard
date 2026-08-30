@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from typing import Any
 
@@ -33,6 +34,30 @@ def _integration_service(engine: Engine, settings: Settings) -> IntegrationConfi
         return None
 
 
+def _apply_process_environment_overrides(config: dict[str, Any], settings: Settings) -> None:
+    """Keep explicit process environment configuration authoritative.
+
+    Saved global AI Runtime settings remain the normal application configuration,
+    but a developer or deployment operator must be able to override them with
+    explicit environment variables. This is especially important for local
+    Ollama development where 127.0.0.1 and a workstation-specific model should
+    never be silently replaced by a previously saved hosted endpoint/model.
+    """
+    environment_fields: tuple[tuple[str, str, Any], ...] = (
+        ("AI_PROVIDER_MODE", "provider_mode", settings.ai_provider_mode),
+        ("AI_PROVIDER_ORDER", "provider_order", settings.ai_provider_order),
+        ("AI_ALLOW_CLOUD_FALLBACK", "allow_cloud_fallback", settings.ai_allow_cloud_fallback),
+        ("LOCAL_LLM_BASE_URL", "local_llm_base_url", settings.local_llm_base_url),
+        ("LOCAL_LLM_MODEL", "local_llm_model", settings.local_llm_model),
+        ("LOCAL_LLM_API_KEY", "local_llm_api_key", settings.local_llm_api_key),
+        ("LOCAL_EMBEDDING_BASE_URL", "local_embedding_base_url", settings.local_embedding_base_url),
+        ("LOCAL_EMBEDDING_MODEL", "local_embedding_model", settings.local_embedding_model),
+    )
+    for environment_name, config_key, parsed_value in environment_fields:
+        if environment_name in os.environ:
+            config[config_key] = parsed_value
+
+
 def runtime_configuration(engine: Engine, settings: Settings) -> dict[str, Any]:
     config: dict[str, Any] = {
         "provider_mode": settings.ai_provider_mode,
@@ -61,6 +86,12 @@ def runtime_configuration(engine: Engine, settings: Settings) -> dict[str, Any]:
         config["local_llm_api_key"] = settings.local_llm_api_key
         config["status"] = "configured" if config["local_llm_base_url"] and config["local_llm_model"] else "not_connected"
         config["secret_hint"] = ""
+
+    # Explicit host/deployment environment variables have the final say. Without
+    # this step, a stale saved global integration can make every agent ignore the
+    # Ollama endpoint/model configured in the shell that launched FastAPI.
+    _apply_process_environment_overrides(config, settings)
+    config["status"] = "configured" if config.get("local_llm_base_url") and config.get("local_llm_model") else "not_connected"
     return config
 
 

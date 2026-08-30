@@ -99,6 +99,73 @@ AI_OPENAI_OUTPUT_COST_PER_MILLION=0
 
 Never expose these secrets through frontend environment values. LEVEL DEV may save the Local AI Runtime secret through the existing encrypted integration settings path; browser responses return only status/hints.
 
+### Hosted workstation runtime (beta)
+
+The current low-cost production path is:
+
+`browser -> ops.doobielogic.io -> buyer-dash-api (Cloud Run) -> Cloudflare Access -> ai-runtime.doobielogic.io -> named Cloudflare Tunnel -> 127.0.0.1:11434`
+
+Only the FastAPI backend may call the tunnel. Do not add `ai-runtime.doobielogic.io` or Access credentials to React/Vite configuration. Ollama remains bound to loopback and the tunnel makes outbound connections; TCP 11434 must not be forwarded by the router.
+
+Workstation requirements:
+
+- Ollama endpoint: `http://127.0.0.1:11434`
+- generation model: `qwen3:14b`
+- embedding model: `embeddinggemma:latest`
+- tunnel name: `doobielogic-ai`
+- tunnel UUID: `a0f60d07-a684-4f65-91ad-a622455a815f`
+- tunnel config: `%USERPROFILE%\.cloudflared\config.yml` (never commit its credential file)
+- Windows service: `cloudflared`, automatic startup
+
+Production values for `buyer-dash-api` in project `rebelle-vendor-tools`, region `us-east1`:
+
+```env
+AI_PROVIDER_MODE=local_only
+AI_PROVIDER_ORDER=local
+AI_ALLOW_CLOUD_FALLBACK=false
+LOCAL_LLM_BASE_URL=https://ai-runtime.doobielogic.io
+LOCAL_LLM_MODEL=qwen3:14b
+LOCAL_LLM_TIMEOUT_SECONDS=120
+LOCAL_LLM_MAX_TOKENS=1400
+LOCAL_LLM_TEMPERATURE=0.2
+LOCAL_EMBEDDING_BASE_URL=https://ai-runtime.doobielogic.io
+LOCAL_EMBEDDING_MODEL=embeddinggemma:latest
+```
+
+Map `LOCAL_LLM_ACCESS_CLIENT_ID` and `LOCAL_LLM_ACCESS_CLIENT_SECRET` to Google Secret Manager versions. Both generation and embedding providers use those same credentials as `CF-Access-Client-Id` and `CF-Access-Client-Secret`. Never store their values in Git, ordinary Cloud Run environment values, diagnostics, or logs.
+
+The admin-only diagnostic route is `/api/v1/ai-agents/diagnostics`. It reports the effective base URL/model and bounded provider health, but never credential values.
+
+Operational checks on Windows:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:11434/v1/models
+Get-Service cloudflared
+cloudflared tunnel info doobielogic-ai
+Restart-Service cloudflared
+```
+
+An anonymous request to `https://ai-runtime.doobielogic.io/v1/models` must return an Access denial. A backend request carrying the service-token headers must return HTTP 200. If anonymous access succeeds, treat that as a security incident and disable the public hostname until the Access policy is corrected.
+
+Troubleshooting by symptom:
+
+- `local:unavailable:ConnectionError`: check Ollama, then the Windows service, then tunnel connectivity.
+- `configured model not found`: compare `LOCAL_LLM_MODEL` with `/v1/models`; `name` and `name:latest` are treated as aliases.
+- Cloudflare Access 403: confirm the Access application covers the hostname and both Secret Manager references are attached to the active Cloud Run revision.
+- `provider timeout`: confirm workstation load/connectivity; generation is bounded by `LOCAL_LLM_TIMEOUT_SECONDS=120`.
+- embedding health failure: test `/v1/embeddings` with `embeddinggemma:latest`; retrieval continues with tenant-filtered lexical fallback.
+
+When Ollama, the workstation, or the tunnel is offline, the FastAPI health route and deterministic operational workflows must remain available. AI requests fail with a bounded provider-unavailable response; `local_only` must not silently invoke Gemini or OpenAI. Restore service with `Restart-Service cloudflared` and confirm Ollama is running; no application data repair is required.
+
+This workstation is intentionally a beta inference host, not a highly available production architecture. Availability depends on workstation power, network, Ollama, `cloudflared`, and Cloudflare. The provider abstraction allows migration to a dedicated GPU host or another OpenAI-compatible endpoint without changing agent business logic.
+
+Rollback production AI configuration without deleting revisions:
+
+1. Record the currently active revision with `gcloud run services describe buyer-dash-api --region us-east1`.
+2. Route 100% traffic to the previously known-good revision with `gcloud run services update-traffic buyer-dash-api --region us-east1 --to-revisions <revision>=100`.
+3. If only AI must be disabled, clear the AI endpoint/model values or route to a revision without them; keep the normal API revision healthy.
+4. Do not delete the tunnel, Access policy, secrets, or previous Cloud Run revisions during rollback.
+
 ## Health and diagnostics
 
 Authorized diagnostics report provider configuration/reachability, selected model, structured-output/tool support, embedding health, knowledge-index health, last successful local call, last fallback, cloud-fallback state, and DatasetRegistry keys. Secrets are removed before the response is constructed.

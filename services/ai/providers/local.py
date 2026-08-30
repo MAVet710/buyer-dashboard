@@ -60,14 +60,65 @@ class LocalOpenAIProvider:
     def supports_structured_output(self) -> bool:
         return True
 
+    @staticmethod
+    def _model_aliases(value: str) -> set[str]:
+        normalized = str(value or "").strip().casefold()
+        if not normalized:
+            return set()
+        aliases = {normalized}
+        if normalized.endswith(":latest"):
+            aliases.add(normalized.removesuffix(":latest"))
+        elif ":" not in normalized:
+            aliases.add(f"{normalized}:latest")
+        return aliases
+
+    def _configured_model_is_listed(self, body: Any) -> tuple[bool, list[str]]:
+        if not isinstance(body, dict):
+            return True, []
+        values = body.get("data")
+        if not isinstance(values, list):
+            return True, []
+        available = [
+            str(item.get("id") or "").strip()
+            for item in values
+            if isinstance(item, dict) and str(item.get("id") or "").strip()
+        ]
+        if not available:
+            # Some OpenAI-compatible gateways intentionally return an empty model
+            # catalog. Reachability is still useful in that case, so generation is
+            # allowed to make the final capability check.
+            return True, []
+        configured_aliases = self._model_aliases(self.model)
+        listed_aliases: set[str] = set()
+        for value in available:
+            listed_aliases.update(self._model_aliases(value))
+        return bool(configured_aliases & listed_aliases), available
+
     def health(self) -> ProviderHealth:
         if not self.base_url or not self.model:
             return ProviderHealth(self.name, False, False, self.model, True, True, True, "endpoint/model not configured")
         try:
             response = requests.get(self._endpoint("models"), headers=self._headers(), timeout=min(self.timeout_seconds, 5.0))
-            reachable = response.ok
-            detail = "ok" if response.ok else f"HTTP {response.status_code}"
-            return ProviderHealth(self.name, True, reachable, self.model, True, True, True, detail)
+            if not response.ok:
+                return ProviderHealth(self.name, True, False, self.model, True, True, True, f"HTTP {response.status_code}")
+            try:
+                model_available, available = self._configured_model_is_listed(response.json())
+            except ValueError:
+                model_available, available = True, []
+            if not model_available:
+                preview = ", ".join(available[:5])
+                suffix = f"; available: {preview}" if preview else ""
+                return ProviderHealth(
+                    self.name,
+                    True,
+                    False,
+                    self.model,
+                    True,
+                    True,
+                    True,
+                    f"configured model not found{suffix}",
+                )
+            return ProviderHealth(self.name, True, True, self.model, True, True, True, "ok")
         except requests.RequestException as exc:
             return ProviderHealth(self.name, True, False, self.model, True, True, True, exc.__class__.__name__)
 
@@ -85,6 +136,20 @@ class LocalOpenAIProvider:
                 arguments = {}
             output.append(ToolCall(str(item.get("id") or "tool"), str(function.get("name") or ""), arguments))
         return output
+
+    @staticmethod
+    def _http_error_detail(response: requests.Response) -> str:
+        try:
+            body = response.json()
+        except ValueError:
+            return ""
+        if not isinstance(body, dict):
+            return ""
+        raw = body.get("error") or body.get("message") or ""
+        if isinstance(raw, dict):
+            raw = raw.get("message") or raw.get("type") or ""
+        detail = " ".join(str(raw or "").split())
+        return detail[:200]
 
     def generate(self, request: AIRequest) -> AIResponse:
         if not self.base_url or not self.model:
@@ -117,7 +182,9 @@ class LocalOpenAIProvider:
             raise ProviderUnavailable(f"Local AI request failed: {exc.__class__.__name__}") from exc
         latency_ms = int((time.perf_counter() - started) * 1000)
         if response.status_code >= 400:
-            raise ProviderUnavailable(f"Local AI returned HTTP {response.status_code}.")
+            detail = self._http_error_detail(response)
+            suffix = f": {detail}" if detail else "."
+            raise ProviderUnavailable(f"Local AI returned HTTP {response.status_code}{suffix}")
         try:
             body = response.json()
             choice = (body.get("choices") or [])[0]

@@ -23,6 +23,11 @@ class ProviderRouter:
         self.order = [name.strip().casefold() for name in order if name.strip()]
         self.allow_cloud_fallback = bool(allow_cloud_fallback)
 
+    @staticmethod
+    def _safe_detail(value: object) -> str:
+        """Keep provider diagnostics useful without surfacing large/raw payloads."""
+        return " ".join(str(value or "").split())[:200]
+
     def health(self) -> dict[str, dict]:
         output: dict[str, dict] = {}
         for name in self.order:
@@ -60,7 +65,8 @@ class ProviderRouter:
                 continue
             health = provider.health()
             if not health.configured or not health.reachable:
-                reason = f"{name}:unavailable"
+                detail = self._safe_detail(health.detail)
+                reason = f"{name}:unavailable:{detail}" if detail else f"{name}:unavailable"
                 attempts.append(reason)
                 first_failure = first_failure or reason
                 continue
@@ -85,7 +91,9 @@ class ProviderRouter:
                 first_failure = first_failure or reason
                 continue
             except (ProviderUnavailable, ProviderProtocolError) as exc:
-                reason = f"{name}:{exc.__class__.__name__}"
+                detail = self._safe_detail(exc)
+                base_reason = f"{name}:{exc.__class__.__name__}"
+                reason = f"{base_reason}:{detail}" if detail else base_reason
                 attempts.append(reason)
                 first_failure = first_failure or reason
                 continue
