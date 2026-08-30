@@ -105,12 +105,14 @@ def test_forecast_core_is_deterministic_and_never_mutates_provider_or_purchasing
 
 def test_cultivation_intelligence_endpoint_and_ui_are_exposed():
     router = (ROOT / "backend" / "app" / "routers" / "cultivation_intelligence.py").read_text(encoding="utf-8")
-    registration = (ROOT / "backend" / "app" / "routers" / "receiving_preflight.py").read_text(encoding="utf-8")
+    registration = (ROOT / "backend" / "app" / "routers" / "inventory_reconciliation.py").read_text(encoding="utf-8")
+    receiving = (ROOT / "backend" / "app" / "routers" / "receiving_preflight.py").read_text(encoding="utf-8")
     component = (ROOT / "frontend" / "src" / "components" / "CultivationIntelligencePanel.tsx").read_text(encoding="utf-8")
     plant_inventory = (ROOT / "frontend" / "src" / "components" / "PlantInventory.tsx").read_text(encoding="utf-8")
     assert '@router.get("/intelligence")' in router
     assert "require_facility_capability(context, engine, \"cultivation\")" in router
     assert "router.include_router(cultivation_intelligence_router)" in registration
+    assert "cultivation_intelligence_router" not in receiving
     assert '"/api/v1/inventory/production/plants/intelligence"' in component
     assert "Supply & Nursery Forecast" in component
     assert "CultivationIntelligencePanel" in plant_inventory
