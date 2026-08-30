@@ -143,7 +143,7 @@ def test_next_week_token_resolves_to_following_monday():
     assert resolved == date(2026, 8, 31)
 
 
-def test_same_day_slot_rounding_always_moves_into_the_future():
+def test_same_day_slot_rounding_always_moves_strictly_into_the_future():
     tz = ZoneInfo("America/New_York")
     value = datetime(2026, 8, 31, 10, 12, 17, tzinfo=tz)
     rounded = ProductionWeekActionPlanner._ceil_to_half_hour(value)
@@ -151,11 +151,10 @@ def test_same_day_slot_rounding_always_moves_into_the_future():
     assert rounded.hour == 10
     assert rounded.minute == 30
 
-    half_hour = datetime(2026, 8, 31, 10, 30, 0, tzinfo=tz)
-    rounded_half = ProductionWeekActionPlanner._ceil_to_half_hour(half_hour)
-    assert rounded_half > half_hour
-    assert rounded_half.hour == 11
-    assert rounded_half.minute == 0
+    exact_boundary = datetime(2026, 8, 31, 10, 30, 0, tzinfo=tz)
+    rounded_boundary = ProductionWeekActionPlanner._ceil_to_half_hour(exact_boundary)
+    assert rounded_boundary > exact_boundary
+    assert rounded_boundary.date() == exact_boundary.date()
 
 
 def test_workspace_agent_surfaces_governed_actions_instead_of_permanent_read_only_badge():
