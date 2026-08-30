@@ -10,6 +10,7 @@ from ..database import get_engine
 from ..schemas.inventory import InventoryReceiptCreate
 from ..services.receiving_preflight import ReceivingPreflightService
 from ..services.transfer_control import TransferControlService
+from .cultivation_intelligence import router as cultivation_intelligence_router
 from .inventory import _metrc_context
 
 
@@ -108,3 +109,6 @@ def commit_receiving_preflight(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+router.include_router(cultivation_intelligence_router)
