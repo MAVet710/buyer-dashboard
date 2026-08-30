@@ -166,7 +166,7 @@ def test_cultivation_api_and_frontend_expose_room_harvest_and_cost_depth_without
     operations_ui = (ROOT / "frontend" / "src" / "components" / "CultivationOperationsControl.tsx").read_text(encoding="utf-8")
     migration = (ROOT / "migrations" / "versions" / "0057_cultivation_operations.py").read_text(encoding="utf-8")
     models = (ROOT / "modules" / "cultivation" / "models.py").read_text(encoding="utf-8")
-    for route in ('@router.get("/rooms")', '@router.post("/rooms")', '@router.get("/harvests")', '@router.post("/harvests")', '@router.post("/costs"'):
+    for route in ('@router.get("/rooms")', '@router.post("/rooms")', '@router.get("/harvests")', '@router.post("/harvests"', '@router.post("/costs"'):
         assert route in router
     assert "CultivationOperationsControl" in plant_ui
     assert "HARVEST 360" in operations_ui
