@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createIdentifierCapture, type IdentifierCapture } from "../lib/hardwareCapture";
 import "./camera-scanner.css";
 
-type DetectedBarcode = { rawValue?: string };
+type DetectedBarcode = { rawValue?: string; format?: string };
 type BarcodeDetectorInstance = { detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]> };
 type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorInstance;
 
 type Props = {
   disabled?: boolean;
   onCode: (code: string) => void;
+  onCapture?: (capture: IdentifierCapture) => void;
 };
 
 const FORMATS = ["qr_code", "code_128", "code_39", "ean_13", "upc_a"];
@@ -17,7 +19,7 @@ function detectorConstructor(): BarcodeDetectorConstructor | undefined {
   return (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
 }
 
-export function CameraScanner({ disabled = false, onCode }: Props) {
+export function CameraScanner({ disabled = false, onCode, onCapture }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -72,15 +74,18 @@ export function CameraScanner({ disabled = false, onCode }: Props) {
       }
       try {
         const found = await detector.detect(videoRef.current);
-        const code = String(found[0]?.rawValue ?? "").trim();
+        const raw = found[0];
+        const code = String(raw?.rawValue ?? "").trim();
         if (code) {
           const now = Date.now();
           const previous = lastScanRef.current;
           if (!previous || previous.code !== code || now - previous.at > RESCAN_GUARD_MS) {
             lastScanRef.current = { code, at: now };
+            const capture = createIdentifierCapture(code, "camera", { symbology: raw?.format });
             setError("");
-            setStatus(`Scanned ${code}`);
-            onCode(code);
+            setStatus(`Scanned ${capture.value}`);
+            onCapture?.(capture);
+            onCode(capture.value);
           }
         }
       } catch (exc) {
@@ -97,7 +102,7 @@ export function CameraScanner({ disabled = false, onCode }: Props) {
       if (timerRef.current != null) window.clearTimeout(timerRef.current);
       timerRef.current = null;
     };
-  }, [active, disabled, onCode]);
+  }, [active, disabled, onCapture, onCode]);
 
   async function start() {
     setError("");
