@@ -35,6 +35,17 @@ type AgentDirectory = {
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type AgentSource = { title?: string; source?: string; source_type?: string; authority_level?: number; page_or_section?: string; effective_date?: string; updated_at?: string; url?: string; score?: number };
+type AgentActionResult = {
+  tool?: string;
+  action?: string;
+  week_start?: string;
+  week_end?: string;
+  mutation_performed?: boolean;
+  planned_count?: number;
+  committed_count?: number;
+  blocked_count?: number;
+  policy?: string;
+};
 type AgentRun = {
   answer: string;
   summary?: string;
@@ -49,6 +60,7 @@ type AgentRun = {
   agent: AgentProfile;
   datasets: string[];
   tool_calls?: string[];
+  action_results?: AgentActionResult[];
   data_freshness?: Record<string, string>;
   read_only: boolean;
   sources?: AgentSource[];
@@ -144,6 +156,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
   const provider = directory.data?.provider;
   const sourceList = lastRun?.sources ?? [];
   const freshness = Object.entries(lastRun?.data_freshness ?? {});
+  const actions = lastRun?.action_results ?? [];
 
   return <>
     <button className="workspace-agent-launch" type="button" onClick={() => setOpen(true)} aria-label="Open Doobie Agent">
@@ -154,7 +167,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
       onClose={() => setOpen(false)}
       eyebrow={<><Sparkles size={14}/> DOOBIELOGIC INTELLIGENCE</>}
       title="Doobie Agent"
-      subtitle="Provider-neutral specialists with read-only operational context. Keep working behind this window while the Agent stays open."
+      subtitle="Provider-neutral specialists with governed operational context and narrowly authorized actions. Keep working behind this window while the Agent stays open."
       ariaLabel="Doobie Agent"
       windowKey={`doobie-agent:${operation}`}
       className="workspace-agent-window"
@@ -174,12 +187,13 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
             <div><h3>{selected.name}</h3><p>{selected.description}</p><div className="agent-focus-list">{selected.focus.slice(0, 7).map(item => <span key={item}>{item}</span>)}</div></div>
           </section>
 
-          {history.length ? <section className="agent-conversation" aria-live="polite">{history.map((message, index) => <article className={`agent-message ${message.role}`} key={`${message.role}-${index}`}><span>{message.role === "user" ? "You" : selected.name}</span><p>{message.content}</p></article>)}</section> : <section className="agent-empty-state"><BrainCircuit size={28}/><strong>Ask from the workspace you are working in.</strong><p>{selected.name} receives only sanitized, read-only operational context for this organization and facility.</p></section>}
+          {history.length ? <section className="agent-conversation" aria-live="polite">{history.map((message, index) => <article className={`agent-message ${message.role}`} key={`${message.role}-${index}`}><span>{message.role === "user" ? "You" : selected.name}</span><p>{message.content}</p></article>)}</section> : <section className="agent-empty-state"><BrainCircuit size={28}/><strong>Ask from the workspace you are working in.</strong><p>{selected.name} receives sanitized operational context for this organization and facility. Eligible actions are server-scoped, role-gated, preflighted, and only run when you explicitly request them.</p></section>}
 
           {lastRun?.fallback_used ? <div className="warning-banner agent-provider-warning"><p>Local validation required fallback to {lastRun.provider}. {lastRun.fallback_reason || "The fallback reason is recorded in AI telemetry."}</p></div> : null}
           {lastRun?.missing_data?.length ? <div className="warning-banner agent-provider-warning"><p><strong>Missing data:</strong> {lastRun.missing_data.slice(0, 4).join(" · ")}</p></div> : null}
           {lastRun?.warnings?.length ? <div className="warning-banner agent-provider-warning"><p><strong>Warnings:</strong> {lastRun.warnings.slice(0, 4).join(" · ")}</p></div> : null}
 
+          {actions.length ? <section className="workspace-agent-profile"><div><h3>Operational actions</h3>{actions.slice(0, 4).map((action, index) => <p key={`${action.tool || action.action}-${index}`}><strong>{action.mutation_performed ? "Applied" : "Previewed"}</strong>{action.week_start && action.week_end ? ` · ${action.week_start} → ${action.week_end}` : ""}{typeof action.committed_count === "number" ? ` · ${action.committed_count} scheduled` : ""}{typeof action.blocked_count === "number" && action.blocked_count ? ` · ${action.blocked_count} blocked` : ""}</p>)}</div></section> : null}
           {sourceList.length ? <section className="workspace-agent-profile"><div><h3>Sources</h3>{sourceList.slice(0, 6).map((source, index) => <p key={`${source.title}-${index}`}><strong>{source.title || source.source || "Retrieved source"}</strong>{source.page_or_section ? ` · ${source.page_or_section}` : ""}{source.source_type ? ` · ${source.source_type}` : ""}{source.authority_level ? ` · authority ${source.authority_level}` : ""}</p>)}</div></section> : null}
           {freshness.length ? <section className="workspace-agent-profile"><div><h3>Data freshness</h3><p>{freshness.slice(0, 8).map(([name, value]) => `${name}: ${value}`).join(" · ")}</p></div></section> : null}
 
@@ -187,8 +201,8 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
 
           <section className="agent-composer">
             <label htmlFor="workspace-agent-question">Ask {selected.name}</label>
-            <textarea id="workspace-agent-question" value={question} onChange={event => setQuestion(event.target.value)} placeholder="Ask about the data and workflow on this page…" rows={4}/>
-            <div className="agent-composer-footer"><div><span className="read-only-chip">Read-only</span>{lastRun?.datasets.length ? <span className="dataset-chip">{lastRun.datasets.length} dataset{lastRun.datasets.length === 1 ? "" : "s"} used</span> : null}{lastRun?.grounding ? <span className="dataset-chip">{lastRun.grounding}</span> : null}</div><button className="primary" type="button" disabled={!question.trim() || run.isPending || !provider?.configured} onClick={() => run.mutate()}>{run.isPending ? "Analyzing…" : <><Send size={16}/> Run agent</>}</button></div>
+            <textarea id="workspace-agent-question" value={question} onChange={event => setQuestion(event.target.value)} placeholder="Ask about the data or tell the Agent what you want done…" rows={4}/>
+            <div className="agent-composer-footer"><div><span className="read-only-chip">{lastRun?.read_only === false ? "Action applied" : "Governed"}</span>{lastRun?.datasets.length ? <span className="dataset-chip">{lastRun.datasets.length} dataset{lastRun.datasets.length === 1 ? "" : "s"} used</span> : null}{lastRun?.grounding ? <span className="dataset-chip">{lastRun.grounding}</span> : null}</div><button className="primary" type="button" disabled={!question.trim() || run.isPending || !provider?.configured} onClick={() => run.mutate()}>{run.isPending ? "Working…" : <><Send size={16}/> Run agent</>}</button></div>
             {run.isError ? <div className="form-error">{run.error.message}</div> : null}
           </section>
 
