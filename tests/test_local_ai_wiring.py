@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from backend.app.config import Settings
 from backend.app.services import ai_runtime
+from services.ai.provider import ProviderUnavailable
 from services.ai.providers.local import LocalOpenAIProvider
+from services.ai.retrieval.embeddings import LocalEmbeddingProvider
+from services.ai.router import ProviderRouter
+from services.ai.schemas import AIRequest
 
 
 class _SavedRuntimeService:
@@ -37,6 +41,10 @@ class _HTTPResponse:
 
     def json(self):
         return self._body
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise AssertionError(f"unexpected HTTP {self.status_code}")
 
 
 def _settings() -> Settings:
@@ -117,3 +125,114 @@ def test_local_provider_reports_missing_configured_model(monkeypatch):
     assert health.reachable is False
     assert "configured model not found" in health.detail
     assert "qwen3:8b" in health.detail
+
+
+def test_access_headers_are_sent_for_health_and_chat(monkeypatch):
+    captured = []
+
+    def get(url, **kwargs):
+        captured.append((url, kwargs))
+        return _HTTPResponse({"data": [{"id": "qwen3:14b"}]})
+
+    def post(url, **kwargs):
+        captured.append((url, kwargs))
+        return _HTTPResponse({"choices": [{"message": {"content": "online"}}]})
+
+    monkeypatch.setattr("services.ai.providers.local.requests.get", get)
+    monkeypatch.setattr("services.ai.providers.local.requests.post", post)
+    provider = LocalOpenAIProvider(
+        base_url="https://ai-runtime.doobielogic.io",
+        model="qwen3:14b",
+        access_client_id="service-id",
+        access_client_secret="service-secret",
+    )
+
+    assert provider.health().reachable is True
+    provider.generate(AIRequest("request", "system", [{"role": "user", "content": "hello"}]))
+
+    assert [item[0] for item in captured] == [
+        "https://ai-runtime.doobielogic.io/v1/models",
+        "https://ai-runtime.doobielogic.io/v1/chat/completions",
+    ]
+    for _url, kwargs in captured:
+        assert kwargs["headers"]["CF-Access-Client-Id"] == "service-id"
+        assert kwargs["headers"]["CF-Access-Client-Secret"] == "service-secret"
+
+
+def test_access_headers_are_sent_for_embedding_health_and_generation(monkeypatch):
+    captured = []
+
+    def post(url, **kwargs):
+        captured.append((url, kwargs))
+        return _HTTPResponse({"data": [{"index": 0, "embedding": [0.1, 0.2]}]})
+
+    monkeypatch.setattr("services.ai.retrieval.embeddings.requests.post", post)
+    provider = LocalEmbeddingProvider(
+        base_url="https://ai-runtime.doobielogic.io",
+        model="embeddinggemma:latest",
+        access_client_id="service-id",
+        access_client_secret="service-secret",
+    )
+
+    assert provider.health().reachable is True
+    assert provider.embed(["inventory"])[0] == [0.1, 0.2]
+    assert {item[0] for item in captured} == {"https://ai-runtime.doobielogic.io/v1/embeddings"}
+    for _url, kwargs in captured:
+        assert kwargs["headers"]["CF-Access-Client-Id"] == "service-id"
+        assert kwargs["headers"]["CF-Access-Client-Secret"] == "service-secret"
+
+
+def test_public_runtime_configuration_never_contains_access_secrets():
+    public = ai_runtime._public_runtime_configuration(
+        {
+            "provider_mode": "local_only",
+            "local_llm_base_url": "https://ai-runtime.doobielogic.io",
+            "local_llm_access_client_id": "service-id",
+            "local_llm_access_client_secret": "service-secret",
+            "local_llm_api_key": "api-secret",
+        }
+    )
+
+    serialized = repr(public)
+    assert "service-id" not in serialized
+    assert "service-secret" not in serialized
+    assert "api-secret" not in serialized
+
+
+def test_local_only_router_does_not_call_cloud_provider():
+    class OfflineLocal:
+        name = "local"
+        local = True
+
+        def health(self):
+            from services.ai.schemas import ProviderHealth
+            return ProviderHealth("local", True, False, "qwen3:14b", True, True, True, "ConnectionError")
+
+        def supports_tools(self):
+            return True
+
+        def supports_structured_output(self):
+            return True
+
+        def generate(self, request):
+            raise AssertionError("offline provider must not generate")
+
+    class CloudProvider(OfflineLocal):
+        name = "openai"
+        local = False
+
+        def health(self):
+            raise AssertionError("cloud provider must not be inspected in local-only mode")
+
+    router = ProviderRouter(
+        {"local": OfflineLocal(), "openai": CloudProvider()},
+        order=["local", "openai"],
+        allow_cloud_fallback=False,
+    )
+
+    try:
+        router.generate(AIRequest("request", "system", [{"role": "user", "content": "hello"}]))
+    except ProviderUnavailable as exc:
+        assert "local:unavailable:ConnectionError" in str(exc)
+    else:
+        raise AssertionError("local-only outage must return a bounded unavailable error")
