@@ -15,6 +15,7 @@ class LocalOpenAIProvider:
 
     name = "local"
     local = True
+    max_health_timeout_seconds = 20.0
 
     def __init__(
         self,
@@ -98,7 +99,14 @@ class LocalOpenAIProvider:
         if not self.base_url or not self.model:
             return ProviderHealth(self.name, False, False, self.model, True, True, True, "endpoint/model not configured")
         try:
-            response = requests.get(self._endpoint("models"), headers=self._headers(), timeout=min(self.timeout_seconds, 5.0))
+            # A secured Internet tunnel adds DNS/TLS/Access latency that is not
+            # representative of local loopback. Keep health bounded, but do not
+            # hard-fail a healthy hosted workstation after only five seconds.
+            response = requests.get(
+                self._endpoint("models"),
+                headers=self._headers(),
+                timeout=min(self.timeout_seconds, self.max_health_timeout_seconds),
+            )
             if not response.ok:
                 return ProviderHealth(self.name, True, False, self.model, True, True, True, f"HTTP {response.status_code}")
             try:
