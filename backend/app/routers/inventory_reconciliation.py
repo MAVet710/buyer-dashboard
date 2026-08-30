@@ -20,6 +20,7 @@ from ..config import Settings, get_settings
 from ..database import get_engine
 from ..services.inventory_reconciliation import InventoryMetrcReconciliationService
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
+from .cultivation_intelligence import router as cultivation_intelligence_router
 from .inventory import _metrc_context
 from .receiving_preflight import router as receiving_preflight_router
 
@@ -372,3 +373,4 @@ def wholesale_regulatory_snapshot(
 
 
 router.include_router(receiving_preflight_router)
+router.include_router(cultivation_intelligence_router)
