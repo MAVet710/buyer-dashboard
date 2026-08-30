@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
+from sqlalchemy.orm import Session
 
+from modules.coman.models import AuditEvent, InventoryLot
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
 from services.traceability_dispatcher import TraceabilityDispatcher, TraceabilityDispatchError
 from ..auth import RequestContext, get_request_context
@@ -14,6 +17,7 @@ from ..database import get_engine
 
 router = APIRouter(prefix="/traceability-actions", tags=["traceability-actions"])
 DISPATCH_ROLES = {"dev", "admin", "supervisor", "qa"}
+INVENTORY_ACTION_ROLES = {"dev", "admin", "supervisor", "operator", "qa"}
 
 # The catalog is the provider-neutral vocabulary shown to operators and Doobie Agent.
 # Being present here does not imply that automatic Metrc dispatch is enabled. Provider
@@ -51,6 +55,18 @@ class TraceabilityIntent(BaseModel):
     idempotency_key: str = Field(min_length=3, max_length=255)
 
 
+class InventoryMoveIntent(BaseModel):
+    lot_id: str = Field(min_length=1, max_length=255)
+    destination_location: str = Field(min_length=1, max_length=120)
+    reason: str = Field(default="Operational inventory move", min_length=3, max_length=255)
+    sync_to_metrc: bool = False
+
+
+class InventoryHoldIntent(BaseModel):
+    lot_id: str = Field(min_length=1, max_length=255)
+    reason: str = Field(default="Operational hold", min_length=3, max_length=255)
+
+
 def _catalog_row(name: str, spec: dict[str, Any]) -> dict[str, Any]:
     return {
         "operation_type": name,
@@ -59,6 +75,30 @@ def _catalog_row(name: str, spec: dict[str, Any]) -> dict[str, Any]:
         "roles": sorted(spec["roles"]),
         "action_class": str(spec.get("class") or "compliance"),
     }
+
+
+def _require_inventory_action_role(context: RequestContext) -> None:
+    if context.role.casefold() not in INVENTORY_ACTION_ROLES:
+        raise HTTPException(403, "Your role cannot change inventory operational state.")
+
+
+def _inventory_lot(session: Session, context: RequestContext, lot_id: str) -> InventoryLot:
+    lot = session.get(InventoryLot, lot_id)
+    if not lot or lot.organization_id != context.organization_id or lot.facility_id != context.facility_id:
+        raise HTTPException(404, "Inventory package was not found in the active facility.")
+    return lot
+
+
+def _audit_inventory_action(session: Session, context: RequestContext, lot: InventoryLot, action: str, changes: dict[str, Any]) -> None:
+    session.add(AuditEvent(
+        organization_id=context.organization_id,
+        facility_id=context.facility_id,
+        entity_type="inventory_lot",
+        entity_id=lot.id,
+        action=action,
+        actor=context.user_id,
+        changes_json=json.dumps(changes, sort_keys=True),
+    ))
 
 
 @router.get("/catalog")
@@ -74,6 +114,104 @@ def action_catalog(context: RequestContext = Depends(get_request_context)):
         },
         "execution_boundary": "Validated intents enter the durable provider-neutral queue. A separately authorized provider dispatch is required; accepted still does not mean reconciled/verified.",
     }
+
+
+@router.post("/inventory/move")
+def move_inventory(
+    payload: InventoryMoveIntent,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    """Move a package between operational locations inside the same facility.
+
+    This is deliberately distinct from an inter-facility transfer. Newly reviewed
+    Metrc package-location writes remain fail-closed until the deterministic
+    provider payload/readback contract is promoted, so a caller cannot silently
+    claim a state-system move that DoobieLogic has not actually verified.
+    """
+    _require_inventory_action_role(context)
+    destination = payload.destination_location.strip()
+    if not destination:
+        raise HTTPException(422, "Choose a destination room or location.")
+    if payload.sync_to_metrc:
+        raise HTTPException(
+            409,
+            "Metrc package Move is documented but automatic execution is still locked pending exact payload/readback verification. Complete the move in Metrc or use DoobieLogic-only operational location until that contract is promoted.",
+        )
+    with Session(engine) as session, session.begin():
+        lot = _inventory_lot(session, context, payload.lot_id)
+        previous = str(lot.location_code or "").strip()
+        if previous.casefold() == destination.casefold():
+            return {
+                "lot_id": lot.id,
+                "package_id": lot.compliance_package_id or lot.lot_code,
+                "previous_location": previous,
+                "location": previous,
+                "status": str(lot.status or ""),
+                "metrc_status": "not_requested",
+                "changed": False,
+            }
+        lot.location_code = destination
+        _audit_inventory_action(session, context, lot, "inventory_location_moved", {
+            "previous_location": previous,
+            "destination_location": destination,
+            "reason": payload.reason.strip(),
+            "state_system_sync": False,
+        })
+        session.flush()
+        return {
+            "lot_id": lot.id,
+            "package_id": lot.compliance_package_id or lot.lot_code,
+            "previous_location": previous,
+            "location": destination,
+            "status": str(lot.status or ""),
+            "metrc_status": "not_requested",
+            "changed": True,
+        }
+
+
+@router.post("/inventory/hold")
+def hold_inventory(
+    payload: InventoryHoldIntent,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_inventory_action_role(context)
+    with Session(engine) as session, session.begin():
+        lot = _inventory_lot(session, context, payload.lot_id)
+        previous = str(lot.status or "available")
+        if previous.casefold() == "hold":
+            return {"lot_id": lot.id, "status": "hold", "changed": False}
+        lot.status = "hold"
+        _audit_inventory_action(session, context, lot, "inventory_hold_applied", {
+            "previous_status": previous,
+            "status": "hold",
+            "reason": payload.reason.strip(),
+        })
+        session.flush()
+        return {"lot_id": lot.id, "status": "hold", "changed": True}
+
+
+@router.post("/inventory/release-hold")
+def release_inventory_hold(
+    payload: InventoryHoldIntent,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_inventory_action_role(context)
+    with Session(engine) as session, session.begin():
+        lot = _inventory_lot(session, context, payload.lot_id)
+        previous = str(lot.status or "available")
+        if previous.casefold() != "hold":
+            raise HTTPException(409, "Only an operational Hold can be released here. QA quarantine, failed testing, and other regulatory states must use their controlled release workflow.")
+        lot.status = "available"
+        _audit_inventory_action(session, context, lot, "inventory_hold_released", {
+            "previous_status": previous,
+            "status": "available",
+            "reason": payload.reason.strip(),
+        })
+        session.flush()
+        return {"lot_id": lot.id, "status": "available", "changed": True}
 
 
 @router.post("/queue", status_code=201)
