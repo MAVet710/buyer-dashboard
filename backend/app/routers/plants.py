@@ -13,7 +13,16 @@ from services.metrc_production import (
 from ..auth import RequestContext, get_request_context, require_facility_capability
 from ..config import Settings, get_settings
 from ..database import get_engine
-from ..schemas.plants import PlantCreate, PlantEventItem, PlantItem, PlantTransition
+from ..schemas.plants import (
+    CultivationCostCreate,
+    CultivationHarvestCreate,
+    CultivationHarvestTransition,
+    CultivationRoomUpsert,
+    PlantCreate,
+    PlantEventItem,
+    PlantItem,
+    PlantTransition,
+)
 from ..services.cultivation_reconciliation import CultivationMetrcReconciliationService
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
 
@@ -88,6 +97,114 @@ def list_plants(
             context.organization_id, context.facility_id, phase, room, search
         )
     ]
+
+
+@router.get("/rooms")
+def cultivation_rooms(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_cultivation(context, engine)
+    return {"items": CultivationService(engine).list_rooms(context.organization_id, context.facility_id)}
+
+
+@router.post("/rooms")
+def upsert_cultivation_room(
+    payload: CultivationRoomUpsert,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_write(context)
+    require_cultivation(context, engine)
+    try:
+        return CultivationService(engine).upsert_room(
+            context.organization_id,
+            context.facility_id,
+            **payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/harvests")
+def cultivation_harvests(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_cultivation(context, engine)
+    return {"items": CultivationService(engine).list_harvests(context.organization_id, context.facility_id)}
+
+
+@router.post("/harvests", status_code=201)
+def create_cultivation_harvest(
+    payload: CultivationHarvestCreate,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_write(context)
+    require_cultivation(context, engine)
+    try:
+        return CultivationService(engine).create_harvest(
+            context.organization_id,
+            context.facility_id,
+            actor=context.user_id,
+            **payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/harvests/{harvest_id}")
+def cultivation_harvest_detail(
+    harvest_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_cultivation(context, engine)
+    try:
+        return CultivationService(engine).harvest_detail(context.organization_id, context.facility_id, harvest_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/harvests/{harvest_id}/transition")
+def transition_cultivation_harvest(
+    harvest_id: str,
+    payload: CultivationHarvestTransition,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_write(context)
+    require_cultivation(context, engine)
+    try:
+        return CultivationService(engine).transition_harvest(
+            context.organization_id,
+            context.facility_id,
+            harvest_id,
+            actor=context.user_id,
+            **payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/costs", status_code=201)
+def add_cultivation_cost(
+    payload: CultivationCostCreate,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_write(context)
+    require_cultivation(context, engine)
+    try:
+        return CultivationService(engine).add_cost(
+            context.organization_id,
+            context.facility_id,
+            actor=context.user_id,
+            **payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/regulatory")
