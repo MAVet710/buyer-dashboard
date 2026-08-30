@@ -15,20 +15,29 @@ from ..database import get_engine
 router = APIRouter(prefix="/traceability-actions", tags=["traceability-actions"])
 DISPATCH_ROLES = {"dev", "admin", "supervisor", "qa"}
 
+# The catalog is the provider-neutral vocabulary shown to operators and Doobie Agent.
+# Being present here does not imply that automatic Metrc dispatch is enabled. Provider
+# writes still require a separate reviewed write contract and exact tenant/facility scope.
 ACTION_CATALOG: dict[str, dict[str, Any]] = {
-    "package_create": {"entity_type": "package", "required": ("source_ids", "quantity", "unit"), "roles": {"dev", "admin", "supervisor", "operator", "qa"}},
-    "package_finish": {"entity_type": "package", "required": (), "roles": {"dev", "admin", "supervisor", "operator", "qa"}},
-    "package_adjust": {"entity_type": "package", "required": ("quantity_delta", "unit", "reason"), "roles": {"dev", "admin", "supervisor", "operator", "qa"}},
-    "package_split": {"entity_type": "package", "required": ("quantity", "unit"), "roles": {"dev", "admin", "supervisor", "operator"}},
-    "package_merge": {"entity_type": "package", "required": ("source_ids",), "roles": {"dev", "admin", "supervisor"}},
-    "transfer_create": {"entity_type": "transfer", "required": ("destination_license", "package_ids"), "roles": {"dev", "admin", "supervisor"}},
-    "manifest_update": {"entity_type": "transfer", "required": ("manifest_reference",), "roles": {"dev", "admin", "supervisor"}},
-    "production_transform": {"entity_type": "production_order", "required": ("input_package_ids", "output_package_ids"), "roles": {"dev", "admin", "planner", "supervisor", "qa"}},
-    "sales_report": {"entity_type": "sales_period", "required": ("period_start", "period_end"), "roles": {"dev", "admin", "supervisor"}},
-    "lab_test_update": {"entity_type": "package", "required": ("lab_status",), "roles": {"dev", "admin", "supervisor", "qa"}},
-    "plant_move": {"entity_type": "plant", "required": ("destination_location",), "roles": {"dev", "admin", "supervisor", "operator"}},
-    "plant_harvest": {"entity_type": "harvest", "required": ("plant_ids", "harvest_name"), "roles": {"dev", "admin", "supervisor", "operator"}},
-    "waste_record": {"entity_type": "waste", "required": ("quantity", "unit", "reason"), "roles": {"dev", "admin", "supervisor", "operator", "qa"}},
+    "package_create": {"entity_type": "package", "required": ("source_ids", "quantity", "unit"), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
+    "package_move": {"entity_type": "package", "required": ("destination_location",), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
+    "package_finish": {"entity_type": "package", "required": (), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
+    "package_unfinish": {"entity_type": "package", "required": (), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
+    "package_adjust": {"entity_type": "package", "required": ("quantity_delta", "unit", "reason"), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
+    "package_item_update": {"entity_type": "package", "required": ("item",), "roles": {"dev", "admin", "supervisor", "qa"}, "class": "compliance"},
+    "package_note_update": {"entity_type": "package", "required": ("note",), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
+    "package_split": {"entity_type": "package", "required": ("quantity", "unit"), "roles": {"dev", "admin", "supervisor", "operator"}, "class": "hybrid"},
+    "package_merge": {"entity_type": "package", "required": ("source_ids",), "roles": {"dev", "admin", "supervisor"}, "class": "hybrid"},
+    "transfer_create": {"entity_type": "transfer", "required": ("destination_license", "package_ids"), "roles": {"dev", "admin", "supervisor"}, "class": "hybrid"},
+    "manifest_update": {"entity_type": "transfer", "required": ("manifest_reference",), "roles": {"dev", "admin", "supervisor"}, "class": "compliance"},
+    "production_transform": {"entity_type": "production_order", "required": ("input_package_ids", "output_package_ids"), "roles": {"dev", "admin", "planner", "supervisor", "qa"}, "class": "hybrid"},
+    "sales_report": {"entity_type": "sales_period", "required": ("period_start", "period_end"), "roles": {"dev", "admin", "supervisor"}, "class": "compliance"},
+    "lab_test_update": {"entity_type": "package", "required": ("lab_status",), "roles": {"dev", "admin", "supervisor", "qa"}, "class": "compliance"},
+    "plant_move": {"entity_type": "plant", "required": ("destination_location",), "roles": {"dev", "admin", "supervisor", "operator"}, "class": "hybrid"},
+    "plant_batch_move": {"entity_type": "plant_batch", "required": ("destination_location",), "roles": {"dev", "admin", "supervisor", "operator"}, "class": "hybrid"},
+    "harvest_move": {"entity_type": "harvest", "required": ("destination_location",), "roles": {"dev", "admin", "supervisor", "operator"}, "class": "hybrid"},
+    "plant_harvest": {"entity_type": "harvest", "required": ("plant_ids", "harvest_name"), "roles": {"dev", "admin", "supervisor", "operator"}, "class": "hybrid"},
+    "waste_record": {"entity_type": "waste", "required": ("quantity", "unit", "reason"), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
 }
 
 
@@ -43,7 +52,13 @@ class TraceabilityIntent(BaseModel):
 
 
 def _catalog_row(name: str, spec: dict[str, Any]) -> dict[str, Any]:
-    return {"operation_type": name, "entity_type": spec["entity_type"], "required_fields": list(spec["required"]), "roles": sorted(spec["roles"])}
+    return {
+        "operation_type": name,
+        "entity_type": spec["entity_type"],
+        "required_fields": list(spec["required"]),
+        "roles": sorted(spec["roles"]),
+        "action_class": str(spec.get("class") or "compliance"),
+    }
 
 
 @router.get("/catalog")
@@ -53,6 +68,10 @@ def action_catalog(context: RequestContext = Depends(get_request_context)):
         "actions": [_catalog_row(name, spec) for name, spec in ACTION_CATALOG.items() if role in spec["roles"]],
         "automatic_dispatch_operations": ["package_finish", "package_adjust"],
         "dispatch_roles": sorted(DISPATCH_ROLES),
+        "move_semantics": {
+            "move": "Change location within the same licensed facility.",
+            "transfer": "Move inventory between licensed facilities through the transfer/manifest workflow.",
+        },
         "execution_boundary": "Validated intents enter the durable provider-neutral queue. A separately authorized provider dispatch is required; accepted still does not mean reconciled/verified.",
     }
 
