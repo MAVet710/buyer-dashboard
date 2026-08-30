@@ -17,7 +17,7 @@ from .datasets import DatasetAccessContext
 
 
 ACTION_ROLES = {"dev", "admin", "planner", "supervisor"}
-
+MATERIAL_STAGING_WARNING = "material_unreserved"
 
 ActionHandler = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -42,12 +42,11 @@ class ActionToolSpec:
 
 
 class AgentActionRegistry:
-    """Server-authorized operational actions available to selected Agent profiles.
+    """Server-authorized operational actions for selected Agent profiles.
 
-    Unlike the read-only ToolRegistry, these handlers may mutate application state.
-    Tenant/facility/user scope is captured from DatasetAccessContext; the model never
-    supplies scope. Every mutating handler must independently enforce role, explicit
-    user intent, and the domain service's normal preflight/commit boundary.
+    Read tools remain separate. Action scope comes only from trusted request context;
+    the model cannot choose organization/facility/user scope. Mutations require an
+    authorized role plus explicit user intent and must reuse canonical domain services.
     """
 
     def __init__(self, *, profile: AgentProfile, access: DatasetAccessContext, question: str) -> None:
@@ -74,24 +73,26 @@ class AgentActionRegistry:
             ActionToolSpec(
                 name="production_schedule_week",
                 description=(
-                    "Build a deterministic production week from unscheduled production orders using BOM cycle/labor standards, "
-                    "available inventory/material readiness, configured crew, active machines, the existing production calendar, QA, "
-                    "compliance checkpoints and due dates. Set commit=true only when the user explicitly asks to schedule, map, place, "
-                    "apply or put the plan on the production calendar. Never accept warnings or blockers automatically."
+                    "Build a deterministic production week using production orders, BOM standards, available inventory, existing "
+                    "reservations, crew, active machines, the current calendar, QA and due dates. The tool may commit only placements "
+                    "whose materials are already reserved and whose canonical schedule preflight has no actionable warnings. If material "
+                    "is available but not reserved, return a proposed time plus the exact staging lots and require a human-selected work "
+                    "location before any reservation or Metrc package-location move occurs. Never guess a work location, buy missing "
+                    "material, reserve material silently, or auto-accept warnings/blockers."
                 ),
                 parameters={
                     "type": "object",
                     "properties": {
                         "week_start": {
                             "type": "string",
-                            "description": "Optional YYYY-MM-DD local facility date. Omit to start on the next available business day.",
+                            "description": "Optional YYYY-MM-DD facility-local date. Omit to start on the next available business day.",
                         },
                         "days": {"type": "integer", "minimum": 1, "maximum": 7, "default": 5},
                         "max_runs": {"type": "integer", "minimum": 1, "maximum": 20, "default": 12},
                         "commit": {
                             "type": "boolean",
                             "default": False,
-                            "description": "Persist safe placements to the production calendar. Requires explicit mutation language from the user.",
+                            "description": "Commit only fully ready placements. Staging-required placements remain proposals pending human location input.",
                         },
                     },
                 },
@@ -128,12 +129,6 @@ class AgentActionRegistry:
         return result
 
     def deterministic_request(self) -> tuple[str, dict[str, Any]] | None:
-        """Recognize high-confidence production-calendar requests without an LLM.
-
-        This lets a request such as "map out a week of production on the calendar
-        with available inventory" execute through deterministic application logic
-        even when the model provider is unavailable.
-        """
         if "production_schedule_week" not in self._tools:
             return None
         text = self.question.casefold()
@@ -142,28 +137,34 @@ class AgentActionRegistry:
         has_production = any(token in text for token in ("production", "run", "runs", "jobs", "co-man", "coman"))
         if not (has_period and has_schedule_target and has_production):
             return None
-        return "production_schedule_week", {"commit": self._explicit_mutation_intent(text), "days": 5, "max_runs": 12}
+        return "production_schedule_week", {
+            "commit": self._explicit_mutation_intent(text),
+            "days": 5,
+            "max_runs": 12,
+        }
 
     @staticmethod
     def _explicit_mutation_intent(text: str) -> bool:
-        mutation_phrases = (
-            "schedule it",
-            "schedule the",
-            "schedule a",
-            "put it on the calendar",
-            "put them on the calendar",
-            "put the plan on the calendar",
-            "add it to the calendar",
-            "add them to the calendar",
-            "map out",
-            "map the",
-            "place it on",
-            "place them on",
-            "commit",
-            "apply the plan",
-            "build the calendar",
+        return any(
+            phrase in text
+            for phrase in (
+                "schedule it",
+                "schedule the",
+                "schedule a",
+                "put it on the calendar",
+                "put them on the calendar",
+                "put the plan on the calendar",
+                "add it to the calendar",
+                "add them to the calendar",
+                "map out",
+                "map the",
+                "place it on",
+                "place them on",
+                "commit",
+                "apply the plan",
+                "build the calendar",
+            )
         )
-        return any(phrase in text for phrase in mutation_phrases)
 
     def _production_schedule_week(self, args: dict[str, Any]) -> dict[str, Any]:
         commit = bool(args.get("commit", False))
@@ -173,8 +174,7 @@ class AgentActionRegistry:
                 "message": "The user did not explicitly ask Doobie Agent to change the production calendar.",
                 "mutation_performed": False,
             }
-        planner = ProductionWeekActionPlanner(self.access)
-        return planner.plan(
+        return ProductionWeekActionPlanner(self.access).plan(
             week_start=str(args.get("week_start") or ""),
             days=max(1, min(int(args.get("days") or 5), 7)),
             max_runs=max(1, min(int(args.get("max_runs") or 12), 20)),
@@ -186,32 +186,43 @@ class AgentActionRegistry:
     def format_result(result: dict[str, Any]) -> str:
         if result.get("error"):
             return str(result.get("message") or result.get("detail") or "The requested Agent action could not be completed.")
-        planned = list(result.get("placements") or [])
-        blocked = list(result.get("blocked") or [])
+        placements = list(result.get("placements") or [])
+        staging = [row for row in placements if row.get("requires_human_input")]
         committed = int(result.get("committed_count") or 0)
         start = str(result.get("week_start") or "")
         end = str(result.get("week_end") or "")
         if committed:
-            opening = f"I mapped {committed} production run{'s' if committed != 1 else ''} onto the production calendar for {start} through {end}."
-        elif planned:
-            opening = f"I built a {len(planned)}-run production plan for {start} through {end}; this was a preview and did not change the calendar."
+            opening = f"I scheduled {committed} fully ready production run{'s' if committed != 1 else ''} for {start} through {end}."
+        elif placements:
+            opening = f"I built a {len(placements)}-run production plan for {start} through {end}."
         else:
             opening = f"I could not place any additional production runs safely for {start} through {end}."
         details = []
-        for row in planned[:6]:
-            status = "scheduled" if row.get("committed") else "planned"
+        for row in placements[:6]:
+            state = "scheduled" if row.get("committed") else "needs work location" if row.get("requires_human_input") else "planned"
             details.append(
                 f"{row.get('order_number')}: {row.get('scheduled_start_at')} → {row.get('scheduled_end_at')}"
-                f" · {row.get('machine_name') or 'no machine'} · {row.get('planned_people', 0)} people · {status}"
+                f" · {row.get('machine_name') or 'no machine'} · {row.get('planned_people', 0)} people · {state}"
             )
-        blocked_text = ""
-        if blocked:
-            blocked_text = f" {len(blocked)} run{'s' if len(blocked) != 1 else ''} stayed unscheduled because of material, capacity, QA, due-date, or missing-standard constraints."
-        return " ".join([opening, *details]) + blocked_text
+        input_text = ""
+        if staging:
+            input_text = (
+                f" {len(staging)} run{'s' if len(staging) != 1 else ''} have inventory available but need staging. "
+                "Choose the production/work location before Doobie reserves those lots or prepares the corresponding Metrc package move."
+            )
+        blocked = int(result.get("blocked_count") or 0)
+        blocked_text = f" {blocked} additional run{'s' if blocked != 1 else ''} remain blocked." if blocked else ""
+        return " ".join([opening, *details]) + input_text + blocked_text
 
 
 class ProductionWeekActionPlanner:
-    """Greedy, deterministic week planner that reuses the canonical schedule preflight."""
+    """Greedy deterministic week planner that reuses canonical schedule preflight.
+
+    A material_unreserved warning is special: it proves material exists but does not
+    prove physical staging. Those runs may receive a proposed slot, but the planner
+    never reserves them and never commits them until a human supplies the destination
+    work location and the Metrc package move is completed/verified by its own workflow.
+    """
 
     def __init__(self, access: DatasetAccessContext) -> None:
         if access.engine is None:
@@ -224,7 +235,6 @@ class ProductionWeekActionPlanner:
         tz = self._facility_timezone()
         start_day = self._resolve_start_day(week_start, tz)
         work_days = self._business_days(start_day, days)
-        end_day = work_days[-1]
         current = self.schedule.list_current(self.access.organization_id, self.access.facility_id)
         scheduled_order_ids = {str(row.get("production_order_id") or "") for row in current}
         orders = self._candidate_orders(scheduled_order_ids)[:max_runs]
@@ -257,7 +267,6 @@ class ProductionWeekActionPlanner:
                 order=order,
                 duration_hours=duration,
                 expected_labor_hours=expected_labor,
-                resource_category=resource_category,
                 machine_candidates=machine_candidates,
                 work_days=work_days,
                 crew=crew,
@@ -265,9 +274,11 @@ class ProductionWeekActionPlanner:
                 reason=reason,
             )
             if preview is None or slot is None:
-                blocked.append(self._blocked(order, "no_safe_slot", "No warning-free material/capacity/QA slot was found in the requested week."))
+                blocked.append(self._blocked(order, "no_safe_slot", "No safe material/capacity/QA slot was found in the requested week."))
                 continue
 
+            actionable = [row for row in preview.get("warnings") or [] if row.get("severity") != "info"]
+            staging_only = bool(actionable) and all(row.get("code") == MATERIAL_STAGING_WARNING for row in actionable)
             proposed = preview["proposed"]
             row = {
                 "order_id": order.id,
@@ -280,6 +291,9 @@ class ProductionWeekActionPlanner:
                 "planned_people": int(proposed.get("planned_people") or 0),
                 "preview_key": preview["preview_key"],
                 "warnings": list(preview.get("warnings") or []),
+                "requires_human_input": staging_only,
+                "required_input": "destination_work_location" if staging_only else "",
+                "staging_lots": self._staging_lots(snapshot) if staging_only else [],
                 "committed": False,
             }
             placements.append(row)
@@ -293,6 +307,8 @@ class ProductionWeekActionPlanner:
         commit_errors: list[dict[str, Any]] = []
         if commit:
             for row in placements:
+                if row["requires_human_input"]:
+                    continue
                 try:
                     committed = self.schedule.commit(
                         organization_id=self.access.organization_id,
@@ -313,28 +329,69 @@ class ProductionWeekActionPlanner:
                     commit_errors.append({"order_id": row["order_id"], "order_number": row["order_number"], "message": str(exc)})
 
         committed_count = sum(bool(row.get("committed")) for row in placements)
+        human_input_count = sum(bool(row.get("requires_human_input")) for row in placements)
         return {
             "action": "production_schedule_week",
             "week_start": start_day.isoformat(),
-            "week_end": end_day.isoformat(),
+            "week_end": work_days[-1].isoformat(),
             "days": [value.isoformat() for value in work_days],
             "requested_commit": commit,
             "mutation_performed": committed_count > 0,
             "planned_count": len(placements),
             "committed_count": committed_count,
+            "human_input_required_count": human_input_count,
             "blocked_count": len(blocked),
             "placements": placements,
             "blocked": blocked,
             "commit_errors": commit_errors,
-            "policy": "Only warning-free placements are eligible for Agent commit; warnings and blockers are never auto-accepted.",
+            "staging_policy": (
+                "Available-but-unreserved material is never reserved by the weekly planner. A human must select the destination work "
+                "location first; reservation and the Metrc package_move then run through their own governed workflow and provider readback."
+            ),
         }
+
+    def _staging_lots(self, snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+        requirements = snapshot.get("requirements") or []
+        if not requirements:
+            return []
+        lots = self.schedule.repo.list_inventory_lots(self.access.organization_id, self.access.facility_id)
+        reservations = self.schedule.repo.list_material_reservations(self.access.organization_id, self.access.facility_id)
+        balances = {lot.id: float(self.schedule.repo.inventory_balance(self.access.organization_id, lot.id)) for lot in lots}
+        reserved_by_lot: dict[str, float] = {}
+        for reservation in reservations:
+            if reservation.status == "reserved":
+                reserved_by_lot[reservation.lot_id] = reserved_by_lot.get(reservation.lot_id, 0.0) + float(reservation.quantity or 0.0)
+        rows: list[dict[str, Any]] = []
+        for requirement in requirements:
+            remaining = float(requirement.get("quantity") or 0.0)
+            product_id = str(requirement.get("product_id") or "")
+            candidates = [lot for lot in lots if lot.product_id == product_id and lot.status in {"available", "released"}]
+            candidates.sort(key=lambda lot: (lot.received_at is not None, lot.received_at or datetime.min.replace(tzinfo=timezone.utc), lot.created_at))
+            for lot in candidates:
+                available = max(0.0, balances.get(lot.id, 0.0) - reserved_by_lot.get(lot.id, 0.0))
+                take = min(remaining, available)
+                if take <= 0:
+                    continue
+                rows.append({
+                    "lot_id": lot.id,
+                    "lot_code": lot.lot_code,
+                    "package_id": lot.compliance_package_id or lot.lot_code,
+                    "product_id": product_id,
+                    "product_name": requirement.get("product_name"),
+                    "quantity_to_stage": round(take, 6),
+                    "unit": requirement.get("unit"),
+                    "current_location": lot.location_code,
+                })
+                remaining -= take
+                if remaining <= 1e-9:
+                    break
+        return rows
 
     def _facility_timezone(self) -> ZoneInfo:
         with Session(self.engine) as session:
             facility = session.get(Facility, self.access.facility_id)
-        name = str(getattr(facility, "timezone_name", "") or "America/New_York")
         try:
-            return ZoneInfo(name)
+            return ZoneInfo(str(getattr(facility, "timezone_name", "") or "America/New_York"))
         except Exception:
             return ZoneInfo("America/New_York")
 
@@ -425,11 +482,10 @@ class ProductionWeekActionPlanner:
         expected_machine_hours: float,
     ) -> list[tuple[FacilityMachine | None, MachineModel | None]]:
         if resource_category:
-            matched = [
+            return [
                 pair for pair in machines
                 if ProductionScheduleService._category_matches(resource_category, str(pair[1].category or ""))
             ]
-            return matched
         if expected_machine_hours > 0 and machines:
             return list(machines)
         return [(None, None)]
@@ -440,7 +496,6 @@ class ProductionWeekActionPlanner:
         order: ProductionOrder,
         duration_hours: float,
         expected_labor_hours: float,
-        resource_category: str,
         machine_candidates: list[tuple[FacilityMachine | None, MachineModel | None]],
         work_days: list[date],
         crew: dict[date, dict[str, float]],
@@ -458,17 +513,13 @@ class ProductionWeekActionPlanner:
                     shift_hours = max(0.5, float(crew_day["shift_hours"] or 0))
                 else:
                     shift_hours = float(crew_day["shift_hours"] if crew_day else 8.0)
-                day_start = datetime.combine(work_day, time(hour=8), tzinfo=tz)
-                day_end = day_start + timedelta(hours=shift_hours)
-                cursor = day_start
+                cursor = datetime.combine(work_day, time(hour=8), tzinfo=tz)
+                day_end = cursor + timedelta(hours=shift_hours)
                 duration = timedelta(hours=duration_hours)
                 while cursor + duration <= day_end:
                     end = cursor + duration
                     machine_id = machine.id if machine is not None else None
-                    if self._machine_conflict(simulated, machine_id, cursor, end):
-                        cursor += timedelta(minutes=30)
-                        continue
-                    if self._crew_conflict(simulated, crew_day, planned_people, cursor, end):
+                    if self._machine_conflict(simulated, machine_id, cursor, end) or self._crew_conflict(simulated, crew_day, planned_people, cursor, end):
                         cursor += timedelta(minutes=30)
                         continue
                     preview = self.schedule.preview(
@@ -481,14 +532,10 @@ class ProductionWeekActionPlanner:
                         planned_people=planned_people,
                         reason=reason,
                     )
-                    if int(preview.get("blocker_count") or 0) == 0 and int(preview.get("warning_count") or 0) == 0:
-                        return preview, {
-                            "start": cursor,
-                            "end": end,
-                            "machine_id": machine_id,
-                            "planned_people": planned_people,
-                            "resource_category": resource_category,
-                        }
+                    actionable = [row for row in preview.get("warnings") or [] if row.get("severity") != "info"]
+                    safe = not actionable or all(row.get("code") == MATERIAL_STAGING_WARNING for row in actionable)
+                    if int(preview.get("blocker_count") or 0) == 0 and safe:
+                        return preview, {"start": cursor, "end": end, "machine_id": machine_id, "planned_people": planned_people}
                     cursor += timedelta(minutes=30)
         return None, None
 
@@ -501,14 +548,10 @@ class ProductionWeekActionPlanner:
     @staticmethod
     def _normalize_placement(row: dict[str, Any], tz: ZoneInfo) -> dict[str, Any]:
         def local(value: Any) -> datetime:
-            if isinstance(value, datetime):
-                dt = value
-            else:
-                dt = datetime.fromisoformat(str(value))
+            dt = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=tz)
             return dt.astimezone(tz)
-
         return {
             "start": local(row["scheduled_start_at"]),
             "end": local(row["scheduled_end_at"]),
@@ -524,10 +567,7 @@ class ProductionWeekActionPlanner:
     def _machine_conflict(cls, placements: list[dict[str, Any]], machine_id: str | None, start: datetime, end: datetime) -> bool:
         if not machine_id:
             return False
-        return any(
-            row.get("machine_id") == machine_id and cls._overlap(start, end, row["start"], row["end"])
-            for row in placements
-        )
+        return any(row.get("machine_id") == machine_id and cls._overlap(start, end, row["start"], row["end"]) for row in placements)
 
     @classmethod
     def _crew_conflict(
