@@ -63,6 +63,9 @@ class RecallBlastRadiusService:
             current_depth = depth[current]
             for edge in adjacency.get(current, []):
                 target = str(edge["to"])
+                target_node = nodes.get(target) or {}
+                if target_node.get("type") == "transfer" and str(target_node.get("status") or "").casefold() == "cancelled":
+                    continue
                 if target in depth:
                     continue
                 depth[target] = current_depth + 1
