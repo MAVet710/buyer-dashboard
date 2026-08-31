@@ -61,6 +61,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
   if (operation === "Production Ops") {
     if (category === "Inventory") return [
       { label: "Materials", page: "Production Inventory" },
+      { label: "Transfers", page: "Production Inventory Transfers" },
       { label: "Package 360", page: "Package 360" },
       { label: "Products", page: "Production Product Master" },
       { label: "Inventory Audits", page: "Inventory Audits" },
@@ -95,6 +96,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
   ];
   if (category === "Inventory") return [
     { label: "Inventory", page: "Inventory" },
+    { label: "Transfers", page: "Retail Inventory Transfers" },
     { label: "Product 360", page: "Retail Product 360" },
     { label: "Package 360", page: "Package 360" },
     { label: "Inventory Audits", page: "Inventory Audits" },
@@ -136,7 +138,7 @@ function categoryForPage(page: string, _operation: OperationMode): PrimaryCatego
   if (["Compliance", "Compliance Q&A", "Traceability Actions", "Product Name Mapper", "Nomenclature Mapper", "Label Studio", "MA Flower Equivalency"].includes(page)) return "Compliance";
   if (["Sales & Category Trends", "Reports", "Executive Reports"].includes(page)) return "Reports";
   if (["Location Settings", "Data & Settings", "Admin", "Admin Tools", "Integrations", "AI & METRC Integrations", "METRC Integrations"].includes(page)) return "Settings";
-  if (["Inventory", "Retail Product Master", "Retail Product 360", "Package 360", "Retail Catalog Admin", "Inventory Audits", "Slow Movers", "Production Inventory", "Production Product Master"].includes(page)) return "Inventory";
+  if (["Inventory", "Retail Inventory Transfers", "Retail Product Master", "Retail Product 360", "Package 360", "Retail Catalog Admin", "Inventory Audits", "Slow Movers", "Production Inventory", "Production Inventory Transfers", "Production Product Master"].includes(page)) return "Inventory";
   return "Inventory";
 }
 
