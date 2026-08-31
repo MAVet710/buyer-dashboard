@@ -156,6 +156,13 @@ class AgentActionRegistry:
 
     @staticmethod
     def _explicit_mutation_intent(text_value: str) -> bool:
+        structured_build_out = (
+            "build out" in text_value
+            and any(token in text_value for token in ("production plan", "production scheme", "production schedule", "run plan"))
+            and any(token in text_value for token in ("calendar", "schedule", "scheduling"))
+        )
+        if structured_build_out:
+            return True
         return any(
             phrase in text_value
             for phrase in (
@@ -177,7 +184,6 @@ class AgentActionRegistry:
                 "apply the plan",
                 "apply it to the calendar",
                 "build the calendar",
-                "build out",
                 "build a production plan",
                 "build a production scheme",
                 "build a production schedule",
