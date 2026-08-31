@@ -80,10 +80,14 @@ jobs:
       - name: Install Chromium for operator alpha
         working-directory: frontend
         run: pnpm exec playwright install --with-deps chromium
-      - name: Seed integrated operator alpha facility
+      - name: Migrate and seed integrated operator alpha facility
         run: |
           set -euo pipefail
           export DATABASE_URL=sqlite+pysqlite:///./operator-alpha.db
+          rm -f operator-alpha.db
+          alembic upgrade head
+          alembic current | tee /tmp/operator-alpha-alembic.txt
+          test -s /tmp/operator-alpha-alembic.txt
           python scripts/seed_operator_alpha.py | tee /tmp/operator-alpha.env
           test -s /tmp/operator-alpha.env
           grep -q '^ALPHA_ORGANIZATION_ID=' /tmp/operator-alpha.env
@@ -150,6 +154,7 @@ jobs:
             frontend/test-results
             /tmp/operator-alpha-api.log
             /tmp/operator-alpha-web.log
+            /tmp/operator-alpha-alembic.txt
           if-no-files-found: warn
           retention-days: 14
   containers:
