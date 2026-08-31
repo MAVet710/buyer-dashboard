@@ -61,8 +61,6 @@ class RecallBlastRadiusService:
         while queue:
             current = queue.popleft()
             current_depth = depth[current]
-            if current_depth >= max_depth:
-                continue
             for edge in adjacency.get(current, []):
                 target = str(edge["to"])
                 if target in depth:
