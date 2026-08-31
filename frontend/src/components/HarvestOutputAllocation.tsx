@@ -38,8 +38,8 @@ export function HarvestOutputAllocation({harvestId,wetWeight,dryWeight,status,on
   useEffect(()=>{
     if(rows.length||!cannabisProducts.length)return;
     const product=cannabisProducts[0];
-    setRows([emptyOutput(product,status)]);
-  },[cannabisProducts,rows.length,status]);
+    setRows([emptyOutput(product)]);
+  },[cannabisProducts,rows.length]);
 
   const payload=()=>({
     outputs:rows.filter(row=>row.product_id&&row.lot_code.trim()&&Number(row.quantity)>0).map(row=>({...row,quantity:Number(row.quantity)})),
@@ -59,17 +59,17 @@ export function HarvestOutputAllocation({harvestId,wetWeight,dryWeight,status,on
 
   const addOutput=()=>{
     const product=cannabisProducts[0];
-    if(product)setRows(current=>[...current,emptyOutput(product,status)]);
+    if(product)setRows(current=>[...current,emptyOutput(product)]);
   };
   const addLoss=()=>setLosses(current=>[...current,{quantity:"",unit:"g",loss_type:"process_loss",measurement_basis:"dry",reason:""}]);
   const updateOutput=(index:number,patch:Partial<OutputRow>)=>{setRows(current=>current.map((row,rowIndex)=>rowIndex===index?{...row,...patch}:row));setPreview(null)};
   const updateLoss=(index:number,patch:Partial<LossRow>)=>{setLosses(current=>current.map((row,rowIndex)=>rowIndex===index?{...row,...patch}:row));setPreview(null)};
-  const open=status==="active"||status==="drying"||status==="completed";
+  const open=status==="active"||status==="drying";
 
   return <section className="inventory-panel">
     <div className="section-heading"><div><div className="eyebrow">HARVEST → INVENTORY</div><h3>Allocate physical harvest output</h3><p className="source-caption">DoobieLogic already knows the harvest, plants, strain and facility. Choose only what the material became, how much exists, and where it is now. Wet and dry measurements stay separate so fresh-frozen and dried material are never falsely added together.</p></div><div className="audit-actions"><button className="secondary" type="button" disabled={!open||!cannabisProducts.length} onClick={addOutput}>Add output</button><button className="secondary" type="button" disabled={!open} onClick={addLoss}>Add loss</button></div></div>
     <div className="metrics four"><Metric label="Measured wet" value={`${num(wetWeight)} g`}/><Metric label="Measured dry" value={`${num(dryWeight)} g`}/><Metric label="Output rows" value={rows.length}/><Metric label="Loss rows" value={losses.length}/></div>
-    {!open?<div className="info-banner">Start this harvest before allocating physical output.</div>:null}
+    {status==="completed"?<div className="info-banner">This harvest is completed. Material disposition is closed and cannot be changed without a future governed correction/reopen workflow.</div>:!open?<div className="info-banner">Start this harvest before allocating physical output.</div>:null}
     {products.isLoading?<div className="state">Loading Product Master…</div>:null}{products.isError?<div className="state error">{products.error.message}</div>:null}
     {open&&!products.isLoading&&!cannabisProducts.length?<div className="warning-banner">Create at least one active cannabis or WIP Product Master item before posting harvest output.</div>:null}
     {rows.length?<div className="table-wrap"><table><thead><tr><th>Material</th><th>Lot code</th><th>Purpose</th><th>Basis</th><th>Quantity</th><th>Location / status</th><th></th></tr></thead><tbody>{rows.map((row,index)=><tr key={index}><td><select value={row.product_id} onChange={event=>{const product=cannabisProducts.find(item=>item.id===event.target.value);updateOutput(index,{product_id:event.target.value,unit:product?.base_unit==="g"?"g":row.unit})}}>{cannabisProducts.map(item=><option key={item.id} value={item.id}>{item.sku} · {item.name}</option>)}</select></td><td><input value={row.lot_code} placeholder="GP-0830-FLOWER" onChange={event=>updateOutput(index,{lot_code:event.target.value})}/><input value={row.compliance_package_id} placeholder="External package/tag optional" onChange={event=>updateOutput(index,{compliance_package_id:event.target.value})}/></td><td><select value={row.purpose} onChange={event=>updateOutput(index,{purpose:event.target.value})}>{PURPOSES.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></td><td><select value={row.measurement_basis} onChange={event=>updateOutput(index,{measurement_basis:event.target.value as "dry"|"wet"})}><option value="dry">Dry basis</option><option value="wet">Wet basis</option></select></td><td><div className="inline-field"><input aria-label="Harvest output quantity" type="number" min="0" step="any" value={row.quantity} onChange={event=>updateOutput(index,{quantity:event.target.value})}/><span>g</span></div></td><td><input value={row.location_code} placeholder="DRY-ROOM-1" onChange={event=>updateOutput(index,{location_code:event.target.value})}/><select value={row.status} onChange={event=>updateOutput(index,{status:event.target.value})}><option value="quarantine">QA quarantine</option><option value="hold">Hold</option><option value="available">Available</option><option value="released">Released</option></select></td><td><button className="secondary" type="button" onClick={()=>{setRows(current=>current.filter((_,rowIndex)=>rowIndex!==index));setPreview(null)}}>Remove</button></td></tr>)}</tbody></table></div>:null}
@@ -80,6 +80,6 @@ export function HarvestOutputAllocation({harvestId,wetWeight,dryWeight,status,on
   </section>;
 }
 
-function emptyOutput(product:Product,status:string):OutputRow {return {product_id:product.id,lot_code:"",quantity:"",unit:"g",purpose:"finished_flower",measurement_basis:"dry",location_code:"HARVEST-OUTPUT",status:status==="completed"?"quarantine":"quarantine",compliance_package_id:""}}
+function emptyOutput(product:Product):OutputRow {return {product_id:product.id,lot_code:"",quantity:"",unit:"g",purpose:"finished_flower",measurement_basis:"dry",location_code:"HARVEST-OUTPUT",status:"quarantine",compliance_package_id:""}}
 function num(value:number){return Number(value||0).toLocaleString(undefined,{maximumFractionDigits:4})}
 function Metric({label,value}:{label:string;value:string|number}){return <article className="metric"><span>{label}</span><strong>{value}</strong></article>}
