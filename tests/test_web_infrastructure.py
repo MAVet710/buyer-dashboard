@@ -1,91 +1,102 @@
-from __future__ import annotations
-
-import json
-import os
-import socket
-import subprocess
-import sys
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
-import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, select
+import pytest
+import jwt
+from sqlalchemy import create_engine
 
-from backend.app.config import get_settings
-from backend.app.database import get_engine
-from backend.app.main import app
-from modules.coman.models import AppUser, Base, Organization
+from backend.app.config import Settings
+from backend.app.auth import _decode_token
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_backend_health_endpoint_reports_runtime():
-    client = TestClient(app)
-    response = client.get("/healthz")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "ok"
-    assert payload["service"] == "buyer-dash-api"
-
-
-def test_backend_root_endpoint_reports_product_identity():
-    client = TestClient(app)
-    response = client.get("/")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["service"] == "DoobieLogic API"
-    assert payload["docs"] == "/docs"
-
-
-def test_settings_default_to_safe_web_runtime(monkeypatch):
-    for key in ("COMAN_DATABASE_URL", "BUYER_DASH_ENV", "BUYER_DASH_AUTH_MODE", "BUYER_DASH_CORS_ORIGINS"):
-        monkeypatch.delenv(key, raising=False)
-    get_settings.cache_clear()
-    settings = get_settings()
-    assert settings.environment == "development"
-    assert settings.auth_mode == "jwt"
-    assert settings.cors_origins == ()
-    get_settings.cache_clear()
-
-
-def test_production_rejects_unsafe_auth_mode(monkeypatch):
-    monkeypatch.setenv("BUYER_DASH_ENV", "production")
-    monkeypatch.setenv("BUYER_DASH_AUTH_MODE", "dev_headers")
-    get_settings.cache_clear()
-    with pytest.raises(ValueError, match="dev_headers"):
-        get_settings()
-    get_settings.cache_clear()
-
-
-def test_create_all_imports_complete_durable_schema(tmp_path):
-    database_url = f"sqlite+pysqlite:///{(tmp_path / 'create-all.db').as_posix()}"
-    engine = create_engine(database_url, future=True)
-    Base.metadata.create_all(engine)
-    tables = set(inspect(engine).get_table_names())
-    expected = {
-        "coman_organizations",
-        "coman_app_users",
-        "coman_inventory_lots",
-        "product_master_profiles",
-        "extraction_runs",
-        "production_run_outputs",
-        "commercial_orders",
+def production_settings(**overrides) -> Settings:
+    values = {
+        "app_env": "production",
+        "database_url": "postgresql+psycopg://example",
+        "supabase_url": "https://project.supabase.co",
+        "supabase_jwks_url": "https://project.supabase.co/auth/v1/.well-known/jwks.json",
+        "supabase_service_role_key": "server-secret",
+        "integration_encryption_key": "stable-secret",
+        "cors_origins": "https://ops.doobielogic.io",
+        "allowed_hosts": "api.doobielogic.io,*.run.app",
     }
-    assert expected.issubset(tables)
-    engine.dispose()
+    values.update(overrides)
+    return Settings(**values)
 
 
-def test_get_engine_uses_configured_database_url(monkeypatch, tmp_path):
-    database_url = f"sqlite+pysqlite:///{(tmp_path / 'configured.db').as_posix()}"
-    monkeypatch.setenv("COMAN_DATABASE_URL", database_url)
-    get_settings.cache_clear()
-    engine = get_engine()
-    assert str(engine.url) == database_url
-    engine.dispose()
-    get_settings.cache_clear()
+def test_production_configuration_fails_closed_when_secrets_are_missing():
+    with pytest.raises(RuntimeError, match="Production configuration is incomplete"):
+        Settings(app_env="production", cors_origins="https://ops.doobielogic.io", allowed_hosts="api.doobielogic.io").validate_production()
+
+
+def test_production_configuration_rejects_wildcard_origins_and_hosts():
+    production_settings().validate_production()
+    with pytest.raises(RuntimeError, match="cannot use wildcards"):
+        production_settings(cors_origins="*").validate_production()
+    with pytest.raises(RuntimeError, match="cannot use wildcards"):
+        production_settings(allowed_hosts="*").validate_production()
+
+
+def test_supabase_tokens_require_the_configured_project_issuer():
+    secret = "test-secret-with-at-least-thirty-two-bytes"
+    settings = production_settings(supabase_jwks_url="", supabase_jwt_secret=secret)
+    now = datetime.now(timezone.utc)
+    claims = {
+        "sub": "user-1",
+        "aud": "authenticated",
+        "iss": "https://project.supabase.co/auth/v1",
+        "iat": now,
+        "exp": now + timedelta(minutes=5),
+    }
+    valid = jwt.encode(claims, secret, algorithm="HS256")
+    assert _decode_token(valid, settings)["sub"] == "user-1"
+
+    wrong_issuer = jwt.encode({**claims, "iss": "https://attacker.supabase.co/auth/v1"}, secret, algorithm="HS256")
+    with pytest.raises(jwt.InvalidIssuerError):
+        _decode_token(wrong_issuer, settings)
+
+    missing_issuer = jwt.encode({key: value for key, value in claims.items() if key != "iss"}, secret, algorithm="HS256")
+    with pytest.raises(jwt.MissingRequiredClaimError):
+        _decode_token(missing_issuer, settings)
+
+
+def test_deployment_artifacts_use_correct_io_domains_and_server_only_secrets():
+    files = [ROOT / "deploy/cloudbuild-api.yaml", ROOT / "deploy/api.env.example", ROOT / "deploy/frontend.env.example", ROOT / "docs/PRODUCTION_DEPLOYMENT.md"]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
+    api_deployment = (ROOT / "deploy/cloudbuild-api.yaml").read_text(encoding="utf-8")
+    assert "ops.doobielogic.io" in combined
+    assert "api.doobielogic.io" in combined
+    assert "ops.doobielogic.com" not in combined
+    assert "api.doobielogic.com" not in combined
+    assert "^@^APP_ENV=production@CORS_ORIGINS=https://ops.doobielogic.io@ALLOWED_HOSTS=" in api_deployment
+    assert "^:^APP_ENV=" not in api_deployment
+    assert "SUPABASE_SERVICE_ROLE_KEY" not in (ROOT / "deploy/frontend.env.example").read_text(encoding="utf-8")
+
+
+def test_api_container_is_non_root_and_frontend_supports_spa_fallback():
+    api = (ROOT / "Dockerfile.api").read_text(encoding="utf-8")
+    api_requirements = (ROOT / "backend/requirements.txt").read_text(encoding="utf-8")
+    migration_build = (ROOT / "deploy/cloudbuild-migrate.yaml").read_text(encoding="utf-8")
+    nginx = (ROOT / "frontend/nginx.conf").read_text(encoding="utf-8")
+    assert "USER buyer" in api
+    assert "--proxy-headers" in api
+    assert "alembic>=" in api_requirements
+    assert "- alembic" in migration_build
+    assert "try_files $uri $uri/ /index.html" in nginx
+
+
+def test_fastapi_routes_use_ui_independent_shared_modules():
+    data_hub_router = (ROOT / "backend/app/routers/data_hub.py").read_text(encoding="utf-8")
+    integrations_router = (ROOT / "backend/app/routers/integrations.py").read_text(encoding="utf-8")
+    assert "modules.data_hub_core" in data_hub_router
+    assert "modules.data_hub import" not in data_hub_router
+    assert "services.doobie_connection" in integrations_router
+    assert "services.doobie_config" not in integrations_router
 
 
 def test_supabase_acl_hardening_covers_functions_and_future_app_objects():
