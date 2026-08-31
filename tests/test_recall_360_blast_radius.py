@@ -315,6 +315,38 @@ def test_recall_360_fails_closed_across_unassigned_facilities_without_hiding_exp
     assert exposure["path"][-1]["relationship"] == "received_as_transfer"
 
 
+def test_recall_360_does_not_treat_cancelled_transfer_as_live_exposure():
+    engine = _engine()
+    transfers = InventoryTransferService(engine)
+    dispatched = transfers.dispatch(
+        "org-recall",
+        "facility-source",
+        destination_facility_id="facility-destination",
+        manifest_reference="RECALL-CANCELLED-001",
+        lines=[{"source_lot_id": "lot-byproduct", "quantity": 2.0}],
+        actor="shipper",
+    )
+    cancelled = transfers.cancel(
+        "org-recall",
+        "facility-source",
+        dispatched["id"],
+        actor="shipper",
+        reason="Manifest cancelled before departure",
+    )
+    assert cancelled["status"] == "cancelled"
+
+    recall = RecallBlastRadiusService(engine).blast_radius(
+        organization_id="org-recall",
+        facility_id="facility-source",
+        lot_id="lot-source",
+        allowed_facility_ids={"facility-source"},
+    )
+    assert recall["transfer_count"] == 0
+    assert recall["protected_exposure_count"] == 0
+    assert recall["redacted_facility_count"] == 0
+    assert recall["cross_facility"] is False
+
+
 def test_recall_360_api_uses_facility_scope_and_rejects_cross_tenant_source():
     engine = _engine()
     destination_lot_id = _transfer_finished(engine)
