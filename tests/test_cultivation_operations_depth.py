@@ -110,9 +110,8 @@ def test_harvest_360_reuses_canonical_harvest_table_and_tracks_yield_and_cogs():
     assert drying["total_cogs_usd"] == 150.0
     assert drying["cost_per_dry_unit"] == 0.6
 
-    completed = service.transition_harvest(organization_id, facility_id, harvest["id"], status="completed", actor="tester")
-    assert completed["status"] == "completed"
-    assert completed["finished_at"]
+    with pytest.raises(ValueError, match="Allocate the measured dry-basis harvest output"):
+        service.transition_harvest(organization_id, facility_id, harvest["id"], status="completed", actor="tester")
 
 
 def test_started_harvest_cannot_be_cancelled_after_plants_are_retired():
