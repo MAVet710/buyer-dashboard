@@ -231,3 +231,51 @@ class AgentTraceabilityService:
             "facility_name": str(facility.name or ""),
             "license_number": str(facility.license_number or ""),
         }
+
+
+def register_traceability_tools(registry: Any, access: DatasetAccessContext) -> bool:
+    """Attach read-only lineage/recall functions without exposing tenant scope arguments."""
+    if not AgentTraceabilityService.available_for(access):
+        return False
+
+    from .tools import ToolSpec
+
+    service = AgentTraceabilityService(access)
+    identifier = {
+        "type": "string",
+        "description": "Package tag/ID, barcode, lot code, or internal lot ID from the current authorized organization.",
+        "minLength": 1,
+        "maxLength": 160,
+    }
+    registry._register(
+        ToolSpec(
+            "package_lineage",
+            "Trace an authorized cannabis package or lot through durable plant, harvest, production, packaging, extraction, and cross-license genealogy. Read-only; tenant/facility scope is fixed by the server.",
+            {
+                "type": "object",
+                "properties": {
+                    "identifier": identifier,
+                    "max_depth": {"type": "integer", "minimum": 1, "maximum": 64},
+                    "limit": {"type": "integer", "minimum": 5, "maximum": 100},
+                },
+                "required": ["identifier"],
+            },
+            service.package_lineage,
+        )
+    )
+    registry._register(
+        ToolSpec(
+            "recall_blast_radius",
+            "Calculate the deterministic downstream Recall 360 blast radius for an authorized package or lot, including accessible descendants, on-hand exposure, transfers, and protected/unresolved transfer references. Read-only; does not place holds, mutate Metrc, or notify regulators.",
+            {
+                "type": "object",
+                "properties": {
+                    "identifier": identifier,
+                    "limit": {"type": "integer", "minimum": 5, "maximum": 100},
+                },
+                "required": ["identifier"],
+            },
+            service.recall_blast_radius,
+        )
+    )
+    return True
