@@ -1,10 +1,11 @@
 """Fail-closed integrity guards for canonical Co-Man operational records.
 
 The application deliberately stores organization/facility scope on durable child
-records so every operational query can be tenant-safe.  Foreign keys alone do
+records so every operational query can be tenant-safe. Foreign keys alone do
 not guarantee that those scope columns agree with the referenced lot/order.
 These hooks reject mismatched writes before they can poison inventory, production
-closeout, QA, or compliance decisions.
+closeout, QA, or compliance decisions. Physical ledger rows are immutable after
+posting; corrections must be new compensating transactions.
 """
 
 from __future__ import annotations
@@ -164,7 +165,21 @@ def _validate_actual(session: Session, actual: ProductionActual) -> None:
 
 
 def _before_flush(session: Session, _flush_context, _instances) -> None:
-    candidates = list(session.new) + list(session.dirty)
+    for row in list(session.deleted):
+        if isinstance(row, InventoryTransaction):
+            raise ValueError(
+                "Inventory ledger entries are append-only and cannot be deleted. Post a compensating transaction instead."
+            )
+
+    for row in list(session.dirty):
+        if isinstance(row, InventoryTransaction) and session.is_modified(row, include_collections=False):
+            raise ValueError(
+                "Inventory ledger entries are append-only and cannot be edited. Post a compensating transaction instead."
+            )
+
+    candidates = list(session.new) + [
+        row for row in session.dirty if not isinstance(row, InventoryTransaction)
+    ]
     for row in candidates:
         if isinstance(row, InventoryLot):
             _validate_lot(session, row)
