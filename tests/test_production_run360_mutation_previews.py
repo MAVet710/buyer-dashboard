@@ -347,8 +347,8 @@ def test_run360_frontend_uses_canonical_vocab_and_preview_before_high_impact_mut
     assert "Apply exact change" in frontend
     assert "/mutations/preview" in frontend
     assert "/mutations/commit" in frontend
-    assert '@router.post("/orders/{order_id}/mutations/preview")' in router
-    assert '@router.post("/orders/{order_id}/mutations/commit")' in router
+    assert '@production_router.post("/orders/{order_id}/mutations/preview")' in router
+    assert '@production_router.post("/orders/{order_id}/mutations/commit")' in router
     assert "with_for_update()" in service
     assert "This change preview is stale" in service
     assert 'transaction_type = "production_output_adjustment"' in service
