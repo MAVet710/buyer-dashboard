@@ -202,9 +202,13 @@ class ProductionIntegrityMutationService(ProductionRun360MutationService):
         lock: bool,
     ) -> dict:
         self._assert_order_children_scoped(session, order)
-        if str(order.status or "").casefold() not in {"in_progress", "on_hold"}:
-            raise ValueError("Actual material consumption can only be posted while the run is in progress or on hold.")
-        return super()._preview_material_consumption(
+        current = str(order.status or "").strip().casefold()
+        if current not in {"draft", "scheduled", "in_progress"}:
+            raise ValueError(
+                "Actual material consumption requires a draft, scheduled, or in-progress run. "
+                "Held, completed, and cancelled runs cannot consume physical material."
+            )
+        preview = super()._preview_material_consumption(
             session,
             organization_id=organization_id,
             facility_id=facility_id,
@@ -212,3 +216,16 @@ class ProductionIntegrityMutationService(ProductionRun360MutationService):
             payload=payload,
             lock=lock,
         )
+        if current in {"draft", "scheduled"}:
+            preview.setdefault("consequences", []).insert(
+                0,
+                {
+                    "label": "Run status",
+                    "before": current.replace("_", " ").title(),
+                    "after": "In Progress — first physical material consumption starts the run",
+                },
+            )
+            preview.setdefault("details", {})["starts_run"] = True
+        else:
+            preview.setdefault("details", {})["starts_run"] = False
+        return preview
