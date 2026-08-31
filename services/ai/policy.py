@@ -16,6 +16,22 @@ DETERMINISTIC_INTENTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 REGULATORY_PATTERN = re.compile(r"\b(compliant|compliance|regulation|regulatory|legal|law|ccc|metrc requirement|must|required by|violation|penalty)\b", re.I)
+TRACEABILITY_IDENTIFIER_PATTERN = re.compile(
+    r"\b(?:package|pkg|lot|tag|barcode)\s+(?:id\s+|code\s+|number\s+)?[\"']?([A-Za-z0-9][A-Za-z0-9._:/-]{2,159})[\"']?",
+    re.I,
+)
+TRACEABILITY_IDENTIFIER_STOPWORDS = {
+    "lineage",
+    "genealogy",
+    "history",
+    "source",
+    "trace",
+    "recall",
+    "blast",
+    "radius",
+    "exposure",
+    "affected",
+}
 
 
 def deterministic_tool_for(question: str, available_tools: tuple[str, ...]) -> str | None:
@@ -24,6 +40,26 @@ def deterministic_tool_for(question: str, available_tools: tuple[str, ...]) -> s
     for tool, patterns in DETERMINISTIC_INTENTS:
         if tool in available and any(re.search(pattern, value, re.I) for pattern in patterns):
             return tool
+    return None
+
+
+def deterministic_tool_request(question: str, available_tools: tuple[str, ...]) -> tuple[str, dict] | None:
+    """Resolve high-confidence deterministic requests, including identifier-bound traceability."""
+    value = str(question or "")
+    available = set(available_tools)
+    candidates = [
+        match.group(1).strip().rstrip(".,;:!?")
+        for match in TRACEABILITY_IDENTIFIER_PATTERN.finditer(value)
+        if match.group(1).strip().casefold() not in TRACEABILITY_IDENTIFIER_STOPWORDS
+    ]
+    identifier = candidates[-1] if candidates else ""
+    if identifier and "recall_blast_radius" in available and re.search(r"\b(recall|blast\s+radius|affected|exposure)\b", value, re.I):
+        return "recall_blast_radius", {"identifier": identifier}
+    if identifier and "package_lineage" in available and re.search(r"\b(lineage|genealogy|trace|ancestry|source|came\s+from|history)\b", value, re.I):
+        return "package_lineage", {"identifier": identifier}
+    deterministic = deterministic_tool_for(value, available_tools)
+    if deterministic:
+        return deterministic, {}
     return None
 
 
