@@ -2,6 +2,8 @@
 
 Implementation branch: `feat/seed-to-sale-material-backbone`
 
+This document tracks the scope of the first material-backbone pull request. The PR must remain unmerged until its current head passes the full CI, React/FastAPI, browser, container/security, release-preview, and secret-history gates.
+
 ## Phase 1 — Material backbone / Harvest -> Inventory
 
 - [x] Canonical material transformation models
@@ -11,9 +13,10 @@ Implementation branch: `feat/seed-to-sale-material-backbone`
 - [x] Harvest output append-only inventory transactions
 - [x] Harvest -> plant ancestry edges
 - [x] Wet/dry measurement-basis over-allocation protection
-- [x] Regression coverage for harvest child inventory and plant trace
-- [ ] Harvest 360 operator UI for output allocation
-- [ ] Harvest allocation stale-preview token before commit
+- [x] Harvest closeout blocks completion while measured material remains undisposed
+- [x] Harvest allocation exact-preview fingerprint and stale-preview rejection
+- [x] Harvest 360 operator UI for output allocation
+- [x] Regression coverage for harvest child inventory, closeout, stale previews, and plant trace
 
 ## Phase 2 — Production actual material consumption
 
@@ -25,8 +28,8 @@ Implementation branch: `feat/seed-to-sale-material-backbone`
 - [x] Production source -> output genealogy
 - [x] Completion blocker when required actual consumption is missing
 - [x] QA release blocker when required actual consumption is missing
+- [x] Production Run 360 Actual Materials operator UI
 - [x] Regression coverage for 100 g -> consume 10 g -> 90 g source balance
-- [ ] Production Run 360 Actual Materials operator UI
 
 ## Phase 3 — Unified lineage
 
@@ -35,13 +38,14 @@ Implementation branch: `feat/seed-to-sale-material-backbone`
 - [x] Production order / actual source lots / outputs in graph
 - [x] Existing Package Studio durable input/output graph folded into query
 - [x] Tenant/facility-scoped lineage lookup
-- [ ] Package 360 UI consumes the recursive graph
-- [ ] Recall blast-radius query
+- [x] Package 360 consumes and displays the recursive graph
+- [x] Continuous regression journey from plant -> harvest -> bulk lot -> production consumption -> finished lot -> completed run -> plant ancestry
+- [x] Static operator-surface contracts for Harvest 360, Run 360, and Package 360
 
-## Later approved phases
+## Next approved phases — intentionally outside this PR
 
 - [ ] Extraction intermediates / preflight / closeout on canonical graph
-- [ ] Cultivation batch/nursery UX
+- [ ] Cultivation batch/nursery UX expansion
 - [ ] Cross-license / cross-facility transfer edges
-- [ ] Recall 360
+- [ ] Recall 360 / recall blast-radius query
 - [ ] Doobie Agent lineage and recall tools
