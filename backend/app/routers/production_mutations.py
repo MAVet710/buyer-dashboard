@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
 from modules.inventory_transfers.lineage import CrossFacilityLineageService
+from modules.inventory_transfers.recall import RecallBlastRadiusService
 from modules.material_lineage.harvest_guard import GuardedHarvestAllocationService
 from modules.production_erp.integrity_mutations import ProductionIntegrityMutationService
 from modules.production_erp.mutations import MUTATION_ACTIONS, ProductionMutationService
@@ -180,6 +181,24 @@ def lot_lineage_graph(
     require_any_facility_capability(context, engine, ("retail", "production", "cultivation"))
     try:
         return CrossFacilityLineageService(engine).lot_graph(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            lot_id=lot_id,
+            allowed_facility_ids=accessible_facility_ids(context, engine),
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@lineage_router.get("/lots/{lot_id}/recall")
+def lot_recall_blast_radius(
+    lot_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_any_facility_capability(context, engine, ("retail", "production", "cultivation"))
+    try:
+        return RecallBlastRadiusService(engine).blast_radius(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             lot_id=lot_id,
