@@ -73,6 +73,11 @@ def is_workflow_input_eligible(product: Product, profile: ProductMasterProfile |
         aliases.add("flower")
     if family == "flower":
         aliases.add("cured_flower")
+    # Legacy catalogs often call cured trim/smalls "cured biomass." For dry-sift
+    # selection that is the same source class operationally as cured trim, while
+    # fresh/general biomass remains blocked from the dry-sift workflow.
+    if family == "biomass" and workflow.key == "dry_sift" and "cured" in str(product.name or "").casefold():
+        aliases.add("trim")
     if aliases.isdisjoint(allowed):
         return False, f"Material family {family} is not compatible with {workflow.label}"
     return True, f"{family} is compatible with {workflow.label}"
