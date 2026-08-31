@@ -83,6 +83,37 @@ class AgentRuntime:
             cost = (max(0, input_tokens) / 1_000_000) * rates[0] + (max(0, output_tokens) / 1_000_000) * rates[1]
         self.telemetry.record(request_id=request_id, organization_id=access.organization_id, facility_id=access.facility_id, agent=profile.key, task_category=task, provider=result.provider, model=result.model, local=result.local, latency_ms=latency_ms, tool_call_count=len(result.tool_calls), retrieval_count=retrieval_count, input_tokens=input_tokens, output_tokens=output_tokens, estimated_cost_usd=cost, fallback_used=result.fallback_used, fallback_reason=result.fallback_reason, validation_result=validation, success=success)
 
+    def _traceability_failure(
+        self,
+        *,
+        access: DatasetAccessContext,
+        request_id: str,
+        profile: AgentProfile,
+        tool_name: str,
+        datasets: dict,
+        citations: list[dict[str, Any]],
+        detail: str,
+    ) -> AgentResult:
+        result = AgentResult(
+            answer="I couldn’t verify the requested package traceability from the canonical lineage service, so I won’t infer or reconstruct it from model memory.",
+            summary="Traceability verification unavailable",
+            confidence=1.0,
+            grounding="deterministic",
+            sources=citations,
+            warnings=["Canonical traceability query failed closed."],
+            missing_data=[detail or "Canonical package lineage/recall result"],
+            provider="deterministic",
+            model="python/sql",
+            local=True,
+            datasets=sorted(datasets),
+            tool_calls=[tool_name],
+            data_freshness={key: value.freshness for key, value in datasets.items()},
+            request_id=request_id,
+            read_only=True,
+        )
+        self._record(access=access, request_id=request_id, profile=profile, task=tool_name, result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="traceability_fail_closed", success=False, retrieval_count=len(citations))
+        return result
+
     def run(
         self,
         *,
@@ -180,7 +211,23 @@ class AgentRuntime:
                 self._record(access=access, request_id=request_id, profile=profile, task=action_name, result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="deterministic_action", success=True, retrieval_count=len(citations))
                 return result
 
-        deterministic_request = deterministic_tool_request(question, tools.names())
+        mixed_traceability: tuple[str, dict[str, Any]] | None = None
+        if knowledge_required and traceability_request:
+            trace_name, trace_args = traceability_request
+            trace_result = tools.execute(trace_name, trace_args)
+            if trace_result.get("error"):
+                return self._traceability_failure(
+                    access=access,
+                    request_id=request_id,
+                    profile=profile,
+                    tool_name=trace_name,
+                    datasets=datasets,
+                    citations=citations,
+                    detail=str(trace_result.get("detail") or trace_result.get("error") or "traceability query failed"),
+                )
+            mixed_traceability = (trace_name, trace_result)
+
+        deterministic_request = None if mixed_traceability else deterministic_tool_request(question, tools.names())
         if deterministic_request:
             deterministic, deterministic_args = deterministic_request
             source_version = self._source_version(datasets)
@@ -198,6 +245,16 @@ class AgentRuntime:
                 if tool_result is None:
                     tool_result = tools.execute(deterministic, deterministic_args)
                     self.cache.set(cache_key, tool_result, ttl_seconds=60)
+            if tool_result.get("error") and deterministic in TRACEABILITY_TOOLS:
+                return self._traceability_failure(
+                    access=access,
+                    request_id=request_id,
+                    profile=profile,
+                    tool_name=deterministic,
+                    datasets=datasets,
+                    citations=citations,
+                    detail=str(tool_result.get("detail") or tool_result.get("error") or "traceability query failed"),
+                )
             if not tool_result.get("error"):
                 result = AgentResult(
                     answer=self._format_deterministic(deterministic, tool_result), summary=deterministic.replace("_", " "), confidence=1.0,
@@ -219,12 +276,17 @@ class AgentRuntime:
             knowledge_required=knowledge_required,
         )
         messages = [*bounded_history(history), {"role": "user", "content": question}]
+        used_tools: list[str] = []
         if knowledge.get("results"):
             grounding_payload = [{key: row.get(key) for key in ("title", "source_type", "authority_level", "page_or_section", "content")} for row in knowledge["results"]]
             messages.append({"role": "user", "content": "Retrieved knowledge evidence: " + json.dumps(grounding_payload, default=str)[:16000]})
+        if mixed_traceability:
+            trace_name, trace_result = mixed_traceability
+            messages.append({"role": "user", "content": tool_result_message(trace_name, trace_result)})
+            messages.append({"role": "user", "content": "The package-specific traceability facts above are canonical application data. Use them together with the authoritative retrieved sources; do not replace either evidence class with model memory."})
+            used_tools.append(trace_name)
         available_schemas = [*tools.schemas(), *actions.schemas()]
-        request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=available_schemas, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets), "action_tools": list(actions.names())}})
-        used_tools: list[str] = []
+        request = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, tools=available_schemas, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"datasets": sorted(datasets), "action_tools": list(actions.names()), "precomputed_tools": used_tools}})
         decision = None
         final_response = None
         bounded_context_used = False
@@ -258,6 +320,16 @@ class AgentRuntime:
                             messages.append({"role": "user", "content": action_result_message(call.name, outcome)})
                         else:
                             outcome = tools.execute(call.name, call.arguments)
+                            if call.name in TRACEABILITY_TOOLS and outcome.get("error"):
+                                return self._traceability_failure(
+                                    access=access,
+                                    request_id=request_id,
+                                    profile=profile,
+                                    tool_name=call.name,
+                                    datasets=datasets,
+                                    citations=citations,
+                                    detail=str(outcome.get("detail") or outcome.get("error") or "traceability query failed"),
+                                )
                             messages.append({"role": "user", "content": tool_result_message(call.name, outcome)})
                         used_tools.append(call.name)
                     followup = AIRequest(request_id=request_id, system_prompt=prompt, messages=messages, response_schema=AGENT_RESPONSE_SCHEMA, metadata={"agent_key": profile.key, "sanitized_context": {"tool_results_supplied": used_tools, "action_results": actions.results}})
@@ -288,7 +360,7 @@ class AgentRuntime:
                 )
                 self._record(access=access, request_id=request_id, profile=profile, task="agent_action_provider_fallback", result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="action_completed_model_unavailable", success=True, retrieval_count=len(citations))
                 return result
-            result = AgentResult(answer="DoobieLogic AI is currently unavailable. Operational pages and deterministic workflows remain available.", summary="AI provider unavailable", confidence=1.0, grounding="general", warnings=[str(exc)], provider="unavailable", local=True, datasets=sorted(datasets), request_id=request_id)
+            result = AgentResult(answer="DoobieLogic AI is currently unavailable. Operational pages and deterministic workflows remain available.", summary="AI provider unavailable", confidence=1.0, grounding="general", warnings=[str(exc)], provider="unavailable", local=True, datasets=sorted(datasets), tool_calls=used_tools, sources=citations, request_id=request_id)
             self._record(access=access, request_id=request_id, profile=profile, task="provider_unavailable", result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="provider_unavailable", success=False, retrieval_count=len(citations))
             return result
 
