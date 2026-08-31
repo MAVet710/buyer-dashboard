@@ -7,8 +7,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from backend.app.services.cultivation_intelligence import CultivationIntelligenceService
-from modules.coman.models import Base, Facility, Organization
+from modules.coman.models import Base, Facility, Organization, Product
 from modules.cultivation.service import CultivationService
+from modules.material_lineage.harvest_guard import GuardedHarvestAllocationService
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,13 +42,55 @@ def _scope(engine):
 def test_completed_harvest_actuals_drive_dry_supply_forecast():
     engine = _engine()
     organization_id, facility_id = _scope(engine)
+    with Session(engine) as session, session.begin():
+        dry_product = Product(
+            organization_id=organization_id,
+            sku="GMO-BULK",
+            name="GMO Bulk Flower",
+            item_type="cannabis",
+            base_unit="g",
+            unit_cost=0,
+        )
+        session.add(dry_product)
+        session.flush()
+        dry_product_id = dry_product.id
+
     ops = CultivationService(engine)
     for index in range(2):
         ops.create_plant(organization_id, facility_id, plant_tag=f"H-{index}", strain_name="GMO", phase="flowering", room_code="FLOWER-A", actor="tester")
     plants = ops.list_plants(organization_id, facility_id, phase="flowering")
     harvest = ops.create_harvest(organization_id, facility_id, harvest_code="HIST-1", plant_ids=[row.id for row in plants], actor="tester")
     ops.transition_harvest(organization_id, facility_id, harvest["id"], status="active", actor="tester", wet_weight=1000, unit="g")
-    ops.transition_harvest(organization_id, facility_id, harvest["id"], status="completed", actor="tester", dry_weight=300, unit="g")
+    ops.transition_harvest(organization_id, facility_id, harvest["id"], status="drying", actor="tester", dry_weight=300, unit="g")
+
+    allocation = GuardedHarvestAllocationService(engine)
+    outputs = [{
+        "product_id": dry_product_id,
+        "lot_code": "HIST-1-DRY",
+        "quantity": 300,
+        "unit": "g",
+        "purpose": "finished_flower",
+        "measurement_basis": "dry",
+        "status": "quarantine",
+        "location_code": "DRY-ROOM",
+    }]
+    preview = allocation.preview_harvest_allocation(
+        organization_id=organization_id,
+        facility_id=facility_id,
+        harvest_id=harvest["id"],
+        outputs=outputs,
+        losses=[],
+    )
+    allocation.commit_harvest_allocation(
+        organization_id=organization_id,
+        facility_id=facility_id,
+        harvest_id=harvest["id"],
+        outputs=outputs,
+        losses=[],
+        preview_key=preview["preview_key"],
+        actor="tester",
+    )
+    ops.transition_harvest(organization_id, facility_id, harvest["id"], status="completed", actor="tester")
 
     for index in range(3):
         ops.create_plant(
