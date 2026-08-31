@@ -15,6 +15,7 @@ from ..auth import (
 )
 from ..database import get_engine
 from ..services.facility_access import accessible_facility_ids
+from .recall import router as recall_router
 
 router = APIRouter()
 production_router = APIRouter(
@@ -192,3 +193,4 @@ def lot_lineage_graph(
 router.include_router(production_router)
 router.include_router(cultivation_router)
 router.include_router(lineage_router)
+router.include_router(recall_router)
