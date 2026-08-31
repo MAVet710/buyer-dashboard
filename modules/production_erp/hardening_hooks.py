@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import event, func, inspect, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import InventoryLot, Product, ProductionOrder
+from modules.coman.models import InventoryLot, InventoryTransaction, Product, ProductionOrder
 from modules.inventory_quality.service import LotQualityService
 
 from .models import ProductionCostEvent, ProductionQAEvent, ProductionRunEvent, ProductionRunOutput
@@ -79,6 +79,68 @@ def _measured_disposition(session: Session, order: ProductionOrder) -> tuple[flo
         ):
             waste += max(0.0, float(pending.waste_quantity or 0.0))
     return output, waste
+
+
+def _has_started_event(session: Session, order: ProductionOrder) -> bool:
+    for pending in session.new:
+        if (
+            isinstance(pending, ProductionRunEvent)
+            and pending.organization_id == order.organization_id
+            and pending.facility_id == order.facility_id
+            and pending.production_order_id == order.id
+            and pending.event_type == "started"
+        ):
+            return True
+    with session.no_autoflush:
+        return bool(
+            session.scalar(
+                select(ProductionRunEvent.id).where(
+                    ProductionRunEvent.organization_id == order.organization_id,
+                    ProductionRunEvent.facility_id == order.facility_id,
+                    ProductionRunEvent.production_order_id == order.id,
+                    ProductionRunEvent.event_type == "started",
+                ).limit(1)
+            )
+        )
+
+
+def _start_from_physical_consumption(session: Session, tx: InventoryTransaction) -> None:
+    """Treat first actual source consumption as the physical start of a production run."""
+
+    if (
+        tx.transaction_type != "production_consume"
+        or float(tx.quantity_delta or 0.0) >= 0
+        or not tx.production_order_id
+    ):
+        return
+    order = _pending_or_persisted(session, ProductionOrder, tx.production_order_id)
+    if order is None:
+        raise ValueError("Production consumption references a missing production order.")
+    if tx.organization_id != order.organization_id or tx.facility_id != order.facility_id:
+        raise ValueError("Production consumption scope does not match its production order.")
+
+    current = str(order.status or "").strip().casefold()
+    if current in {"on_hold", "complete", "completed", "cancelled", "canceled"}:
+        raise ValueError("Physical material cannot be consumed into a held, completed, or cancelled production run.")
+    if current not in {"draft", "scheduled", "in_progress"}:
+        raise ValueError(f"Production run status {order.status!r} cannot accept physical material consumption.")
+
+    if not _has_started_event(session, order):
+        session.add(
+            ProductionRunEvent(
+                organization_id=order.organization_id,
+                facility_id=order.facility_id,
+                production_order_id=order.id,
+                stage_key="execution",
+                event_type="started",
+                unit="unit",
+                notes="Run automatically started when first physical material consumption was posted.",
+                actor=str(tx.actor or "system"),
+            )
+        )
+    if current in {"draft", "scheduled"}:
+        order.status = "in_progress"
+        order.updated_by = str(tx.actor or order.updated_by or "system")
 
 
 def _validate_run_event(session: Session, row: ProductionRunEvent) -> None:
@@ -192,7 +254,11 @@ def _apply_event(session: Session, event_row: ProductionQAEvent) -> None:
 
 
 def _before_flush(session: Session, _flush_context, _instances) -> None:
-    for row in list(session.new):
+    pending = list(session.new)
+    for row in pending:
+        if isinstance(row, InventoryTransaction):
+            _start_from_physical_consumption(session, row)
+    for row in pending:
         if isinstance(row, ProductionRunEvent):
             _validate_run_event(session, row)
         elif isinstance(row, ProductionRunOutput):
