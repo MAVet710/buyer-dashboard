@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "../lib/api";
 import type { InventoryPackage, InventoryResponse } from "../types/inventory";
@@ -14,6 +14,7 @@ type Transfer = { id:string;source_facility_id:string;destination_facility_id:st
 type ReceiveDraft = { transferId:string;lineId:string;lot_code:string;package_id:string;location:string;confirmed:boolean };
 
 const WRITE_ROLES=new Set(["dev","admin","buyer","planner","supervisor","operator","qa"]);
+const STAGED_SELECTION_KEY="buyer-dash-transfer-package-selection";
 
 export function InventoryTransferManager({operation,packages,onClose,onSaved,embedded=false}:{operation:Operation;packages:InventoryPackage[];onClose?:()=>void;onSaved?:(message:string)=>void;embedded?:boolean}) {
   const client=useQueryClient();
@@ -24,7 +25,7 @@ export function InventoryTransferManager({operation,packages,onClose,onSaved,emb
   const organization=access.data?.organizations.find(row=>row.id===context.data?.organization?.id);
   const destinations=(organization?.facilities??[]).filter(row=>row.id!==context.data?.facility_id);
   const canWrite=WRITE_ROLES.has(context.data?.user.role??"");
-  const [sourceIds,setSourceIds]=useState<string[]>(()=>packages.map(row=>row.id));
+  const [sourceIds,setSourceIds]=useState<string[]>(()=>packages.length?packages.map(row=>row.id):stagedPackageIds(operation));
   const [destination,setDestination]=useState("");
   const [manifest,setManifest]=useState("");
   const [externalId,setExternalId]=useState("");
@@ -43,6 +44,8 @@ export function InventoryTransferManager({operation,packages,onClose,onSaved,emb
   const saved=(message:string)=>{setFlash(message);onSaved?.(message);};
   const refresh=()=>{void client.invalidateQueries({queryKey:["inventory-transfers"]});void client.invalidateQueries({queryKey:["inventory"]});void client.invalidateQueries({queryKey:["transfer-source-inventory"]});void transfers.refetch();};
   const toggleSource=(row:InventoryPackage)=>{setSourceIds(ids=>ids.includes(row.id)?ids.filter(id=>id!==row.id):[...ids,row.id]);setQuantities(current=>current[row.id]==null?{...current,[row.id]:String(Math.max(0,row.available))}:current);};
+
+  useEffect(()=>{sessionStorage.removeItem(STAGED_SELECTION_KEY)},[]);
 
   const dispatch=useMutation({mutationFn:()=>apiPost<Transfer>("/api/v1/inventory/transfers/dispatch",{destination_facility_id:destination,manifest_reference:manifest.trim(),external_transfer_id:externalId.trim(),state_transfer_confirmed:confirmed,lines:dispatchLines,notes:"Posted from DoobieLogic Inventory transfer workspace."}),onSuccess:row=>{refresh();saved(`Transfer ${row.manifest_reference} dispatched to ${row.destination_facility_name}.`);setSourceIds([]);setManifest("");setExternalId("");setDestination("");setConfirmed(false);}});
   const receive=useMutation({mutationFn:(draft:ReceiveDraft)=>apiPost<Transfer>(`/api/v1/inventory/transfers/${draft.transferId}/lines/${draft.lineId}/receive`,{operation,lot_code:draft.lot_code,package_id:draft.package_id,location:draft.location||"RECEIVING",state_receipt_confirmed:draft.confirmed,notes:"Received through DoobieLogic transfer workspace."}),onSuccess:row=>{setReceiveDraft(null);refresh();saved(`Transfer ${row.manifest_reference} receipt posted to this facility.`);}});
@@ -73,5 +76,6 @@ export function InventoryTransferManager({operation,packages,onClose,onSaved,emb
   return <StreamlitDialog open onClose={onClose??(()=>{})} eyebrow="INVENTORY · LICENSE TRANSFERS" title="Transfer selected inventory" subtitle="Physical ledger movements stay separate by license while genealogy follows the material across facilities.">{body}</StreamlitDialog>;
 }
 
+function stagedPackageIds(operation:Operation):string[]{try{const raw=sessionStorage.getItem(STAGED_SELECTION_KEY);if(!raw)return[];const parsed=JSON.parse(raw) as {operation?:string;lot_ids?:unknown};if(parsed.operation!==operation||!Array.isArray(parsed.lot_ids))return[];return parsed.lot_ids.map(String).filter(Boolean)}catch{return[]}}
 function title(value:string){return String(value||"").replaceAll("_"," ").replace(/\b\w/g,char=>char.toUpperCase())}
 function number(value:number){return Number(value||0).toLocaleString(undefined,{maximumFractionDigits:4})}
