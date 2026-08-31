@@ -23,6 +23,7 @@ const ROUTES: RouteEntry[] = [
   { page: "Replenishment Policies", path: "/buying/planning-settings" },
 
   { page: "Inventory", path: "/inventory" },
+  { page: "Retail Inventory Transfers", path: "/inventory/transfers" },
   { page: "Inventory Audits", path: "/inventory/audits" },
   { page: "Retail Product 360", path: "/inventory/products" },
   { page: "Retail Product Master", path: "/inventory/products" },
@@ -31,6 +32,7 @@ const ROUTES: RouteEntry[] = [
   { page: "Slow Movers", path: "/inventory/slow-movers" },
 
   { page: "Production Inventory", path: "/production/inventory" },
+  { page: "Production Inventory Transfers", path: "/production/inventory/transfers" },
   { page: "Production Product Master", path: "/production/products" },
   { page: "Production", path: "/production" },
   { page: "Production Calendar", path: "/production/calendar" },
