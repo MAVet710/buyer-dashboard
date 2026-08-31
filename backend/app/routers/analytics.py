@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from ..auth import RequestContext, get_request_context, get_production_context
 from ..database import get_engine
-from modules.coman.models import InventoryLot, Product
+from modules.coman.models import Product
 from modules.commercial_finance.models import CommercialInvoice, CommercialInvoiceLine
 from modules.extraction.models import ExtractionCostEvent, ExtractionRun
 from modules.production_erp.models import ProductionCostEvent
@@ -36,7 +36,7 @@ def get_supply_chain_margin(
         # Revenue
         revenue = float(
             db.scalar(
-                select(func.sum(CommercialInvoiceLine.quantity * CommercialInvoiceLine.unit_price))
+                select(func.sum(CommercialInvoiceLine.quantity * CommercialInvoiceLine.unit_price_usd))
                 .join(CommercialInvoice)
                 .where(
                     CommercialInvoice.organization_id == context.organization_id,
@@ -115,7 +115,7 @@ def get_product_profitability(
                 Product.name,
                 Product.sku,
                 func.sum(CommercialInvoiceLine.quantity).label("units_sold"),
-                func.sum(CommercialInvoiceLine.quantity * CommercialInvoiceLine.unit_price).label("revenue"),
+                func.sum(CommercialInvoiceLine.quantity * CommercialInvoiceLine.unit_price_usd).label("revenue"),
             )
             .join(Product)
             .join(CommercialInvoice)
@@ -132,12 +132,14 @@ def get_product_profitability(
             revenue = float(revenue or 0)
             units = float(units or 0)
 
+            # Product Master is the canonical per-unit COGS source. InventoryLot
+            # intentionally carries genealogy/location state rather than a second
+            # cost field, so querying lot.unit_cost here would be schema drift.
             avg_cost = float(
                 db.scalar(
-                    select(func.avg(InventoryLot.unit_cost)).where(
-                        InventoryLot.organization_id == context.organization_id,
-                        InventoryLot.facility_id == context.facility_id,
-                        InventoryLot.product_id == pid,
+                    select(Product.unit_cost).where(
+                        Product.organization_id == context.organization_id,
+                        Product.id == pid,
                     )
                 )
                 or 0
