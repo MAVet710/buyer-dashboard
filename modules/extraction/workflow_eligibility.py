@@ -9,6 +9,9 @@ from .inventory_eligibility import classify_extraction_inventory
 from .workflows import get_extraction_workflow
 
 
+_GENERIC_PLANT_FAMILIES = {"fresh_frozen", "cured_flower", "flower", "trim", "biomass", "kief", "hash"}
+
+
 def infer_material_family(product: Product, profile: ProductMasterProfile | None = None) -> str:
     text = " ".join(
         value
@@ -57,11 +60,19 @@ def is_workflow_input_eligible(product: Product, profile: ProductMasterProfile |
     family = infer_material_family(product, profile)
     workflow = get_extraction_workflow(workflow_key)
     allowed = set(workflow.input_families)
+    if not family:
+        # Historical/demo data sometimes only identifies a weight-based cannabis
+        # item as generic source material. Keep those usable for plant-material
+        # workflows while still refusing them for refinement-only workflows such
+        # as crude->distillate or rosin->vape.
+        if classification.role == "source_material" and not allowed.isdisjoint(_GENERIC_PLANT_FAMILIES):
+            return True, f"Generic weight-based cannabis source is compatible with {workflow.label}"
+        return False, f"Material family unknown is not compatible with {workflow.label}"
     aliases = {family}
     if family == "cured_flower":
         aliases.add("flower")
     if family == "flower":
         aliases.add("cured_flower")
-    if not family or aliases.isdisjoint(allowed):
-        return False, f"Material family {family or 'unknown'} is not compatible with {workflow.label}"
+    if aliases.isdisjoint(allowed):
+        return False, f"Material family {family} is not compatible with {workflow.label}"
     return True, f"{family} is compatible with {workflow.label}"
