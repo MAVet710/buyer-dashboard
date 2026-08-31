@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from modules.inventory_transfers.lineage import CrossFacilityLineageService
 from modules.material_lineage.harvest_guard import GuardedHarvestAllocationService
-from modules.material_lineage.service import MaterialLineageService
 from modules.production_erp.integrity_mutations import ProductionIntegrityMutationService
 from modules.production_erp.mutations import MUTATION_ACTIONS, ProductionMutationService
 from ..auth import (
@@ -14,6 +14,7 @@ from ..auth import (
     require_facility_capability,
 )
 from ..database import get_engine
+from ..services.facility_access import accessible_facility_ids
 
 router = APIRouter()
 production_router = APIRouter(
@@ -178,10 +179,11 @@ def lot_lineage_graph(
 ):
     require_any_facility_capability(context, engine, ("retail", "production", "cultivation"))
     try:
-        return MaterialLineageService(engine).lot_graph(
+        return CrossFacilityLineageService(engine).lot_graph(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             lot_id=lot_id,
+            allowed_facility_ids=accessible_facility_ids(context, engine),
         )
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
