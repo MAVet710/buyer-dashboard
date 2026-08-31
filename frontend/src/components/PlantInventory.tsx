@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { apiGet, apiPost } from "../lib/api";
 import type { CultivationPlant, PlantEvent, PlantPhase } from "../types/inventory";
 import { CultivationBatchManager } from "./CultivationBatchManager";
@@ -58,6 +58,11 @@ function CreatePlant({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
 
 function PlantDetail({ plant, canWrite, onSaved }: { plant: CultivationPlant; canWrite: boolean; onSaved: (plant: CultivationPlant) => void }) {
   const [target, setTarget] = useState<PlantPhase | "">(next[plant.phase][0] ?? ""); const [room, setRoom] = useState(plant.room_code); const [reason, setReason] = useState("");
+  useEffect(() => {
+    setTarget(next[plant.phase][0] ?? "");
+    setRoom(plant.room_code);
+    setReason("");
+  }, [plant.phase, plant.room_code]);
   const events = useQuery({ queryKey: ["plant-events", plant.id], queryFn: ({ signal }) => apiGet<PlantEvent[]>(`/api/v1/inventory/production/plants/${plant.id}/events`, signal) });
   const lineage = useQuery({ queryKey:["plant-lineage",plant.id], queryFn:({signal})=>apiGet<PlantLineage>(`/api/v1/inventory/production/plants/${plant.id}/lineage`,signal) });
   const mutation = useMutation({ mutationFn: () => apiPost<CultivationPlant>(`/api/v1/inventory/production/plants/${plant.id}/transition`, { phase: target || plant.phase, room_code: room, reason, notes: "" }), onSuccess: onSaved });
