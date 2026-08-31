@@ -4,8 +4,8 @@ from sqlalchemy import Engine
 
 from modules.material_lineage.harvest_guard import GuardedHarvestAllocationService
 from modules.material_lineage.service import MaterialLineageService
+from modules.production_erp.integrity_mutations import ProductionIntegrityMutationService
 from modules.production_erp.mutations import MUTATION_ACTIONS, ProductionMutationService
-from modules.production_erp.run360_mutations import ProductionRun360MutationService
 from ..auth import (
     RequestContext,
     get_request_context,
@@ -64,7 +64,7 @@ class HarvestAllocationCommitRequest(HarvestAllocationRequest):
 
 
 def _service(engine: Engine) -> ProductionMutationService:
-    return ProductionRun360MutationService(engine)
+    return ProductionIntegrityMutationService(engine)
 
 
 def _guard_mutation(action_type: str, context: RequestContext) -> None:
