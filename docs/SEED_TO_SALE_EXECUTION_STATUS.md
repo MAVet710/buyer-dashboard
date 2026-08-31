@@ -1,6 +1,6 @@
 # Seed-to-Sale Execution Status
 
-Current continuation branch: `feat/recall-360-blast-radius`
+Current continuation branch: `feat/doobie-agent-traceability-tools`
 
 This document tracks the durable seed-to-sale material backbone and the operator-hardening phases built on top of it. Changes remain isolated in pull requests until their focused regressions and repository CI gates pass.
 
@@ -80,6 +80,21 @@ This document tracks the durable seed-to-sale material backbone and the operator
 - [x] Recall analysis explicitly read-only; no silent inventory holds, Metrc mutation or regulator notification
 - [x] Regression coverage for downstream-only scope, depth expansion, cycles, cancelled transfers, cross-license authorization and tenant isolation
 
-## Next approved phase
+## Phase 7 — Doobie Agent lineage and recall tools
 
-- [ ] Doobie Agent lineage and recall tools
+- [x] First-class read-only `package_lineage` tool over canonical genealogy
+- [x] First-class read-only `recall_blast_radius` tool over Recall 360
+- [x] Trusted server-side organization, facility, user, role and database scope; models cannot supply tenant scope arguments
+- [x] Package/tag/barcode/lot resolution restricted to authorized facilities
+- [x] Cross-tenant and unauthorized-facility package existence does not leak through identifier resolution
+- [x] Ambiguous package/lot identifiers fail closed instead of selecting a candidate
+- [x] Cross-license lineage/recall federation reuses the same durable transfer and facility-redaction rules as Package 360 / Recall 360
+- [x] Explicit identifier-bound lineage and recall questions execute deterministically with zero model-provider dependency
+- [x] Live traceability queries bypass the short deterministic analytics cache
+- [x] Factual Compliance Agent traceability may use deterministic package facts without weakening authoritative-source requirements for legal/regulatory conclusions
+- [x] Agent traceability remains analysis-only: no inventory hold, Metrc mutation, regulator notification or other compliance mutation
+- [x] Regression coverage for schema isolation, facility redaction, admin federation, cross-tenant non-disclosure, ambiguity, deterministic execution and compliance grounding
+
+## Approved execution sequence
+
+- [x] The currently approved seed-to-sale hardening sequence is complete. No additional phase is queued in this document.
