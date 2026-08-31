@@ -27,8 +27,6 @@ const ID = {
   order: "ZT-SO-BD-001",
   fulfillment: "ZT-SHIP-BD-001",
   manifest: "ZT-XFER-BD-001",
-  destinationLot: "ZT-BD-VAPE-1G-DEST",
-  destinationTag: "ZT-BD-VAPE-METRC-DEST",
 };
 
 const blank = (): Friction => ({
@@ -100,27 +98,15 @@ async function bootstrap(page: Page, organizationId: string, facilityId: string)
   }, { organizationId, facilityId });
   await page.reload();
   await page.waitForLoadState("networkidle").catch(() => undefined);
-  await expect(page.getByLabel("Operation")).toBeVisible({ timeout: 15_000 });
-  const current = await page.getByLabel("Operation").inputValue();
-  if (current !== "Production Ops") {
-    friction.warnings.push("Saved Production Ops context reset to Retail Ops during initial account-context loading; operator had to reselect Production Ops.");
-    friction.contextSwitches += 1;
-    await choose(page.getByLabel("Operation"), "Production Ops");
-    await expect(page.getByLabel("Operation")).toHaveValue("Production Ops", { timeout: 15_000 });
-  }
+  await expect(page.getByLabel("Operation")).toHaveValue("Production Ops", { timeout: 15_000 });
+  await expect(page.getByLabel("Facility").locator("option:checked")).toHaveText("Zero Training Vertical Facility", { timeout: 15_000 });
 }
 
-async function switchFacility(page: Page, name: string) {
-  friction.contextSwitches += 1;
-  await choose(page.getByLabel("Facility"), name);
-  await page.waitForLoadState("networkidle").catch(() => undefined);
-  await expect(page.getByLabel("Facility").locator("option:checked")).toHaveText(name, { timeout: 15_000 });
-}
 async function switchOperation(page: Page, name: "Retail Ops" | "Production Ops") {
   friction.contextSwitches += 1;
   await choose(page.getByLabel("Operation"), name);
-  await expect(page.getByLabel("Operation")).toHaveValue(name, { timeout: 15_000 });
   await page.waitForLoadState("networkidle").catch(() => undefined);
+  await expect(page.getByLabel("Operation")).toHaveValue(name, { timeout: 15_000 });
 }
 
 async function visibleWarnings(page: Page) {
@@ -152,9 +138,9 @@ async function advanceExtraction(page: Page) {
 }
 
 function score() {
-  const penalty = friction.decisions * 0.09 + friction.manualInputs * 0.07 +
-    friction.duplicateEntries * 0.6 + friction.contextSwitches * 0.12 +
-    friction.backtracks * 0.8 + friction.deadEnds.length * 2 + friction.api5xx.length * 2;
+  const penalty = friction.duplicateEntries * 2 + friction.handoffGaps.length * 2 +
+    friction.backtracks * 1.5 + friction.deadEnds.length * 3 +
+    friction.pageErrors.length * 3 + friction.api5xx.length * 3;
   return Math.max(0, Math.round((10 - Math.min(10, penalty)) * 10) / 10);
 }
 
@@ -173,7 +159,7 @@ test("zero-training operator takes Blue Dream from plant to received wholesale p
 
     // Cultivation: individual plant -> vegetative -> flowering.
     await workspace(page, "/production/inventory");
-    await expect(page.getByRole("heading", { name: "Inventory" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "Production Inventory" })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("PRODUCTION OPS").first()).toBeVisible();
     await click(page.getByRole("button", { name: "Plants" }));
     await click(page.getByRole("button", { name: "Add one plant" }));
@@ -295,7 +281,7 @@ test("zero-training operator takes Blue Dream from plant to received wholesale p
     expect(finishedLotId).not.toBe("");
     await mark("finished-package-created");
 
-    // Wholesale order: create -> confirm -> reserve -> fulfill.
+    // Wholesale: create -> confirm -> reserve -> hand off directly to the licensed transfer.
     await workspace(page, "/wholesale/orders");
     await click(page.getByRole("button", { name: "New Order" }));
     await choose(page.getByLabel("Order type"), "Sales");
@@ -317,43 +303,49 @@ test("zero-training operator takes Blue Dream from plant to received wholesale p
     await fill(page.getByLabel("Quantity"), "10");
     await fill(page.getByLabel("Fulfillment reference"), ID.fulfillment);
     await click(page.getByRole("button", { name: "Reserve lot" }));
-    await expect(page.getByText("Inventory reserved.")).toBeVisible({ timeout: 15_000 });
-    await click(page.getByRole("button", { name: "Post shipment" }));
-    await expect(page.getByText("Shipment posted to the immutable inventory ledger.")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Inventory reserved. Next: prepare the licensed transfer.")).toBeVisible({ timeout: 15_000 });
+    await mark("wholesale-reserved");
+    await expect(page.getByRole("button", { name: "Prepare licensed transfer" })).toBeEnabled({ timeout: 15_000 });
+    await click(page.getByRole("button", { name: "Prepare licensed transfer" }));
+    await page.waitForLoadState("networkidle").catch(() => undefined);
+
+    // Licensed transfer: package, quantity, sales-order ownership and reference are carried forward.
+    await expect(page.getByRole("heading", { name: "Production Inventory Transfers" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(new RegExp(`Staged from wholesale order ${ID.order}`))).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(ID.finishedTag).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByLabel("Fulfillment / external reference")).toHaveValue(ID.fulfillment);
+    const stagedQuantity = page.locator("section.inventory-panel").filter({ hasText: "Dispatch packages to another license" }).locator('input[type="number"]');
+    await expect(stagedQuantity).toHaveValue("10");
+    await expect(stagedQuantity).toBeDisabled();
+    await choose(page.getByLabel("Destination facility"), /Zero Training Destination Dispensary/);
+    await fill(page.getByLabel("Manifest / transfer #"), ID.manifest);
+    await check(page.getByLabel(/I confirm the required state-system\/Metrc transfer and manifest have already been created/));
+    const transferResponse = page.waitForResponse(r => r.url().endsWith("/api/v1/inventory/transfers/dispatch") && r.request().method() === "POST");
+    await click(page.getByRole("button", { name: "Post licensed transfer & fulfill order" }));
+    await responseJson(transferResponse);
+    await expect(page.getByText(new RegExp(`Wholesale order ${ID.order} fulfilled through transfer ${ID.manifest}`))).toBeVisible({ timeout: 15_000 });
+    await mark("transfer-dispatched");
     await mark("wholesale-fulfilled");
 
-    friction.duplicateEntries += 1;
-    friction.handoffGaps.push("Wholesale fulfillment does not automatically stage its physical package in cross-license transfer; the operator must select the package again and enter a separate manifest reference.");
-
-    // Cross-license transfer and destination receipt.
-    await workspace(page, "/production/inventory/transfers");
-    await check(page.getByRole("checkbox", { name: `Select ${ID.finishedTag}` }));
-    await choose(page.getByLabel("Destination facility"), "Zero Training Destination Dispensary");
-    await fill(page.getByLabel("Manifest / transfer #"), ID.manifest);
-    const dispatch = page.locator("section.inventory-panel").filter({ hasText: "Dispatch packages to another license" });
-    await fill(dispatch.locator("tbody tr").filter({ hasText: "Blue Dream Vape 1g" }).locator('input[type="number"]'), "10");
-    await check(page.getByLabel(/I confirm the required state-system\/Metrc transfer and manifest have already been created/));
-    await click(page.getByRole("button", { name: "Post transfer out" }));
-    await expect(page.getByText(new RegExp(`Transfer ${ID.manifest} dispatched`))).toBeVisible({ timeout: 15_000 });
-    await mark("transfer-dispatched");
-
+    // Destination: operation change selects the retail license; package identity carries forward.
     await switchOperation(page, "Retail Ops");
-    await switchFacility(page, "Zero Training Destination Dispensary");
+    await expect(page.getByLabel("Facility").locator("option:checked")).toHaveText("Zero Training Destination Dispensary", { timeout: 15_000 });
     await workspace(page, "/inventory/transfers");
+    await expect(page.getByRole("heading", { name: "Retail Inventory Transfers" })).toBeVisible({ timeout: 15_000 });
     const inbound = page.locator("section.inventory-panel").filter({ hasText: "Transfers arriving at this license" });
     await expect(inbound.getByText(ID.manifest)).toBeVisible({ timeout: 15_000 });
     await click(inbound.getByRole("button", { name: "Receive package" }));
-    await fill(page.getByLabel("Destination package ID"), ID.destinationTag);
-    await fill(page.getByLabel("Destination lot / batch"), ID.destinationLot);
-    await fill(page.getByLabel("Room / location"), "ZT-RECEIVING");
+    await expect(page.getByLabel("Destination package ID")).toHaveValue(ID.finishedTag);
+    await expect(page.getByLabel("Destination lot / batch")).toHaveValue(ID.finishedLot);
+    await expect(page.getByLabel("Room / location")).toHaveValue("RECEIVING");
     await check(page.getByLabel(/I confirm this package was accepted\/received in the required state system/));
     await click(page.getByRole("button", { name: "Post transfer in" }));
     await expect(page.getByText(new RegExp(`Transfer ${ID.manifest} receipt posted`))).toBeVisible({ timeout: 15_000 });
     await mark("destination-received");
 
     // Return to source and prove blast radius + genealogy.
-    await switchFacility(page, "Zero Training Vertical Facility");
     await switchOperation(page, "Production Ops");
+    await expect(page.getByLabel("Facility").locator("option:checked")).toHaveText("Zero Training Vertical Facility", { timeout: 15_000 });
     await workspace(page, "/production/inventory");
     await fill(page.getByPlaceholder("Material, package, lot, room…"), "Blue Dream Vape 1g");
     await check(page.getByRole("checkbox", { name: "Select Blue Dream Vape 1g" }));
@@ -364,7 +356,7 @@ test("zero-training operator takes Blue Dream from plant to received wholesale p
     await expect(package360.getByText(new RegExp(`Harvest source:.*${ID.harvest}`))).toBeVisible({ timeout: 15_000 });
     await expect(package360.getByText(new RegExp(`Cross-license trail:.*${ID.manifest}`))).toBeVisible({ timeout: 15_000 });
     await expect(package360.getByText("RECALL 360 · BLAST RADIUS")).toBeVisible({ timeout: 15_000 });
-    await expect(package360.getByText(ID.destinationTag)).toBeVisible({ timeout: 15_000 });
+    await expect(package360.getByText(ID.finishedTag).first()).toBeVisible({ timeout: 15_000 });
     await mark("recall-lineage-proved");
 
     // Deterministic Doobie Agent traceability must agree with Recall 360.
@@ -383,18 +375,29 @@ test("zero-training operator takes Blue Dream from plant to received wholesale p
     failure = error;
     friction.deadEnds.push(error instanceof Error ? error.message : String(error));
   } finally {
-    const evidence = { ...friction, usabilityScore: score(), targetScore: 9.5, durableIds: { ...ID, finishedLotId } };
+    const evidence = {
+      ...friction,
+      usabilityScore: score(),
+      operatorEffort: friction.clicks + friction.decisions + friction.manualInputs + friction.contextSwitches,
+      releaseThresholds: { usabilityScore: 9.5, duplicateEntries: 0, handoffGaps: 0, backtracks: 0, deadEnds: 0, pageErrors: 0, api5xx: 0 },
+      durableIds: { ...ID, finishedLotId },
+    };
     await testInfo.attach("zero-training-friction.json", { body: Buffer.from(JSON.stringify(evidence, null, 2)), contentType: "application/json" });
   }
 
   if (failure) throw failure;
+  expect(friction.duplicateEntries, "Known DoobieLogic data had to be entered twice.").toBe(0);
+  expect(friction.handoffGaps, `Handoff gaps: ${friction.handoffGaps.join(" | ")}`).toEqual([]);
+  expect(friction.backtracks, "Operator had to navigate backward to recover missing context.").toBe(0);
   expect(friction.pageErrors, `Page errors: ${friction.pageErrors.join(" | ")}`).toEqual([]);
   expect(friction.api5xx, `API 5xx: ${friction.api5xx.join(" | ")}`).toEqual([]);
+  expect(score(), `Zero-training usability score ${score()} is below release threshold.`).toBeGreaterThanOrEqual(9.5);
   expect(friction.milestones).toEqual([
     "plant-created", "plant-flowering", "harvest-inventory-created",
     "production-run-planned", "source-consumed", "production-process-complete",
     "extract-output-created", "qa-released", "finished-package-created",
-    "wholesale-order-created", "wholesale-fulfilled", "transfer-dispatched",
-    "destination-received", "recall-lineage-proved", "agent-lineage-answer",
+    "wholesale-order-created", "wholesale-reserved", "transfer-dispatched",
+    "wholesale-fulfilled", "destination-received", "recall-lineage-proved",
+    "agent-lineage-answer",
   ]);
 });
