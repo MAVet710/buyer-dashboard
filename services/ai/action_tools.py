@@ -142,10 +142,11 @@ class AgentActionRegistry:
         has_schedule_target = any(token in text_value for token in ("calendar", "schedule", "scheduling"))
         has_production = any(token in text_value for token in ("production", "run", "runs", "jobs", "co-man", "coman"))
         has_plan_language = any(token in text_value for token in ("plan", "scheme", "production plan", "production scheme", "run plan"))
-        if not (has_schedule_target and has_production and (has_period or has_plan_language)):
+        explicit_mutation = self._explicit_mutation_intent(text_value)
+        if not (has_schedule_target and has_production and (has_period or has_plan_language or explicit_mutation)):
             return None
         arguments: dict[str, Any] = {
-            "commit": self._explicit_mutation_intent(text_value),
+            "commit": explicit_mutation,
             "days": 5,
             "max_runs": 12,
         }
@@ -161,6 +162,8 @@ class AgentActionRegistry:
                 "schedule it",
                 "schedule the",
                 "schedule a",
+                "schedule production",
+                "schedule my production",
                 "put it on the calendar",
                 "put them on the calendar",
                 "put the plan on the calendar",
@@ -177,12 +180,22 @@ class AgentActionRegistry:
                 "build out",
                 "build a production plan",
                 "build a production scheme",
+                "build a production schedule",
                 "build the production plan",
                 "build the production scheme",
+                "build the production schedule",
                 "create a production plan",
                 "create a production scheme",
+                "create a production schedule",
                 "create the production plan",
                 "create the production scheme",
+                "create the production schedule",
+                "make a production plan",
+                "make a production scheme",
+                "make a production schedule",
+                "make the production plan",
+                "make the production scheme",
+                "make the production schedule",
                 "populate the calendar",
                 "implement the plan",
                 "implement the schedule",
