@@ -10,7 +10,7 @@ from .action_tools import AgentActionRegistry
 from .cache import TenantCache
 from .context import action_result_message, bounded_history, system_prompt, tool_result_message
 from .datasets import DatasetAccessContext, DatasetRegistry
-from .policy import deterministic_tool_for, requires_regulatory_grounding
+from .policy import deterministic_tool_request, requires_regulatory_grounding
 from .provider import ProviderUnavailable
 from .retrieval.citations import public_citations
 from .retrieval.retrieval import KnowledgeRetriever
@@ -19,7 +19,11 @@ from .router import ProviderRouter
 from .schemas import AGENT_RESPONSE_SCHEMA, AIRequest, AgentResult
 from .telemetry import AITelemetry
 from .tools import ToolRegistry
+from .traceability_tools import AgentTraceabilityService, register_traceability_tools
 from .validation import parse_structured, validate_agent_response
+
+
+TRACEABILITY_TOOLS = frozenset({"package_lineage", "recall_blast_radius"})
 
 
 class AgentRuntime:
@@ -48,6 +52,8 @@ class AgentRuntime:
 
     @staticmethod
     def _format_deterministic(tool_name: str, result: dict[str, Any]) -> str:
+        if result.get("_agent_summary"):
+            return str(result["_agent_summary"])
         rows = result.get("rows") if isinstance(result.get("rows"), list) else []
         label = tool_name.replace("_", " ").title()
         if not rows:
@@ -97,7 +103,13 @@ class AgentRuntime:
         else:
             datasets = base_datasets
         legal_regulatory = bool(requires_regulatory_grounding(question))
-        compliance_grounded = bool(profile.compliance_grounded_only)
+        traceability_request = (
+            deterministic_tool_request(question, tuple(TRACEABILITY_TOOLS))
+            if AgentTraceabilityService.available_for(access)
+            else None
+        )
+        factual_traceability = bool(traceability_request and not legal_regulatory)
+        compliance_grounded = bool(profile.compliance_grounded_only and not factual_traceability)
         knowledge_required = legal_regulatory or compliance_grounded
         knowledge = self._knowledge(access, question, authoritative_only=knowledge_required) if knowledge_required or profile.key in {"extraction", "data_hub"} else {"results": []}
         citations = public_citations(list(knowledge.get("results") or []))
@@ -142,6 +154,7 @@ class AgentRuntime:
             )
 
         tools = ToolRegistry(datasets, knowledge_search=knowledge_search if self.retriever else None)
+        has_traceability_tools = register_traceability_tools(tools, access)
         actions = AgentActionRegistry(profile=profile, access=access, question=question)
 
         deterministic_action = actions.deterministic_request()
@@ -167,19 +180,30 @@ class AgentRuntime:
                 self._record(access=access, request_id=request_id, profile=profile, task=action_name, result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="deterministic_action", success=True, retrieval_count=len(citations))
                 return result
 
-        deterministic = deterministic_tool_for(question, tools.names())
-        if deterministic:
+        deterministic_request = deterministic_tool_request(question, tools.names())
+        if deterministic_request:
+            deterministic, deterministic_args = deterministic_request
             source_version = self._source_version(datasets)
-            cache_key = self.cache.key(organization_id=access.organization_id, facility_id=access.facility_id, namespace=f"deterministic:{deterministic}", source_version=source_version, payload={"question": question.casefold()})
-            tool_result = self.cache.get(cache_key)
-            if tool_result is None:
-                tool_result = tools.execute(deterministic, {})
-                self.cache.set(cache_key, tool_result, ttl_seconds=60)
+            if deterministic in TRACEABILITY_TOOLS:
+                tool_result = tools.execute(deterministic, deterministic_args)
+            else:
+                cache_key = self.cache.key(
+                    organization_id=access.organization_id,
+                    facility_id=access.facility_id,
+                    namespace=f"deterministic:{deterministic}",
+                    source_version=source_version,
+                    payload={"question": question.casefold(), "arguments": deterministic_args},
+                )
+                tool_result = self.cache.get(cache_key)
+                if tool_result is None:
+                    tool_result = tools.execute(deterministic, deterministic_args)
+                    self.cache.set(cache_key, tool_result, ttl_seconds=60)
             if not tool_result.get("error"):
                 result = AgentResult(
                     answer=self._format_deterministic(deterministic, tool_result), summary=deterministic.replace("_", " "), confidence=1.0,
                     grounding="deterministic", provider="deterministic", model="python/sql", local=True, datasets=sorted(datasets),
                     tool_calls=[deterministic], data_freshness={key: value.freshness for key, value in datasets.items()}, request_id=request_id,
+                    read_only=True,
                 )
                 self._record(access=access, request_id=request_id, profile=profile, task=deterministic, result=result, latency_ms=0, input_tokens=0, output_tokens=0, validation="deterministic", success=True, retrieval_count=len(citations))
                 return result
@@ -205,7 +229,7 @@ class AgentRuntime:
         final_response = None
         bounded_context_used = False
         try:
-            if datasets or actions.names():
+            if datasets or actions.names() or has_traceability_tools:
                 try:
                     decision = self.provider_router.generate(
                         request,
