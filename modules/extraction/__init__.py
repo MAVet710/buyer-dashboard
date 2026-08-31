@@ -17,6 +17,7 @@ from .workflows import (
     get_extraction_workflow,
     list_extraction_workflows,
 )
+from . import hardening_hooks as _hardening_hooks
 
 __all__ = [
     "ExtractionCostEvent",
