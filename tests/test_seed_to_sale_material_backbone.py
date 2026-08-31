@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from modules.coman import ComanRepository
 from modules.coman.models import Base, InventoryLot, MaterialReservation, Product
 from modules.cultivation.service import CultivationService
+from modules.material_lineage.harvest_guard import GuardedHarvestAllocationService
 from modules.material_lineage.models import MaterialTransformation, MaterialTransformationInput, MaterialTransformationOutput
 from modules.material_lineage.service import MaterialLineageService
 from modules.production_erp.run360_mutations import ProductionRun360MutationService
@@ -32,7 +33,7 @@ def _vertical_scope(engine):
     return repo, organization, facility
 
 
-def test_completed_harvest_allocates_canonical_inventory_and_traces_to_source_plants():
+def test_allocated_harvest_can_complete_and_traces_inventory_to_source_plants():
     engine = _engine()
     repo, organization, facility = _vertical_scope(engine)
     bulk = repo.create_product(
@@ -88,51 +89,57 @@ def test_completed_harvest_allocates_canonical_inventory_and_traces_to_source_pl
         dry_weight=250,
         unit="g",
     )
-    cultivation.transition_harvest(
+
+    lineage = GuardedHarvestAllocationService(engine)
+    outputs = [{
+        "product_id": bulk.id,
+        "lot_code": "GP-0830-FLOWER",
+        "quantity": 200,
+        "unit": "g",
+        "purpose": "finished_flower",
+        "measurement_basis": "dry",
+        "status": "quarantine",
+        "location_code": "DRY-ROOM-1",
+    }]
+    losses = [{
+        "quantity": 50,
+        "unit": "g",
+        "loss_type": "drying_loss",
+        "measurement_basis": "dry",
+        "reason": "Measured closeout loss",
+    }]
+    preview = lineage.preview_harvest_allocation(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        harvest_id=harvest["id"],
+        outputs=outputs,
+        losses=losses,
+    )
+    assert preview["reconciliation"]["dry"]["remaining"] == 0
+    assert preview["preview_key"]
+
+    committed = lineage.commit_harvest_allocation(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        harvest_id=harvest["id"],
+        outputs=outputs,
+        losses=losses,
+        preview_key=preview["preview_key"],
+        actor="qa",
+    )
+    completed = cultivation.transition_harvest(
         organization.id,
         facility.id,
         harvest["id"],
         status="completed",
         actor="qa",
     )
+    assert completed["status"] == "completed"
 
-    lineage = MaterialLineageService(engine)
-    preview = lineage.preview_harvest_allocation(
-        organization_id=organization.id,
-        facility_id=facility.id,
-        harvest_id=harvest["id"],
-        outputs=[{
-            "product_id": bulk.id,
-            "lot_code": "GP-0830-FLOWER",
-            "quantity": 200,
-            "unit": "g",
-            "purpose": "finished_flower",
-            "measurement_basis": "dry",
-            "status": "quarantine",
-            "location_code": "DRY-ROOM-1",
-        }],
-        losses=[{
-            "quantity": 50,
-            "unit": "g",
-            "loss_type": "drying_loss",
-            "measurement_basis": "dry",
-            "reason": "Measured closeout loss",
-        }],
-    )
-    assert preview["reconciliation"]["dry"]["remaining"] == 0
-
-    committed = lineage.commit_harvest_allocation(
-        organization_id=organization.id,
-        facility_id=facility.id,
-        harvest_id=harvest["id"],
-        outputs=preview["outputs"],
-        losses=preview["losses"],
-        actor="qa",
-    )
     lot_id = committed["output_lot_ids"][0]
     assert repo.inventory_balance(organization.id, lot_id) == 200
 
-    graph = lineage.lot_graph(
+    graph = MaterialLineageService(engine).lot_graph(
         organization_id=organization.id,
         facility_id=facility.id,
         lot_id=lot_id,
