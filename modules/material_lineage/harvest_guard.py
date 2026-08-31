@@ -43,6 +43,13 @@ class GuardedHarvestAllocationService(MaterialLineageService):
         encoded = json.dumps(cls._jsonable(material), sort_keys=True, separators=(",", ":")).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
+    @staticmethod
+    def _reject_closed(preview: dict[str, Any]) -> None:
+        if str(preview.get("status") or "").casefold() == "completed":
+            raise ValueError(
+                "Completed harvest material disposition is closed. Reopen through a governed correction workflow before changing inventory genealogy."
+            )
+
     def preview_harvest_allocation(
         self,
         *,
@@ -59,6 +66,7 @@ class GuardedHarvestAllocationService(MaterialLineageService):
             outputs=outputs,
             losses=losses,
         )
+        self._reject_closed(preview)
         return preview | {"preview_key": self._preview_key(preview)}
 
     def commit_harvest_allocation(
@@ -84,6 +92,7 @@ class GuardedHarvestAllocationService(MaterialLineageService):
                 losses=losses or [],
                 lock=True,
             )
+            self._reject_closed(preview)
             current_key = self._preview_key(preview)
             if current_key != preview_key:
                 raise ValueError(
