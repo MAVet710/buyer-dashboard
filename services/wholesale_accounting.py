@@ -1,8 +1,9 @@
 """Read-only Wholesale Accounting control-plane snapshot.
 
 The accounting hub joins canonical commercial A/R, invoices, payments, sales-order
-payment state, and durable QuickBooks identity/sync metadata. It never reaches out
-to QuickBooks and never posts accounting mutations.
+payment state, purchase commitments, customer exposure, and durable QuickBooks
+identity/sync metadata. It never reaches out to QuickBooks and never posts
+accounting mutations.
 """
 
 from __future__ import annotations
@@ -19,6 +20,9 @@ from modules.commercial_finance.models import CommercialInvoice, CommercialPayme
 from modules.commercial_finance.service import CommercialFinanceService
 from modules.integrations.accounting_links import AccountingSyncLink
 from services.quickbooks_purchasing import QuickBooksPurchasingSyncService
+
+
+OPEN_PURCHASE_COMMITMENT_STATUSES = {"confirmed", "allocated", "partially_fulfilled"}
 
 
 def _unavailable_qbo_purchasing(message: str) -> dict[str, Any]:
@@ -72,8 +76,10 @@ class WholesaleAccountingService:
                 CommercialOrderLine.organization_id == organization_id,
                 CommercialOrderLine.commercial_order_id.in_([row.id for row in orders] or ["__none__"]),
             )))
+            lines_by_order: dict[str, list[CommercialOrderLine]] = {}
             order_value: dict[str, float] = {}
             for line in lines:
+                lines_by_order.setdefault(line.commercial_order_id, []).append(line)
                 order_value[line.commercial_order_id] = order_value.get(line.commercial_order_id, 0.0) + float(line.quantity or 0) * float(line.unit_price or 0)
 
             invoices = list(session.scalars(select(CommercialInvoice).where(
@@ -99,6 +105,7 @@ class WholesaleAccountingService:
             link = link_by_key.get(("invoice", invoice.id))
             invoice_rows.append({
                 "id": invoice.id,
+                "partner_id": invoice.partner_id,
                 "invoice_number": invoice.invoice_number,
                 "customer": getattr(partner, "name", "Unknown customer"),
                 "order_number": getattr(order, "order_number", ""),
@@ -142,11 +149,85 @@ class WholesaleAccountingService:
                 "due_at": order.due_at,
             })
 
+        today = date.today()
+        exposure_by_partner: dict[str, dict[str, Any]] = {}
+        for invoice in invoice_rows:
+            balance = float(invoice["balance_usd"] or 0)
+            if balance <= 0 or invoice["status"] == "void":
+                continue
+            partner_id = str(invoice["partner_id"])
+            partner = partner_by_id.get(partner_id)
+            row = exposure_by_partner.setdefault(partner_id, {
+                "partner_id": partner_id,
+                "customer": getattr(partner, "name", invoice["customer"]),
+                "payment_terms": getattr(partner, "payment_terms", ""),
+                "outstanding_usd": 0.0,
+                "current_usd": 0.0,
+                "overdue_usd": 0.0,
+                "open_invoice_count": 0,
+                "oldest_due_date": None,
+            })
+            row["outstanding_usd"] += balance
+            row["open_invoice_count"] += 1
+            due = invoice["due_date"]
+            if due < today:
+                row["overdue_usd"] += balance
+            else:
+                row["current_usd"] += balance
+            if row["oldest_due_date"] is None or due < row["oldest_due_date"]:
+                row["oldest_due_date"] = due
+        customer_exposure = sorted(
+            exposure_by_partner.values(),
+            key=lambda row: (float(row["overdue_usd"]), float(row["outstanding_usd"])),
+            reverse=True,
+        )
+
+        qbo_po_by_order = {
+            str(row.get("order_id")): row
+            for row in qbo_purchasing.get("purchase_orders", [])
+            if isinstance(row, dict) and row.get("order_id")
+        }
+        purchase_commitments = []
+        for order in orders:
+            if order.order_type != "purchase" or order.status not in OPEN_PURCHASE_COMMITMENT_STATUSES:
+                continue
+            vendor = partner_by_id.get(order.partner_id)
+            original_total = 0.0
+            remaining_total = 0.0
+            for line in lines_by_order.get(order.id, []):
+                quantity = float(line.quantity or 0)
+                fulfilled = max(0.0, min(quantity, float(line.fulfilled_quantity or 0)))
+                price = float(line.unit_price or 0)
+                original_total += quantity * price
+                remaining_total += max(0.0, quantity - fulfilled) * price
+            if remaining_total <= 1e-9:
+                continue
+            qbo_state = qbo_po_by_order.get(order.id, {})
+            purchase_commitments.append({
+                "order_id": order.id,
+                "order_number": order.order_number,
+                "vendor": getattr(vendor, "name", "Unknown vendor"),
+                "status": order.status,
+                "order_date": order.order_date,
+                "due_at": order.due_at,
+                "original_value_usd": original_total,
+                "remaining_commitment_usd": remaining_total,
+                "qbo_sync_status": str(qbo_state.get("sync_status") or "not_reconciled"),
+                "qbo_id": str(qbo_state.get("qbo_id") or ""),
+            })
+        purchase_commitments.sort(key=lambda row: (row["due_at"] is None, row["due_at"] or "", row["order_number"]))
+
         qbo_link_counts = Counter(row.entity_type for row in links if row.status == "synced")
         payment_status_counts = Counter(row["payment_status"] for row in sales_orders)
         overdue_ar = sum(float(ar["buckets"].get(key, 0.0)) for key in ("1_30", "31_60", "61_90", "90_plus"))
-        cutoff = date.today() - timedelta(days=30)
+        cutoff = today - timedelta(days=30)
         payments_30d = sum(row["amount_usd"] for row in payment_rows if row["payment_date"] >= cutoff)
+        invoices_issued_30d = sum(
+            float(row["total_usd"])
+            for row in invoice_rows
+            if row["status"] != "void" and row["issue_date"] >= cutoff
+        )
+        open_purchase_commitments = sum(float(row["remaining_commitment_usd"]) for row in purchase_commitments)
 
         return {
             "read_only": True,
@@ -156,19 +237,27 @@ class WholesaleAccountingService:
                 "overdue_ar": overdue_ar,
                 "open_invoice_count": sum(row["status"] not in {"paid", "void"} for row in invoice_rows),
                 "payments_30d": payments_30d,
+                "invoices_issued_30d": invoices_issued_30d,
                 "open_sales_order_value": sum(row["order_total"] for row in sales_orders if row["status"] not in {"fulfilled", "cancelled"}),
+                "open_purchase_commitments": open_purchase_commitments,
                 "qbo_connected": bool(qbo_purchasing["connected"]),
                 "qbo_attention_count": int(qbo_purchasing["summary"]["attention_count"]),
             },
             "ar": ar,
+            "customer_exposure": customer_exposure,
             "invoices": invoice_rows,
             "recent_payments": payment_rows,
             "sales_orders": sales_orders,
+            "purchase_commitments": purchase_commitments,
             "sales_payment_status_counts": dict(payment_status_counts),
             "quickbooks": {
                 "connected": bool(qbo_purchasing["connected"]),
                 "linked_entities": dict(qbo_link_counts),
                 "purchasing_reconciliation": qbo_purchasing,
                 "message": "QuickBooks status shown here is durable local synchronization metadata. It does not claim a fresh remote-provider readback.",
+            },
+            "accounting_policy": {
+                "purchase_commitments_are_accounts_payable": False,
+                "message": "Confirmed open purchase orders are shown as purchasing commitments, not Accounts Payable. A payable should only be recognized from an actual vendor bill or another authoritative liability record.",
             },
         }
