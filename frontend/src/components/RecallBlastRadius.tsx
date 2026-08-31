@@ -45,6 +45,9 @@ type RecallBlastRadiusResponse = {
   status_counts:Record<string,number>;
   cross_facility:boolean;
   redacted_facility_count:number;
+  scope_complete:boolean;
+  evaluated_max_depth:number;
+  hard_depth_limit:number;
   max_depth:number;
 };
 
@@ -64,6 +67,7 @@ export function RecallBlastRadius({lotId}:{lotId:string}) {
     {recall.isLoading?<div className="state">Calculating downstream recall exposure…</div>:null}
     {recall.isError?<div className="warning-banner">{recall.error.message}</div>:null}
     {data?<>
+      {!data.scope_complete?<div className="warning-banner"><strong>Recall scope incomplete:</strong> genealogy continued through the hard traversal safety limit ({data.hard_depth_limit}). Do not treat this package list as the full blast radius; escalate for traceability review before disposition decisions.</div>:null}
       <div className="metrics four">
         <Metric label="Affected packages" value={data.affected_lot_count}/>
         <Metric label="With inventory" value={data.active_inventory_lot_count}/>
