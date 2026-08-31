@@ -1,8 +1,8 @@
 # Seed-to-Sale Execution Status
 
-Current continuation branch: `feat/doobie-agent-traceability-tools`
+Current status: Phases 1–7 are merged into `main`. The currently approved seed-to-sale hardening sequence is complete.
 
-This document tracks the durable seed-to-sale material backbone and the operator-hardening phases built on top of it. Changes remain isolated in pull requests until their focused regressions and repository CI gates pass.
+This document tracks the durable seed-to-sale material backbone and the operator-hardening phases built on top of it. Implementation changes remain isolated in pull requests until their focused regressions and repository CI gates pass.
 
 ## Phase 1 — Material backbone / Harvest -> Inventory
 
@@ -92,8 +92,10 @@ This document tracks the durable seed-to-sale material backbone and the operator
 - [x] Explicit identifier-bound lineage and recall questions execute deterministically with zero model-provider dependency
 - [x] Live traceability queries bypass the short deterministic analytics cache
 - [x] Factual Compliance Agent traceability may use deterministic package facts without weakening authoritative-source requirements for legal/regulatory conclusions
+- [x] Mixed legal/compliance traceability questions combine canonical package facts with authoritative retrieved evidence instead of short-circuiting either evidence class
+- [x] Explicit traceability-service failures fail closed and do not fall through to model memory
 - [x] Agent traceability remains analysis-only: no inventory hold, Metrc mutation, regulator notification or other compliance mutation
-- [x] Regression coverage for schema isolation, facility redaction, admin federation, cross-tenant non-disclosure, ambiguity, deterministic execution and compliance grounding
+- [x] Regression coverage for schema isolation, facility redaction, admin federation, cross-tenant non-disclosure, ambiguity, deterministic execution, compliance grounding, mixed evidence and fail-closed tool errors
 
 ## Approved execution sequence
 
