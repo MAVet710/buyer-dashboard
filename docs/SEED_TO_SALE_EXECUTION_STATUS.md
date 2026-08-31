@@ -70,12 +70,15 @@ This document tracks the durable seed-to-sale material backbone and the operator
 - [x] Source package included while upstream ancestors are excluded from downstream recall scope
 - [x] Branching descendants and multi-hop transformations included
 - [x] Cycle-safe traversal and duplicate suppression
+- [x] Adaptive graph expansion prevents fixed-depth silent under-reporting
+- [x] Hard traversal ceiling returns an explicit incomplete-scope guard instead of a false-clear result
+- [x] Cancelled transfers are excluded from live recall exposure
 - [x] Cross-license downstream packages included only when the user may inspect that facility
 - [x] Protected / in-transit transfer exposure remains visible as follow-up work instead of disappearing
 - [x] Current on-hand exposure summarized by unit without mixing incompatible units
 - [x] Recall 360 surfaced inside Package 360
 - [x] Recall analysis explicitly read-only; no silent inventory holds, Metrc mutation or regulator notification
-- [x] Regression coverage for downstream-only scope, cycles, cross-license authorization and tenant isolation
+- [x] Regression coverage for downstream-only scope, depth expansion, cycles, cancelled transfers, cross-license authorization and tenant isolation
 
 ## Next approved phase
 
