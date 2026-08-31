@@ -59,6 +59,83 @@ jobs:
           path: frontend/test-results/browser-parity
           if-no-files-found: warn
           retention-days: 14
+  operator-alpha-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - name: Install backend alpha dependencies
+        run: pip install -r requirements.txt -r backend/requirements.txt pytest httpx
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: pnpm, cache-dependency-path: frontend/pnpm-lock.yaml }
+      - name: Install frontend alpha dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Install operator browser runner
+        working-directory: frontend
+        run: pnpm add --save-dev @playwright/test@1.55.0 --lockfile=false
+      - name: Install Chromium for operator alpha
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Seed integrated operator alpha facility
+        run: |
+          export DATABASE_URL=sqlite+pysqlite:///./operator-alpha.db
+          python scripts/seed_operator_alpha.py | tee /tmp/operator-alpha.env
+          cat /tmp/operator-alpha.env >> "$GITHUB_ENV"
+          echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+      - name: Run every operator workspace against real FastAPI
+        env:
+          APP_ENV: development
+          CORS_ORIGINS: http://127.0.0.1:4173
+          ALLOWED_HOSTS: 127.0.0.1,localhost,testserver
+          VITE_API_URL: http://127.0.0.1:8000
+        run: |
+          python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 > /tmp/operator-alpha-api.log 2>&1 &
+          API_PID=$!
+          (
+            cd frontend
+            pnpm exec vite --host 127.0.0.1 --port 4173 > /tmp/operator-alpha-web.log 2>&1
+          ) &
+          WEB_PID=$!
+          trap 'kill $API_PID $WEB_PID 2>/dev/null || true' EXIT
+
+          API_READY=0
+          WEB_READY=0
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then API_READY=1; fi
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then WEB_READY=1; fi
+            if [ "$API_READY" -eq 1 ] && [ "$WEB_READY" -eq 1 ]; then break; fi
+            sleep 1
+          done
+          if [ "$API_READY" -ne 1 ]; then
+            echo "FastAPI did not become ready"
+            cat /tmp/operator-alpha-api.log
+            exit 1
+          fi
+          if [ "$WEB_READY" -ne 1 ]; then
+            echo "React did not become ready"
+            cat /tmp/operator-alpha-web.log
+            exit 1
+          fi
+
+          cd frontend
+          ALPHA_ORGANIZATION_ID="$ALPHA_ORGANIZATION_ID" \
+          ALPHA_FACILITY_ID="$ALPHA_FACILITY_ID" \
+          pnpm exec playwright test --config=playwright.config.ts e2e/operator-alpha-real.spec.ts
+      - name: Upload strict operator alpha evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strict-operator-alpha-evidence
+          path: |
+            frontend/test-results
+            /tmp/operator-alpha-api.log
+            /tmp/operator-alpha-web.log
+          if-no-files-found: warn
+          retention-days: 14
   containers:
     runs-on: ubuntu-latest
     steps:
