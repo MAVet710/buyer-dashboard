@@ -285,12 +285,30 @@ def test_recall_360_walks_only_downstream_branches_and_is_cycle_safe():
     assert recall["transfer_count"] == 1
     assert recall["protected_exposure_count"] == 0
     assert recall["cross_facility"] is True
+    assert recall["scope_complete"] is True
+    assert recall["evaluated_max_depth"] >= 12
     source = next(row for row in recall["affected_lots"] if row["lot_id"] == "lot-source")
     assert source["is_source"] is True
     assert source["path"] == []
     destination = next(row for row in recall["affected_lots"] if row["lot_id"] == destination_lot_id)
     relationships = [edge["relationship"] for edge in destination["path"]]
     assert relationships[-2:] == ["transferred_out", "received_as_transfer"]
+
+
+def test_recall_360_expands_beyond_initial_depth_until_scope_stabilizes():
+    engine = _engine()
+    recall = RecallBlastRadiusService(engine).blast_radius(
+        organization_id="org-recall",
+        facility_id="facility-source",
+        lot_id="lot-source",
+        allowed_facility_ids={"facility-source"},
+        max_depth=1,
+    )
+    ids = {row["lot_id"] for row in recall["affected_lots"]}
+    assert {"lot-source", "lot-mid", "lot-finished", "lot-byproduct"}.issubset(ids)
+    assert "lot-upstream" not in ids
+    assert recall["scope_complete"] is True
+    assert recall["evaluated_max_depth"] > 1
 
 
 def test_recall_360_fails_closed_across_unassigned_facilities_without_hiding_exposure():
@@ -389,4 +407,5 @@ def test_recall_360_is_visible_in_package_360_and_explicitly_read_only():
     assert "/api/v1/material-lineage/lots/${lotId}/recall" in recall_surface
     assert "read-only analysis" in recall_surface
     assert "does not place inventory on hold, change Metrc or notify a regulator" in recall_surface
+    assert "Recall scope incomplete:" in recall_surface
     assert '@lineage_router.get("/lots/{lot_id}/recall")' in router
