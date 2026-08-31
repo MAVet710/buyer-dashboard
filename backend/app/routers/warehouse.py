@@ -4,11 +4,12 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import InventoryLot, InventoryTransaction, Product
+from modules.coman.models import InventoryLot, Product
 from modules.commercial.repository import CommercialRepository
+from modules.inventory_availability.service import InventoryAvailabilityService
 from ..auth import RequestContext, get_commercial_context, get_request_context
 from ..database import get_engine
 
@@ -29,24 +30,14 @@ def _sortable_time(value: datetime | None) -> datetime:
 
 
 def _available_lots(session: Session, context: RequestContext, product_id: str) -> list[dict]:
-    rows = list(session.execute(
-        select(
-            InventoryLot,
-            func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0).label("balance"),
-        )
-        .outerjoin(InventoryTransaction, InventoryTransaction.lot_id == InventoryLot.id)
-        .where(
-            InventoryLot.organization_id == context.organization_id,
-            InventoryLot.facility_id == context.facility_id,
-            InventoryLot.product_id == product_id,
-            InventoryLot.status.in_(["available", "released"]),
-        )
-        .group_by(InventoryLot.id)
-    ))
+    snapshot = InventoryAvailabilityService.build(session, context.organization_id, context.facility_id)
     available = []
-    for lot, balance in rows:
-        quantity = float(balance or 0)
-        if quantity <= 0:
+    for row in snapshot.get("lots", []):
+        lot = row["lot"]
+        if lot.product_id != product_id or not row.get("active"):
+            continue
+        usable = max(0.0, float(row.get("available", 0.0) or 0.0))
+        if usable <= 1e-9:
             continue
         available.append({
             "id": lot.id,
@@ -55,7 +46,11 @@ def _available_lots(session: Session, context: RequestContext, product_id: str) 
             "barcode": lot.barcode_value,
             "location": lot.location_code,
             "status": lot.status,
-            "on_hand": quantity,
+            # Warehouse UI historically calls this field on_hand, but it is the
+            # pickable amount. Keep the contract while using canonical usable truth.
+            "on_hand": usable,
+            "physical_on_hand": float(row.get("on_hand", 0.0) or 0.0),
+            "reserved": float(row.get("reserved", 0.0) or 0.0),
             "received_at": lot.received_at,
             "expiration_at": lot.expiration_at,
         })
