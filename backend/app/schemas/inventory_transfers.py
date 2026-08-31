@@ -14,6 +14,7 @@ class InventoryTransferDispatchCreate(BaseModel):
     manifest_reference: str = Field(min_length=1, max_length=255)
     external_transfer_id: str = Field(default="", max_length=255)
     notes: str = Field(default="", max_length=4000)
+    state_transfer_confirmed: bool = False
     lines: list[InventoryTransferDispatchLine] = Field(min_length=1, max_length=500)
 
 
@@ -23,6 +24,7 @@ class InventoryTransferReceiveLine(BaseModel):
     package_id: str = Field(default="", max_length=255)
     location: str = Field(default="RECEIVING", max_length=120)
     notes: str = Field(default="", max_length=4000)
+    state_receipt_confirmed: bool = False
 
 
 class InventoryTransferCancel(BaseModel):
