@@ -22,6 +22,7 @@ from modules.coman.models import (
 )
 
 _ACTIVE_LOT_STATUSES = {"available", "released"}
+_ACTIVE_PRODUCTION_STATUSES = {"draft", "planned", "scheduled", "in_progress", "on_hold"}
 _ACTIVE_SALES_STATUSES = {"confirmed", "allocated", "partially_fulfilled"}
 _ACTIVE_ALLOCATION_STATUSES = {"reserved", "partial"}
 _PASSED_LAB_STATES = {"passed", "testpassed", "released", "pass"}
@@ -51,6 +52,10 @@ class InventoryAvailabilityService:
     active Production reservations, hard Commercial lot allocations, and unallocated
     confirmed sales commitments on top of that ledger so every workspace sees the
     same usable quantity without creating a second inventory table.
+
+    Invalid legacy/stale claims are surfaced through ``integrity_issues`` instead of
+    silently reducing usable inventory. Negative physical balances are preserved as
+    evidence of ledger drift; only the sellable/usable projection is clamped at zero.
     """
 
     def __init__(self, engine: Engine):
@@ -67,6 +72,7 @@ class InventoryAvailabilityService:
             InventoryLot.organization_id == organization_id,
             InventoryLot.facility_id == facility_id,
         ).order_by(InventoryLot.received_at.asc().nullsfirst(), InventoryLot.lot_code.asc())))
+        scoped_lot_ids = {row.id for row in lots}
         product_ids = {row.product_id for row in lots}
         products = {
             row.id: row
@@ -130,42 +136,97 @@ class InventoryAvailabilityService:
         wholesale_reserved_by_lot: dict[str, float] = defaultdict(float)
         allocated_by_line: dict[str, float] = defaultdict(float)
         claims_by_lot: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        integrity_issues: list[dict[str, Any]] = []
 
         for reservation in production_reservations:
+            order = production_orders.get(reservation.production_order_id)
+            if reservation.lot_id not in scoped_lot_ids:
+                integrity_issues.append({
+                    "code": "production_reservation_outside_scope",
+                    "severity": "blocker",
+                    "lot_id": reservation.lot_id,
+                    "reference_id": reservation.id,
+                    "message": "Active production reservation references a lot outside the active facility.",
+                })
+                continue
+            if order is None:
+                integrity_issues.append({
+                    "code": "production_reservation_missing_order",
+                    "severity": "blocker",
+                    "lot_id": reservation.lot_id,
+                    "reference_id": reservation.id,
+                    "message": "Active production reservation has no scoped production order.",
+                })
+                continue
+            if str(order.status or "").casefold() not in _ACTIVE_PRODUCTION_STATUSES:
+                integrity_issues.append({
+                    "code": "stale_production_reservation",
+                    "severity": "warning",
+                    "lot_id": reservation.lot_id,
+                    "reference_id": reservation.id,
+                    "message": f"Reservation remains active on production order {order.order_number} after status {order.status}.",
+                })
+                continue
             quantity = max(0.0, float(reservation.quantity or 0.0))
             production_reserved_by_lot[reservation.lot_id] += quantity
-            order = production_orders.get(reservation.production_order_id)
             claims_by_lot[reservation.lot_id].append({
                 "source": "production",
                 "claim_type": "reserved",
                 "quantity": quantity,
                 "reference_id": reservation.production_order_id,
-                "reference": getattr(order, "order_number", reservation.production_order_id),
-                "label": f"Production {getattr(order, 'order_number', reservation.production_order_id)}",
+                "reference": order.order_number,
+                "label": f"Production {order.order_number}",
             })
 
         for allocation in allocations:
+            if allocation.lot_id not in scoped_lot_ids:
+                integrity_issues.append({
+                    "code": "wholesale_allocation_outside_scope",
+                    "severity": "blocker",
+                    "lot_id": allocation.lot_id,
+                    "reference_id": allocation.id,
+                    "message": "Active wholesale allocation references a lot outside the active facility.",
+                })
+                continue
+            order = sales_order_by_id.get(allocation.commercial_order_id)
+            line = sales_line_by_id.get(allocation.commercial_order_line_id)
+            if order is None or line is None:
+                integrity_issues.append({
+                    "code": "stale_wholesale_allocation",
+                    "severity": "warning",
+                    "lot_id": allocation.lot_id,
+                    "reference_id": allocation.id,
+                    "message": "Wholesale allocation remains active after its sales order/line is no longer active in this facility.",
+                })
+                continue
             remaining = max(0.0, float(allocation.quantity or 0.0) - float(allocation.fulfilled_quantity or 0.0))
             if remaining <= 0:
                 continue
             wholesale_reserved_by_lot[allocation.lot_id] += remaining
             allocated_by_line[allocation.commercial_order_line_id] += remaining
-            order = sales_order_by_id.get(allocation.commercial_order_id)
-            partner = partners.get(getattr(order, "partner_id", "")) if order else None
+            partner = partners.get(order.partner_id)
             claims_by_lot[allocation.lot_id].append({
                 "source": "wholesale",
                 "claim_type": "lot_reserved",
                 "quantity": remaining,
                 "reference_id": allocation.commercial_order_id,
-                "reference": getattr(order, "order_number", allocation.commercial_order_id),
+                "reference": order.order_number,
                 "customer": getattr(partner, "name", ""),
-                "label": f"Wholesale {getattr(order, 'order_number', allocation.commercial_order_id)}",
+                "label": f"Wholesale {order.order_number}",
             })
 
         lot_rows: dict[str, dict[str, Any]] = {}
         lots_by_product: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for lot in lots:
-            on_hand = max(0.0, balances.get(lot.id, 0.0))
+            on_hand = float(balances.get(lot.id, 0.0))
+            if on_hand < -1e-9:
+                integrity_issues.append({
+                    "code": "negative_physical_balance",
+                    "severity": "blocker",
+                    "lot_id": lot.id,
+                    "reference_id": lot.id,
+                    "message": f"Lot {lot.lot_code} has a negative physical ledger balance of {on_hand:g}.",
+                })
             production_reserved = max(0.0, production_reserved_by_lot.get(lot.id, 0.0))
             wholesale_reserved = max(0.0, wholesale_reserved_by_lot.get(lot.id, 0.0))
             active = str(lot.status or "").casefold() in _ACTIVE_LOT_STATUSES
@@ -269,4 +330,5 @@ class InventoryAvailabilityService:
             "by_lot": lot_rows,
             "by_product": by_product,
             "uncovered_commitments": dict(uncovered_by_product),
+            "integrity_issues": integrity_issues,
         }
