@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from modules.coman import ComanRepository
@@ -35,7 +35,6 @@ def _opening_lot(coman: ComanRepository, organization_id: str, facility_id: str,
         facility_id,
         product_id=product.id,
         lot_code=lot_code,
-        status="available",
         actor="test",
     )
     coman.post_inventory_transaction(
@@ -112,10 +111,11 @@ def test_vertical_dev_inventory_replaces_only_dev_sandbox_and_is_repeatable():
 
     lineage = MaterialLineageService(engine)
     extraction_graphs = 0
+    extract_ids = set(first.extract_final_lots)
     for lot_id in first.final_lots:
         graph = lineage.lot_graph(organization_id=dev.id, facility_id=sandbox.id, lot_id=lot_id)
         assert any(node["type"] == "plant" for node in graph["nodes"])
-        if lot_id in set(first.extract_final_lots) and any(node.get("transformation_type") == "extraction_run" for node in graph["nodes"]):
+        if lot_id in extract_ids and any(node.get("transformation_type") == "extraction_run" for node in graph["nodes"]):
             extraction_graphs += 1
     assert extraction_graphs == 30
 
