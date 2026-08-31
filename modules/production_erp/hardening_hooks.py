@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import event, inspect, select
+from sqlalchemy import event, func, inspect, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import InventoryLot, Product, ProductionOrder
@@ -40,6 +40,47 @@ def _status_before_flush(order: ProductionOrder) -> str:
     return str(order.status or "").casefold()
 
 
+def _measured_disposition(session: Session, order: ProductionOrder) -> tuple[float, float]:
+    with session.no_autoflush:
+        output = float(
+            session.scalar(
+                select(func.coalesce(func.sum(ProductionRunOutput.actual_quantity), 0.0)).where(
+                    ProductionRunOutput.organization_id == order.organization_id,
+                    ProductionRunOutput.facility_id == order.facility_id,
+                    ProductionRunOutput.production_order_id == order.id,
+                )
+            )
+            or 0.0
+        )
+        waste = float(
+            session.scalar(
+                select(func.coalesce(func.sum(ProductionRunEvent.waste_quantity), 0.0)).where(
+                    ProductionRunEvent.organization_id == order.organization_id,
+                    ProductionRunEvent.facility_id == order.facility_id,
+                    ProductionRunEvent.production_order_id == order.id,
+                    ProductionRunEvent.event_type == "waste",
+                )
+            )
+            or 0.0
+        )
+    for pending in session.new:
+        if (
+            isinstance(pending, ProductionRunOutput)
+            and pending.organization_id == order.organization_id
+            and pending.facility_id == order.facility_id
+            and pending.production_order_id == order.id
+        ):
+            output += max(0.0, float(pending.actual_quantity or 0.0))
+        elif (
+            isinstance(pending, ProductionRunEvent)
+            and pending.organization_id == order.organization_id
+            and pending.facility_id == order.facility_id
+            and pending.production_order_id == order.id
+        ):
+            waste += max(0.0, float(pending.waste_quantity or 0.0))
+    return output, waste
+
+
 def _validate_run_event(session: Session, row: ProductionRunEvent) -> None:
     order = _order_for(session, row)
     before = _status_before_flush(order)
@@ -51,6 +92,12 @@ def _validate_run_event(session: Session, row: ProductionRunEvent) -> None:
         raise ValueError("Cancelled production runs cannot accept execution events.")
     if before == "complete" and row.event_type in {"hold", "waste", "rework", "completed"}:
         raise ValueError("Completed production runs are closed to new execution-state changes.")
+    if row.event_type == "completed":
+        output, waste = _measured_disposition(session, order)
+        if output <= 1e-9 and waste <= 1e-9:
+            raise ValueError(
+                "Production cannot be completed without measured output or explicit waste disposition."
+            )
 
 
 def _validate_output(session: Session, row: ProductionRunOutput) -> None:
