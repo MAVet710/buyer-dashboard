@@ -107,3 +107,7 @@ class CultivationCostEntry(Base):
     occurred_on: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     actor: Mapped[str] = mapped_column(String(255), nullable=False)
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+# Register the fail-closed harvest completion invariant whenever cultivation models load.
+from . import closeout_guard as _closeout_guard  # noqa: E402,F401
