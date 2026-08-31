@@ -130,6 +130,11 @@ def cancel_inventory_transfer(
 ):
     _require_inventory_scope(context, engine)
     _require_transfer_write(context)
+    if not payload.state_cancel_confirmed:
+        raise HTTPException(
+            422,
+            "Confirm the required state-system/Metrc transfer cancellation before restoring source inventory in DoobieLogic.",
+        )
     try:
         return InventoryTransferService(engine).cancel(
             context.organization_id,
