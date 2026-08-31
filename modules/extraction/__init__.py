@@ -19,6 +19,7 @@ from .workflows import (
 )
 from . import hardening_hooks as _hardening_hooks
 from . import material_backbone as _material_backbone
+from . import release_reconciliation as _release_reconciliation
 
 __all__ = [
     "ExtractionCostEvent",
