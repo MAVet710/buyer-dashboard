@@ -139,7 +139,7 @@ def test_production_inventory_keeps_bulk_cultivation_plants_and_inventory_contro
         "frontend/src/components/PlantInventory.tsx",
         'clone', 'seedling', 'vegetative', 'flowering', 'harvested', 'destroyed',
         'Plant tag', 'Strain', 'Phase', 'Room', 'Mother', 'Lifecycle history',
-        'Add plant', 'Record change',
+        'CultivationBatchManager', 'Add one plant', 'Record change',
     )
     has(
         "backend/app/auth.py",
