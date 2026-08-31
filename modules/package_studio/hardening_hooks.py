@@ -65,9 +65,12 @@ def _propagate_cost(session: Session, output: PackageStudioOutput, run: PackageS
     if product is None:
         return
     prior = float(product.unit_cost or 0.0)
-    # A configured conversion/packaging cost remains additive; a zero-cost
-    # Product Master item receives the full derived material cost automatically.
-    product.unit_cost = round(prior + calculated_unit_cost, 6) if prior > 0 else calculated_unit_cost
+    # Product Master may already carry a deliberately configured standard cost.
+    # Do not compound that value every time another lot is packaged. Automatic
+    # propagation fills only missing cost; configured costing remains stable.
+    if prior > 0:
+        return
+    product.unit_cost = calculated_unit_cost
     session.add(
         AuditEvent(
             organization_id=output.organization_id,
