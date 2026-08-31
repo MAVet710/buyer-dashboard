@@ -169,6 +169,11 @@ class RecallBlastRadiusService:
             for key in reachable_keys
             if key in nodes and nodes[key].get("type") == "transfer" and nodes[key].get("id")
         }
+        redacted_scopes = {
+            (str(row["facility_name"] or ""), str(row["license_number"] or ""))
+            for row in protected_exposures
+            if row["redacted"]
+        }
         return {
             "source_lot_id": str(graph["root_lot_id"]),
             "affected_lots": affected,
@@ -182,8 +187,8 @@ class RecallBlastRadiusService:
             "protected_exposures": protected_exposures,
             "on_hand_by_unit": dict(sorted(on_hand_by_unit.items())),
             "status_counts": dict(sorted(status_counts.items())),
-            "cross_facility": bool(graph.get("cross_facility")),
-            "redacted_facility_count": int(graph.get("redacted_facility_count") or 0),
+            "cross_facility": bool(reachable_transfers or protected_exposures or len(facility_ids) > 1),
+            "redacted_facility_count": len(redacted_scopes),
             "max_depth": max_depth,
         }
 
