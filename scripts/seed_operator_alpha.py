@@ -27,7 +27,7 @@ _REQUIRED_MIGRATED_TABLES = {
     "action_proposals",
     "traceability_transactions",
     "material_transformations",
-    "inventory_lot_quality_evidence",
+    "lot_quality_evidence",
 }
 
 
