@@ -6,6 +6,7 @@ PlantPhase = Literal["clone", "seedling", "vegetative", "flowering", "harvested"
 HarvestStatus = Literal["planned", "active", "drying", "completed", "cancelled"]
 CostType = Literal["labor", "material", "overhead"]
 CostEntityType = Literal["plant", "harvest", "room"]
+CultivationGroupType = Literal["clone_batch", "seed_batch", "nursery", "vegetative", "flowering"]
 
 class PlantCreate(BaseModel):
     plant_tag: str
@@ -46,6 +47,26 @@ class PlantEventItem(BaseModel):
     notes: str
     actor: str
     occurred_at: datetime
+
+class CultivationGroupCreate(BaseModel):
+    group_code: str = Field(min_length=1, max_length=120)
+    group_type: CultivationGroupType = "clone_batch"
+    strain_name: str = Field(min_length=1, max_length=255)
+    quantity: int = Field(ge=1, le=5000)
+    room_code: str = Field(default="UNASSIGNED", max_length=120)
+    mother_plant_id: str | None = None
+    source_lot_id: str | None = None
+    plant_tags: list[str] | None = Field(default=None, max_length=5000)
+    tag_prefix: str = Field(default="", max_length=120)
+    planted_at: date | None = None
+    estimated_harvest_date: date | None = None
+    notes: str = Field(default="", max_length=4000)
+
+class CultivationGroupTransition(BaseModel):
+    phase: PlantPhase | None = None
+    room_code: str | None = Field(default=None, max_length=120)
+    reason: str = Field(default="", max_length=255)
+    notes: str = Field(default="", max_length=4000)
 
 class CultivationRoomUpsert(BaseModel):
     room_code: str = Field(min_length=1, max_length=120)
