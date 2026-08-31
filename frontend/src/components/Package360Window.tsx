@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api";
 import { MaterialLineageGraph } from "./MaterialLineageGraph";
+import { RecallBlastRadius } from "./RecallBlastRadius";
 import { WorkspaceWindow } from "./WorkspaceWindow";
 
 type TimelineEvent = { occurred_at:string|null;area:string;event_type:string;title:string;detail:string;actor:string;reference:string;status:string;quantity:number|null;unit:string };
@@ -29,6 +30,7 @@ export function Package360Window({ code, open, onClose, onNavigate }: { code:str
       <section className="inventory-panel"><div className="eyebrow">CURRENT STATE</div><Row label="Package ID" value={data.package.package_id||"—"}/><Row label="Lot code" value={data.package.lot_code}/><Row label="Location" value={data.package.location||"—"}/><Row label="Status" value={formatTitle(data.package.status)}/><Row label="Received" value={date(data.package.received_at)}/><Row label="Expiration" value={date(data.package.expiration_at)}/><Row label="Inventory events" value={String(data.summary.inventory_events)}/><Row label="Order allocations" value={String(data.summary.order_allocations)}/></section>
       <section className="inventory-panel"><div className="eyebrow">PACKAGE STUDIO GENEALOGY</div><h3>Inputs</h3>{data.lineage.inputs.length?data.lineage.inputs.map((row,index)=><Lineage key={`in-${index}`} row={row}/>):<div className="info-banner">No Package Studio source inputs are linked to this package yet.</div>}<h3>Outputs</h3>{data.lineage.outputs.length?data.lineage.outputs.map((row,index)=><Lineage key={`out-${index}`} row={row}/>):<div className="info-banner">No Package Studio child outputs are linked to this package yet.</div>}</section>
       <MaterialLineageGraph lotId={data.package.id}/>
+      <RecallBlastRadius lotId={data.package.id}/>
       <section className="inventory-panel"><div className="eyebrow">UNIFIED EVENT TIMELINE</div><h3>What happened, in order</h3>{!data.timeline.length?<div className="info-banner">No durable events have been recorded for this package yet.</div>:<div className="package-timeline">{data.timeline.map((event,index)=><article className="commercial-order-card" key={`${event.occurred_at}-${event.area}-${index}`}><div><strong>{event.title}</strong><span className="status-pill">{event.area}</span></div><p>{event.detail||formatTitle(event.event_type)}</p><small>{event.occurred_at?new Date(event.occurred_at).toLocaleString():"Unknown time"}{event.quantity!=null?` · ${event.quantity>0?"+":""}${number(event.quantity)} ${event.unit}`:""}{event.status?` · ${formatTitle(event.status)}`:""}{event.actor?` · ${event.actor}`:""}{event.reference?` · ${event.reference}`:""}</small></article>)}</div>}</section>
     </>:null}
   </WorkspaceWindow>;
