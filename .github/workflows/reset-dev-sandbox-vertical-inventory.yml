@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - modules/coman/vertical_demo_inventory.py
+      - modules/coman/vertical_demo_inventory_scale.py
+      - modules/coman/vertical_demo_inventory_release.py
       - scripts/reset_dev_sandbox_vertical_inventory.py
       - .github/workflows/reset-dev-sandbox-vertical-inventory.yml
   workflow_dispatch:
@@ -41,22 +43,23 @@ jobs:
           set -euo pipefail
           IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/dev-sandbox-vertical-reset:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
           docker build -f Dockerfile.api -t "$IMAGE" .
-          docker run --rm --entrypoint python "$IMAGE" -c "from modules.coman.vertical_demo_inventory import STRAINS, FLOWER_FORMATS, EXTRACT_FORMATS, DEV_ORGANIZATION_SLUG; assert DEV_ORGANIZATION_SLUG == 'dev-sandbox'; assert len(STRAINS) == 10 and len(FLOWER_FORMATS) == 7 and len(EXTRACT_FORMATS) == 3; print('DEV vertical reset image verified')"
+          docker run --rm --entrypoint python "$IMAGE" -c "from modules.coman.vertical_demo_inventory import DEV_ORGANIZATION_SLUG, DEV_FACILITY_CODE; from modules.coman.vertical_demo_inventory_release import EXPECTED_ACTIVE_PLANTS, EXPECTED_TOTAL_PLANTS, EXPECTED_FLOWER_SKUS, EXPECTED_EXTRACT_SKUS, EXPECTED_FINISHED_SKUS, EXPECTED_MOCK_FINISHED_COAS; assert DEV_ORGANIZATION_SLUG == 'dev-sandbox'; assert DEV_FACILITY_CODE == 'SANDBOX'; assert EXPECTED_ACTIVE_PLANTS == 80; assert EXPECTED_TOTAL_PLANTS == 120; assert EXPECTED_FLOWER_SKUS == 350; assert EXPECTED_EXTRACT_SKUS == 150; assert EXPECTED_FINISHED_SKUS == 500; assert EXPECTED_MOCK_FINISHED_COAS == 50; print('Scaled DEV vertical reset image verified')"
           docker push "$IMAGE"
           echo "RESET_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       - name: Apply and validate DEV Sandbox vertical inventory replacement
         run: |
           set -euo pipefail
+          GENERATION="${GITHUB_SHA:0:12}"
           gcloud run jobs deploy "${{ env.RESET_JOB }}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
             --image "$RESET_IMAGE" \
             --region "${{ env.REGION }}" \
             --service-account "buyer-dash-migrate@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --command python \
-            --args=-m,scripts.reset_dev_sandbox_vertical_inventory,--apply \
+            --args=-m,scripts.reset_dev_sandbox_vertical_inventory,--apply,--generation,"$GENERATION" \
             --max-retries 0 \
-            --task-timeout 30m \
+            --task-timeout 45m \
             --set-env-vars APP_ENV=production \
             --set-secrets DL_PROD_DB_URL=buyer-dash-database-url:latest \
             --quiet
@@ -78,7 +81,7 @@ jobs:
               gcloud logging read \
                 "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${{ env.RESET_JOB }}\"" \
                 --project "${{ secrets.GCP_PROJECT_ID }}" \
-                --limit 120 \
+                --limit 160 \
                 --order=desc \
                 --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
             fi
