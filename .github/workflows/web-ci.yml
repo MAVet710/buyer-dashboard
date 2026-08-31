@@ -82,8 +82,12 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Seed integrated operator alpha facility
         run: |
+          set -euo pipefail
           export DATABASE_URL=sqlite+pysqlite:///./operator-alpha.db
           python scripts/seed_operator_alpha.py | tee /tmp/operator-alpha.env
+          test -s /tmp/operator-alpha.env
+          grep -q '^ALPHA_ORGANIZATION_ID=' /tmp/operator-alpha.env
+          grep -q '^ALPHA_FACILITY_ID=' /tmp/operator-alpha.env
           cat /tmp/operator-alpha.env >> "$GITHUB_ENV"
           echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
       - name: Run every operator workspace against real FastAPI
@@ -93,6 +97,7 @@ jobs:
           ALLOWED_HOSTS: 127.0.0.1,localhost,testserver
           VITE_API_URL: http://127.0.0.1:8000
         run: |
+          set -euo pipefail
           python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 > /tmp/operator-alpha-api.log 2>&1 &
           API_PID=$!
           (
