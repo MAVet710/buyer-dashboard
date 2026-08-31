@@ -1,13 +1,13 @@
 """Add canonical lot quality evidence and Product Master packaging semantics.
 
-Revision ID: 0060_vertical_saleability_hardening
+Revision ID: 0060_vertical_saleability
 Revises: 0059_material_transformations
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0060_vertical_saleability_hardening"
+revision = "0060_vertical_saleability"
 down_revision = "0059_material_transformations"
 branch_labels = None
 depends_on = None
