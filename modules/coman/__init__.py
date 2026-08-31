@@ -95,4 +95,7 @@ class ComanRepository(_BaseComanRepository):
 # Direct imports from modules.coman.repository also receive the guarded implementation.
 _repository_module.ComanRepository = ComanRepository
 
+# Register fail-closed tenant/ledger consistency guards for every ORM session.
+from . import integrity_hooks as _integrity_hooks  # noqa: E402,F401
+
 __all__ = ["ComanRepository", "create_coman_engine", "resolve_database_url"]
