@@ -141,7 +141,8 @@ class AgentActionRegistry:
         has_period = any(token in text_value for token in ("week", "weekly", "five day", "5 day", "next 5"))
         has_schedule_target = any(token in text_value for token in ("calendar", "schedule", "scheduling"))
         has_production = any(token in text_value for token in ("production", "run", "runs", "jobs", "co-man", "coman"))
-        if not (has_period and has_schedule_target and has_production):
+        has_plan_language = any(token in text_value for token in ("plan", "scheme", "production plan", "production scheme", "run plan"))
+        if not (has_schedule_target and has_production and (has_period or has_plan_language)):
             return None
         arguments: dict[str, Any] = {
             "commit": self._explicit_mutation_intent(text_value),
@@ -171,7 +172,20 @@ class AgentActionRegistry:
                 "place them on",
                 "commit",
                 "apply the plan",
+                "apply it to the calendar",
                 "build the calendar",
+                "build out",
+                "build a production plan",
+                "build a production scheme",
+                "build the production plan",
+                "build the production scheme",
+                "create a production plan",
+                "create a production scheme",
+                "create the production plan",
+                "create the production scheme",
+                "populate the calendar",
+                "implement the plan",
+                "implement the schedule",
             )
         )
 
