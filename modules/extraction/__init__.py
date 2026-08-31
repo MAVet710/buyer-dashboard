@@ -18,6 +18,7 @@ from .workflows import (
     list_extraction_workflows,
 )
 from . import hardening_hooks as _hardening_hooks
+from . import material_backbone as _material_backbone
 
 __all__ = [
     "ExtractionCostEvent",
