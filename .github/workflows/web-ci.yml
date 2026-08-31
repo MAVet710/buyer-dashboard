@@ -126,10 +126,21 @@ jobs:
             exit 1
           fi
 
+          set +e
           cd frontend
           ALPHA_ORGANIZATION_ID="$ALPHA_ORGANIZATION_ID" \
           ALPHA_FACILITY_ID="$ALPHA_FACILITY_ID" \
           pnpm exec playwright test --config=playwright.config.ts e2e/operator-alpha-real.spec.ts
+          ALPHA_STATUS=$?
+          cd ..
+          set -e
+          if [ "$ALPHA_STATUS" -ne 0 ]; then
+            echo "=== FastAPI operator-alpha log (last 300 lines) ==="
+            tail -n 300 /tmp/operator-alpha-api.log || true
+            echo "=== React operator-alpha log (last 150 lines) ==="
+            tail -n 150 /tmp/operator-alpha-web.log || true
+            exit "$ALPHA_STATUS"
+          fi
       - name: Upload strict operator alpha evidence
         if: always()
         uses: actions/upload-artifact@v4
