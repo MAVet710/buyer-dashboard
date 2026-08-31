@@ -3,6 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine
 
+from modules.cultivation.batches import CultivationBatchService
 from modules.cultivation.service import CultivationService
 from services.metrc_production import (
     fetch_all_active_harvests,
@@ -15,6 +16,8 @@ from ..config import Settings, get_settings
 from ..database import get_engine
 from ..schemas.plants import (
     CultivationCostCreate,
+    CultivationGroupCreate,
+    CultivationGroupTransition,
     CultivationHarvestCreate,
     CultivationHarvestTransition,
     CultivationRoomUpsert,
@@ -40,9 +43,6 @@ def require_write(context: RequestContext):
 
 
 def require_cultivation(context: RequestContext, engine: Engine):
-    # Cultivation is its own legal license context. A cultivation-only facility
-    # uses shared Production Ops inventory but must not be forced to also claim
-    # a manufacturing/production capability just to manage its plants.
     require_facility_capability(context, engine, "cultivation")
 
 
@@ -97,6 +97,93 @@ def list_plants(
             context.organization_id, context.facility_id, phase, room, search
         )
     ]
+
+
+@router.get("/groups")
+def cultivation_groups(
+    include_closed: bool = False,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_cultivation(context, engine)
+    try:
+        return {
+            "items": CultivationBatchService(engine).list_groups(
+                context.organization_id,
+                context.facility_id,
+                include_closed=include_closed,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/groups", status_code=201)
+def create_cultivation_group(
+    payload: CultivationGroupCreate,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_write(context)
+    require_cultivation(context, engine)
+    try:
+        return CultivationBatchService(engine).create_group(
+            context.organization_id,
+            context.facility_id,
+            actor=context.user_id,
+            **payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/groups/{group_id}")
+def cultivation_group_detail(
+    group_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_cultivation(context, engine)
+    try:
+        return CultivationBatchService(engine).group_detail(context.organization_id, context.facility_id, group_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/groups/{group_id}/transition")
+def transition_cultivation_group(
+    group_id: str,
+    payload: CultivationGroupTransition,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_write(context)
+    require_cultivation(context, engine)
+    if payload.phase is None and payload.room_code is None:
+        raise HTTPException(422, "Choose a phase and/or room change for this cultivation group.")
+    try:
+        return CultivationBatchService(engine).transition_group(
+            context.organization_id,
+            context.facility_id,
+            group_id,
+            actor=context.user_id,
+            **payload.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/{plant_id}/lineage")
+def plant_lineage(
+    plant_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_cultivation(context, engine)
+    try:
+        return CultivationBatchService(engine).plant_lineage(context.organization_id, context.facility_id, plant_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.get("/rooms")
@@ -265,12 +352,8 @@ def cultivation_regulatory_snapshot(
         jurisdiction_code=metrc.state.upper(),
         license_number=metrc.license_number,
         environment=metrc.environment,
-        vegetative_records=[
-            dict(row) for row in vegetative.get("records") or [] if isinstance(row, dict)
-        ],
-        flowering_records=[
-            dict(row) for row in flowering.get("records") or [] if isinstance(row, dict)
-        ],
+        vegetative_records=[dict(row) for row in vegetative.get("records") or [] if isinstance(row, dict)],
+        flowering_records=[dict(row) for row in flowering.get("records") or [] if isinstance(row, dict)],
         evidence=evidence,
     )
     return {
@@ -352,12 +435,8 @@ def plant_events(
     require_cultivation(context, engine)
     try:
         return [
-            PlantEventItem.model_validate(
-                {column: getattr(row, column) for column in PlantEventItem.model_fields}
-            )
-            for row in CultivationService(engine).events(
-                context.organization_id, context.facility_id, plant_id
-            )
+            PlantEventItem.model_validate({column: getattr(row, column) for column in PlantEventItem.model_fields})
+            for row in CultivationService(engine).events(context.organization_id, context.facility_id, plant_id)
         ]
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
