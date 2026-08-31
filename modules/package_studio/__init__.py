@@ -10,6 +10,7 @@ from .service import (
     PackageStudioOutputPlan,
     PackageStudioService,
 )
+from . import hardening_hooks as _hardening_hooks
 
 __all__ = [
     "PackageStudioPlan",

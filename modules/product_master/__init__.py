@@ -7,6 +7,7 @@ from .models import (
     ProductValueEvent,
     ProductVendorLink,
 )
+from .packaging import ProductPackagingProfile, ProductPackagingService
 from .repository import ProductMasterRepository, VALUE_TYPES, normalize_alias
 
 __all__ = [
@@ -14,6 +15,8 @@ __all__ = [
     "ProductExternalMapping",
     "ProductMasterProfile",
     "ProductMasterRepository",
+    "ProductPackagingProfile",
+    "ProductPackagingService",
     "ProductValueEvent",
     "ProductVendorLink",
     "VALUE_TYPES",
