@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine, func, select
@@ -16,6 +16,20 @@ router = APIRouter(prefix="/retail-insights", tags=["retail-insights"], dependen
 
 def _category(profile: ProductMasterProfile | None) -> str:
     return str(profile.category or "Uncategorized") if profile else "Uncategorized"
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    """Normalize database datetimes before Python-side arithmetic.
+
+    PostgreSQL returns timezone-aware values for timezone columns while SQLite can
+    deserialize the same SQLAlchemy columns as naive values. Operator analytics
+    must behave identically on both engines.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 @router.get("/trends")
@@ -41,7 +55,8 @@ def slow_movers(days: int = Query(default=30, ge=7, le=180), threshold_doh: floa
         rows = list(session.execute(select(Product, ProductMasterProfile, balance.c.on_hand, balance.c.oldest_received, func.coalesce(sales.c.sold, 0.0), func.coalesce(sales.c.net_sales, 0.0)).join(balance, balance.c.product_id == Product.id).outerjoin(sales, sales.c.product_id == Product.id).outerjoin(ProductMasterProfile, ProductMasterProfile.product_id == Product.id).where(Product.organization_id == context.organization_id, balance.c.on_hand > 0)))
     result = []
     for product, profile, on_hand, oldest, sold, net_sales in rows:
-        velocity = float(sold) / days; doh = float(on_hand) / velocity if velocity > 0 else None; age = max(0, (utc_now() - oldest).days) if oldest else 0
+        oldest_utc = _utc(oldest)
+        velocity = float(sold) / days; doh = float(on_hand) / velocity if velocity > 0 else None; age = max(0, (utc_now() - oldest_utc).days) if oldest_utc else 0
         if doh is not None and doh < threshold_doh: continue
         severity = 100 if velocity == 0 else min(100, max(0, (float(doh or 0) - threshold_doh) / max(threshold_doh, 1) * 50 + min(age, 180) / 3.6))
         discount = 30 if severity >= 85 else 20 if severity >= 65 else 10 if severity >= 40 else 0
