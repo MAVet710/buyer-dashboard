@@ -1,6 +1,6 @@
 import { BrainCircuit, Send, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "../lib/api";
 import { WorkspaceWindow } from "./WorkspaceWindow";
 import "./workspace-agent.css";
@@ -90,6 +90,7 @@ function saveHistory(scope: string, history: ChatMessage[]) {
 }
 
 export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
+  const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [agentKey, setAgentKey] = useState("");
   const [question, setQuestion] = useState("");
@@ -134,7 +135,7 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
       question: question.trim(),
       history,
     }),
-    onSuccess: result => {
+    onSuccess: async result => {
       const next: ChatMessage[] = [
         ...history,
         { role: "user" as const, content: question.trim() },
@@ -144,6 +145,13 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
       saveHistory(historyScope, next);
       setLastRun(result);
       setQuestion("");
+      if ((result.action_results ?? []).some(action => action.mutation_performed)) {
+        await Promise.all([
+          client.invalidateQueries({ queryKey: ["production-calendar"] }),
+          client.invalidateQueries({ queryKey: ["production-calendar-workspace"] }),
+          client.invalidateQueries({ queryKey: ["production-calendar-order"] }),
+        ]);
+      }
     },
   });
 
