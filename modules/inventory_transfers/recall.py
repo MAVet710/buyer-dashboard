@@ -11,6 +11,9 @@ from modules.coman.models import Facility, InventoryLot, InventoryTransaction, P
 from .lineage import CrossFacilityLineageService
 
 
+RECALL_GRAPH_HARD_DEPTH = 128
+
+
 class RecallBlastRadiusService:
     """Compute a deterministic downstream recall scope from durable genealogy.
 
@@ -35,12 +38,12 @@ class RecallBlastRadiusService:
     ) -> dict[str, Any]:
         allowed = set(allowed_facility_ids or {facility_id})
         allowed.add(facility_id)
-        graph = self.lineage.lot_graph(
+        graph, evaluated_depth, scope_complete = self._complete_graph(
             organization_id=organization_id,
             facility_id=facility_id,
             lot_id=lot_id,
             allowed_facility_ids=allowed,
-            max_depth=max_depth,
+            starting_depth=max_depth,
         )
         nodes = {str(row["key"]): dict(row) for row in graph.get("nodes") or []}
         root_key = f"lot:{graph['root_lot_id']}"
@@ -110,7 +113,7 @@ class RecallBlastRadiusService:
         affected: list[dict[str, Any]] = []
         for found_lot_id, (lot, product, facility) in lot_rows.items():
             key = f"lot:{found_lot_id}"
-            node_depth = int(depth.get(key, 0 if found_lot_id == graph["root_lot_id"] else max_depth + 1))
+            node_depth = int(depth.get(key, 0 if found_lot_id == graph["root_lot_id"] else evaluated_depth + 1))
             path = self._path(root_key, key, predecessor)
             affected.append(
                 {
@@ -189,8 +192,60 @@ class RecallBlastRadiusService:
             "status_counts": dict(sorted(status_counts.items())),
             "cross_facility": bool(reachable_transfers or protected_exposures or len(facility_ids) > 1),
             "redacted_facility_count": len(redacted_scopes),
-            "max_depth": max_depth,
+            "scope_complete": scope_complete,
+            "evaluated_max_depth": evaluated_depth,
+            "hard_depth_limit": RECALL_GRAPH_HARD_DEPTH,
+            "max_depth": evaluated_depth,
         }
+
+    def _complete_graph(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        lot_id: str,
+        allowed_facility_ids: set[str],
+        starting_depth: int,
+    ) -> tuple[dict[str, Any], int, bool]:
+        depth = max(1, min(int(starting_depth or 1), RECALL_GRAPH_HARD_DEPTH))
+        graph = self.lineage.lot_graph(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            lot_id=lot_id,
+            allowed_facility_ids=allowed_facility_ids,
+            max_depth=depth,
+        )
+        while depth < RECALL_GRAPH_HARD_DEPTH:
+            next_depth = min(RECALL_GRAPH_HARD_DEPTH, max(depth + 1, depth * 2))
+            probe = self.lineage.lot_graph(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                lot_id=lot_id,
+                allowed_facility_ids=allowed_facility_ids,
+                max_depth=next_depth,
+            )
+            if self._graph_size(probe) == self._graph_size(graph):
+                return probe, next_depth, True
+            graph = probe
+            depth = next_depth
+
+        probe = self.lineage.lot_graph(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            lot_id=lot_id,
+            allowed_facility_ids=allowed_facility_ids,
+            max_depth=RECALL_GRAPH_HARD_DEPTH + 1,
+        )
+        return graph, RECALL_GRAPH_HARD_DEPTH, self._graph_size(probe) == self._graph_size(graph)
+
+    @staticmethod
+    def _graph_size(graph: dict[str, Any]) -> tuple[int, int, int, int]:
+        return (
+            int(graph.get("node_count") or 0),
+            int(graph.get("edge_count") or 0),
+            int(graph.get("transfer_count") or 0),
+            int(graph.get("redacted_facility_count") or 0),
+        )
 
     @staticmethod
     def _path(
