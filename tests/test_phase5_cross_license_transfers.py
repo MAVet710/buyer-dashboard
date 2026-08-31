@@ -12,10 +12,9 @@ from backend.app.auth import get_authorization_engine
 from backend.app.database import get_engine
 from backend.app.main import app
 from modules.coman.models import Base, Facility, InventoryLot, InventoryTransaction, Organization, Product
-from modules.inventory_quality.models import LotQualityEvidence
 from modules.inventory_quality.service import LotQualityService
 from modules.inventory_transfers.lineage import CrossFacilityLineageService
-from modules.inventory_transfers.models import InventoryTransfer, InventoryTransferLine
+from modules.inventory_transfers.models import InventoryTransfer
 from modules.inventory_transfers.service import InventoryTransferService
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -390,6 +389,36 @@ def test_transfer_api_requires_state_system_confirmation_and_write_role_before_l
         )
         assert received.status_code == 200, received.text
         assert received.json()["status"] == "received"
+
+        cancel_dispatch = client.post(
+            "/api/v1/inventory/transfers/dispatch",
+            headers=_headers("facility-source"),
+            json={
+                "destination_facility_id": "facility-destination",
+                "manifest_reference": "MANIFEST-API-CANCEL",
+                "state_transfer_confirmed": True,
+                "lines": [{"source_lot_id": "source-lot-2", "quantity": 10.0}],
+            },
+        )
+        assert cancel_dispatch.status_code == 201, cancel_dispatch.text
+        cancel_transfer = cancel_dispatch.json()
+        unconfirmed_cancel = client.post(
+            f"/api/v1/inventory/transfers/{cancel_transfer['id']}/cancel",
+            headers=_headers("facility-source"),
+            json={"reason": "Manifest cancelled", "state_cancel_confirmed": False},
+        )
+        assert unconfirmed_cancel.status_code == 422, unconfirmed_cancel.text
+        with Session(engine) as session:
+            assert _balance(session, "source-lot-2") == pytest.approx(40.0)
+        confirmed_cancel = client.post(
+            f"/api/v1/inventory/transfers/{cancel_transfer['id']}/cancel",
+            headers=_headers("facility-source"),
+            json={"reason": "Manifest cancelled", "state_cancel_confirmed": True},
+        )
+        assert confirmed_cancel.status_code == 200, confirmed_cancel.text
+        assert confirmed_cancel.json()["status"] == "cancelled"
+        with Session(engine) as session:
+            assert _balance(session, "source-lot-2") == pytest.approx(50.0)
     finally:
         app.dependency_overrides.clear()
 
@@ -469,3 +498,4 @@ def test_transfers_are_first_class_inventory_workspaces_not_receive_history_subf
     assert "License transfers" not in receive_history
     assert "state-system/Metrc transfer" in transfers
     assert "accepted/received in the required state system" in transfers
+    assert "state-system/Metrc transfer cancellation" in transfers
