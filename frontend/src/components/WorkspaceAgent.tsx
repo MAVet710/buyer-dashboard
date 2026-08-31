@@ -145,7 +145,11 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
       saveHistory(historyScope, next);
       setLastRun(result);
       setQuestion("");
-      if ((result.action_results ?? []).some(action => action.mutation_performed)) {
+      const productionCalendarChanged = (result.action_results ?? []).some(action =>
+        action.mutation_performed
+        && (action.action === "production_schedule_week" || action.tool === "production_schedule_week")
+      );
+      if (productionCalendarChanged) {
         await Promise.all([
           client.invalidateQueries({ queryKey: ["production-calendar"] }),
           client.invalidateQueries({ queryKey: ["production-calendar-workspace"] }),
