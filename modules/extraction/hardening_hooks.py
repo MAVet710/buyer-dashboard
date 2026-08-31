@@ -3,8 +3,8 @@
 These hooks keep Extraction on the shared inventory truth without making the
 Extraction UI the only safe mutation path. They enforce workflow-compatible
 feedstock, attach actual consumption/output to the canonical material graph,
-mirror QA/COA results into canonical lot evidence, and propagate actual output
-COGS into the shared product cost mirror.
+mirror QA/COA results into canonical lot evidence, propagate actual output COGS,
+and keep consumer-ready finished goods out of the Extraction source picker.
 """
 
 from __future__ import annotations
@@ -22,11 +22,14 @@ from modules.material_lineage.models import (
 )
 from modules.product_master.models import ProductMasterProfile
 
+from .inventory_eligibility import classify_extraction_inventory
 from .models import ExtractionQAEvent, ExtractionRun, ExtractionRunInput, ExtractionRunOutput
+from .repository import ExtractionRepository
 from .workflow_eligibility import is_workflow_input_eligible
 
 
 _REGISTERED = False
+_ORIGINAL_LIST_AVAILABLE_LOTS = ExtractionRepository.list_available_lots
 
 
 def _pending(session: Session, cls, predicate):
@@ -270,6 +273,49 @@ def _validate_input(session: Session, record: ExtractionRunInput) -> None:
         raise ValueError(f"Extraction input is not eligible for this workflow: {reason}.")
 
 
+def _filtered_available_lots(self: ExtractionRepository, organization_id: str, facility_id: str) -> list[dict]:
+    rows = _ORIGINAL_LIST_AVAILABLE_LOTS(self, organization_id, facility_id)
+    if not rows:
+        return []
+    product_ids = {str(row.get("product_id") or "") for row in rows if row.get("product_id")}
+    with self._session_factory() as session:
+        products = {
+            row.id: row
+            for row in session.scalars(
+                select(Product).where(Product.organization_id == organization_id, Product.id.in_(product_ids))
+            )
+        }
+        profiles = {
+            row.product_id: row
+            for row in session.scalars(
+                select(ProductMasterProfile).where(
+                    ProductMasterProfile.organization_id == organization_id,
+                    ProductMasterProfile.product_id.in_(product_ids),
+                )
+            )
+        }
+    eligible: list[dict] = []
+    for row in rows:
+        product = products.get(str(row.get("product_id") or ""))
+        if product is None:
+            continue
+        profile = profiles.get(product.id)
+        if profile is not None and not profile.production_enabled:
+            continue
+        classification = classify_extraction_inventory(
+            item_type=product.item_type,
+            product_name=product.name,
+            sku=product.sku,
+            base_unit=product.base_unit,
+            category=profile.category if profile else "",
+            subcategory=profile.subcategory if profile else "",
+            product_format=profile.product_format if profile else "",
+        )
+        if classification.eligible:
+            eligible.append(row)
+    return eligible
+
+
 def _before_flush(session: Session, _flush_context, _instances) -> None:
     for row in list(session.new):
         if isinstance(row, ExtractionRunInput):
@@ -297,6 +343,7 @@ def register_hardening_hooks() -> None:
     if _REGISTERED:
         return
     event.listen(Session, "before_flush", _before_flush)
+    ExtractionRepository.list_available_lots = _filtered_available_lots
     _REGISTERED = True
 
 
