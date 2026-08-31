@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from modules.material_lineage.harvest_guard import GuardedHarvestAllocationService
 from modules.material_lineage.service import MaterialLineageService
 from modules.production_erp.mutations import MUTATION_ACTIONS, ProductionMutationService
 from modules.production_erp.run360_mutations import ProductionRun360MutationService
@@ -58,13 +59,20 @@ class HarvestAllocationRequest(BaseModel):
     losses: list[HarvestLossItem] = Field(default_factory=list)
 
 
+class HarvestAllocationCommitRequest(HarvestAllocationRequest):
+    preview_key: str
+
+
 def _service(engine: Engine) -> ProductionMutationService:
     return ProductionRun360MutationService(engine)
 
 
-def _guard_qa(action_type: str, context: RequestContext) -> None:
-    if action_type == "qa_decision" and context.role.casefold() not in {"dev", "admin", "supervisor", "qa"}:
+def _guard_mutation(action_type: str, context: RequestContext) -> None:
+    role = context.role.casefold()
+    if action_type == "qa_decision" and role not in {"dev", "admin", "supervisor", "qa"}:
         raise HTTPException(403, "Your role cannot post QA decisions.")
+    if action_type == "consume_materials" and role not in {"dev", "admin", "supervisor", "operator", "qa"}:
+        raise HTTPException(403, "Your role cannot post physical production consumption.")
 
 
 def _guard_cultivation_write(context: RequestContext, engine: Engine) -> None:
@@ -85,7 +93,7 @@ def preview_mutation(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
-    _guard_qa(payload.action_type, context)
+    _guard_mutation(payload.action_type, context)
     try:
         return _service(engine).preview(
             organization_id=context.organization_id,
@@ -105,7 +113,7 @@ def commit_mutation(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
-    _guard_qa(payload.action_type, context)
+    _guard_mutation(payload.action_type, context)
     try:
         return _service(engine).commit(
             organization_id=context.organization_id,
@@ -129,7 +137,7 @@ def preview_harvest_outputs(
 ):
     _guard_cultivation_write(context, engine)
     try:
-        return MaterialLineageService(engine).preview_harvest_allocation(
+        return GuardedHarvestAllocationService(engine).preview_harvest_allocation(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             harvest_id=harvest_id,
@@ -143,18 +151,19 @@ def preview_harvest_outputs(
 @cultivation_router.post("/harvests/{harvest_id}/outputs/commit", status_code=201)
 def commit_harvest_outputs(
     harvest_id: str,
-    payload: HarvestAllocationRequest,
+    payload: HarvestAllocationCommitRequest,
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
     _guard_cultivation_write(context, engine)
     try:
-        return MaterialLineageService(engine).commit_harvest_allocation(
+        return GuardedHarvestAllocationService(engine).commit_harvest_allocation(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             harvest_id=harvest_id,
             outputs=[row.model_dump() for row in payload.outputs],
             losses=[row.model_dump() for row in payload.losses],
+            preview_key=payload.preview_key,
             actor=context.user_id,
         )
     except ValueError as exc:
