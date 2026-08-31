@@ -29,6 +29,7 @@ class InventoryTransferReceiveLine(BaseModel):
 
 class InventoryTransferCancel(BaseModel):
     reason: str = Field(default="", max_length=4000)
+    state_cancel_confirmed: bool = False
 
 
 class InventoryTransferLineItem(BaseModel):
