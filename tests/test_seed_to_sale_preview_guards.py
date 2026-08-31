@@ -160,6 +160,70 @@ def test_current_harvest_preview_can_commit_exact_allocation():
     assert repo.inventory_balance(organization.id, result["output_lot_ids"][0]) == 80
 
 
+def test_completed_harvest_rejects_new_material_disposition():
+    engine = _engine()
+    _repo, organization, facility, product, harvest, cultivation = _scope(engine)
+    service = GuardedHarvestAllocationService(engine)
+    outputs = [{
+        "product_id": product.id,
+        "lot_code": "GUARD-CLOSEOUT",
+        "quantity": 80,
+        "unit": "g",
+        "purpose": "finished_flower",
+        "measurement_basis": "dry",
+        "status": "quarantine",
+        "location_code": "DRY-ROOM",
+    }]
+    losses = [{
+        "quantity": 20,
+        "unit": "g",
+        "loss_type": "drying_loss",
+        "measurement_basis": "dry",
+        "reason": "Measured closeout",
+    }]
+    preview = service.preview_harvest_allocation(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        harvest_id=harvest["id"],
+        outputs=outputs,
+        losses=losses,
+    )
+    service.commit_harvest_allocation(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        harvest_id=harvest["id"],
+        outputs=outputs,
+        losses=losses,
+        preview_key=preview["preview_key"],
+        actor="qa",
+    )
+    cultivation.transition_harvest(
+        organization.id,
+        facility.id,
+        harvest["id"],
+        status="completed",
+        actor="qa",
+    )
+
+    with pytest.raises(ValueError, match="disposition is closed"):
+        service.preview_harvest_allocation(
+            organization_id=organization.id,
+            facility_id=facility.id,
+            harvest_id=harvest["id"],
+            outputs=[{
+                "product_id": product.id,
+                "lot_code": "GUARD-AFTER-CLOSE",
+                "quantity": 1,
+                "unit": "g",
+                "purpose": "fresh_frozen",
+                "measurement_basis": "wet",
+                "status": "quarantine",
+                "location_code": "FREEZER",
+            }],
+            losses=[],
+        )
+
+
 def test_planner_cannot_post_physical_consumption_but_operator_can():
     planner = RequestContext("planner", "org", "facility", "planner")
     with pytest.raises(HTTPException) as exc:
