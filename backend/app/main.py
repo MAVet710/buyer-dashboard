@@ -13,6 +13,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
 from .routers.inventory import router as inventory_router
+from .routers.inventory_transfers import router as inventory_transfers_router
 from .routers.inventory_reconciliation import router as inventory_reconciliation_router
 from .routers.audits import router as audit_router
 from .routers.plants import router as plants_router
@@ -192,6 +193,8 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
         "coman_products",
         "coman_inventory_lots",
         "coman_inventory_transactions",
+        "inventory_transfers",
+        "inventory_transfer_lines",
         "retail_sales",
         "inventory_audits",
         "data_hub_imports",
@@ -229,6 +232,7 @@ app.include_router(beta_router, prefix=settings.api_prefix)
 # router so the same browser URLs fail closed on exact Metrc mapping/environment.
 app.include_router(inventory_reconciliation_router, prefix=settings.api_prefix)
 app.include_router(inventory_router, prefix=settings.api_prefix)
+app.include_router(inventory_transfers_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
