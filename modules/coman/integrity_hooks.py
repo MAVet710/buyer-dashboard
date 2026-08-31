@@ -16,6 +16,7 @@ from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from .models import (
+    CommercialOrder,
     Facility,
     InventoryLot,
     InventoryTransaction,
@@ -28,6 +29,8 @@ from .models import (
 
 _REGISTERED = False
 _ACTIVE_ALLOCATION_STATUSES = {"reserved", "partial"}
+_ACTIVE_PRODUCTION_STATUSES = {"draft", "planned", "scheduled", "in_progress", "on_hold"}
+_ACTIVE_SALES_STATUSES = {"confirmed", "allocated", "partially_fulfilled"}
 
 
 def _pending_or_persisted(session: Session, model, object_id: str | None):
@@ -55,11 +58,16 @@ def _active_claims(session: Session, lot_id: str, organization_id: str, facility
     with session.no_autoflush:
         production = float(
             session.scalar(
-                select(func.coalesce(func.sum(MaterialReservation.quantity), 0.0)).where(
+                select(func.coalesce(func.sum(MaterialReservation.quantity), 0.0))
+                .join(ProductionOrder, ProductionOrder.id == MaterialReservation.production_order_id)
+                .where(
                     MaterialReservation.organization_id == organization_id,
                     MaterialReservation.facility_id == facility_id,
                     MaterialReservation.lot_id == lot_id,
                     MaterialReservation.status == "reserved",
+                    ProductionOrder.organization_id == organization_id,
+                    ProductionOrder.facility_id == facility_id,
+                    ProductionOrder.status.in_(_ACTIVE_PRODUCTION_STATUSES),
                 )
             )
             or 0.0
@@ -71,11 +79,17 @@ def _active_claims(session: Session, lot_id: str, organization_id: str, facility
                         func.sum(OrderLotAllocation.quantity - OrderLotAllocation.fulfilled_quantity),
                         0.0,
                     )
-                ).where(
+                )
+                .join(CommercialOrder, CommercialOrder.id == OrderLotAllocation.commercial_order_id)
+                .where(
                     OrderLotAllocation.organization_id == organization_id,
                     OrderLotAllocation.facility_id == facility_id,
                     OrderLotAllocation.lot_id == lot_id,
                     OrderLotAllocation.status.in_(_ACTIVE_ALLOCATION_STATUSES),
+                    CommercialOrder.organization_id == organization_id,
+                    CommercialOrder.facility_id == facility_id,
+                    CommercialOrder.order_type == "sales",
+                    CommercialOrder.status.in_(_ACTIVE_SALES_STATUSES),
                 )
             )
             or 0.0
@@ -88,7 +102,9 @@ def _active_claims(session: Session, lot_id: str, organization_id: str, facility
             and row.lot_id == lot_id
             and row.status == "reserved"
         ):
-            production += max(0.0, float(row.quantity or 0.0))
+            order = _pending_or_persisted(session, ProductionOrder, row.production_order_id)
+            if order is not None and str(order.status or "").casefold() in _ACTIVE_PRODUCTION_STATUSES:
+                production += max(0.0, float(row.quantity or 0.0))
         elif (
             isinstance(row, OrderLotAllocation)
             and row.organization_id == organization_id
@@ -96,7 +112,15 @@ def _active_claims(session: Session, lot_id: str, organization_id: str, facility
             and row.lot_id == lot_id
             and row.status in _ACTIVE_ALLOCATION_STATUSES
         ):
-            wholesale += max(0.0, float(row.quantity or 0.0) - float(row.fulfilled_quantity or 0.0))
+            order = _pending_or_persisted(session, CommercialOrder, row.commercial_order_id)
+            if (
+                order is not None
+                and order.organization_id == organization_id
+                and order.facility_id == facility_id
+                and order.order_type == "sales"
+                and str(order.status or "").casefold() in _ACTIVE_SALES_STATUSES
+            ):
+                wholesale += max(0.0, float(row.quantity or 0.0) - float(row.fulfilled_quantity or 0.0))
     return max(0.0, production) + max(0.0, wholesale)
 
 
