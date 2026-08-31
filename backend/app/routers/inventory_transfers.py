@@ -66,6 +66,11 @@ def dispatch_inventory_transfer(
 ):
     _require_inventory_scope(context, engine)
     _require_transfer_write(context)
+    if not payload.state_transfer_confirmed:
+        raise HTTPException(
+            422,
+            "Confirm the required state-system/Metrc transfer and manifest before posting the physical transfer-out in DoobieLogic.",
+        )
     try:
         return InventoryTransferService(engine).dispatch(
             context.organization_id,
@@ -93,6 +98,11 @@ def receive_inventory_transfer_line(
 ):
     _require_transfer_write(context)
     require_inventory_operation_capability(context, engine, payload.operation)
+    if not payload.state_receipt_confirmed:
+        raise HTTPException(
+            422,
+            "Confirm the package was accepted/received in the required state system before posting destination inventory in DoobieLogic.",
+        )
     try:
         return InventoryTransferService(engine).receive_line(
             context.organization_id,
