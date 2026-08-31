@@ -333,6 +333,220 @@ def test_production_actual_consumption_decrements_source_and_finished_output_kee
     assert completion_after["blocker_count"] == 0
 
 
+def test_vertical_journey_traces_finished_good_back_through_production_harvest_and_plants():
+    engine = _engine()
+    repo, organization, facility = _vertical_scope(engine)
+    bulk = repo.create_product(
+        organization.id,
+        sku="VERT-BULK",
+        name="Vertical Kush Bulk Flower",
+        item_type="cannabis",
+        base_unit="g",
+        unit_cost=1,
+        actor="qa",
+    )
+    finished = repo.create_product(
+        organization.id,
+        sku="VERT-PR",
+        name="Vertical Kush Pre-Roll",
+        item_type="finished_good",
+        base_unit="unit",
+        unit_cost=0,
+        actor="qa",
+    )
+    cultivation = CultivationService(engine)
+    plants = [
+        cultivation.create_plant(
+            organization.id,
+            facility.id,
+            plant_tag=f"VERT-{index}",
+            strain_name="Vertical Kush",
+            phase="flowering",
+            room_code="FLOWER-V",
+            actor="qa",
+        )
+        for index in range(1, 3)
+    ]
+    harvest = cultivation.create_harvest(
+        organization.id,
+        facility.id,
+        harvest_code="VERT-H-001",
+        plant_ids=[plant.id for plant in plants],
+        actor="qa",
+    )
+    cultivation.transition_harvest(
+        organization.id,
+        facility.id,
+        harvest["id"],
+        status="active",
+        actor="qa",
+        wet_weight=500,
+        unit="g",
+    )
+    cultivation.transition_harvest(
+        organization.id,
+        facility.id,
+        harvest["id"],
+        status="drying",
+        actor="qa",
+        dry_weight=100,
+        unit="g",
+    )
+
+    harvest_lineage = GuardedHarvestAllocationService(engine)
+    harvest_outputs = [{
+        "product_id": bulk.id,
+        "lot_code": "VERT-H-001-BULK",
+        "quantity": 100,
+        "unit": "g",
+        "purpose": "finished_flower",
+        "measurement_basis": "dry",
+        "status": "available",
+        "location_code": "BULK-VAULT",
+    }]
+    harvest_preview = harvest_lineage.preview_harvest_allocation(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        harvest_id=harvest["id"],
+        outputs=harvest_outputs,
+        losses=[],
+    )
+    harvest_commit = harvest_lineage.commit_harvest_allocation(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        harvest_id=harvest["id"],
+        outputs=harvest_outputs,
+        losses=[],
+        preview_key=harvest_preview["preview_key"],
+        actor="qa",
+    )
+    cultivation.transition_harvest(
+        organization.id,
+        facility.id,
+        harvest["id"],
+        status="completed",
+        actor="qa",
+    )
+    bulk_lot_id = harvest_commit["output_lot_ids"][0]
+    assert repo.inventory_balance(organization.id, bulk_lot_id) == 100
+
+    repo.create_bom(
+        organization.id,
+        output_product_id=finished.id,
+        output_quantity=10,
+        expected_loss_pct=0,
+        components=[{"input_product_id": bulk.id, "quantity": 10, "unit": "g"}],
+        actor="qa",
+    )
+    order = repo.create_production_order(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_number="VERT-RUN-001",
+        work_type="internal",
+        product_name=finished.name,
+        product_format="Pre-Roll",
+        requested_units=10,
+        sku=finished.sku,
+        actor="qa",
+    )
+    mutations = ProductionRun360MutationService(engine)
+    reserve_preview = mutations.preview(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_id=order.id,
+        action_type="reserve_materials",
+        payload={},
+    )
+    assert reserve_preview["blocker_count"] == 0
+    mutations.commit(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_id=order.id,
+        action_type="reserve_materials",
+        payload={},
+        preview_key=reserve_preview["preview_key"],
+        actor="qa",
+    )
+    consume_payload = {"materials": [{"lot_id": bulk_lot_id, "quantity": 10, "unit": "g"}]}
+    consume_preview = mutations.preview(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_id=order.id,
+        action_type="consume_materials",
+        payload=consume_payload,
+    )
+    assert consume_preview["blocker_count"] == 0
+    mutations.commit(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_id=order.id,
+        action_type="consume_materials",
+        payload=consume_payload,
+        preview_key=consume_preview["preview_key"],
+        actor="qa",
+    )
+    assert repo.inventory_balance(organization.id, bulk_lot_id) == 90
+
+    erp = ProductionERPService(engine)
+    output = erp.add_output(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_id=order.id,
+        product_id=finished.id,
+        planned_quantity=10,
+        actor="qa",
+        unit="unit",
+    )
+    output_payload = {"output_id": output.id, "actual_quantity": 10, "lot_code": "VERT-FINISHED-001"}
+    output_preview = mutations.preview(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_id=order.id,
+        action_type="record_output_actual",
+        payload=output_payload,
+    )
+    output_commit = mutations.commit(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_id=order.id,
+        action_type="record_output_actual",
+        payload=output_payload,
+        preview_key=output_preview["preview_key"],
+        actor="qa",
+    )
+    finished_lot_id = output_commit["result"]["lot_id"]
+    assert repo.inventory_balance(organization.id, finished_lot_id) == 10
+
+    completion = mutations.preview(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_id=order.id,
+        action_type="run_event",
+        payload={"event_type": "completed"},
+    )
+    assert completion["blocker_count"] == 0
+    mutations.commit(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        order_id=order.id,
+        action_type="run_event",
+        payload={"event_type": "completed"},
+        preview_key=completion["preview_key"],
+        actor="qa",
+    )
+
+    graph = MaterialLineageService(engine).lot_graph(
+        organization_id=organization.id,
+        facility_id=facility.id,
+        lot_id=finished_lot_id,
+    )
+    assert any(node["type"] == "production_order" and node["order_number"] == "VERT-RUN-001" for node in graph["nodes"])
+    assert any(node["type"] == "harvest" and node["harvest_code"] == "VERT-H-001" for node in graph["nodes"])
+    assert any(node["type"] == "lot" and node["id"] == bulk_lot_id for node in graph["nodes"])
+    assert {node.get("plant_tag") for node in graph["nodes"] if node["type"] == "plant"} == {"VERT-1", "VERT-2"}
+    assert any(edge["from"] == f"lot:{bulk_lot_id}" and edge["relationship"] == "consumed" for edge in graph["edges"])
+
+
 def test_lineage_and_consumption_are_facility_scoped():
     engine = _engine()
     repo, organization, facility = _vertical_scope(engine)
