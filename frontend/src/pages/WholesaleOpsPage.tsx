@@ -9,8 +9,9 @@ const CommerceStorefrontManager = lazy(() => import("../components/CommerceStore
 const StorefrontSalesUnitManager = lazy(() => import("../components/StorefrontSalesUnitManager").then(module => ({ default: module.StorefrontSalesUnitManager })));
 const OrdersPage = lazy(() => import("./OrdersPage").then(module => ({ default: module.OrdersPage })));
 const WarehousePickPackPage = lazy(() => import("./WarehousePickPackPage").then(module => ({ default: module.WarehousePickPackPage })));
+const WholesaleAccountingPanel = lazy(() => import("./WholesaleAccountingPanel").then(module => ({ default: module.WholesaleAccountingPanel })));
 
-type Tab = "overview" | "inventory" | "orders" | "fulfillment" | "customers" | "storefront";
+type Tab = "overview" | "inventory" | "orders" | "fulfillment" | "customers" | "accounting" | "storefront";
 type WholesaleLot = {
   lot_id:string; package_id:string; lot_code:string; product_id:string; sku:string; name:string; item_type:string;
   inventory_type:"bulk"|"retail_ready"; available:number; reserved:number; usable:number; unit:string; location:string;
@@ -48,6 +49,7 @@ const TABS:[Tab,string][] = [
   ["orders","Orders"],
   ["fulfillment","Fulfillment"],
   ["customers","Customers"],
+  ["accounting","Accounting"],
   ["storefront","Storefront"],
 ];
 
@@ -85,8 +87,8 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
 
   return <div className="page wholesale-ops-page">
     <div className="page-heading wholesale-hero">
-      <div><div className="eyebrow">WHOLESALE OPS</div><h1>Sellable inventory to fulfilled order.</h1><p>One commercial workspace for passed-COA inventory, wholesale orders, fulfillment, customers, and the hosted storefront.</p></div>
-      <div className="wholesale-flow"><span>Production</span><b>→</b><span>COA Passed</span><b>→</b><span>Wholesale</span><b>→</b><span>Fulfillment</span></div>
+      <div><div className="eyebrow">WHOLESALE OPS</div><h1>Sellable inventory to collected revenue.</h1><p>One commercial workspace for passed-COA inventory, wholesale orders, fulfillment, customers, accounting, and the hosted storefront.</p></div>
+      <div className="wholesale-flow"><span>Production</span><b>→</b><span>Wholesale</span><b>→</b><span>Fulfillment</span><b>→</b><span>Accounting</span></div>
     </div>
     <div className="view-tabs parity-tabs wholesale-tabs" role="tablist">{TABS.map(([key,label])=><button key={key} role="tab" aria-selected={tab===key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{label}{key==="storefront"&&pendingStorefront>0?<span className="status-pill" style={{marginLeft:8}}>{pendingStorefront}</span>:null}</button>)}</div>
 
@@ -95,6 +97,7 @@ export function WholesaleOpsPage({onNavigate}:{onNavigate:(page:string)=>void}) 
     {tab==="orders"?<DeferredWorkspace><OrdersPage/></DeferredWorkspace>:null}
     {tab==="fulfillment"?<DeferredWorkspace><WarehousePickPackPage onNavigate={page=>page==="Orders"?setTab("orders"):onNavigate(page)}/></DeferredWorkspace>:null}
     {tab==="customers"?<CustomersPanel commercial={commercial.data} loading={commercial.isLoading} error={commercial.isError?commercial.error.message:""}/>:null}
+    {tab==="accounting"?<DeferredWorkspace><WholesaleAccountingPanel onNavigate={onNavigate}/></DeferredWorkspace>:null}
     {tab==="storefront"?<DeferredWorkspace><StorefrontSalesUnitManager/><CommerceStorefrontManager/></DeferredWorkspace>:null}
   </div>;
 }
@@ -117,6 +120,7 @@ function Overview({inventory,commercial,pendingOrders,openSales,storefrontLoadin
       <Action title="Orders" note="Approved storefront, direct, and account orders converge into the same commercial sales-order engine." action="Work orders" onClick={()=>onTab("orders")}/>
       <Action title="Fulfillment" note="Allocate, scan, pick, pack, and ship against the actual package or lot selected for the order." action="Open fulfillment" onClick={()=>onTab("fulfillment")}/>
       <Action title="Customers" note="Keep retailer licenses, contacts, payment terms, and account relationships attached to the commercial record." action="View customers" onClick={()=>onTab("customers")}/>
+      <Action title="Accounting" note="See A/R aging, invoice balances, payments, payment status, and QuickBooks synchronization in one wholesale control center." action="Open accounting" onClick={()=>onTab("accounting")}/>
       <Action title="Storefront" note="Review incoming storefront orders and manage what inventory customers can order." action={pendingStorefront?`Review ${pendingStorefront} pending`:"Manage storefront"} onClick={()=>onTab("storefront")}/>
     </section>
     {inventory?.summary.blocked_lots?<div className="info-banner"><strong>{inventory.summary.blocked_lots} inventory lot{inventory.summary.blocked_lots===1?" is":"s are"} intentionally excluded from wholesale.</strong><br/>Missing/failed COA, hold status, or fully committed inventory never flows into the sellable catalog.</div>:null}

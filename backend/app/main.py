@@ -19,6 +19,7 @@ from .routers.plants import router as plants_router
 from .routers.production import router as production_router
 from .routers.production_mutations import router as production_mutations_router
 from .routers.commercial import router as commercial_router
+from .routers.wholesale_accounting import router as wholesale_accounting_router
 from .routers.warehouse import router as warehouse_router
 from .routers.enterprise_control import router as enterprise_control_router
 from .routers.traceability_actions import router as traceability_actions_router
@@ -53,6 +54,7 @@ from .routers.admin_user_create import router as admin_user_create_router
 from .routers.admin_uploads import router as admin_uploads_router
 from .routers.integrations import router as integrations_router
 from .routers.native_integrations import router as native_integrations_router
+from .routers.quickbooks_purchasing import router as quickbooks_purchasing_router
 from .routers.sandbox_integrations import router as sandbox_integrations_router
 from .routers.label_printing import router as label_printing_router
 from .routers.printing_external import router as printing_external_router
@@ -232,6 +234,7 @@ app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
 app.include_router(production_mutations_router, prefix=settings.api_prefix)
 app.include_router(commercial_router, prefix=settings.api_prefix)
+app.include_router(wholesale_accounting_router, prefix=settings.api_prefix)
 app.include_router(warehouse_router, prefix=settings.api_prefix)
 app.include_router(enterprise_control_router, prefix=settings.api_prefix)
 app.include_router(traceability_actions_router, prefix=settings.api_prefix)
@@ -278,6 +281,7 @@ app.add_api_route(
 app.include_router(admin_uploads_router, prefix=settings.api_prefix)
 app.include_router(integrations_router, prefix=settings.api_prefix)
 app.include_router(native_integrations_router, prefix=settings.api_prefix)
+app.include_router(quickbooks_purchasing_router, prefix=settings.api_prefix)
 app.include_router(sandbox_integrations_router, prefix=settings.api_prefix)
 app.include_router(label_printing_router, prefix=settings.api_prefix)
 app.include_router(webhooks_router, prefix=settings.api_prefix)
