@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { canonicalWorkspaceRoutes } from "../src/lib/workspaceRoutes";
 
 const organizationId = process.env.ALPHA_ORGANIZATION_ID ?? "";
@@ -26,11 +26,11 @@ async function prepare(page: Page, path: string) {
   );
 }
 
-async function clickViewTabs(page: Page) {
-  const tabs = page.locator(".view-tabs button:visible");
+async function clickViewTabs(root: Page | Locator, page: Page) {
+  const tabs = root.locator(".view-tabs button:visible");
   const count = await tabs.count();
   for (let index = 0; index < count; index += 1) {
-    const current = page.locator(".view-tabs button:visible");
+    const current = root.locator(".view-tabs button:visible");
     if (index >= await current.count()) break;
     const button = current.nth(index);
     if (await button.isDisabled()) continue;
@@ -66,7 +66,7 @@ test.describe("strict real-stack operator alpha", () => {
       await expect(page.getByText("Workspace unavailable", { exact: true })).toHaveCount(0);
       await expect(page.locator("body")).not.toHaveText(/^\s*$/);
 
-      await clickViewTabs(page);
+      await clickViewTabs(page, page);
 
       if (route.page === "Extraction") {
         const advanced = page.getByRole("button", { name: "Advanced Run 360" });
@@ -74,7 +74,7 @@ test.describe("strict real-stack operator alpha", () => {
           await advanced.click();
           const dialog = page.getByRole("dialog", { name: "Advanced Extraction Run 360" });
           await expect(dialog).toBeVisible();
-          await clickViewTabs(dialog);
+          await clickViewTabs(dialog, page);
           await dialog.getByRole("button", { name: "Close" }).click();
         }
       }
