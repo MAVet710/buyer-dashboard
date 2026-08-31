@@ -7,6 +7,7 @@ import { entityContextForPath, pageForPath, pathForPage } from "./lib/workspaceR
 
 const HomePage = lazy(() => import("./pages/HomePage").then(module => ({ default: module.HomePage })));
 const InventoryPage = lazy(() => import("./pages/InventoryPage").then(module => ({ default: module.InventoryPage })));
+const InventoryTransfersPage = lazy(() => import("./pages/InventoryTransfersPage").then(module => ({ default: module.InventoryTransfersPage })));
 const FocusedInventoryAudits = lazy(() => import("./components/FocusedInventoryAudits").then(module => ({ default: module.FocusedInventoryAudits })));
 const BuyerCommandCenterPage = lazy(() => import("./pages/BuyerCommandCenterPage").then(module => ({ default: module.BuyerCommandCenterPage })));
 const BuyerTrendsPage = lazy(() => import("./pages/BuyerTrendsPage").then(module => ({ default: module.BuyerTrendsPage })));
@@ -100,7 +101,9 @@ export default function App() {
   const content = page === "Home" ? <HomePage onNavigate={navigate} />
     : page === "Buyer Operations" || page === "Purchasing" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={navigate} />
+    : page === "Retail Inventory Transfers" ? <InventoryTransfersPage operation="retail" />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={navigate} />
+    : page === "Production Inventory Transfers" ? <InventoryTransfersPage operation="production" />
     : page === "Inventory Audits" ? <FocusedInventoryAudits />
     : page === "Package 360" ? <Package360Page onNavigate={navigate} initialCode={packageCode} />
     : page === "Sales & Category Trends" ? <BuyerTrendsPage />
