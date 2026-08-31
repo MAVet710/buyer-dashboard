@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import InventoryLot, InventoryTransaction, Product
+from modules.coman.models import InventoryLot, Product
 from modules.doobie_actions.service import DoobieActionService
+from modules.inventory_availability.service import InventoryAvailabilityService
 from modules.regulatory import list_metrc_write_contracts, require_metrc_write_contract
 
 
@@ -30,9 +31,10 @@ class RegulatoryActionProposalService:
     def package_finish_candidates(self, organization_id: str, facility_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
         """Return depleted tracked lots that are eligible for employee review.
 
-        Candidate discovery is local/deterministic and does not call Metrc. The
-        provider contract, trusted mapping, and exact package state are checked
-        again when the proposal is built and submitted.
+        Candidate discovery is local/deterministic and does not call Metrc. A
+        package is not finish-ready merely because its physical balance is zero:
+        unresolved Production/Wholesale claims or inventory-integrity findings
+        must be reconciled first.
         """
 
         safe_limit = max(1, min(int(limit or 200), 500))
@@ -59,38 +61,37 @@ class RegulatoryActionProposalService:
                     )
                 )
             } if product_ids else {}
-            balances = {
-                lot.id: float(
-                    session.scalar(
-                        select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(
-                            InventoryTransaction.organization_id == organization_id,
-                            InventoryTransaction.facility_id == facility_id,
-                            InventoryTransaction.lot_id == lot.id,
-                        )
-                    )
-                    or 0.0
-                )
-                for lot in lots
-            }
+            snapshot = InventoryAvailabilityService.build(session, organization_id, facility_id)
 
-        output: list[dict[str, Any]] = []
-        for lot in lots:
-            balance = balances.get(lot.id, 0.0)
-            if abs(balance) > 1e-6:
-                continue
-            product = products.get(lot.product_id)
-            output.append({
-                "lot_id": lot.id,
-                "package_label": str(lot.compliance_package_id or "").strip(),
-                "lot_code": lot.lot_code,
-                "product_name": product.name if product else "",
-                "product_sku": product.sku if product else "",
-                "local_balance": balance,
-                "location": lot.location_code,
-                "status": lot.status,
-                "ready": True,
-            })
-        return output
+            issues_by_lot: dict[str, list[dict[str, Any]]] = {}
+            for issue in snapshot.get("integrity_issues", []):
+                lot_id = str(issue.get("lot_id") or "")
+                if lot_id:
+                    issues_by_lot.setdefault(lot_id, []).append(dict(issue))
+
+            output: list[dict[str, Any]] = []
+            for lot in lots:
+                inventory = snapshot.get("by_lot", {}).get(lot.id)
+                if inventory is None:
+                    continue
+                balance = float(inventory.get("on_hand", 0.0) or 0.0)
+                reserved = float(inventory.get("reserved", 0.0) or 0.0)
+                issues = issues_by_lot.get(lot.id, [])
+                if abs(balance) > 1e-6 or reserved > 1e-6 or issues:
+                    continue
+                product = products.get(lot.product_id)
+                output.append({
+                    "lot_id": lot.id,
+                    "package_label": str(lot.compliance_package_id or "").strip(),
+                    "lot_code": lot.lot_code,
+                    "product_name": product.name if product else "",
+                    "product_sku": product.sku if product else "",
+                    "local_balance": balance,
+                    "location": lot.location_code,
+                    "status": lot.status,
+                    "ready": True,
+                })
+            return output
 
     def package_finish_proposal(
         self,
@@ -124,20 +125,29 @@ class RegulatoryActionProposalService:
             package_label = str(lot.compliance_package_id or "").strip()
             if not package_label:
                 raise ValueError("This inventory lot does not have a tracked Metrc package label.")
-            balance = float(
-                session.scalar(
-                    select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(
-                        InventoryTransaction.organization_id == organization_id,
-                        InventoryTransaction.facility_id == facility_id,
-                        InventoryTransaction.lot_id == lot.id,
-                    )
-                )
-                or 0.0
-            )
+            snapshot = InventoryAvailabilityService.build(session, organization_id, facility_id)
+            inventory = snapshot.get("by_lot", {}).get(lot.id)
+            if inventory is None:
+                raise ValueError("Inventory truth for this package is unavailable in the active facility.")
+            balance = float(inventory.get("on_hand", 0.0) or 0.0)
+            reserved = float(inventory.get("reserved", 0.0) or 0.0)
+            issues = [
+                row
+                for row in snapshot.get("integrity_issues", [])
+                if str(row.get("lot_id") or "") == lot.id
+            ]
 
         if abs(balance) > 1e-6:
             raise ValueError(
                 f"Package {package_label} still has {balance:g} local units on hand. Reconcile inventory before proposing a finish action."
+            )
+        if reserved > 1e-6:
+            raise ValueError(
+                f"Package {package_label} still has {reserved:g} units committed to active Production/Wholesale work. Release or fulfill those claims before finish."
+            )
+        if issues:
+            raise ValueError(
+                f"Package {package_label} has unresolved inventory-integrity findings. Reconcile the local ledger/claims before proposing a Metrc finish action."
             )
 
         payload = {
@@ -156,6 +166,7 @@ class RegulatoryActionProposalService:
             "operation": "Finish Metrc package",
             "package_label": package_label,
             "local_balance": balance,
+            "active_claims": reserved,
             "actual_date": finish_date.isoformat(),
             "jurisdiction_code": payload["jurisdiction_code"],
             "environment": payload["environment"],
@@ -169,7 +180,7 @@ class RegulatoryActionProposalService:
             facility_id=facility_id,
             action_type="prepare_regulatory_action",
             title=f"Finish Metrc package {package_label}",
-            rationale="The local package balance is zero. Doobie prepared the provider action for an authorized employee to review.",
+            rationale="The local package balance is zero and there are no unresolved active claims. Doobie prepared the provider action for an authorized employee to review.",
             payload=payload,
             preview=preview,
             actor=actor,
