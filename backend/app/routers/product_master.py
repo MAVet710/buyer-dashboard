@@ -5,10 +5,10 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, or_, select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from modules.coman.models import AuditEvent, Product
-from modules.product_master import ProductMasterRepository
+from modules.product_master import ProductMasterRepository, ProductPackagingProfile, ProductPackagingService
 from modules.product_master.models import ProductMasterProfile
 from ..auth import RequestContext, get_request_context, require_facility_capability, require_inventory_operation_capability
 from ..database import get_engine
@@ -44,6 +44,14 @@ class ProfileUpdate(BaseModel):
     description: str = ""
     retail_enabled: bool = True
     production_enabled: bool = True
+
+
+class PackagingUpdate(BaseModel):
+    net_content: float = Field(ge=0)
+    net_content_unit: str = Field(default="", max_length=32)
+    units_per_package: float = Field(default=1, gt=0)
+    sellable_unit: str = Field(default="each", min_length=1, max_length=32)
+    case_pack: float = Field(default=0, ge=0)
 
 
 class AliasCreate(BaseModel):
@@ -91,12 +99,21 @@ def _identity(row: Product) -> dict:
     return {key: getattr(row, key) for key in ("id", "sku", "name", "item_type", "base_unit", "unit_cost", "retail_price", "upc", "external_product_id", "active", "created_at", "updated_at")}
 
 
+def _packaging(row: ProductPackagingProfile | None) -> dict | None:
+    if row is None:
+        return None
+    return {key: getattr(row, key) for key in ("net_content", "net_content_unit", "units_per_package", "sellable_unit", "case_pack")}
+
+
 def _snapshot(engine: Engine, organization_id: str, product_id: str) -> dict:
     snap = ProductMasterRepository(engine).snapshot(organization_id, product_id)
     profile = snap["profile"]
+    with Session(engine) as session:
+        packaging = ProductPackagingService.get(session, organization_id, product_id)
     return {
         "product": _identity(snap["product"]),
         "profile": {key: getattr(profile, key) for key in ("brand", "category", "subcategory", "strain", "manufacturer", "product_format", "image_url", "description", "retail_enabled", "production_enabled")} if profile else None,
+        "packaging": _packaging(packaging),
         "vendors": [{"id": item["link"].id, "partner_id": item["link"].partner_id, "partner_name": item["partner"].name if item["partner"] else "Unknown vendor", "vendor_sku": item["link"].vendor_sku, "is_primary": item["link"].is_primary, "lead_time_days": item["link"].lead_time_days, "minimum_order_quantity": item["link"].minimum_order_quantity, "case_pack": item["link"].case_pack} for item in snap["vendors"]],
         "mappings": [{key: getattr(row, key) for key in ("id", "system_name", "external_id", "external_name", "active")} for row in snap["mappings"]],
         "aliases": [{key: getattr(row, key) for key in ("id", "alias", "source", "active")} for row in snap["aliases"]],
@@ -139,7 +156,7 @@ def list_products(search: str = Query(default="", max_length=200), status: str =
             production_enabled = profile.production_enabled if profile else True
             if operation == "retail" and not retail_enabled: continue
             if operation == "production" and not production_enabled: continue
-            result.append({**_identity(row), "retail_enabled": retail_enabled, "production_enabled": production_enabled, "brand": profile.brand if profile else "", "category": profile.category if profile else "", "product_format": profile.product_format if profile else "", "image_url": profile.image_url if profile else ""})
+            result.append({**_identity(row), "retail_enabled": retail_enabled, "production_enabled": production_enabled, "brand": profile.brand if profile else "", "category": profile.category if profile else "", "product_format": profile.product_format if profile else "", "image_url": profile.image_url if profile else "", "packaging": _packaging(session.get(ProductPackagingProfile, row.id))})
         return result
 
 
@@ -193,6 +210,22 @@ def update_profile(product_id: str, payload: ProfileUpdate, context: RequestCont
         ProductMasterRepository(engine).update_profile(context.organization_id, product_id, actor=context.user_id, **payload.model_dump())
         return _snapshot(engine, context.organization_id, product_id)
     except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/{product_id}/packaging")
+def update_packaging(product_id: str, payload: PackagingUpdate, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _require_write(context)
+    try:
+        with Session(engine) as session, session.begin():
+            ProductPackagingService.upsert(
+                session,
+                organization_id=context.organization_id,
+                product_id=product_id,
+                **payload.model_dump(),
+            )
+        return _snapshot(engine, context.organization_id, product_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/{product_id}/aliases", status_code=201)
