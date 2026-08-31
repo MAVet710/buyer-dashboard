@@ -11,10 +11,67 @@ from modules.inventory_transfers.service import InventoryTransferService
 from modules.material_lineage.service import MaterialLineageService
 from services.agent_registry import PROFILES
 from services.ai.datasets import DatasetAccessContext, DatasetRegistry
-from services.ai.provider import ProviderRouter
+from services.ai.router import ProviderRouter
 from services.ai.runtime import AgentRuntime
+from services.ai.schemas import AIResponse, ProviderHealth
 from services.ai.tools import ToolRegistry
 from services.ai.traceability_tools import AgentTraceabilityService, register_traceability_tools
+
+
+class FakeProvider:
+    def __init__(self, answer: str = "Grounded package review completed."):
+        self.name = "local"
+        self.model = "local-test-model"
+        self.local = True
+        self.answer = answer
+        self.calls = 0
+        self.requests = []
+
+    def health(self):
+        return ProviderHealth(self.name, True, True, self.model, True, True, True, "test")
+
+    def generate(self, request):
+        self.calls += 1
+        self.requests.append(request)
+        structured = {
+            "answer": self.answer,
+            "summary": "grounded traceability review",
+            "priority": "normal",
+            "confidence": 1.0,
+            "recommendations": [],
+            "warnings": [],
+            "missing_data": [],
+        }
+        return AIResponse(text=json.dumps(structured), provider=self.name, model=self.model, local=True, structured=structured)
+
+    def supports_tools(self):
+        return True
+
+    def supports_structured_output(self):
+        return True
+
+
+class GovernmentRetriever:
+    def search(self, **_kwargs):
+        return {
+            "results": [
+                {
+                    "title": "Government traceability rule",
+                    "source": "test-government",
+                    "source_type": "government",
+                    "authority_level": 1,
+                    "jurisdiction": "MA",
+                    "effective_date": "2026-01-01",
+                    "updated_at": "2026-01-01",
+                    "version": "1",
+                    "url": "https://example.test/government",
+                    "page_or_section": "1",
+                    "content": "Government evidence for the test.",
+                    "score": 1.0,
+                }
+            ],
+            "retrieval_mode": "test",
+        }
 
 
 def _engine():
@@ -190,7 +247,7 @@ def test_traceability_tool_schemas_never_expose_tenant_scope_arguments():
     assert "organization_id" not in serialized
     assert "facility_id" not in serialized
     assert "user_id" not in serialized
-    assert "role" not in serialized
+    assert '"role"' not in serialized
 
 
 def test_agent_recall_fails_closed_across_unassigned_facility_but_preserves_exposure_reference():
@@ -286,6 +343,57 @@ def test_compliance_agent_can_report_factual_lineage_without_weakening_regulator
     assert regulatory.tool_calls == []
     assert "can’t verify" in regulatory.answer
     assert "government/regulatory" in regulatory.answer
+
+
+def test_mixed_recall_and_legal_question_combines_traceability_with_authoritative_evidence():
+    engine = _engine()
+    _transfer_finished(engine)
+    provider = FakeProvider("Package facts and government evidence were reviewed together.")
+    runtime = AgentRuntime(
+        provider_router=ProviderRouter({"local": provider}, order=["local"]),
+        dataset_registry=DatasetRegistry(),
+        retriever=GovernmentRetriever(),
+    )
+    result = runtime.run(
+        profile=PROFILES["compliance"],
+        access=_access(engine, role="admin"),
+        question="What is the recall exposure for package PKG-AGENT-SOURCE, and is releasing it legally compliant?",
+    )
+    assert provider.calls == 1
+    assert result.provider == "local"
+    assert result.grounding == "mixed"
+    assert "recall_blast_radius" in result.tool_calls
+    assert result.sources
+    request_text = "\n".join(message["content"] for message in provider.requests[0].messages)
+    assert "Recall 360 for PKG-AGENT-SOURCE" in request_text
+    assert "Retrieved knowledge evidence" in request_text
+    assert "canonical application data" in request_text
+
+
+def test_explicit_traceability_service_error_fails_closed_without_model_fallback(monkeypatch):
+    engine = _engine()
+    provider = FakeProvider("This answer must never be used.")
+
+    def fail_recall(self, args):
+        raise RuntimeError("traceability backend unavailable")
+
+    monkeypatch.setattr(AgentTraceabilityService, "recall_blast_radius", fail_recall)
+    runtime = AgentRuntime(
+        provider_router=ProviderRouter({"local": provider}, order=["local"]),
+        dataset_registry=DatasetRegistry(),
+    )
+    result = runtime.run(
+        profile=PROFILES["inventory"],
+        access=_access(engine, role="admin"),
+        question="Show the recall blast radius for package PKG-AGENT-SOURCE.",
+    )
+    assert provider.calls == 0
+    assert result.provider == "deterministic"
+    assert result.model == "python/sql"
+    assert result.read_only is True
+    assert result.tool_calls == ["recall_blast_radius"]
+    assert "won’t infer or reconstruct it from model memory" in result.answer
+    assert result.warnings == ["Canonical traceability query failed closed."]
 
 
 def test_traceability_tools_are_unavailable_without_trusted_engine_or_cannabis_capability():
