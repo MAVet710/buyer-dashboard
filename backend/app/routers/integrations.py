@@ -183,11 +183,17 @@ def integrations(
         metrc_service, metrc_context = resolve_metrc_context(engine, settings, context)
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
+    metrc_public = (
+        metrc_service.public(metrc_context.row)
+        if metrc_service is not None
+        else IntegrationConfigurationService.public(None)
+    )
     result = {
         "metrc": {
-            **metrc_service.public(metrc_context.row),
+            **metrc_public,
             "facility_id": context.facility_id,
             "facility_scoped": True,
+            "message": metrc_context.message,
         },
         "doobie": None,
         "ai_runtime": None,
