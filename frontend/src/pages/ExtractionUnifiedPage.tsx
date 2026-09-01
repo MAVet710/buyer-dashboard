@@ -45,7 +45,7 @@ export function ExtractionUnifiedPage({onNavigate}:{onNavigate:(page:string)=>vo
   return <div className="page extraction-unified">
     <div className="page-heading">
       <div><div className="eyebrow">Production Ops · Extraction</div><h1>Extraction</h1><p>Run today’s work, update the current process inline and let DoobieLogic calculate what it can. Deep QA, COGS, traceability, toll processing and full run history stay available as context instead of crowding the floor.</p></div>
-      <button className="secondary" type="button" onClick={openAdvanced}>Advanced Run 360</button>
+      <button className="secondary" type="button" onClick={openAdvanced}>Advanced Extraction</button>
     </div>
     <div className="view-tabs parity-tabs">
       <button className={view==="today"?"active":""} onClick={()=>setView("today")}>Today</button>
