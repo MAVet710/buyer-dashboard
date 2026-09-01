@@ -17,6 +17,7 @@ from .routers.inventory_transfers import router as inventory_transfers_router
 from .routers.inventory_reconciliation import router as inventory_reconciliation_router
 from .routers.audits import router as audit_router
 from .routers.plants import router as plants_router
+from .routers.cultivation_bulk import router as cultivation_bulk_router
 from .routers.production import router as production_router
 from .routers.production_mutations import router as production_mutations_router
 from .routers.commercial import router as commercial_router
@@ -235,6 +236,7 @@ app.include_router(inventory_router, prefix=settings.api_prefix)
 app.include_router(inventory_transfers_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
+app.include_router(cultivation_bulk_router, prefix=settings.api_prefix)
 app.include_router(production_router, prefix=settings.api_prefix)
 app.include_router(production_mutations_router, prefix=settings.api_prefix)
 app.include_router(commercial_router, prefix=settings.api_prefix)
