@@ -141,6 +141,7 @@ async function advanceExtraction(page: Page) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (/detached from the DOM|element is not attached|not stable/i.test(message)) return false;
+      if (/Timeout .* exceeded|TimeoutError|locator\.click: Timeout/i.test(message) && !(await actionable(locator))) return false;
       throw error;
     }
   };
