@@ -137,7 +137,7 @@ test.describe("strict real-stack operator alpha", () => {
     await expect(page.locator(".selection-toolbar")).toContainText("selected");
     await expect(page.locator(".selection-toolbar")).toContainText("Selection is scoped to the current filtered inventory view.");
 
-    await page.getByRole("button", { name: "Transfers", exact: true }).click();
+    await page.getByTitle("Open transfer history or start a new transfer without leaving Inventory").click();
     const transferWindow = page.getByRole("dialog", { name: "Inventory license transfer" });
     await expect(transferWindow).toBeVisible();
     await expect(transferWindow.getByRole("heading", { name: "Inventory license transfer" })).toBeVisible();
