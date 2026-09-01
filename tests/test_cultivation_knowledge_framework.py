@@ -50,6 +50,40 @@ def test_cha_framework_is_low_authority_local_reference_not_downloaded_content()
     assert "ranked hypotheses" in text_body
 
 
+def test_commercial_cultivation_academy_is_registered_as_research_synthesis():
+    catalog = public_curated_catalog()
+    source = next(row for row in catalog["sources"] if row["key"] == "commercial_cannabis_cultivation_academy")
+    assert source["source_type"] == "research_synthesis"
+    assert source["authority_level"] == 4
+    assert source["facility_scope"] is True
+    assert source["url"].startswith("https://hemp.cals.cornell.edu/")
+
+    path = Path(__file__).resolve().parents[1] / "knowledge_sources" / "curated" / "commercial_cannabis_cultivation_academy.md"
+    body = path.read_text(encoding="utf-8").casefold()
+    for topic in (
+        "plant botany, physiology, genetics",
+        "propagation, mothers, clones",
+        "controlled-environment physiology",
+        "lighting science and photoperiod",
+        "root-zone science, irrigation",
+        "mineral nutrition and deficiency diagnosis",
+        "ipm, scouting, beneficials, pathogens",
+        "canopy architecture, density",
+        "harvest readiness and maturity",
+        "drying, curing, storage",
+        "commercial cultivation systems thinking",
+    ):
+        assert topic in body
+    assert "evidence-transfer rule" in body
+    assert "drug-type/high-thc cannabis" in body
+    assert "cultivar/genotype/chemotype" in body
+    assert "do not invent or generalize pesticide legality" in body
+    assert "pubmed.ncbi.nlm.nih.gov/36771506" in body
+    assert "frontiersin.org/journals/plant-science/articles/10.3389/fpls.2021.646020" in body
+    assert "pmc.ncbi.nlm.nih.gov/articles/pmc9559401" in body
+    assert "mdpi.com/2223-7747/13/6/786" in body
+
+
 def test_cha_domain_is_not_in_approved_web_downloader_allowlist():
     _payload, allowed_domains, _sources = load_approved_sources()
     assert "cha.education" not in allowed_domains
@@ -80,3 +114,32 @@ def test_cha_framework_seeds_only_the_requested_facility_scope():
     combined = "\n".join(str(chunk) for chunk in chunks)
     assert "Integrated pest management" in combined
     assert "measure before recommending" in combined.casefold()
+
+
+def test_commercial_academy_seeds_idempotently_at_facility_scope():
+    engine = knowledge_engine()
+    store = KnowledgeStore(engine)
+    scope = KnowledgeScope("org-a", "facility-a")
+    keys = {"commercial_cannabis_cultivation_academy"}
+
+    first = seed_curated_sources(store=store, scope=scope, keys=keys)
+    assert first["indexed"] == 1
+    assert first["failed"] == 0
+
+    second = seed_curated_sources(store=store, scope=scope, keys=keys)
+    assert second["indexed"] == 0
+    assert second["unchanged"] == 1
+
+    documents = store.list_documents(scope=scope)
+    assert len(documents) == 1
+    assert documents[0]["source_type"] == "research_synthesis"
+    assert documents[0]["authority_level"] == 4
+    assert documents[0]["scope"] == "facility"
+
+    with engine.connect() as connection:
+        chunks = connection.execute(text("SELECT content, authority_level FROM ai_knowledge_chunks ORDER BY chunk_number")).mappings().all()
+    assert chunks
+    assert all(int(row["authority_level"]) == 4 for row in chunks)
+    combined = "\n".join(str(row["content"]) for row in chunks)
+    assert "Commercial cultivation systems thinking" in combined
+    assert "Study/SOP context" in combined
