@@ -126,22 +126,25 @@ async function advanceExtraction(page: Page) {
   const qaGate = page.getByText("This run is at the QA / COA gate.");
   const skip = page.getByRole("button", { name: "Skip optional step" });
   const complete = page.getByRole("button", { name: "Complete step & continue" });
+  const actionable = async (locator: Locator) =>
+    (await locator.isVisible().catch(() => false)) && (await locator.isEnabled().catch(() => false));
 
   const waitForAction = async (): Promise<"qa" | "skip" | "complete"> => {
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
       if (await qaGate.isVisible().catch(() => false)) return "qa";
-      if (await skip.isVisible().catch(() => false)) return "skip";
-      if (await complete.isVisible().catch(() => false)) return "complete";
+      if (await actionable(skip)) return "skip";
+      if (await actionable(complete)) return "complete";
       await page.waitForTimeout(100);
     }
-    throw new Error("Extraction did not present continue, skip, or QA / COA within 15 seconds.");
+    throw new Error("Extraction did not present an enabled continue/skip action or QA / COA within 15 seconds.");
   };
 
   for (let index = 0; index < 14; index += 1) {
     const action = await waitForAction();
     if (action === "qa") return materialWeight;
     if (action === "skip") {
+      if (!(await actionable(skip))) continue;
       await click(skip);
       continue;
     }
@@ -158,9 +161,11 @@ async function advanceExtraction(page: Page) {
     const postFillAction = await waitForAction();
     if (postFillAction === "qa") return materialWeight;
     if (postFillAction === "skip") {
+      if (!(await actionable(skip))) continue;
       await click(skip);
       continue;
     }
+    if (!(await actionable(complete))) continue;
     await click(complete);
     materialWeight = nextMaterialWeight;
   }
