@@ -2,8 +2,8 @@
 
 The projection is intentionally read-only. It derives label candidates from the
 active organization/facility inventory scope and only fills values that already
-exist in durable product, facility, lot, or QA evidence. It never guesses legal
-label content from a product name or from the total lot balance.
+exist in durable product, facility, lot, packaging, or QA evidence. It never
+guesses legal label content from a product name or from the total lot balance.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from modules.coman.models import Facility, InventoryLot, InventoryTransaction, Product
 from modules.inventory_quality.models import LotQualityEvidence
 from modules.product_master.models import ProductMasterProfile
+from modules.product_master.packaging import ProductPackagingProfile
 
 
 _LABEL_ORDER = (
@@ -81,6 +82,14 @@ def _percent(value: Any) -> str:
     return f"{number:g}%"
 
 
+def _quantity(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return ""
+    return f"{number:g}"
+
+
 def _first(meta: dict[str, Any], *keys: str) -> str:
     for key in keys:
         value = _text(meta.get(key))
@@ -93,10 +102,12 @@ def _profile_or_meta(profile_value: Any, meta: dict[str, Any], *keys: str) -> st
     return _text(profile_value) or _first(meta, *keys)
 
 
-def _net_contents(meta: dict[str, Any]) -> str:
+def _net_contents(meta: dict[str, Any], packaging: ProductPackagingProfile | None) -> str:
     direct = _first(meta, "net_contents", "package_size", "declared_net_contents")
     if direct:
         return direct
+    if packaging and packaging.net_content > 0 and _text(packaging.net_content_unit):
+        return f"{_quantity(packaging.net_content)} {_text(packaging.net_content_unit)}"
     for value_key, unit_key in (
         ("net_weight", "net_weight_unit"),
         ("unit_weight", "unit_weight_unit"),
@@ -151,6 +162,7 @@ class LabelInventoryService:
                 Product,
                 Facility,
                 ProductMasterProfile,
+                ProductPackagingProfile,
                 LotQualityEvidence,
                 func.coalesce(balance.c.balance, 0.0),
             )
@@ -160,6 +172,11 @@ class LabelInventoryService:
                 ProductMasterProfile,
                 (ProductMasterProfile.product_id == Product.id)
                 & (ProductMasterProfile.organization_id == organization_id),
+            )
+            .outerjoin(
+                ProductPackagingProfile,
+                (ProductPackagingProfile.product_id == Product.id)
+                & (ProductPackagingProfile.organization_id == organization_id),
             )
             .outerjoin(LotQualityEvidence, LotQualityEvidence.lot_id == InventoryLot.id)
             .outerjoin(balance, balance.c.lot_id == InventoryLot.id)
@@ -188,6 +205,7 @@ class LabelInventoryService:
         product: Product,
         facility: Facility,
         profile: ProductMasterProfile | None,
+        packaging: ProductPackagingProfile | None,
         quality: LotQualityEvidence | None,
         balance: float,
     ) -> dict[str, Any]:
@@ -202,7 +220,7 @@ class LabelInventoryService:
             "brand": _profile_or_meta(profile.brand if profile else "", meta, "brand"),
             "strain": _profile_or_meta(profile.strain if profile else "", meta, "strain"),
             "product_type": (_text(profile_category) or _first(meta, "category", "product_type") or product.item_type.replace("_", " ")).title(),
-            "net_contents": _net_contents(meta),
+            "net_contents": _net_contents(meta, packaging),
             "license_number": _text(facility.license_number),
             "facility_name": _text(facility.name),
             "manufacturer": _profile_or_meta(profile.manufacturer if profile else "", meta, "manufacturer"),
