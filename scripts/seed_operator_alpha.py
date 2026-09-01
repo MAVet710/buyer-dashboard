@@ -10,8 +10,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import Session
 
 from modules.coman.demo_data import ensure_coman_demo_dataset
+from modules.coman.models import Facility
 from services.demo_data import build_demo_payload
 
 # Tables outside the Co-Man model module are deliberate sentinels: if any are
@@ -54,6 +56,17 @@ def main() -> None:
         engine=engine,
         force=True,
     )
+    # This integrated acceptance facility deliberately exercises every operating
+    # context. Capability isolation is covered separately; the browser alpha
+    # needs all three contexts to be reachable against one stable facility.
+    with Session(engine) as session, session.begin():
+        facility = session.get(Facility, seeded["facility_id"])
+        if facility is None:
+            raise RuntimeError("Operator alpha facility was not created by the demo seed.")
+        facility.retail_enabled = True
+        facility.production_enabled = True
+        facility.cultivation_enabled = True
+        facility.commercial_enabled = True
     print(f"ALPHA_ORGANIZATION_ID={seeded['organization_id']}")
     print(f"ALPHA_FACILITY_ID={seeded['facility_id']}")
 
