@@ -25,7 +25,8 @@ from modules.product_master.models import ProductMasterProfile
 from .inventory_eligibility import classify_extraction_inventory
 from .models import ExtractionQAEvent, ExtractionRun, ExtractionRunInput, ExtractionRunOutput
 from .repository import ExtractionRepository
-from .workflow_eligibility import is_workflow_input_eligible
+from .workflow_eligibility import infer_material_family, is_workflow_input_eligible
+from .workflows import WORKFLOWS
 
 
 _REGISTERED = False
@@ -311,8 +312,19 @@ def _filtered_available_lots(self: ExtractionRepository, organization_id: str, f
             subcategory=profile.subcategory if profile else "",
             product_format=profile.product_format if profile else "",
         )
-        if classification.eligible:
-            eligible.append(row)
+        if not classification.eligible:
+            continue
+        compatible_workflows = [
+            workflow.key
+            for workflow in WORKFLOWS
+            if is_workflow_input_eligible(product, profile, workflow.key)[0]
+        ]
+        if not compatible_workflows:
+            continue
+        enriched = dict(row)
+        enriched["material_family"] = infer_material_family(product, profile) or classification.role
+        enriched["compatible_workflows"] = compatible_workflows
+        eligible.append(enriched)
     return eligible
 
 

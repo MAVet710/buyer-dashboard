@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, Factory, Home, Menu, Moon, Settings, ShieldCheck, ShoppingCart, Store, Sun } from "lucide-react";
+import { BarChart3, Boxes, Factory, Home, Menu, Moon, Settings, ShieldCheck, ShoppingCart, Sprout, Store, Sun } from "lucide-react";
 import { useEffect, useMemo, useState, type PropsWithChildren } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, clearTrialSession } from "../lib/api";
@@ -11,18 +11,16 @@ type Facility = { id: string; name: string; code: string; license_type?: string;
 type AccessOrganization = { id: string; name: string; slug: string; facilities: Facility[] };
 type AccountContext = { user: { display_name: string; email: string; role: string; must_change_password?: boolean }; organization: { id: string; name: string; slug?: string } | null; facility_id: string; capabilities: Record<Capability, boolean>; facilities: Facility[] };
 type AccessOptions = { organizations: AccessOrganization[]; organization_id: string; facility_id: string };
-type OperationMode = "Retail Ops" | "Production Ops";
-type WorkCategory = "Home" | "Buying" | "Inventory" | "Production" | "Wholesale" | "Compliance" | "Reports";
+type OperationMode = "Retail Ops" | "Cultivation Ops" | "Production Ops";
+type WorkCategory = "Home" | "Buying" | "Inventory" | "Cultivation" | "Production" | "Wholesale" | "Compliance" | "Reports";
 type PrimaryCategory = WorkCategory | "Settings";
 type SecondaryItem = { label: string; page: string; roles?: readonly string[] };
 type PrimaryItem = { label: WorkCategory; icon: typeof Home; defaultPage: string };
 type BuyerDataMode = "Uploads" | "Dutchie Live";
 
-// Match modules/navigation/operation_context_bar.py exactly. Trial falls back
-// to Retail Ops, but planner is production-only and read_only cannot open
-// Production Ops unless Streamlit grants it there too.
 const RETAIL_ROLES = ["dev", "admin", "buyer", "supervisor", "operator", "qa", "read_only", "trial"] as const;
 const PRODUCTION_ROLES = ["dev", "admin", "planner", "supervisor", "operator", "qa"] as const;
+const CULTIVATION_ROLES = ["dev", "admin", "planner", "supervisor", "operator", "qa"] as const;
 const ADMIN = ["dev", "admin"] as const;
 const DEV = ["dev"] as const;
 const NON_DEV = ["admin", "buyer", "planner", "supervisor", "operator", "qa", "read_only", "trial"] as const;
@@ -34,6 +32,13 @@ const RETAIL_PRIMARY: PrimaryItem[] = [
   { label: "Wholesale", icon: Store, defaultPage: "Wholesale Ops" },
   { label: "Compliance", icon: ShieldCheck, defaultPage: "Compliance Q&A" },
   { label: "Reports", icon: BarChart3, defaultPage: "Sales & Category Trends" },
+];
+
+const CULTIVATION_PRIMARY: PrimaryItem[] = [
+  { label: "Home", icon: Home, defaultPage: "Home" },
+  { label: "Cultivation", icon: Sprout, defaultPage: "Cultivation" },
+  { label: "Compliance", icon: ShieldCheck, defaultPage: "Compliance" },
+  { label: "Reports", icon: BarChart3, defaultPage: "Executive Reports" },
 ];
 
 const PRODUCTION_PRIMARY: PrimaryItem[] = [
@@ -57,6 +62,22 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
     { label: "Orders & Fulfillment", page: "Orders" },
     { label: "Warehouse Pick / Pack", page: "Warehouse Pick Pack" },
   ];
+
+  if (operation === "Cultivation Ops") {
+    if (category === "Cultivation") return [
+      { label: "Grow Operations", page: "Cultivation" },
+    ];
+    if (category === "Compliance") return [
+      { label: "Traceability", page: "Compliance" },
+      { label: "State Actions", page: "Traceability Actions" },
+      { label: "Compliance Q&A", page: "Compliance Q&A" },
+      { label: "Label Studio", page: "Label Studio" },
+    ];
+    if (category === "Reports") return [
+      { label: "Executive Reports", page: "Executive Reports" },
+    ];
+    return [];
+  }
 
   if (operation === "Production Ops") {
     if (category === "Inventory") return [
@@ -134,6 +155,7 @@ function categoryForPage(page: string, _operation: OperationMode): PrimaryCatego
   if (["Home", "Operations Control Tower", "Enterprise Control Tower"].includes(page)) return "Home";
   if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing", "Replenishment Policies"].includes(page)) return "Buying";
   if (["Wholesale Ops", "Orders", "Warehouse Pick Pack"].includes(page)) return "Wholesale";
+  if (page === "Cultivation") return "Cultivation";
   if (["Production", "Production Calendar", "Production Run 360", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
   if (["Compliance", "Compliance Q&A", "Traceability Actions", "Product Name Mapper", "Nomenclature Mapper", "Label Studio", "MA Flower Equivalency"].includes(page)) return "Compliance";
   if (["Sales & Category Trends", "Reports", "Executive Reports"].includes(page)) return "Reports";
@@ -142,11 +164,20 @@ function categoryForPage(page: string, _operation: OperationMode): PrimaryCatego
   return "Inventory";
 }
 
+function primaryForOperation(operation: OperationMode): PrimaryItem[] {
+  if (operation === "Production Ops") return PRODUCTION_PRIMARY;
+  if (operation === "Cultivation Ops") return CULTIVATION_PRIMARY;
+  return RETAIL_PRIMARY;
+}
+
 export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ active: string; onNavigate: (page: string) => void }>) {
   const client = useQueryClient();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => localStorage.getItem("buyer-dash-theme") === "light" ? "light" : "dark");
-  const [operation, setOperation] = useState<OperationMode>(() => localStorage.getItem("buyer-dash-operation") === "Production Ops" ? "Production Ops" : "Retail Ops");
+  const [operation, setOperation] = useState<OperationMode>(() => {
+    const saved = localStorage.getItem("buyer-dash-operation");
+    return saved === "Production Ops" || saved === "Cultivation Ops" ? saved : "Retail Ops";
+  });
   const [dataMode, setDataMode] = useState<BuyerDataMode>(() => localStorage.getItem("buyer-dash-data-mode") === "Dutchie Live" ? "Dutchie Live" : "Uploads");
   const [classicNavigation, setClassicNavigation] = useState(() => localStorage.getItem("buyer-dash-classic-navigation") === "true");
   const context = useQuery({ queryKey: ["account-context"], queryFn: ({ signal }) => apiGet<AccountContext>("/api/v1/account/context", signal) });
@@ -156,18 +187,22 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   const role = context.data?.user.role ?? "trial";
   const isTrial = role === "trial";
 
-  const operationAllowed = (mode: OperationMode): boolean => mode === "Retail Ops"
-    ? RETAIL_ROLES.includes(role as never)
-    : PRODUCTION_ROLES.includes(role as never);
+  const operationAllowed = (mode: OperationMode): boolean => {
+    if (mode === "Retail Ops") return RETAIL_ROLES.includes(role as never);
+    if (mode === "Cultivation Ops") return CULTIVATION_ROLES.includes(role as never);
+    return PRODUCTION_ROLES.includes(role as never);
+  };
   const facilitySupports = (facility: Facility | undefined, mode: OperationMode): boolean => {
     if (!facility) return false;
-    return mode === "Retail Ops"
-      ? Boolean(facility.capabilities?.retail)
-      : Boolean(facility.capabilities?.production || facility.capabilities?.cultivation);
+    if (mode === "Retail Ops") return Boolean(facility.capabilities?.retail);
+    if (mode === "Cultivation Ops") return Boolean(facility.capabilities?.cultivation);
+    return Boolean(facility.capabilities?.production);
   };
-  const currentSupports = (mode: OperationMode): boolean => mode === "Retail Ops"
-    ? Boolean(context.data?.capabilities.retail)
-    : Boolean(context.data && (context.data.capabilities.production || context.data.capabilities.cultivation));
+  const currentSupports = (mode: OperationMode): boolean => {
+    if (mode === "Retail Ops") return Boolean(context.data?.capabilities.retail);
+    if (mode === "Cultivation Ops") return Boolean(context.data?.capabilities.cultivation);
+    return Boolean(context.data?.capabilities.production);
+  };
   const findOperationTarget = (mode: OperationMode): { organizationId: string; facilityId: string } | null => {
     if (!context.data || !operationAllowed(mode)) return null;
     if (currentSupports(mode)) return { organizationId: context.data.organization?.id ?? "", facilityId: context.data.facility_id };
@@ -186,13 +221,15 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     return null;
   };
   const canRetail = Boolean(findOperationTarget("Retail Ops"));
+  const canCultivation = Boolean(findOperationTarget("Cultivation Ops"));
   const canProduction = Boolean(findOperationTarget("Production Ops"));
   const operationModes = useMemo<OperationMode[]>(() => {
     const modes: OperationMode[] = [];
     if (canRetail) modes.push("Retail Ops");
+    if (canCultivation) modes.push("Cultivation Ops");
     if (canProduction) modes.push("Production Ops");
     return modes.length ? modes : ["Retail Ops"];
-  }, [canRetail, canProduction]);
+  }, [canCultivation, canProduction, canRetail]);
 
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("buyer-dash-theme", theme); }, [theme]);
   useEffect(() => {
@@ -208,7 +245,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [navigationOpen]);
 
-  const primaryBase = operation === "Production Ops" ? PRODUCTION_PRIMARY : RETAIL_PRIMARY;
+  const primaryBase = primaryForOperation(operation);
   const primary = context.data?.capabilities.commercial === false ? primaryBase.filter(row => row.label !== "Wholesale") : primaryBase;
   const activeCategory = categoryForPage(active, operation);
   const secondary = secondaryItems(activeCategory, operation, role).filter(item => !item.roles || item.roles.includes(role as never));
@@ -236,7 +273,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   const changeOperation = (next: OperationMode) => {
     setOperation(next);
     localStorage.setItem("buyer-dash-operation", next);
-    const nextPrimary = next === "Production Ops" ? PRODUCTION_PRIMARY : RETAIL_PRIMARY;
+    const nextPrimary = primaryForOperation(next);
     const target = nextPrimary.find(row => row.label === "Home") ?? nextPrimary[0];
     const nextSecondary = secondaryItems(target.label, next, role).filter(item => !item.roles || item.roles.includes(role as never));
     routeToOperation(nextSecondary[0]?.page ?? target.defaultPage, next);
@@ -320,14 +357,22 @@ function ClassicNavigation({ operation, role, active, onNavigate }: { operation:
       { label: "Reports", pages: secondaryItems("Reports", operation, role) },
       { label: "Data & Integrations", pages: dataSettingsItems(role) },
     ]
-    : [
-      { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
-      { label: "Buying", pages: secondaryItems("Buying", operation, role) },
-      { label: "Retail Inventory", pages: secondaryItems("Inventory", operation, role) },
-      { label: "Wholesale Ops", pages: secondaryItems("Wholesale", operation, role) },
-      { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
-      { label: "Reports", pages: secondaryItems("Reports", operation, role) },
-      { label: "Data & Integrations", pages: dataSettingsItems(role) },
-    ];
+    : operation === "Cultivation Ops"
+      ? [
+        { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
+        { label: "Cultivation", pages: secondaryItems("Cultivation", operation, role) },
+        { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
+        { label: "Reports", pages: secondaryItems("Reports", operation, role) },
+        { label: "Data & Integrations", pages: dataSettingsItems(role) },
+      ]
+      : [
+        { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
+        { label: "Buying", pages: secondaryItems("Buying", operation, role) },
+        { label: "Retail Inventory", pages: secondaryItems("Inventory", operation, role) },
+        { label: "Wholesale Ops", pages: secondaryItems("Wholesale", operation, role) },
+        { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
+        { label: "Reports", pages: secondaryItems("Reports", operation, role) },
+        { label: "Data & Integrations", pages: dataSettingsItems(role) },
+      ];
   return <>{groups.map(group => <div key={group.label}><div className="operation-label">{group.label}</div><nav>{group.pages.filter(row => !row.roles || row.roles.includes(role as never)).map(row => <button className={active === row.page ? "nav-item active" : "nav-item"} key={`${group.label}-${row.page}`} onClick={() => onNavigate(row.page)}>{row.label}</button>)}</nav></div>)}</>;
 }

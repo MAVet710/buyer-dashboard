@@ -72,7 +72,7 @@ type AgentRun = {
 
 type Props = {
   activePage: string;
-  operation: "Retail Ops" | "Production Ops";
+  operation: "Retail Ops" | "Cultivation Ops" | "Production Ops";
   onNavigate: (page: string) => void;
 };
 
