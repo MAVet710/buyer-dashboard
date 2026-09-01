@@ -242,5 +242,9 @@ def test_operator_can_move_seedling_to_saleable_labeled_finished_inventory():
     assert [(event.event_type, event.to_value) for event in events if event.event_type == "phase_changed"] == [
         ("phase_changed", "vegetative"),
         ("phase_changed", "flowering"),
-        ("phase_changed", "harvested"),
     ]
+    harvested = [event for event in events if event.event_type == "harvested"]
+    assert len(harvested) == 1
+    assert harvested[0].from_value == "flowering"
+    assert harvested[0].to_value == "HARVEST-0001"
+    assert cultivation.harvest_detail(organization.id, facility.id, harvest["id"])["plants"][0]["phase"] == "harvested"
