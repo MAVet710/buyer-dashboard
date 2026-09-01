@@ -52,6 +52,7 @@ class PackagingUpdate(BaseModel):
     units_per_package: float = Field(default=1, gt=0)
     sellable_unit: str = Field(default="each", min_length=1, max_length=32)
     case_pack: float = Field(default=0, ge=0)
+    warning_text: str = Field(default="", max_length=8000)
 
 
 class AliasCreate(BaseModel):
@@ -102,7 +103,7 @@ def _identity(row: Product) -> dict:
 def _packaging(row: ProductPackagingProfile | None) -> dict | None:
     if row is None:
         return None
-    return {key: getattr(row, key) for key in ("net_content", "net_content_unit", "units_per_package", "sellable_unit", "case_pack")}
+    return {key: getattr(row, key) for key in ("net_content", "net_content_unit", "units_per_package", "sellable_unit", "case_pack", "warning_text")}
 
 
 def _snapshot(engine: Engine, organization_id: str, product_id: str) -> dict:

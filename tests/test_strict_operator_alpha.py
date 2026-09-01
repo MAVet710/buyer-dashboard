@@ -90,6 +90,7 @@ CORE_OPERATOR_READS = (
     "/api/v1/extraction/runs",
     "/api/v1/package-studio/workspace",
     "/api/v1/label-printing/inventory-sources",
+    "/api/v1/label-printing/coas?limit=250",
     "/api/v1/commercial/orders?open_only=false",
     "/api/v1/commercial/workspace",
     "/api/v1/storefronts/wholesale-inventory",

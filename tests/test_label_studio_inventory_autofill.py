@@ -97,6 +97,7 @@ def _seed(engine):
             coa_reference="COA-CK-0901",
             coa_url="https://example.invalid/coa/ck-0901",
             thca_percent=31.2,
+            total_thc_percent=28.4,
             total_terpenes_percent=2.1,
             evidence_source="verified_test_fixture",
             actor="tester",
@@ -157,11 +158,14 @@ def test_inventory_label_source_autofills_authoritative_batch_data():
         "license_number": "MP281999",
         "license_type": "Marijuana Product Manufacturer",
         "qa_source": "verified_test_fixture",
+        "coa_source": "",
+        "coa_verification": "missing",
     }
     assert source["label"]["product_name"] == "Copper Kush Flower 3.5g"
     assert source["label"]["brand"] == "Cowboy Kush"
     assert source["label"]["strain"] == "Copper Kush"
-    assert source["label"]["net_contents"] == "3.5 g"
+    assert source["label"]["package_size"] == "3.5 g"
+    assert source["label"]["net_contents"] == "NET WT. .12345 OZ"
     assert source["label"]["license_number"] == "MP281999"
     assert source["label"]["package_id"] == "1A4000000000000000012345"
     assert source["label"]["batch_number"] == "BATCH-CK-0901"
@@ -170,6 +174,7 @@ def test_inventory_label_source_autofills_authoritative_batch_data():
     assert source["label"]["coa_reference"] == "COA-CK-0901"
     assert source["label"]["coa_url"] == "https://example.invalid/coa/ck-0901"
     assert source["label"]["warning_text"] == "Approved internal warning text"
+    assert "NET WT. .12345 OZ" in source["raw_text"]
     assert "Approved internal warning text" in source["raw_text"]
 
 

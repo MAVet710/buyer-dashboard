@@ -56,6 +56,9 @@ class LotQualityService:
             coa_url=str(meta.get("coa_url") or meta.get("certificate_url") or meta.get("lab_report_url") or "").strip(),
             thca_percent=LotQualityService._float(meta.get("thca_percent")),
             tac_percent=LotQualityService._float(meta.get("tac_percent")),
+            total_thc_percent=LotQualityService._float(meta.get("total_thc_percent")),
+            total_cbd_percent=LotQualityService._float(meta.get("total_cbd_percent")),
+            total_cannabinoids_percent=LotQualityService._float(meta.get("total_cannabinoids_percent")),
             total_terpenes_percent=LotQualityService._float(meta.get("total_terpenes_percent")),
             evidence_source="legacy_inventory_metadata",
             actor="legacy-import",
@@ -72,8 +75,12 @@ class LotQualityService:
         lab_testing_state: str,
         coa_reference: str = "",
         coa_url: str = "",
+        coa_document_id: str | None = None,
         thca_percent: float | None = None,
         tac_percent: float | None = None,
+        total_thc_percent: float | None = None,
+        total_cbd_percent: float | None = None,
+        total_cannabinoids_percent: float | None = None,
         total_terpenes_percent: float | None = None,
         evidence_source: str = "manual",
         inherited_from_lot_id: str | None = None,
@@ -93,8 +100,12 @@ class LotQualityService:
         evidence.lab_testing_state = str(lab_testing_state or "").strip()
         evidence.coa_reference = str(coa_reference or "").strip()
         evidence.coa_url = str(coa_url or "").strip()
+        evidence.coa_document_id = coa_document_id
         evidence.thca_percent = LotQualityService._validated_percent(thca_percent)
         evidence.tac_percent = LotQualityService._validated_percent(tac_percent)
+        evidence.total_thc_percent = LotQualityService._validated_percent(total_thc_percent)
+        evidence.total_cbd_percent = LotQualityService._validated_percent(total_cbd_percent)
+        evidence.total_cannabinoids_percent = LotQualityService._validated_percent(total_cannabinoids_percent)
         evidence.total_terpenes_percent = LotQualityService._validated_percent(total_terpenes_percent)
         evidence.evidence_source = str(evidence_source or "manual").strip() or "manual"
         evidence.inherited_from_lot_id = inherited_from_lot_id
@@ -139,8 +150,12 @@ class LotQualityService:
             lab_testing_state="Passed",
             coa_reference="; ".join(references),
             coa_url=single_source.coa_url if single_source else "",
+            coa_document_id=single_source.coa_document_id if single_source else None,
             thca_percent=single_source.thca_percent if single_source else LotQualityService._common(sources, "thca_percent"),
             tac_percent=single_source.tac_percent if single_source else LotQualityService._common(sources, "tac_percent"),
+            total_thc_percent=single_source.total_thc_percent if single_source else LotQualityService._common(sources, "total_thc_percent"),
+            total_cbd_percent=single_source.total_cbd_percent if single_source else LotQualityService._common(sources, "total_cbd_percent"),
+            total_cannabinoids_percent=single_source.total_cannabinoids_percent if single_source else LotQualityService._common(sources, "total_cannabinoids_percent"),
             total_terpenes_percent=single_source.total_terpenes_percent if single_source else LotQualityService._common(sources, "total_terpenes_percent"),
             evidence_source=f"inherited:{action or 'transformation'}",
             inherited_from_lot_id=single_source.lot_id if single_source else None,
@@ -161,6 +176,9 @@ class LotQualityService:
                 "coa_url": evidence.coa_url,
                 "thca_percent": evidence.thca_percent,
                 "tac_percent": evidence.tac_percent,
+                "total_thc_percent": evidence.total_thc_percent,
+                "total_cbd_percent": evidence.total_cbd_percent,
+                "total_cannabinoids_percent": evidence.total_cannabinoids_percent,
                 "total_terpenes_percent": evidence.total_terpenes_percent,
                 "quality_evidence_source": evidence.evidence_source,
             }

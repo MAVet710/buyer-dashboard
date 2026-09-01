@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, String
+from sqlalchemy import Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from modules.coman.models import Base, Product, TimestampMixin
@@ -22,6 +22,7 @@ class ProductPackagingProfile(TimestampMixin, Base):
     units_per_package: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     sellable_unit: Mapped[str] = mapped_column(String(32), nullable=False, default="each")
     case_pack: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    warning_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
 class ProductPackagingService:
@@ -36,6 +37,7 @@ class ProductPackagingService:
         units_per_package: float = 1.0,
         sellable_unit: str = "each",
         case_pack: float = 0.0,
+        warning_text: str | None = None,
     ) -> ProductPackagingProfile:
         product = session.get(Product, product_id)
         if not product or product.organization_id != organization_id:
@@ -51,6 +53,8 @@ class ProductPackagingService:
         row.units_per_package = float(units_per_package)
         row.sellable_unit = str(sellable_unit or "each").strip().casefold() or "each"
         row.case_pack = float(case_pack)
+        if warning_text is not None:
+            row.warning_text = str(warning_text or "").strip()
         return row
 
     @staticmethod

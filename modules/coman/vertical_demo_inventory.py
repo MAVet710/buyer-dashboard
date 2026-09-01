@@ -333,9 +333,10 @@ def _quality(
     lot_id: str,
     reference: str,
     *,
-    thca: float,
-    tac: float,
-    terpenes: float,
+    thca: float | None,
+    tac: float | None,
+    terpenes: float | None,
+    total_thc: float | None = None,
     source: str,
     actor: str,
 ) -> None:
@@ -347,6 +348,7 @@ def _quality(
             coa_reference=reference,
             thca_percent=thca,
             tac_percent=tac,
+            total_thc_percent=total_thc,
             total_terpenes_percent=terpenes,
             evidence_source=source,
             actor=actor,
@@ -636,6 +638,7 @@ def seed_vertical_dev_inventory(
                 actor=actor,
             )
             extraction_bulk_lot_ids.append(output.lot_id)
+            coa_reference = f"DEV-COA-EXT-{generation_code}-{code}-{extract_index:02d}"
             extraction.record_qa_event(
                 organization_id=organization_id,
                 facility_id=facility_id,
@@ -643,7 +646,33 @@ def seed_vertical_dev_inventory(
                 output_id=output.id,
                 event_type="coa_attached",
                 result="passed",
-                coa_reference=f"DEV-COA-EXT-{generation_code}-{code}-{extract_index:02d}",
+                coa_reference=coa_reference,
+                actor=actor,
+            )
+            if extract_index == 1:
+                extract_thca = 69.0 + strain_index * 0.4
+                extract_total_thc = 64.0 + strain_index * 0.35
+                extract_tac = 75.0 + strain_index * 0.3
+                extract_terpenes = 5.5 + strain_index * 0.1
+            elif extract_index == 2:
+                extract_thca = 1.0 + strain_index * 0.05
+                extract_total_thc = 88.0 - strain_index * 0.1
+                extract_tac = 90.0 - strain_index * 0.08
+                extract_terpenes = 2.0 + strain_index * 0.04
+            else:
+                extract_thca = 50.0 + strain_index * 0.4
+                extract_total_thc = 46.0 + strain_index * 0.35
+                extract_tac = 58.0 + strain_index * 0.3
+                extract_terpenes = 3.5 + strain_index * 0.08
+            _quality(
+                engine,
+                output.lot_id,
+                coa_reference,
+                thca=extract_thca,
+                total_thc=extract_total_thc,
+                tac=extract_tac,
+                terpenes=extract_terpenes,
+                source="dev_vertical_extraction_lab",
                 actor=actor,
             )
             extraction.record_qa_event(

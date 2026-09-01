@@ -25,5 +25,7 @@ def test_real_stack_alpha_migrates_before_seeding_and_preserves_schema():
         "traceability_transactions",
         "material_transformations",
         "lot_quality_evidence",
+        "coa_documents",
+        "coa_analyte_results",
     ):
         assert table in seed

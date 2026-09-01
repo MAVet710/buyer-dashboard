@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from modules.inventory_quality import CoaDocumentService, MAX_COA_BYTES
 from modules.operational_moats.printing import LabelPrintingService
 from ..auth import RequestContext, get_request_context
 from ..database import get_engine
@@ -14,6 +17,7 @@ from ..services.label_studio import LabelInventoryService
 
 router = APIRouter(prefix="/label-printing", tags=["label-printing"])
 ADMIN_ROLES = {"dev", "admin"}
+COA_ROLES = {"dev", "admin", "supervisor", "operator", "qa"}
 
 
 class PrinterPayload(BaseModel):
@@ -51,6 +55,20 @@ def _job(row, *, include_content: bool = False) -> dict[str, Any]:
     return result
 
 
+def _require_coa_write(context: RequestContext) -> None:
+    if context.role.casefold() not in COA_ROLES:
+        raise HTTPException(403, "Your role can view COA-backed labels but cannot attach or confirm COA evidence.")
+
+
+async def _coa_bytes(file: UploadFile) -> bytes:
+    payload = await file.read(MAX_COA_BYTES + 1)
+    if not payload:
+        raise HTTPException(422, "The uploaded COA is empty.")
+    if len(payload) > MAX_COA_BYTES:
+        raise HTTPException(413, "The COA exceeds the 15 MB upload limit.")
+    return payload
+
+
 @router.get("/inventory-sources")
 def list_inventory_label_sources(
     context: RequestContext = Depends(get_request_context),
@@ -70,6 +88,102 @@ def get_inventory_label_source(
         return LabelInventoryService(engine).get_source(context.organization_id, context.facility_id, lot_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/inventory-sources/{lot_id}/coa", status_code=201)
+async def upload_inventory_coa_fallback(
+    lot_id: str,
+    file: UploadFile = File(...),
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    """Fallback-only COA attachment for the exact selected METRC package/tag."""
+    _require_coa_write(context)
+    try:
+        document = CoaDocumentService(engine).ingest_for_lot(
+            context.organization_id,
+            context.facility_id,
+            lot_id,
+            payload=await _coa_bytes(file),
+            filename=file.filename or "coa.pdf",
+            content_type=file.content_type or "application/pdf",
+            actor=context.user_id,
+        )
+        source = LabelInventoryService(engine).get_source(context.organization_id, context.facility_id, lot_id)
+        return {"coa_document": document, "source": source}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/inventory-sources/{lot_id}/coa/{document_id}/confirm")
+def confirm_inventory_coa_fallback(
+    lot_id: str,
+    document_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    """Explicitly confirm a fallback PDF when no METRC tag was readable in it."""
+    _require_coa_write(context)
+    try:
+        document = CoaDocumentService(engine).confirm_for_lot(
+            context.organization_id,
+            context.facility_id,
+            lot_id,
+            document_id,
+            actor=context.user_id,
+        )
+        source = LabelInventoryService(engine).get_source(context.organization_id, context.facility_id, lot_id)
+        return {"coa_document": document, "source": source}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/coas")
+def list_coa_library(
+    limit: int = Query(default=250, ge=1, le=1000),
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    return CoaDocumentService(engine).list_documents(context.organization_id, context.facility_id, limit=limit)
+
+
+@router.post("/coas", status_code=201)
+async def upload_coa_library_document(
+    file: UploadFile = File(...),
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    """Primary COA library intake. A readable METRC source/package tag is required."""
+    _require_coa_write(context)
+    try:
+        return CoaDocumentService(engine).ingest_library(
+            context.organization_id,
+            context.facility_id,
+            payload=await _coa_bytes(file),
+            filename=file.filename or "coa.pdf",
+            content_type=file.content_type or "application/pdf",
+            actor=context.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/coas/{document_id}/file")
+def get_coa_file(
+    document_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    try:
+        payload, filename, content_type = CoaDocumentService(engine).document_bytes(context.organization_id, context.facility_id, document_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    safe = quote(filename or "coa.pdf")
+    return Response(
+        content=payload,
+        media_type=content_type or "application/pdf",
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{safe}"},
+    )
 
 
 @router.get("/printers")
