@@ -44,6 +44,8 @@ def _lineage_document(session: Session, lot) -> CoaDocument | None:
         evidence = session.get(LotQualityEvidence, current_lot_id)
         if evidence is None:
             return None
+        if evidence.organization_id != lot.organization_id or evidence.facility_id != lot.facility_id:
+            return None
         if (
             evidence.coa_document_id
             and LotQualityService.is_passed(evidence.lab_testing_state, evidence.coa_reference)
@@ -52,6 +54,7 @@ def _lineage_document(session: Session, lot) -> CoaDocument | None:
             if (
                 document is not None
                 and document.organization_id == lot.organization_id
+                and document.facility_id == lot.facility_id
                 and document.status == "parsed"
                 and document.verification_state in _ALLOWED_VERIFICATION
             ):
@@ -70,7 +73,8 @@ def _resolve_for_lot_with_lineage(
     if document is not None:
         return document, results
 
-    # A split/repackaged child can legitimately retain the parent's tested COA.
+    # A split/repackaged child can legitimately retain the parent's tested COA,
+    # but inherited evidence never crosses the active organization/facility boundary.
     document = _lineage_document(session, lot)
     if document is None:
         return None, []
