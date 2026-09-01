@@ -51,10 +51,14 @@ async function choose(locator: Locator, label: string | RegExp) {
     await locator.selectOption({ label }).catch(async () => locator.selectOption(label));
     return;
   }
-  const options = await locator.locator("option").allTextContents();
-  const match = options.find(text => label.test(text));
-  if (!match) throw new Error(`No option matched ${label}. Options: ${options.join(" | ")}`);
-  await locator.selectOption({ label: match });
+  const option = locator.locator("option").filter({ hasText: label }).first();
+  await option.waitFor({ state: "attached" });
+  const value = await option.getAttribute("value");
+  if (value === null) {
+    const options = await locator.locator("option").allTextContents();
+    throw new Error(`No option matched ${label}. Options: ${options.join(" | ")}`);
+  }
+  await locator.selectOption(value);
 }
 async function chooseFirstReal(locator: Locator) {
   friction.clicks += 1; friction.decisions += 1;
