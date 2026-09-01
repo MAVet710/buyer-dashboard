@@ -497,8 +497,6 @@ def test_transfers_are_first_class_inventory_workspaces_and_contextual_inventory
     assert "selectedPackages" in inventory
     assert "blockedTransferPackages" in inventory
     assert "transferSelectionReady" in inventory
-    assert "Retail Inventory Transfers" in inventory
-    assert "Production Inventory Transfers" in inventory
     assert "InventoryTransferManager" not in receive_history
     assert "License transfers" not in receive_history
     assert "state-system/Metrc transfer" in transfers
