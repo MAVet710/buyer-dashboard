@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RegulatoryIntelligencePanel } from "../components/RegulatoryIntelligencePanel";
 import { StreamlitDialog } from "../components/StreamlitDialog";
-import { apiGet, apiPost } from "../lib/api";
+import { apiDownload, apiGet, apiPost, apiPostForm } from "../lib/api";
 
 type Tx = {
   id:string; provider:string; license_number:string; operation_type:string; entity_type:string; entity_id:string;
@@ -16,6 +16,11 @@ type Queue = { summary:Record<string,number>; items:Tx[] };
 type Detail = { transaction:Tx; events:Event[]; attempts:Attempt[] };
 type Account = { user:{ role:string } };
 type DetailTab = "Overview"|"Attempts"|"Lifecycle"|"Payloads";
+type CoaDocument = {
+  id:string;lot_id:string|null;package_id:string;source:string;status:string;verification_state:string;filename:string;product_name:string;batch_number:string;
+  lab_name:string;lab_license_number:string;lab_id:string;metrc_source_id:string;metrc_lab_id:string;date_tested:string|null;overall_status:string;
+  total_thc:number|null;total_cbd:number|null;total_cannabinoids:number|null;total_terpenes:number|null;file_url:string;created_at:string;
+};
 
 const STATUS_OPTIONS:[string,string[]][] = [
   ["Needs reconciliation",["rejected","reconciliation_required"]],
@@ -24,6 +29,7 @@ const STATUS_OPTIONS:[string,string[]][] = [
 ];
 const PROVIDERS = ["All","METRC","BioTrack","Other"];
 const MANAGE_ROLES = new Set(["dev","admin","supervisor","qa"]);
+const COA_ROLES = new Set(["dev","admin","supervisor","operator","qa"]);
 
 export function CompliancePage() {
   const client=useQueryClient();
@@ -35,11 +41,24 @@ export function CompliancePage() {
   const queue=useQuery({queryKey:["traceability",queueView,provider],queryFn:({signal})=>apiGet<Queue>(`/api/v1/compliance/traceability?${query}`,signal)});
   const detail=useQuery({queryKey:["traceability-detail",selected],enabled:Boolean(selected),queryFn:({signal})=>apiGet<Detail>(`/api/v1/compliance/traceability/${selected}`,signal)});
   const account=useQuery({queryKey:["account-context"],queryFn:({signal})=>apiGet<Account>("/api/v1/account/context",signal)});
+  const coaLibrary=useQuery({queryKey:["coa-library"],queryFn:({signal})=>apiGet<CoaDocument[]>("/api/v1/label-printing/coas?limit=250",signal)});
+  const uploadCoa=useMutation({
+    mutationFn:async(file:File)=>{const body=new FormData();body.set("file",file);return apiPostForm<CoaDocument>("/api/v1/label-printing/coas",body)},
+    onSuccess:async row=>{setMessage(row.lot_id?`COA matched to METRC tag ${row.package_id} and linked to current inventory.`:`COA indexed to METRC tag ${row.package_id}. Label Studio will use it automatically when that package is available.`);await Promise.all([client.invalidateQueries({queryKey:["coa-library"]}),client.invalidateQueries({queryKey:["label-studio-inventory-sources"]})])},
+  });
   const resolve=useMutation({mutationFn:(action:string)=>apiPost<Tx>(`/api/v1/compliance/traceability/${selected}/resolve`,{action,reason,confirmed}),onSuccess:async(_row,action)=>{setMessage(action==="requeue"?"Transaction returned to the traceability queue.":action==="verify"?"Transaction marked verified with reconciliation evidence.":"Transaction cancelled with an audit reason.");setReason("");setConfirmed(false);await Promise.all([client.invalidateQueries({queryKey:["traceability"]}),client.invalidateQueries({queryKey:["traceability-detail",selected]})])}});
   const canManage=MANAGE_ROLES.has(account.data?.user.role?.toLowerCase()??"");
+  const canUploadCoa=COA_ROLES.has(account.data?.user.role?.toLowerCase()??"");
+  const openCoa=async(row:CoaDocument)=>{const blob=await apiDownload(row.file_url);const url=URL.createObjectURL(blob);window.open(url,"_blank","noopener,noreferrer");window.setTimeout(()=>URL.revokeObjectURL(url),60_000)};
   return <div className="page exact-traceability">
     <div className="eyebrow">TRACEABILITY OPERATIONS · BACKOFFICE</div><h1>Queue &amp; Reconciliation</h1><p className="section-note">Buyer Dash keeps the internal operational record visible even when the state system rejects, delays, or conflicts with an action.</p>
     <RegulatoryIntelligencePanel/>
+    <section className="inventory-panel"><div className="eyebrow">COA LIBRARY · LABEL SOURCE</div><h2>Facility COA Library</h2><p className="section-note">Upload laboratory COA PDFs here as the normal intake path. DoobieLogic reads the certificate, extracts its METRC source/package tag, stores the original PDF and normalized analytes, and links it to the matching inventory package automatically. Label Studio reads this library first; its own upload control is fallback-only.</p>
+      {canUploadCoa?<label className="file-drop">Upload COA PDF<input type="file" accept="application/pdf,.pdf" disabled={uploadCoa.isPending} onChange={event=>{const file=event.target.files?.[0];if(file){setMessage("");uploadCoa.mutate(file)}event.currentTarget.value=""}}/></label>:<div className="info-banner">Your role can review COAs but cannot upload facility certificates.</div>}
+      {uploadCoa.isPending?<div className="state">Reading COA, extracting test results, and matching its METRC source tag…</div>:null}{uploadCoa.isError?<div className="form-error">{uploadCoa.error.message}</div>:null}
+      {coaLibrary.isLoading?<div className="state">Loading facility COAs…</div>:null}{coaLibrary.isError?<div className="warning-banner">COA Library is unavailable: {coaLibrary.error.message}</div>:null}
+      {coaLibrary.data?.length?<div className="table-wrap"><table><thead><tr><th>METRC package</th><th>Product / batch</th><th>Laboratory</th><th>Tested</th><th>Status</th><th>Totals</th><th>Inventory link</th><th>Certificate</th></tr></thead><tbody>{coaLibrary.data.map(row=><tr key={row.id}><td>{row.package_id||row.metrc_source_id||"—"}</td><td><strong>{row.product_name||"COA"}</strong><br/><small>{row.batch_number||row.filename}</small></td><td>{row.lab_name||"—"}{row.lab_license_number?<><br/><small>{row.lab_license_number}</small></>:null}</td><td>{row.date_tested?new Date(row.date_tested).toLocaleDateString():"—"}</td><td>{row.overall_status||row.verification_state}</td><td>{row.total_thc!=null?`THC ${row.total_thc}%`:""}{row.total_terpenes!=null?<><br/><small>Terpenes {row.total_terpenes}%</small></>:null}</td><td>{row.lot_id?"Matched":"Waiting for package"}</td><td><button className="secondary" type="button" onClick={()=>void openCoa(row)}>Open PDF</button></td></tr>)}</tbody></table></div>:!coaLibrary.isLoading&&!coaLibrary.isError?<div className="info-banner">No COAs have been uploaded for this facility yet.</div>:null}
+    </section>
     <section className="metrics four"><Metric label="Needs reconciliation" value={queue.data?.summary.needs_reconciliation??"—"}/><Metric label="In flight" value={queue.data?.summary.in_flight??"—"}/><Metric label="Verified" value={queue.data?.summary.verified??"—"}/><Metric label="Total actions" value={queue.data?.summary.total??"—"}/></section>
     <div className="form-grid two traceability-filters"><label>Queue view<select value={queueView} onChange={event=>setQueueView(event.target.value)}>{STATUS_OPTIONS.map(([label])=><option key={label}>{label}</option>)}</select></label><label>Provider<select value={provider} onChange={event=>setProvider(event.target.value)}>{PROVIDERS.map(value=><option key={value}>{value}</option>)}</select></label></div>
     {queue.isError?<div className="warning-banner">Traceability Operations is unavailable: {queue.error.message}</div>:null}
@@ -55,6 +74,7 @@ export function CompliancePage() {
         {message?<div className="success-banner">{message}</div>:null}{resolve.isError?<div className="form-error">{resolve.error.message}</div>:null}
       </div>:null}
     </StreamlitDialog>
+    {message&&!selected?<div className="success-banner">{message}</div>:null}
   </div>;
 }
 
