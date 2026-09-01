@@ -165,12 +165,17 @@ def test_library_coa_auto_matches_package_and_populates_label_results():
     assert source["coa"]["available"] is True
     assert source["coa"]["lookup_key"] == PACKAGE_ID
     assert source["coa"]["fallback_allowed"] is False
-    assert source["label"]["net_contents"] == "3.5 g"
+    assert source["label"]["package_size"] == "3.5 g"
+    assert source["label"]["net_contents"] == "NET WT. .12345 OZ"
     assert source["label"]["laboratory"] == "Example Cannabis Lab"
     assert source["label"]["test_date"] == "2026-08-30"
+    assert source["label"]["expiration_date"] == "2027-08-30"
     assert source["label"]["total_thc"] == "28.4%"
     assert source["label"]["total_cannabinoids"] == "31.9%"
     assert source["label"]["total_terpenes"] == "2.4%"
+    assert source["label"]["qr_value"] == PACKAGE_ID
+    assert source["qr"]["value"] == PACKAGE_ID
+    assert "<svg" in source["qr"]["svg"]
     assert "THCA 31.2%" in source["label"]["potency"]
     assert {row["key"] for row in source["coa"]["results"]} >= {"thca", "delta_9_thc", "cbga", "beta_myrcene", "limonene"}
     with Session(engine) as session:
@@ -205,3 +210,4 @@ def test_tagless_fallback_requires_explicit_confirmation_before_label_uses_it():
     assert confirmed["coa"]["available"] is True
     assert confirmed["coa"]["verification_state"] == "operator_confirmed"
     assert confirmed["label"]["total_thc"] == "28.4%"
+    assert confirmed["label"]["expiration_date"] == "2027-08-30"
