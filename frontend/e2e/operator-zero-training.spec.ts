@@ -126,8 +126,11 @@ async function advanceExtraction(page: Page) {
   const qaGate = page.getByText("This run is at the QA / COA gate.");
   const skip = page.getByRole("button", { name: "Skip optional step" });
   const complete = page.getByRole("button", { name: "Complete step & continue" });
+  const stageInput = page.getByLabel("Stage input (g)");
+  const stageOutput = page.getByLabel("Scale output (g)");
   const actionable = async (locator: Locator) =>
     (await locator.isVisible().catch(() => false)) && (await locator.isEnabled().catch(() => false));
+  const visible = async (locator: Locator) => locator.isVisible().catch(() => false);
 
   const tryTransientAction = async (locator: Locator): Promise<boolean> => {
     if (!(await actionable(locator))) return false;
@@ -142,38 +145,56 @@ async function advanceExtraction(page: Page) {
     }
   };
 
-  const waitForAction = async (): Promise<"qa" | "skip" | "complete"> => {
+  const fillIfDifferent = async (locator: Locator, value: string) => {
+    if (!(await visible(locator))) return false;
+    const current = await locator.inputValue().catch(() => "");
+    if (current !== value) await fill(locator, value);
+    return true;
+  };
+
+  const waitForState = async (): Promise<"qa" | "skip" | "stage" | "complete"> => {
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
-      if (await qaGate.isVisible().catch(() => false)) return "qa";
+      if (await visible(qaGate)) return "qa";
+      if (await actionable(skip)) return "skip";
+      if ((await visible(stageInput)) || (await visible(stageOutput))) return "stage";
+      if (await actionable(complete)) return "complete";
+      await page.waitForTimeout(100);
+    }
+    throw new Error("Extraction did not present a measurable stage, enabled continue/skip action, or QA / COA within 15 seconds.");
+  };
+
+  const waitAfterMeasurement = async (): Promise<"qa" | "skip" | "complete"> => {
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      if (await visible(qaGate)) return "qa";
       if (await actionable(skip)) return "skip";
       if (await actionable(complete)) return "complete";
       await page.waitForTimeout(100);
     }
-    throw new Error("Extraction did not present an enabled continue/skip action or QA / COA within 15 seconds.");
+    throw new Error("Extraction measurement did not unlock continue/skip or advance to QA / COA within 15 seconds.");
   };
 
   let completedSteps = 0;
   while (completedSteps < 14) {
-    const action = await waitForAction();
-    if (action === "qa") return materialWeight;
-    if (action === "skip") {
+    const state = await waitForState();
+    if (state === "qa") return materialWeight;
+    if (state === "skip") {
       if (await tryTransientAction(skip)) completedSteps += 1;
       continue;
     }
-
-    const stageInput = page.getByLabel("Stage input (g)");
-    const stageOutput = page.getByLabel("Scale output (g)");
-    if (await stageInput.isVisible().catch(() => false)) await fill(stageInput, String(materialWeight));
-    let nextMaterialWeight = materialWeight;
-    if (await stageOutput.isVisible().catch(() => false)) {
-      await fill(stageOutput, String(targetRosinWeight));
-      nextMaterialWeight = targetRosinWeight;
+    if (state === "complete") {
+      if (await tryTransientAction(complete)) completedSteps += 1;
+      continue;
     }
 
-    const postFillAction = await waitForAction();
-    if (postFillAction === "qa") return materialWeight;
-    if (postFillAction === "skip") {
+    await fillIfDifferent(stageInput, String(materialWeight));
+    let nextMaterialWeight = materialWeight;
+    if (await fillIfDifferent(stageOutput, String(targetRosinWeight))) nextMaterialWeight = targetRosinWeight;
+
+    const action = await waitAfterMeasurement();
+    if (action === "qa") return nextMaterialWeight;
+    if (action === "skip") {
       if (await tryTransientAction(skip)) completedSteps += 1;
       continue;
     }
