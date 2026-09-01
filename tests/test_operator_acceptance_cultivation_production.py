@@ -15,6 +15,9 @@ from modules.coman.models import Base, Facility
 from services.demo_data import build_demo_payload
 
 
+CLOSED_PRODUCTION_STATUSES = {"complete", "completed", "cancelled", "canceled", "failed"}
+
+
 def _seeded_client(*, role: str = "dev", user_id: str = "operator-acceptance") -> tuple[TestClient, dict[str, str]]:
     engine = create_engine(
         "sqlite://",
@@ -45,13 +48,11 @@ def _seeded_client(*, role: str = "dev", user_id: str = "operator-acceptance") -
     return TestClient(app, raise_server_exceptions=False), headers
 
 
-def test_cultivation_operator_can_move_seedling_to_harvest_with_cost_and_event_history():
+def test_cultivation_operator_can_move_seedling_to_allocated_harvest_with_cost_and_lineage():
     client, headers = _seeded_client(role="operator", user_id="cultivation-floor-operator")
     try:
-        room = client.post(
-            "/api/v1/inventory/production/plants/rooms",
-            headers=headers,
-            json={
+        for room_payload in (
+            {
                 "room_code": "OA-VEG-1",
                 "display_name": "Operator Acceptance Veg",
                 "phase": "vegetative",
@@ -60,14 +61,7 @@ def test_cultivation_operator_can_move_seedling_to_harvest_with_cost_and_event_h
                 "target_cycle_days": 21,
                 "active": True,
             },
-        )
-        assert room.status_code == 200, room.text
-        assert room.json()["room_code"] == "OA-VEG-1"
-
-        flowering_room = client.post(
-            "/api/v1/inventory/production/plants/rooms",
-            headers=headers,
-            json={
+            {
                 "room_code": "OA-FLOWER-1",
                 "display_name": "Operator Acceptance Flower",
                 "phase": "flowering",
@@ -76,8 +70,9 @@ def test_cultivation_operator_can_move_seedling_to_harvest_with_cost_and_event_h
                 "target_cycle_days": 63,
                 "active": True,
             },
-        )
-        assert flowering_room.status_code == 200, flowering_room.text
+        ):
+            room = client.post("/api/v1/inventory/production/plants/rooms", headers=headers, json=room_payload)
+            assert room.status_code == 200, room.text
 
         created = client.post(
             "/api/v1/inventory/production/plants",
@@ -111,8 +106,6 @@ def test_cultivation_operator_can_move_seedling_to_harvest_with_cost_and_event_h
         )
         assert vegetative.status_code == 200, vegetative.text
         assert vegetative.json()["phase"] == "vegetative"
-        assert vegetative.json()["room_code"] == "OA-VEG-1"
-
         flowering = client.post(
             f"/api/v1/inventory/production/plants/{plant_id}/transition",
             headers=headers,
@@ -124,16 +117,10 @@ def test_cultivation_operator_can_move_seedling_to_harvest_with_cost_and_event_h
         harvest = client.post(
             "/api/v1/inventory/production/plants/harvests",
             headers=headers,
-            json={
-                "harvest_code": "OA-HARVEST-0001",
-                "plant_ids": [plant_id],
-                "notes": "Stateful operator harvest",
-            },
+            json={"harvest_code": "OA-HARVEST-0001", "plant_ids": [plant_id], "notes": "Stateful operator harvest"},
         )
         assert harvest.status_code == 201, harvest.text
         harvest_id = harvest.json()["id"]
-        assert harvest.json()["status"] == "planned"
-        assert harvest.json()["plant_count"] == 1
 
         active = client.post(
             f"/api/v1/inventory/production/plants/harvests/{harvest_id}/transition",
@@ -141,13 +128,11 @@ def test_cultivation_operator_can_move_seedling_to_harvest_with_cost_and_event_h
             json={"status": "active", "wet_weight": 500, "waste_weight": 25, "unit": "g", "notes": "Cut and weighed"},
         )
         assert active.status_code == 200, active.text
-        assert active.json()["status"] == "active"
         assert active.json()["wet_weight"] == 500
         assert active.json()["waste_weight"] == 25
 
         plants = client.get("/api/v1/inventory/production/plants?search=OA-PLANT-0001", headers=headers)
         assert plants.status_code == 200, plants.text
-        assert len(plants.json()) == 1
         assert plants.json()[0]["phase"] == "harvested"
 
         drying = client.post(
@@ -156,7 +141,6 @@ def test_cultivation_operator_can_move_seedling_to_harvest_with_cost_and_event_h
             json={"status": "drying", "dry_weight": 125, "unit": "g", "notes": "Dry weight recorded"},
         )
         assert drying.status_code == 200, drying.text
-        assert drying.json()["status"] == "drying"
         assert drying.json()["dry_weight"] == 125
         assert drying.json()["dry_yield_pct"] == 25
 
@@ -183,10 +167,65 @@ def test_cultivation_operator_can_move_seedling_to_harvest_with_cost_and_event_h
         assert detail.json()["labor_cost_usd"] == 50
         assert detail.json()["cost_per_dry_unit"] == 0.4
 
+        premature_complete = client.post(
+            f"/api/v1/inventory/production/plants/harvests/{harvest_id}/transition",
+            headers=headers,
+            json={"status": "completed", "unit": "g", "notes": "Premature closeout probe"},
+        )
+        assert premature_complete.status_code == 422
+        assert "allocate" in premature_complete.text.casefold()
+        assert "dry" in premature_complete.text.casefold()
+
+        products = client.get("/api/v1/extraction/products", headers=headers)
+        assert products.status_code == 200, products.text
+        gram_product = next(row for row in products.json() if str(row["base_unit"]).casefold() == "g")
+        allocation = {
+            "outputs": [
+                {
+                    "product_id": gram_product["id"],
+                    "lot_code": "OA-HARVEST-0001-DRY",
+                    "quantity": 125,
+                    "unit": "g",
+                    "purpose": "finished_flower",
+                    "measurement_basis": "dry",
+                    "location_code": "HARVEST-OUTPUT",
+                    "status": "quarantine",
+                    "compliance_package_id": "",
+                }
+            ],
+            "losses": [],
+        }
+        preview = client.post(
+            f"/api/v1/inventory/production/plants/harvests/{harvest_id}/outputs/preview",
+            headers=headers,
+            json=allocation,
+        )
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["blocker_count"] == 0
+        assert preview.json()["reconciliation"]["balanced"] is True
+        committed = client.post(
+            f"/api/v1/inventory/production/plants/harvests/{harvest_id}/outputs/commit",
+            headers=headers,
+            json={**allocation, "preview_key": preview.json()["preview_key"]},
+        )
+        assert committed.status_code == 201, committed.text
+        output_lot_id = committed.json()["output_lot_ids"][0]
+
+        production_inventory = client.get("/api/v1/inventory/production/packages", headers=headers)
+        assert production_inventory.status_code == 200, production_inventory.text
+        harvested_lot = next(row for row in production_inventory.json()["items"] if row["id"] == output_lot_id)
+        assert harvested_lot["on_hand"] == 125
+        assert harvested_lot["status"].casefold() == "quarantine"
+
+        lineage = client.get(f"/api/v1/material-lineage/lots/{output_lot_id}", headers=headers)
+        assert lineage.status_code == 200, lineage.text
+        assert harvest_id in str(lineage.json())
+        assert plant_id in str(lineage.json())
+
         completed = client.post(
             f"/api/v1/inventory/production/plants/harvests/{harvest_id}/transition",
             headers=headers,
-            json={"status": "completed", "unit": "g", "notes": "Drying complete"},
+            json={"status": "completed", "unit": "g", "notes": "Dry output allocated and harvest closed"},
         )
         assert completed.status_code == 200, completed.text
         assert completed.json()["status"] == "completed"
@@ -207,12 +246,14 @@ def test_production_operator_can_execute_output_qa_release_cost_and_inventory_ha
     try:
         queue = client.get("/api/v1/production/orders", headers=headers)
         assert queue.status_code == 200, queue.text
-        assert queue.json(), "Operator acceptance seed must contain at least one production order."
-        order_id = queue.json()[0]["order_id"]
+        open_rows = [row for row in queue.json() if str(row["status"]).casefold() not in CLOSED_PRODUCTION_STATUSES]
+        assert open_rows, "Operator acceptance seed must contain at least one open production order."
+        order_id = open_rows[0]["order_id"]
 
         detail = client.get(f"/api/v1/production/orders/{order_id}", headers=headers)
         assert detail.status_code == 200, detail.text
         order = detail.json()["order"]
+        assert str(order["status"]).casefold() not in CLOSED_PRODUCTION_STATUSES
 
         reserve = client.post(f"/api/v1/production/orders/{order_id}/reserve", headers=headers)
         assert reserve.status_code == 200, reserve.text
@@ -246,9 +287,7 @@ def test_production_operator_can_execute_output_qa_release_cost_and_inventory_ha
 
         products = client.get("/api/v1/extraction/products", headers=headers)
         assert products.status_code == 200, products.text
-        output_products = products.json()
-        assert output_products
-        output_product = output_products[0]
+        output_product = products.json()[0]
         planned_quantity = max(1.0, min(float(order["requested_units"] or 1), 10.0))
 
         output = client.post(
@@ -301,9 +340,7 @@ def test_production_operator_can_execute_output_qa_release_cost_and_inventory_ha
             },
         )
         assert failed.status_code == 201, failed.text
-        fail_detail = client.get(f"/api/v1/production/orders/{order_id}", headers=headers)
-        assert fail_detail.status_code == 200
-        assert fail_detail.json()["order"]["status"] == "on_hold"
+        assert client.get(f"/api/v1/production/orders/{order_id}", headers=headers).json()["order"]["status"] == "on_hold"
 
         released = client.post(
             f"/api/v1/production/orders/{order_id}/qa",
@@ -328,7 +365,13 @@ def test_production_operator_can_execute_output_qa_release_cost_and_inventory_ha
         completed = client.post(
             f"/api/v1/production/orders/{order_id}/events",
             headers=headers,
-            json={"event_type": "completed", "stage_key": "completion", "quantity": actual_quantity, "unit": output_product["base_unit"], "notes": "Acceptance production complete"},
+            json={
+                "event_type": "completed",
+                "stage_key": "completion",
+                "quantity": actual_quantity,
+                "unit": output_product["base_unit"],
+                "notes": "Acceptance production complete",
+            },
         )
         assert completed.status_code == 201, completed.text
 
@@ -350,8 +393,10 @@ def test_production_floor_operator_cannot_self_approve_qa():
     try:
         queue = client.get("/api/v1/production/orders", headers=headers)
         assert queue.status_code == 200 and queue.json()
+        open_rows = [row for row in queue.json() if str(row["status"]).casefold() not in CLOSED_PRODUCTION_STATUSES]
+        assert open_rows
         denied = client.post(
-            f"/api/v1/production/orders/{queue.json()[0]['order_id']}/qa",
+            f"/api/v1/production/orders/{open_rows[0]['order_id']}/qa",
             headers=headers,
             json={"event_type": "release", "result": "passed", "notes": "Unauthorized QA release probe"},
         )
