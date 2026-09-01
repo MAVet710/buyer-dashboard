@@ -358,6 +358,30 @@ def test_production_operator_can_execute_output_qa_release_cost_and_inventory_ha
         )
         assert released.status_code == 201, released.text
 
+        resume_payload = {
+            "event_type": "release",
+            "stage_key": "execution",
+            "notes": "QA cleared; resume production for controlled closeout",
+        }
+        resume_preview = client.post(
+            f"/api/v1/production/orders/{order_id}/mutations/preview",
+            headers=headers,
+            json={"action_type": "run_event", "payload": resume_payload},
+        )
+        assert resume_preview.status_code == 200, resume_preview.text
+        assert resume_preview.json()["blocker_count"] == 0
+        resumed = client.post(
+            f"/api/v1/production/orders/{order_id}/mutations/commit",
+            headers=headers,
+            json={
+                "action_type": "run_event",
+                "payload": resume_payload,
+                "preview_key": resume_preview.json()["preview_key"],
+            },
+        )
+        assert resumed.status_code == 200, resumed.text
+        assert resumed.json()["result"]["order_status"] == "in_progress"
+
         production_inventory = client.get("/api/v1/inventory/production/packages", headers=headers)
         assert production_inventory.status_code == 200, production_inventory.text
         inventory_output = next(row for row in production_inventory.json()["items"] if row["id"] == lot_id)
