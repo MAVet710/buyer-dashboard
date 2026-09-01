@@ -34,12 +34,13 @@ def test_future4200_curated_source_seeds_facility_scope_and_is_idempotent():
     engine = knowledge_engine()
     store = KnowledgeStore(engine)
     scope = KnowledgeScope("org-a", "facility-a")
+    keys = {"future4200_extraction_improvement_field_notes"}
 
-    first = seed_curated_sources(store=store, scope=scope)
+    first = seed_curated_sources(store=store, scope=scope, keys=keys)
     assert first["indexed"] == 1
     assert first["failed"] == 0
 
-    second = seed_curated_sources(store=store, scope=scope)
+    second = seed_curated_sources(store=store, scope=scope, keys=keys)
     assert second["indexed"] == 0
     assert second["unchanged"] == 1
 
@@ -68,7 +69,11 @@ def test_curated_source_path_cannot_escape_curated_directory():
 
 
 def test_future4200_curated_document_exists_in_repository():
-    source = public_curated_catalog()["sources"][0]
+    source = next(
+        row
+        for row in public_curated_catalog()["sources"]
+        if row["key"] == "future4200_extraction_improvement_field_notes"
+    )
     path = Path(__file__).resolve().parents[1] / "knowledge_sources" / "curated" / "future4200_extraction_field_practice.md"
     assert path.exists()
     assert path.read_text(encoding="utf-8").startswith("# Future4200 Extraction Improvement Field Notes")
