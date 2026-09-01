@@ -109,11 +109,12 @@ test("selecting an inventory batch builds, reviews, and gates the label", async 
   const batchSelect = page.getByLabel("Inventory batch");
   await batchSelect.selectOption("lot-complete");
 
-  await expect(page.getByText("18 label fields populated from inventory.")).toBeVisible();
+  await expect(page.getByText("19 label fields populated from inventory.")).toBeVisible();
   await expect(page.getByText("All fields required by the current rule set are populated.")).toBeVisible();
-  await expect(page.getByLabel("Product identity")).toHaveValue("Copper Kush Flower");
-  await expect(page.getByLabel("Net contents")).toHaveValue("3.5 g");
-  await expect(page.getByLabel("Package / traceability ID")).toHaveValue("1A4000000000000000001111");
+  const reviewSection = page.locator("section.inventory-panel").filter({ hasText: "Pre-release review" });
+  await expect(reviewSection.getByLabel("Product identity")).toHaveValue("Copper Kush Flower");
+  await expect(reviewSection.getByLabel("Net contents")).toHaveValue("3.5 g");
+  await expect(reviewSection.getByLabel("Package / traceability ID")).toHaveValue("1A4000000000000000001111");
   await expect(page.getByText("THCA 31.2% · Total THC 28.4%")).toBeVisible();
 
   await page.getByRole("button", { name: "Run LabelGuard" }).click();
@@ -125,8 +126,9 @@ test("selecting an inventory batch builds, reviews, and gates the label", async 
   await expect(page.getByRole("button", { name: "Print reviewed preview" })).toBeEnabled();
 
   await batchSelect.selectOption("lot-incomplete");
-  await expect(page.getByText(/Required information still missing:/)).toContainText("Net contents");
-  await expect(page.getByText(/Required information still missing:/)).toContainText("Package / traceability ID");
+  const missingBanner = page.getByText(/Required information still missing:/);
+  await expect(missingBanner).toContainText("Net contents");
+  await expect(missingBanner).toContainText("Package / traceability ID");
   await expect(page.getByRole("button", { name: "Run LabelGuard" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Print reviewed preview" })).toBeDisabled();
 });
