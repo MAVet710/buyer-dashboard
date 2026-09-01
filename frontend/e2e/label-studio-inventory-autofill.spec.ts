@@ -22,7 +22,9 @@ const template = {
   license_scope: "Manufacturing",
   status: "active",
   layout: { fields: ["product_name", "net_contents", "license_number", "package_id", "batch_number", "warning_text"] },
-  rules: [],
+  rules: [
+    { key: "legacy-warning", kind: "required_field", field: "warning_text", severity: "fail", message: "Legacy packaging warning is present.", source: "legacy package template" },
+  ],
 };
 
 const currentTag = "1A4000000000000000001111";
@@ -50,11 +52,14 @@ const matchedCoa = {
   total_thc: 28.4,
   total_cbd: 0,
   total_cannabinoids: 31.9,
-  total_terpenes: 2.4,
+  total_terpenes: 3.664,
   results: [
     { analysis: "cannabinoids", key: "thca", name: "THCA", value: 31.2, value_text: "31.2", units: "%", mg_g: null, limit: null, lod: null, loq: null, status: "" },
     { analysis: "cannabinoids", key: "delta_9_thc", name: "Delta-9 THC", value: 1.03, value_text: "1.03", units: "%", mg_g: null, limit: null, lod: null, loq: null, status: "" },
-    { analysis: "terpenes", key: "beta_myrcene", name: "Beta-Myrcene", value: 0.68, value_text: "0.68", units: "%", mg_g: null, limit: null, lod: null, loq: null, status: "" },
+    { analysis: "terpenes", key: "alpha_pinene", name: "A-Pinene", value: 1.473, value_text: "1.473", units: "%", mg_g: null, limit: null, lod: null, loq: null, status: "" },
+    { analysis: "terpenes", key: "beta_myrcene", name: "B-Myrcene", value: 0.668, value_text: "0.668", units: "%", mg_g: null, limit: null, lod: null, loq: null, status: "" },
+    { analysis: "terpenes", key: "beta_pinene", name: "B-Pinene", value: 0.697, value_text: "0.697", units: "%", mg_g: null, limit: null, lod: null, loq: null, status: "" },
+    { analysis: "terpenes", key: "limonene", name: "Limonene", value: 0.239, value_text: "0.239", units: "%", mg_g: null, limit: null, lod: null, loq: null, status: "" },
   ],
 };
 
@@ -80,11 +85,11 @@ const completeSource = {
     facility_name: "Label Manufacturing",
     package_id: currentTag,
     batch_number: "CK-0901-A",
-    potency: "THCA 31.2% · Total THC 28.4% · TAC 31.9% · Total terpenes 2.4%",
+    potency: "THCA 31.2% · Total THC 28.4% · TAC 31.9% · Total terpenes 3.664%",
     total_thc: "28.4%",
     total_cbd: "0%",
     total_cannabinoids: "31.9%",
-    total_terpenes: "2.4%",
+    total_terpenes: "3.664%",
     lab_testing_state: "Passed",
     laboratory: "Example Cannabis Lab",
     test_date: "2026-08-30",
@@ -95,11 +100,11 @@ const completeSource = {
     manufacture_date: "",
     package_date: "2026-09-01",
     expiration_date: "2027-08-30",
-    warning_text: "Approved warning language",
+    warning_text: "",
   },
   coa: matchedCoa,
   qr: { value: currentTag, svg: qrSvg },
-  raw_text: `Copper Kush Flower\n3.5 g\nNET WT. .12345 OZ\nMP281999\n${currentTag}\nCK-0901-A\nApproved warning language`,
+  raw_text: `Copper Kush Flower\n3.5 g\nNET WT. .12345 OZ\nMP281999\n${currentTag}\nCK-0901-A`,
   source_summary: { facility: "Label Manufacturing", license_number: "MP281999", license_type: "Manufacturing", qa_source: "coa:coa_library", coa_source: "coa_library", coa_verification: "tag_extracted" },
 };
 
@@ -117,7 +122,7 @@ const inheritedSource = {
   },
   coa: { ...matchedCoa, lookup_key: splitChildTag, metrc_source_id: currentTag },
   qr: { value: splitChildTag, svg: qrSvg },
-  raw_text: `Copper Kush Flower\n3.5 g\nNET WT. .12345 OZ\nMP281999\n${splitChildTag}\nCK-0901-SPLIT\nApproved warning language`,
+  raw_text: `Copper Kush Flower\n3.5 g\nNET WT. .12345 OZ\nMP281999\n${splitChildTag}\nCK-0901-SPLIT`,
   source_summary: { ...completeSource.source_summary, qa_source: "inherited:pack_down" },
 };
 
@@ -140,7 +145,18 @@ const incompleteSource = {
   qr: { value: "", svg: "" },
 };
 
-test("selecting inventory builds a current-tag QR label and follows COA lineage", async ({ page }) => {
+const noCoaSource = {
+  ...completeSource,
+  lot_id: "lot-no-coa",
+  product_id: "product-no-coa",
+  lot_code: "CK-NO-COA",
+  package_id: "1A4000000000000000004444",
+  label: { ...completeSource.label, package_id: "1A4000000000000000004444", batch_number: "CK-NO-COA" },
+  coa: { ...matchedCoa, available: false, fallback_allowed: true, document_id: "", source: "", status: "missing", verification_state: "missing", filename: "", file_url: "", overall_status: "", date_tested: "", results: [] },
+  qr: { value: "1A4000000000000000004444", svg: qrSvg },
+};
+
+test("testing labels ignore packaging warnings, print top three terpenes, and follow COA lineage", async ({ page }) => {
   let reviewPayload: Record<string, unknown> | null = null;
   await page.route("**/api/v1/**", async route => {
     const request = route.request();
@@ -149,7 +165,7 @@ test("selecting inventory builds a current-tag QR label and follows COA lineage"
     if (path === "/api/v1/account/context") body = account;
     else if (path === "/api/v1/account/access-options") body = accessOptions;
     else if (path === "/api/v1/control-tower/label-templates") body = [template];
-    else if (path === "/api/v1/label-printing/inventory-sources") body = [completeSource, inheritedSource, incompleteSource];
+    else if (path === "/api/v1/label-printing/inventory-sources") body = [completeSource, inheritedSource, noCoaSource, incompleteSource];
     else if (path === "/api/v1/control-tower/label-reviews" && request.method() === "POST") {
       reviewPayload = request.postDataJSON() as Record<string, unknown>;
       body = { id: "review-1", status: "pass", reviewed_at: "2026-09-01T12:00:00Z", findings: [], disclaimer: "Reviewed" };
@@ -170,30 +186,42 @@ test("selecting inventory builds a current-tag QR label and follows COA lineage"
   const batchSelect = page.getByLabel("Inventory batch");
   await batchSelect.selectOption("lot-complete");
 
-  await expect(page.getByText(/label fields populated from inventory/)).toBeVisible();
-  await expect(page.getByText("All fields required by the current rule set are populated.")).toBeVisible();
+  await expect(page.getByText(/testing-label fields populated from inventory/)).toBeVisible();
+  await expect(page.getByText("All fields required by the current testing-label rule set are populated.")).toBeVisible();
   await expect(page.getByText("COA matched to the current METRC package tag.")).toBeVisible();
-  await expect(page.getByRole("cell", { name: "THCA" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "31.2 %" })).toBeVisible();
+  await expect(page.getByText(/Legacy packaging rule ignored for this testing label/)).toBeVisible();
   await expect(page.getByText(/Fallback: upload the COA/)).toHaveCount(0);
   await expect(page.getByAltText(`QR code for METRC package ${currentTag}`)).toBeVisible();
 
-  const reviewSection = page.locator("section.inventory-panel").filter({ hasText: "Pre-release review" });
+  const preview = page.locator(".label-print-preview");
+  await expect(preview.getByText("A-Pinene", { exact: true })).toBeVisible();
+  await expect(preview.getByText("B-Pinene", { exact: true })).toBeVisible();
+  await expect(preview.getByText("B-Myrcene", { exact: true })).toBeVisible();
+  await expect(preview.getByText("Limonene", { exact: true })).toHaveCount(0);
+  await expect(preview.getByText("Total Terpenes", { exact: true })).toBeVisible();
+  await expect(preview.getByText("3.664%", { exact: true })).toBeVisible();
+  await expect(preview.getByText(/warning/i)).toHaveCount(0);
+
+  const reviewSection = page.locator("section.inventory-panel").filter({ hasText: "Testing-label pre-release review" });
   await expect(reviewSection.getByLabel("Product identity")).toHaveValue("Copper Kush Flower");
   await expect(reviewSection.getByLabel("Package size")).toHaveValue("3.5 g");
   await expect(reviewSection.getByLabel("Net contents")).toHaveValue("NET WT. .12345 OZ");
   await expect(reviewSection.getByLabel("Package / traceability ID")).toHaveValue(currentTag);
   await expect(reviewSection.getByLabel("Package / traceability ID")).toHaveJSProperty("readOnly", true);
   await expect(reviewSection.getByLabel("Expiration / best-by")).toHaveValue("2027-08-30");
-  await expect(reviewSection.getByLabel("Potency statement")).toHaveValue("THCA 31.2% · Total THC 28.4% · TAC 31.9% · Total terpenes 2.4%");
+  await expect(reviewSection.getByLabel("Potency statement")).toHaveValue("THCA 31.2% · Total THC 28.4% · TAC 31.9% · Total terpenes 3.664%");
+  await expect(reviewSection.getByLabel("Warning statement")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Run LabelGuard" }).click();
   await expect(page.getByRole("heading", { name: "PASS" })).toBeVisible();
   expect(reviewPayload).not.toBeNull();
   expect(reviewPayload?.product_id).toBe("product-complete");
   expect(reviewPayload?.package_id).toBe(currentTag);
+  expect(reviewPayload?.template_id).toBeNull();
+  expect(reviewPayload?.rules).toEqual([]);
   expect((reviewPayload?.label as Record<string, string>).package_id).toBe(currentTag);
   expect((reviewPayload?.label as Record<string, string>).batch_number).toBe("CK-0901-A");
+  expect((reviewPayload?.label as Record<string, string>).warning_text).toBe("");
   await expect(page.getByRole("button", { name: "Print reviewed label" })).toBeEnabled();
 
   await batchSelect.selectOption("lot-inherited");
@@ -203,8 +231,12 @@ test("selecting inventory builds a current-tag QR label and follows COA lineage"
   await expect(reviewSection.getByLabel("Package / traceability ID")).toHaveValue(splitChildTag);
   await expect(page.getByRole("button", { name: "Print reviewed label" })).toBeDisabled();
 
+  await batchSelect.selectOption("lot-no-coa");
+  await expect(page.getByText(/No verified COA was found/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Print reviewed label" })).toBeDisabled();
+
   await batchSelect.selectOption("lot-incomplete");
-  const missingBanner = page.getByText(/Required information still missing:/);
+  const missingBanner = page.getByText(/Required testing-label information still missing:/);
   await expect(missingBanner).toContainText("Net contents");
   await expect(missingBanner).toContainText("Package / traceability ID");
   await expect(page.getByText("No METRC package/tag is stored on this inventory lot.")).toBeVisible();
