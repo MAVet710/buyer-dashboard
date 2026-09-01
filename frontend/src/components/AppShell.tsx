@@ -188,16 +188,20 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
   const canRetail = Boolean(findOperationTarget("Retail Ops"));
   const canProduction = Boolean(findOperationTarget("Production Ops"));
   const operationModes = useMemo<OperationMode[]>(() => {
+    // Do not manufacture a Retail fallback while account/access context is still loading.
+    // The persisted operation remains authoritative until the server proves it is unavailable.
+    if (!context.data) return [operation];
     const modes: OperationMode[] = [];
     if (canRetail) modes.push("Retail Ops");
     if (canProduction) modes.push("Production Ops");
-    return modes.length ? modes : ["Retail Ops"];
-  }, [canRetail, canProduction]);
+    return modes.length ? modes : [operation];
+  }, [canRetail, canProduction, context.data, operation]);
 
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("buyer-dash-theme", theme); }, [theme]);
   useEffect(() => {
+    if (!context.data) return;
     if (!operationModes.includes(operation)) setOperation(operationModes[0]);
-  }, [operation, operationModes]);
+  }, [context.data, operation, operationModes]);
   useEffect(() => { localStorage.setItem("buyer-dash-operation", operation); }, [operation]);
   useEffect(() => { localStorage.setItem("buyer-dash-data-mode", dataMode); window.dispatchEvent(new CustomEvent("buyer-dash-data-mode", { detail: dataMode })); }, [dataMode]);
   useEffect(() => { localStorage.setItem("buyer-dash-classic-navigation", String(classicNavigation)); }, [classicNavigation]);
@@ -289,7 +293,7 @@ export function AppShell({ children, active, onNavigate }: PropsWithChildren<{ a
     <section className="workspace">
       <header className="topbar">
         <button className="icon-button nav-toggle" aria-label={navigationOpen ? "Close navigation" : "Open navigation"} aria-expanded={navigationOpen} aria-controls="primary-navigation" onClick={() => setNavigationOpen(open => !open)}><Menu size={19}/></button>
-        <span className="context-status">{selectedOrganization?.slug === "dev-sandbox" ? "Sandbox synced" : "Facility synced"}</span>
+        <span className="context-status">{context.data ? `${operation} · ${active}` : `Loading ${operation}…`}</span>
         <div className="context-switchers" aria-label="Access Context">
           {role === "dev" && access.data && access.data.organizations.length > 1 ? <select className="organization-switch" aria-label="Organization" value={context.data?.organization?.id ?? ""} onChange={event => switchOrganization(event.target.value)}>{access.data.organizations.map(row => <option value={row.id} key={row.id}>{row.slug === "dev-sandbox" ? "DEV Sandbox" : row.name}</option>)}</select> : <span className="access-badge">{context.data?.organization?.name ?? "Organization"}</span>}
           {!isTrial && context.data?.facilities.length ? <select className="facility-switch" aria-label="Facility" value={context.data.facility_id} onChange={event => switchFacility(event.target.value)}>{context.data.facilities.map(row => <option value={row.id} key={row.id}>{row.name}</option>)}</select> : <span className="access-badge">{selectedFacility?.name ?? "Facility"}</span>}

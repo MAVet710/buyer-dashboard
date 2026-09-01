@@ -7,8 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_react_commercial_workspace_matches_streamlit_tabs_and_source_controls():
     source = (ROOT / "frontend" / "src" / "pages" / "OrdersPage.tsx").read_text(encoding="utf-8")
     for label in [
-        "Orders, inventory, and fulfillment",
-        "One durable flow from purchase order to receipt, reservation, shipment, and payment.",
+        "Wholesale operations",
+        "Orders & Fulfillment",
+        "Reserve the exact package, then carry it into the licensed transfer without re-entering the order handoff.",
         "Command Center",
         "New Order",
         "Allocate & Fulfill",
@@ -42,11 +43,15 @@ def test_react_commercial_workspace_matches_streamlit_tabs_and_source_controls()
         "Inventory lot",
         "Fulfillment reference",
         "Reserve lot",
-        "Post shipment",
+        "Prepare licensed transfer",
+        "Non-license shipment exception",
+        "Post non-transfer shipment",
         "Post receipt",
+        "Inventory reserved. Next: prepare the licensed transfer.",
         "Add trade partner",
         "Partner directory",
         "Commercial inventory ledger",
+        "Licensed sales transfers are represented by the transfer-out ledger movement rather than a duplicate wholesale shipment decrement.",
         "Export ledger CSV",
         "Wholesale + Finance",
         "Order → allocation → shipment → invoice → payment, without leaving the commercial workflow.",
@@ -73,6 +78,13 @@ def test_react_commercial_workspace_matches_streamlit_tabs_and_source_controls()
     assert "modal-backdrop" not in source
     assert "Order 360" not in source
     assert source.index("Command Center") < source.index("Inventory Ledger")
+
+
+def test_wholesale_status_refresh_preserves_in_progress_transfer_handoff_state():
+    source = (ROOT / "frontend" / "src" / "pages" / "OrdersPage.tsx").read_text(encoding="utf-8")
+    assert "<ExecutionDetail key={orderId}" in source
+    assert 'key={`${orderId}-${detail.data.order.status}`}' not in source
+    assert "fulfillment_reference:reference" in source
 
 
 def test_commercial_workspace_uses_durable_scoped_services_and_embedded_audits():

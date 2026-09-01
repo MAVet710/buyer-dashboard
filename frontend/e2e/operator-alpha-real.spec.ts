@@ -69,7 +69,7 @@ test.describe("strict real-stack operator alpha", () => {
       await clickViewTabs(page, page);
 
       if (route.page === "Extraction") {
-        const advanced = page.getByRole("button", { name: "Advanced Run 360" });
+        const advanced = page.getByRole("button", { name: "Advanced Extraction" });
         if (await advanced.isVisible()) {
           await advanced.click();
           const dialog = page.getByRole("dialog", { name: "Advanced Extraction Run 360" });

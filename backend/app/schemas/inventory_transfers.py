@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class InventoryTransferDispatchLine(BaseModel):
     source_lot_id: str = Field(min_length=1, max_length=64)
     quantity: float = Field(gt=0)
+    commercial_order_line_id: str = Field(default="", max_length=64)
 
 
 class InventoryTransferDispatchCreate(BaseModel):
