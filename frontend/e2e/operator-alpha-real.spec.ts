@@ -8,7 +8,8 @@ const uniqueRoutes = Array.from(
   new Map(canonicalWorkspaceRoutes().map(row => [row.path, row])).values(),
 ).filter(row => row.path !== "/");
 
-function operationFor(path: string): "Retail Ops" | "Production Ops" {
+function operationFor(path: string): "Retail Ops" | "Production Ops" | "Cultivation Ops" {
+  if (path.startsWith("/cultivation")) return "Cultivation Ops";
   if (path.startsWith("/production")) return "Production Ops";
   return "Retail Ops";
 }
@@ -121,6 +122,49 @@ test.describe("strict real-stack operator alpha", () => {
     const search = page.getByPlaceholder(/Product, SKU, package, strain, vendor/i);
     await search.fill("1A4-OA-BROWSER-RETAIL-0001");
     await expect(page.getByText("1A4-OA-BROWSER-RETAIL-0001", { exact: true })).toBeVisible();
+  });
+
+  test("Inventory select-all is filter scoped and Transfers opens as a large work window", async ({ page }) => {
+    expect(organizationId).not.toBe("");
+    expect(facilityId).not.toBe("");
+    await prepare(page, "/inventory");
+    await page.goto("/inventory", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Packages", exact: true }).click();
+
+    const selectAll = page.getByLabel(/Select all \d+ filtered inventory row\(s\)/);
+    await expect(selectAll).toBeVisible();
+    await selectAll.check();
+    await expect(page.locator(".selection-toolbar")).toContainText("selected");
+    await expect(page.locator(".selection-toolbar")).toContainText("Selection is scoped to the current filtered inventory view.");
+
+    await page.getByRole("button", { name: "Transfers", exact: true }).click();
+    const transferWindow = page.getByRole("dialog", { name: "Inventory license transfer" });
+    await expect(transferWindow).toBeVisible();
+    await expect(transferWindow.getByRole("heading", { name: "Inventory license transfer" })).toBeVisible();
+    const box = await transferWindow.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThan(800);
+    await transferWindow.getByRole("button", { name: "Close" }).click();
+  });
+
+  test("Cultivation Ops exposes filter-scoped plant selection and atomic bulk movement", async ({ page }) => {
+    expect(organizationId).not.toBe("");
+    expect(facilityId).not.toBe("");
+    await prepare(page, "/cultivation");
+    await page.goto("/cultivation", { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByRole("heading", { name: "Cultivation" })).toBeVisible();
+    const selectAll = page.getByLabel("Select all visible plants");
+    await expect(selectAll).toBeVisible();
+    await selectAll.check();
+    await expect(page.locator(".selection-toolbar")).toContainText("plant(s) selected");
+    await expect(page.locator(".selection-toolbar")).toContainText("none are changed");
+
+    await page.getByRole("button", { name: "Move / change phase" }).click();
+    const bulkWindow = page.getByRole("dialog", { name: "Bulk plant movement" });
+    await expect(bulkWindow).toBeVisible();
+    await expect(bulkWindow).toContainText("commits together or not at all");
+    await expect(bulkWindow.getByRole("button", { name: "Validate and apply to all" })).toBeDisabled();
+    await bulkWindow.getByRole("button", { name: "Close" }).click();
   });
 
   test("Extraction can plan, reserve, preflight, and start a run through the actual floor UI", async ({ page }) => {
