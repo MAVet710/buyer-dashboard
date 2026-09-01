@@ -228,9 +228,12 @@ def test_operator_can_move_seedling_to_saleable_labeled_finished_inventory():
     assert label["label"]["product_name"] == "Operator Kush Flower 3.5g"
     assert label["label"]["brand"] == "Operator Kush"
     assert label["label"]["strain"] == "Operator Kush"
-    assert label["label"]["net_contents"] == "3.5 g"
+    assert label["label"]["package_size"] == "3.5 g"
+    assert label["label"]["net_contents"] == "NET WT. .12345 OZ"
     assert label["label"]["license_number"] == "VERTICAL-LICENSE-001"
     assert label["label"]["package_id"] == "PKG-OP-KUSH-35"
+    assert label["qr"]["value"] == "PKG-OP-KUSH-35"
+    assert "<svg" in label["qr"]["svg"]
     assert label["label"]["lab_testing_state"] == "Passed"
     assert label["label"]["coa_reference"] == "COA-OPERATOR-0001"
     assert "THCA 28.5%" in label["label"]["potency"]
