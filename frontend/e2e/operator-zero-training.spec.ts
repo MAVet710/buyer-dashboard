@@ -129,6 +129,19 @@ async function advanceExtraction(page: Page) {
   const actionable = async (locator: Locator) =>
     (await locator.isVisible().catch(() => false)) && (await locator.isEnabled().catch(() => false));
 
+  const tryTransientAction = async (locator: Locator): Promise<boolean> => {
+    if (!(await actionable(locator))) return false;
+    try {
+      await locator.click({ timeout: 1_500 });
+      friction.clicks += 1;
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/detached from the DOM|element is not attached|not stable/i.test(message)) return false;
+      throw error;
+    }
+  };
+
   const waitForAction = async (): Promise<"qa" | "skip" | "complete"> => {
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
@@ -140,12 +153,12 @@ async function advanceExtraction(page: Page) {
     throw new Error("Extraction did not present an enabled continue/skip action or QA / COA within 15 seconds.");
   };
 
-  for (let index = 0; index < 14; index += 1) {
+  let completedSteps = 0;
+  while (completedSteps < 14) {
     const action = await waitForAction();
     if (action === "qa") return materialWeight;
     if (action === "skip") {
-      if (!(await actionable(skip))) continue;
-      await click(skip);
+      if (await tryTransientAction(skip)) completedSteps += 1;
       continue;
     }
 
@@ -161,15 +174,15 @@ async function advanceExtraction(page: Page) {
     const postFillAction = await waitForAction();
     if (postFillAction === "qa") return materialWeight;
     if (postFillAction === "skip") {
-      if (!(await actionable(skip))) continue;
-      await click(skip);
+      if (await tryTransientAction(skip)) completedSteps += 1;
       continue;
     }
-    if (!(await actionable(complete))) continue;
-    await click(complete);
-    materialWeight = nextMaterialWeight;
+    if (await tryTransientAction(complete)) {
+      materialWeight = nextMaterialWeight;
+      completedSteps += 1;
+    }
   }
-  throw new Error("Extraction workflow did not reach QA / COA gate within 14 operator steps.");
+  throw new Error("Extraction workflow did not reach QA / COA gate within 14 successful operator steps.");
 }
 
 function score() {
