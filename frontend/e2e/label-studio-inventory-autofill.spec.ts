@@ -221,12 +221,14 @@ test("testing labels ignore packaging warnings, print compact test data, and fol
   await expect(preview.getByText("Limonene", { exact: true })).toHaveCount(0);
   const totalTerpenesRow = preview.getByText("Total Terpenes", { exact: true }).locator("..");
   await expect(totalTerpenesRow).toContainText("3.664%");
-  await expect(preview.getByText("Cultivated by", { exact: true })).toBeVisible();
-  await expect(preview.getByText("Label Cultivation", { exact: true })).toBeVisible();
-  await expect(preview.getByText("Packaged by", { exact: true })).toBeVisible();
-  await expect(preview.getByText("Sold by", { exact: true })).toBeVisible();
-  await expect(preview.getByText("Label serial number", { exact: true })).toBeVisible();
-  await expect(preview.getByText("0D637", { exact: true })).toBeVisible();
+  const cultivatedRow = preview.getByText("Cultivated by", { exact: true }).locator("..");
+  await expect(cultivatedRow).toContainText("Label Cultivation");
+  const packagedRow = preview.getByText("Packaged by", { exact: true }).locator("..");
+  await expect(packagedRow).toContainText("Label Manufacturing");
+  const soldRow = preview.getByText("Sold by", { exact: true }).locator("..");
+  await expect(soldRow).toContainText("Label Retail");
+  const serialRow = preview.getByText("Label serial number", { exact: true }).locator("..");
+  await expect(serialRow).toContainText("0D637");
   await expect(preview.getByText(/warning/i)).toHaveCount(0);
 
   const reviewSection = page.locator("section.inventory-panel").filter({ hasText: "Testing-label pre-release review" });
