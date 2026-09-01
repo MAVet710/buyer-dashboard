@@ -10,7 +10,9 @@ from a product name or from the total lot balance.
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 import json
+import re
 from typing import Any
 
 from sqlalchemy import Engine, func, select
@@ -28,6 +30,7 @@ _LABEL_ORDER = (
     "brand",
     "strain",
     "product_type",
+    "package_size",
     "net_contents",
     "license_number",
     "facility_name",
@@ -49,6 +52,10 @@ _LABEL_ORDER = (
     "expiration_date",
     "warning_text",
 )
+
+_GRAMS_PER_OUNCE = Decimal("28.349523125")
+_OUNCE_QUANTUM = Decimal("0.00001")
+_WEIGHT_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(g|gram|grams|oz|ounce|ounces)\s*$", re.IGNORECASE)
 
 
 def _metadata(lot: InventoryLot) -> dict[str, Any]:
@@ -108,12 +115,48 @@ def _profile_or_meta(profile_value: Any, meta: dict[str, Any], *keys: str) -> st
     return _text(profile_value) or _first(meta, *keys)
 
 
-def _net_contents(meta: dict[str, Any], packaging: ProductPackagingProfile | None) -> str:
-    direct = _first(meta, "net_contents", "package_size", "declared_net_contents")
+def _parse_weight(value: Any, unit: Any = "") -> tuple[Decimal, str] | None:
+    value_text = _text(value)
+    unit_text = _text(unit).casefold()
+    if value_text and unit_text:
+        try:
+            return Decimal(value_text), unit_text
+        except InvalidOperation:
+            return None
+    if not value_text:
+        return None
+    match = _WEIGHT_RE.match(value_text)
+    if not match:
+        return None
+    try:
+        return Decimal(match.group(1)), match.group(2).casefold()
+    except InvalidOperation:
+        return None
+
+
+def _declared_weight(meta: dict[str, Any], packaging: ProductPackagingProfile | None) -> tuple[Decimal, str] | None:
+    # Lot-level declarations remain the override for special/multipack packages.
+    for key in ("net_contents", "package_size", "declared_net_contents"):
+        parsed = _parse_weight(meta.get(key))
+        if parsed:
+            return parsed
+    for value_key, unit_key in (
+        ("net_weight", "net_weight_unit"),
+        ("unit_weight", "unit_weight_unit"),
+        ("package_weight", "package_weight_unit"),
+    ):
+        parsed = _parse_weight(meta.get(value_key), meta.get(unit_key))
+        if parsed:
+            return parsed
+    if packaging and packaging.net_content > 0 and _text(packaging.net_content_unit):
+        return Decimal(str(packaging.net_content)), _text(packaging.net_content_unit).casefold()
+    return None
+
+
+def _package_size(meta: dict[str, Any], packaging: ProductPackagingProfile | None) -> str:
+    direct = _first(meta, "package_size", "declared_net_contents", "net_contents")
     if direct:
         return direct
-    if packaging and packaging.net_content > 0 and _text(packaging.net_content_unit):
-        return f"{_quantity(packaging.net_content)} {_text(packaging.net_content_unit)}"
     for value_key, unit_key in (
         ("net_weight", "net_weight_unit"),
         ("unit_weight", "unit_weight_unit"),
@@ -123,7 +166,49 @@ def _net_contents(meta: dict[str, Any], packaging: ProductPackagingProfile | Non
         unit = _text(meta.get(unit_key))
         if value:
             return f"{value} {unit}".strip()
+    if packaging and packaging.net_content > 0 and _text(packaging.net_content_unit):
+        return f"{_quantity(packaging.net_content)} {_text(packaging.net_content_unit)}"
     return ""
+
+
+def _format_ounces(value: Decimal) -> str:
+    quantized = value.quantize(_OUNCE_QUANTUM, rounding=ROUND_DOWN)
+    text = f"{quantized:.5f}"
+    if text.startswith("0."):
+        text = text[1:]
+    return text
+
+
+def _net_contents(meta: dict[str, Any], packaging: ProductPackagingProfile | None) -> str:
+    declared = _declared_weight(meta, packaging)
+    if declared is None:
+        return _package_size(meta, packaging)
+    value, unit = declared
+    if unit in {"g", "gram", "grams"}:
+        ounces = value / _GRAMS_PER_OUNCE
+        return f"NET WT. {_format_ounces(ounces)} OZ"
+    if unit in {"oz", "ounce", "ounces"}:
+        return f"NET WT. {_format_ounces(value)} OZ"
+    return _package_size(meta, packaging)
+
+
+def _one_year_after(value: date | datetime | None) -> str:
+    if value is None:
+        return ""
+    day = value.date() if isinstance(value, datetime) else value
+    try:
+        return day.replace(year=day.year + 1).isoformat()
+    except ValueError:
+        # Feb. 29 expires Feb. 28 in the following non-leap year.
+        return day.replace(year=day.year + 1, day=28).isoformat()
+
+
+def _expiration_date(lot: InventoryLot, meta: dict[str, Any], coa: CoaDocument | None) -> str:
+    # For a matched passing COA, expiration follows the operator-approved rule:
+    # one calendar year from the COA test/pass date.
+    if coa and _coa_status(coa) == "Passed" and coa.date_tested:
+        return _one_year_after(coa.date_tested)
+    return _date_text(lot.expiration_at or meta.get("expiration_date") or meta.get("best_by"))
 
 
 def _result_value(results: list[CoaAnalyteResult], key: str) -> float | None:
@@ -160,9 +245,9 @@ def _coa_status(coa: CoaDocument | None) -> str:
     if coa is None:
         return ""
     status = _text(coa.overall_status).casefold()
-    if status == "pass":
+    if status in {"pass", "passed"}:
         return "Passed"
-    if status == "fail":
+    if status in {"fail", "failed"}:
         return "Failed"
     return ""
 
@@ -296,11 +381,13 @@ class LabelInventoryService:
         total_cbd = coa.total_cbd_percent if coa else (quality.total_cbd_percent if quality else meta.get("total_cbd_percent"))
         total_cannabinoids = coa.total_cannabinoids_percent if coa else (quality.total_cannabinoids_percent if quality else meta.get("total_cannabinoids_percent") or meta.get("tac_percent"))
         total_terpenes = coa.total_terpenes_percent if coa else (quality.total_terpenes_percent if quality else meta.get("total_terpenes_percent"))
+        warning_text = _text(packaging.warning_text if packaging else "") or _first(meta, "warning_text", "warnings", "required_warning")
         label = {
             "product_name": _text(product.name),
             "brand": _profile_or_meta(profile.brand if profile else "", meta, "brand"),
             "strain": _profile_or_meta(profile.strain if profile else "", meta, "strain") or _text(coa.strain_name if coa else ""),
             "product_type": (_text(profile_category) or _text(coa.product_type if coa else "") or _first(meta, "category", "product_type") or product.item_type.replace("_", " ")).title(),
+            "package_size": _package_size(meta, packaging),
             "net_contents": _net_contents(meta, packaging),
             "license_number": _text(facility.license_number),
             "facility_name": _text(facility.name),
@@ -324,8 +411,8 @@ class LabelInventoryService:
             "harvest_date": _date_text(meta.get("harvest_date") or meta.get("harvested_at")),
             "manufacture_date": _date_text(meta.get("manufacture_date") or meta.get("manufactured_at")),
             "package_date": _date_text(meta.get("package_date") or meta.get("packaged_at")),
-            "expiration_date": _date_text(lot.expiration_at or meta.get("expiration_date") or meta.get("best_by")),
-            "warning_text": _first(meta, "warning_text", "warnings", "required_warning"),
+            "expiration_date": _expiration_date(lot, meta, coa),
+            "warning_text": warning_text,
             "universal_symbol": _first(meta, "universal_symbol", "universal_symbol_text"),
             "qr_value": coa_url or coa_reference or package_id,
         }
