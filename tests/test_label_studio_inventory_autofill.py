@@ -157,6 +157,8 @@ def test_inventory_label_source_autofills_authoritative_batch_data():
         "license_number": "MP281999",
         "license_type": "Marijuana Product Manufacturer",
         "qa_source": "verified_test_fixture",
+        "coa_source": "",
+        "coa_verification": "missing",
     }
     assert source["label"]["product_name"] == "Copper Kush Flower 3.5g"
     assert source["label"]["brand"] == "Cowboy Kush"
