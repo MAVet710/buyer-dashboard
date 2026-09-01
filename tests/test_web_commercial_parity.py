@@ -80,6 +80,13 @@ def test_react_commercial_workspace_matches_streamlit_tabs_and_source_controls()
     assert source.index("Command Center") < source.index("Inventory Ledger")
 
 
+def test_wholesale_status_refresh_preserves_in_progress_transfer_handoff_state():
+    source = (ROOT / "frontend" / "src" / "pages" / "OrdersPage.tsx").read_text(encoding="utf-8")
+    assert "<ExecutionDetail key={orderId}" in source
+    assert 'key={`${orderId}-${detail.data.order.status}`}' not in source
+    assert "fulfillment_reference:reference" in source
+
+
 def test_commercial_workspace_uses_durable_scoped_services_and_embedded_audits():
     router = (ROOT / "backend" / "app" / "routers" / "commercial.py").read_text(encoding="utf-8")
     audits = (ROOT / "frontend" / "src" / "components" / "InventoryAudits.tsx").read_text(encoding="utf-8")
