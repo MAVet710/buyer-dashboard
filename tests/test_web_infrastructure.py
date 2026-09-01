@@ -83,11 +83,14 @@ def test_api_container_is_non_root_and_frontend_supports_spa_fallback():
     api_requirements = (ROOT / "backend/requirements.txt").read_text(encoding="utf-8")
     migration_build = (ROOT / "deploy/cloudbuild-migrate.yaml").read_text(encoding="utf-8")
     nginx = (ROOT / "frontend/nginx.conf").read_text(encoding="utf-8")
+    frontend_docker = (ROOT / "frontend/Dockerfile").read_text(encoding="utf-8")
     assert "USER buyer" in api
     assert "--proxy-headers" in api
     assert "alembic>=" in api_requirements
     assert "- alembic" in migration_build
     assert "try_files $uri $uri/ /index.html" in nginx
+    assert "RUN apk upgrade --no-cache\n" in frontend_docker
+    assert "RUN apk upgrade --no-cache libcrypto3 libssl3" not in frontend_docker
 
 
 def test_fastapi_routes_use_ui_independent_shared_modules():
