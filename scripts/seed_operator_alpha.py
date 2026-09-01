@@ -44,7 +44,7 @@ _ZERO_TRAINING_PRODUCTS = (
     {
         "sku": "ZT-BD-EXTRACT",
         "name": "Blue Dream Extract",
-        "item_type": "wip",
+        "item_type": "finished_good",
         "base_unit": "g",
         "unit_cost": 8.0,
         "retail_price": 0.0,
