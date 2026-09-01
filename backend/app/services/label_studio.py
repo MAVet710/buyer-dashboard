@@ -89,6 +89,10 @@ def _first(meta: dict[str, Any], *keys: str) -> str:
     return ""
 
 
+def _profile_or_meta(profile_value: Any, meta: dict[str, Any], *keys: str) -> str:
+    return _text(profile_value) or _first(meta, *keys)
+
+
 def _net_contents(meta: dict[str, Any]) -> str:
     direct = _first(meta, "net_contents", "package_size", "declared_net_contents")
     if direct:
@@ -188,19 +192,20 @@ class LabelInventoryService:
         balance: float,
     ) -> dict[str, Any]:
         meta = _metadata(lot)
-        lab_state = _text(quality.lab_testing_state if quality else meta.get("lab_testing_state"))
-        coa_reference = _text(quality.coa_reference if quality else meta.get("coa_reference"))
-        coa_url = _text(quality.coa_url if quality else meta.get("coa_url"))
-        package_id = _text(lot.compliance_package_id or lot.external_inventory_id or lot.lot_code)
+        lab_state = _text(quality.lab_testing_state if quality else "") or _first(meta, "lab_testing_state")
+        coa_reference = _text(quality.coa_reference if quality else "") or _first(meta, "coa_reference")
+        coa_url = _text(quality.coa_url if quality else "") or _first(meta, "coa_url", "certificate_url", "lab_report_url")
+        package_id = _text(lot.compliance_package_id) or _first(meta, "source_tracking_number", "package_id", "metrc_package_id", "traceability_package_id")
+        profile_category = (profile.category or profile.product_format) if profile else ""
         label = {
             "product_name": _text(product.name),
-            "brand": _text(profile.brand if profile else meta.get("brand")),
-            "strain": _text(profile.strain if profile else meta.get("strain")),
-            "product_type": _text((profile.category or profile.product_format) if profile else product.item_type.replace("_", " ")).title(),
+            "brand": _profile_or_meta(profile.brand if profile else "", meta, "brand"),
+            "strain": _profile_or_meta(profile.strain if profile else "", meta, "strain"),
+            "product_type": (_text(profile_category) or _first(meta, "category", "product_type") or product.item_type.replace("_", " ")).title(),
             "net_contents": _net_contents(meta),
             "license_number": _text(facility.license_number),
             "facility_name": _text(facility.name),
-            "manufacturer": _text(profile.manufacturer if profile else meta.get("manufacturer")),
+            "manufacturer": _profile_or_meta(profile.manufacturer if profile else "", meta, "manufacturer"),
             "package_id": package_id,
             "batch_number": _first(meta, "batch_number", "batch_name", "source_lot_code") or _text(lot.lot_code),
             "sku": _text(product.sku),
