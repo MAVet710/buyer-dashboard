@@ -97,6 +97,7 @@ def _seed(engine):
             coa_reference="COA-CK-0901",
             coa_url="https://example.invalid/coa/ck-0901",
             thca_percent=31.2,
+            total_thc_percent=28.4,
             total_terpenes_percent=2.1,
             evidence_source="verified_test_fixture",
             actor="tester",
