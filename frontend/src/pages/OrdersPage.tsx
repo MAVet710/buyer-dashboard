@@ -88,7 +88,7 @@ function Execution({data,onSaved}:{data:Workspace;onSaved:()=>void}){
   const detail=useQuery({queryKey:["commercial-order",orderId],queryFn:({signal})=>apiGet<Detail>(`/api/v1/commercial/orders/${orderId}`,signal),enabled:Boolean(orderId)});
   const refresh=()=>{detail.refetch();onSaved()};
   if(!open.length)return <div className="info-banner">There are no open orders to fulfill.</div>;
-  return <section className="inventory-panel"><label>Open order<select value={orderId} onChange={event=>setSelected(event.target.value)}>{open.map(row=><option value={row.id} key={row.id}>{row.order_number} · {title(row.order_type)} · {title(row.status)}</option>)}</select></label>{detail.isError?<div className="form-error">Order could not be loaded: {detail.error.message}</div>:detail.data?<ExecutionDetail key={`${orderId}-${detail.data.order.status}`} data={data} detail={detail.data} onSaved={refresh}/>:<div className="state">Loading order…</div>}</section>;
+  return <section className="inventory-panel"><label>Open order<select value={orderId} onChange={event=>setSelected(event.target.value)}>{open.map(row=><option value={row.id} key={row.id}>{row.order_number} · {title(row.order_type)} · {title(row.status)}</option>)}</select></label>{detail.isError?<div className="form-error">Order could not be loaded: {detail.error.message}</div>:detail.data?<ExecutionDetail key={orderId} data={data} detail={detail.data} onSaved={refresh}/>:<div className="state">Loading order…</div>}</section>;
 }
 
 function ExecutionDetail({data,detail,onSaved}:{data:Workspace;detail:Detail;onSaved:()=>void}){
