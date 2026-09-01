@@ -261,7 +261,9 @@ def _unit_weight_text(value: Decimal, unit: str) -> str:
         if abs(value) < 1:
             number = f"{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
         else:
-            number = f"{value.normalize():f}".rstrip("0").rstrip(".")
+            number = f"{value.normalize():f}"
+            if "." in number:
+                number = number.rstrip("0").rstrip(".")
         return f"{number}g"
     if clean_unit in {"oz", "ounce", "ounces"}:
         number = f"{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
