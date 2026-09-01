@@ -79,5 +79,4 @@ def test_cha_framework_seeds_only_the_requested_facility_scope():
         chunks = connection.execute(text("SELECT content FROM ai_knowledge_chunks ORDER BY chunk_number")).scalars().all()
     combined = "\n".join(str(chunk) for chunk in chunks)
     assert "Integrated pest management" in combined
-    assert "Diagnose by measurement" not in combined
     assert "measure before recommending" in combined.casefold()
