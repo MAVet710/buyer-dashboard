@@ -155,7 +155,7 @@ test("selecting an inventory batch auto-loads its COA, builds, reviews, and gate
   await expect(reviewSection.getByLabel("Product identity")).toHaveValue("Copper Kush Flower");
   await expect(reviewSection.getByLabel("Net contents")).toHaveValue("3.5 g");
   await expect(reviewSection.getByLabel("Package / traceability ID")).toHaveValue("1A4000000000000000001111");
-  await expect(page.getByText("THCA 31.2% · Total THC 28.4% · TAC 31.9% · Total terpenes 2.4%", { exact: true }).first()).toBeVisible();
+  await expect(reviewSection.getByLabel("Potency statement")).toHaveValue("THCA 31.2% · Total THC 28.4% · TAC 31.9% · Total terpenes 2.4%");
 
   await page.getByRole("button", { name: "Run LabelGuard" }).click();
   await expect(page.getByRole("heading", { name: "PASS" })).toBeVisible();
