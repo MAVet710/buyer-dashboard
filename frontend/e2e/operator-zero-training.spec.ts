@@ -339,8 +339,10 @@ test("zero-training operator takes Blue Dream from plant to received wholesale p
     await mark("transfer-dispatched");
     await mark("wholesale-fulfilled");
 
-    // Destination: operation change selects the retail license; package identity carries forward.
+    // Destination: switch into Retail Ops, then choose the receiving license explicitly because the source vertical facility also supports retail.
     await switchOperation(page, "Retail Ops");
+    await choose(page.getByLabel("Facility"), "Zero Training Destination Dispensary");
+    await page.waitForLoadState("networkidle").catch(() => undefined);
     await expect(page.getByLabel("Facility").locator("option:checked")).toHaveText("Zero Training Destination Dispensary", { timeout: 15_000 });
     await workspace(page, "/inventory/transfers");
     await expect(page.getByRole("heading", { name: "Retail Inventory Transfers" })).toBeVisible({ timeout: 15_000 });
