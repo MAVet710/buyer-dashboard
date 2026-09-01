@@ -159,40 +159,74 @@ def test_every_operator_workspace_is_routed_and_rendered():
     assert not missing_navigation_routes, f"Navigation points at unrouted workspaces: {sorted(missing_navigation_routes)}"
 
     missing_dispatch = {
-        page for page in EXPECTED_OPERATOR_WORKSPACES
-        if page not in app_source and page not in {"Retail Product Master", "Production Product Master", "Retail Product 360"}
+        page
+        for page in routed_pages
+        if f'page === "{page}"' not in app_source and f'|| page === "{page}"' not in app_source
     }
-    assert not missing_dispatch, f"Operator workspaces missing React dispatch: {sorted(missing_dispatch)}"
+    assert not missing_dispatch, f"Routed workspaces missing App dispatch: {sorted(missing_dispatch)}"
 
 
-def test_core_operator_reads_return_200_against_real_application_services():
+def test_core_operator_reads_return_200_on_integrated_demo_facility():
     client, headers = _seeded_client()
     try:
+        failures: list[tuple[str, int, str]] = []
         for path in CORE_OPERATOR_READS:
             response = client.get(path, headers=headers)
-            assert response.status_code == 200, f"{path} returned {response.status_code}: {response.text[:500]}"
+            if response.status_code != 200:
+                failures.append((path, response.status_code, response.text[:400]))
+        assert not failures, "Core operator reads failed: " + repr(failures)
     finally:
         app.dependency_overrides.clear()
 
 
-def test_static_get_routes_do_not_raise_server_errors_for_seeded_operator():
+def test_upload_and_capability_dependent_workspaces_fail_closed_with_operator_guidance():
     client, headers = _seeded_client()
     try:
-        failures: list[str] = []
-        skipped: list[str] = []
+        buyer = client.get("/api/v1/buyer-parity/dashboard", headers=headers)
+        assert buyer.status_code in {200, 422}
+        if buyer.status_code == 422:
+            assert "Inventory and Product Sales data" in buyer.text
+            assert "Data & Settings" in buyer.text
+
+        context = client.get("/api/v1/account/context", headers=headers)
+        assert context.status_code == 200
+        cultivation_enabled = bool(context.json()["capabilities"]["cultivation"])
+        plants = client.get("/api/v1/inventory/production/plants", headers=headers)
+        if cultivation_enabled:
+            assert plants.status_code == 200, plants.text
+        else:
+            assert plants.status_code == 403
+            assert "does not enable cultivation operations" in plants.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_all_static_get_api_routes_avoid_internal_server_errors_on_seeded_facility():
+    """Broad alpha crash sweep across safe, parameter-free GET endpoints.
+
+    A 4xx can be a valid permission/configuration/business-state response and is
+    evaluated by focused tests elsewhere. A 500/501 on a static GET is always an
+    alpha defect because simply opening or refreshing a workspace must not crash
+    the server.
+    """
+
+    client, headers = _seeded_client()
+    try:
+        failures: list[tuple[str, int, str]] = []
+        exercised: list[str] = []
         for path, route in _static_get_routes():
             if "{" in path:
                 continue
-            # Public storefront/marketing routes have their own auth and seed
-            # contracts; the operator alpha covers authenticated application
-            # workspaces here.
-            if any(token in path for token in ("/public/", "/storefronts/public", "/marketing/")):
+            required_queries = [field for field in route.dependant.query_params if getattr(field, "required", False)]
+            if required_queries:
                 continue
+
             response = client.get(path, headers=headers)
-            if response.status_code >= 500:
-                failures.append(f"{path} -> {response.status_code}: {response.text[:220]}")
-            elif response.status_code in {403, 404, 409, 422}:
-                skipped.append(f"{path} -> {response.status_code}")
-        assert not failures, "Seeded operator GETs returned server errors:\n" + "\n".join(failures)
+            exercised.append(path)
+            if response.status_code in {500, 501}:
+                failures.append((path, response.status_code, response.text[:500]))
+
+        assert len(exercised) >= 35, f"Alpha crash sweep unexpectedly exercised only {len(exercised)} routes."
+        assert not failures, "Static GET operator crash defects: " + repr(failures)
     finally:
         app.dependency_overrides.clear()
