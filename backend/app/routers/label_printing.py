@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 from modules.operational_moats.printing import LabelPrintingService
 from ..auth import RequestContext, get_request_context
 from ..database import get_engine
+from ..services.label_studio import LabelInventoryService
 
 router = APIRouter(prefix="/label-printing", tags=["label-printing"])
 ADMIN_ROLES = {"dev", "admin"}
@@ -48,6 +49,27 @@ def _job(row, *, include_content: bool = False) -> dict[str, Any]:
     if include_content:
         result["rendered_content"] = row.rendered_content
     return result
+
+
+@router.get("/inventory-sources")
+def list_inventory_label_sources(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    """Return label-ready projections for on-hand batches in the active facility."""
+    return LabelInventoryService(engine).list_sources(context.organization_id, context.facility_id)
+
+
+@router.get("/inventory-sources/{lot_id}")
+def get_inventory_label_source(
+    lot_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    try:
+        return LabelInventoryService(engine).get_source(context.organization_id, context.facility_id, lot_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.get("/printers")
