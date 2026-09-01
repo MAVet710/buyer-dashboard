@@ -3,20 +3,21 @@
 The projection is intentionally read-only. It derives label candidates from the
 active organization/facility inventory scope and only fills values that already
 exist in durable product, facility, lot, packaging, or QA/COA evidence. The
-METRC package/tag is the COA lookup key and the sole QR payload for a generated
-label. It never guesses legal label content from a product name or from the total
-lot balance.
+current METRC package/tag is the physical-package identity and the sole payload
+for generated traceability codes. COA evidence may follow tested material
+lineage when a legitimate split/repack creates a new current package tag.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_HALF_UP
 import json
 import re
 from typing import Any
 
 from reportlab.graphics import renderSVG
+from reportlab.graphics.barcode import createBarcodeDrawing
 from reportlab.graphics.barcode.qr import QrCodeWidget
 from reportlab.graphics.shapes import Drawing
 from sqlalchemy import Engine, func, select
@@ -36,10 +37,12 @@ _LABEL_ORDER = (
     "product_type",
     "package_size",
     "net_contents",
+    "package_composition",
     "license_number",
     "facility_name",
     "package_id",
     "batch_number",
+    "serial_number",
     "potency",
     "total_thc",
     "total_cbd",
@@ -47,13 +50,24 @@ _LABEL_ORDER = (
     "total_terpenes",
     "lab_testing_state",
     "laboratory",
+    "lab_license_number",
     "test_date",
     "coa_reference",
     "ingredients",
     "allergens",
+    "harvest_date",
     "manufacture_date",
     "package_date",
     "expiration_date",
+    "cultivated_by",
+    "cultivator_license",
+    "cultivator_contact",
+    "packaged_by",
+    "packager_license",
+    "packager_contact",
+    "sold_by",
+    "seller_license",
+    "seller_contact",
     "warning_text",
 )
 
@@ -73,11 +87,26 @@ def _metadata(lot: InventoryLot) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _coa_metadata(coa: CoaDocument | None) -> dict[str, Any]:
+    if coa is None:
+        return {}
+    raw = str(coa.raw_payload_json or "").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def _text(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, bool):
         return "Yes" if value else "No"
+    if isinstance(value, (dict, list, tuple, set)):
+        return ""
     return str(value).strip()
 
 
@@ -113,6 +142,36 @@ def _first(meta: dict[str, Any], *keys: str) -> str:
         if value:
             return value
     return ""
+
+
+def _normalized_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+
+
+def _deep_first(payload: Any, *keys: str) -> str:
+    targets = {_normalized_key(key) for key in keys if key}
+    if not targets:
+        return ""
+
+    def walk(value: Any) -> str:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if _normalized_key(key) in targets:
+                    text = _text(item)
+                    if text:
+                        return text
+            for item in value.values():
+                found = walk(item)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for item in value:
+                found = walk(item)
+                if found:
+                    return found
+        return ""
+
+    return walk(payload)
 
 
 def _profile_or_meta(profile_value: Any, meta: dict[str, Any], *keys: str) -> str:
@@ -196,6 +255,56 @@ def _net_contents(meta: dict[str, Any], packaging: ProductPackagingProfile | Non
     return _package_size(meta, packaging)
 
 
+def _unit_weight_text(value: Decimal, unit: str) -> str:
+    clean_unit = unit.casefold()
+    if clean_unit in {"g", "gram", "grams"}:
+        if abs(value) < 1:
+            number = f"{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+        else:
+            number = f"{value.normalize():f}"
+            if "." in number:
+                number = number.rstrip("0").rstrip(".")
+        return f"{number}g"
+    if clean_unit in {"oz", "ounce", "ounces"}:
+        number = f"{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+        return f"{number}oz"
+    return f"{_quantity(value)} {unit}".strip()
+
+
+def _unit_label(meta: dict[str, Any], packaging: ProductPackagingProfile | None, product_type: str) -> str:
+    direct = _first(meta, "unit_label", "unit_name", "package_unit_name", "package_units_label")
+    if direct:
+        return direct
+    normalized = product_type.casefold().replace("_", " ")
+    if "pre-roll" in normalized or "pre roll" in normalized or "preroll" in normalized:
+        return "Pre-Rolls"
+    if "capsule" in normalized:
+        return "Capsules"
+    if "gumm" in normalized or "edible" in normalized:
+        return "Pieces"
+    if "cartridge" in normalized or "vape" in normalized:
+        return "Units"
+    sellable = _text(packaging.sellable_unit if packaging else "")
+    return sellable.title() if sellable and sellable.casefold() != "each" else "Units"
+
+
+def _package_composition(meta: dict[str, Any], packaging: ProductPackagingProfile | None, product_type: str) -> str:
+    direct = _first(meta, "package_composition", "unit_count_statement", "count_statement")
+    if direct:
+        return direct
+    if packaging is None or float(packaging.units_per_package or 0) <= 1:
+        return ""
+    declared = _declared_weight(meta, packaging)
+    if declared is None:
+        return ""
+    total, unit = declared
+    count = Decimal(str(packaging.units_per_package))
+    if count <= 0:
+        return ""
+    each = total / count
+    return f"{_quantity(count)} x {_unit_weight_text(each, unit)} {_unit_label(meta, packaging, product_type)}"
+
+
 def _one_year_after(value: date | datetime | None) -> str:
     if value is None:
         return ""
@@ -228,6 +337,21 @@ def _qr_svg(value: str, pixels: int = 180) -> str:
     return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
 
 
+def _barcode_svg(value: str) -> str:
+    if not value:
+        return ""
+    drawing = createBarcodeDrawing(
+        "Code128",
+        value=value,
+        humanReadable=True,
+        barHeight=34,
+        barWidth=0.55,
+        quiet=True,
+    )
+    raw = renderSVG.drawToString(drawing)
+    return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+
+
 def _result_value(results: list[CoaAnalyteResult], key: str) -> float | None:
     row = next((item for item in results if item.analyte_key == key), None)
     return row.value if row else None
@@ -238,7 +362,7 @@ def _potency(meta: dict[str, Any], quality: LotQualityEvidence | None, coa: CoaD
     thca = _result_value(results, "thca")
     if thca is None:
         thca = quality.thca_percent if quality and quality.thca_percent is not None else meta.get("thca_percent")
-    total_thc = coa.total_thc_percent if coa and coa.total_thc_percent is not None else (quality.total_thc_percent if quality else meta.get("total_thc_percent"))
+    total_thc = coa.total_thc_percent if coa and coa.total_thc_percent is not None else (quality.total_thc_percent if quality and quality.total_thc_percent is not None else meta.get("total_thc_percent"))
     tac = coa.total_cannabinoids_percent if coa and coa.total_cannabinoids_percent is not None else (quality.tac_percent if quality and quality.tac_percent is not None else meta.get("tac_percent"))
     terpenes = coa.total_terpenes_percent if coa and coa.total_terpenes_percent is not None else (quality.total_terpenes_percent if quality and quality.total_terpenes_percent is not None else meta.get("total_terpenes_percent"))
     for label, value in (("THCA", thca), ("Total THC", total_thc), ("TAC", tac), ("Total terpenes", terpenes)):
@@ -282,6 +406,81 @@ def _result_payload(row: CoaAnalyteResult) -> dict[str, Any]:
         "lod": row.lod,
         "loq": row.loq,
         "status": row.status,
+    }
+
+
+def _join_contact(*parts: Any) -> str:
+    output: list[str] = []
+    for part in parts:
+        text = _text(part)
+        if text and text not in output:
+            output.append(text)
+    return " · ".join(output)
+
+
+def _responsible_parties(
+    meta: dict[str, Any],
+    coa_meta: dict[str, Any],
+    facility: Facility,
+    profile: ProductMasterProfile | None,
+) -> dict[str, str]:
+    license_type = _text(facility.license_type).casefold()
+
+    cultivator_name = (
+        _first(meta, "cultivated_by", "cultivator", "cultivator_name", "producer", "producer_name", "grower", "grower_name")
+        or _deep_first(coa_meta, "producer", "producer_name", "cultivator", "cultivator_name", "grower", "grower_name")
+    )
+    cultivator_license = (
+        _first(meta, "cultivator_license", "cultivation_license", "producer_license", "producer_license_number", "grower_license")
+        or _deep_first(coa_meta, "producer_license", "producer_license_number", "cultivator_license", "cultivation_license")
+    )
+    cultivator_contact = _first(meta, "cultivator_contact") or _join_contact(
+        _first(meta, "cultivator_address", "producer_address", "grower_address") or _deep_first(coa_meta, "producer_address", "cultivator_address"),
+        _first(meta, "cultivator_phone", "producer_phone", "grower_phone") or _deep_first(coa_meta, "producer_phone", "cultivator_phone"),
+        _first(meta, "cultivator_email", "producer_email", "grower_email") or _deep_first(coa_meta, "producer_email", "cultivator_email"),
+        _first(meta, "cultivator_website", "producer_website", "grower_website") or _deep_first(coa_meta, "producer_website", "cultivator_website"),
+    )
+    if not cultivator_name and "cultiv" in license_type:
+        cultivator_name = _text(facility.name)
+    if not cultivator_license and cultivator_name == _text(facility.name):
+        cultivator_license = _text(facility.license_number)
+
+    packaged_by = _first(meta, "packaged_by", "packager", "packager_name", "manufacturer", "manufacturer_name") or _text(profile.manufacturer if profile else "")
+    packager_license = _first(meta, "packager_license", "packaging_license", "manufacturer_license", "manufacturing_license")
+    packager_contact = _first(meta, "packager_contact") or _join_contact(
+        _first(meta, "packager_address", "manufacturer_address"),
+        _first(meta, "packager_phone", "manufacturer_phone"),
+        _first(meta, "packager_email", "manufacturer_email"),
+        _first(meta, "packager_website", "manufacturer_website"),
+    )
+    if not packaged_by and ("manufactur" in license_type or "product manufacturer" in license_type):
+        packaged_by = _text(facility.name)
+    if not packager_license and packaged_by == _text(facility.name):
+        packager_license = _text(facility.license_number)
+
+    sold_by = _first(meta, "sold_by", "seller", "seller_name", "retailer", "retailer_name", "dispensary", "dispensary_name")
+    seller_license = _first(meta, "seller_license", "seller_licenses", "retail_license", "retailer_license", "dispensary_license")
+    seller_contact = _first(meta, "seller_contact") or _join_contact(
+        _first(meta, "seller_address", "retailer_address", "dispensary_address"),
+        _first(meta, "seller_phone", "retailer_phone", "dispensary_phone"),
+        _first(meta, "seller_email", "retailer_email", "dispensary_email"),
+        _first(meta, "seller_website", "retailer_website", "dispensary_website"),
+    )
+    if not sold_by and ("retail" in license_type or "dispens" in license_type):
+        sold_by = _text(facility.name)
+    if not seller_license and sold_by == _text(facility.name):
+        seller_license = _text(facility.license_number)
+
+    return {
+        "cultivated_by": cultivator_name,
+        "cultivator_license": cultivator_license,
+        "cultivator_contact": cultivator_contact,
+        "packaged_by": packaged_by,
+        "packager_license": packager_license,
+        "packager_contact": packager_contact,
+        "sold_by": sold_by,
+        "seller_license": seller_license,
+        "seller_contact": seller_contact,
     }
 
 
@@ -389,28 +588,33 @@ class LabelInventoryService:
         pending_results: list[CoaAnalyteResult],
     ) -> dict[str, Any]:
         meta = _metadata(lot)
+        coa_meta = _coa_metadata(coa)
         package_id = _text(lot.compliance_package_id) or _first(meta, "source_tracking_number", "package_id", "metrc_package_id", "traceability_package_id")
         lab_state = _coa_status(coa) or _text(quality.lab_testing_state if quality else "") or _first(meta, "lab_testing_state")
         coa_reference = _coa_reference(coa) or _text(quality.coa_reference if quality else "") or _first(meta, "coa_reference")
         coa_url = (f"/api/v1/label-printing/coas/{coa.id}/file" if coa else "") or _text(quality.coa_url if quality else "") or _first(meta, "coa_url", "certificate_url", "lab_report_url")
         profile_category = (profile.category or profile.product_format) if profile else ""
-        total_thc = coa.total_thc_percent if coa else (quality.total_thc_percent if quality else meta.get("total_thc_percent"))
-        total_cbd = coa.total_cbd_percent if coa else (quality.total_cbd_percent if quality else meta.get("total_cbd_percent"))
-        total_cannabinoids = coa.total_cannabinoids_percent if coa else (quality.total_cannabinoids_percent if quality else meta.get("total_cannabinoids_percent") or meta.get("tac_percent"))
-        total_terpenes = coa.total_terpenes_percent if coa else (quality.total_terpenes_percent if quality else meta.get("total_terpenes_percent"))
+        product_type = (_text(profile_category) or _text(coa.product_type if coa else "") or _first(meta, "category", "product_type") or product.item_type.replace("_", " ")).title()
+        total_thc = coa.total_thc_percent if coa and coa.total_thc_percent is not None else (quality.total_thc_percent if quality and quality.total_thc_percent is not None else meta.get("total_thc_percent"))
+        total_cbd = coa.total_cbd_percent if coa and coa.total_cbd_percent is not None else (quality.total_cbd_percent if quality and quality.total_cbd_percent is not None else meta.get("total_cbd_percent"))
+        total_cannabinoids = coa.total_cannabinoids_percent if coa and coa.total_cannabinoids_percent is not None else (quality.total_cannabinoids_percent if quality and quality.total_cannabinoids_percent is not None else meta.get("total_cannabinoids_percent") or meta.get("tac_percent"))
+        total_terpenes = coa.total_terpenes_percent if coa and coa.total_terpenes_percent is not None else (quality.total_terpenes_percent if quality and quality.total_terpenes_percent is not None else meta.get("total_terpenes_percent"))
         warning_text = _text(packaging.warning_text if packaging else "") or _first(meta, "warning_text", "warnings", "required_warning")
+        parties = _responsible_parties(meta, coa_meta, facility, profile)
         label = {
             "product_name": _text(product.name),
             "brand": _profile_or_meta(profile.brand if profile else "", meta, "brand"),
             "strain": _profile_or_meta(profile.strain if profile else "", meta, "strain") or _text(coa.strain_name if coa else ""),
-            "product_type": (_text(profile_category) or _text(coa.product_type if coa else "") or _first(meta, "category", "product_type") or product.item_type.replace("_", " ")).title(),
+            "product_type": product_type,
             "package_size": _package_size(meta, packaging),
             "net_contents": _net_contents(meta, packaging),
+            "package_composition": _package_composition(meta, packaging, product_type),
             "license_number": _text(facility.license_number),
             "facility_name": _text(facility.name),
             "manufacturer": _profile_or_meta(profile.manufacturer if profile else "", meta, "manufacturer"),
             "package_id": package_id,
             "batch_number": _text(coa.batch_number if coa else "") or _first(meta, "batch_number", "batch_name", "source_lot_code") or _text(lot.lot_code),
+            "serial_number": _first(meta, "serial_number", "label_serial", "package_serial", "internal_serial"),
             "sku": _text(product.sku),
             "upc": _text(product.upc),
             "potency": _potency(meta, quality, coa, results),
@@ -420,6 +624,7 @@ class LabelInventoryService:
             "total_terpenes": _percent(total_terpenes),
             "lab_testing_state": lab_state,
             "laboratory": _text(coa.lab_name if coa else "") or _first(meta, "laboratory", "lab_name", "testing_laboratory"),
+            "lab_license_number": _text(coa.lab_license_number if coa else "") or _first(meta, "lab_license_number", "laboratory_license"),
             "test_date": _date_text(coa.date_tested if coa else None) or _date_text(meta.get("analysis_date") or meta.get("test_date") or (quality.verified_at if quality else None)),
             "coa_reference": coa_reference,
             "coa_url": coa_url,
@@ -429,6 +634,7 @@ class LabelInventoryService:
             "manufacture_date": _date_text(meta.get("manufacture_date") or meta.get("manufactured_at")),
             "package_date": _date_text(meta.get("package_date") or meta.get("packaged_at")),
             "expiration_date": _expiration_date(lot, meta, coa),
+            **parties,
             "warning_text": warning_text,
             "universal_symbol": _first(meta, "universal_symbol", "universal_symbol_text"),
             "qr_value": package_id,
@@ -473,6 +679,7 @@ class LabelInventoryService:
             "label": label,
             "coa": structured_coa,
             "qr": {"value": package_id, "svg": _qr_svg(package_id)},
+            "barcode": {"value": package_id, "format": "Code128", "svg": _barcode_svg(package_id)},
             "raw_text": _raw_text(label),
             "source_summary": {
                 "facility": facility.name,
