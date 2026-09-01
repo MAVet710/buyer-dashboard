@@ -117,8 +117,10 @@ async function visibleWarnings(page: Page) {
 }
 
 async function advanceExtraction(page: Page) {
+  let materialWeight = 250;
+  const targetRosinWeight = 100;
   for (let index = 0; index < 14; index += 1) {
-    if (await page.getByText("This run is at the QA / COA gate.").isVisible().catch(() => false)) return;
+    if (await page.getByText("This run is at the QA / COA gate.").isVisible().catch(() => false)) return materialWeight;
     const skip = page.getByRole("button", { name: "Skip optional step" });
     if (await skip.isVisible().catch(() => false)) {
       await click(skip);
@@ -127,11 +129,16 @@ async function advanceExtraction(page: Page) {
     }
     const stageInput = page.getByLabel("Stage input (g)");
     const stageOutput = page.getByLabel("Scale output (g)");
-    if (await stageInput.isVisible().catch(() => false)) await fill(stageInput, index === 0 ? "250" : "100");
-    if (await stageOutput.isVisible().catch(() => false)) await fill(stageOutput, "100");
+    if (await stageInput.isVisible().catch(() => false)) await fill(stageInput, String(materialWeight));
+    let nextMaterialWeight = materialWeight;
+    if (await stageOutput.isVisible().catch(() => false)) {
+      await fill(stageOutput, String(targetRosinWeight));
+      nextMaterialWeight = targetRosinWeight;
+    }
     const complete = page.getByRole("button", { name: "Complete step & continue" });
     await expect(complete).toBeVisible({ timeout: 15_000 });
     await click(complete);
+    materialWeight = nextMaterialWeight;
     await page.waitForTimeout(150);
   }
   throw new Error("Extraction workflow did not reach QA / COA gate within 14 operator steps.");
@@ -233,7 +240,7 @@ test("zero-training operator takes Blue Dream from plant to received wholesale p
     await check(page.getByLabel(/Required SOP\/batch documentation ready/));
     await click(page.getByRole("button", { name: "Start run & consume reserved material" }));
     await mark("source-consumed");
-    await advanceExtraction(page);
+    const extractionOutputQuantity = await advanceExtraction(page);
     await expect(page.getByText("This run is at the QA / COA gate.")).toBeVisible({ timeout: 15_000 });
     await mark("production-process-complete");
 
@@ -246,7 +253,7 @@ test("zero-training operator takes Blue Dream from plant to received wholesale p
     await click(run360.getByText("Create output / WIP package"));
     await choose(run360.getByLabel("Output product"), /Blue Dream Extract/);
     await fill(run360.getByLabel("Internal lot / batch code"), ID.extractLot);
-    await fill(run360.getByLabel("Output quantity"), "150");
+    await fill(run360.getByLabel("Output quantity"), String(extractionOutputQuantity));
     await fill(run360.getByLabel("Output label"), "Blue Dream Extract");
     await click(run360.getByRole("button", { name: "Create quarantined output" }));
     await expect(run360.getByText("Quarantined output created.")).toBeVisible({ timeout: 15_000 });
