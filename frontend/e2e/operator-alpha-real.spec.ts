@@ -139,7 +139,18 @@ test.describe("strict real-stack operator alpha", () => {
     await page.getByLabel("Run ID").fill("OA-BROWSER-EXTRACTION-0001");
     const plan = page.getByRole("button", { name: "Plan run & reserve" });
     await expect(plan).toBeEnabled();
+
+    const reservationResponsePromise = page.waitForResponse(response => {
+      const path = new URL(response.url()).pathname;
+      return response.request().method() === "POST" && /^\/api\/v1\/extraction\/runs\/[^/]+\/inputs$/.test(path);
+    });
     await plan.click();
+    const reservationResponse = await reservationResponsePromise;
+    const reservationBody = await reservationResponse.text();
+    expect(
+      reservationResponse.status(),
+      `Extraction Quick Start reservation failed: ${reservationBody}`,
+    ).toBe(201);
 
     await expect(page.getByRole("heading", { name: "OA-BROWSER-EXTRACTION-0001" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Ready to start this run?" })).toBeVisible();
