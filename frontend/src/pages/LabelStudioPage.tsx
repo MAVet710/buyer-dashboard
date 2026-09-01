@@ -50,7 +50,7 @@ const FIELD_OPTIONS = [
 ] as const;
 
 const PREVIEW_FIELDS = [
-  "brand","strain","product_type","package_size","net_contents","potency","total_thc","total_cbd","total_cannabinoids","total_terpenes","license_number","facility_name","manufacturer","package_id","batch_number",
+  "brand","strain","product_type","package_size","net_contents","potency","total_thc","total_cbd","total_cannabinoids","license_number","facility_name","manufacturer","package_id","batch_number",
   "lab_testing_state","laboratory","test_date","coa_reference","ingredients","allergens","harvest_date","manufacture_date","package_date","expiration_date",
 ] as const;
 
@@ -62,6 +62,8 @@ function resultDisplay(result:CoaResult){if(result.value_text)return `${result.v
 function resultNumeric(result:CoaResult){if(result.value!=null&&Number.isFinite(result.value))return result.value;const parsed=Number.parseFloat(String(result.value_text??"").replace(/[^0-9.-]+/g,""));return Number.isFinite(parsed)?parsed:Number.NEGATIVE_INFINITY;}
 function qrDataUri(source:InventoryLabelSource|null){return source?.qr.svg?`data:image/svg+xml;charset=utf-8,${encodeURIComponent(source.qr.svg)}`:"";}
 function isPassedCoa(source:InventoryLabelSource|null){return Boolean(source?.coa.available&&["pass","passed"].includes(String(source.coa.overall_status??"").trim().toLowerCase())&&source.coa.date_tested);}
+function testingFields(source:InventoryLabelSource){const next={...source.label};for(const field of PACKAGING_ONLY_FIELDS)delete next[field];return next;}
+function testingRawText(label:Record<string,string>){return ["product_name",...PREVIEW_FIELDS,"total_terpenes"].map(field=>String(label[field]??"").trim()).filter(Boolean).join("\n");}
 
 export function LabelStudioPage(){
   const client=useQueryClient();
@@ -97,7 +99,7 @@ export function LabelStudioPage(){
   }});
   const syncSource=(next:InventoryLabelSource)=>{
     client.setQueryData<InventoryLabelSource[]>(["label-studio-inventory-sources"],rows=>rows?.map(row=>row.lot_id===next.lot_id?next:row)??[next]);
-    const nextFields={...next.label};delete nextFields.warning_text;delete nextFields.universal_symbol;setFields(nextFields);setRawText(next.raw_text);review.reset();
+    const nextFields=testingFields(next);setFields(nextFields);setRawText(testingRawText(nextFields));review.reset();
   };
   const uploadCoa=useMutation({
     mutationFn:async(file:File)=>{if(!inventoryLotId)throw new Error("Choose an inventory batch first.");const body=new FormData();body.set("file",file);return apiPostForm<CoaMutationResult>(`/api/v1/label-printing/inventory-sources/${encodeURIComponent(inventoryLotId)}/coa`,body)},
@@ -112,7 +114,7 @@ export function LabelStudioPage(){
     setInventoryLotId(lotId);review.reset();setCoaMessage("");uploadCoa.reset();confirmCoa.reset();
     const next=inventory.data?.find(row=>row.lot_id===lotId);
     if(!next){setFields({});setRawText("");return;}
-    const nextFields={...next.label};delete nextFields.warning_text;delete nextFields.universal_symbol;setFields(nextFields);setRawText(next.raw_text);
+    const nextFields=testingFields(next);setFields(nextFields);setRawText(testingRawText(nextFields));
     const activeTemplates=templates.data?.filter(row=>row.status==="active")??[];
     if(!selected&&activeTemplates.length===1)setSelected(activeTemplates[0].id);
   };
