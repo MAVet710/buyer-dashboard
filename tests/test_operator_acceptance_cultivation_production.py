@@ -202,7 +202,10 @@ def test_cultivation_operator_can_move_seedling_to_allocated_harvest_with_cost_a
         )
         assert preview.status_code == 200, preview.text
         assert preview.json()["blocker_count"] == 0
-        assert preview.json()["reconciliation"]["balanced"] is True
+        dry_reconciliation = preview.json()["reconciliation"]["dry"]
+        assert dry_reconciliation["measured"] == 125
+        assert dry_reconciliation["allocated_after"] == 125
+        assert dry_reconciliation["remaining"] == 0
         committed = client.post(
             f"/api/v1/inventory/production/plants/harvests/{harvest_id}/outputs/commit",
             headers=headers,
@@ -246,7 +249,7 @@ def test_production_operator_can_execute_output_qa_release_cost_and_inventory_ha
     try:
         queue = client.get("/api/v1/production/orders", headers=headers)
         assert queue.status_code == 200, queue.text
-        open_rows = [row for row in queue.json() if str(row["status"]).casefold() not in CLOSED_PRODUCTION_STATUSES]
+        open_rows = [row for row in queue.json() if str(row["Status"]).casefold().replace(" ", "_") not in CLOSED_PRODUCTION_STATUSES]
         assert open_rows, "Operator acceptance seed must contain at least one open production order."
         order_id = open_rows[0]["order_id"]
 
@@ -393,7 +396,7 @@ def test_production_floor_operator_cannot_self_approve_qa():
     try:
         queue = client.get("/api/v1/production/orders", headers=headers)
         assert queue.status_code == 200 and queue.json()
-        open_rows = [row for row in queue.json() if str(row["status"]).casefold() not in CLOSED_PRODUCTION_STATUSES]
+        open_rows = [row for row in queue.json() if str(row["Status"]).casefold().replace(" ", "_") not in CLOSED_PRODUCTION_STATUSES]
         assert open_rows
         denied = client.post(
             f"/api/v1/production/orders/{open_rows[0]['order_id']}/qa",
