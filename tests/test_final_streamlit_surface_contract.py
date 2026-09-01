@@ -19,12 +19,15 @@ def test_global_shell_preserves_streamlit_navigation_context_theme_and_mobile_be
     has(
         "frontend/src/components/AppShell.tsx",
         '"Home"', '"Inventory"', '"Purchasing"', '"Orders"', '"Production"',
-        '"Reports"', '"Compliance"', '"Data & Settings"',
+        '"Cultivation"', '"Reports"', '"Compliance"', '"Data & Settings"',
+        'OperationMode = "Retail Ops" | "Cultivation Ops" | "Production Ops"',
         'BuyerDataMode = "Uploads" | "Dutchie Live"',
         'buyer-dash-data-mode', 'buyer-dash-classic-navigation',
         'aria-label="Organization"', 'aria-label="Facility"', 'aria-label="Operation"',
         '<GlobalSearch onNavigate={navigate}/>', '<MobileNavigation', '<ClassicNavigation',
-        'capabilities.production || context.data.capabilities.cultivation',
+        'mode === "Cultivation Ops"', 'facility.capabilities?.cultivation',
+        'facility.capabilities?.production', 'context.data?.capabilities.cultivation',
+        'context.data?.capabilities.production',
     )
     has(
         "frontend/src/streamlit-exact.css",
@@ -126,20 +129,25 @@ def test_admin_integrations_location_and_facility_controls_survive_remigration()
     )
 
 
-def test_production_inventory_keeps_bulk_cultivation_plants_and_inventory_controls():
+def test_production_inventory_and_cultivation_ops_preserve_material_and_plant_controls():
     has(
         "frontend/src/pages/InventoryPage.tsx",
         'Physical production inventory with Wholesale and Production commitments reflected in real available quantity.',
         'On Hand', 'Wholesale Committed', 'Production Reserved', 'Reserved For',
         'All Material', 'Bulk Flower', 'Biomass / Trim', 'Extraction Input', 'WIP',
         'Finished Bulk', 'Production Ready', 'Low Balance', 'Quarantine / Hold',
-        '<PlantInventory/>', 'Receive history', 'Receive inventory', 'Adjust', 'Package 360',
+        'Receive history', 'Receive inventory', 'Adjust', 'Package 360',
+    )
+    has(
+        "frontend/src/pages/CultivationOpsPage.tsx",
+        'CULTIVATION OPS', '<PlantInventory />',
     )
     has(
         "frontend/src/components/PlantInventory.tsx",
         'clone', 'seedling', 'vegetative', 'flowering', 'harvested', 'destroyed',
         'Plant tag', 'Strain', 'Phase', 'Room', 'Mother', 'Lifecycle history',
         'CultivationBatchManager', 'Add one plant', 'Record change',
+        'Select all visible plants', 'Move / change phase', 'Validate and apply to all',
     )
     has(
         "backend/app/auth.py",
