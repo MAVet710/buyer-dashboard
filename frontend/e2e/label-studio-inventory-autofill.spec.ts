@@ -30,6 +30,7 @@ const template = {
 const currentTag = "1A4000000000000000001111";
 const splitChildTag = "1A4000000000000000003333";
 const qrSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="white"/><rect x="1" y="1" width="3" height="3" fill="black"/><rect x="6" y="1" width="3" height="3" fill="black"/><rect x="1" y="6" width="3" height="3" fill="black"/></svg>';
+const barcodeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 30"><rect width="120" height="30" fill="white"/><rect x="2" width="2" height="24" fill="black"/><rect x="6" width="1" height="24" fill="black"/><rect x="10" width="3" height="24" fill="black"/><rect x="16" width="2" height="24" fill="black"/></svg>';
 
 const matchedCoa = {
   available: true,
@@ -81,10 +82,13 @@ const completeSource = {
     product_type: "Flower",
     package_size: "3.5 g",
     net_contents: "NET WT. .12345 OZ",
+    package_composition: "",
     license_number: "MP281999",
     facility_name: "Label Manufacturing",
+    manufacturer: "Label Manufacturing",
     package_id: currentTag,
     batch_number: "CK-0901-A",
+    serial_number: "0D637",
     potency: "THCA 31.2% · Total THC 28.4% · TAC 31.9% · Total terpenes 3.664%",
     total_thc: "28.4%",
     total_cbd: "0%",
@@ -92,18 +96,30 @@ const completeSource = {
     total_terpenes: "3.664%",
     lab_testing_state: "Passed",
     laboratory: "Example Cannabis Lab",
+    lab_license_number: "IL281000",
     test_date: "2026-08-30",
     coa_reference: "COA-0901-A",
     coa_url: "/api/v1/label-printing/coas/coa-1/file",
     ingredients: "Cannabis flower",
     allergens: "None declared",
+    harvest_date: "2026-06-08",
     manufacture_date: "",
     package_date: "2026-09-01",
     expiration_date: "2027-08-30",
+    cultivated_by: "Label Cultivation",
+    cultivator_license: "MC281111",
+    cultivator_contact: "New Bedford, MA · grow@example.test",
+    packaged_by: "Label Manufacturing",
+    packager_license: "MP281999",
+    packager_contact: "New Bedford, MA · mfg@example.test",
+    sold_by: "Label Retail",
+    seller_license: "MR281222",
+    seller_contact: "New Bedford, MA · retail@example.test",
     warning_text: "",
   },
   coa: matchedCoa,
   qr: { value: currentTag, svg: qrSvg },
+  barcode: { value: currentTag, format: "Code128", svg: barcodeSvg },
   raw_text: `Copper Kush Flower\n3.5 g\nNET WT. .12345 OZ\nMP281999\n${currentTag}\nCK-0901-A`,
   source_summary: { facility: "Label Manufacturing", license_number: "MP281999", license_type: "Manufacturing", qa_source: "coa:coa_library", coa_source: "coa_library", coa_verification: "tag_extracted" },
 };
@@ -122,6 +138,7 @@ const inheritedSource = {
   },
   coa: { ...matchedCoa, lookup_key: splitChildTag, metrc_source_id: currentTag },
   qr: { value: splitChildTag, svg: qrSvg },
+  barcode: { value: splitChildTag, format: "Code128", svg: barcodeSvg },
   raw_text: `Copper Kush Flower\n3.5 g\nNET WT. .12345 OZ\nMP281999\n${splitChildTag}\nCK-0901-SPLIT`,
   source_summary: { ...completeSource.source_summary, qa_source: "inherited:pack_down" },
 };
@@ -143,20 +160,23 @@ const incompleteSource = {
   },
   coa: { ...matchedCoa, available: false, lookup_key: "", fallback_allowed: false, document_id: "", source: "", status: "missing", verification_state: "missing", filename: "", file_url: "", results: [] },
   qr: { value: "", svg: "" },
+  barcode: { value: "", format: "Code128", svg: "" },
 };
 
+const noCoaTag = "1A4000000000000000004444";
 const noCoaSource = {
   ...completeSource,
   lot_id: "lot-no-coa",
   product_id: "product-no-coa",
   lot_code: "CK-NO-COA",
-  package_id: "1A4000000000000000004444",
-  label: { ...completeSource.label, package_id: "1A4000000000000000004444", batch_number: "CK-NO-COA" },
+  package_id: noCoaTag,
+  label: { ...completeSource.label, package_id: noCoaTag, batch_number: "CK-NO-COA" },
   coa: { ...matchedCoa, available: false, fallback_allowed: true, document_id: "", source: "", status: "missing", verification_state: "missing", filename: "", file_url: "", overall_status: "", date_tested: "", results: [] },
-  qr: { value: "1A4000000000000000004444", svg: qrSvg },
+  qr: { value: noCoaTag, svg: qrSvg },
+  barcode: { value: noCoaTag, format: "Code128", svg: barcodeSvg },
 };
 
-test("testing labels ignore packaging warnings, print top three terpenes, and follow COA lineage", async ({ page }) => {
+test("testing labels ignore packaging warnings, print compact test data, and follow current-tag COA lineage", async ({ page }) => {
   let reviewPayload: Record<string, unknown> | null = null;
   await page.route("**/api/v1/**", async route => {
     const request = route.request();
@@ -192,6 +212,7 @@ test("testing labels ignore packaging warnings, print top three terpenes, and fo
   await expect(page.getByText(/Legacy packaging rule ignored for this testing label/)).toBeVisible();
   await expect(page.getByText(/Fallback: upload the COA/)).toHaveCount(0);
   await expect(page.getByAltText(`QR code for METRC package ${currentTag}`)).toBeVisible();
+  await expect(page.getByAltText(`Code 128 barcode for METRC package ${currentTag}`)).toBeVisible();
 
   const preview = page.locator(".label-print-preview");
   await expect(preview.getByText("A-Pinene", { exact: true })).toBeVisible();
@@ -200,6 +221,12 @@ test("testing labels ignore packaging warnings, print top three terpenes, and fo
   await expect(preview.getByText("Limonene", { exact: true })).toHaveCount(0);
   await expect(preview.getByText("Total Terpenes", { exact: true })).toBeVisible();
   await expect(preview.getByText("3.664%", { exact: true })).toBeVisible();
+  await expect(preview.getByText("Cultivated by", { exact: true })).toBeVisible();
+  await expect(preview.getByText("Label Cultivation", { exact: true })).toBeVisible();
+  await expect(preview.getByText("Packaged by", { exact: true })).toBeVisible();
+  await expect(preview.getByText("Sold by", { exact: true })).toBeVisible();
+  await expect(preview.getByText("Label serial number", { exact: true })).toBeVisible();
+  await expect(preview.getByText("0D637", { exact: true })).toBeVisible();
   await expect(preview.getByText(/warning/i)).toHaveCount(0);
 
   const reviewSection = page.locator("section.inventory-panel").filter({ hasText: "Testing-label pre-release review" });
@@ -228,6 +255,7 @@ test("testing labels ignore packaging warnings, print top three terpenes, and fo
   await expect(page.getByText("COA inherited through package lineage.")).toBeVisible();
   await expect(page.getByText(new RegExp(`Current package ${splitChildTag}`))).toBeVisible();
   await expect(page.getByAltText(`QR code for METRC package ${splitChildTag}`)).toBeVisible();
+  await expect(page.getByAltText(`Code 128 barcode for METRC package ${splitChildTag}`)).toBeVisible();
   await expect(reviewSection.getByLabel("Package / traceability ID")).toHaveValue(splitChildTag);
   await expect(page.getByRole("button", { name: "Print reviewed label" })).toBeDisabled();
 
