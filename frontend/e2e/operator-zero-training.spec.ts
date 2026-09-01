@@ -153,6 +153,7 @@ function score() {
 
 test("zero-training operator takes Blue Dream from plant to received wholesale package and proves lineage", async ({ page }, testInfo) => {
   test.setTimeout(240_000);
+  page.setDefaultTimeout(15_000);
   Object.assign(friction, blank());
   const organizationId = env("ALPHA_ORGANIZATION_ID");
   const sourceFacilityId = env("ALPHA_FACILITY_ID");
@@ -290,7 +291,7 @@ test("zero-training operator takes Blue Dream from plant to received wholesale p
 
     // Wholesale: create -> confirm -> reserve -> hand off directly to the licensed transfer.
     await workspace(page, "/wholesale/orders");
-    await click(page.getByRole("button", { name: "New Order" }));
+    await click(page.getByRole("tab", { name: "New Order" }));
     await choose(page.getByLabel("Order type"), "Sales");
     await chooseFirstReal(page.getByLabel("Customer"));
     await fill(page.getByLabel("Order number"), ID.order);
@@ -303,7 +304,7 @@ test("zero-training operator takes Blue Dream from plant to received wholesale p
     await click(page.getByRole("button", { name: "Create draft order" }));
     await responseJson(orderResponse);
     await mark("wholesale-order-created");
-    await click(page.getByRole("button", { name: "Allocate & Fulfill" }));
+    await click(page.getByRole("tab", { name: "Allocate & Fulfill" }));
     await choose(page.getByLabel("Open order"), new RegExp(ID.order));
     await click(page.getByRole("button", { name: "Confirm order" }));
     await choose(page.getByLabel("Inventory lot"), new RegExp(ID.finishedLot));
