@@ -3,8 +3,9 @@
 The projection is intentionally read-only. It derives label candidates from the
 active organization/facility inventory scope and only fills values that already
 exist in durable product, facility, lot, packaging, or QA/COA evidence. The
-METRC package/tag is the COA lookup key. It never guesses legal label content
-from a product name or from the total lot balance.
+METRC package/tag is the COA lookup key and the sole QR payload for a generated
+label. It never guesses legal label content from a product name or from the total
+lot balance.
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ import json
 import re
 from typing import Any
 
+from reportlab.graphics import renderSVG
+from reportlab.graphics.barcode.qr import QrCodeWidget
+from reportlab.graphics.shapes import Drawing
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
@@ -204,11 +208,24 @@ def _one_year_after(value: date | datetime | None) -> str:
 
 
 def _expiration_date(lot: InventoryLot, meta: dict[str, Any], coa: CoaDocument | None) -> str:
-    # For a matched passing COA, expiration follows the operator-approved rule:
-    # one calendar year from the COA test/pass date.
+    # A matched passing COA drives the operator-approved one-year shelf-life rule.
     if coa and _coa_status(coa) == "Passed" and coa.date_tested:
         return _one_year_after(coa.date_tested)
     return _date_text(lot.expiration_at or meta.get("expiration_date") or meta.get("best_by"))
+
+
+def _qr_svg(value: str, pixels: int = 180) -> str:
+    if not value:
+        return ""
+    widget = QrCodeWidget(value)
+    bounds = widget.getBounds()
+    width = bounds[2] - bounds[0]
+    height = bounds[3] - bounds[1]
+    scale = float(pixels) / max(width, height)
+    drawing = Drawing(float(pixels), float(pixels), transform=[scale, 0, 0, scale, 0, 0])
+    drawing.add(widget)
+    raw = renderSVG.drawToString(drawing)
+    return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
 
 
 def _result_value(results: list[CoaAnalyteResult], key: str) -> float | None:
@@ -414,7 +431,7 @@ class LabelInventoryService:
             "expiration_date": _expiration_date(lot, meta, coa),
             "warning_text": warning_text,
             "universal_symbol": _first(meta, "universal_symbol", "universal_symbol_text"),
-            "qr_value": coa_url or coa_reference or package_id,
+            "qr_value": package_id,
         }
         active_results = results if coa else pending_results
         coa_row = coa or pending
@@ -455,6 +472,7 @@ class LabelInventoryService:
             "inventory_unit": product.base_unit,
             "label": label,
             "coa": structured_coa,
+            "qr": {"value": package_id, "svg": _qr_svg(package_id)},
             "raw_text": _raw_text(label),
             "source_summary": {
                 "facility": facility.name,
