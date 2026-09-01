@@ -15,9 +15,9 @@ def test_global_shell_home_and_drawer_contracts_remain_streamlit_shaped():
     home = read("frontend/src/pages/HomePage.tsx")
     product = read("frontend/src/components/Product360Drawer.tsx")
 
-    for label in ("Home", "Inventory", "Purchasing", "Orders", "Production", "Reports", "Compliance", "Data & Settings"):
+    for label in ("Home", "Inventory", "Purchasing", "Orders", "Cultivation", "Production", "Reports", "Compliance", "Data & Settings"):
         assert label in shell
-    for label in ("Retail Ops", "Production Ops", "Organization", "Facility", "Operation", "Uploads", "Dutchie Live"):
+    for label in ("Retail Ops", "Cultivation Ops", "Production Ops", "Organization", "Facility", "Operation", "Uploads", "Dutchie Live"):
         assert label in shell
     assert "GlobalSearch" in shell
     assert "classicNavigation" in shell
@@ -56,16 +56,19 @@ def test_inventory_actions_receiving_and_operation_aware_audits_are_one_workflow
     assert '`/api/v1/inventory/${operation}/receive-history`' in history
 
 
-def test_production_inventory_preserves_material_plant_adjustment_lineage_and_hold_semantics():
+def test_production_inventory_and_cultivation_ops_preserve_material_plant_adjustment_lineage_and_hold_semantics():
     page = read("frontend/src/pages/InventoryPage.tsx")
+    cultivation = read("frontend/src/pages/CultivationOpsPage.tsx")
     plants = read("frontend/src/components/PlantInventory.tsx")
     adjust = read("frontend/src/components/AdjustInventory.tsx")
     lineage = read("frontend/src/components/PackageLineage.tsx")
     service = read("backend/app/services/inventory.py")
 
     assert 'const PRODUCTION_VIEWS = ["All Material", "Bulk Flower", "Biomass / Trim", "Extraction Input", "WIP", "Finished Bulk", "Production Ready", "Low Balance", "Quarantine / Hold"]' in page
-    assert '<PlantInventory/>' in page
+    assert '<PlantInventory />' in cultivation
+    assert "CULTIVATION OPS" in cultivation
     assert "Plant 360" in plants and "Lifecycle history" in plants
+    assert "Select all visible plants" in plants and "Move / change phase" in plants
     assert 'operation: "retail" | "production"' in adjust
     assert "Incremental" in adjust and "Set Quantity" in adjust
     assert "Sync adjustment to Metrc" in adjust
