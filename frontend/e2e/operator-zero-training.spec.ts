@@ -123,14 +123,29 @@ async function visibleWarnings(page: Page) {
 async function advanceExtraction(page: Page) {
   let materialWeight = 250;
   const targetRosinWeight = 100;
+  const qaGate = page.getByText("This run is at the QA / COA gate.");
+  const skip = page.getByRole("button", { name: "Skip optional step" });
+  const complete = page.getByRole("button", { name: "Complete step & continue" });
+
+  const waitForAction = async (): Promise<"qa" | "skip" | "complete"> => {
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      if (await qaGate.isVisible().catch(() => false)) return "qa";
+      if (await skip.isVisible().catch(() => false)) return "skip";
+      if (await complete.isVisible().catch(() => false)) return "complete";
+      await page.waitForTimeout(100);
+    }
+    throw new Error("Extraction did not present continue, skip, or QA / COA within 15 seconds.");
+  };
+
   for (let index = 0; index < 14; index += 1) {
-    if (await page.getByText("This run is at the QA / COA gate.").isVisible().catch(() => false)) return materialWeight;
-    const skip = page.getByRole("button", { name: "Skip optional step" });
-    if (await skip.isVisible().catch(() => false)) {
+    const action = await waitForAction();
+    if (action === "qa") return materialWeight;
+    if (action === "skip") {
       await click(skip);
-      await page.waitForTimeout(150);
       continue;
     }
+
     const stageInput = page.getByLabel("Stage input (g)");
     const stageOutput = page.getByLabel("Scale output (g)");
     if (await stageInput.isVisible().catch(() => false)) await fill(stageInput, String(materialWeight));
@@ -139,11 +154,15 @@ async function advanceExtraction(page: Page) {
       await fill(stageOutput, String(targetRosinWeight));
       nextMaterialWeight = targetRosinWeight;
     }
-    const complete = page.getByRole("button", { name: "Complete step & continue" });
-    await expect(complete).toBeVisible({ timeout: 15_000 });
+
+    const postFillAction = await waitForAction();
+    if (postFillAction === "qa") return materialWeight;
+    if (postFillAction === "skip") {
+      await click(skip);
+      continue;
+    }
     await click(complete);
     materialWeight = nextMaterialWeight;
-    await page.waitForTimeout(150);
   }
   throw new Error("Extraction workflow did not reach QA / COA gate within 14 operator steps.");
 }
