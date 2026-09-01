@@ -25,6 +25,35 @@ const template = {
   rules: [],
 };
 
+const matchedCoa = {
+  available: true,
+  lookup_key: "1A4000000000000000001111",
+  fallback_allowed: false,
+  needs_confirmation: false,
+  document_id: "coa-1",
+  source: "coa_library",
+  status: "parsed",
+  verification_state: "tag_extracted",
+  filename: "CK-0901-A-COA.pdf",
+  file_url: "/api/v1/label-printing/coas/coa-1/file",
+  lab_name: "Example Cannabis Lab",
+  lab_license_number: "IL281000",
+  lab_id: "COA-0901-A",
+  metrc_source_id: "1A4000000000000000001111",
+  metrc_lab_id: "1A4000000000000000009999",
+  date_tested: "2026-08-30",
+  overall_status: "pass",
+  total_thc: 28.4,
+  total_cbd: 0,
+  total_cannabinoids: 31.9,
+  total_terpenes: 2.4,
+  results: [
+    { analysis: "cannabinoids", key: "thca", name: "THCA", value: 31.2, value_text: "31.2", units: "%", mg_g: null, limit: null, lod: null, loq: null, status: "" },
+    { analysis: "cannabinoids", key: "delta_9_thc", name: "Delta-9 THC", value: 1.03, value_text: "1.03", units: "%", mg_g: null, limit: null, lod: null, loq: null, status: "" },
+    { analysis: "terpenes", key: "beta_myrcene", name: "Beta-Myrcene", value: 0.68, value_text: "0.68", units: "%", mg_g: null, limit: null, lod: null, loq: null, status: "" },
+  ],
+};
+
 const completeSource = {
   lot_id: "lot-complete",
   product_id: "product-complete",
@@ -46,12 +75,16 @@ const completeSource = {
     facility_name: "Label Manufacturing",
     package_id: "1A4000000000000000001111",
     batch_number: "CK-0901-A",
-    potency: "THCA 31.2% · Total THC 28.4%",
+    potency: "THCA 31.2% · Total THC 28.4% · TAC 31.9% · Total terpenes 2.4%",
+    total_thc: "28.4%",
+    total_cbd: "0%",
+    total_cannabinoids: "31.9%",
+    total_terpenes: "2.4%",
     lab_testing_state: "Passed",
     laboratory: "Example Cannabis Lab",
     test_date: "2026-08-30",
     coa_reference: "COA-0901-A",
-    coa_url: "https://example.invalid/coa/0901-a",
+    coa_url: "/api/v1/label-printing/coas/coa-1/file",
     ingredients: "Cannabis flower",
     allergens: "None declared",
     manufacture_date: "",
@@ -59,8 +92,9 @@ const completeSource = {
     expiration_date: "2027-03-01",
     warning_text: "Approved warning language",
   },
+  coa: matchedCoa,
   raw_text: "Copper Kush Flower\n3.5 g\nMP281999\n1A4000000000000000001111\nCK-0901-A\nApproved warning language",
-  source_summary: { facility: "Label Manufacturing", license_number: "MP281999", license_type: "Manufacturing", qa_source: "verified" },
+  source_summary: { facility: "Label Manufacturing", license_number: "MP281999", license_type: "Manufacturing", qa_source: "coa:coa_library", coa_source: "coa_library", coa_verification: "tag_extracted" },
 };
 
 const incompleteSource = {
@@ -77,9 +111,10 @@ const incompleteSource = {
     package_id: "",
     batch_number: "BULK-0901-B",
   },
+  coa: { ...matchedCoa, available: false, lookup_key: "", fallback_allowed: false, document_id: "", source: "", status: "missing", verification_state: "missing", filename: "", file_url: "", results: [] },
 };
 
-test("selecting an inventory batch builds, reviews, and gates the label", async ({ page }) => {
+test("selecting an inventory batch auto-loads its COA, builds, reviews, and gates the label", async ({ page }) => {
   let reviewPayload: Record<string, unknown> | null = null;
   await page.route("**/api/v1/**", async route => {
     const request = route.request();
@@ -109,13 +144,18 @@ test("selecting an inventory batch builds, reviews, and gates the label", async 
   const batchSelect = page.getByLabel("Inventory batch");
   await batchSelect.selectOption("lot-complete");
 
-  await expect(page.getByText("19 label fields populated from inventory.")).toBeVisible();
+  await expect(page.getByText(/label fields populated from inventory/)).toBeVisible();
   await expect(page.getByText("All fields required by the current rule set are populated.")).toBeVisible();
+  await expect(page.getByText("Matched automatically by METRC package tag.")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "THCA" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "31.2 %" })).toBeVisible();
+  await expect(page.getByText(/Fallback: upload the COA/)).toHaveCount(0);
+
   const reviewSection = page.locator("section.inventory-panel").filter({ hasText: "Pre-release review" });
   await expect(reviewSection.getByLabel("Product identity")).toHaveValue("Copper Kush Flower");
   await expect(reviewSection.getByLabel("Net contents")).toHaveValue("3.5 g");
   await expect(reviewSection.getByLabel("Package / traceability ID")).toHaveValue("1A4000000000000000001111");
-  await expect(page.getByText("THCA 31.2% · Total THC 28.4%")).toBeVisible();
+  await expect(page.getByText("THCA 31.2% · Total THC 28.4% · TAC 31.9% · Total terpenes 2.4%", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Run LabelGuard" }).click();
   await expect(page.getByRole("heading", { name: "PASS" })).toBeVisible();
@@ -129,6 +169,7 @@ test("selecting an inventory batch builds, reviews, and gates the label", async 
   const missingBanner = page.getByText(/Required information still missing:/);
   await expect(missingBanner).toContainText("Net contents");
   await expect(missingBanner).toContainText("Package / traceability ID");
+  await expect(page.getByText("No METRC package/tag is stored on this inventory lot.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Run LabelGuard" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Print reviewed preview" })).toBeDisabled();
 });
