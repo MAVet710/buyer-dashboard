@@ -47,7 +47,7 @@ def test_retail_operator_can_receive_sell_audit_pause_resume_and_export():
         before = client.get("/api/v1/inventory/retail/packages", headers=headers)
         assert before.status_code == 200, before.text
         source_items = [row for row in before.json()["items"] if row["available"] > 0]
-        assert source_items, "Operator acceptance seed must expose at least one sellable/available retail item."
+        assert source_items, "Operator acceptance seed must expose at least one available retail item."
         source = source_items[0]
 
         package_id = "1A4-OA-RETAIL-0001"
@@ -140,10 +140,18 @@ def test_retail_operator_can_receive_sell_audit_pause_resume_and_export():
         assert count.status_code == 200, count.text
         assert count.json()["lines"][0]["variance_quantity"] == 0
 
-        paused = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/status", headers=headers, json={"status": "paused"})
+        paused = client.post(
+            f"/api/v1/inventory/retail/audits/{audit_id}/status",
+            headers=headers,
+            json={"status": "paused"},
+        )
         assert paused.status_code == 200, paused.text
         assert paused.json()["status"] == "paused"
-        resumed = client.post(f"/api/v1/inventory/retail/audits/{audit_id}/status", headers=headers, json={"status": "in_progress"})
+        resumed = client.post(
+            f"/api/v1/inventory/retail/audits/{audit_id}/status",
+            headers=headers,
+            json={"status": "in_progress"},
+        )
         assert resumed.status_code == 200, resumed.text
         assert resumed.json()["status"] == "in_progress"
 
@@ -152,7 +160,9 @@ def test_retail_operator_can_receive_sell_audit_pause_resume_and_export():
         assert csv_report.status_code == 200
         assert "OA-RETAIL-LOT-0001" in csv_report.text
         assert xlsx_report.status_code == 200
-        assert xlsx_report.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        assert xlsx_report.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
         completed = client.post(
             f"/api/v1/inventory/retail/audits/{audit_id}/complete",
@@ -169,33 +179,33 @@ def test_retail_operator_can_receive_sell_audit_pause_resume_and_export():
 
 
 def test_extraction_operator_can_plan_reserve_consume_hold_release_record_output_cost_and_qa():
-    """Exercise the durable extraction workflow instead of treating Extraction as a dashboard."""
+    """Exercise durable BHO, ethanol and solventless work instead of only opening Extraction."""
 
     client, headers = _seeded_client(role="dev", user_id="extraction-lead")
     try:
         workflows_response = client.get("/api/v1/extraction/workflows", headers=headers)
-        lots_response = client.get("/api/v1/extraction/lots", headers=headers)
         products_response = client.get("/api/v1/extraction/products", headers=headers)
         assert workflows_response.status_code == 200, workflows_response.text
-        assert lots_response.status_code == 200, lots_response.text
         assert products_response.status_code == 200, products_response.text
 
         workflows = workflows_response.json()
         workflow_by_key = {row["key"]: row for row in workflows}
         for required in ("bho_cured", "ethanol_crude", "dry_sift"):
-            assert required in workflow_by_key, f"Extraction acceptance requires {required} to remain an available process."
-
-        methods = {row["method"] for row in workflows}
-        assert {"BHO", "Ethanol", "Solventless"}.issubset(methods)
+            assert required in workflow_by_key, f"Extraction acceptance requires {required}."
+        assert {"BHO", "Ethanol", "Solventless"}.issubset({row["method"] for row in workflows})
 
         gram_products = [row for row in products_response.json() if str(row["base_unit"]).casefold() == "g"]
-        assert gram_products, "Extraction acceptance requires at least one gram-based output product."
+        assert gram_products, "Extraction acceptance requires a gram-based output product."
         output_product = gram_products[0]
 
         for index, workflow_key in enumerate(("bho_cured", "ethanol_crude", "dry_sift"), start=1):
             fresh_lots = client.get("/api/v1/extraction/lots", headers=headers)
             assert fresh_lots.status_code == 200, fresh_lots.text
-            eligible = [row for row in fresh_lots.json() if row["available"] >= 2 and str(row["unit"]).casefold() == "g"]
+            eligible = [
+                row
+                for row in fresh_lots.json()
+                if row["available"] >= 2 and str(row["unit"]).casefold() == "g"
+            ]
             assert eligible, f"No gram-based extraction lot remained available for {workflow_key}."
             source = eligible[0]
             workflow = workflow_by_key[workflow_key]
@@ -285,9 +295,7 @@ def test_extraction_operator_can_plan_reserve_consume_hold_release_record_output
                 json={"stage_key": first_stage["key"], "event_type": "released", "notes": "Acceptance hold cleared"},
             )
             assert released.status_code == 201, released.text
-            released_detail = client.get(f"/api/v1/extraction/runs/{run_id}", headers=headers)
-            assert released_detail.status_code == 200, released_detail.text
-            assert released_detail.json()["run"]["status"] == "active"
+            assert client.get(f"/api/v1/extraction/runs/{run_id}", headers=headers).json()["run"]["status"] == "active"
 
             output_quantity = consume_quantity / 2
             output = client.post(
@@ -326,6 +334,24 @@ def test_extraction_operator_can_plan_reserve_consume_hold_release_record_output
                 },
             )
             assert coa.status_code == 201, coa.text
+
+            premature_release = client.post(
+                f"/api/v1/extraction/runs/{run_id}/qa",
+                headers=headers,
+                json={"event_type": "release", "result": "passed", "notes": "Closeout guard probe"},
+            )
+            assert premature_release.status_code == 422
+            assert "unused" in premature_release.text.casefold()
+            assert "reservation" in premature_release.text.casefold()
+
+            release_reservation = client.post(
+                f"/api/v1/extraction/inputs/{input_id}/release",
+                headers=headers,
+            )
+            assert release_reservation.status_code == 200, release_reservation.text
+            assert release_reservation.json()["reserved_quantity"] == consume_quantity
+            assert release_reservation.json()["consumed_quantity"] == consume_quantity
+
             release = client.post(
                 f"/api/v1/extraction/runs/{run_id}/qa",
                 headers=headers,
@@ -341,11 +367,6 @@ def test_extraction_operator_can_plan_reserve_consume_hold_release_record_output
             assert snapshot["mass_balance"]["yield_pct"] == 50
             assert any(row["coa_reference"] == f"OA-COA-{index:02d}" for row in snapshot["qa_events"])
             assert any(row["category"] == "labor" for row in snapshot["cost_events"])
-
-            release_reservation = client.post(f"/api/v1/extraction/inputs/{input_id}/release", headers=headers)
-            assert release_reservation.status_code == 200, release_reservation.text
-            assert release_reservation.json()["reserved_quantity"] == consume_quantity
-
     finally:
         app.dependency_overrides.clear()
 
