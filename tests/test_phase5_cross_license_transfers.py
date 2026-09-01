@@ -477,7 +477,7 @@ def test_cross_facility_lineage_federates_only_authorized_facilities_and_redacts
     )
 
 
-def test_transfers_are_first_class_inventory_workspaces_not_receive_history_subfeatures():
+def test_transfers_are_first_class_inventory_workspaces_and_contextual_inventory_actions():
     routes = (ROOT / "frontend/src/lib/workspaceRoutes.ts").read_text(encoding="utf-8")
     shell = (ROOT / "frontend/src/components/AppShell.tsx").read_text(encoding="utf-8")
     app_source = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
@@ -491,7 +491,11 @@ def test_transfers_are_first_class_inventory_workspaces_not_receive_history_subf
     assert 'label: "Transfers", page: "Production Inventory Transfers"' in shell
     assert 'page === "Retail Inventory Transfers"' in app_source
     assert 'page === "Production Inventory Transfers"' in app_source
-    assert "buyer-dash-transfer-package-selection" in inventory
+    assert "InventoryTransferManager" in inventory
+    assert 'ariaLabel="Inventory license transfer"' in inventory
+    assert 'className="transfer-workspace-window"' in inventory
+    assert "selectedPackages" in inventory
+    assert "transferBlocked" in inventory
     assert "Retail Inventory Transfers" in inventory
     assert "Production Inventory Transfers" in inventory
     assert "InventoryTransferManager" not in receive_history
