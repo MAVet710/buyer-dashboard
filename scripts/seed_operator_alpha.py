@@ -28,6 +28,8 @@ _REQUIRED_MIGRATED_TABLES = {
     "traceability_transactions",
     "material_transformations",
     "lot_quality_evidence",
+    "coa_documents",
+    "coa_analyte_results",
 }
 
 
