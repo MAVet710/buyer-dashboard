@@ -47,6 +47,23 @@ _CURATED_SOURCES: tuple[dict[str, Any], ...] = (
         "review_every_days": 90,
         "active": True,
     },
+    {
+        "key": "commercial_cannabis_cultivation_academy",
+        "title": "DoobieLogic Commercial Cannabis Cultivation Academy",
+        "source": "DoobieLogic synthesis of peer-reviewed cannabis research and university/extension education",
+        "source_type": "research_synthesis",
+        "authority_level": 4,
+        "jurisdiction": "",
+        "effective_date": "",
+        "version": "curated 2026-09-01",
+        "url": "https://hemp.cals.cornell.edu/resources/educational-modules/",
+        "format": "md",
+        "curated_path": "knowledge_sources/curated/commercial_cannabis_cultivation_academy.md",
+        "facility_scope": True,
+        "global_scope": False,
+        "review_every_days": 60,
+        "active": True,
+    },
 )
 
 
