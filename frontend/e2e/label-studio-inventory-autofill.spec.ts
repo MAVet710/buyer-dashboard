@@ -219,8 +219,8 @@ test("testing labels ignore packaging warnings, print compact test data, and fol
   await expect(preview.getByText("B-Pinene", { exact: true })).toBeVisible();
   await expect(preview.getByText("B-Myrcene", { exact: true })).toBeVisible();
   await expect(preview.getByText("Limonene", { exact: true })).toHaveCount(0);
-  await expect(preview.getByText("Total Terpenes", { exact: true })).toBeVisible();
-  await expect(preview.getByText("3.664%", { exact: true })).toBeVisible();
+  const totalTerpenesRow = preview.locator("p").filter({ hasText: "Total Terpenes" });
+  await expect(totalTerpenesRow).toContainText("3.664%");
   await expect(preview.getByText("Cultivated by", { exact: true })).toBeVisible();
   await expect(preview.getByText("Label Cultivation", { exact: true })).toBeVisible();
   await expect(preview.getByText("Packaged by", { exact: true })).toBeVisible();
