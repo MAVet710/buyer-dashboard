@@ -495,7 +495,8 @@ def test_transfers_are_first_class_inventory_workspaces_and_contextual_inventory
     assert 'ariaLabel="Inventory license transfer"' in inventory
     assert 'className="transfer-workspace-window"' in inventory
     assert "selectedPackages" in inventory
-    assert "transferBlocked" in inventory
+    assert "blockedTransferPackages" in inventory
+    assert "transferSelectionReady" in inventory
     assert "Retail Inventory Transfers" in inventory
     assert "Production Inventory Transfers" in inventory
     assert "InventoryTransferManager" not in receive_history
