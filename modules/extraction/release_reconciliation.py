@@ -10,12 +10,20 @@ auditable closeout residual instead of letting it silently disappear.
 The event is deliberately marked as system-derived/unclassified. It does not
 pretend the residual was externally reported as waste, and a future waste or
 compliance workflow may classify it more specifically.
+
+Output-scoped lab evidence is also fail-safe here. A single eligible extraction
+output is selected automatically when the operator records a sample/COA/retest
+without an explicit output id. Multi-output runs require an explicit selection
+so a passing run-level QA event can never masquerade as evidence for every
+physical output.
 """
 
 from __future__ import annotations
 
+from sqlalchemy import select
+
 from .material_backbone import _latest_completed_losses, _run_inputs, _run_outputs
-from .models import ExtractionRun
+from .models import ExtractionRun, ExtractionRunOutput
 from .repository import ExtractionRepository
 from .workflows import get_extraction_workflow
 
@@ -24,6 +32,8 @@ _ORIGINAL_RECORD_QA_EVENT = ExtractionRepository.record_qa_event
 _INSTALLED = False
 _TOLERANCE_MIN_G = 0.01
 _TOLERANCE_FRACTION = 0.001
+_OUTPUT_EVIDENCE_EVENTS = {"sample_submitted", "coa_attached", "retest"}
+_OUTPUT_EVIDENCE_STATUSES = {"wip", "quarantine", "released"}
 
 
 def _reconcile_release_residual(
@@ -71,6 +81,42 @@ def _reconcile_release_residual(
     )
 
 
+def _resolve_output_evidence_target(
+    self: ExtractionRepository,
+    *,
+    organization_id: str,
+    facility_id: str,
+    run_id: str,
+    output_id: str | None,
+    event_type: str,
+) -> str | None:
+    """Resolve a missing QA output only when there is exactly one safe target."""
+
+    normalized_event = str(event_type or "").strip().casefold()
+    requested = str(output_id or "").strip()
+    if requested or normalized_event not in _OUTPUT_EVIDENCE_EVENTS:
+        return requested or None
+
+    with self._session_factory() as session:
+        run = self._require_run(session, organization_id, facility_id, run_id)
+        candidates = list(
+            session.scalars(
+                select(ExtractionRunOutput).where(
+                    ExtractionRunOutput.run_id == run.id,
+                    ExtractionRunOutput.organization_id == organization_id,
+                    ExtractionRunOutput.facility_id == facility_id,
+                    ExtractionRunOutput.status.in_(tuple(_OUTPUT_EVIDENCE_STATUSES)),
+                )
+            )
+        )
+
+    if len(candidates) == 1:
+        return candidates[0].id
+    if not candidates:
+        raise ValueError("Create an extraction output before recording output QA/COA evidence.")
+    raise ValueError("Choose the specific extraction output for this QA/COA evidence; this run has multiple outputs.")
+
+
 def _record_qa_event_with_release_reconciliation(
     self: ExtractionRepository,
     *,
@@ -87,6 +133,14 @@ def _record_qa_event_with_release_reconciliation(
 ):
     normalized_event = str(event_type or "").strip().casefold()
     normalized_result = str(result or "").strip().casefold()
+    resolved_output_id = _resolve_output_evidence_target(
+        self,
+        organization_id=organization_id,
+        facility_id=facility_id,
+        run_id=run_id,
+        output_id=output_id,
+        event_type=normalized_event,
+    )
     if normalized_event == "release" and normalized_result == "passed":
         _reconcile_release_residual(
             self,
@@ -103,7 +157,7 @@ def _record_qa_event_with_release_reconciliation(
         event_type=event_type,
         result=result,
         actor=actor,
-        output_id=output_id,
+        output_id=resolved_output_id,
         coa_reference=coa_reference,
         deviation_code=deviation_code,
         notes=notes,
