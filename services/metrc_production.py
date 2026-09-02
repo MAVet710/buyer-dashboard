@@ -131,3 +131,43 @@ def fetch_all_active_harvests(
         environment=environment,
         timeout_seconds=timeout_seconds,
     )
+
+
+def fetch_all_available_plant_tags(
+    *,
+    state: str,
+    user_api_key: str,
+    integrator_api_key: str,
+    license_number: str,
+    environment: str = "production",
+    timeout_seconds: int = 12,
+) -> dict[str, Any]:
+    return _fetch_all(
+        resource="plant_tags_available",
+        state=state,
+        user_api_key=user_api_key,
+        integrator_api_key=integrator_api_key,
+        license_number=license_number,
+        environment=environment,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def fetch_all_available_package_tags(
+    *,
+    state: str,
+    user_api_key: str,
+    integrator_api_key: str,
+    license_number: str,
+    environment: str = "production",
+    timeout_seconds: int = 12,
+) -> dict[str, Any]:
+    return _fetch_all(
+        resource="package_tags_available",
+        state=state,
+        user_api_key=user_api_key,
+        integrator_api_key=integrator_api_key,
+        license_number=license_number,
+        environment=environment,
+        timeout_seconds=timeout_seconds,
+    )
