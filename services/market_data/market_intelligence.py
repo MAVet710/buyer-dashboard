@@ -13,6 +13,7 @@ from .ma_ccc import MassachusettsCCCProvider, MarketDataset
 _CATEGORY_ALIASES = {
     "buds": "Flower",
     "flower": "Flower",
+    "fresh frozen flower": "Flower",
     "usable marijuana": "Flower",
     "raw pre-rolls": "Pre-Rolls",
     "raw pre-roll": "Pre-Rolls",
@@ -28,8 +29,12 @@ _CATEGORY_ALIASES = {
     "vapes": "Vapes",
     "concentrate": "Concentrates",
     "concentrates": "Concentrates",
+    "kief": "Concentrates",
+    "infused (edible)": "Edibles",
     "edible": "Edibles",
     "edibles": "Edibles",
+    "infused (non-edible)": "Infused Non-Edibles",
+    "infused beverage": "Beverages",
     "beverage": "Beverages",
     "beverages": "Beverages",
     "tincture": "Tinctures",
@@ -39,9 +44,25 @@ _CATEGORY_ALIASES = {
 }
 
 _DATE_KEYS = ("SaleDate", "SalesDate", "Date", "date", "sale_date", "sales_date", "TransactionDate")
-_CATEGORY_KEYS = ("ProductCategory", "ProductType", "Category", "category", "product_category", "product_type")
-_SALES_KEYS = ("GrossSales", "GrossSalesTotal", "Sales", "TotalSales", "sales", "gross_sales", "gross_sales_total")
-_UNITS_KEYS = ("Quantity", "Units", "UnitsSold", "UnitCount", "quantity", "units", "units_sold")
+_CATEGORY_KEYS = (
+    "ProductCategoryName",
+    "ProductCategory",
+    "ProductType",
+    "Category",
+    "category",
+    "product_category",
+    "product_type",
+)
+_SALES_KEYS = (
+    "TOTAL_$",
+    "GrossSales",
+    "GrossSalesTotal",
+    "Sales",
+    "TotalSales",
+    "sales",
+    "gross_sales",
+    "gross_sales_total",
+)
 _UPDATED_KEYS = ("CCCLastUpdated", "LastUpdated", "last_updated", "updated_at")
 _CACHE_TTL_SECONDS = 6 * 60 * 60
 _DATASET_CACHE: dict[tuple[type, str], tuple[float, MarketDataset]] = {}
@@ -110,13 +131,18 @@ def _fetch_cached(provider: MassachusettsCCCProvider, kind: str) -> MarketDatase
     return dataset
 
 
-def _window_growth(points: list[tuple[date, float]], lookback_days: int) -> float | None:
+def _window_growth(
+    points: list[tuple[date, float]],
+    lookback_days: int,
+    *,
+    latest: date | None = None,
+) -> float | None:
     if not points:
         return None
-    latest = max(day for day, _ in points)
-    current_start = latest - timedelta(days=lookback_days - 1)
+    anchor = latest or max(day for day, _ in points)
+    current_start = anchor - timedelta(days=lookback_days - 1)
     previous_start = current_start - timedelta(days=lookback_days)
-    current = sum(value for day, value in points if current_start <= day <= latest)
+    current = sum(value for day, value in points if current_start <= day <= anchor)
     previous = sum(value for day, value in points if previous_start <= day < current_start)
     if previous <= 0:
         return None
@@ -155,33 +181,58 @@ def _sales_summary(dataset: MarketDataset, lookback_days: int) -> tuple[dict[str
     by_category: dict[str, list[tuple[date, float]]] = defaultdict(list)
     updated_at: str | None = None
     latest_date: date | None = None
+    recognized_category_field = False
+    recognized_sales_field = False
 
     for row in dataset.rows:
+        industry = str(row.get("Industry") or "").strip().casefold()
+        if industry and industry not in {"adult-use", "adult use"}:
+            continue
+
         day = _date(_pick_fuzzy(row, _DATE_KEYS, ("date",)))
         if not day:
             continue
-        sales = _number(_pick_fuzzy(row, _SALES_KEYS, ("sales",)))
-        units = _number(_pick_fuzzy(row, _UNITS_KEYS, ("unit",)))
-        value = sales if sales > 0 else units
-        if value <= 0:
+
+        sales_raw = _pick(row, _SALES_KEYS)
+        if sales_raw not in (None, ""):
+            recognized_sales_field = True
+        sales = _number(sales_raw)
+        if sales <= 0:
             continue
+
         category_value = _pick(row, _CATEGORY_KEYS)
+        if category_value not in (None, ""):
+            recognized_category_field = True
         if category_value in (None, ""):
-            category_value = _pick_fuzzy(row, _CATEGORY_KEYS, ("product", "type"))
+            category_value = _pick_fuzzy(row, _CATEGORY_KEYS, ("product", "category"))
+            if category_value not in (None, ""):
+                recognized_category_field = True
         category = normalize_category(category_value)
-        statewide.append((day, value))
-        by_category[category].append((day, value))
+
+        statewide.append((day, sales))
+        by_category[category].append((day, sales))
         latest_date = day if latest_date is None or day > latest_date else latest_date
         updated_at = str(_pick(row, _UPDATED_KEYS) or updated_at or "") or None
 
+    if dataset.rows and (not recognized_category_field or not recognized_sales_field):
+        missing = []
+        if not recognized_category_field:
+            missing.append("product category")
+        if not recognized_sales_field:
+            missing.append("gross sales")
+        raise ValueError(f"CCC sales dataset schema is missing recognized {' and '.join(missing)} fields")
+
     market_categories = {
-        category: {"category": category, "market_growth": _window_growth(points, lookback_days)}
+        category: {
+            "category": category,
+            "market_growth": _window_growth(points, lookback_days, latest=latest_date),
+        }
         for category, points in by_category.items()
         if category != "Unknown"
     }
     return (
         {
-            "market_growth": _window_growth(statewide, lookback_days),
+            "market_growth": _window_growth(statewide, lookback_days, latest=latest_date),
             "as_of": latest_date.isoformat() if latest_date else None,
             "source_updated_at": updated_at,
         },
