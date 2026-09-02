@@ -1,0 +1,71 @@
+# DoobieLogic Performance Acceptance — 2026-09-02
+
+This acceptance closes the platform-wide performance hardening pass governed by `docs/PERFORMANCE_CONTRACT.md`. The objective is to preserve the current operator UX/UI while proving that common read paths remain bounded as facility history grows.
+
+## Automated realistic-volume gate
+
+`tests/test_realistic_volume_performance.py` seeds data before measurement and then exercises the same production read functions used by the React/FastAPI application.
+
+### Production Ops workspace
+
+Synthetic busy-facility profile:
+
+- 60 products
+- 80 customers
+- 500 production orders
+- 1,000 inventory lots/packages
+- 5,000 append-only inventory ledger transactions
+- 500 active material reservations
+- 300 completed-run actuals
+- 60 future crew-capacity records
+- 8 configured production machines
+
+Acceptance requirements:
+
+- no more than 12 SQL SELECTs to assemble the workspace
+- under 3 seconds for the measured read/projection on the CI runner
+- uncompressed JSON projection under 4 MB before the API's existing gzip transport compression
+- inventory transaction history remains bounded to the existing 250-row workspace window
+- expected order, lot, reservation, and actual counts are preserved
+
+The setup/seed phase is deliberately excluded from timing. This is a regression gate for application read behavior, not a database benchmark.
+
+### Enterprise Control secondary summaries
+
+Synthetic multi-facility history profile:
+
+- 3 active facilities
+- 3,315 traceability transactions
+- 450 label-review records
+
+Acceptance requirements:
+
+- exactly 4 SQL SELECTs for traceability, SOP-deviation, label-review, and A/R summaries regardless of facility count
+- under 3 seconds for the measured read/projection on the CI runner
+- preserve the legacy latest-1,000 traceability summary window per facility
+- preserve the legacy latest-100 label-review window per facility
+
+The fixture intentionally places rejected traceability records and additional label failures outside those windows so the test proves historical records cannot leak back into current risk scoring.
+
+## Performance work covered by this pass
+
+The completed hardening work now includes:
+
+- Production Planning bounded snapshot instead of workspace + per-run HTTP fan-out
+- Label Studio summary-first/detail-on-demand loading and selected-package barcode/QR generation
+- Product Master and retail-planning batching
+- Production Calendar bounded read model
+- Run 360 lightweight product selection
+- Co-Man inventory balance batching without long-lived stale inventory caches
+- API response compression for larger JSON payloads
+- Commercial/Wholesale order-line batching without expanding order-ID bind lists
+- Enterprise Control grouped inventory/order/production summaries
+- Enterprise Control grouped traceability/compliance/finance summaries with preserved legacy windows
+- request timing headers and slow-request logging
+- engineering requirements that prohibit per-row HTTP and SQL fan-out
+
+## Release bar
+
+This performance pass is complete only when the acceptance branch passes the normal repository gates as one combined revision: backend tests, frontend tests/build, responsive browser parity, operator browser testing against real FastAPI, production migrations/startup, container vulnerability scans, secret-history scan, and the isolated Release Candidate Preview smoke test.
+
+The acceptance tests do not replace production telemetry. `Server-Timing`, `X-Response-Time-Ms`, and slow-request warnings remain the source for identifying environment-specific or future workload regressions after release.
