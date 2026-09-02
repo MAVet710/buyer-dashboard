@@ -49,6 +49,17 @@ def test_production_calendar_uses_bounded_workspace_without_changing_scheduler_c
     assert "CrewAvailability" not in read_model
 
 
+def test_run_360_uses_lightweight_product_options_not_coman_workspace() -> None:
+    page = _read("frontend/src/pages/ProductionRun360Page.tsx")
+
+    assert '/api/v1/inventory/products' in page
+    assert 'queryKey:["inventory-products"]' in page
+    assert '/api/v1/coman-parity/workspace' not in page
+    assert '/api/v1/production/orders' in page
+    assert '/mutations/preview' in page
+    assert '/mutations/commit' in page
+
+
 def test_label_studio_loads_lightweight_selector_then_selected_detail() -> None:
     page = _read("frontend/src/pages/LabelStudioPage.tsx")
     router = _read("backend/app/routers/label_printing.py")
