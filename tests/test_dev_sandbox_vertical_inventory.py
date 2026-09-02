@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman import ComanRepository
@@ -16,7 +17,15 @@ from modules.coman.vertical_demo_inventory_release import (
     EXPECTED_TOTAL_PLANTS,
     replace_scaled_vertical_dev_inventory,
 )
+from modules.coman.vertical_demo_ma_coas import (
+    DEV_MA_COA_EVIDENCE,
+    DEV_MA_COA_SOURCE,
+    DEV_MA_INHERITED_EVIDENCE,
+    EXPECTED_MA_FLOWER_REFERENCE_COAS,
+    MA_FLOWER_REFERENCE_STRAINS,
+)
 from modules.cultivation.service import ACTIVE_PLANT_PHASES, CultivationService
+from modules.inventory_quality.models import CoaAnalyteResult, CoaDocument, LotQualityEvidence
 from scripts.reset_dev_sandbox_vertical_inventory import _validate
 
 
@@ -136,6 +145,121 @@ def test_scaled_vertical_dev_inventory_replaces_only_dev_and_is_repeatable():
     assert validation["lots_with_wholesale_reservations"] > 0
 
     with Session(engine) as session:
+        ma_documents = list(
+            session.scalars(
+                select(CoaDocument).where(
+                    CoaDocument.organization_id == dev.id,
+                    CoaDocument.facility_id == sandbox.id,
+                    CoaDocument.source == DEV_MA_COA_SOURCE,
+                )
+            )
+        )
+        assert len(ma_documents) == EXPECTED_MA_FLOWER_REFERENCE_COAS == 10
+        assert {row.strain_name for row in ma_documents} == set(MA_FLOWER_REFERENCE_STRAINS) == {
+            "Animal Tsunami",
+            "Blue Dream",
+            "Candy Sparqs",
+            "GMO",
+            "Motorbreath",
+            "Permanent Marker",
+            "Runtz OG",
+            "Strawberry Cough",
+            "Super Lemon Haze",
+            "Wedding Cake",
+        }
+        for document in ma_documents:
+            raw = json.loads(document.raw_payload_json)
+            assert raw["source_state"] == "MA"
+            assert raw["sandbox_mapping"]["mapping_type"] == "strain_match_external_reference"
+            assert raw["sandbox_mapping"]["external_reference_only"] is True
+            assert "does not certify the sandbox package" in raw["sandbox_mapping"]["sandbox_release_basis"]
+            assert document.package_id == ""
+            assert document.lot_id is None
+            assert document.verification_state == "external_reference"
+            if document.strain_name == "Strawberry Cough":
+                assert document.overall_status == ""
+                assert raw["source_safety_verified"] is False
+                assert document.metrc_source_id == ""
+                assert document.lab_id == ""
+            else:
+                assert document.overall_status == "pass"
+            if document.strain_name in {"Animal Tsunami", "Runtz OG"}:
+                assert raw["source_safety_verified"] is False
+            if document.strain_name == "Candy Sparqs":
+                assert raw["source_safety_verified"] is True
+
+        super_lemon = next(row for row in ma_documents if row.strain_name == "Super Lemon Haze")
+        super_lemon_results = list(
+            session.scalars(
+                select(CoaAnalyteResult).where(CoaAnalyteResult.coa_document_id == super_lemon.id)
+            )
+        )
+        assert len(super_lemon_results) == 37
+        assert any(row.value_text == "<LOQ" for row in super_lemon_results)
+        assert super_lemon.total_thc_percent == 24.87
+        assert super_lemon.total_cannabinoids_percent == 29.55
+        assert super_lemon.total_terpenes_percent == 1.69
+
+        mock_quality = list(
+            session.scalars(
+                select(LotQualityEvidence).where(LotQualityEvidence.evidence_source == "mock_finished_lab")
+            )
+        )
+        mock_ids = {row.lot_id for row in mock_quality}
+        assert len(mock_ids) == EXPECTED_MOCK_FINISHED_COAS == 50
+        assert mock_ids <= set(first.extract_final_lots)
+        assert mock_ids.isdisjoint(first.flower_final_lots)
+
+        flower_lots = list(
+            session.scalars(select(InventoryLot).where(InventoryLot.id.in_(first.flower_final_lots)))
+        )
+        assert len(flower_lots) == 350
+        flower_quality = [session.get(LotQualityEvidence, lot.id) for lot in flower_lots]
+        assert all(row is not None for row in flower_quality)
+        assert all(
+            row.evidence_source == DEV_MA_INHERITED_EVIDENCE
+            for row in flower_quality
+            if row is not None
+        )
+        assert all(row.coa_document_id for row in flower_quality if row is not None)
+        assert all("example.invalid" not in row.coa_url for row in flower_quality if row is not None)
+        for lot in flower_lots:
+            meta = json.loads(lot.notes or "{}")
+            assert meta["harvest_date"]
+            assert meta["package_date"]
+            assert meta["manufacture_date"]
+            assert meta["package_date_basis"] in {"lot_received_at", "harvest_date_fallback"}
+            assert meta["cultivated_by"] == sandbox.name
+            assert meta["packaged_by"] == sandbox.name
+            assert meta["sold_by"] == sandbox.name
+            assert meta["cultivator_license"] == "DEV-SANDBOX-VERTICAL"
+            assert meta["packager_license"] == "DEV-SANDBOX-VERTICAL"
+            assert meta["seller_license"] == "DEV-SANDBOX-VERTICAL"
+            assert "example.invalid/dev-coa" not in lot.notes
+
+        blue_root = session.scalar(
+            select(InventoryLot).where(InventoryLot.lot_code == "DEVV-GEN1-S04-FLOWER")
+        )
+        blue_child = session.scalar(
+            select(InventoryLot).where(InventoryLot.lot_code == "DEVV-GEN1-S04-F01")
+        )
+        assert blue_root is not None and blue_child is not None
+        blue_root_quality = session.get(LotQualityEvidence, blue_root.id)
+        blue_child_quality = session.get(LotQualityEvidence, blue_child.id)
+        assert blue_root_quality is not None and blue_root_quality.coa_document_id
+        assert blue_child_quality is not None
+        assert blue_child_quality.inherited_from_lot_id == blue_root.id
+        assert blue_child_quality.coa_document_id == blue_root_quality.coa_document_id
+        blue_document = session.get(CoaDocument, blue_root_quality.coa_document_id)
+        assert blue_document is not None
+        assert blue_root_quality.evidence_source == DEV_MA_COA_EVIDENCE
+        assert blue_child_quality.evidence_source == DEV_MA_INHERITED_EVIDENCE
+        assert blue_document.package_id == ""
+        assert blue_document.lot_id is None
+        assert blue_document.verification_state == "external_reference"
+        assert blue_child.compliance_package_id == "DEV-PKG-GEN1-S04-F01"
+        assert blue_root.compliance_package_id == "DEV-HARV-GEN1-S04-FLOWER"
+
         old_lot_row = session.get(InventoryLot, old_lot.id)
         old_product_row = session.get(Product, old_product.id)
         cowboy_lot_row = session.get(InventoryLot, cowboy_lot.id)
@@ -164,6 +288,27 @@ def test_scaled_vertical_dev_inventory_replaces_only_dev_and_is_repeatable():
     assert second_validation["sales_orders"] == 12
     assert second_validation["purchase_orders"] == 6
     assert coman.inventory_balance(cowboy.id, cowboy_lot.id) == 13
+
+    with Session(engine) as session:
+        second_ma_documents = list(
+            session.scalars(
+                select(CoaDocument).where(
+                    CoaDocument.organization_id == dev.id,
+                    CoaDocument.facility_id == sandbox.id,
+                    CoaDocument.source == DEV_MA_COA_SOURCE,
+                )
+            )
+        )
+        assert len(second_ma_documents) == EXPECTED_MA_FLOWER_REFERENCE_COAS * 2
+        second_mock_quality = list(
+            session.scalars(
+                select(LotQualityEvidence).where(
+                    LotQualityEvidence.lot_id.in_(second.final_lots),
+                    LotQualityEvidence.evidence_source == "mock_finished_lab",
+                )
+            )
+        )
+        assert {row.lot_id for row in second_mock_quality} <= set(second.extract_final_lots)
 
     plants = CultivationService(engine).list_plants(dev.id, sandbox.id)
     active = Counter(row.phase for row in plants if row.phase in ACTIVE_PLANT_PHASES)

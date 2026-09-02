@@ -2,8 +2,9 @@
 
 The scaled scenario intentionally exercises the whole operating graph:
 80 active plants across cultivation phases + 40 harvested source plants, 10 reconciled
-harvests, 350 flower SKUs, 150 extraction-derived SKUs, final-lot QA/COA overrides,
-and commercial Purchase/Sales Orders that reserve and fulfill real finished inventory.
+harvests, 350 flower SKUs, 150 extraction-derived SKUs, real Massachusetts flower
+COA references plus extraction-only mock retests, and commercial Purchase/Sales
+Orders that reserve and fulfill real finished inventory.
 """
 from __future__ import annotations
 
@@ -35,6 +36,11 @@ from modules.coman.vertical_demo_inventory import (
     _quality,
     retire_dev_sandbox_inventory,
 )
+from modules.coman.vertical_demo_ma_coas import (
+    MA_FLOWER_REFERENCE_STRAINS,
+    annotate_dev_flower_label_metadata,
+    seed_dev_ma_flower_reference_coa,
+)
 from modules.coman import ComanRepository
 from modules.commercial.repository import CommercialRepository, OPEN_ORDER_STATUSES
 from modules.cultivation.service import ACTIVE_PLANT_PHASES, CultivationService
@@ -50,16 +56,16 @@ from modules.package_studio import (
 from modules.product_master import ProductMasterRepository
 
 STRAINS = (
-    "Gastro Pop",
+    "Candy Sparqs",
     "GMO",
     "Strawberry Cough",
     "Blue Dream",
     "Wedding Cake",
     "Super Lemon Haze",
-    "Gelato 41",
+    "Runtz OG",
     "Motorbreath",
     "Permanent Marker",
-    "Animal Face",
+    "Animal Tsunami",
 )
 
 ACTIVE_PHASES = ("clone", "seedling", "vegetative", "flowering")
@@ -249,7 +255,13 @@ def _seed_active_cultivation(
 
 
 def _finished_mock_coas(engine: Engine, lot_ids: list[str], generation: str, actor: str) -> int:
-    selected = lot_ids[9::10]
+    """Create exactly 50 direct mock retest scenarios from extraction-derived finished lots."""
+
+    selected = lot_ids[::3][:EXPECTED_MOCK_FINISHED_COAS]
+    if len(selected) != EXPECTED_MOCK_FINISHED_COAS:
+        raise RuntimeError(
+            f"Expected {EXPECTED_MOCK_FINISHED_COAS} extraction mock-COA scenarios, got {len(selected)}."
+        )
     with Session(engine) as session, session.begin():
         for index, lot_id in enumerate(selected, start=1):
             LotQualityService.set_evidence(
@@ -444,6 +456,13 @@ def seed_scaled_vertical_dev_inventory(
         facility.license_number = "DEV-SANDBOX-VERTICAL"
         facility.license_type = "cultivation+manufacturing+retail"
 
+    if set(STRAINS) != set(MA_FLOWER_REFERENCE_STRAINS):
+        missing = sorted(set(STRAINS) - set(MA_FLOWER_REFERENCE_STRAINS))
+        extra = sorted(set(MA_FLOWER_REFERENCE_STRAINS) - set(STRAINS))
+        raise RuntimeError(
+            f"DEV MA flower reference coverage mismatch: missing={missing} extra={extra}"
+        )
+
     coman = ComanRepository(engine)
     master = ProductMasterRepository(engine)
     cultivation = CultivationService(engine)
@@ -520,7 +539,14 @@ def seed_scaled_vertical_dev_inventory(
         flower_lot_id, trim_lot_id = committed["output_lot_ids"]
         flower_source_lots.append(flower_lot_id)
         trim_source_lots.append(trim_lot_id)
-        _quality(engine, flower_lot_id, f"DEV-COA-{generation}-{code}-FLOWER", thca=25.0 + strain_index * 0.35, tac=28.0 + strain_index * 0.30, terpenes=1.7 + strain_index * 0.11, source="dev_vertical_harvest_lab", actor=actor)
+        seed_dev_ma_flower_reference_coa(
+            engine,
+            organization_id,
+            facility_id,
+            flower_lot_id,
+            strain=strain,
+            actor=actor,
+        )
         _quality(engine, trim_lot_id, f"DEV-COA-{generation}-{code}-TRIM", thca=16.0 + strain_index * 0.25, tac=19.0 + strain_index * 0.20, terpenes=1.1 + strain_index * 0.07, source="dev_vertical_harvest_lab", actor=actor)
 
         flower_outputs: list[PackageStudioOutputPlan] = []
@@ -561,6 +587,13 @@ def seed_scaled_vertical_dev_inventory(
                 reason="Scaled DEV flower packaging across 35 finished SKUs.",
             ),
             organization_id=organization_id, facility_id=facility_id, actor=actor,
+        )
+        annotate_dev_flower_label_metadata(
+            engine,
+            organization_id,
+            facility_id,
+            flower_lot_id,
+            packaged.output_lot_ids,
         )
         flower_final.extend(packaged.output_lot_ids)
 
@@ -645,7 +678,7 @@ def seed_scaled_vertical_dev_inventory(
         raise RuntimeError(
             f"Scaled DEV seed expected {EXPECTED_FINISHED_SKUS} finished SKUs, got lots={len(final_lots)} products={len(product_ids)}."
         )
-    mock_coas = _finished_mock_coas(engine, final_lots, generation, actor)
+    mock_coas = _finished_mock_coas(engine, extract_final, generation, actor)
     commercial_summary = _seed_commercial_orders(engine, organization_id, facility_id, final_lots, generation, actor)
 
     with Session(engine) as session:
