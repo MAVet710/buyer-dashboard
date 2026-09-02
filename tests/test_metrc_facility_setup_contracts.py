@@ -23,6 +23,15 @@ def test_facility_setup_catalog_exposes_master_data_without_enabling_dispatch():
     assert rows["location_create"].required_permission == "Manage Locations"
 
 
+def test_facility_setup_complex_action_permissions_match_provider_contracts():
+    rows = {row.operation_type: row for row in list_facility_setup_actions()}
+    assert rows["item_create"].required_permission == "Manage Items"
+    assert rows["processing_job_type_create"].required_permission == "Manage Processing Job"
+    assert rows["additive_template_create"].required_permission == "Manage Additives"
+    assert rows["driver_create"].required_permission == "Manage Transporters"
+    assert rows["vehicle_create"].required_permission == "Manage Transporters"
+
+
 def test_location_create_payload_is_deterministic():
     body = build_facility_setup_payload(
         "location_create",
@@ -67,8 +76,19 @@ def test_strain_payload_is_bounded_to_reviewed_fields():
     }]
 
 
-def test_unknown_complex_action_stays_catalogued_without_guessing_payload():
-    spec = get_facility_setup_action("item_create")
+@pytest.mark.parametrize(
+    "operation_type",
+    [
+        "item_create",
+        "brand_create",
+        "processing_job_type_create",
+        "additive_template_create",
+        "driver_create",
+        "vehicle_create",
+    ],
+)
+def test_complex_actions_stay_catalogued_without_guessing_payload(operation_type: str):
+    spec = get_facility_setup_action(operation_type)
     assert spec is not None
-    assert spec.path == "items/v2/"
-    assert build_facility_setup_payload("item_create", {"name": "Example"}) is None
+    assert spec.dispatch_enabled is False
+    assert build_facility_setup_payload(operation_type, {"name": "Example", "unexpected": "do not forward"}) is None
