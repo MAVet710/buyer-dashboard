@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from modules.production_erp.performance import planning_snapshot, queue_summary_fast
 from modules.production_erp.scheduling import ProductionScheduleService
 from modules.production_erp.service import ProductionERPService
 from ..auth import RequestContext, get_request_context, get_production_context
@@ -105,7 +106,16 @@ def _standard_payload(row):
 
 @router.get("/orders")
 def queue(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    return _service(engine).queue_summary(context.organization_id, context.facility_id)
+    return queue_summary_fast(engine, context.organization_id, context.facility_id)
+
+
+@router.get("/planning-snapshot")
+def planning_read_model(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    """Return the decision-first planning data in one bounded read request."""
+    return planning_snapshot(engine, context.organization_id, context.facility_id)
 
 
 @router.get("/schedule")
