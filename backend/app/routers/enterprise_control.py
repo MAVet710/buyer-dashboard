@@ -1,60 +1,44 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import Facility
-from modules.coman.repository import ComanRepository
-from modules.commercial.repository import CommercialRepository
 from modules.commercial_finance.service import CommercialFinanceService
 from modules.operational_moats.service import OperationalMoatService
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
 from ..auth import RequestContext, get_request_context
 from ..database import get_engine
+from ..services.enterprise_control_fast import organization_facility_metrics
 
 router = APIRouter(prefix="/enterprise", tags=["enterprise-control"])
 
 
 @router.get("/control-tower")
 def enterprise_control_tower(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    coman = ComanRepository(engine)
-    commercial = CommercialRepository(engine)
     finance = CommercialFinanceService(engine)
     moat = OperationalMoatService(engine)
     trace = TraceabilityBackofficeRepository(engine)
     with Session(engine) as session:
         facilities = list(session.scalars(select(Facility).where(Facility.organization_id == context.organization_id, Facility.active.is_(True)).order_by(Facility.name)))
-    products = {row.id: row for row in coman.list_products(context.organization_id)}
-    now = datetime.now(timezone.utc)
+    core = organization_facility_metrics(engine, context.organization_id)
     rows = []
     for facility in facilities:
-        lots = coman.list_inventory_lots(context.organization_id, facility.id)
-        inventory_value = 0.0
-        positive_lots = 0
-        for lot in lots:
-            balance = coman.inventory_balance(context.organization_id, lot.id)
-            if balance > 0:
-                positive_lots += 1
-                inventory_value += balance * float(getattr(products.get(lot.product_id), "unit_cost", 0.0) or 0.0)
-        orders = commercial.list_orders(context.organization_id, facility.id, open_only=True)
-        open_sales = [row for row in orders if row.order_type == "sales"]
-        open_purchases = [row for row in orders if row.order_type == "purchase"]
-        overdue_orders = sum(bool(row.due_at and ((row.due_at if row.due_at.tzinfo else row.due_at.replace(tzinfo=timezone.utc)) < now)) for row in orders)
-        production_orders = [row for row in coman.list_production_orders(context.organization_id, facility.id) if row.status not in {"complete", "cancelled"}]
+        inventory = core["inventory"].get(facility.id, {"positive_lots": 0, "value": 0.0})
+        order_metrics = core["orders"].get(facility.id, {"sales": 0, "purchase": 0, "overdue": 0})
+        production_metrics = core["production"].get(facility.id, {"open": 0, "units": 0})
         trace_summary = trace.summary(context.organization_id, facility.id)
         deviations = moat.list_deviations(context.organization_id, facility.id)
         label_reviews = moat.list_label_reviews(context.organization_id, facility.id, limit=100)
         ar = finance.ar_summary(context.organization_id, facility.id)
         risk_score = (
             int(trace_summary.get("needs_reconciliation", 0)) * 8
-            + overdue_orders * 5
+            + int(order_metrics["overdue"]) * 5
             + sum(row.severity == "critical" for row in deviations) * 8
             + sum(row.severity == "high" for row in deviations) * 5
             + sum(row.status == "fail" for row in label_reviews) * 3
-            + len(production_orders)
+            + int(production_metrics["open"])
         )
         rows.append({
             "facility": {
@@ -70,9 +54,9 @@ def enterprise_control_tower(context: RequestContext = Depends(get_request_conte
                     "commercial": facility.commercial_enabled,
                 },
             },
-            "inventory": {"positive_lots": positive_lots, "value": inventory_value},
-            "orders": {"sales": len(open_sales), "purchase": len(open_purchases), "overdue": overdue_orders},
-            "production": {"open": len(production_orders), "units": sum(int(row.requested_units or 0) for row in production_orders)},
+            "inventory": {"positive_lots": int(inventory["positive_lots"]), "value": float(inventory["value"])},
+            "orders": {"sales": int(order_metrics["sales"]), "purchase": int(order_metrics["purchase"]), "overdue": int(order_metrics["overdue"])},
+            "production": {"open": int(production_metrics["open"]), "units": int(production_metrics["units"])},
             "traceability": trace_summary,
             "compliance": {
                 "open_sop_deviations": len(deviations),
