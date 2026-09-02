@@ -23,7 +23,7 @@ class MetrcTagInventory(TimestampMixin, Base):
             name="uq_metrc_tag_facility_environment_type_label",
         ),
         CheckConstraint("tag_type in ('plant','package')", name="ck_metrc_tag_type"),
-        CheckConstraint("status in ('available','reserved','used','voided')", name="ck_metrc_tag_status"),
+        CheckConstraint("status in ('available','unavailable','reserved','used','voided')", name="ck_metrc_tag_status"),
         Index("ix_metrc_tag_available", "facility_id", "environment", "tag_type", "status"),
     )
 
@@ -175,7 +175,8 @@ class CultivationAdditiveApplication(TimestampMixin, Base):
 class CultivationTestSample(TimestampMixin, Base):
     __tablename__ = "cultivation_test_samples"
     __table_args__ = (
-        UniqueConstraint("facility_id", "package_tag", name="uq_cultivation_test_sample_package_tag"),
+        UniqueConstraint("facility_id", "environment", "package_tag", name="uq_cultivation_test_sample_package_tag"),
+        CheckConstraint("environment in ('sandbox','production')", name="ck_cultivation_test_sample_environment"),
         CheckConstraint("source_type in ('harvest','package')", name="ck_cultivation_test_sample_source_type"),
         CheckConstraint("quantity > 0", name="ck_cultivation_test_sample_quantity"),
         CheckConstraint("status in ('planned','provider_confirmed','verified','cancelled')", name="ck_cultivation_test_sample_status"),
@@ -185,6 +186,7 @@ class CultivationTestSample(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    environment: Mapped[str] = mapped_column(String(24), nullable=False)
     source_type: Mapped[str] = mapped_column(String(24), nullable=False)
     source_id: Mapped[str] = mapped_column(String(64), nullable=False)
     package_tag: Mapped[str] = mapped_column(String(64), nullable=False)
