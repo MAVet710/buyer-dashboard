@@ -34,10 +34,10 @@ jobs:
 
           targets = ('Animal Face', 'Gastro Pop', 'Gelato 41', 'Strawberry Cough')
           selected_fields = (
-              'product_name', 'strain_name', 'product_type', 'producer', 'producer_license',
-              'lab', 'lab_license', 'date_tested', 'date_received', 'batch_number', 'lot_number',
-              'sample_id', 'metrc_id', 'source', 'lab_results_url', 'coa_url',
-              'total_thc', 'total_cbd', 'total_cannabinoids', 'total_terpenes', 'results',
+              'product_name', 'strain_name', 'product_type', 'producer',
+              'lab', 'lab_license_number', 'date_tested', 'date_received', 'batch_number',
+              'sample_id', 'lab_results_url', 'total_thc', 'total_cbd',
+              'total_cannabinoids', 'total_terpenes', 'results',
           )
 
           def norm(value):
@@ -49,10 +49,7 @@ jobs:
               reader = csv.DictReader(handle)
               print('CSV_COLUMNS=' + json.dumps(reader.fieldnames or []))
               for row in reader:
-                  searchable = ' '.join(
-                      norm(row.get(key, ''))
-                      for key in ('product_name', 'strain_name', 'product_type')
-                  )
+                  searchable = ' '.join(norm(row.get(key, '')) for key in ('product_name', 'strain_name', 'product_type'))
                   for target, needle in target_norm.items():
                       if needle not in searchable:
                           continue
@@ -67,17 +64,116 @@ jobs:
 
           for target in targets:
               rows = matches[target]
-              print(f'=== {target}: {len(rows)} candidate(s) ===')
-              for row in rows[:30]:
+              print(f'=== CANNLYTICS {target}: {len(rows)} candidate(s) ===')
+              for row in rows[:15]:
                   display = dict(row)
-                  if len(str(display.get('results', ''))) > 4000:
-                      display['results'] = str(display['results'])[:4000] + '...<truncated>'
+                  if len(str(display.get('results', ''))) > 5000:
+                      display['results'] = str(display['results'])[:5000] + '...<truncated>'
                   print(json.dumps(display, ensure_ascii=False, sort_keys=True))
 
-      - name: Upload candidate extract
+      - name: Query live MCR Labs public Massachusetts catalog
+        shell: bash
+        run: python -m pip install --disable-pip-version-check --quiet beautifulsoup4
+
+      - name: Inspect live MCR target reports
+        shell: python
+        run: |
+          import json
+          import re
+          from urllib.parse import urlencode, urljoin
+          from urllib.request import Request, urlopen
+          from bs4 import BeautifulSoup
+
+          BASE = 'https://reports.mcrlabs.com'
+          TARGETS = ('Animal Face', 'Gastro Pop', 'Gelato 41', 'Strawberry Cough')
+          UA = {'User-Agent': 'Mozilla/5.0 DoobieLogic DEV COA reference verification'}
+
+          def fetch(url):
+              req = Request(url, headers=UA)
+              with urlopen(req, timeout=30) as response:
+                  return response.geturl(), response.read().decode('utf-8', errors='replace')
+
+          # Inspect the live selector values first so the query uses MCR's own Massachusetts location token.
+          root_url = BASE + '/products-weve-tested'
+          resolved, html = fetch(root_url)
+          soup = BeautifulSoup(html, 'html.parser')
+          print('MCR_ROOT=' + resolved)
+          for select in soup.find_all('select'):
+              options = [
+                  {'value': option.get('value', ''), 'text': option.get_text(' ', strip=True)}
+                  for option in select.find_all('option')
+              ]
+              print('MCR_SELECT=' + json.dumps({'name': select.get('name', ''), 'id': select.get('id', ''), 'options': options}))
+
+          mass_location = ''
+          for option in soup.find_all('option'):
+              if 'massachusetts' in option.get_text(' ', strip=True).casefold():
+                  mass_location = option.get('value', '')
+                  print('MCR_MASS_LOCATION=' + repr(mass_location))
+                  break
+
+          discovered = {}
+          for target in TARGETS:
+              params = {
+                  'category': 'flower',
+                  'location': mass_location,
+                  'order': 'date-desc',
+                  'page': '1',
+                  'searchString': target,
+              }
+              query_url = root_url + '?' + urlencode(params)
+              resolved, html = fetch(query_url)
+              soup = BeautifulSoup(html, 'html.parser')
+              page_text = re.sub(r'\s+', ' ', soup.get_text(' ', strip=True))
+              print(f'=== MCR LIVE {target} ===')
+              print('QUERY=' + resolved)
+              print('PAGE_TEXT=' + page_text[:5000])
+
+              candidates = []
+              seen = set()
+              for anchor in soup.find_all('a', href=True):
+                  href = urljoin(BASE, anchor['href'])
+                  if '/report' not in href.casefold() or href in seen:
+                      continue
+                  context = anchor.parent.get_text(' ', strip=True) if anchor.parent else anchor.get_text(' ', strip=True)
+                  context = re.sub(r'\s+', ' ', context)
+                  if target.casefold() not in context.casefold() and target.casefold() not in anchor.get_text(' ', strip=True).casefold():
+                      continue
+                  seen.add(href)
+                  candidates.append({'url': href, 'context': context[:1500]})
+              discovered[target] = candidates
+              print('CANDIDATES=' + json.dumps(candidates, ensure_ascii=False))
+
+              for candidate in candidates[:5]:
+                  try:
+                      report_url, report_html = fetch(candidate['url'])
+                  except Exception as exc:
+                      print('REPORT_FETCH_ERROR=' + json.dumps({'url': candidate['url'], 'error': repr(exc)}))
+                      continue
+                  report = BeautifulSoup(report_html, 'html.parser')
+                  report_text = re.sub(r'\s+', ' ', report.get_text(' ', strip=True))
+                  print('REPORT=' + json.dumps({'url': report_url, 'text': report_text[:9000]}, ensure_ascii=False))
+
+          # Cannlytics' newest exact Strawberry Cough MA result points here; inspect it even if live search pagination differs.
+          for direct in (BASE + '/reports/71449', BASE + '/reports/id/71449'):
+              try:
+                  report_url, report_html = fetch(direct)
+              except Exception as exc:
+                  print('STRAWBERRY_DIRECT_ERROR=' + json.dumps({'url': direct, 'error': repr(exc)}))
+                  continue
+              report = BeautifulSoup(report_html, 'html.parser')
+              report_text = re.sub(r'\s+', ' ', report.get_text(' ', strip=True))
+              print('STRAWBERRY_DIRECT=' + json.dumps({'url': report_url, 'text': report_text[:12000]}, ensure_ascii=False))
+
+          with open('mcr-live-candidates.json', 'w', encoding='utf-8') as handle:
+              json.dump(discovered, handle, indent=2, ensure_ascii=False)
+
+      - name: Upload candidate extracts
         uses: actions/upload-artifact@v4
         with:
           name: ma-coa-candidates
-          path: ma-coa-candidates.json
+          path: |
+            ma-coa-candidates.json
+            mcr-live-candidates.json
           if-no-files-found: error
           retention-days: 1
