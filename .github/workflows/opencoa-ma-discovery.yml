@@ -23,7 +23,7 @@ jobs:
 
           BASE = 'https://opencoa.org'
           ENDPOINT = BASE + '/api/internal/app/search'
-          searches = (
+          base_searches = (
               ('Animal Face', 'Animal Face'),
               ('AnimalFace', 'Animal Face'),
               ('Gastro Pop', 'Gastro Pop'),
@@ -33,6 +33,8 @@ jobs:
               ('Gelato #41', 'Gelato 41'),
               ('Gelato41', 'Gelato 41'),
           )
+          searches = [(query, canonical, 0) for query, canonical in base_searches]
+          searches += [(query, canonical, 100) for query, canonical in base_searches if canonical == 'Gelato 41']
           headers = {
               'User-Agent': 'Mozilla/5.0 DoobieLogic DEV reference verification',
               'Content-Type': 'application/json',
@@ -49,12 +51,12 @@ jobs:
               {
                   'indexUid': 'coas',
                   'q': query,
-                  'limit': 200,
-                  'offset': 0,
+                  'limit': 100,
+                  'offset': offset,
                   'filter': ['lab_state_id = 4'],
                   'sort': ['analysis_date:desc'],
               }
-              for query, _ in searches
+              for query, _, offset in searches
           ]}
           req = Request(ENDPOINT, data=json.dumps(payload).encode(), headers=headers, method='POST')
           with urlopen(req, timeout=30) as response:
@@ -62,10 +64,10 @@ jobs:
           results = data.get('results') or []
           print('RESULT_SET_COUNT=' + str(len(results)))
 
-          found = {canonical: [] for _, canonical in searches}
-          for (query, canonical), result in zip(searches, results):
+          found = {canonical: [] for _, canonical in base_searches}
+          for (query, canonical, offset), result in zip(searches, results):
               hits = result.get('hits') or []
-              print(f'QUERY={query!r} TOTAL={result.get("estimatedTotalHits", result.get("totalHits"))} RETURNED={len(hits)}')
+              print(f'QUERY={query!r} OFFSET={offset} TOTAL={result.get("estimatedTotalHits", result.get("totalHits"))} RETURNED={len(hits)}')
               canonical_tokens = set(norm(canonical).split())
               for hit in hits:
                   if norm(hit.get('product_type')) != 'flower':
