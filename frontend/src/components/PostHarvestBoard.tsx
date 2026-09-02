@@ -53,7 +53,7 @@ export function PostHarvestBoard({canWrite,onOpenHarvest}:Props = {}) {
     lastSyncKey.current=syncKey;
     sync.mutate();
   },[effectiveCanWrite,harvests.isLoading,syncKey]);
-  const [filter,setFilter]=useState("attention");
+  const [filter,setFilter]=useState("all");
   const [weightBatchId,setWeightBatchId]=useState("");
   const [advanceBatchId,setAdvanceBatchId]=useState("");
   const items=query.data?.items??[];
@@ -75,7 +75,7 @@ export function PostHarvestBoard({canWrite,onOpenHarvest}:Props = {}) {
       <div className="audit-actions">
         {effectiveCanWrite&&batch.stage!=="ready"?<button className="primary" type="button" onClick={()=>setWeightBatchId(batch.id)}>Update weights</button>:null}
         {effectiveCanWrite&&batch.stage==="ready"&&canManage?<button className="secondary" type="button" onClick={()=>setWeightBatchId(batch.id)}>Correct locked weights</button>:null}
-        {effectiveCanWrite&&nextStage(batch.stage)?<button className="secondary" type="button" onClick={()=>setAdvanceBatchId(batch.id)}>Advance stage</button>:null}
+        {effectiveCanWrite&&canAdvanceStage(batch.stage,canManage)?<button className="secondary" type="button" onClick={()=>setAdvanceBatchId(batch.id)}>Advance stage</button>:null}
         {onOpenHarvest?<button className="secondary" type="button" onClick={()=>onOpenHarvest(batch.harvest_id)}>Open Harvest 360</button>:null}
       </div>
     </article>)}</div>:query.data?<div className="empty">No post-harvest jobs match this view.</div>:null}
@@ -150,6 +150,7 @@ function AdvanceDialog({batchId,onClose,onSaved}:{batchId:string;onClose:()=>voi
 function WeightField({label,value,placeholder,onChange}:{label:string;value:string;placeholder?:string;onChange:(value:string)=>void}) {return <label>{label}<input type="number" min="0" step="any" value={value} placeholder={placeholder} onChange={event=>onChange(event.target.value)}/></label>}
 function Metric({label,value}:{label:string;value:string|number}) {return <article className="metric"><span>{label}</span><strong>{typeof value==="number"?value.toLocaleString():value}</strong></article>}
 function nextStage(stage:Stage):Stage|null {const index=stages.indexOf(stage);return index>=0&&index<stages.length-1?stages[index+1]:null}
+function canAdvanceStage(stage:Stage,canManage:boolean){const target=nextStage(stage);return Boolean(target&&(target!=="ready"||canManage))}
 function stageLabel(stage:Stage|string){return ({harvested:"Harvested",drying:"Drying",bucking:"Ready for Trim / Bucking",trimming:"Trimming",curing:"Curing",testing_hold:"Testing / Hold",ready:"Ready"} as Record<string,string>)[stage]??stage.replaceAll("_"," ")}
 function weightLabel(kind:WeightType){return ({wip:"WIP",finished_flower:"Flower",trim:"Trim",biomass:"Biomass",waste:"Waste"} as Record<WeightType,string>)[kind]}
 function num(value:number){return Number(value||0).toLocaleString(undefined,{maximumFractionDigits:2})}
