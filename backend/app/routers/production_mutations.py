@@ -210,6 +210,8 @@ def transition_post_harvest(
     engine: Engine = Depends(get_engine),
 ):
     _guard_cultivation_write(context, engine)
+    if payload.stage.strip().casefold() == "ready" and not _can_correct_locked_post_harvest(context):
+        raise HTTPException(403, "A supervisor, QA user, or administrator must approve final post-harvest reconciliation.")
     try:
         return PostHarvestService(engine).transition(
             context.organization_id,
