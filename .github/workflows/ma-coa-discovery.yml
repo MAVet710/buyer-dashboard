@@ -1,0 +1,83 @@
+name: Temporary MA COA Discovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ma-coa-discovery.yml'
+      - 'modules/coman/vertical_demo_ma_coas.py'
+
+permissions:
+  contents: read
+
+jobs:
+  discover-ma-coas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download Cannlytics Massachusetts results
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 --retry-all-errors \
+            'https://huggingface.co/datasets/cannlytics/cannabis_results/resolve/main/data/ma/ma-results-latest.csv?download=true' \
+            -o ma-results-latest.csv
+          ls -lh ma-results-latest.csv
+
+      - name: Extract exact target-strain candidates
+        shell: python
+        run: |
+          import csv
+          import json
+          import re
+          from collections import defaultdict
+
+          targets = ('Animal Face', 'Gastro Pop', 'Gelato 41', 'Strawberry Cough')
+          selected_fields = (
+              'product_name', 'strain_name', 'product_type', 'producer', 'producer_license',
+              'lab', 'lab_license', 'date_tested', 'date_received', 'batch_number', 'lot_number',
+              'sample_id', 'metrc_id', 'source', 'lab_results_url', 'coa_url',
+              'total_thc', 'total_cbd', 'total_cannabinoids', 'total_terpenes', 'results',
+          )
+
+          def norm(value):
+              return re.sub(r'[^a-z0-9]+', ' ', str(value or '').casefold()).strip()
+
+          target_norm = {target: norm(target) for target in targets}
+          matches = defaultdict(list)
+          with open('ma-results-latest.csv', newline='', encoding='utf-8-sig') as handle:
+              reader = csv.DictReader(handle)
+              print('CSV_COLUMNS=' + json.dumps(reader.fieldnames or []))
+              for row in reader:
+                  searchable = ' '.join(
+                      norm(row.get(key, ''))
+                      for key in ('product_name', 'strain_name', 'product_type')
+                  )
+                  for target, needle in target_norm.items():
+                      if needle not in searchable:
+                          continue
+                      product_type = norm(row.get('product_type', ''))
+                      if product_type and not any(token in product_type for token in ('flower', 'bud', 'plant')):
+                          continue
+                      clean = {key: row.get(key) for key in selected_fields if row.get(key) not in (None, '')}
+                      matches[target].append(clean)
+
+          with open('ma-coa-candidates.json', 'w', encoding='utf-8') as handle:
+              json.dump(matches, handle, indent=2, ensure_ascii=False)
+
+          for target in targets:
+              rows = matches[target]
+              print(f'=== {target}: {len(rows)} candidate(s) ===')
+              for row in rows[:30]:
+                  display = dict(row)
+                  if len(str(display.get('results', ''))) > 4000:
+                      display['results'] = str(display['results'])[:4000] + '...<truncated>'
+                  print(json.dumps(display, ensure_ascii=False, sort_keys=True))
+
+      - name: Upload candidate extract
+        uses: actions/upload-artifact@v4
+        with:
+          name: ma-coa-candidates
+          path: ma-coa-candidates.json
+          if-no-files-found: error
+          retention-days: 1
