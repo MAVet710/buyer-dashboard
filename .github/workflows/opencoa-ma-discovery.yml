@@ -14,27 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Scan full Massachusetts index for exact flower strain matches
+      - name: Query Massachusetts flower candidates
         shell: python
         run: |
           import json
-          import re
           from urllib.request import Request, urlopen
 
           BASE = 'https://opencoa.org'
           ENDPOINT = BASE + '/api/internal/app/search'
-          base_searches = (
-              ('Animal Face', 'Animal Face'),
-              ('AnimalFace', 'Animal Face'),
-              ('Gastro Pop', 'Gastro Pop'),
-              ('Gastropop', 'Gastro Pop'),
-              ('GastroPop Flower', 'Gastro Pop'),
-              ('Gelato 41', 'Gelato 41'),
-              ('Gelato #41', 'Gelato 41'),
-              ('Gelato41', 'Gelato 41'),
-          )
-          searches = [(query, canonical, 0) for query, canonical in base_searches]
-          searches += [(query, canonical, 100) for query, canonical in base_searches if canonical == 'Gelato 41']
+          targets = ('Animal Face', 'Gastro Pop', 'Gelato 41')
           headers = {
               'User-Agent': 'Mozilla/5.0 DoobieLogic DEV reference verification',
               'Content-Type': 'application/json',
@@ -43,49 +31,32 @@ jobs:
               'Origin': BASE,
               'Referer': BASE + '/search?state=MA&refine=1',
           }
-
-          def norm(value):
-              return re.sub(r'[^a-z0-9]+', ' ', str(value or '').casefold()).strip()
-
           payload = {'queries': [
               {
                   'indexUid': 'coas',
-                  'q': query,
-                  'limit': 100,
-                  'offset': offset,
-                  'filter': ['lab_state_id = 4'],
+                  'q': target,
+                  'limit': 15,
+                  'offset': 0,
+                  'facets': ['product_type', 'overall_status', 'brand_name', 'client_name', 'lab_name'],
+                  'attributesToHighlight': ['identity_label', 'brand_display', 'lot_number'],
+                  'filter': ['lab_state_id = 4', 'product_type = "flower"'],
                   'sort': ['analysis_date:desc'],
               }
-              for query, _, offset in searches
+              for target in targets
           ]}
           req = Request(ENDPOINT, data=json.dumps(payload).encode(), headers=headers, method='POST')
           with urlopen(req, timeout=30) as response:
               data = json.loads(response.read().decode())
           results = data.get('results') or []
           print('RESULT_SET_COUNT=' + str(len(results)))
-
-          found = {canonical: [] for _, canonical in base_searches}
-          for (query, canonical, offset), result in zip(searches, results):
+          for target, result in zip(targets, results):
               hits = result.get('hits') or []
-              print(f'QUERY={query!r} OFFSET={offset} TOTAL={result.get("estimatedTotalHits", result.get("totalHits"))} RETURNED={len(hits)}')
-              canonical_tokens = set(norm(canonical).split())
+              print(f'=== MA FLOWER SEARCH {target}: total={result.get("estimatedTotalHits", result.get("totalHits"))} returned={len(hits)} ===')
               for hit in hits:
-                  if norm(hit.get('product_type')) != 'flower':
-                      continue
-                  combined = norm(' '.join(str(hit.get(key) or '') for key in ('identity_label','lot_number','batch_id_display')))
-                  tokens = set(combined.split())
-                  if not canonical_tokens.issubset(tokens):
-                      continue
                   clean = {key: hit.get(key) for key in (
                       'id','url','identity_label','lot_number','batch_id_display','brand_display','client_name',
                       'product_type','lab_name','lab_state_id','analysis_date','date_display','overall_status',
                       'total_thc_percent','total_cbd_percent','total_cannabinoids_percent','total_terpenes_percent',
                       'has_regulatory_hold'
                   ) if hit.get(key) is not None}
-                  if clean not in found[canonical]:
-                      found[canonical].append(clean)
-
-          for canonical, hits in found.items():
-              print(f'=== EXACTISH MA FLOWER {canonical}: {len(hits)} ===')
-              for hit in hits:
-                  print('MATCH=' + json.dumps(hit, ensure_ascii=False, sort_keys=True))
+                  print('HIT=' + json.dumps(clean, ensure_ascii=False, sort_keys=True))
