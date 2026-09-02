@@ -107,6 +107,26 @@ def _can_correct_locked_post_harvest(context: RequestContext) -> bool:
     return context.role.casefold() in {"dev", "admin", "supervisor", "qa"}
 
 
+def _guard_post_harvest_ready(service: PostHarvestService, context: RequestContext, batch_id: str) -> None:
+    if not _can_correct_locked_post_harvest(context):
+        raise HTTPException(403, "A supervisor, QA user, or administrator must approve final post-harvest reconciliation.")
+    try:
+        current = service.detail(context.organization_id, context.facility_id, batch_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    dry_weight = float(current.get("dry_weight_g") or 0)
+    if dry_weight <= 0:
+        raise HTTPException(422, "Record the canonical dry harvest weight before approving final post-harvest reconciliation.")
+    accounted = float(current.get("accounted_output_g") or 0)
+    discrepancy = round(dry_weight - accounted, 4)
+    if abs(discrepancy) > 1.0:
+        direction = "remaining" if discrepancy > 0 else "over-recorded"
+        raise HTTPException(
+            422,
+            f"Final post-harvest weights are not reconciled: {abs(discrepancy):,.2f} g {direction}. Record flower, trim, biomass, or waste until the dry weight reconciles within 1 g.",
+        )
+
+
 @production_router.get("/calendar-workspace")
 def calendar_workspace(
     context: RequestContext = Depends(get_request_context),
@@ -210,10 +230,11 @@ def transition_post_harvest(
     engine: Engine = Depends(get_engine),
 ):
     _guard_cultivation_write(context, engine)
-    if payload.stage.strip().casefold() == "ready" and not _can_correct_locked_post_harvest(context):
-        raise HTTPException(403, "A supervisor, QA user, or administrator must approve final post-harvest reconciliation.")
+    service = PostHarvestService(engine)
+    if payload.stage.strip().casefold() == "ready":
+        _guard_post_harvest_ready(service, context, batch_id)
     try:
-        return PostHarvestService(engine).transition(
+        return service.transition(
             context.organization_id,
             context.facility_id,
             batch_id,
