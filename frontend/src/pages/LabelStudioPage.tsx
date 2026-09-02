@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiDownload, apiGet, apiPost, apiPostForm } from "../lib/api";
 
@@ -16,6 +16,11 @@ type InventoryLabelSource = {
   lot_id:string;product_id:string;package_id:string;lot_code:string;product_name:string;sku:string;location:string;status:string;
   on_hand:number;inventory_unit:string;label:Record<string,string>;coa:CoaSource;qr:TraceabilityGraphic;barcode?:TraceabilityGraphic;raw_text:string;
   source_summary:{facility:string;license_number:string;license_type:string;qa_source:string;coa_source:string;coa_verification:string};
+};
+type InventoryLabelSummary = {
+  lot_id:string;product_id:string;package_id:string;lot_code:string;product_name:string;sku:string;location:string;status:string;on_hand:number;inventory_unit:string;
+  label?:Record<string,string>;coa?:CoaSource;qr?:TraceabilityGraphic;barcode?:TraceabilityGraphic;raw_text?:string;
+  source_summary?:InventoryLabelSource["source_summary"];
 };
 type CoaMutationResult = { coa_document:Record<string,unknown>;source:InventoryLabelSource };
 
@@ -73,24 +78,31 @@ const PREVIEW_FIELDS = [
 function fieldLabel(field:string){return FIELD_OPTIONS.find(item=>item[0]===field)?.[1]??field.replaceAll("_"," ");}
 function isPackagingOnlyRule(rule:Rule){return PACKAGING_ONLY_FIELDS.has(String(rule.field??"").trim().toLowerCase());}
 function templateFields(template:Template|null){const value=template?.layout?.fields;return Array.isArray(value)?value.filter((item):item is string=>typeof item==="string"&&!PACKAGING_ONLY_FIELDS.has(item.trim().toLowerCase())):[];}
-function sourceLabel(source:InventoryLabelSource){const packageRef=source.package_id||source.lot_code;return `${source.product_name} · ${source.lot_code}${packageRef&&packageRef!==source.lot_code?` · ${packageRef}`:""}`;}
+function sourceLabel(source:InventoryLabelSummary){const packageRef=source.package_id||source.lot_code;return `${source.product_name} · ${source.lot_code}${packageRef&&packageRef!==source.lot_code?` · ${packageRef}`:""}`;}
 function resultDisplay(result:CoaResult){if(result.value_text)return `${result.value_text}${result.units&&!result.value_text.includes(result.units)?` ${result.units}`:""}`;if(result.value==null)return "—";return `${result.value}${result.units?` ${result.units}`:""}`;}
 function resultNumeric(result:CoaResult){if(result.value!=null&&Number.isFinite(result.value))return result.value;const parsed=Number.parseFloat(String(result.value_text??"").replace(/[^0-9.-]+/g,""));return Number.isFinite(parsed)?parsed:Number.NEGATIVE_INFINITY;}
 function graphicDataUri(graphic:TraceabilityGraphic|undefined){return graphic?.svg?`data:image/svg+xml;charset=utf-8,${encodeURIComponent(graphic.svg)}`:"";}
 function isPassedCoa(source:InventoryLabelSource|null){return Boolean(source?.coa.available&&["pass","passed"].includes(String(source.coa.overall_status??"").trim().toLowerCase())&&source.coa.date_tested);}
 function testingFields(source:InventoryLabelSource){const next={...source.label};for(const field of PACKAGING_ONLY_FIELDS)delete next[field];return next;}
 function testingRawText(label:Record<string,string>){return ["product_name",...PREVIEW_FIELDS,"total_terpenes"].map(field=>String(label[field]??"").trim()).filter(Boolean).join("\n");}
+function isCompleteSummary(source:InventoryLabelSummary|undefined):source is InventoryLabelSource{return Boolean(source?.label&&source.coa&&source.qr&&source.source_summary);}
 
 export function LabelStudioPage(){
   const client=useQueryClient();
   const templates=useQuery({queryKey:["label-studio-templates"],queryFn:({signal})=>apiGet<Template[]>("/api/v1/control-tower/label-templates",signal)});
-  const inventory=useQuery({queryKey:["label-studio-inventory-sources"],queryFn:({signal})=>apiGet<InventoryLabelSource[]>("/api/v1/label-printing/inventory-sources",signal)});
+  const inventory=useQuery({queryKey:["label-studio-inventory-summaries"],queryFn:({signal})=>apiGet<InventoryLabelSummary[]>("/api/v1/label-printing/inventory-sources?summary=true",signal)});
   const [name,setName]=useState(""); const [jurisdiction,setJurisdiction]=useState(""); const [scope,setScope]=useState(""); const [source,setSource]=useState("");
   const [required,setRequired]=useState<string[]>(["product_name","net_contents","license_number","package_id","batch_number","lab_testing_state","test_date"]);
   const [selected,setSelected]=useState(""); const [inventoryLotId,setInventoryLotId]=useState(""); const [fields,setFields]=useState<Record<string,string>>({}); const [rawText,setRawText]=useState("");
   const [coaMessage,setCoaMessage]=useState("");
   const active=useMemo(()=>templates.data?.find(row=>row.id===selected)??null,[templates.data,selected]);
-  const activeSource=useMemo(()=>inventory.data?.find(row=>row.lot_id===inventoryLotId)??null,[inventory.data,inventoryLotId]);
+  const selectedSummary=useMemo(()=>inventory.data?.find(row=>row.lot_id===inventoryLotId),[inventory.data,inventoryLotId]);
+  const sourceDetail=useQuery({
+    queryKey:["label-studio-inventory-source",inventoryLotId],
+    queryFn:({signal})=>apiGet<InventoryLabelSource>(`/api/v1/label-printing/inventory-sources/${encodeURIComponent(inventoryLotId)}`,signal),
+    enabled:Boolean(inventoryLotId&&!isCompleteSummary(selectedSummary)),
+  });
+  const activeSource=useMemo<InventoryLabelSource|null>(()=>isCompleteSummary(selectedSummary)?selectedSummary:(sourceDetail.data??null),[selectedSummary,sourceDetail.data]);
   const inheritedCoa=useMemo(()=>Boolean(activeSource?.coa.available&&activeSource.coa.metrc_source_id&&activeSource.package_id&&activeSource.coa.metrc_source_id!==activeSource.package_id),[activeSource]);
   const rules=useMemo<Rule[]>(()=>required.map(field=>({key:`required-${field}`,kind:"required_field",field,severity:"fail" as const,message:`${fieldLabel(field)} is present.`,source})),[required,source]);
   const activeTestingRules=useMemo(()=>active?.rules.filter(rule=>!isPackagingOnlyRule(rule))??[],[active]);
@@ -114,9 +126,15 @@ export function LabelStudioPage(){
     });
   }});
   const syncSource=(next:InventoryLabelSource)=>{
-    client.setQueryData<InventoryLabelSource[]>(["label-studio-inventory-sources"],rows=>rows?.map(row=>row.lot_id===next.lot_id?next:row)??[next]);
+    client.setQueryData<InventoryLabelSource>(["label-studio-inventory-source",next.lot_id],next);
     const nextFields=testingFields(next);setFields(nextFields);setRawText(testingRawText(nextFields));review.reset();
   };
+  useEffect(()=>{
+    if(!activeSource||activeSource.lot_id!==inventoryLotId)return;
+    const nextFields=testingFields(activeSource);setFields(nextFields);setRawText(testingRawText(nextFields));review.reset();
+    const activeTemplates=templates.data?.filter(row=>row.status==="active")??[];
+    if(!selected&&activeTemplates.length===1)setSelected(activeTemplates[0].id);
+  },[activeSource,inventoryLotId,selected,templates.data]);
   const uploadCoa=useMutation({
     mutationFn:async(file:File)=>{if(!inventoryLotId)throw new Error("Choose an inventory batch first.");const body=new FormData();body.set("file",file);return apiPostForm<CoaMutationResult>(`/api/v1/label-printing/inventory-sources/${encodeURIComponent(inventoryLotId)}/coa`,body)},
     onSuccess:value=>{syncSource(value.source);setCoaMessage(value.source.coa.needs_confirmation?"COA parsed. The METRC tag was not readable in the PDF, so explicit confirmation is required before it becomes the label source.":"COA matched and is now the verified test source for this material.")},
@@ -127,12 +145,9 @@ export function LabelStudioPage(){
   });
   const toggle=(field:string)=>setRequired(current=>current.includes(field)?current.filter(value=>value!==field):[...current,field]);
   const chooseInventorySource=(lotId:string)=>{
-    setInventoryLotId(lotId);review.reset();setCoaMessage("");uploadCoa.reset();confirmCoa.reset();
-    const next=inventory.data?.find(row=>row.lot_id===lotId);
-    if(!next){setFields({});setRawText("");return;}
-    const nextFields=testingFields(next);setFields(nextFields);setRawText(testingRawText(nextFields));
+    setInventoryLotId(lotId);review.reset();setCoaMessage("");uploadCoa.reset();confirmCoa.reset();setFields({});setRawText("");
     const activeTemplates=templates.data?.filter(row=>row.status==="active")??[];
-    if(!selected&&activeTemplates.length===1)setSelected(activeTemplates[0].id);
+    if(lotId&&!selected&&activeTemplates.length===1)setSelected(activeTemplates[0].id);
   };
   const openCoa=async()=>{
     if(!activeSource?.coa.file_url)return;
@@ -148,6 +163,7 @@ export function LabelStudioPage(){
       {inventory.isLoading?<div className="state">Loading active-facility inventory…</div>:null}{inventory.isError?<div className="form-error">{inventory.error.message}</div>:null}
       {inventory.data?<div className="form-grid two"><label className="full">Inventory batch<select value={inventoryLotId} onChange={event=>chooseInventorySource(event.target.value)}><option value="">Choose a batch or package…</option>{inventory.data.map(row=><option value={row.lot_id} key={row.lot_id}>{sourceLabel(row)}</option>)}</select></label></div>:null}
       {inventory.data&&!inventory.data.length?<div className="info-banner">No on-hand inventory batches were found in this facility.</div>:null}
+      {inventoryLotId&&sourceDetail.isLoading&&!activeSource?<div className="state">Loading selected batch details…</div>:null}{sourceDetail.isError?<div className="form-error">{sourceDetail.error.message}</div>:null}
       {activeSource?<><div className="metrics four"><Metric label="Product" value={activeSource.product_name}/><Metric label="Batch" value={activeSource.lot_code}/><Metric label="On hand" value={`${activeSource.on_hand.toLocaleString()} ${activeSource.inventory_unit}`}/><Metric label="Location" value={activeSource.location||"—"}/></div><div className={missingRequired.length?"warning-banner":"success-banner"}><strong>{populatedCount} testing-label fields populated from inventory.</strong> {missingRequired.length?<>Required testing-label information still missing: {missingRequired.map(fieldLabel).join(", ")}. Complete or correct the source data before final release.</>:<>All fields required by the current testing-label rule set are populated.</>}</div><p className="section-note">Source: {activeSource.source_summary.facility}{activeSource.source_summary.license_number?` · ${activeSource.source_summary.license_number}`:""}{activeSource.source_summary.qa_source?` · QA ${activeSource.source_summary.qa_source}`:""}</p></>:null}
     </section>
 
