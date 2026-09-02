@@ -43,6 +43,26 @@ def test_label_studio_loads_lightweight_selector_then_selected_detail() -> None:
     assert "_barcode_svg" not in service.split("def list_summaries", 1)[1].split("def get_source", 1)[0]
 
 
+def test_product_master_list_batches_packaging_profiles() -> None:
+    router = _read("backend/app/routers/product_master.py")
+    list_body = router.split("def list_products", 1)[1].split("@router.post", 1)[0]
+
+    assert "packaging_by_product" in list_body
+    assert "ProductPackagingProfile.product_id.in_" in list_body
+    assert "session.get(ProductPackagingProfile, row.id)" not in list_body
+
+
+def test_retail_planning_batches_velocity_totals_without_per_product_sql() -> None:
+    service = _read("modules/retail_planning/service.py")
+    workspace = service.split("def workspace", 1)[1]
+
+    assert "window_groups" in workspace
+    assert "window_conditions" in workspace
+    assert "sold_by_product" in workspace
+    assert ".group_by(RetailSale.product_id)" in workspace
+    assert "RetailSale.product_id == product.id" not in workspace
+
+
 def test_performance_contract_is_part_of_engineering_requirements() -> None:
     plan = _read("PLAN.md")
     agents = _read("AGENTS.md")
