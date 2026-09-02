@@ -1,0 +1,48 @@
+name: Diagnose MA market schema
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/diagnose-ma-market.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect CCC market sources
+        run: |
+          python - <<'PY'
+          import json, re, urllib.request
+
+          def read(url):
+              req = urllib.request.Request(url, headers={"User-Agent":"DoobieLogic-Market-Diagnostic/1.0"})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return r.read()
+
+          page_url = "https://masscannabiscontrol.com/document/adult-use-sales-by-category/"
+          html = read(page_url).decode("utf-8", "replace")
+          urls = sorted(set(re.findall(r'https://masscannabiscontrol\.com/resource/[^\"\'<> ]+?\.json', html)))
+          print("DISCOVERED_RESOURCE_URLS")
+          for url in urls:
+              print(url)
+
+          for url in [
+              "https://masscannabiscontrol.com/resource/a_sales_au_gross.json",
+              "https://masscannabiscontrol.com/resource/a_sales_au_price_per_gram.json",
+          ] + urls:
+              try:
+                  payload = json.loads(read(url).decode("utf-8-sig"))
+              except Exception as exc:
+                  print("FETCH_ERROR", url, type(exc).__name__, str(exc)[:200])
+                  continue
+              print("DATASET", url, "rows", len(payload) if isinstance(payload, list) else "non-list")
+              if isinstance(payload, list) and payload:
+                  print("FIRST_KEYS", sorted(payload[0].keys()))
+                  print("FIRST_ROW", json.dumps(payload[0], sort_keys=True)[:2000])
+                  print("LAST_ROW", json.dumps(payload[-1], sort_keys=True)[:2000])
+          PY
