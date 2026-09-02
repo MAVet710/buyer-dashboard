@@ -91,7 +91,7 @@ export function LocationSettingsPage() {
   const canPrepare = Boolean(setup.data?.can_manage && setup.data?.metrc.configured && setup.data?.metrc.status === "connected" && setup.data?.metrc.trusted_mapping);
 
   return <div className="page">
-    <div className="eyebrow">SETTINGS & ADMINISTRATION / FACILITY SETUP</div>
+    <div className="eyebrow">DATA & SETTINGS / LOCATION · SETTINGS & ADMINISTRATION / FACILITY SETUP</div>
     <div className="page-heading"><div><h1>Facility Setup</h1><p>{context.data?.organization?.name ?? "Organization"} · {facility?.name ?? "Facility"}</p><p>Manage the operational structure that sits underneath inventory, cultivation, production, wholesale, and Metrc. Live provider data loads only when you request it.</p></div></div>
 
     {setup.isLoading ? <div className="state">Loading Facility Setup…</div> : null}
@@ -157,13 +157,14 @@ export function LocationSettingsPage() {
       {(["items", "production", "cultivation", "transportation"] as Tab[]).includes(tab) ? <PlannedSection section={setup.data.sections.find(section => section.key === tab)} actions={setup.data.actions.filter(action => resourcesForTab(tab).includes(action.resource))} /> : null}
 
       {tab === "receiving" ? <section className="inventory-panel location-settings-card">
-        <h3>Receiving Defaults</h3>
+        <h3>Location settings</h3>
+        <p>Inventory receiving</p>
         {settings.isLoading ? <div className="state">Loading receiving settings…</div> : null}
         {settings.isError ? <div className="state error">{settings.error.message}</div> : null}
         {settings.data ? <>
-          <label className="toggle location-toggle"><input type="checkbox" checked={autoMap} onChange={event => setAutoMap(event.target.checked)}/><span><strong>Auto-map products during receive</strong><small>Reuse only previously approved incoming-item → Catalog product mappings for this facility.</small></span></label>
+          <label className="toggle location-toggle"><input type="checkbox" checked={autoMap} onChange={event => setAutoMap(event.target.checked)}/><span><strong>Auto-map products during receive</strong><small>Reuse only previously approved incoming-item → Catalog product mappings for this facility.</small><small>Auto-map never guesses a new catalog relationship.</small></span></label>
           <label className="compact-field">Default receiving room<input value={room} placeholder="Receiving" onChange={event => setRoom(event.target.value)}/></label>
-          <button className="primary submit" type="button" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save receiving defaults"}</button>
+          <button className="primary submit" type="button" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save location settings"}</button>
           {save.isError ? <div className="state error">{save.error.message}</div> : null}
           {save.isSuccess ? <div className="success-banner">Receiving defaults saved.</div> : null}
         </> : null}
