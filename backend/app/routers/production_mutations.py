@@ -5,6 +5,7 @@ from sqlalchemy import Engine
 from modules.inventory_transfers.lineage import CrossFacilityLineageService
 from modules.inventory_transfers.recall import RecallBlastRadiusService
 from modules.material_lineage.harvest_guard import GuardedHarvestAllocationService
+from modules.production_erp.calendar_read_model import production_calendar_workspace
 from modules.production_erp.integrity_mutations import ProductionIntegrityMutationService
 from modules.production_erp.mutations import MUTATION_ACTIONS, ProductionMutationService
 from ..auth import (
@@ -81,6 +82,14 @@ def _guard_cultivation_write(context: RequestContext, engine: Engine) -> None:
     require_facility_capability(context, engine, "cultivation")
     if context.role.casefold() not in {"dev", "admin", "supervisor", "operator", "qa"}:
         raise HTTPException(403, "Your role does not allow cultivation inventory changes.")
+
+
+@production_router.get("/calendar-workspace")
+def calendar_workspace(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    return production_calendar_workspace(engine, context.organization_id, context.facility_id)
 
 
 @production_router.get("/mutation-actions")

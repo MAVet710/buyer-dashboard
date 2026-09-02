@@ -29,6 +29,26 @@ def test_production_queue_read_model_does_not_call_order_360_in_a_loop() -> None
     assert "order_360(" not in read_model
 
 
+def test_production_calendar_uses_bounded_workspace_without_changing_scheduler_contract() -> None:
+    page = _read("frontend/src/components/ProductionCalendar.tsx")
+    router = _read("backend/app/routers/production_mutations.py")
+    read_model = _read("modules/production_erp/calendar_read_model.py")
+
+    assert '/api/v1/production/calendar-workspace' in page
+    assert '/api/v1/coman-parity/workspace' not in page
+    assert '/api/v1/production/schedule' in page
+    assert '/schedule/preview' in page
+    assert 'accept_warnings: acknowledged' in page
+    assert '@production_router.get("/calendar-workspace")' in router
+    assert "production_calendar_workspace" in router
+    assert "ProductionOrder" in read_model
+    assert "FacilityMachine" in read_model
+    assert "MachineModel" in read_model
+    assert "InventoryLot" not in read_model
+    assert "InventoryTransaction" not in read_model
+    assert "CrewAvailability" not in read_model
+
+
 def test_label_studio_loads_lightweight_selector_then_selected_detail() -> None:
     page = _read("frontend/src/pages/LabelStudioPage.tsx")
     router = _read("backend/app/routers/label_printing.py")
