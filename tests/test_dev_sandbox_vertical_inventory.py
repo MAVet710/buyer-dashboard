@@ -228,6 +228,7 @@ def test_scaled_vertical_dev_inventory_replaces_only_dev_and_is_repeatable():
             assert meta["harvest_date"]
             assert meta["package_date"]
             assert meta["manufacture_date"]
+            assert meta["package_date_basis"] in {"lot_received_at", "harvest_date_fallback"}
             assert meta["cultivated_by"] == sandbox.name
             assert meta["packaged_by"] == sandbox.name
             assert meta["sold_by"] == sandbox.name
@@ -345,7 +346,7 @@ def test_dev_inventory_reset_refuses_non_dev_tenant_before_any_mutation():
     else:
         raise AssertionError("Non-DEV tenant reset must be rejected.")
 
-    refreshed = next(row for row in cultivation.list_plants(other.id, other.id) if row.id == plant.id)
+    refreshed = next(row for row in cultivation.list_plants(other.id, facility.id) if row.id == plant.id)
     assert refreshed.phase == "vegetative"
     assert coman.inventory_balance(other.id, lot.id) == 9
 

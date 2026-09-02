@@ -581,12 +581,13 @@ def annotate_dev_flower_label_metadata(
                 actor="dev-sandbox:ma-reference-lineage",
             )
             meta = _metadata(lot)
-            package_date = lot.received_at.date().isoformat() if lot.received_at else ""
+            package_date = lot.received_at.date().isoformat() if lot.received_at else harvest_date
             meta.update(
                 {
                     "harvest_date": harvest_date,
                     "manufacture_date": package_date,
                     "package_date": package_date,
+                    "package_date_basis": ("lot_received_at" if lot.received_at else "harvest_date_fallback"),
                     "cultivated_by": facility.name,
                     "cultivator_license": facility.license_number,
                     "packaged_by": facility.name,
