@@ -1,0 +1,93 @@
+name: Temporary OpenCOA MA Discovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/opencoa-ma-discovery.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-opencoa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect OpenCOA Massachusetts search surface
+        shell: python
+        run: |
+          import json
+          import re
+          from urllib.parse import urljoin
+          from urllib.request import Request, urlopen
+
+          BASE = 'https://opencoa.org'
+          URL = BASE + '/search?state=MA&refine=1'
+          headers = {'User-Agent': 'Mozilla/5.0 DoobieLogic DEV reference verification'}
+
+          def fetch(url):
+              req = Request(url, headers=headers)
+              with urlopen(req, timeout=30) as r:
+                  return r.geturl(), r.read().decode('utf-8', errors='replace')
+
+          resolved, html = fetch(URL)
+          print('RESOLVED=' + resolved)
+          print('HTML_LEN=' + str(len(html)))
+          print('TARGET_COUNTS=' + json.dumps({name: html.casefold().count(name.casefold()) for name in ('Animal Face','Gastro Pop','Gelato 41','Strawberry Cough')}))
+
+          hrefs = re.findall(r'href=[\"\']([^\"\']+)', html, flags=re.I)
+          coa_links = []
+          for href in hrefs:
+              absolute = urljoin(BASE, href)
+              if '/coa/' in absolute and absolute not in coa_links:
+                  coa_links.append(absolute)
+          print('COA_LINK_COUNT=' + str(len(coa_links)))
+          for link in coa_links[:100]:
+              print('COA_LINK=' + link)
+
+          # Surface forms, script URLs, and strings around likely API/search endpoints.
+          for pattern in (
+              r'<form[^>]*>[\s\S]{0,2500}?</form>',
+              r'<script[^>]+src=[\"\']([^\"\']+)',
+              r'[^\"\']{0,120}(?:api|search|supabase|algolia|meili|typesense)[^\"\']{0,240}',
+          ):
+              found = re.findall(pattern, html, flags=re.I)
+              print('PATTERN=' + pattern + ' COUNT=' + str(len(found)))
+              for item in found[:80]:
+                  text = item if isinstance(item, str) else repr(item)
+                  print('MATCH=' + re.sub(r'\s+', ' ', text)[:1200])
+
+          scripts = []
+          for src in re.findall(r'<script[^>]+src=[\"\']([^\"\']+)', html, flags=re.I):
+              absolute = urljoin(BASE, src)
+              if absolute not in scripts:
+                  scripts.append(absolute)
+          for src in scripts[:40]:
+              try:
+                  _, js = fetch(src)
+              except Exception as exc:
+                  print('SCRIPT_ERROR=' + json.dumps({'src':src,'error':repr(exc)}))
+                  continue
+              lowered = js.casefold()
+              if not any(token in lowered for token in ('search','supabase','api/','state=')):
+                  continue
+              print('SCRIPT=' + src + ' LEN=' + str(len(js)))
+              for token in ('supabase','/api/','search','state=','refine'):
+                  idx = lowered.find(token)
+                  if idx >= 0:
+                      print('SCRIPT_CONTEXT=' + re.sub(r'\s+', ' ', js[max(0,idx-500):idx+1800])[:2400])
+
+          # Try common query keys while preserving the MA filter and report whether target text/COA links change.
+          for target in ('Animal Face','Gastro Pop','Gelato 41','Strawberry Cough'):
+              from urllib.parse import urlencode
+              for key in ('q','query','search','searchString','strain','product'):
+                  u = BASE + '/search?' + urlencode({'state':'MA','refine':'1',key:target})
+                  try:
+                      final, body = fetch(u)
+                  except Exception as exc:
+                      print('QUERY_ERROR=' + json.dumps({'url':u,'error':repr(exc)}))
+                      continue
+                  body_cf = body.casefold()
+                  links = list(dict.fromkeys(urljoin(BASE,h) for h in re.findall(r'href=[\"\']([^\"\']+)', body, flags=re.I) if '/coa/' in h))
+                  print('QUERY_RESULT=' + json.dumps({'target':target,'key':key,'url':final,'target_count':body_cf.count(target.casefold()),'coa_links':links[:20]}))
