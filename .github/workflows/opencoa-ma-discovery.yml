@@ -14,30 +14,47 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Extract exact Massachusetts replacement COA details
+      - name: Find coherent Massachusetts flower replacement candidates
         shell: python
         run: |
           import json
-          import re
-          from html import unescape
           from urllib.request import Request, urlopen
 
-          records = {
-              'Animal Tsunami': 'https://opencoa.org/coa/019f4113-5e16-7299-b58c-5267d990c46e',
-              'Gelato': 'https://opencoa.org/coa/01a03db3-6c29-72b0-bc0d-32d1b2a5aab8',
-              'Lemon Cherry Gelato': 'https://opencoa.org/coa/019f4fda-a35e-72a7-b9e5-4437d31a7440',
-          }
+          BASE = 'https://opencoa.org'
+          ENDPOINT = BASE + '/api/internal/app/search'
           headers = {
               'User-Agent': 'Mozilla/5.0 DoobieLogic DEV reference verification',
-              'Referer': 'https://opencoa.org/search?state=MA&refine=1',
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+              'Origin': BASE,
+              'Referer': BASE + '/search?state=MA&refine=1',
           }
-          for strain, url in records.items():
-              req = Request(url, headers=headers)
-              with urlopen(req, timeout=30) as response:
-                  html = response.read().decode('utf-8', errors='replace')
-                  final_url = response.geturl()
-              text = unescape(re.sub(r'<[^>]+>', ' ', html))
-              text = re.sub(r'\s+', ' ', text).strip()
-              print('=== DETAIL ' + strain + ' ===')
-              print('FINAL_URL=' + final_url)
-              print('DETAIL_TEXT=' + json.dumps(text[:24000], ensure_ascii=False))
+          queries = [
+              ('Candy Sparqs', ['analysis_date:desc']),
+              ('Garlic', ['analysis_date:desc']),
+              ('Mac', ['analysis_date:desc']),
+              ('Runtz', ['analysis_date:desc']),
+              ('Kush', ['analysis_date:desc']),
+          ]
+          payload = {'queries': [{
+              'indexUid': 'coas',
+              'q': q,
+              'limit': 15,
+              'offset': 0,
+              'filter': ['lab_state_id = 4', 'product_type = "flower"'],
+              'sort': sort,
+          } for q, sort in queries]}
+          req = Request(ENDPOINT, data=json.dumps(payload).encode(), headers=headers, method='POST')
+          with urlopen(req, timeout=30) as response:
+              data = json.loads(response.read().decode())
+          for (q, _), result in zip(queries, data.get('results') or []):
+              print('=== SEARCH ' + q + ' ===')
+              for hit in result.get('hits') or []:
+                  clean = {key: hit.get(key) for key in (
+                      'id','url','identity_label','lot_number','batch_id_display','brand_display','client_name',
+                      'product_type','lab_name','lab_state_id','analysis_date','date_display','overall_status',
+                      'total_thc_percent','total_cbd_percent','total_cannabinoids_percent','total_terpenes_percent',
+                      'has_regulatory_hold'
+                  ) if hit.get(key) is not None}
+                  print('HIT=' + json.dumps(clean, ensure_ascii=False, sort_keys=True))
