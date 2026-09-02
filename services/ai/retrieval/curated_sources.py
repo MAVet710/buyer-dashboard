@@ -32,6 +32,42 @@ _CURATED_SOURCES: tuple[dict[str, Any], ...] = (
         "active": True,
     },
     {
+        "key": "cha_cultivation_learning_framework",
+        "title": "CHA-Informed Cultivation Learning Framework",
+        "source": "DoobieLogic framework informed by the public CHA database topic index",
+        "source_type": "reference_framework",
+        "authority_level": 6,
+        "jurisdiction": "",
+        "effective_date": "",
+        "version": "curated 2026-09-01",
+        "url": "https://cha.education/database/",
+        "format": "md",
+        "curated_path": "knowledge_sources/curated/cha_cultivation_learning_framework.md",
+        "agent_keys": ("cultivation",),
+        "facility_scope": True,
+        "global_scope": False,
+        "review_every_days": 90,
+        "active": True,
+    },
+    {
+        "key": "commercial_cannabis_cultivation_academy",
+        "title": "DoobieLogic Commercial Cannabis Cultivation Academy",
+        "source": "DoobieLogic synthesis of peer-reviewed cannabis research and university/extension education",
+        "source_type": "research_synthesis",
+        "authority_level": 4,
+        "jurisdiction": "",
+        "effective_date": "",
+        "version": "curated 2026-09-01",
+        "url": "https://hemp.cals.cornell.edu/resources/educational-modules/",
+        "format": "md",
+        "curated_path": "knowledge_sources/curated/commercial_cannabis_cultivation_academy.md",
+        "agent_keys": ("cultivation",),
+        "facility_scope": True,
+        "global_scope": False,
+        "review_every_days": 60,
+        "active": True,
+    },
+    {
         "key": "professional_agent_evidence_framework",
         "title": "DoobieLogic Professional Agent Evidence Framework",
         "source": "DoobieLogic independent professional-evidence framework",
@@ -194,7 +230,7 @@ def _source_path(source: dict[str, Any]) -> Path:
 def public_curated_catalog() -> dict[str, Any]:
     return {
         "schema_version": 1,
-        "reviewed_at": "2026-09-01",
+        "reviewed_at": "2026-09-02",
         "sources": [
             {
                 key: source.get(key)
