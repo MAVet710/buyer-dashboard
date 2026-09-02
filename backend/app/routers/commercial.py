@@ -1,13 +1,14 @@
+from collections import defaultdict
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import Facility
+from modules.coman.models import CommercialOrder, CommercialOrderLine, Facility
 from modules.coman.repository import ComanRepository
 from modules.commercial.analytics import commercial_dashboard_metrics, fulfillment_by_order, order_value_by_id
-from modules.commercial.repository import CommercialRepository
+from modules.commercial.repository import CommercialRepository, OPEN_ORDER_STATUSES
 from modules.commercial_finance.service import CommercialFinanceService
 from ..auth import RequestContext, get_request_context, get_commercial_context
 from ..database import get_engine
@@ -40,14 +41,37 @@ class CustomerPriceCreate(BaseModel):
 def _repo(engine: Engine) -> CommercialRepository:
     return CommercialRepository(engine)
 
+
+def _scoped_order_lines(
+    engine: Engine,
+    organization_id: str,
+    facility_id: str,
+    *,
+    open_only: bool = False,
+) -> list[CommercialOrderLine]:
+    """Load visible facility order lines in one join without an expanding ID bind list."""
+    with Session(engine) as session:
+        statement = (
+            select(CommercialOrderLine)
+            .join(CommercialOrder, CommercialOrder.id == CommercialOrderLine.commercial_order_id)
+            .where(
+                CommercialOrderLine.organization_id == organization_id,
+                CommercialOrder.organization_id == organization_id,
+                CommercialOrder.facility_id == facility_id,
+            )
+            .order_by(CommercialOrderLine.commercial_order_id, CommercialOrderLine.position)
+        )
+        if open_only:
+            statement = statement.where(CommercialOrder.status.in_(OPEN_ORDER_STATUSES))
+        return list(session.scalars(statement))
+
 @router.get("/workspace")
 def workspace(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     commercial = _repo(engine)
     coman = ComanRepository(engine)
     partners = commercial.list_trade_partners(context.organization_id)
     orders = commercial.list_orders(context.organization_id, context.facility_id)
-    order_ids = {row.id for row in orders}
-    lines = [row for row in commercial.list_order_lines(context.organization_id) if row.commercial_order_id in order_ids]
+    lines = _scoped_order_lines(engine, context.organization_id, context.facility_id)
     products = coman.list_products(context.organization_id)
     lots = coman.list_inventory_lots(context.organization_id, context.facility_id)
     transactions = commercial.list_commercial_transactions(context.organization_id, context.facility_id)
@@ -105,9 +129,18 @@ def create_partner(payload: PartnerCreate, context: RequestContext = Depends(get
 def orders(open_only: bool = False, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     repo = _repo(engine)
     partner_names = {row.id: row.name for row in repo.list_trade_partners(context.organization_id, active_only=False)}
+    order_rows = repo.list_orders(context.organization_id, context.facility_id, open_only=open_only)
+    lines_by_order: dict[str, list[CommercialOrderLine]] = defaultdict(list)
+    for line in _scoped_order_lines(
+        engine,
+        context.organization_id,
+        context.facility_id,
+        open_only=open_only,
+    ):
+        lines_by_order[line.commercial_order_id].append(line)
     result = []
-    for order in repo.list_orders(context.organization_id, context.facility_id, open_only=open_only):
-        lines = repo.list_order_lines(context.organization_id, order_id=order.id)
+    for order in order_rows:
+        lines = lines_by_order.get(order.id, [])
         result.append({
             **{key: getattr(order, key) for key in ("id", "order_number", "order_type", "order_date", "due_at", "status", "payment_status", "currency", "external_reference", "notes")},
             "partner_name": partner_names.get(order.partner_id, "Unknown partner"),
