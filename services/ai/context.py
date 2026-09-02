@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from services.agent_education import education_instructions
 from services.agent_registry import AgentProfile
 
 
@@ -35,7 +36,8 @@ def system_prompt(
     action_tool_names: tuple[str, ...] = (),
 ) -> str:
     focus = ", ".join(profile.focus)
-    playbook = "\n".join(f"- {instruction}" for instruction in profile.operating_instructions)
+    combined_playbook = (*profile.operating_instructions, *education_instructions(profile.key))
+    playbook = "\n".join(f"- {instruction}" for instruction in combined_playbook)
     playbook_section = f"\nSpecialist operating playbook:\n{playbook}\n" if playbook else ""
     compliance = (
         "Regulatory claims require retrieved authoritative sources. Never declare compliant/noncompliant from model memory. "
