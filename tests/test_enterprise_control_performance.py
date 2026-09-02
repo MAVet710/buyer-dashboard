@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
@@ -18,6 +19,9 @@ from modules.coman.models import (
     ProductionOrder,
     TradePartner,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _engine():
@@ -49,6 +53,8 @@ def _seed(engine):
         organization = Organization(name="Performance Org", slug="performance-org")
         first = Facility(organization=organization, name="Alpha", code="ALPHA")
         second = Facility(organization=organization, name="Bravo", code="BRAVO")
+        session.add_all([organization, first, second])
+        session.flush()
         product = Product(
             organization_id=organization.id,
             sku="FLOWER-1",
@@ -62,13 +68,8 @@ def _seed(engine):
             name="Performance Partner",
             partner_type="both",
         )
-        session.add_all([organization, first, second])
-        session.flush()
-        product.organization_id = organization.id
-        partner.organization_id = organization.id
         session.add_all([product, partner])
         session.flush()
-
         first_lot = InventoryLot(
             organization_id=organization.id,
             facility_id=first.id,
@@ -210,14 +211,32 @@ def test_enterprise_core_projection_stays_at_three_sql_reads_as_facilities_grow(
     assert metrics["production"][second_id] == {"open": 1, "units": 250}
 
 
-def test_enterprise_router_uses_batched_core_projection_not_per_facility_repositories() -> None:
-    source = (
-        __import__("pathlib").Path(__file__).resolve().parents[1]
-        / "backend/app/routers/enterprise_control.py"
-    ).read_text(encoding="utf-8")
+def test_enterprise_router_uses_batched_read_models_not_per_facility_repositories() -> None:
+    router = (ROOT / "backend/app/routers/enterprise_control.py").read_text(encoding="utf-8")
 
-    assert "organization_facility_metrics" in source
-    assert "list_inventory_lots" not in source
-    assert "inventory_balance" not in source
-    assert "list_orders" not in source
-    assert "list_production_orders" not in source
+    assert "organization_facility_metrics" in router
+    assert "organization_secondary_metrics" in router
+    for forbidden in (
+        "list_inventory_lots",
+        "inventory_balance",
+        "list_orders",
+        "list_production_orders",
+        "trace.summary(",
+        "list_deviations(",
+        "list_label_reviews(",
+        "ar_summary(",
+    ):
+        assert forbidden not in router
+
+
+def test_enterprise_secondary_projection_preserves_bounded_legacy_windows() -> None:
+    read_model = (ROOT / "backend/app/services/enterprise_control_fast.py").read_text(encoding="utf-8")
+
+    assert "partition_by=TraceabilityTransaction.facility_id" in read_model
+    assert "order_by=TraceabilityTransaction.requested_at.desc()" in read_model
+    assert "ranked_trace.c.row_number <= 1000" in read_model
+    assert "group_by(ranked_trace.c.facility_id, ranked_trace.c.status)" in read_model
+    assert "group_by(SOPDeviation.facility_id)" in read_model
+    assert "partition_by=LabelReview.facility_id" in read_model
+    assert "ranked_labels.c.row_number <= 100" in read_model
+    assert "group_by(CommercialInvoice.facility_id)" in read_model

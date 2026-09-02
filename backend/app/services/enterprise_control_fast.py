@@ -1,21 +1,24 @@
-"""Bounded organization-wide read model for the Enterprise Control Tower.
+"""Bounded organization-wide read models for the Enterprise Control Tower.
 
-The control tower ranks every active facility at once. Inventory, commercial
-orders, and production orders therefore belong in organization-wide grouped
-reads, not one query per facility or one hydrated ORM row per source record.
-Keep the projection small and leave the existing traceability, compliance, and
-finance services as the source of truth for those domain summaries.
+The control tower ranks every active facility at once. Facility-level summary
+facts therefore belong in organization-wide grouped reads, not one repository
+call per facility or one hydrated ORM row per source record. The projections
+below remain read-models over canonical tables and do not create a second
+source of truth.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import Engine, and_, case, func, select
+from sqlalchemy import Engine, and_, case, func, select, update
 from sqlalchemy.orm import Session
 
 from modules.coman.models import CommercialOrder, InventoryLot, InventoryTransaction, Product, ProductionOrder
 from modules.commercial.repository import OPEN_ORDER_STATUSES
+from modules.commercial_finance.models import CommercialInvoice
+from modules.operational_moats.models import LabelReview, SOPDeviation
+from modules.traceability.models import TraceabilityTransaction
 
 
 def organization_facility_metrics(
@@ -130,3 +133,156 @@ def organization_facility_metrics(
         for facility_id, open_count, units in production_rows
     }
     return {"inventory": inventory, "orders": orders, "production": production}
+
+
+def organization_secondary_metrics(
+    engine: Engine,
+    organization_id: str,
+    *,
+    today: date | None = None,
+) -> dict[str, dict[str, dict[str, float | int]]]:
+    """Return traceability/compliance/A-R summaries in four fixed SELECTs.
+
+    The legacy control-tower path loaded four domain collections separately for
+    every facility. This projection preserves the existing summary semantics,
+    including the latest-1,000 traceability window, latest-100 label review
+    window, and overdue-invoice status maintenance, while making query count
+    independent of facility count.
+    """
+    anchor_date = today or date.today()
+
+    ranked_trace = (
+        select(
+            TraceabilityTransaction.facility_id.label("facility_id"),
+            TraceabilityTransaction.status.label("status"),
+            func.row_number()
+            .over(
+                partition_by=TraceabilityTransaction.facility_id,
+                order_by=TraceabilityTransaction.requested_at.desc(),
+            )
+            .label("row_number"),
+        )
+        .where(TraceabilityTransaction.organization_id == organization_id)
+        .subquery()
+    )
+    ranked_labels = (
+        select(
+            LabelReview.facility_id.label("facility_id"),
+            LabelReview.status.label("status"),
+            func.row_number()
+            .over(
+                partition_by=LabelReview.facility_id,
+                order_by=LabelReview.reviewed_at.desc(),
+            )
+            .label("row_number"),
+        )
+        .where(LabelReview.organization_id == organization_id)
+        .subquery()
+    )
+
+    with Session(engine) as session:
+        trace_rows = session.execute(
+            select(
+                ranked_trace.c.facility_id,
+                ranked_trace.c.status,
+                func.count().label("status_count"),
+            )
+            .where(ranked_trace.c.row_number <= 1000)
+            .group_by(ranked_trace.c.facility_id, ranked_trace.c.status)
+        ).all()
+
+        deviation_rows = session.execute(
+            select(
+                SOPDeviation.facility_id,
+                func.count(SOPDeviation.id).label("open_count"),
+                func.coalesce(
+                    func.sum(case((SOPDeviation.severity == "critical", 1), else_=0)),
+                    0,
+                ).label("critical_count"),
+                func.coalesce(
+                    func.sum(case((SOPDeviation.severity == "high", 1), else_=0)),
+                    0,
+                ).label("high_count"),
+            )
+            .where(
+                SOPDeviation.organization_id == organization_id,
+                SOPDeviation.status.in_(("open", "investigating")),
+            )
+            .group_by(SOPDeviation.facility_id)
+        ).all()
+
+        label_rows = session.execute(
+            select(
+                ranked_labels.c.facility_id,
+                func.coalesce(
+                    func.sum(case((ranked_labels.c.status == "fail", 1), else_=0)),
+                    0,
+                ).label("failures"),
+            )
+            .where(ranked_labels.c.row_number <= 100)
+            .group_by(ranked_labels.c.facility_id)
+        ).all()
+
+        session.execute(
+            update(CommercialInvoice)
+            .where(
+                CommercialInvoice.organization_id == organization_id,
+                CommercialInvoice.status.in_(("sent", "partial")),
+                CommercialInvoice.due_date < anchor_date,
+            )
+            .values(status="overdue")
+        )
+        finance_rows = session.execute(
+            select(
+                CommercialInvoice.facility_id,
+                func.coalesce(func.sum(CommercialInvoice.balance_usd), 0.0).label("total_ar"),
+            )
+            .where(
+                CommercialInvoice.organization_id == organization_id,
+                CommercialInvoice.status.not_in(("paid", "void")),
+            )
+            .group_by(CommercialInvoice.facility_id)
+        ).all()
+        session.commit()
+
+    traceability: dict[str, dict[str, int]] = {}
+    for facility_id, status, count in trace_rows:
+        row = traceability.setdefault(str(facility_id), {})
+        row[str(status)] = int(count or 0)
+    for row in traceability.values():
+        row["total"] = sum(
+            value for key, value in row.items() if key not in {"total", "needs_reconciliation", "in_flight"}
+        )
+        row["needs_reconciliation"] = int(row.get("rejected", 0)) + int(
+            row.get("reconciliation_required", 0)
+        )
+        row["in_flight"] = sum(
+            int(row.get(status, 0))
+            for status in ("requested", "validated", "queued", "submitted", "accepted")
+        )
+
+    compliance = {
+        str(facility_id): {
+            "open_sop_deviations": int(open_count or 0),
+            "critical_sop": int(critical_count or 0),
+            "high_sop": int(high_count or 0),
+            "label_failures": 0,
+        }
+        for facility_id, open_count, critical_count, high_count in deviation_rows
+    }
+    for facility_id, failures in label_rows:
+        compliance.setdefault(
+            str(facility_id),
+            {
+                "open_sop_deviations": 0,
+                "critical_sop": 0,
+                "high_sop": 0,
+                "label_failures": 0,
+            },
+        )["label_failures"] = int(failures or 0)
+
+    finance = {
+        str(facility_id): {"ar": float(total_ar or 0.0)}
+        for facility_id, total_ar in finance_rows
+    }
+    return {"traceability": traceability, "compliance": compliance, "finance": finance}

@@ -5,39 +5,44 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import Facility
-from modules.commercial_finance.service import CommercialFinanceService
-from modules.operational_moats.service import OperationalMoatService
-from modules.traceability.backoffice import TraceabilityBackofficeRepository
 from ..auth import RequestContext, get_request_context
 from ..database import get_engine
-from ..services.enterprise_control_fast import organization_facility_metrics
+from ..services.enterprise_control_fast import organization_facility_metrics, organization_secondary_metrics
 
 router = APIRouter(prefix="/enterprise", tags=["enterprise-control"])
 
 
 @router.get("/control-tower")
 def enterprise_control_tower(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    finance = CommercialFinanceService(engine)
-    moat = OperationalMoatService(engine)
-    trace = TraceabilityBackofficeRepository(engine)
     with Session(engine) as session:
         facilities = list(session.scalars(select(Facility).where(Facility.organization_id == context.organization_id, Facility.active.is_(True)).order_by(Facility.name)))
     core = organization_facility_metrics(engine, context.organization_id)
+    secondary = organization_secondary_metrics(engine, context.organization_id)
     rows = []
     for facility in facilities:
         inventory = core["inventory"].get(facility.id, {"positive_lots": 0, "value": 0.0})
         order_metrics = core["orders"].get(facility.id, {"sales": 0, "purchase": 0, "overdue": 0})
         production_metrics = core["production"].get(facility.id, {"open": 0, "units": 0})
-        trace_summary = trace.summary(context.organization_id, facility.id)
-        deviations = moat.list_deviations(context.organization_id, facility.id)
-        label_reviews = moat.list_label_reviews(context.organization_id, facility.id, limit=100)
-        ar = finance.ar_summary(context.organization_id, facility.id)
+        trace_summary = secondary["traceability"].get(
+            facility.id,
+            {"total": 0, "needs_reconciliation": 0, "in_flight": 0},
+        )
+        compliance = secondary["compliance"].get(
+            facility.id,
+            {
+                "open_sop_deviations": 0,
+                "critical_sop": 0,
+                "high_sop": 0,
+                "label_failures": 0,
+            },
+        )
+        finance = secondary["finance"].get(facility.id, {"ar": 0.0})
         risk_score = (
             int(trace_summary.get("needs_reconciliation", 0)) * 8
             + int(order_metrics["overdue"]) * 5
-            + sum(row.severity == "critical" for row in deviations) * 8
-            + sum(row.severity == "high" for row in deviations) * 5
-            + sum(row.status == "fail" for row in label_reviews) * 3
+            + int(compliance["critical_sop"]) * 8
+            + int(compliance["high_sop"]) * 5
+            + int(compliance["label_failures"]) * 3
             + int(production_metrics["open"])
         )
         rows.append({
@@ -59,12 +64,12 @@ def enterprise_control_tower(context: RequestContext = Depends(get_request_conte
             "production": {"open": int(production_metrics["open"]), "units": int(production_metrics["units"])},
             "traceability": trace_summary,
             "compliance": {
-                "open_sop_deviations": len(deviations),
-                "critical_sop": sum(row.severity == "critical" for row in deviations),
-                "high_sop": sum(row.severity == "high" for row in deviations),
-                "label_failures": sum(row.status == "fail" for row in label_reviews),
+                "open_sop_deviations": int(compliance["open_sop_deviations"]),
+                "critical_sop": int(compliance["critical_sop"]),
+                "high_sop": int(compliance["high_sop"]),
+                "label_failures": int(compliance["label_failures"]),
             },
-            "finance": {"ar": float(ar.get("total_ar", 0.0))},
+            "finance": {"ar": float(finance["ar"])},
             "risk_score": risk_score,
         })
     rows.sort(key=lambda row: (row["risk_score"], row["finance"]["ar"], row["inventory"]["value"]), reverse=True)
