@@ -221,3 +221,20 @@ def test_enterprise_router_uses_batched_core_projection_not_per_facility_reposit
     assert "inventory_balance" not in source
     assert "list_orders" not in source
     assert "list_production_orders" not in source
+
+
+def test_enterprise_router_batches_secondary_domains_instead_of_querying_each_facility() -> None:
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    router = (root / "backend/app/routers/enterprise_control.py").read_text(encoding="utf-8")
+    read_model = (root / "backend/app/services/enterprise_control_fast.py").read_text(encoding="utf-8")
+
+    assert "organization_secondary_metrics" in router
+    assert "trace.summary(" not in router
+    assert "list_deviations(" not in router
+    assert "list_label_reviews(" not in router
+    assert "ar_summary(" not in router
+    assert "group_by(TraceabilityTransaction.facility_id, TraceabilityTransaction.status)" in read_model
+    assert "group_by(SOPDeviation.facility_id)" in read_model
+    assert "partition_by=LabelReview.facility_id" in read_model
+    assert "ranked_labels.c.row_number <= 100" in read_model
+    assert "group_by(CommercialInvoice.facility_id)" in read_model
