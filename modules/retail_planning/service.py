@@ -4,7 +4,7 @@ import json
 import math
 from datetime import timedelta
 
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, and_, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from modules.coman.models import AuditEvent, CommercialOrder, CommercialOrderLine, InventoryLot, InventoryTransaction, Product, RetailSale, TradePartner, utc_now
@@ -57,10 +57,39 @@ class RetailPlanningService:
             committed_orders = [row for row in open_orders if row.status in {"confirmed", "partially_fulfilled"}]
             if committed_orders:
                 for line in session.scalars(select(CommercialOrderLine).where(CommercialOrderLine.commercial_order_id.in_([row.id for row in committed_orders]))): inbound[line.product_id] = inbound.get(line.product_id, 0) + max(0, float(line.quantity) - float(line.fulfilled_quantity))
+
+            window_groups: dict[int, list[str]] = {}
+            for product in products:
+                policy = policies.get(product.id)
+                window = int(policy.velocity_window_days if policy else 30)
+                window_groups.setdefault(window, []).append(product.id)
+            sold_by_product: dict[str, float] = {}
+            if window_groups:
+                window_conditions = [
+                    and_(
+                        RetailSale.product_id.in_(ids),
+                        RetailSale.sold_at >= now - timedelta(days=window),
+                    )
+                    for window, ids in window_groups.items()
+                ]
+                sold_by_product = {
+                    product_id: float(quantity or 0)
+                    for product_id, quantity in session.execute(
+                        select(RetailSale.product_id, func.coalesce(func.sum(RetailSale.quantity), 0.0))
+                        .where(
+                            RetailSale.organization_id == organization_id,
+                            RetailSale.facility_id == facility_id,
+                            RetailSale.sold_at <= now,
+                            or_(*window_conditions),
+                        )
+                        .group_by(RetailSale.product_id)
+                    ).all()
+                }
+
             recommendations = []
             for product in products:
                 policy = policies.get(product.id); window = policy.velocity_window_days if policy else 30
-                sold = float(session.scalar(select(func.coalesce(func.sum(RetailSale.quantity), 0.0)).where(RetailSale.organization_id == organization_id, RetailSale.facility_id == facility_id, RetailSale.product_id == product.id, RetailSale.sold_at >= now - timedelta(days=window), RetailSale.sold_at <= now)) or 0)
+                sold = float(sold_by_product.get(product.id, 0))
                 velocity = sold / window; on_hand = float(balances.get(product.id, 0)); incoming = inbound.get(product.id, 0); target_doh = policy.target_doh if policy else 30.0; safety = policy.safety_stock if policy else 0.0; reorder_point = policy.reorder_point if policy else 0.0
                 raw = max(0.0, velocity * target_doh + safety - on_hand - incoming)
                 moq = policy.minimum_order_quantity if policy else 0.0; case_pack = policy.case_pack if policy else 0.0
