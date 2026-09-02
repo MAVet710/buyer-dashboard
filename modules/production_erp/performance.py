@@ -202,6 +202,7 @@ def _read_model(
                 else ("Material shortage" if requirements and not reservations else (standard_attention or "Normal")),
             }
         )
+        qa_ready = True if standard is None or not bool(standard.qa_required) else qa_passed
         details.append(
             {
                 "order": {
@@ -226,7 +227,7 @@ def _read_model(
                     "expected_cycle_hours": expected_cycle,
                     "resource_category": standard.resource_category if standard else "",
                     "qa_required": bool(standard.qa_required) if standard else False,
-                    "qa_ready": (not bool(standard.qa_required)) or qa_passed if standard else True,
+                    "qa_ready": qa_ready,
                     "compliance_checkpoint": standard.compliance_checkpoint if standard else "",
                     "standard_configured": standard is not None,
                 },
@@ -273,8 +274,8 @@ def planning_snapshot(engine: Engine, organization_id: str, facility_id: str, *,
                 select(CrewAvailability).where(
                     CrewAvailability.organization_id == organization_id,
                     CrewAvailability.facility_id == facility_id,
-                    CrewAvailability.work_date == date.today(),
-                )
+                    CrewAvailability.work_date >= date.today(),
+                ).order_by(CrewAvailability.work_date, CrewAvailability.shift_name)
             )
         )
 
