@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
+from time import monotonic
 from typing import Any, Iterable
 
 import pandas as pd
@@ -14,6 +15,7 @@ _CATEGORY_ALIASES = {
     "flower": "Flower",
     "usable marijuana": "Flower",
     "raw pre-rolls": "Pre-Rolls",
+    "raw pre-roll": "Pre-Rolls",
     "pre-roll": "Pre-Rolls",
     "pre-rolls": "Pre-Rolls",
     "preroll": "Pre-Rolls",
@@ -41,6 +43,8 @@ _CATEGORY_KEYS = ("ProductCategory", "ProductType", "Category", "category", "pro
 _SALES_KEYS = ("GrossSales", "GrossSalesTotal", "Sales", "TotalSales", "sales", "gross_sales", "gross_sales_total")
 _UNITS_KEYS = ("Quantity", "Units", "UnitsSold", "UnitCount", "quantity", "units", "units_sold")
 _UPDATED_KEYS = ("CCCLastUpdated", "LastUpdated", "last_updated", "updated_at")
+_CACHE_TTL_SECONDS = 6 * 60 * 60
+_DATASET_CACHE: dict[tuple[type, str], tuple[float, MarketDataset]] = {}
 
 
 def _pick(row: dict[str, Any], keys: Iterable[str]) -> Any:
@@ -51,6 +55,17 @@ def _pick(row: dict[str, Any], keys: Iterable[str]) -> Any:
     for key in keys:
         value = folded.get(key.casefold())
         if value not in (None, ""):
+            return value
+    return None
+
+
+def _pick_fuzzy(row: dict[str, Any], keys: Iterable[str], required_tokens: tuple[str, ...]) -> Any:
+    exact = _pick(row, keys)
+    if exact not in (None, ""):
+        return exact
+    for key, value in row.items():
+        normalized = str(key).casefold().replace("_", "").replace(" ", "")
+        if all(token in normalized for token in required_tokens) and value not in (None, ""):
             return value
     return None
 
@@ -84,6 +99,17 @@ def normalize_category(value: Any) -> str:
     return raw.title() if raw else "Unknown"
 
 
+def _fetch_cached(provider: MassachusettsCCCProvider, kind: str) -> MarketDataset:
+    key = (type(provider), kind)
+    cached = _DATASET_CACHE.get(key)
+    now = monotonic()
+    if cached and now - cached[0] < _CACHE_TTL_SECONDS:
+        return cached[1]
+    dataset = provider.fetch_sales() if kind == "sales" else provider.fetch_prices()
+    _DATASET_CACHE[key] = (now, dataset)
+    return dataset
+
+
 def _window_growth(points: list[tuple[date, float]], lookback_days: int) -> float | None:
     if not points:
         return None
@@ -100,8 +126,14 @@ def _window_growth(points: list[tuple[date, float]], lookback_days: int) -> floa
 def _price_summary(dataset: MarketDataset) -> dict[str, Any]:
     rows: list[tuple[date, float, str | None]] = []
     for row in dataset.rows:
-        month = _date(_pick(row, ("YearMonth", "year_month", "Month", "month")))
-        value = _number(_pick(row, ("AverageRetailPriceperGm", "AverageRetailPricePerGram", "price_per_gram")))
+        month = _date(_pick_fuzzy(row, ("YearMonth", "year_month", "Month", "month"), ("month",)))
+        value = _number(
+            _pick_fuzzy(
+                row,
+                ("AverageRetailPriceperGm", "AverageRetailPricePerGram", "price_per_gram"),
+                ("price", "gm"),
+            )
+        )
         if month and value > 0:
             rows.append((month, value, _pick(row, _UPDATED_KEYS)))
     rows.sort(key=lambda item: item[0])
@@ -125,25 +157,25 @@ def _sales_summary(dataset: MarketDataset, lookback_days: int) -> tuple[dict[str
     latest_date: date | None = None
 
     for row in dataset.rows:
-        day = _date(_pick(row, _DATE_KEYS))
+        day = _date(_pick_fuzzy(row, _DATE_KEYS, ("date",)))
         if not day:
             continue
-        sales = _number(_pick(row, _SALES_KEYS))
-        units = _number(_pick(row, _UNITS_KEYS))
+        sales = _number(_pick_fuzzy(row, _SALES_KEYS, ("sales",)))
+        units = _number(_pick_fuzzy(row, _UNITS_KEYS, ("unit",)))
         value = sales if sales > 0 else units
         if value <= 0:
             continue
-        category = normalize_category(_pick(row, _CATEGORY_KEYS))
+        category_value = _pick(row, _CATEGORY_KEYS)
+        if category_value in (None, ""):
+            category_value = _pick_fuzzy(row, _CATEGORY_KEYS, ("product", "type"))
+        category = normalize_category(category_value)
         statewide.append((day, value))
         by_category[category].append((day, value))
         latest_date = day if latest_date is None or day > latest_date else latest_date
         updated_at = str(_pick(row, _UPDATED_KEYS) or updated_at or "") or None
 
     market_categories = {
-        category: {
-            "category": category,
-            "market_growth": _window_growth(points, lookback_days),
-        }
+        category: {"category": category, "market_growth": _window_growth(points, lookback_days)}
         for category, points in by_category.items()
         if category != "Unknown"
     }
@@ -158,18 +190,20 @@ def _sales_summary(dataset: MarketDataset, lookback_days: int) -> tuple[dict[str
 
 
 def _store_categories(store_rows: list[dict[str, Any]], lookback_days: int) -> dict[str, dict[str, Any]]:
-    result: dict[str, dict[str, Any]] = {}
+    totals: dict[str, dict[str, float]] = defaultdict(lambda: {"units": 0.0, "revenue": 0.0})
     for row in store_rows:
         category = normalize_category(row.get("category") or row.get("subcategory") or row.get("mastercategory"))
-        units = _number(row.get("units_sold") or row.get("unitssold"))
-        revenue = _number(row.get("revenue") or row.get("net_sales"))
-        result[category] = {
+        totals[category]["units"] += _number(row.get("units_sold") or row.get("unitssold"))
+        totals[category]["revenue"] += _number(row.get("revenue") or row.get("net_sales"))
+    return {
+        category: {
             "category": category,
-            "store_units_sold": units,
-            "store_revenue": revenue,
-            "store_daily_units": units / max(lookback_days, 1),
+            "store_units_sold": values["units"],
+            "store_revenue": values["revenue"],
+            "store_daily_units": values["units"] / max(lookback_days, 1),
         }
-    return result
+        for category, values in totals.items()
+    }
 
 
 def _signal(*, market_growth: float | None, days_of_cover: float | None, target_doh: int = 21) -> str:
@@ -188,9 +222,13 @@ def _category_days_of_cover(product_rows: list[dict[str, Any]]) -> dict[str, flo
     grouped: dict[str, list[float]] = defaultdict(list)
     for row in product_rows:
         category = normalize_category(row.get("category") or row.get("subcategory") or row.get("mastercategory"))
-        raw = row.get("days_of_cover") if "days_of_cover" in row else row.get("daysonhand")
+        raw = row.get("days_of_cover")
+        if raw in (None, ""):
+            raw = row.get("days_of_supply")
+        if raw in (None, ""):
+            raw = row.get("daysonhand")
         value = _number(raw)
-        if value > 0:
+        if value > 0 and value < 9999:
             grouped[category].append(value)
     return {category: sum(values) / len(values) for category, values in grouped.items() if values}
 
@@ -204,8 +242,8 @@ def build_market_intelligence(
 ) -> dict[str, Any]:
     provider = provider or MassachusettsCCCProvider()
     try:
-        sales_dataset = provider.fetch_sales()
-        price_dataset = provider.fetch_prices()
+        sales_dataset = _fetch_cached(provider, "sales")
+        price_dataset = _fetch_cached(provider, "prices")
         statewide, market_categories = _sales_summary(sales_dataset, lookback_days)
         price = _price_summary(price_dataset)
     except Exception as exc:
