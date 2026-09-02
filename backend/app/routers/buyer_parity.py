@@ -19,6 +19,7 @@ from delivery_impact import (
     parse_sales_report_bytes,
 )
 from modules.data_hub_repository import DataHubRepository, PublishedSource
+from services.market_data import build_market_intelligence
 from services.web_buyer_parity import (
     PRODUCT_TABLE_DISPLAY_LIMIT,
     build_forecast,
@@ -101,6 +102,17 @@ def buyer_trends(trend_days: int = Query(30, ge=7, le=120), compare_days: int = 
 def intelligence(lookback_days: int = Query(60, ge=14, le=120), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     _detail, product, _inv, sales, _inventory_source, _sales_source = _model(context, engine, 21, 1.0, lookback_days); result=exact_buyer_intelligence(product,sales,lookback_days)
     return {"lookback_days":lookback_days,"summary":result["summary"],"by_category":records(result["by_category"],limit=20),"by_product":records(result["by_product"],limit=200),"purchase_priorities":records(result["purchase_priorities"])}
+
+
+@router.get("/market-intelligence")
+def market_intelligence(lookback_days: int = Query(60, ge=14, le=120), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    _detail, product, _inv, sales, _inventory_source, _sales_source = _model(context, engine, 21, 1.0, lookback_days)
+    result = exact_buyer_intelligence(product, sales, lookback_days)
+    return build_market_intelligence(
+        store_category_rows=records(result["by_category"], limit=100),
+        store_product_rows=records(result["by_product"], limit=1000),
+        lookback_days=lookback_days,
+    )
 
 
 def _filter_export_frame(frame: pd.DataFrame, categories: list[str], *, reorder_only: bool = False) -> pd.DataFrame:
