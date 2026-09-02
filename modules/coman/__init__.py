@@ -15,6 +15,20 @@ from .repository import ComanRepository as _BaseComanRepository
 class ComanRepository(_BaseComanRepository):
     """Preserve the legacy repository API while honoring all active inventory claims."""
 
+    def inventory_balance(self, organization_id: str, lot_id: str) -> float:
+        """Use prefetched list balances once, then return to fresh durable reads.
+
+        ``list_inventory_lots`` can batch-prefetch each lot balance for render loops.
+        Those prefetched values are deliberately one-shot so a long-lived repository
+        cannot return stale inventory after another service writes to the ledger.
+        """
+        cache_key = (organization_id, lot_id)
+        if cache_key in self._inventory_balance_cache:
+            return self._inventory_balance_cache.pop(cache_key)
+        balance = super().inventory_balance(organization_id, lot_id)
+        self._inventory_balance_cache.pop(cache_key, None)
+        return balance
+
     def reserve_material(self, organization_id: str, facility_id: str, *, production_order_id: str, lot_id: str, quantity: float, unit: str, actor: str) -> MaterialReservation:
         from modules.inventory_availability.service import InventoryAvailabilityService
 

@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from modules.coman.models import Base
 from modules.coman.repository import ComanRepository
 
@@ -36,3 +36,48 @@ def test_ledger_prevents_negative_inventory_and_over_reservation():
     try: repo.post_inventory_transaction(org.id, facility.id, lot_id=lot.id, transaction_type="waste", quantity_delta=-101, unit="g", actor="dev")
     except ValueError as exc: assert "negative" in str(exc)
     else: raise AssertionError("negative inventory must fail")
+
+
+def test_listing_lots_prefetches_balances_without_per_lot_queries():
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    repo = ComanRepository(engine)
+    org = repo.create_organization("Balance Batch QA")
+    facility = repo.create_facility(org.id, "Main", "MAIN")
+    product = repo.create_product(org.id, sku="BAL-1", name="Balance Test", item_type="cannabis", base_unit="g", actor="dev")
+    expected = {}
+    for index, quantity in enumerate((100.0, 250.0, 0.0), start=1):
+        lot = repo.create_inventory_lot(org.id, facility.id, product_id=product.id, lot_code=f"BAL-{index}", actor="dev", opening_quantity=quantity, unit="g")
+        expected[lot.id] = quantity
+
+    statements: list[str] = []
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def count_queries(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    lots = repo.list_inventory_lots(org.id, facility.id)
+    queries_after_listing = len(statements)
+    balances = {lot.id: repo.inventory_balance(org.id, lot.id) for lot in lots}
+
+    assert balances == expected
+    assert len(statements) == queries_after_listing
+    assert queries_after_listing == 1
+
+
+def test_prefetched_balance_is_one_shot_and_cannot_hide_external_ledger_writes():
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    reader = ComanRepository(engine)
+    writer = ComanRepository(engine)
+    org = reader.create_organization("Balance Freshness QA")
+    facility = reader.create_facility(org.id, "Main", "MAIN")
+    product = reader.create_product(org.id, sku="BAL-FRESH", name="Fresh Balance", item_type="cannabis", base_unit="g", actor="dev")
+    lot = reader.create_inventory_lot(org.id, facility.id, product_id=product.id, lot_code="BAL-FRESH-1", actor="dev", opening_quantity=100, unit="g")
+
+    reader.list_inventory_lots(org.id, facility.id)
+    assert reader.inventory_balance(org.id, lot.id) == 100
+
+    writer.post_inventory_transaction(org.id, facility.id, lot_id=lot.id, transaction_type="waste", quantity_delta=-10, unit="g", actor="dev")
+
+    assert reader.inventory_balance(org.id, lot.id) == 90

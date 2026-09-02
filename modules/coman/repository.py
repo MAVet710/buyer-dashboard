@@ -42,6 +42,7 @@ def _slugify(value: str) -> str:
 class ComanRepository:
     def __init__(self, engine: Engine):
         self._session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+        self._inventory_balance_cache: dict[tuple[str, str], float] = {}
 
     def create_organization(self, name: str, slug: str | None = None) -> Organization:
         organization = Organization(name=str(name).strip(), slug=_slugify(slug or name))
@@ -201,22 +202,45 @@ class ComanRepository:
         return lot
 
     def inventory_balance(self, organization_id: str, lot_id: str) -> float:
+        cache_key = (organization_id, lot_id)
+        if cache_key in self._inventory_balance_cache:
+            return self._inventory_balance_cache[cache_key]
         with self._session_factory() as session:
             lot = session.get(InventoryLot, lot_id)
             if not lot or lot.organization_id != organization_id: raise ValueError("Inventory lot was not found.")
-            return float(session.scalar(select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(InventoryTransaction.lot_id == lot_id)) or 0.0)
+            balance = float(session.scalar(select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(InventoryTransaction.lot_id == lot_id)) or 0.0)
+            self._inventory_balance_cache[cache_key] = balance
+            return balance
 
     def list_inventory_lots(self, organization_id: str, facility_id: str) -> list[InventoryLot]:
+        balance = (
+            select(
+                InventoryTransaction.lot_id.label("lot_id"),
+                func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0).label("balance"),
+            )
+            .where(
+                InventoryTransaction.organization_id == organization_id,
+                InventoryTransaction.facility_id == facility_id,
+            )
+            .group_by(InventoryTransaction.lot_id)
+            .subquery()
+        )
         with self._session_factory() as session:
             statement = (
-                select(InventoryLot)
+                select(InventoryLot, func.coalesce(balance.c.balance, 0.0))
+                .outerjoin(balance, balance.c.lot_id == InventoryLot.id)
                 .where(
                     InventoryLot.organization_id == organization_id,
                     InventoryLot.facility_id == facility_id,
                 )
                 .order_by(InventoryLot.received_at.desc(), InventoryLot.lot_code)
             )
-            return list(session.scalars(statement))
+            rows = session.execute(statement).all()
+        lots: list[InventoryLot] = []
+        for lot, on_hand in rows:
+            self._inventory_balance_cache[(organization_id, lot.id)] = float(on_hand or 0.0)
+            lots.append(lot)
+        return lots
 
     def list_inventory_transactions(
         self, organization_id: str, facility_id: str, *, limit: int = 250
@@ -260,6 +284,7 @@ class ComanRepository:
             balance = float(session.scalar(select(func.coalesce(func.sum(InventoryTransaction.quantity_delta), 0.0)).where(InventoryTransaction.lot_id == lot_id)) or 0.0)
             if balance + float(quantity_delta) < -1e-9: raise ValueError("Inventory transaction would create a negative lot balance.")
             session.add(transaction)
+        self._inventory_balance_cache.pop((organization_id, lot_id), None)
         return transaction
 
     def reserve_material(self, organization_id: str, facility_id: str, *, production_order_id: str, lot_id: str, quantity: float, unit: str, actor: str) -> MaterialReservation:
