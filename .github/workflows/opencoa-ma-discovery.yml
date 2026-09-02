@@ -14,35 +14,99 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect OpenCOA search request schema
+      - name: Query OpenCOA Massachusetts index directly
         shell: python
         run: |
+          import json
           import re
           from urllib.parse import urljoin
           from urllib.request import Request, urlopen
 
           BASE = 'https://opencoa.org'
-          headers = {'User-Agent': 'Mozilla/5.0 DoobieLogic DEV reference verification'}
+          ENDPOINT = BASE + '/api/internal/app/search'
+          TARGETS = ('Animal Face', 'Gastro Pop', 'Gelato 41', 'Strawberry Cough')
+          headers = {
+              'User-Agent': 'Mozilla/5.0 DoobieLogic DEV reference verification',
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+              'Origin': BASE,
+              'Referer': BASE + '/search?state=MA&refine=1',
+          }
 
-          def fetch(url):
-              req = Request(url, headers=headers)
-              with urlopen(req, timeout=30) as r:
-                  return r.read().decode('utf-8', errors='replace')
+          payload = {
+              'queries': [
+                  {
+                      'indexUid': 'coas',
+                      'q': target,
+                      'limit': 15,
+                      'offset': 0,
+                      'facets': ['product_type', 'overall_status', 'brand_name', 'client_name', 'lab_name'],
+                      'attributesToHighlight': ['identity_label', 'brand_display', 'lot_number'],
+                      'filter': ['lab_state_id = 4'],
+                      'sort': ['analysis_date:desc'],
+                  }
+                  for target in TARGETS
+              ]
+          }
+          request = Request(ENDPOINT, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+          with urlopen(request, timeout=30) as response:
+              data = json.loads(response.read().decode('utf-8'))
+              print('SEARCH_STATUS=' + str(response.status))
+              print('SEARCH_FALLBACK=' + str(response.headers.get('x-search-fallback')))
 
-          html = fetch(BASE + '/search?state=MA&refine=1')
-          script_match = re.search(r'<script[^>]+src=[\"\']([^\"\']*search-page[^\"\']+)', html, flags=re.I)
-          if not script_match:
-              raise SystemExit('OpenCOA search bundle not found')
-          script_url = urljoin(BASE, script_match.group(1))
-          js = fetch(script_url)
-          print('SEARCH_BUNDLE=' + script_url)
-          start = js.find('function we(')
-          if start < 0:
-              raise SystemExit('OpenCOA request builder not found')
-          print('REQUEST_BUILDER=' + js[start:start+14000])
+          results = data.get('results') or []
+          if len(results) != len(TARGETS):
+              print('RAW_RESPONSE=' + json.dumps(data, ensure_ascii=False)[:30000])
+              raise SystemExit(f'Expected {len(TARGETS)} result sets, got {len(results)}')
 
-          # Also print the serialized initial state so we can confirm Massachusetts' internal state id.
-          marker = 'searchPage(JSON.parse('
-          idx = html.find(marker)
-          if idx >= 0:
-              print('INITIAL_STATE_CONTEXT=' + re.sub(r'\s+', ' ', html[idx:idx+12000]))
+          selected = {}
+          for target, result in zip(TARGETS, results):
+              hits = result.get('hits') or []
+              print(f'=== OPENCOA MA {target}: {len(hits)} hit(s); total={result.get("estimatedTotalHits", result.get("totalHits"))} ===')
+              clean_hits = []
+              for hit in hits:
+                  clean = {
+                      key: hit.get(key)
+                      for key in (
+                          'id', 'url', 'identity_label', 'identity_type', 'brand_display', 'brand_name',
+                          'client_name', 'product_type', 'product_type_label', 'lot_number', 'batch_id_display',
+                          'lab_name', 'lab_state_id', 'analysis_date', 'date_display', 'overall_status',
+                          'status_label', 'total_thc_percent', 'total_cbd_percent', 'total_cannabinoids_percent',
+                          'total_terpenes_percent', 'thc_display', 'cbd_display', 'terpenes_display',
+                          'has_regulatory_hold',
+                      )
+                      if hit.get(key) is not None
+                  }
+                  clean_hits.append(clean)
+                  print('HIT=' + json.dumps(clean, ensure_ascii=False, sort_keys=True))
+              selected[target] = clean_hits
+
+          # Fetch detail pages for the top five exact-name-looking hits in each MA result set.
+          detail_headers = {'User-Agent': headers['User-Agent'], 'Referer': headers['Referer']}
+          for target, hits in selected.items():
+              target_norm = re.sub(r'[^a-z0-9]+', ' ', target.casefold()).strip()
+              fetched = 0
+              for hit in hits:
+                  label = str(hit.get('identity_label') or '')
+                  label_norm = re.sub(r'[^a-z0-9]+', ' ', label.casefold()).strip()
+                  if target_norm not in label_norm:
+                      continue
+                  href = hit.get('url') or ('/coa/' + str(hit.get('id') or ''))
+                  url = urljoin(BASE, href)
+                  try:
+                      req = Request(url, headers=detail_headers)
+                      with urlopen(req, timeout=30) as response:
+                          html = response.read().decode('utf-8', errors='replace')
+                          final = response.geturl()
+                  except Exception as exc:
+                      print('DETAIL_ERROR=' + json.dumps({'target': target, 'url': url, 'error': repr(exc)}))
+                      continue
+                  # Do not dump the full page; retain text around source/lab/sample/analyte cues.
+                  text = re.sub(r'<[^>]+>', ' ', html)
+                  text = re.sub(r'&nbsp;|&#039;|&amp;', ' ', text)
+                  text = re.sub(r'\s+', ' ', text).strip()
+                  print('DETAIL=' + json.dumps({'target': target, 'url': final, 'text': text[:14000]}, ensure_ascii=False))
+                  fetched += 1
+                  if fetched >= 5:
+                      break
