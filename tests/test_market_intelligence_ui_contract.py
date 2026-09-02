@@ -15,3 +15,10 @@ def test_buyer_intelligence_api_exposes_fail_soft_market_endpoint():
     router = (ROOT / "backend/app/routers/buyer_parity.py").read_text(encoding="utf-8")
     assert "build_market_intelligence" in router
     assert '@router.get("/market-intelligence")' in router
+
+
+def test_buyer_brief_receives_secondary_native_market_evidence():
+    actions = (ROOT / "backend/app/routers/buyer_parity_actions.py").read_text(encoding="utf-8")
+    assert "_buyer_market_context" in actions
+    assert 'bounded_context["market_intelligence"] = market_context' in actions
+    assert '"priority": "secondary_to_store_sales_and_inventory"' in actions
