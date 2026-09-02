@@ -162,7 +162,7 @@ export function LocationSettingsPage() {
         {settings.isLoading ? <div className="state">Loading receiving settings…</div> : null}
         {settings.isError ? <div className="state error">{settings.error.message}</div> : null}
         {settings.data ? <>
-          <label className="toggle location-toggle"><input type="checkbox" checked={autoMap} onChange={event => setAutoMap(event.target.checked)}/><span><strong>Auto-map products during receive</strong><small>Reuse only previously approved incoming-item → Catalog product mappings for this facility.</small><small>Auto-map never guesses a new catalog relationship.</small></span></label>
+          <label className="toggle location-toggle"><input type="checkbox" checked={autoMap} onChange={event => setAutoMap(event.target.checked)}/><span><strong>Auto-map products during receive</strong><small>Reuse only previously reviewed and approved incoming-item → Catalog product mappings for this facility.</small><small>Auto-map never guesses a new catalog relationship.</small></span></label>
           <label className="compact-field">Default receiving room<input value={room} placeholder="Receiving" onChange={event => setRoom(event.target.value)}/></label>
           <button className="primary submit" type="button" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save location settings"}</button>
           {save.isError ? <div className="state error">{save.error.message}</div> : null}
