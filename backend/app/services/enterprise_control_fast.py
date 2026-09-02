@@ -1,17 +1,17 @@
 """Bounded organization-wide read model for the Enterprise Control Tower.
 
 The control tower ranks every active facility at once. Inventory, commercial
-orders, and production orders therefore belong in organization-wide reads,
-not one query per facility. Keep the projection small and leave the existing
-traceability, compliance, and finance services as the source of truth for
-those domain summaries.
+orders, and production orders therefore belong in organization-wide grouped
+reads, not one query per facility or one hydrated ORM row per source record.
+Keep the projection small and leave the existing traceability, compliance, and
+finance services as the source of truth for those domain summaries.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Engine, and_, func, select
+from sqlalchemy import Engine, and_, case, func, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import CommercialOrder, InventoryLot, InventoryTransaction, Product, ProductionOrder
@@ -26,9 +26,6 @@ def organization_facility_metrics(
 ) -> dict[str, dict[str, dict[str, float | int]]]:
     """Return inventory/order/production metrics for every facility in 3 SQL reads."""
     anchor = now or datetime.now(timezone.utc)
-    inventory: dict[str, dict[str, float | int]] = {}
-    orders: dict[str, dict[str, float | int]] = {}
-    production: dict[str, dict[str, float | int]] = {}
 
     balance = (
         select(
@@ -39,13 +36,21 @@ def organization_facility_metrics(
         .group_by(InventoryTransaction.lot_id)
         .subquery()
     )
+    on_hand = func.coalesce(balance.c.balance, 0.0)
+    unit_cost = func.coalesce(Product.unit_cost, 0.0)
 
     with Session(engine) as session:
         inventory_rows = session.execute(
             select(
                 InventoryLot.facility_id,
-                func.coalesce(balance.c.balance, 0.0),
-                func.coalesce(Product.unit_cost, 0.0),
+                func.coalesce(
+                    func.sum(case((on_hand > 0, 1), else_=0)),
+                    0,
+                ).label("positive_lots"),
+                func.coalesce(
+                    func.sum(case((on_hand > 0, on_hand * unit_cost), else_=0.0)),
+                    0.0,
+                ).label("inventory_value"),
             )
             .outerjoin(balance, balance.c.lot_id == InventoryLot.id)
             .outerjoin(
@@ -57,47 +62,71 @@ def organization_facility_metrics(
                 ),
             )
             .where(InventoryLot.organization_id == organization_id)
+            .group_by(InventoryLot.facility_id)
         ).all()
 
-        commercial_rows = list(
-            session.scalars(
-                select(CommercialOrder).where(
-                    CommercialOrder.organization_id == organization_id,
-                    CommercialOrder.status.in_(OPEN_ORDER_STATUSES),
-                )
+        commercial_rows = session.execute(
+            select(
+                CommercialOrder.facility_id,
+                func.coalesce(
+                    func.sum(case((CommercialOrder.order_type == "sales", 1), else_=0)),
+                    0,
+                ).label("sales"),
+                func.coalesce(
+                    func.sum(case((CommercialOrder.order_type == "purchase", 1), else_=0)),
+                    0,
+                ).label("purchase"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                CommercialOrder.due_at.is_not(None)
+                                & (CommercialOrder.due_at < anchor),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("overdue"),
             )
-        )
-
-        production_rows = list(
-            session.scalars(
-                select(ProductionOrder).where(
-                    ProductionOrder.organization_id == organization_id,
-                    ProductionOrder.status.not_in({"complete", "cancelled"}),
-                )
+            .where(
+                CommercialOrder.organization_id == organization_id,
+                CommercialOrder.status.in_(OPEN_ORDER_STATUSES),
             )
-        )
+            .group_by(CommercialOrder.facility_id)
+        ).all()
 
-    for facility_id, raw_balance, raw_unit_cost in inventory_rows:
-        value = float(raw_balance or 0.0)
-        row = inventory.setdefault(str(facility_id), {"positive_lots": 0, "value": 0.0})
-        if value > 0:
-            row["positive_lots"] = int(row["positive_lots"]) + 1
-            row["value"] = float(row["value"]) + value * float(raw_unit_cost or 0.0)
+        production_rows = session.execute(
+            select(
+                ProductionOrder.facility_id,
+                func.count(ProductionOrder.id).label("open"),
+                func.coalesce(func.sum(ProductionOrder.requested_units), 0).label("units"),
+            )
+            .where(
+                ProductionOrder.organization_id == organization_id,
+                ProductionOrder.status.not_in({"complete", "cancelled"}),
+            )
+            .group_by(ProductionOrder.facility_id)
+        ).all()
 
-    for record in commercial_rows:
-        row = orders.setdefault(record.facility_id, {"sales": 0, "purchase": 0, "overdue": 0})
-        if record.order_type == "sales":
-            row["sales"] = int(row["sales"]) + 1
-        elif record.order_type == "purchase":
-            row["purchase"] = int(row["purchase"]) + 1
-        if record.due_at:
-            due_at = record.due_at if record.due_at.tzinfo else record.due_at.replace(tzinfo=timezone.utc)
-            if due_at < anchor:
-                row["overdue"] = int(row["overdue"]) + 1
-
-    for record in production_rows:
-        row = production.setdefault(record.facility_id, {"open": 0, "units": 0})
-        row["open"] = int(row["open"]) + 1
-        row["units"] = int(row["units"]) + int(record.requested_units or 0)
-
+    inventory = {
+        str(facility_id): {
+            "positive_lots": int(positive_lots or 0),
+            "value": float(inventory_value or 0.0),
+        }
+        for facility_id, positive_lots, inventory_value in inventory_rows
+    }
+    orders = {
+        str(facility_id): {
+            "sales": int(sales or 0),
+            "purchase": int(purchase or 0),
+            "overdue": int(overdue or 0),
+        }
+        for facility_id, sales, purchase, overdue in commercial_rows
+    }
+    production = {
+        str(facility_id): {"open": int(open_count or 0), "units": int(units or 0)}
+        for facility_id, open_count, units in production_rows
+    }
     return {"inventory": inventory, "orders": orders, "production": production}
