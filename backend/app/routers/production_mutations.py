@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from modules.cultivation.post_harvest import PostHarvestService
 from modules.inventory_transfers.lineage import CrossFacilityLineageService
 from modules.inventory_transfers.recall import RecallBlastRadiusService
 from modules.material_lineage.harvest_guard import GuardedHarvestAllocationService
@@ -66,6 +67,24 @@ class HarvestAllocationCommitRequest(HarvestAllocationRequest):
     preview_key: str
 
 
+class PostHarvestStageRequest(BaseModel):
+    stage: str = Field(min_length=1, max_length=24)
+    location_code: str = Field(default="", max_length=120)
+    notes: str = Field(default="", max_length=4000)
+
+
+class PostHarvestMeasurement(BaseModel):
+    weight_type: str = Field(min_length=1, max_length=32)
+    quantity_g: float = Field(ge=0)
+    container_code: str = Field(default="", max_length=120)
+    note: str = Field(default="", max_length=1000)
+
+
+class PostHarvestWeightsRequest(BaseModel):
+    measurements: list[PostHarvestMeasurement] = Field(min_length=1, max_length=5)
+    correction_reason: str = Field(default="", max_length=1000)
+
+
 def _service(engine: Engine) -> ProductionMutationService:
     return ProductionIntegrityMutationService(engine)
 
@@ -82,6 +101,10 @@ def _guard_cultivation_write(context: RequestContext, engine: Engine) -> None:
     require_facility_capability(context, engine, "cultivation")
     if context.role.casefold() not in {"dev", "admin", "supervisor", "operator", "qa"}:
         raise HTTPException(403, "Your role does not allow cultivation inventory changes.")
+
+
+def _can_correct_locked_post_harvest(context: RequestContext) -> bool:
+    return context.role.casefold() in {"dev", "admin", "supervisor", "qa"}
 
 
 @production_router.get("/calendar-workspace")
@@ -134,6 +157,90 @@ def commit_mutation(
             payload=payload.payload,
             preview_key=payload.preview_key,
             actor=context.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@cultivation_router.get("/post-harvest")
+def list_post_harvest(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_facility_capability(context, engine, "cultivation")
+    return {"items": PostHarvestService(engine).list_batches(context.organization_id, context.facility_id)}
+
+
+@cultivation_router.post("/post-harvest/sync")
+def sync_post_harvest(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _guard_cultivation_write(context, engine)
+    try:
+        return {
+            "items": PostHarvestService(engine).sync_open_harvests(
+                context.organization_id,
+                context.facility_id,
+                actor=context.user_id,
+            )
+        }
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@cultivation_router.get("/post-harvest/{batch_id}")
+def post_harvest_detail(
+    batch_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    require_facility_capability(context, engine, "cultivation")
+    try:
+        return PostHarvestService(engine).detail(context.organization_id, context.facility_id, batch_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@cultivation_router.post("/post-harvest/{batch_id}/transition")
+def transition_post_harvest(
+    batch_id: str,
+    payload: PostHarvestStageRequest,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _guard_cultivation_write(context, engine)
+    try:
+        return PostHarvestService(engine).transition(
+            context.organization_id,
+            context.facility_id,
+            batch_id,
+            stage=payload.stage,
+            location_code=payload.location_code,
+            notes=payload.notes,
+            actor=context.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@cultivation_router.post("/post-harvest/{batch_id}/weights")
+def record_post_harvest_weights(
+    batch_id: str,
+    payload: PostHarvestWeightsRequest,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _guard_cultivation_write(context, engine)
+    try:
+        return PostHarvestService(engine).record_weights(
+            context.organization_id,
+            context.facility_id,
+            batch_id,
+            measurements=[row.model_dump() for row in payload.measurements],
+            actor=context.user_id,
+            correction_reason=payload.correction_reason,
+            allow_locked_correction=_can_correct_locked_post_harvest(context),
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
