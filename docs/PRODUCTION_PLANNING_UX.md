@@ -2,7 +2,9 @@
 
 DoobieLogic's human-facing production workspace is **Production Planning**.
 
-The product rule is simple: **complex underneath, simple on top**. Operators should first see what should run, what is blocked, and where work sits on the calendar. Detailed configuration stays available when the job requires it.
+The product rule is simple: **complex underneath, simple and fast on top**. Operators should first see what should run, what is blocked, and where work sits on the calendar. Detailed configuration stays available when the job requires it.
+
+The Plan view must use a bounded planning read model. It must not build the decision table by fetching full Run 360 detail once per production order. Production Run 360 remains the detailed hydration point when the operator opens a run. Performance work must preserve the visible planning UI and the existing decision/safety semantics.
 
 ## Workspace model
 
