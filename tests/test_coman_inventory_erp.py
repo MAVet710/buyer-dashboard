@@ -63,3 +63,21 @@ def test_listing_lots_prefetches_balances_without_per_lot_queries():
     assert balances == expected
     assert len(statements) == queries_after_listing
     assert queries_after_listing == 1
+
+
+def test_prefetched_balance_is_one_shot_and_cannot_hide_external_ledger_writes():
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    reader = ComanRepository(engine)
+    writer = ComanRepository(engine)
+    org = reader.create_organization("Balance Freshness QA")
+    facility = reader.create_facility(org.id, "Main", "MAIN")
+    product = reader.create_product(org.id, sku="BAL-FRESH", name="Fresh Balance", item_type="cannabis", base_unit="g", actor="dev")
+    lot = reader.create_inventory_lot(org.id, facility.id, product_id=product.id, lot_code="BAL-FRESH-1", actor="dev", opening_quantity=100, unit="g")
+
+    reader.list_inventory_lots(org.id, facility.id)
+    assert reader.inventory_balance(org.id, lot.id) == 100
+
+    writer.post_inventory_transaction(org.id, facility.id, lot_id=lot.id, transaction_type="waste", quantity_delta=-10, unit="g", actor="dev")
+
+    assert reader.inventory_balance(org.id, lot.id) == 90
