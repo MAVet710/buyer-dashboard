@@ -15,6 +15,7 @@ from .config import get_settings
 from .routers.inventory import router as inventory_router
 from .routers.inventory_transfers import router as inventory_transfers_router
 from .routers.inventory_reconciliation import router as inventory_reconciliation_router
+from .routers.metrc_guide_v11 import router as metrc_guide_v11_router
 from .routers.metrc_readiness import router as metrc_readiness_router
 from .routers.audits import router as audit_router
 from .routers.plants import router as plants_router
@@ -235,6 +236,11 @@ app.include_router(beta_router, prefix=settings.api_prefix)
 app.include_router(inventory_reconciliation_router, prefix=settings.api_prefix)
 app.include_router(inventory_router, prefix=settings.api_prefix)
 app.include_router(inventory_transfers_router, prefix=settings.api_prefix)
+# The guide-v11 router intentionally precedes the broader readiness router for
+# the handful of overlapping paths where the supplied Metrc manual adds stricter
+# lifecycle semantics (midnight harvest cutoff, waste discontinue/unfinish, and
+# receive-quantity/UOM exceptions).
+app.include_router(metrc_guide_v11_router, prefix=settings.api_prefix)
 app.include_router(metrc_readiness_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
