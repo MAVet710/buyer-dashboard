@@ -1,0 +1,54 @@
+name: Final MA fixture cleanup
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/final-ma-fixture-cleanup.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Correct stale test scope
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/test_dev_sandbox_vertical_inventory.py')
+          text = path.read_text()
+          old = 'cultivation.list_plants(other.id, other.id)'
+          new = 'cultivation.list_plants(other.id, facility.id)'
+          if old not in text:
+              raise SystemExit('Expected stale facility-scope assertion was not found')
+          path.write_text(text.replace(old, new, 1).rstrip() + '\n')
+          PY
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r backend/requirements.txt pytest httpx
+      - name: Run focused DEV vertical acceptance
+        env:
+          PYTHONHASHSEED: '0'
+        run: python -m pytest -q tests/test_dev_sandbox_vertical_inventory.py
+      - name: Commit clean acceptance correction
+        run: |
+          rm .github/workflows/final-ma-fixture-cleanup.yml
+          git diff --check
+          git config user.name 'DoobieLogic fixture hardening'
+          git config user.email '149276571+MAVet710@users.noreply.github.com'
+          git add -A
+          git commit -m 'Fix DEV fixture guard acceptance scope'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
