@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("buyer_dash.api")
@@ -13,6 +14,12 @@ SLOW_REQUEST_MS = 1_000.0
 
 
 def install_observability(app: FastAPI) -> None:
+    # Most operator workspaces are JSON-heavy. Compress responses large enough
+    # to benefit while leaving small health and mutation payloads untouched.
+    # A moderate compression level keeps transfer size down without turning
+    # response compression itself into a meaningful CPU/latency cost.
+    app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
+
     @app.middleware("http")
     async def request_context(request: Request, call_next):
         supplied = request.headers.get("X-Request-ID", "").strip()
