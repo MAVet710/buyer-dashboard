@@ -37,6 +37,7 @@ from modules.coman.vertical_demo_inventory import (
     retire_dev_sandbox_inventory,
 )
 from modules.coman.vertical_demo_ma_coas import (
+    MA_FLOWER_REFERENCE_STRAINS,
     annotate_dev_flower_label_metadata,
     seed_dev_ma_flower_reference_coa,
 )
@@ -55,16 +56,16 @@ from modules.package_studio import (
 from modules.product_master import ProductMasterRepository
 
 STRAINS = (
-    "Gastro Pop",
+    "Candy Sparqs",
     "GMO",
     "Strawberry Cough",
     "Blue Dream",
     "Wedding Cake",
     "Super Lemon Haze",
-    "Gelato 41",
+    "Runtz OG",
     "Motorbreath",
     "Permanent Marker",
-    "Animal Face",
+    "Animal Tsunami",
 )
 
 ACTIVE_PHASES = ("clone", "seedling", "vegetative", "flowering")
@@ -455,6 +456,13 @@ def seed_scaled_vertical_dev_inventory(
         facility.license_number = "DEV-SANDBOX-VERTICAL"
         facility.license_type = "cultivation+manufacturing+retail"
 
+    if set(STRAINS) != set(MA_FLOWER_REFERENCE_STRAINS):
+        missing = sorted(set(STRAINS) - set(MA_FLOWER_REFERENCE_STRAINS))
+        extra = sorted(set(MA_FLOWER_REFERENCE_STRAINS) - set(STRAINS))
+        raise RuntimeError(
+            f"DEV MA flower reference coverage mismatch: missing={missing} extra={extra}"
+        )
+
     coman = ComanRepository(engine)
     master = ProductMasterRepository(engine)
     cultivation = CultivationService(engine)
@@ -531,7 +539,6 @@ def seed_scaled_vertical_dev_inventory(
         flower_lot_id, trim_lot_id = committed["output_lot_ids"]
         flower_source_lots.append(flower_lot_id)
         trim_source_lots.append(trim_lot_id)
-        _quality(engine, flower_lot_id, f"DEV-COA-{generation}-{code}-FLOWER", thca=25.0 + strain_index * 0.35, tac=28.0 + strain_index * 0.30, terpenes=1.7 + strain_index * 0.11, source="dev_vertical_harvest_lab", actor=actor)
         seed_dev_ma_flower_reference_coa(
             engine,
             organization_id,

@@ -18,8 +18,11 @@ from modules.coman.vertical_demo_inventory_release import (
     replace_scaled_vertical_dev_inventory,
 )
 from modules.coman.vertical_demo_ma_coas import (
+    DEV_MA_COA_EVIDENCE,
     DEV_MA_COA_SOURCE,
+    DEV_MA_INHERITED_EVIDENCE,
     EXPECTED_MA_FLOWER_REFERENCE_COAS,
+    MA_FLOWER_REFERENCE_STRAINS,
 )
 from modules.cultivation.service import ACTIVE_PLANT_PHASES, CultivationService
 from modules.inventory_quality.models import CoaAnalyteResult, CoaDocument, LotQualityEvidence
@@ -151,22 +154,39 @@ def test_scaled_vertical_dev_inventory_replaces_only_dev_and_is_repeatable():
                 )
             )
         )
-        assert len(ma_documents) == EXPECTED_MA_FLOWER_REFERENCE_COAS == 6
-        assert {row.strain_name for row in ma_documents} == {
+        assert len(ma_documents) == EXPECTED_MA_FLOWER_REFERENCE_COAS == 10
+        assert {row.strain_name for row in ma_documents} == set(MA_FLOWER_REFERENCE_STRAINS) == {
+            "Animal Tsunami",
             "Blue Dream",
+            "Candy Sparqs",
             "GMO",
-            "Wedding Cake",
-            "Super Lemon Haze",
             "Motorbreath",
             "Permanent Marker",
+            "Runtz OG",
+            "Strawberry Cough",
+            "Super Lemon Haze",
+            "Wedding Cake",
         }
         for document in ma_documents:
             raw = json.loads(document.raw_payload_json)
             assert raw["source_state"] == "MA"
             assert raw["sandbox_mapping"]["mapping_type"] == "strain_match_external_reference"
-            assert document.metrc_source_id
-            assert document.metrc_source_id != document.package_id
-            assert document.overall_status == "pass"
+            assert raw["sandbox_mapping"]["external_reference_only"] is True
+            assert "does not certify the sandbox package" in raw["sandbox_mapping"]["sandbox_release_basis"]
+            assert document.package_id == ""
+            assert document.lot_id is None
+            assert document.verification_state == "external_reference"
+            if document.strain_name == "Strawberry Cough":
+                assert document.overall_status == ""
+                assert raw["source_safety_verified"] is False
+                assert document.metrc_source_id == ""
+                assert document.lab_id == ""
+            else:
+                assert document.overall_status == "pass"
+            if document.strain_name in {"Animal Tsunami", "Runtz OG"}:
+                assert raw["source_safety_verified"] is False
+            if document.strain_name == "Candy Sparqs":
+                assert raw["source_safety_verified"] is True
 
         super_lemon = next(row for row in ma_documents if row.strain_name == "Super Lemon Haze")
         super_lemon_results = list(
@@ -194,6 +214,15 @@ def test_scaled_vertical_dev_inventory_replaces_only_dev_and_is_repeatable():
             session.scalars(select(InventoryLot).where(InventoryLot.id.in_(first.flower_final_lots)))
         )
         assert len(flower_lots) == 350
+        flower_quality = [session.get(LotQualityEvidence, lot.id) for lot in flower_lots]
+        assert all(row is not None for row in flower_quality)
+        assert all(
+            row.evidence_source == DEV_MA_INHERITED_EVIDENCE
+            for row in flower_quality
+            if row is not None
+        )
+        assert all(row.coa_document_id for row in flower_quality if row is not None)
+        assert all("example.invalid" not in row.coa_url for row in flower_quality if row is not None)
         for lot in flower_lots:
             meta = json.loads(lot.notes or "{}")
             assert meta["harvest_date"]
@@ -222,9 +251,13 @@ def test_scaled_vertical_dev_inventory_replaces_only_dev_and_is_repeatable():
         assert blue_child_quality.coa_document_id == blue_root_quality.coa_document_id
         blue_document = session.get(CoaDocument, blue_root_quality.coa_document_id)
         assert blue_document is not None
-        assert blue_document.package_id == "DEVHARVGEN1S04FLOWER"
+        assert blue_root_quality.evidence_source == DEV_MA_COA_EVIDENCE
+        assert blue_child_quality.evidence_source == DEV_MA_INHERITED_EVIDENCE
+        assert blue_document.package_id == ""
+        assert blue_document.lot_id is None
+        assert blue_document.verification_state == "external_reference"
         assert blue_child.compliance_package_id == "DEV-PKG-GEN1-S04-F01"
-        assert blue_document.package_id != "".join(ch for ch in blue_child.compliance_package_id if ch.isalnum()).upper()
+        assert blue_root.compliance_package_id == "DEV-HARV-GEN1-S04-FLOWER"
 
         old_lot_row = session.get(InventoryLot, old_lot.id)
         old_product_row = session.get(Product, old_product.id)

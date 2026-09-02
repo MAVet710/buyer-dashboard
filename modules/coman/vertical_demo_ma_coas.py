@@ -18,6 +18,7 @@ import re
 import zlib
 from typing import Any
 
+from modules.coman.vertical_demo_ma_coa_references import ADDITIONAL_MA_FLOWER_COA_FIXTURES
 from sqlalchemy import select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -338,6 +339,8 @@ MA_FLOWER_COA_FIXTURES: dict[str, dict[str, Any]] = {
     },
 }
 
+MA_FLOWER_COA_FIXTURES.update(deepcopy(ADDITIONAL_MA_FLOWER_COA_FIXTURES))
+
 MA_FLOWER_REFERENCE_STRAINS = frozenset(MA_FLOWER_COA_FIXTURES)
 EXPECTED_MA_FLOWER_REFERENCE_COAS = len(MA_FLOWER_COA_FIXTURES)
 
@@ -384,12 +387,14 @@ def seed_dev_ma_flower_reference_coa(
     *,
     strain: str,
     actor: str,
-) -> CoaDocument | None:
-    """Replace synthetic root QA with one source-provenanced MA flower fixture when available."""
+) -> CoaDocument:
+    """Attach one exact-name external MA flower reference without rewriting sandbox identity."""
 
     fixture = MA_FLOWER_COA_FIXTURES.get(strain)
     if fixture is None:
-        return None
+        raise RuntimeError(
+            f"No verified Massachusetts flower reference fixture exists for DEV strain {strain!r}."
+        )
 
     with Session(engine) as session, session.begin():
         lot = session.get(InventoryLot, lot_id)
@@ -406,15 +411,20 @@ def seed_dev_ma_flower_reference_coa(
             value for value in (raw.get("metrc_source_id"), raw.get("metrc_lab_id")) if value
         ]
         raw["sandbox_mapping"] = {
-            "purpose": "DEV Sandbox Label Studio matching-strain fixture",
+            "purpose": "DEV Sandbox matching-strain external reference fixture",
             "mapping_type": "strain_match_external_reference",
+            "external_reference_only": True,
             "sandbox_lot_id": lot.id,
             "current_sandbox_package_id": lot.compliance_package_id,
+            "sandbox_release_state": "Passed (DEV simulation only)",
+            "sandbox_release_basis": (
+                "DEV scenario state; external source COA does not certify the sandbox package"
+            ),
             "source_tracking_id": raw.get("metrc_source_id") or "",
             "source_sample_metrc_tag": raw.get("metrc_lab_id") or "",
             "identity_rule": (
                 "sandbox package remains current physical package identity; source COA identifiers "
-                "remain external tested-material reference"
+                "remain external tested-material reference and must never resolve as a direct package COA"
             ),
         }
         raw["normalization_schema"] = {
@@ -437,11 +447,11 @@ def seed_dev_ma_flower_reference_coa(
             document = CoaDocument(
                 organization_id=organization_id,
                 facility_id=facility_id,
-                lot_id=lot.id,
-                package_id=package_id,
+                lot_id=None,
+                package_id="",
                 source=DEV_MA_COA_SOURCE,
                 status="parsed",
-                verification_state="operator_confirmed",
+                verification_state="external_reference",
                 filename=f"dev-ma-{re.sub(r'[^a-z0-9]+', '-', strain.casefold()).strip('-')}.json",
                 content_type="application/json",
                 fingerprint=fingerprint,
@@ -461,7 +471,7 @@ def seed_dev_ma_flower_reference_coa(
                 metrc_ids_json=json.dumps(raw["metrc_ids"]),
                 date_tested=_date(raw.get("date_tested")),
                 date_received=_date(raw.get("date_received")),
-                overall_status=str(raw.get("overall_status") or "pass"),
+                overall_status=str(raw.get("overall_status") or ""),
                 total_thc_percent=raw.get("total_thc"),
                 total_cbd_percent=raw.get("total_cbd"),
                 total_cannabinoids_percent=raw.get("total_cannabinoids"),
@@ -493,8 +503,10 @@ def seed_dev_ma_flower_reference_coa(
             session,
             lot_id=lot.id,
             lab_testing_state="Passed",
-            coa_reference=document.lab_id or document.batch_number or document.filename,
-            coa_url=f"/api/v1/label-printing/coas/{document.id}/file",
+            coa_reference=(
+                document.lab_id or document.batch_number or str(raw.get("source_record_id") or "") or document.filename
+            ),
+            coa_url=_source_url(raw),
             coa_document_id=document.id,
             thca_percent=_top_value(raw.get("results") or [], "thca"),
             tac_percent=document.total_cannabinoids_percent,
@@ -549,6 +561,25 @@ def annotate_dev_flower_label_metadata(
             lot = session.get(InventoryLot, lot_id)
             if lot is None or lot.organization_id != organization_id or lot.facility_id != facility_id:
                 raise ValueError("DEV flower child lot escaped the active sandbox scope.")
+            if root_quality is None or root_quality.evidence_source != DEV_MA_COA_EVIDENCE:
+                raise RuntimeError("DEV flower child is missing the exact external MA root reference.")
+            LotQualityService.set_evidence(
+                session,
+                lot_id=lot.id,
+                lab_testing_state=root_quality.lab_testing_state,
+                coa_reference=root_quality.coa_reference,
+                coa_url=root_quality.coa_url,
+                coa_document_id=root_quality.coa_document_id,
+                thca_percent=root_quality.thca_percent,
+                tac_percent=root_quality.tac_percent,
+                total_thc_percent=root_quality.total_thc_percent,
+                total_cbd_percent=root_quality.total_cbd_percent,
+                total_cannabinoids_percent=root_quality.total_cannabinoids_percent,
+                total_terpenes_percent=root_quality.total_terpenes_percent,
+                evidence_source=DEV_MA_INHERITED_EVIDENCE,
+                inherited_from_lot_id=root.id,
+                actor="dev-sandbox:ma-reference-lineage",
+            )
             meta = _metadata(lot)
             package_date = lot.received_at.date().isoformat() if lot.received_at else ""
             meta.update(
