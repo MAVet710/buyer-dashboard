@@ -145,11 +145,26 @@ def organization_secondary_metrics(
 
     The legacy control-tower path loaded four domain collections separately for
     every facility. This projection preserves the existing summary semantics,
-    including the latest-100 label review window and overdue-invoice status
-    maintenance, while making query count independent of facility count.
+    including the latest-1,000 traceability window, latest-100 label review
+    window, and overdue-invoice status maintenance, while making query count
+    independent of facility count.
     """
     anchor_date = today or date.today()
 
+    ranked_trace = (
+        select(
+            TraceabilityTransaction.facility_id.label("facility_id"),
+            TraceabilityTransaction.status.label("status"),
+            func.row_number()
+            .over(
+                partition_by=TraceabilityTransaction.facility_id,
+                order_by=TraceabilityTransaction.requested_at.desc(),
+            )
+            .label("row_number"),
+        )
+        .where(TraceabilityTransaction.organization_id == organization_id)
+        .subquery()
+    )
     ranked_labels = (
         select(
             LabelReview.facility_id.label("facility_id"),
@@ -168,12 +183,12 @@ def organization_secondary_metrics(
     with Session(engine) as session:
         trace_rows = session.execute(
             select(
-                TraceabilityTransaction.facility_id,
-                TraceabilityTransaction.status,
-                func.count(TraceabilityTransaction.id),
+                ranked_trace.c.facility_id,
+                ranked_trace.c.status,
+                func.count().label("status_count"),
             )
-            .where(TraceabilityTransaction.organization_id == organization_id)
-            .group_by(TraceabilityTransaction.facility_id, TraceabilityTransaction.status)
+            .where(ranked_trace.c.row_number <= 1000)
+            .group_by(ranked_trace.c.facility_id, ranked_trace.c.status)
         ).all()
 
         deviation_rows = session.execute(
