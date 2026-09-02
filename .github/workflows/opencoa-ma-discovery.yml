@@ -18,6 +18,7 @@ jobs:
         shell: python
         run: |
           import json
+          import time
           from urllib.request import Request, urlopen
 
           BASE = 'https://opencoa.org'
@@ -30,26 +31,20 @@ jobs:
               'Origin': BASE,
               'Referer': BASE + '/search?state=MA&refine=1',
           }
-          queries = [
-              ('Candy Sparqs', ['analysis_date:desc']),
-              ('Garlic', ['analysis_date:desc']),
-              ('Mac', ['analysis_date:desc']),
-              ('Runtz', ['analysis_date:desc']),
-              ('Kush', ['analysis_date:desc']),
-          ]
-          payload = {'queries': [{
-              'indexUid': 'coas',
-              'q': q,
-              'limit': 15,
-              'offset': 0,
-              'filter': ['lab_state_id = 4', 'product_type = "flower"'],
-              'sort': sort,
-          } for q, sort in queries]}
-          req = Request(ENDPOINT, data=json.dumps(payload).encode(), headers=headers, method='POST')
-          with urlopen(req, timeout=30) as response:
-              data = json.loads(response.read().decode())
-          for (q, _), result in zip(queries, data.get('results') or []):
+          for q in ('Candy Sparqs', 'Garlic', 'Runtz', 'Kush'):
+              payload = {'queries': [{
+                  'indexUid': 'coas',
+                  'q': q,
+                  'limit': 15,
+                  'offset': 0,
+                  'filter': ['lab_state_id = 4', 'product_type = "flower"'],
+                  'sort': ['analysis_date:desc'],
+              }]}
+              req = Request(ENDPOINT, data=json.dumps(payload).encode(), headers=headers, method='POST')
+              with urlopen(req, timeout=30) as response:
+                  result = (json.loads(response.read().decode()).get('results') or [{}])[0]
               print('=== SEARCH ' + q + ' ===')
+              print('TOTAL=' + str(result.get('estimatedTotalHits', result.get('totalHits'))))
               for hit in result.get('hits') or []:
                   clean = {key: hit.get(key) for key in (
                       'id','url','identity_label','lot_number','batch_id_display','brand_display','client_name',
@@ -58,3 +53,4 @@ jobs:
                       'has_regulatory_hold'
                   ) if hit.get(key) is not None}
                   print('HIT=' + json.dumps(clean, ensure_ascii=False, sort_keys=True))
+              time.sleep(0.8)
