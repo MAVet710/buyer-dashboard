@@ -1,108 +1,112 @@
 # DoobieLogic Buyer Dash
 
-DoobieLogic Buyer Dash is a multi-workspace cannabis operations platform built with Streamlit, PostgreSQL/Supabase, pandas, Plotly, and ReportLab.
+DoobieLogic Buyer Dash is a multi-workspace cannabis operations platform. The production application is built around a **React/Vite frontend, FastAPI backend, and PostgreSQL/Supabase durable data layer**. Legacy Streamlit modules remain in the repository as compatibility/reference surfaces while migration parity is protected.
 
-It supports retail inventory intelligence, purchasing, inventory audits, nomenclature normalization, Co-Man planning and execution, extraction operations, commercial fulfillment, integrations, and executive reporting.
+The platform supports retail inventory and purchasing, cultivation, production/manufacturing, extraction, Package/Label Studio, COAs and QA, traceability, wholesale/commercial operations, finance/reporting, customer/storefront workflows, integrations, enterprise administration, and provider-neutral AI assistance.
 
 ## Product workspaces
 
-- **Operations Home** — role-specific task launcher and readiness status.
-- **Retail Operations** — inventory, trends, audits, slow movers, delivery impact, purchasing, compliance, nomenclature, MA flower equivalency, and repack.
-- **Production Operations** — Co-Man capacity/scheduling/execution and Extraction Command Center.
-- **Commercial Operations** — customers, orders, fulfillment, and margin.
-- **Data & Integrations** — guided source imports, extraction partner mapping, source status, history, METRC, Dutchie, and platform integrations.
+- **Operations Home** — role-specific actions, readiness, exceptions, and shared operational context.
+- **Retail Operations** — inventory, buying, purchasing, audits, trends, compliance, receiving, transfers, and product/package work.
+- **Production Operations** — planning, calendar, Run 360 execution, cultivation, manufacturing/Co-Man, extraction, Package Studio, inventory, QA, and COGS.
+- **Commercial / Wholesale Operations** — customers, sales orders, fulfillment, pick/pack, manifests, invoicing/A/R, storefronts, and customer portals.
+- **Compliance & Traceability** — COAs, labels, regulatory workflows, reconciliation, and Metrc/provider integration surfaces.
+- **Data, Integrations & Enterprise** — imports, source readiness, provider configuration, organization/facility controls, and administrative tooling.
 
-See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for user-facing instructions and [docs/AI_RUNTIME.md](docs/AI_RUNTIME.md) for the provider-neutral DoobieLogic AI Runtime architecture, local inference setup, security model, and benchmark instructions.
+See `PLAN.md` for the current product mandate, `docs/BACKOFFICE_SCOPE.md` for the application boundary, `docs/PERFORMANCE_CONTRACT.md` for the performance bar, and `docs/AI_RUNTIME.md` for the provider-neutral DoobieLogic AI Runtime.
 
-## Architecture
+## Production architecture
 
-- `streamlit_app.py` — Streamlit Cloud entrypoint.
-- `app.py` — legacy application composition root. New product work is extracted into modules rather than added inline.
-- `modules/` — workspace UI, workflow, and domain behavior.
-- `services/` — authentication, tenants, persistence, integrations, normalization, AI runtime, and shared application services.
-- `reports/` — Retail and Production executive report generators.
-- `migrations/versions/` — Alembic and standalone Supabase SQL migrations.
-- `tests/` — unit, architecture, persistence, migration, report, mobile, security, AI-runtime, and workflow regression coverage.
+- `frontend/` — React 19 + Vite operator, storefront, portal, and marketing surfaces.
+- `backend/app/` — FastAPI API, routers, auth context, observability, and application services.
+- `modules/` — durable domain models/services for inventory, production, cultivation, commercial, traceability, analytics, and shared workflows.
+- `services/` — shared integrations, AI runtime, migration/compatibility logic, and supporting services.
+- `reports/` — report/export generation.
+- `migrations/versions/` — Alembic and hosted database migrations.
+- `tests/` — unit, integration, architecture, security, migration, operator acceptance, performance-contract, and regression coverage.
+- `streamlit_app.py` / `app.py` — legacy compatibility/reference surfaces; do not use them as the target for new production UI architecture.
 
-## Local setup
+## Local development
 
-1. Create a Python 3.12 virtual environment.
-2. Install dependencies:
+### Backend
 
-   ```bash
-   python -m pip install -r requirements.txt
-   ```
+Create a Python 3.12 virtual environment, install dependencies, configure `.env`, then start FastAPI:
 
-3. Copy `.env.example` to `.env` and configure the required values.
-4. Start the application:
+```bash
+python -m pip install -r requirements.txt -r backend/requirements.txt
+uvicorn backend.app.main:app --reload
+```
 
-   ```bash
-   streamlit run streamlit_app.py
-   ```
+### Frontend
+
+From `frontend/`:
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Use the configured local API URL/environment expected by the frontend. The hosted production targets are `ops.doobielogic.io` and `api.doobielogic.io`.
+
+Legacy Streamlit can still be started for compatibility/reference work where explicitly required, but it is not the normal production-development target.
 
 ## Required configuration
 
 ### Database
 
-`COMAN_DATABASE_URL` must contain the Supabase session-pooler PostgreSQL connection string. Durable users, organizations, facilities, Co-Man, commercial, nomenclature, audits, and legal acceptance use this database.
+`DATABASE_URL` / `COMAN_DATABASE_URL` resolves to the PostgreSQL/Supabase connection used for durable operational data. Hosted API connection pooling is deliberately bounded; application N+1 behavior must be fixed in code rather than hidden by increasing the pool.
 
-### License authority
+### Authentication and tenant safety
 
-- `DOOBIE_BASE_URL` (or legacy `DOOBIELOGIC_URL`)
-- `DOOBIE_API_KEY` (or legacy `DOOBIELOGIC_API_KEY`)
-
-Buyer Dash validates DoobieLogic-issued licenses and supports a bounded cached grace period when the license service is temporarily unavailable.
+- Durable users, roles, organizations, facilities, and permissions are enforced server-side.
+- Production/commercial/cultivation operations fail closed without valid tenant/facility context.
+- AI datasets, tools, retrieval, telemetry, cache keys, and browser history remain tenant scoped.
+- PostgreSQL RLS exists as an additional boundary; server-side services still must pass and enforce organization/facility identifiers.
 
 ### Optional integrations
 
-- Dutchie credentials described in `docs/dutchie.md`
-- METRC integrator configuration managed by authorized administrators
-- DoobieLogic Native AI Runtime local/cloud provider configuration described in `docs/AI_RUNTIME.md`
+- Metrc/provider traceability configuration is managed through authorized integration surfaces.
+- Dutchie interoperability is transitional/optional and must not become a permanent system-of-record dependency.
+- DoobieLogic Native AI Runtime provider configuration is documented in `docs/AI_RUNTIME.md`.
 
-## Authentication and tenant safety
+## Operational architecture rules
 
-- Passwords are bcrypt-hashed.
-- Durable sessions enforce an idle timeout (`DOOBIE_SESSION_IDLE_MINUTES`, default 90).
-- Every durable user has a role and organization assignment.
-- Facility roles restrict operational access.
-- Production and commercial workspaces fail closed without explicit organization and facility context.
-- AI datasets, tools, retrieval, mapping memory, telemetry, cache keys, and browser conversation history remain organization/facility scoped.
-- PostgreSQL tables have RLS enabled; server-side service access remains responsible for passing and enforcing tenant identifiers.
-
-Before broad multi-company onboarding, complete the planned move to token/JWT-backed Supabase Auth policies. Do not remove the current authentication path until migration, account linking, rollback, and owner recovery have been tested in staging.
-
-## Data persistence
-
-- Durable operational records live in PostgreSQL/Supabase.
-- Retail file sources are staged in the current authenticated application context and reused across Retail Operations.
-- The Data Import Center provides an explicit upload → inspect → review → publish flow.
-- DEV Sandbox data is isolated from non-demo tenants.
+- One canonical source of truth per domain.
+- Material state changes are durable, permissioned, auditable, and recoverable.
+- External traceability providers are regulated adapters, not the primary DoobieLogic database.
+- AI may analyze/recommend/draft; deterministic services validate and execute approved mutations.
+- Long-running workflows save, stop, resume, and expose state rather than trapping the operator in one request/session.
+- Mobile floor workflows are first-class.
+- Performance is part of usability: follow `docs/PERFORMANCE_CONTRACT.md`, avoid per-row HTTP/SQL fan-out, and load expensive detail only when the operator needs it.
 
 ## Database migrations
 
-Apply migrations in order. Every schema change includes:
-
-- an Alembic revision (`.py`), and
-- a transaction-safe standalone Supabase SQL migration (`.sql`) when required by the hosted deployment workflow.
-
-Application code must remain backward-safe during rolling deployment. Production migrations require explicit approval and verification.
+Application code and migrations must remain safe for rolling deployments. Production database changes run through the repository's migration/release gates; do not mutate hosted schema manually as a substitute for a migration.
 
 ## Quality checks
 
-Run:
+Backend/repository checks include compilation, quality gates, and pytest. Frontend checks include lint, unit tests, TypeScript/Vite build, real-browser parity, and operator acceptance. GitHub Actions also validates container startup, migrations, release-candidate behavior, and security scans before production cutover.
+
+Useful local checks include:
 
 ```bash
-python -m compileall -q app.py modules services reports tests
+python -m compileall -q backend modules services reports tests
 python scripts/quality_gate.py
 python -m pytest -q
 ```
 
-GitHub Actions runs compilation, focused quality checks, dependency consistency, the full test suite, frontend lint/tests/build, browser parity, container startup checks, migrations, and security scans on pull requests and pushes to `main`.
+and from `frontend/`:
+
+```bash
+pnpm lint
+pnpm test
+pnpm build
+```
 
 ## Security
 
-Do not commit secrets, production exports, customer manifests, access tokens, or database URLs. See [SECURITY.md](SECURITY.md) for reporting and deployment expectations.
+Do not commit secrets, credentials, production exports, customer manifests, access tokens, or database URLs. See `SECURITY.md` for reporting and deployment expectations.
 
 ## Deployment
 
-The React/FastAPI production architecture is validated independently from the legacy Streamlit surface. AI inference is deliberately external to the FastAPI image so local/open-weight model infrastructure can be scaled or replaced independently without affecting normal operational availability.
+Production runs React/FastAPI on Google Cloud Run with PostgreSQL/Supabase. API and web candidates are built and verified before traffic cutover. AI inference is deliberately external to the normal FastAPI image so model infrastructure can be scaled or replaced independently without degrading ordinary operational availability.
