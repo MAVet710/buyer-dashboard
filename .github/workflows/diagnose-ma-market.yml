@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/diagnose-ma-market.yml"
+      - "services/market_data/**"
 
 permissions:
   contents: read
@@ -14,37 +15,26 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect CCC market sources
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install market parser dependency
+        run: python -m pip install pandas
+      - name: Verify live CCC trend calculation
         run: |
           python - <<'PY'
-          import collections, json, subprocess
-          from datetime import date
+          from services.market_data.ma_ccc import MassachusettsCCCProvider
+          from services.market_data.market_intelligence import _sales_summary
 
-          def read(url):
-              return subprocess.check_output([
-                  "curl", "-LfsS", "--max-time", "30",
-                  "-A", "DoobieLogic-Market-Diagnostic/1.0", url,
-              ])
-
-          url = "https://masscannabiscontrol.com/resource/a_sales_au_gross.json"
-          rows = json.loads(read(url).decode("utf-8-sig"))
-          print("ROWS", len(rows))
-          print("KEYS", sorted(rows[0].keys()))
-          for field in ["Industry", "DataType", "SalesPeriodType", "UnitOfMeasureName"]:
-              print(field, collections.Counter(str(row.get(field)) for row in rows).most_common())
-          dates = sorted(str(row.get("SaleDate")) for row in rows if row.get("SaleDate"))
-          print("DATE_RANGE", dates[0], dates[-1])
-          print("LATEST_DATES", sorted(set(dates))[-10:])
-          print("CATEGORIES", sorted(set(str(row.get("ProductCategoryName")) for row in rows)))
-
-          key_counts = collections.Counter(
-              (row.get("SaleDate"), row.get("ProductCategoryName"), row.get("DataType"), row.get("UnitOfMeasureName"), row.get("SalesPeriodType"))
-              for row in rows
-          )
-          print("EXACT_DUPLICATE_DIMENSION_KEYS", sum(1 for count in key_counts.values() if count > 1), "MAX", max(key_counts.values()))
-
-          latest = max(row.get("SaleDate") for row in rows if row.get("SaleDate"))
-          print("LATEST_ROWS_SAMPLE")
-          for row in [row for row in rows if row.get("SaleDate") == latest][:30]:
-              print(json.dumps(row, sort_keys=True))
+          dataset = MassachusettsCCCProvider(timeout_seconds=30).fetch_sales()
+          for days in (30, 60):
+              statewide, categories = _sales_summary(dataset, days)
+              print("WINDOW", days, "AS_OF", statewide["as_of"], "STATEWIDE", statewide["market_growth"])
+              for category in ["Flower", "Vapes", "Pre-Rolls", "Infused Pre-Rolls", "Edibles", "Beverages", "Concentrates"]:
+                  row = categories.get(category)
+                  print("CATEGORY", category, None if row is None else row["market_growth"])
+              required = ["Flower", "Vapes", "Pre-Rolls", "Edibles", "Concentrates"]
+              missing = [category for category in required if categories.get(category, {}).get("market_growth") is None]
+              if missing:
+                  raise SystemExit(f"Required MA trend categories did not populate for {days} days: {missing}")
           PY
