@@ -64,7 +64,7 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 export function ProductionCalendar({ onOpenRun }: { onOpenRun: (orderId: string) => void }) {
   const client = useQueryClient();
-  const workspace = useQuery({ queryKey: ["production-calendar-workspace"], queryFn: ({ signal }) => apiGet<Workspace>("/api/v1/coman-parity/workspace", signal) });
+  const workspace = useQuery({ queryKey: ["production-calendar-workspace"], queryFn: ({ signal }) => apiGet<Workspace>("/api/v1/production/calendar-workspace", signal) });
   const schedule = useQuery({ queryKey: ["production-calendar"], queryFn: ({ signal }) => apiGet<Placement[]>("/api/v1/production/schedule", signal) });
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [schedulerOpen, setSchedulerOpen] = useState(false);
