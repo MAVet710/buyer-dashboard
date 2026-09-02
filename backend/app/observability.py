@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("buyer_dash.api")
+SLOW_REQUEST_MS = 1_000.0
 
 
 def install_observability(app: FastAPI) -> None:
@@ -25,10 +26,13 @@ def install_observability(app: FastAPI) -> None:
             response = JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "An unexpected server error occurred.", "request_id": request_id}})
         duration_ms = (time.perf_counter() - started) * 1000
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-Response-Time-Ms"] = f"{duration_ms:.2f}"
+        response.headers["Server-Timing"] = f"app;dur={duration_ms:.2f}"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["Permissions-Policy"] = "camera=(self), microphone=(), geolocation=()"
-        logger.info("api_request request_id=%s method=%s path=%s status=%s duration_ms=%.2f", request_id, request.method, request.url.path, response.status_code, duration_ms)
+        log = logger.warning if duration_ms >= SLOW_REQUEST_MS else logger.info
+        log("api_request request_id=%s method=%s path=%s status=%s duration_ms=%.2f", request_id, request.method, request.url.path, response.status_code, duration_ms)
         return response
 
     @app.exception_handler(HTTPException)
