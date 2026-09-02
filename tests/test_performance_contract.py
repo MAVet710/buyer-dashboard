@@ -123,3 +123,20 @@ def test_api_exposes_server_timing_without_changing_payload() -> None:
     assert response.headers["server-timing"].startswith("app;dur=")
     assert float(response.headers["x-response-time-ms"]) >= 0
     assert response.headers["x-request-id"]
+    assert "content-encoding" not in response.headers
+
+
+def test_api_compresses_large_json_without_changing_payload() -> None:
+    app = FastAPI()
+    install_observability(app)
+    payload = {"rows": [{"id": index, "name": f"production-row-{index}", "notes": "x" * 80} for index in range(100)]}
+
+    @app.get("/large")
+    def large() -> dict:
+        return payload
+
+    response = TestClient(app).get("/large", headers={"Accept-Encoding": "gzip"})
+    assert response.status_code == 200
+    assert response.json() == payload
+    assert response.headers["content-encoding"] == "gzip"
+    assert "Accept-Encoding" in response.headers.get("vary", "")
