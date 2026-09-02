@@ -36,7 +36,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint("facility_id", "environment", "tag_type", "label", name="uq_metrc_tag_facility_environment_type_label"),
         sa.CheckConstraint("tag_type in ('plant','package')", name="ck_metrc_tag_type"),
-        sa.CheckConstraint("status in ('available','reserved','used','voided')", name="ck_metrc_tag_status"),
+        sa.CheckConstraint("status in ('available','unavailable','reserved','used','voided')", name="ck_metrc_tag_status"),
     )
     op.create_index("ix_metrc_tag_available", "regulatory_metrc_tags", ["facility_id", "environment", "tag_type", "status"])
     op.create_index("ix_regulatory_metrc_tags_organization_id", "regulatory_metrc_tags", ["organization_id"])
@@ -172,6 +172,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("organization_id", sa.String(36), sa.ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False),
         sa.Column("facility_id", sa.String(36), sa.ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("environment", sa.String(24), nullable=False),
         sa.Column("source_type", sa.String(24), nullable=False),
         sa.Column("source_id", sa.String(64), nullable=False),
         sa.Column("package_tag", sa.String(64), nullable=False),
@@ -184,7 +185,8 @@ def upgrade() -> None:
         sa.Column("actor", sa.String(255), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.UniqueConstraint("facility_id", "package_tag", name="uq_cultivation_test_sample_package_tag"),
+        sa.UniqueConstraint("facility_id", "environment", "package_tag", name="uq_cultivation_test_sample_package_tag"),
+        sa.CheckConstraint("environment in ('sandbox','production')", name="ck_cultivation_test_sample_environment"),
         sa.CheckConstraint("source_type in ('harvest','package')", name="ck_cultivation_test_sample_source_type"),
         sa.CheckConstraint("quantity > 0", name="ck_cultivation_test_sample_quantity"),
         sa.CheckConstraint("status in ('planned','provider_confirmed','verified','cancelled')", name="ck_cultivation_test_sample_status"),
