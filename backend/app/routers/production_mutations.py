@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
-from modules.cultivation.post_harvest import PostHarvestService
+from modules.cultivation.post_harvest import POST_HARVEST_STAGES, PostHarvestService
 from modules.inventory_transfers.lineage import CrossFacilityLineageService
 from modules.inventory_transfers.recall import RecallBlastRadiusService
 from modules.material_lineage.harvest_guard import GuardedHarvestAllocationService
@@ -27,6 +27,11 @@ production_router = APIRouter(
 )
 cultivation_router = APIRouter(prefix="/inventory/production/plants", tags=["cultivation"])
 lineage_router = APIRouter(prefix="/material-lineage", tags=["traceability"])
+
+_POST_HARVEST_STAGE_ORDER = {stage: index for index, stage in enumerate(POST_HARVEST_STAGES)}
+_POST_HARVEST_OUTPUT_TYPES = ("finished_flower", "trim", "biomass", "waste")
+_POST_HARVEST_WEIGHT_TYPES = ("wip", *_POST_HARVEST_OUTPUT_TYPES)
+_POST_HARVEST_TOLERANCE_G = 1.0
 
 
 class MutationPreviewRequest(BaseModel):
@@ -107,6 +112,63 @@ def _can_correct_locked_post_harvest(context: RequestContext) -> bool:
     return context.role.casefold() in {"dev", "admin", "supervisor", "qa"}
 
 
+def _validate_post_harvest_stage_step(current_stage: str, target_stage: str) -> str:
+    current = current_stage.strip().casefold()
+    target = target_stage.strip().casefold()
+    if current not in _POST_HARVEST_STAGE_ORDER or target not in _POST_HARVEST_STAGE_ORDER:
+        raise HTTPException(422, "Unsupported post-harvest stage.")
+    if target == current:
+        return target
+    expected_index = _POST_HARVEST_STAGE_ORDER[current] + 1
+    if expected_index >= len(POST_HARVEST_STAGES) or _POST_HARVEST_STAGE_ORDER[target] != expected_index:
+        expected = POST_HARVEST_STAGES[expected_index] if expected_index < len(POST_HARVEST_STAGES) else "no later stage"
+        raise HTTPException(
+            422,
+            f"Post-harvest work must advance one stage at a time. {current} can move next to {expected}, not {target}.",
+        )
+    return target
+
+
+def _normalized_post_harvest_measurements(measurements: list[PostHarvestMeasurement]) -> list[dict]:
+    rows = [row.model_dump() for row in measurements]
+    seen: set[str] = set()
+    for row in rows:
+        kind = str(row.get("weight_type") or "").strip().casefold()
+        if kind not in _POST_HARVEST_WEIGHT_TYPES:
+            raise HTTPException(422, "Unsupported post-harvest weight type.")
+        if kind in seen:
+            raise HTTPException(422, f"Submit only one {kind} reading per weight update.")
+        seen.add(kind)
+        row["weight_type"] = kind
+    return rows
+
+
+def _guard_reconciled_post_harvest(current: dict, measurements: list[dict] | None = None) -> None:
+    dry_weight = float(current.get("dry_weight_g") or 0)
+    if dry_weight <= 0:
+        raise HTTPException(422, "Record the canonical dry harvest weight before approving final post-harvest reconciliation.")
+
+    weights = {key: float(value or 0) for key, value in dict(current.get("current_weights") or {}).items()}
+    for row in measurements or []:
+        weights[str(row.get("weight_type") or "").strip().casefold()] = float(row.get("quantity_g") or 0)
+
+    accounted = sum(weights.get(kind, 0.0) for kind in _POST_HARVEST_OUTPUT_TYPES)
+    discrepancy = round(dry_weight - accounted, 4)
+    if abs(discrepancy) > _POST_HARVEST_TOLERANCE_G:
+        direction = "remaining" if discrepancy > 0 else "over-recorded"
+        raise HTTPException(
+            422,
+            f"Final post-harvest weights are not reconciled: {abs(discrepancy):,.2f} g {direction}. Record flower, trim, biomass, or waste until the dry weight reconciles within 1 g.",
+        )
+
+    wip = float(weights.get("wip") or 0)
+    if wip > _POST_HARVEST_TOLERANCE_G:
+        raise HTTPException(
+            422,
+            f"Final post-harvest reconciliation still reports {wip:,.2f} g of remaining/WIP material. Record the final WIP reading at 0 g before approval.",
+        )
+
+
 def _guard_post_harvest_ready(service: PostHarvestService, context: RequestContext, batch_id: str) -> None:
     if not _can_correct_locked_post_harvest(context):
         raise HTTPException(403, "A supervisor, QA user, or administrator must approve final post-harvest reconciliation.")
@@ -114,17 +176,7 @@ def _guard_post_harvest_ready(service: PostHarvestService, context: RequestConte
         current = service.detail(context.organization_id, context.facility_id, batch_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
-    dry_weight = float(current.get("dry_weight_g") or 0)
-    if dry_weight <= 0:
-        raise HTTPException(422, "Record the canonical dry harvest weight before approving final post-harvest reconciliation.")
-    accounted = float(current.get("accounted_output_g") or 0)
-    discrepancy = round(dry_weight - accounted, 4)
-    if abs(discrepancy) > 1.0:
-        direction = "remaining" if discrepancy > 0 else "over-recorded"
-        raise HTTPException(
-            422,
-            f"Final post-harvest weights are not reconciled: {abs(discrepancy):,.2f} g {direction}. Record flower, trim, biomass, or waste until the dry weight reconciles within 1 g.",
-        )
+    _guard_reconciled_post_harvest(current)
 
 
 @production_router.get("/calendar-workspace")
@@ -231,14 +283,19 @@ def transition_post_harvest(
 ):
     _guard_cultivation_write(context, engine)
     service = PostHarvestService(engine)
-    if payload.stage.strip().casefold() == "ready":
+    try:
+        current = service.detail(context.organization_id, context.facility_id, batch_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    target = _validate_post_harvest_stage_step(str(current.get("stage") or ""), payload.stage)
+    if target == "ready":
         _guard_post_harvest_ready(service, context, batch_id)
     try:
         return service.transition(
             context.organization_id,
             context.facility_id,
             batch_id,
-            stage=payload.stage,
+            stage=target,
             location_code=payload.location_code,
             notes=payload.notes,
             actor=context.user_id,
@@ -255,12 +312,24 @@ def record_post_harvest_weights(
     engine: Engine = Depends(get_engine),
 ):
     _guard_cultivation_write(context, engine)
+    service = PostHarvestService(engine)
+    measurements = _normalized_post_harvest_measurements(payload.measurements)
     try:
-        return PostHarvestService(engine).record_weights(
+        current = service.detail(context.organization_id, context.facility_id, batch_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    if str(current.get("stage") or "").casefold() == "ready":
+        if not _can_correct_locked_post_harvest(context):
+            raise HTTPException(403, "A supervisor, QA user, or administrator must record locked post-harvest corrections.")
+        if not payload.correction_reason.strip():
+            raise HTTPException(422, "A correction reason is required when changing weights after the batch is ready.")
+        _guard_reconciled_post_harvest(current, measurements)
+    try:
+        return service.record_weights(
             context.organization_id,
             context.facility_id,
             batch_id,
-            measurements=[row.model_dump() for row in payload.measurements],
+            measurements=measurements,
             actor=context.user_id,
             correction_reason=payload.correction_reason,
             allow_locked_correction=_can_correct_locked_post_harvest(context),
