@@ -20,7 +20,7 @@ type Workspace = {
   machines: { id: string; machine_model_id: string; display_name: string }[];
   machine_models: { id: string; category: string; manufacturer: string; model: string }[];
   crew: { id: string; work_date: string; shift_name: string; available_people: number; shift_hours: number }[];
-  products: { id: string; sku: string; name: string; item_type: string; base_unit: string }[];
+  products?: { id: string; sku: string; name: string; item_type: string; base_unit: string }[];
   lots: { id: string; product_id: string; status: string; on_hand: number }[];
   reservations: { id: string; production_order_id: string; lot_id: string; quantity: number; unit: string; status: string }[];
 };
@@ -135,13 +135,7 @@ export function ProductionPlanner({ onOpenRun }: { onOpenRun: (orderId: string) 
 }
 
 async function loadPlan(signal: AbortSignal): Promise<PlanData> {
-  const [workspace, queue] = await Promise.all([
-    apiGet<Workspace>("/api/v1/coman-parity/workspace", signal),
-    apiGet<QueueRow[]>("/api/v1/production/orders", signal),
-  ]);
-  const activeQueue = queue.filter((row) => !["complete", "cancelled"].includes(row.Status.toLowerCase().replaceAll(" ", "_"))).slice(0, 40);
-  const details = await Promise.all(activeQueue.map((row) => apiGet<ProductionDetail>(`/api/v1/production/orders/${encodeURIComponent(row.order_id)}`, signal)));
-  return { workspace, queue: activeQueue, details };
+  return apiGet<PlanData>("/api/v1/production/planning-snapshot", signal);
 }
 
 function buildPlanRows(data: PlanData): PlanRow[] {
