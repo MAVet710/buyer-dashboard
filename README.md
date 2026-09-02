@@ -11,9 +11,9 @@ The platform supports retail inventory and purchasing, cultivation, production/m
 - **Production Operations** — planning, calendar, Run 360 execution, cultivation, manufacturing/Co-Man, extraction, Package Studio, inventory, QA, and COGS.
 - **Commercial / Wholesale Operations** — customers, sales orders, fulfillment, pick/pack, manifests, invoicing/A/R, storefronts, and customer portals.
 - **Compliance & Traceability** — COAs, labels, regulatory workflows, reconciliation, and Metrc/provider integration surfaces.
-- **Data, Integrations & Enterprise** — imports, source readiness, provider configuration, organization/facility controls, and administrative tooling.
+- **Data, Integrations & Enterprise** — the **Data Import Center** guided upload → inspect → review → publish flow, source readiness, provider configuration, organization/facility controls, and administrative tooling.
 
-See `PLAN.md` for the current product mandate, `docs/BACKOFFICE_SCOPE.md` for the application boundary, `docs/PERFORMANCE_CONTRACT.md` for the performance bar, and `docs/AI_RUNTIME.md` for the provider-neutral DoobieLogic AI Runtime.
+See `PLAN.md` for the current product mandate, `docs/BACKOFFICE_SCOPE.md` for the application boundary, `docs/PERFORMANCE_CONTRACT.md` for the performance bar, `docs/USER_GUIDE.md` for operator-facing instructions, and `docs/AI_RUNTIME.md` for the provider-neutral DoobieLogic AI Runtime.
 
 ## Production architecture
 
