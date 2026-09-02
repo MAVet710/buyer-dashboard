@@ -103,6 +103,18 @@ def _number(value: Any) -> float:
 def _date(value: Any) -> date | None:
     if value in (None, ""):
         return None
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        # CCC SaleDate values are ISO YYYY-MM-DD. Avoid a pandas parser call for
+        # every one of the ~77k live sales rows; retain pandas as a tolerant
+        # fallback for monthly price values and future source variations.
+        if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-":
+            try:
+                return date.fromisoformat(text[:10])
+            except ValueError:
+                pass
     parsed = pd.to_datetime(value, errors="coerce")
     if pd.isna(parsed):
         return None
