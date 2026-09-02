@@ -17,8 +17,10 @@ type PostHarvestBatch = {
 type WeightHistory = {id:string;stage:string;weight_type:WeightType;quantity_g:number;container_code:string;note:string;correction_reason:string;actor:string;occurred_at:string};
 type AuditHistory = {id:string;event_type:string;from_value:string;to_value:string;note:string;actor:string;occurred_at:string};
 type PostHarvestDetail = PostHarvestBatch & { weight_history:WeightHistory[]; audit_history:AuditHistory[] };
-type Props = { canWrite:boolean; onOpenHarvest:(harvestId:string)=>void };
+type HarvestLifecycle = { id:string; status:string };
+type Props = { canWrite?:boolean; onOpenHarvest?:(harvestId:string)=>void };
 
+const writeRoles = new Set(["dev", "admin", "supervisor", "operator", "qa"]);
 const managerRoles = new Set(["dev", "admin", "supervisor", "qa"]);
 const filters:Array<[string,string]> = [
   ["attention","Needs Attention"],
@@ -32,22 +34,25 @@ const filters:Array<[string,string]> = [
   ["all","All"],
 ];
 
-export function PostHarvestBoard({canWrite,onOpenHarvest}:Props) {
+export function PostHarvestBoard({canWrite,onOpenHarvest}:Props = {}) {
   const client=useQueryClient();
   const account=useQuery({queryKey:["account-context"],queryFn:({signal})=>apiGet<{user:{role:string}}>("/api/v1/account/context",signal)});
   const role=account.data?.user.role??"";
+  const effectiveCanWrite=canWrite??writeRoles.has(role);
   const canManage=managerRoles.has(role);
+  const harvests=useQuery({queryKey:["cultivation-harvests"],queryFn:({signal})=>apiGet<{items:HarvestLifecycle[]}>("/api/v1/inventory/production/plants/harvests",signal)});
   const query=useQuery({queryKey:["post-harvest"],queryFn:({signal})=>apiGet<{items:PostHarvestBatch[]}>("/api/v1/inventory/production/plants/post-harvest",signal)});
-  const syncStarted=useRef(false);
+  const syncKey=(harvests.data?.items??[]).filter(row=>row.status==="active"||row.status==="drying").map(row=>`${row.id}:${row.status}`).sort().join("|");
+  const lastSyncKey=useRef<string|null>(null);
   const sync=useMutation({
     mutationFn:()=>apiPost<{items:PostHarvestBatch[]}>("/api/v1/inventory/production/plants/post-harvest/sync",{}),
     onSuccess:data=>client.setQueryData(["post-harvest"],data),
   });
   useEffect(()=>{
-    if(!canWrite||syncStarted.current)return;
-    syncStarted.current=true;
+    if(!effectiveCanWrite||harvests.isLoading||lastSyncKey.current===syncKey)return;
+    lastSyncKey.current=syncKey;
     sync.mutate();
-  },[canWrite]);
+  },[effectiveCanWrite,harvests.isLoading,syncKey]);
   const [filter,setFilter]=useState("attention");
   const [weightBatchId,setWeightBatchId]=useState("");
   const [advanceBatchId,setAdvanceBatchId]=useState("");
@@ -68,10 +73,10 @@ export function PostHarvestBoard({canWrite,onOpenHarvest}:Props) {
       <div className="metrics"><Metric label="Flower" value={`${num(batch.current_weights.finished_flower)} g`}/><Metric label="Trim" value={`${num(batch.current_weights.trim)} g`}/><Metric label="Remaining / WIP" value={`${num(batch.remaining_wip_g)} g`}/></div>
       <p className="source-caption">Wet {num(batch.wet_weight_g)} g · Dry {num(batch.dry_weight_g)} g · {batch.weight_event_count} recorded weight event{batch.weight_event_count===1?"":"s"}</p>
       <div className="audit-actions">
-        {canWrite&&batch.stage!=="ready"?<button className="primary" type="button" onClick={()=>setWeightBatchId(batch.id)}>Update weights</button>:null}
-        {canWrite&&batch.stage==="ready"&&canManage?<button className="secondary" type="button" onClick={()=>setWeightBatchId(batch.id)}>Correct locked weights</button>:null}
-        {canWrite&&nextStage(batch.stage)?<button className="secondary" type="button" onClick={()=>setAdvanceBatchId(batch.id)}>Advance stage</button>:null}
-        <button className="secondary" type="button" onClick={()=>onOpenHarvest(batch.harvest_id)}>Open Harvest 360</button>
+        {effectiveCanWrite&&batch.stage!=="ready"?<button className="primary" type="button" onClick={()=>setWeightBatchId(batch.id)}>Update weights</button>:null}
+        {effectiveCanWrite&&batch.stage==="ready"&&canManage?<button className="secondary" type="button" onClick={()=>setWeightBatchId(batch.id)}>Correct locked weights</button>:null}
+        {effectiveCanWrite&&nextStage(batch.stage)?<button className="secondary" type="button" onClick={()=>setAdvanceBatchId(batch.id)}>Advance stage</button>:null}
+        {onOpenHarvest?<button className="secondary" type="button" onClick={()=>onOpenHarvest(batch.harvest_id)}>Open Harvest 360</button>:null}
       </div>
     </article>)}</div>:query.data?<div className="empty">No post-harvest jobs match this view.</div>:null}
     {weightBatchId?<WeightDialog batchId={weightBatchId} canManage={canManage} onClose={()=>setWeightBatchId("")} onSaved={async()=>{setWeightBatchId("");await client.invalidateQueries({queryKey:["post-harvest"]})}}/>:null}
@@ -88,29 +93,29 @@ function WeightDialog({batchId,canManage,onClose,onSaved}:{batchId:string;canMan
 
 function WeightForm({batch,canManage,onClose,onSaved}:{batch:PostHarvestDetail;canManage:boolean;onClose:()=>void;onSaved:()=>void|Promise<void>}) {
   const [form,setForm]=useState<Record<WeightType,string>>({
-    wip:String(batch.current_weights.wip||batch.remaining_wip_g||0),
-    finished_flower:String(batch.current_weights.finished_flower||0),
-    trim:String(batch.current_weights.trim||0),
-    biomass:String(batch.current_weights.biomass||0),
-    waste:String(batch.current_weights.waste||0),
+    wip:batch.current_weights.wip>0?String(batch.current_weights.wip):"",
+    finished_flower:batch.current_weights.finished_flower>0?String(batch.current_weights.finished_flower):"",
+    trim:batch.current_weights.trim>0?String(batch.current_weights.trim):"",
+    biomass:batch.current_weights.biomass>0?String(batch.current_weights.biomass):"",
+    waste:batch.current_weights.waste>0?String(batch.current_weights.waste):"",
   });
   const [containerCode,setContainerCode]=useState("");
   const [note,setNote]=useState("");
   const [correctionReason,setCorrectionReason]=useState("");
   const locked=batch.stage==="ready";
-  const changed=(Object.keys(form) as WeightType[]).filter(kind=>Number(form[kind]||0)!==Number(batch.current_weights[kind]||0) && !(kind==="wip"&&Number(form[kind]||0)===Number(batch.remaining_wip_g||0)&&Number(batch.current_weights.wip||0)===0));
+  const changed=(Object.keys(form) as WeightType[]).filter(kind=>form[kind]!==""&&Number(form[kind])!==Number(batch.current_weights[kind]||0));
   const mutation=useMutation({
     mutationFn:()=>apiPost<PostHarvestDetail>(`/api/v1/inventory/production/plants/post-harvest/${batch.id}/weights`,{
-      measurements:changed.map(weight_type=>({weight_type,quantity_g:Number(form[weight_type]||0),container_code:containerCode.trim(),note:note.trim()})),
+      measurements:changed.map(weight_type=>({weight_type,quantity_g:Number(form[weight_type]),container_code:containerCode.trim(),note:note.trim()})),
       correction_reason:correctionReason.trim(),
     }),
     onSuccess:onSaved,
   });
   return <StreamlitDialog open onClose={onClose} eyebrow={`POST-HARVEST · ${stageLabel(batch.stage).toUpperCase()}`} title={`${batch.harvest_code} · Update weights`} subtitle="Enter what the scale says. DoobieLogic appends the reading and keeps every prior value underneath.">
-    <div className="info-banner"><strong>{batch.strain_name}</strong> · Wet {num(batch.wet_weight_g)} g · Dry {num(batch.dry_weight_g)} g<br/><span>Current remaining/WIP: {num(batch.remaining_wip_g)} g</span></div>
+    <div className="info-banner"><strong>{batch.strain_name}</strong> · Wet {num(batch.wet_weight_g)} g · Dry {num(batch.dry_weight_g)} g<br/><span>Calculated remaining/WIP: {num(batch.remaining_wip_g)} g</span></div>
     {locked?<div className="warning-banner"><strong>This batch is locked.</strong> Only a supervisor/QA/admin can append a correction, and a reason is required. Historical readings are never edited.</div>:null}
     <div className="form-grid two">
-      <WeightField label="Remaining / WIP (g)" value={form.wip} onChange={value=>setForm({...form,wip:value})}/>
+      <WeightField label="Remaining / WIP (g)" value={form.wip} placeholder={`${num(batch.remaining_wip_g)} calculated`} onChange={value=>setForm({...form,wip:value})}/>
       <WeightField label="Finished flower (g)" value={form.finished_flower} onChange={value=>setForm({...form,finished_flower:value})}/>
       <WeightField label="Trim (g)" value={form.trim} onChange={value=>setForm({...form,trim:value})}/>
       <WeightField label="Biomass (g)" value={form.biomass} onChange={value=>setForm({...form,biomass:value})}/>
@@ -131,15 +136,18 @@ function AdvanceDialog({batchId,onClose,onSaved}:{batchId:string;onClose:()=>voi
   const target=batch?nextStage(batch.stage):null;
   const [location,setLocation]=useState("");
   const [notes,setNotes]=useState("");
-  useEffect(()=>{if(batch)setLocation(batch.location_code||"")},[batch?.id]);
-  const mutation=useMutation({mutationFn:()=>apiPost<PostHarvestDetail>(`/api/v1/inventory/production/plants/post-harvest/${batchId}/transition`,{stage:target,location_code:location.trim(),notes:notes.trim()}),onSuccess:onSaved});
+  useEffect(()=>{if(batch)setLocation(batch.location_code||"")},[batch]);
+  const mutation=useMutation({mutationFn:()=>{
+    if(!target)throw new Error("This post-harvest batch has no next stage.");
+    return apiPost<PostHarvestDetail>(`/api/v1/inventory/production/plants/post-harvest/${batchId}/transition`,{stage:target,location_code:location.trim(),notes:notes.trim()});
+  },onSuccess:onSaved});
   return <StreamlitDialog open onClose={onClose} eyebrow="Post-Harvest" title={batch&&target?`${batch.harvest_code} · ${stageLabel(target)}`:"Advance post-harvest"} subtitle={batch&&target?`Move this physical work from ${stageLabel(batch.stage)} to ${stageLabel(target)}.`:"Loading stage…"}>
     {query.isLoading?<div className="state">Loading…</div>:null}{query.isError?<div className="state error">{query.error.message}</div>:null}
     {batch&&target?<><div className="form-grid"><label>Current location / room<input value={location} onChange={event=>setLocation(event.target.value)} placeholder="DRY-2 / TRIM-1 / CURE-A"/></label><label>Handoff note<input value={notes} onChange={event=>setNotes(event.target.value)} placeholder="Optional note for the next team"/></label></div><div className="info-banner">This advances the operational post-harvest stage only. It does not create inventory or submit a Metrc action.</div><div className="audit-actions"><button className="primary" type="button" disabled={mutation.isPending} onClick={()=>mutation.mutate()}>{mutation.isPending?"Moving…":`Move to ${stageLabel(target)}`}</button><button className="secondary" type="button" onClick={onClose}>Cancel</button></div>{mutation.isError?<div className="form-error">{mutation.error.message}</div>:null}</>:null}
   </StreamlitDialog>;
 }
 
-function WeightField({label,value,onChange}:{label:string;value:string;onChange:(value:string)=>void}) {return <label>{label}<input type="number" min="0" step="any" value={value} onChange={event=>onChange(event.target.value)}/></label>}
+function WeightField({label,value,placeholder,onChange}:{label:string;value:string;placeholder?:string;onChange:(value:string)=>void}) {return <label>{label}<input type="number" min="0" step="any" value={value} placeholder={placeholder} onChange={event=>onChange(event.target.value)}/></label>}
 function Metric({label,value}:{label:string;value:string|number}) {return <article className="metric"><span>{label}</span><strong>{typeof value==="number"?value.toLocaleString():value}</strong></article>}
 function nextStage(stage:Stage):Stage|null {const index=stages.indexOf(stage);return index>=0&&index<stages.length-1?stages[index+1]:null}
 function stageLabel(stage:Stage|string){return ({harvested:"Harvested",drying:"Drying",bucking:"Ready for Trim / Bucking",trimming:"Trimming",curing:"Curing",testing_hold:"Testing / Hold",ready:"Ready"} as Record<string,string>)[stage]??stage.replaceAll("_"," ")}
