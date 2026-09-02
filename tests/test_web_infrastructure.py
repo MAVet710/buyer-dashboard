@@ -120,13 +120,13 @@ def test_fresh_database_migrates_to_head_and_latest_revision_rolls_back(tmp_path
     command.upgrade(config, "head")
     engine = create_engine(database_url, future=True)
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0064_packaging_label_semantics"
+        assert MigrationContext.configure(connection).get_current_revision() == "0066_metrc_guide_v11_alignment"
 
     command.downgrade(config, "-1")
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0063_structured_coa_documents"
+        assert MigrationContext.configure(connection).get_current_revision() == "0065_metrc_process_readiness"
 
     command.upgrade(config, "head")
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0064_packaging_label_semantics"
+        assert MigrationContext.configure(connection).get_current_revision() == "0066_metrc_guide_v11_alignment"
     engine.dispose()
