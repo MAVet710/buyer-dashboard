@@ -8,7 +8,7 @@ Buyer Dash Backoffice must own the operator-facing workflow and authoritative re
 
 Competitor integrations may exist as migration bridges or optional interoperability, but the Backoffice architecture must not require Dutchie or Distru.
 
-See `docs/COMPETITIVE_REPLACEMENT_ROADMAP.md` for the complete replacement bar and `docs/BACKOFFICE_SCOPE.md` for the current product boundary.
+See `docs/COMPETITIVE_REPLACEMENT_ROADMAP.md` for the complete replacement bar, `docs/BACKOFFICE_SCOPE.md` for the current product boundary, and `docs/PERFORMANCE_CONTRACT.md` for the operator-performance bar.
 
 ## Active Backoffice milestones
 1. Operations Inbox and Product 360 decision layer
@@ -32,5 +32,7 @@ Register/POS UI, till/shift UX, payment terminal UX, receipt UX, and consumer ch
 - Traceability failures must be visible, recoverable, and reconcilable.
 - Mobile Backoffice floor workflows must be first-class.
 - Long-running workflows must save, stop, and resume.
+- **Complex underneath, simple and fast on top:** common operator workspaces must use bounded read models, avoid per-row HTTP/SQL fan-out, and progressively load expensive detail without changing approved UX/UI.
+- Routine workspace rendering must not silently depend on optional external-provider latency; explicit Metrc/AI/payment-provider work remains visible and fail-safe.
 - Backoffice APIs/events must be channel-neutral so a future POS, e-commerce app, kiosk, or mobile client can consume them without duplicating business logic.
-- Do not claim competitor replacement until the documented replacement exit criteria are met.
+- Do not claim competitor replacement until the documented replacement exit criteria, including the performance contract, are met.
