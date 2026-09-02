@@ -45,9 +45,10 @@ def test_trends_matches_streamlit_continuous_table_math_and_top_n():
 def test_react_buyer_intelligence_and_trends_keep_exact_streamlit_workflow_shape():
     buyer=(ROOT/"frontend/src/pages/BuyingRecommendationsPage.tsx").read_text(encoding="utf-8")
     trends=(ROOT/"frontend/src/pages/BuyerTrendsPage.tsx").read_text(encoding="utf-8")
-    buyer_order=["🧠 Buyer Intelligence","🌐 Optional live market references","Buyer intelligence lookback (days)","Tracked SKUs","Top Categories","SKU Risk Table","What to Buy","🤖 Data-Backed Buyer Brief","Generate Buyer Brief"]
+    buyer_order=["🧠 Buyer Intelligence","Buyer intelligence lookback (days)","Tracked SKUs","Top Categories","SKU Risk Table","What to Buy","🤖 Data-Backed Buyer Brief","Generate Buyer Brief"]
     trends_order=["📈 Trends","Trend window (days)","Comparison window (prior days)","Run-rate multiplier","Category Mix (Units)","Package Size Mix (Units)","Top Movers (SKU-level)","Best Sellers by Category","Top N per category","Fast Movers + Low Stock (SKU-level)"]
     assert [buyer.index(value) for value in buyer_order]==sorted(buyer.index(value) for value in buyer_order)
+    assert "MarketPulse" in buyer and "Optional live market references" not in buyer
     assert [trends.index(value) for value in trends_order]==sorted(trends.index(value) for value in trends_order)
     assert 'type Tab' not in trends and 'parity-tabs' not in trends
 

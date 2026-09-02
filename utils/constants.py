@@ -67,5 +67,4 @@ MAX_SIZE_LENGTH_PDF = 8
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 PRODUCT_TABLE_DISPLAY_LIMIT = 2000
 PO_REVIEW_THRESHOLD = 15
-BUYER_MARKET_REFERENCES = [{"name": "Headset Brand Marketplace", "url": "https://www.headset.io/brands", "notes": "Live, frequently updated brand-level market visibility across U.S. cannabis markets."}]
 LOCAL_APP_URL = os.environ.get("LOCAL_APP_URL", "http://localhost:8501")

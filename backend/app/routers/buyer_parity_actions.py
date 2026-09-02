@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
 from services.agent_registry import PROFILES
+from services.market_data import build_market_intelligence
 from services.web_buyer_parity import records, sku_inventory_view
 from ..services.ai_runtime import run_bounded_ai
 from ..auth import RequestContext, get_request_context, get_retail_context
@@ -242,6 +243,35 @@ def _buyer_ai_context(filtered: pd.DataFrame, *, source: dict, state: str, targe
     }
 
 
+def _buyer_market_context(filtered: pd.DataFrame, *, state: str, lookback_days: int) -> dict | None:
+    if state.strip().upper() != "MA":
+        return None
+    rows = records(filtered, limit=5000)
+    market = build_market_intelligence(
+        store_category_rows=rows,
+        store_product_rows=rows,
+        lookback_days=lookback_days,
+    )
+    if market.get("status") != "available":
+        return None
+    relevant_categories = [
+        row
+        for row in market.get("categories", [])
+        if float(row.get("store_units_sold") or 0) > 0 or row.get("days_of_cover") is not None
+    ]
+    return {
+        "role": "directional_public_market_context",
+        "priority": "secondary_to_store_sales_and_inventory",
+        "source": market.get("source"),
+        "as_of": market.get("as_of"),
+        "source_updated_at": market.get("source_updated_at"),
+        "statewide_growth": market.get("statewide_growth"),
+        "average_retail_price_per_gram": market.get("average_retail_price_per_gram"),
+        "average_retail_price_change": market.get("average_retail_price_change"),
+        "categories": relevant_categories[:24],
+    }
+
+
 @router.get("/drilldown")
 def sku_drilldown(
     category: str = Query(..., min_length=1, max_length=160),
@@ -357,6 +387,15 @@ def buyer_brief(
     settings: Settings = Depends(get_settings),
 ):
     filtered, source = _buyer_slice(payload, context, engine)
+    bounded_context = _buyer_ai_context(
+        filtered,
+        source=source,
+        state=payload.state,
+        target_doh=payload.target_doh,
+    )
+    market_context = _buyer_market_context(filtered, state=payload.state, lookback_days=payload.sales_days)
+    if market_context is not None:
+        bounded_context["market_intelligence"] = market_context
     response = run_bounded_ai(
         engine=engine,
         settings=settings,
@@ -364,12 +403,7 @@ def buyer_brief(
         operation_type="retail",
         profile=PROFILES["buyer"],
         question=payload.question,
-        bounded_context=_buyer_ai_context(
-            filtered,
-            source=source,
-            state=payload.state,
-            target_doh=payload.target_doh,
-        ),
+        bounded_context=bounded_context,
     )
     if response.get("mode") == "fallback":
         detail = str(response.get("answer") or "DoobieLogic local AI is unavailable.")
