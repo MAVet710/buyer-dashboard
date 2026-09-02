@@ -151,13 +151,23 @@ def list_products(search: str = Query(default="", max_length=200), status: str =
             term = f"%{search.strip()}%"
             query = query.where(or_(Product.name.ilike(term), Product.sku.ilike(term), Product.upc.ilike(term), Product.external_product_id.ilike(term)))
         rows = list(session.execute(query.order_by(Product.active.desc(), Product.name).limit(500)))
+        product_ids = [row.id for row, _profile in rows]
+        packaging_by_product = {
+            item.product_id: item
+            for item in session.scalars(
+                select(ProductPackagingProfile).where(
+                    ProductPackagingProfile.organization_id == context.organization_id,
+                    ProductPackagingProfile.product_id.in_(product_ids or {"__none__"}),
+                )
+            )
+        }
         result = []
         for row, profile in rows:
             retail_enabled = profile.retail_enabled if profile else True
             production_enabled = profile.production_enabled if profile else True
             if operation == "retail" and not retail_enabled: continue
             if operation == "production" and not production_enabled: continue
-            result.append({**_identity(row), "retail_enabled": retail_enabled, "production_enabled": production_enabled, "brand": profile.brand if profile else "", "category": profile.category if profile else "", "product_format": profile.product_format if profile else "", "image_url": profile.image_url if profile else "", "packaging": _packaging(session.get(ProductPackagingProfile, row.id))})
+            result.append({**_identity(row), "retail_enabled": retail_enabled, "production_enabled": production_enabled, "brand": profile.brand if profile else "", "category": profile.category if profile else "", "product_format": profile.product_format if profile else "", "image_url": profile.image_url if profile else "", "packaging": _packaging(packaging_by_product.get(row.id))})
         return result
 
 
