@@ -20,8 +20,9 @@ def test_production_plan_is_decision_first_and_opens_existing_run_360():
     assert "What should we run next?" in planner
     assert 'type Decision = "CONTINUE" | "RUN NOW" | "RUN NEXT" | "AT RISK" | "BLOCKED"' in planner
     assert "onClick={() => onOpenRun(row.orderId)}" in planner
-    assert 'apiGet<QueueRow[]>("/api/v1/production/orders", signal)' in planner
-    assert "/api/v1/production/orders/${encodeURIComponent(row.order_id)}" in planner
+    assert 'apiGet<PlanData>("/api/v1/production/planning-snapshot", signal)' in planner
+    assert 'apiGet<QueueRow[]>("/api/v1/production/orders", signal)' not in planner
+    assert "/api/v1/production/orders/${encodeURIComponent(row.order_id)}" not in planner
 
 
 def test_production_plan_uses_material_labor_machine_and_standard_signals():
