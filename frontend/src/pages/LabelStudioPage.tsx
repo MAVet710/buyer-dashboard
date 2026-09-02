@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiDownload, apiGet, apiPost, apiPostForm } from "../lib/api";
 
@@ -95,6 +95,7 @@ export function LabelStudioPage(){
   const [required,setRequired]=useState<string[]>(["product_name","net_contents","license_number","package_id","batch_number","lab_testing_state","test_date"]);
   const [selected,setSelected]=useState(""); const [inventoryLotId,setInventoryLotId]=useState(""); const [fields,setFields]=useState<Record<string,string>>({}); const [rawText,setRawText]=useState("");
   const [coaMessage,setCoaMessage]=useState("");
+  const hydratedLot=useRef("");
   const active=useMemo(()=>templates.data?.find(row=>row.id===selected)??null,[templates.data,selected]);
   const selectedSummary=useMemo(()=>inventory.data?.find(row=>row.lot_id===inventoryLotId),[inventory.data,inventoryLotId]);
   const sourceDetail=useQuery({
@@ -127,14 +128,19 @@ export function LabelStudioPage(){
   }});
   const syncSource=(next:InventoryLabelSource)=>{
     client.setQueryData<InventoryLabelSource>(["label-studio-inventory-source",next.lot_id],next);
+    hydratedLot.current=next.lot_id;
     const nextFields=testingFields(next);setFields(nextFields);setRawText(testingRawText(nextFields));review.reset();
   };
   useEffect(()=>{
-    if(!activeSource||activeSource.lot_id!==inventoryLotId)return;
-    const nextFields=testingFields(activeSource);setFields(nextFields);setRawText(testingRawText(nextFields));review.reset();
+    if(!activeSource||activeSource.lot_id!==inventoryLotId||hydratedLot.current===inventoryLotId)return;
+    hydratedLot.current=inventoryLotId;
+    const nextFields=testingFields(activeSource);setFields(nextFields);setRawText(testingRawText(nextFields));
+  },[activeSource,inventoryLotId]);
+  useEffect(()=>{
+    if(!inventoryLotId||selected)return;
     const activeTemplates=templates.data?.filter(row=>row.status==="active")??[];
-    if(!selected&&activeTemplates.length===1)setSelected(activeTemplates[0].id);
-  },[activeSource,inventoryLotId,selected,templates.data]);
+    if(activeTemplates.length===1)setSelected(activeTemplates[0].id);
+  },[inventoryLotId,selected,templates.data]);
   const uploadCoa=useMutation({
     mutationFn:async(file:File)=>{if(!inventoryLotId)throw new Error("Choose an inventory batch first.");const body=new FormData();body.set("file",file);return apiPostForm<CoaMutationResult>(`/api/v1/label-printing/inventory-sources/${encodeURIComponent(inventoryLotId)}/coa`,body)},
     onSuccess:value=>{syncSource(value.source);setCoaMessage(value.source.coa.needs_confirmation?"COA parsed. The METRC tag was not readable in the PDF, so explicit confirmation is required before it becomes the label source.":"COA matched and is now the verified test source for this material.")},
@@ -145,7 +151,7 @@ export function LabelStudioPage(){
   });
   const toggle=(field:string)=>setRequired(current=>current.includes(field)?current.filter(value=>value!==field):[...current,field]);
   const chooseInventorySource=(lotId:string)=>{
-    setInventoryLotId(lotId);review.reset();setCoaMessage("");uploadCoa.reset();confirmCoa.reset();setFields({});setRawText("");
+    hydratedLot.current="";setInventoryLotId(lotId);review.reset();setCoaMessage("");uploadCoa.reset();confirmCoa.reset();setFields({});setRawText("");
     const activeTemplates=templates.data?.filter(row=>row.status==="active")??[];
     if(lotId&&!selected&&activeTemplates.length===1)setSelected(activeTemplates[0].id);
   };
