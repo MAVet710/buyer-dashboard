@@ -14,71 +14,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Page exact Massachusetts flower candidates
+      - name: Extract exact Massachusetts replacement COA details
         shell: python
         run: |
           import json
           import re
-          import time
+          from html import unescape
           from urllib.request import Request, urlopen
 
-          BASE = 'https://opencoa.org'
-          ENDPOINT = BASE + '/api/internal/app/search'
-          targets = ('Animal Face', 'Gastro Pop', 'Gelato 41')
+          records = {
+              'Animal Tsunami': 'https://opencoa.org/coa/019f4113-5e16-7299-b58c-5267d990c46e',
+              'Gelato': 'https://opencoa.org/coa/01a03db3-6c29-72b0-bc0d-32d1b2a5aab8',
+              'Lemon Cherry Gelato': 'https://opencoa.org/coa/019f4fda-a35e-72a7-b9e5-4437d31a7440',
+          }
           headers = {
               'User-Agent': 'Mozilla/5.0 DoobieLogic DEV reference verification',
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'X-Requested-With': 'XMLHttpRequest',
-              'Origin': BASE,
-              'Referer': BASE + '/search?state=MA&refine=1',
+              'Referer': 'https://opencoa.org/search?state=MA&refine=1',
           }
-
-          def norm(value):
-              return re.sub(r'[^a-z0-9]+', ' ', str(value or '').casefold()).strip()
-
-          def search(target, offset):
-              payload = {'queries': [{
-                  'indexUid': 'coas',
-                  'q': target,
-                  'limit': 15,
-                  'offset': offset,
-                  'filter': ['lab_state_id = 4', 'product_type = "flower"'],
-                  'sort': ['analysis_date:desc'],
-              }]}
-              req = Request(ENDPOINT, data=json.dumps(payload).encode(), headers=headers, method='POST')
+          for strain, url in records.items():
+              req = Request(url, headers=headers)
               with urlopen(req, timeout=30) as response:
-                  return (json.loads(response.read().decode()).get('results') or [{}])[0]
-
-          for target in targets:
-              exact = []
-              seen = set()
-              offset = 0
-              total = None
-              target_tokens = set(norm(target).split())
-              while total is None or offset < total:
-                  result = search(target, offset)
-                  hits = result.get('hits') or []
-                  total = int(result.get('estimatedTotalHits', result.get('totalHits')) or 0)
-                  print(f'QUERY={target!r} OFFSET={offset} TOTAL={total} RETURNED={len(hits)}')
-                  for hit in hits:
-                      combined = norm(' '.join(str(hit.get(key) or '') for key in ('identity_label','lot_number','batch_id_display')))
-                      if not target_tokens.issubset(set(combined.split())):
-                          continue
-                      hit_id = str(hit.get('id') or '')
-                      if hit_id in seen:
-                          continue
-                      seen.add(hit_id)
-                      exact.append({key: hit.get(key) for key in (
-                          'id','url','identity_label','lot_number','batch_id_display','brand_display','client_name',
-                          'product_type','lab_name','lab_state_id','analysis_date','date_display','overall_status',
-                          'total_thc_percent','total_cbd_percent','total_cannabinoids_percent','total_terpenes_percent',
-                          'has_regulatory_hold'
-                      ) if hit.get(key) is not None})
-                  offset += 15
-                  if not hits:
-                      break
-                  time.sleep(0.8)
-              print(f'=== EXACT MA FLOWER {target}: {len(exact)} ===')
-              for hit in exact:
-                  print('MATCH=' + json.dumps(hit, ensure_ascii=False, sort_keys=True))
+                  html = response.read().decode('utf-8', errors='replace')
+                  final_url = response.geturl()
+              text = unescape(re.sub(r'<[^>]+>', ' ', html))
+              text = re.sub(r'\s+', ' ', text).strip()
+              print('=== DETAIL ' + strain + ' ===')
+              print('FINAL_URL=' + final_url)
+              print('DETAIL_TEXT=' + json.dumps(text[:24000], ensure_ascii=False))
