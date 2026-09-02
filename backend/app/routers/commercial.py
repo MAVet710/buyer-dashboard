@@ -5,10 +5,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import CommercialOrderLine, Facility
+from modules.coman.models import CommercialOrder, CommercialOrderLine, Facility
 from modules.coman.repository import ComanRepository
 from modules.commercial.analytics import commercial_dashboard_metrics, fulfillment_by_order, order_value_by_id
-from modules.commercial.repository import CommercialRepository
+from modules.commercial.repository import CommercialRepository, OPEN_ORDER_STATUSES
 from modules.commercial_finance.service import CommercialFinanceService
 from ..auth import RequestContext, get_request_context, get_commercial_context
 from ..database import get_engine
@@ -42,22 +42,28 @@ def _repo(engine: Engine) -> CommercialRepository:
     return CommercialRepository(engine)
 
 
-def _scoped_order_lines(engine: Engine, organization_id: str, order_ids: list[str] | set[str]) -> list[CommercialOrderLine]:
-    """Load all lines for the visible facility orders in one bounded SQL read."""
-    ids = tuple(str(value) for value in order_ids if value)
-    if not ids:
-        return []
+def _scoped_order_lines(
+    engine: Engine,
+    organization_id: str,
+    facility_id: str,
+    *,
+    open_only: bool = False,
+) -> list[CommercialOrderLine]:
+    """Load visible facility order lines in one join without an expanding ID bind list."""
     with Session(engine) as session:
-        return list(
-            session.scalars(
-                select(CommercialOrderLine)
-                .where(
-                    CommercialOrderLine.organization_id == organization_id,
-                    CommercialOrderLine.commercial_order_id.in_(ids),
-                )
-                .order_by(CommercialOrderLine.commercial_order_id, CommercialOrderLine.position)
+        statement = (
+            select(CommercialOrderLine)
+            .join(CommercialOrder, CommercialOrder.id == CommercialOrderLine.commercial_order_id)
+            .where(
+                CommercialOrderLine.organization_id == organization_id,
+                CommercialOrder.organization_id == organization_id,
+                CommercialOrder.facility_id == facility_id,
             )
+            .order_by(CommercialOrderLine.commercial_order_id, CommercialOrderLine.position)
         )
+        if open_only:
+            statement = statement.where(CommercialOrder.status.in_(OPEN_ORDER_STATUSES))
+        return list(session.scalars(statement))
 
 @router.get("/workspace")
 def workspace(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
@@ -65,8 +71,7 @@ def workspace(context: RequestContext = Depends(get_request_context), engine: En
     coman = ComanRepository(engine)
     partners = commercial.list_trade_partners(context.organization_id)
     orders = commercial.list_orders(context.organization_id, context.facility_id)
-    order_ids = {row.id for row in orders}
-    lines = _scoped_order_lines(engine, context.organization_id, order_ids)
+    lines = _scoped_order_lines(engine, context.organization_id, context.facility_id)
     products = coman.list_products(context.organization_id)
     lots = coman.list_inventory_lots(context.organization_id, context.facility_id)
     transactions = commercial.list_commercial_transactions(context.organization_id, context.facility_id)
@@ -126,7 +131,12 @@ def orders(open_only: bool = False, context: RequestContext = Depends(get_reques
     partner_names = {row.id: row.name for row in repo.list_trade_partners(context.organization_id, active_only=False)}
     order_rows = repo.list_orders(context.organization_id, context.facility_id, open_only=open_only)
     lines_by_order: dict[str, list[CommercialOrderLine]] = defaultdict(list)
-    for line in _scoped_order_lines(engine, context.organization_id, {row.id for row in order_rows}):
+    for line in _scoped_order_lines(
+        engine,
+        context.organization_id,
+        context.facility_id,
+        open_only=open_only,
+    ):
         lines_by_order[line.commercial_order_id].append(line)
     result = []
     for order in order_rows:
