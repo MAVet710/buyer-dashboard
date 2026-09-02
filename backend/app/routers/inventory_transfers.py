@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine
 
 from modules.inventory_transfers.service import InventoryTransferService
+from modules.regulatory.metrc_process_readiness import MetrcTransferReadinessService
 from ..auth import RequestContext, get_request_context, require_any_facility_capability, require_inventory_operation_capability
 from ..database import get_engine
 from ..schemas.inventory_transfers import (
@@ -104,6 +105,10 @@ def receive_inventory_transfer_line(
             "Confirm the package was accepted/received in the required state system before posting destination inventory in DoobieLogic.",
         )
     try:
+        # Generic internal transfers preserve their existing behavior. When a
+        # transfer opted into strict Metrc lifecycle control, a rejected package
+        # may not be received through the legacy path as a bypass.
+        MetrcTransferReadinessService(engine).assert_receivable(context.organization_id, transfer_id, line_id)
         return InventoryTransferService(engine).receive_line(
             context.organization_id,
             context.facility_id,
@@ -136,6 +141,7 @@ def cancel_inventory_transfer(
             "Confirm the required state-system/Metrc transfer cancellation before restoring source inventory in DoobieLogic.",
         )
     try:
+        MetrcTransferReadinessService(engine).assert_cancellable(context.organization_id, transfer_id)
         return InventoryTransferService(engine).cancel(
             context.organization_id,
             context.facility_id,

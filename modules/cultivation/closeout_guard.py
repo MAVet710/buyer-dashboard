@@ -72,6 +72,27 @@ def require_material_closeout_before_harvest_completion(session: Session, _flush
             )
             or 0.0
         )
+
+        # before_flush runs before newly added disposition rows have necessarily
+        # reached the database. Count matching pending rows as part of the same
+        # atomic closeout so a legitimate final moisture/loss allocation is not
+        # mistaken for missing material. Persisted rows are counted above; rows
+        # still in session.new are therefore not double-counted.
+        output_total += sum(
+            float(row.quantity or 0.0)
+            for row in session.new
+            if isinstance(row, MaterialTransformationOutput)
+            and row.transformation_id == transformation.id
+            and row.measurement_basis == basis
+        )
+        loss_total += sum(
+            float(row.quantity or 0.0)
+            for row in session.new
+            if isinstance(row, MaterialTransformationLoss)
+            and row.transformation_id == transformation.id
+            and row.measurement_basis == basis
+        )
+
         disposed = output_total + loss_total
         difference = measured - disposed
         if abs(difference) > 1e-6:

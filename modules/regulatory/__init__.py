@@ -1,3 +1,14 @@
+from modules.coman.models import InventoryTransaction as _InventoryTransaction
+
+# Regulatory process code historically referred to ledger ordering as
+# ``created_at`` while the canonical append-only inventory ledger intentionally
+# names the event timestamp ``occurred_at``. SQLAlchemy turns this second class
+# attribute name into a mapped synonym of the existing InstrumentedAttribute,
+# so regulatory preflights order by the canonical event timestamp without
+# adding a duplicate database column or changing the ledger schema.
+if not hasattr(_InventoryTransaction, "created_at"):
+    _InventoryTransaction.created_at = _InventoryTransaction.occurred_at
+
 from .metrc_resources import (
     METRC_READ_RESOURCES,
     MetrcReadPlan,
