@@ -17,7 +17,8 @@ jobs:
       - name: Inspect CCC market sources
         run: |
           python - <<'PY'
-          import json, re, subprocess
+          import collections, json, subprocess
+          from datetime import date
 
           def read(url):
               return subprocess.check_output([
@@ -25,30 +26,25 @@ jobs:
                   "-A", "DoobieLogic-Market-Diagnostic/1.0", url,
               ])
 
-          page_url = "https://masscannabiscontrol.com/document/adult-use-sales-by-category/"
-          html = read(page_url).decode("utf-8", "replace")
-          urls = sorted(set(re.findall(r'https://(?:www\.)?masscannabiscontrol\.com/resource/[^\"\'<> ]+?\.json', html)))
-          print("DISCOVERED_RESOURCE_URLS")
-          for url in urls:
-              print(url)
+          url = "https://masscannabiscontrol.com/resource/a_sales_au_gross.json"
+          rows = json.loads(read(url).decode("utf-8-sig"))
+          print("ROWS", len(rows))
+          print("KEYS", sorted(rows[0].keys()))
+          for field in ["Industry", "DataType", "SalesPeriodType", "UnitOfMeasureName"]:
+              print(field, collections.Counter(str(row.get(field)) for row in rows).most_common())
+          dates = sorted(str(row.get("SaleDate")) for row in rows if row.get("SaleDate"))
+          print("DATE_RANGE", dates[0], dates[-1])
+          print("LATEST_DATES", sorted(set(dates))[-10:])
+          print("CATEGORIES", sorted(set(str(row.get("ProductCategoryName")) for row in rows)))
 
-          candidates = [
-              "https://masscannabiscontrol.com/resource/a_sales_au_gross.json",
-              "https://masscannabiscontrol.com/resource/a_sales_au_price_per_gram.json",
-          ] + urls
-          seen = set()
-          for url in candidates:
-              if url in seen:
-                  continue
-              seen.add(url)
-              try:
-                  payload = json.loads(read(url).decode("utf-8-sig"))
-              except Exception as exc:
-                  print("FETCH_ERROR", url, type(exc).__name__, str(exc)[:200])
-                  continue
-              print("DATASET", url, "rows", len(payload) if isinstance(payload, list) else "non-list")
-              if isinstance(payload, list) and payload:
-                  print("FIRST_KEYS", sorted(payload[0].keys()))
-                  print("FIRST_ROW", json.dumps(payload[0], sort_keys=True)[:2000])
-                  print("LAST_ROW", json.dumps(payload[-1], sort_keys=True)[:2000])
+          key_counts = collections.Counter(
+              (row.get("SaleDate"), row.get("ProductCategoryName"), row.get("DataType"), row.get("UnitOfMeasureName"), row.get("SalesPeriodType"))
+              for row in rows
+          )
+          print("EXACT_DUPLICATE_DIMENSION_KEYS", sum(1 for count in key_counts.values() if count > 1), "MAX", max(key_counts.values()))
+
+          latest = max(row.get("SaleDate") for row in rows if row.get("SaleDate"))
+          print("LATEST_ROWS_SAMPLE")
+          for row in [row for row in rows if row.get("SaleDate") == latest][:30]:
+              print(json.dumps(row, sort_keys=True))
           PY
