@@ -14,6 +14,7 @@ from modules.operational_moats.printing import LabelPrintingService
 from ..auth import RequestContext, get_request_context
 from ..database import get_engine
 from ..services.label_studio import LabelInventoryService
+from ..services.label_studio_fast import FastLabelInventoryService
 
 router = APIRouter(prefix="/label-printing", tags=["label-printing"])
 ADMIN_ROLES = {"dev", "admin"}
@@ -71,10 +72,13 @@ async def _coa_bytes(file: UploadFile) -> bytes:
 
 @router.get("/inventory-sources")
 def list_inventory_label_sources(
+    summary: bool = Query(default=False),
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
-    """Return label-ready projections for on-hand batches in the active facility."""
+    """Return on-hand label sources; summary mode avoids COA/render fan-out."""
+    if summary:
+        return FastLabelInventoryService(engine).list_summaries(context.organization_id, context.facility_id)
     return LabelInventoryService(engine).list_sources(context.organization_id, context.facility_id)
 
 
@@ -85,7 +89,7 @@ def get_inventory_label_source(
     engine: Engine = Depends(get_engine),
 ):
     try:
-        return LabelInventoryService(engine).get_source(context.organization_id, context.facility_id, lot_id)
+        return FastLabelInventoryService(engine).get_source(context.organization_id, context.facility_id, lot_id)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
 
@@ -109,7 +113,7 @@ async def upload_inventory_coa_fallback(
             content_type=file.content_type or "application/pdf",
             actor=context.user_id,
         )
-        source = LabelInventoryService(engine).get_source(context.organization_id, context.facility_id, lot_id)
+        source = FastLabelInventoryService(engine).get_source(context.organization_id, context.facility_id, lot_id)
         return {"coa_document": document, "source": source}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -132,7 +136,7 @@ def confirm_inventory_coa_fallback(
             document_id,
             actor=context.user_id,
         )
-        source = LabelInventoryService(engine).get_source(context.organization_id, context.facility_id, lot_id)
+        source = FastLabelInventoryService(engine).get_source(context.organization_id, context.facility_id, lot_id)
         return {"coa_document": document, "source": source}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
