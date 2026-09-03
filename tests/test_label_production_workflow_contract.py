@@ -103,7 +103,7 @@ def test_label_studio_workspace_integrates_simple_and_advanced_workflows():
     assert 'const [mode,setMode]=useState<LabelStudioMode>("create")' in wrapper
     assert "Create labels" in wrapper
     assert "Advanced LabelGuard & templates" in wrapper
-    assert "<InventoryDrivenLabelWorkflow />" in wrapper
+    assert "<InventoryDrivenLabelWorkflow sandboxTestPass={sandboxTestPass}/>" in wrapper
     assert "<LabelStudioPage />" in wrapper
     assert 'page === "Label Studio" ? <LabelStudioWorkspacePage />' in app
     for step in ("1. Source batch", "2. End product", "3. Finished quantity", "4. Build & validate label preview", "5. Scan METRC package tag", "6. Finalize & print"):

@@ -249,6 +249,7 @@ def create_label_production_run(
             product_id=payload.product_id,
             quantity=payload.quantity,
             actor=context.user_id,
+            role=context.role,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -285,6 +286,7 @@ def assign_label_production_tag(
             payload.metrc_package_tag,
             context.user_id,
             metrc_environment=metrc_environment,
+            role=context.role,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
