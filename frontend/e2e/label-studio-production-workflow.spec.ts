@@ -83,11 +83,18 @@ test("operator builds 24 retail labels under one finished METRC package tag", as
   });
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.getByLabel("Source batch").selectOption("lot-gmo");
+
+  const sourcePicker = page.getByRole("combobox", { name: "Search source batches" });
+  await sourcePicker.fill("GMO");
+  await page.getByRole("option", { name: /GMO Bulk Flower/ }).click();
   await expect(page.getByText("✓ Verified source")).toBeVisible();
-  await page.getByLabel("End product").selectOption("product-gmo-28");
+
+  const productPicker = page.getByRole("combobox", { name: "Search finished products" });
+  await productPicker.fill("GMO 28");
+  await page.getByRole("option", { name: /GMO 28-Count Pre-Roll Multipack/ }).click();
   await page.getByLabel("Finished quantity").fill("24");
-  await expect(page.getByText("24 finished packages = 672 g theoretical material before loss/waste")).toBeVisible();
+  await expect(page.getByText("28 units/package · 28 g", { exact: true })).toBeVisible();
+  await expect(page.getByText(/theoretical material/i)).toHaveCount(0);
 
   await page.getByRole("button", { name: "4. Build & validate label preview" }).click();
   await expect(page.getByText("GMO 28-Count Pre-Roll Multipack", { exact: true }).first()).toBeVisible();
@@ -95,7 +102,8 @@ test("operator builds 24 retail labels under one finished METRC package tag", as
   await expect(page.getByText("Source Grower LLC", { exact: true }).first()).toBeVisible();
   await expect(page.getByText(sourceTag, { exact: true }).first()).toBeVisible();
   await expect(page.getByText("GMO-BULK-01", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("672 g", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("24 labels", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/expected material/i)).toHaveCount(0);
   expect(createPayload).toEqual({ source_lot_id: "lot-gmo", product_id: "product-gmo-28", quantity: 24 });
 
   await page.getByLabel("METRC finished package tag").fill(finishedTag);
