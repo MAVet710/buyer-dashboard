@@ -1,12 +1,12 @@
-"""Integrity normalization for Label Studio's selected testing-label source.
+"""Integrity normalization for Label Studio testing-label sources.
 
 Label Studio may display several dates from operational records, but a testing
 label's test date has one meaning: the date reported by the verified COA that is
-being used as test evidence.  In particular, ``LotQualityEvidence.verified_at``
+being used as test evidence. In particular, ``LotQualityEvidence.verified_at``
 is an audit timestamp and must never be presented as the laboratory test date.
 
 This module also keeps the selected current package identity synchronized across
-the label, QR, and barcode projection.  COA evidence may legitimately come from
+the label, QR, and barcode projection. COA evidence may legitimately come from
 an ancestor package after a recorded split/repack, but the physical label always
 identifies the current package.
 """
@@ -46,13 +46,45 @@ def _percent(value: Any) -> str:
         return ""
 
 
-def normalize_testing_label_source(source: dict[str, Any]) -> dict[str, Any]:
-    """Return a source whose regulated identity/date fields cannot contradict it.
+def _result_percent(coa: dict[str, Any], key: str) -> str:
+    for result in coa.get("results") or []:
+        if _text(result.get("key")).casefold() != key.casefold():
+            continue
+        value = result.get("value")
+        units = _text(result.get("units"))
+        if value is None:
+            return ""
+        if units == "%" or not units:
+            return _percent(value)
+        return f"{float(value):g} {units}" if isinstance(value, (int, float)) else f"{value} {units}".strip()
+    return ""
 
-    The detailed Label Studio projection is already assembled from Product
-    Master, facility, lot, packaging, QA and COA records.  This final boundary
-    normalization makes the cross-record contract explicit before the payload
-    reaches the browser.
+
+def _coa_potency(coa: dict[str, Any]) -> str:
+    entries: list[str] = []
+    thca = _result_percent(coa, "thca")
+    if thca:
+        entries.append(f"THCA {thca}")
+    for label, key in (
+        ("Total THC", "total_thc"),
+        ("TAC", "total_cannabinoids"),
+        ("Total terpenes", "total_terpenes"),
+    ):
+        value = _percent(coa.get(key))
+        if value:
+            entries.append(f"{label} {value}")
+    return " · ".join(entries)
+
+
+def normalize_testing_label_source(source: dict[str, Any]) -> dict[str, Any]:
+    """Return a source whose regulated identity/COA fields cannot contradict it.
+
+    The detailed Label Studio projection is assembled from Product Master,
+    facility, lot, packaging, QA and COA records. This final boundary makes the
+    source-of-truth contract explicit before the payload reaches the browser.
+    Unverified QA/lot metadata may remain available elsewhere operationally, but
+    it is never allowed to masquerade as verified laboratory evidence on a
+    testing label.
     """
 
     normalized = deepcopy(source)
@@ -72,35 +104,30 @@ def normalize_testing_label_source(source: dict[str, Any]) -> dict[str, Any]:
         barcode["value"] = package_id
         normalized["barcode"] = barcode
 
-    # A QA verification timestamp is not a lab test date.  Only a verified COA
-    # can provide the testing-label Test date used by the pre-release review.
-    coa_available = bool(coa.get("available"))
-    label["test_date"] = _text(coa.get("date_tested")) if coa_available else ""
+    # Clear every field whose authority belongs to verified COA evidence before
+    # copying the selected COA. This prevents stale QA or lot metadata from
+    # surviving when an authoritative COA omits a field.
+    for field in COA_AUTHORITATIVE_FIELDS:
+        label[field] = ""
 
-    # When verified COA evidence exists, keep the duplicated label fields in
-    # lock-step with that structured source rather than stale lot metadata.
-    if coa_available:
+    if bool(coa.get("available")):
         status = _text(coa.get("overall_status")).casefold()
         if status in {"pass", "passed"}:
             label["lab_testing_state"] = "Passed"
         elif status in {"fail", "failed"}:
             label["lab_testing_state"] = "Failed"
 
-        if _text(coa.get("lab_name")):
-            label["laboratory"] = _text(coa.get("lab_name"))
-        if _text(coa.get("lab_license_number")):
-            label["lab_license_number"] = _text(coa.get("lab_license_number"))
-        if _text(coa.get("lab_id")):
-            label["coa_reference"] = _text(coa.get("lab_id"))
-
-        for source_key, label_key in (
-            ("total_thc", "total_thc"),
-            ("total_cbd", "total_cbd"),
-            ("total_cannabinoids", "total_cannabinoids"),
-            ("total_terpenes", "total_terpenes"),
-        ):
-            if coa.get(source_key) is not None:
-                label[label_key] = _percent(coa.get(source_key))
+        label["laboratory"] = _text(coa.get("lab_name"))
+        label["lab_license_number"] = _text(coa.get("lab_license_number"))
+        label["test_date"] = _text(coa.get("date_tested"))
+        # A document filename is still an authoritative COA reference when the
+        # laboratory did not print its own report ID.
+        label["coa_reference"] = _text(coa.get("lab_id")) or _text(coa.get("filename"))
+        label["potency"] = _coa_potency(coa)
+        label["total_thc"] = _percent(coa.get("total_thc"))
+        label["total_cbd"] = _percent(coa.get("total_cbd"))
+        label["total_cannabinoids"] = _percent(coa.get("total_cannabinoids"))
+        label["total_terpenes"] = _percent(coa.get("total_terpenes"))
 
     normalized["label"] = label
     return normalized
@@ -124,5 +151,10 @@ def testing_source_mismatches(source: dict[str, Any]) -> list[str]:
     expected_test_date = _text(coa.get("date_tested")) if coa.get("available") else ""
     if _text(label.get("test_date")) != expected_test_date:
         mismatches.append("label.test_date")
+
+    if not coa.get("available"):
+        for field in COA_AUTHORITATIVE_FIELDS:
+            if _text(label.get(field)):
+                mismatches.append(f"label.{field}")
 
     return mismatches
