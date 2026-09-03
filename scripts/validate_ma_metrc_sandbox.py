@@ -19,7 +19,7 @@ from typing import Any
 import requests
 
 
-BASE_URL = "https://api-ma.metrc.com"
+BASE_URL = "https://sandbox-api-ma.metrc.com"
 ENVIRONMENT = "sandbox"
 REQUIRED_ENV = (
     "METRC_INTEGRATOR_API_KEY",
