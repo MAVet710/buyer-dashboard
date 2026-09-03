@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import TimeoutError as DatabasePoolTimeout
 
 logger = logging.getLogger("buyer_dash.api")
 SLOW_REQUEST_MS = 1_000.0
@@ -28,6 +29,12 @@ def install_observability(app: FastAPI) -> None:
         started = time.perf_counter()
         try:
             response = await call_next(request)
+        except DatabasePoolTimeout:
+            logger.warning("database_busy request_id=%s method=%s path=%s", request_id, request.method, request.url.path)
+            response = JSONResponse(status_code=503, content={"error": {
+                "code": "database_busy", "message": "The app database is busy. Wait a moment before retrying; do not reset your METRC keys.",
+                "request_id": request_id,
+            }}, headers={"Retry-After": "5"})
         except Exception:
             logger.exception("api_request_failed request_id=%s method=%s path=%s", request_id, request.method, request.url.path)
             response = JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "An unexpected server error occurred.", "request_id": request_id}})

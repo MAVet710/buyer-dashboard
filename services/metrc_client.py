@@ -152,6 +152,7 @@ def _metrc_get(
     params: dict[str, Any] | None = None,
     timeout_seconds: int = 12,
     correlation_id: str = "",
+    max_attempts: int = 3,
 ) -> dict[str, Any]:
     """Perform one authenticated, read-only Metrc v2 request."""
     return MetrcTransport(
@@ -160,6 +161,7 @@ def _metrc_get(
         integrator_api_key=str(integrator_api_key or "").strip(),
         environment=environment,
         timeout_seconds=timeout_seconds,
+        max_attempts=max_attempts,
     ).get(path, params, correlation_id=correlation_id)
 
 
@@ -186,6 +188,7 @@ def fetch_metrc_resource(
     page_size: int = 20,
     page_number: int = 1,
     timeout_seconds: int = 12,
+    max_attempts: int = 3,
 ) -> dict[str, Any]:
     """Fetch one normalized, capability-gated Metrc read resource.
 
@@ -220,6 +223,7 @@ def fetch_metrc_resource(
         environment=environment,
         params=plan.params,
         timeout_seconds=timeout_seconds,
+        max_attempts=max_attempts,
     )
     result["read_plan"] = plan.public()
     result["resource"] = plan.resource
