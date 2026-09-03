@@ -10,6 +10,7 @@ const InventoryPage = lazy(() => import("./pages/InventoryPage").then(module => 
 const InventoryTransfersPage = lazy(() => import("./pages/InventoryTransfersPage").then(module => ({ default: module.InventoryTransfersPage })));
 const FocusedInventoryAudits = lazy(() => import("./components/FocusedInventoryAudits").then(module => ({ default: module.FocusedInventoryAudits })));
 const CultivationOpsPage = lazy(() => import("./pages/CultivationOpsPage").then(module => ({ default: module.CultivationOpsPage })));
+const PostHarvestPage = lazy(() => import("./pages/PostHarvestPage").then(module => ({ default: module.PostHarvestPage })));
 const BuyerCommandCenterPage = lazy(() => import("./pages/BuyerCommandCenterPage").then(module => ({ default: module.BuyerCommandCenterPage })));
 const BuyerTrendsPage = lazy(() => import("./pages/BuyerTrendsPage").then(module => ({ default: module.BuyerTrendsPage })));
 const SlowMoversPage = lazy(() => import("./pages/SlowMoversPage").then(module => ({ default: module.SlowMoversPage })));
@@ -103,7 +104,8 @@ export default function App() {
     : page === "Buyer Operations" || page === "Purchasing" ? <BuyerCommandCenterPage onNavigate={setPage} />
     : page === "Inventory" ? <InventoryPage initialOperation="retail" onNavigate={navigate} />
     : page === "Retail Inventory Transfers" ? <InventoryTransfersPage operation="retail" />
-    : page === "Cultivation" ? <CultivationOpsPage />
+    : page === "Cultivation" ? <CultivationOpsPage onNavigate={navigate} />
+    : page === "Post-Harvest" ? <PostHarvestPage />
     : page === "Production Inventory" ? <InventoryPage initialOperation="production" onNavigate={navigate} />
     : page === "Production Inventory Transfers" ? <InventoryTransfersPage operation="production" />
     : page === "Inventory Audits" ? <FocusedInventoryAudits />
