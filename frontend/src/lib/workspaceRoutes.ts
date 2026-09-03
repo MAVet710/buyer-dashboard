@@ -32,6 +32,7 @@ const ROUTES: RouteEntry[] = [
   { page: "Slow Movers", path: "/inventory/slow-movers" },
 
   { page: "Cultivation", path: "/cultivation" },
+  { page: "Post-Harvest", path: "/cultivation/post-harvest" },
 
   { page: "Production Inventory", path: "/production/inventory" },
   { page: "Production Inventory Transfers", path: "/production/inventory/transfers" },

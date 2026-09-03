@@ -66,6 +66,7 @@ function secondaryItems(category: PrimaryCategory, operation: OperationMode, rol
   if (operation === "Cultivation Ops") {
     if (category === "Cultivation") return [
       { label: "Grow Operations", page: "Cultivation" },
+      { label: "Post-Harvest", page: "Post-Harvest" },
     ];
     if (category === "Compliance") return [
       { label: "Traceability", page: "Compliance" },
@@ -155,7 +156,7 @@ function categoryForPage(page: string, _operation: OperationMode): PrimaryCatego
   if (["Home", "Operations Control Tower", "Enterprise Control Tower"].includes(page)) return "Home";
   if (["Buyer Operations", "Buying Recommendations", "Delivery Performance", "Purchase Orders", "Buying Budget", "Purchasing", "Replenishment Policies"].includes(page)) return "Buying";
   if (["Wholesale Ops", "Orders", "Warehouse Pick Pack"].includes(page)) return "Wholesale";
-  if (page === "Cultivation") return "Cultivation";
+  if (["Cultivation", "Post-Harvest"].includes(page)) return "Cultivation";
   if (["Production", "Production Calendar", "Production Run 360", "Extraction", "White Label / Repack", "Package Studio"].includes(page)) return "Production";
   if (["Compliance", "Compliance Q&A", "Traceability Actions", "Product Name Mapper", "Nomenclature Mapper", "Label Studio", "MA Flower Equivalency"].includes(page)) return "Compliance";
   if (["Sales & Category Trends", "Reports", "Executive Reports"].includes(page)) return "Reports";
@@ -360,7 +361,7 @@ function ClassicNavigation({ operation, role, active, onNavigate }: { operation:
     : operation === "Cultivation Ops"
       ? [
         { label: "Operations Home", pages: secondaryItems("Home", operation, role) },
-        { label: "Cultivation", pages: secondaryItems("Cultivation", operation, role) },
+        { label: "Grow Operations", pages: secondaryItems("Cultivation", operation, role) },
         { label: "Compliance", pages: secondaryItems("Compliance", operation, role) },
         { label: "Reports", pages: secondaryItems("Reports", operation, role) },
         { label: "Data & Integrations", pages: dataSettingsItems(role) },
