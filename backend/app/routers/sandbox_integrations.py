@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
+from sqlalchemy.orm import Session
 
+from modules.coman.models import AuditEvent
 from modules.integrations import IntegrationConfigurationService, SandboxIntegrationRuntime
+from services.metrc_sandbox_bootstrap import MetrcSandboxBootstrapError, setup_ma_sandbox_integrator
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
+from ..services.metrc_context import metrc_scope_key
 
 router = APIRouter(prefix="/integrations/sandbox", tags=["integrations"])
 
@@ -21,12 +27,12 @@ _PROVIDER_IDS = {
 _PROVIDER_SPECS = {
     "metrc": {
         "label": "METRC Sandbox",
-        "auth_mode": "API key",
-        "secret_label": "Sandbox user API key",
-        "required": ("state", "license_number"),
+        "auth_mode": "Integrator key bootstrap + Basic Auth after user provisioning",
+        "secret_label": "Metrc Integrator / Vendor API Key",
+        "required": ("state",),
         "allowed": ("state", "license_number", "base_url", "notes"),
         "resources": ("packages", "transfers", "items"),
-        "future_use": "Traceability reads, guarded writes, reconciliation, package and transfer workflows.",
+        "future_use": "Provision the sandbox user, then run authenticated traceability reads, guarded writes, reconciliation, package and transfer workflows.",
         "reference_jurisdiction": "MA",
         "documentation_url": "https://api-ma.metrc.com/Documentation",
         "documented_sandbox_endpoints": (
@@ -148,6 +154,7 @@ def _public_provider(service: IntegrationConfigurationService, context: RequestC
             "documentation_url": spec["documentation_url"],
             "documented_sandbox_endpoints": list(spec["documented_sandbox_endpoints"]),
             "manifest_write_pilot": "MA sandbox only",
+            "sandbox_user_provisioning_enabled": True,
         })
     return response
 
@@ -202,6 +209,98 @@ def save_sandbox_connection(
     return _public_provider(service, context, provider) | {"saved": True, "id": row.id}
 
 
+@router.post("/metrc/provision-user")
+def provision_metrc_sandbox_user(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    """Call Metrc's special sandbox bootstrap using the saved vendor key."""
+
+    _require_developer_connections(context)
+    service = _service(engine, settings)
+    row = service.get("facility", _scope_key(context), "metrc_sandbox")
+    if row is None or not row.encrypted_secret:
+        raise HTTPException(422, "Save the Metrc Integrator / Vendor API Key before provisioning a sandbox user.")
+    public = service.public(row)
+    configuration = dict(public.get("configuration") or {})
+    if str(configuration.get("state") or "").strip().upper() != "MA":
+        raise HTTPException(422, "The current verified integrator bootstrap is limited to the Massachusetts sandbox.")
+
+    try:
+        result = setup_ma_sandbox_integrator(vendor_api_key=service.secret(row))
+    except MetrcSandboxBootstrapError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+    returned_user_key = str(result.get("user_key") or "").strip()
+    user_key_saved = False
+    if returned_user_key:
+        existing_user = service.get("user", metrc_scope_key(context), "metrc")
+        existing_config = service.public(existing_user).get("configuration") if existing_user else {}
+        existing_config = dict(existing_config) if isinstance(existing_config, dict) else {}
+        license_number = str(
+            existing_config.get("license_number")
+            or configuration.get("license_number")
+            or ""
+        ).strip()
+        service.save(
+            scope_type="user",
+            scope_key=metrc_scope_key(context),
+            provider="metrc",
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            configuration={
+                "state": "MA",
+                "license_number": license_number,
+                "environment": "sandbox",
+            },
+            secret=returned_user_key,
+            actor=context.user_id,
+        )
+        user_key_saved = True
+
+    with Session(engine) as session:
+        session.add(AuditEvent(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            entity_type="integration_configuration",
+            entity_id=row.id,
+            action="metrc_sandbox_user_provision_requested",
+            actor=context.user_id,
+            changes_json=json.dumps({
+                "environment": "sandbox",
+                "state": "MA",
+                "endpoint": "/sandbox/v2/integrator/setup",
+                "http_status": result.get("http_status"),
+                "ok": bool(result.get("ok")),
+                "user_key_returned": bool(result.get("user_key_returned")),
+                "user_key_saved": user_key_saved,
+            }, sort_keys=True),
+        ))
+        session.commit()
+
+    if not result.get("ok"):
+        provider_status = int(result.get("http_status") or 0)
+        status = provider_status if provider_status in {400, 401, 403, 429} else 502
+        raise HTTPException(status, str(result.get("message") or "Metrc sandbox user provisioning failed."))
+
+    return {
+        "ok": True,
+        "status": "provisioned" if user_key_saved else "requested",
+        "http_status": int(result.get("http_status") or 0),
+        "state": "MA",
+        "environment": "sandbox",
+        "endpoint": "/sandbox/v2/integrator/setup",
+        "user_key_returned": bool(result.get("user_key_returned")),
+        "user_key_saved": user_key_saved,
+        "message": (
+            "Metrc returned the sandbox User API Key and DoobieLogic stored it encrypted for this facility."
+            if user_key_saved
+            else "Metrc accepted the sandbox setup request. Check the Metrc Connect contact email for the sandbox User API Key, then save it in the main METRC integration card."
+        ),
+    }
+
+
 @router.post("/{provider}/test")
 def test_sandbox_connection(
     provider: str,
@@ -230,7 +329,7 @@ def test_sandbox_connection(
             "environment": "sandbox",
             "message": (
                 f"{spec['label']} configuration is complete and isolated to this facility. "
-                "No live provider handshake was attempted. The sandbox runtime is ready to exercise durable reads, cursors, normalization, dedupe and reconciliation without external writes."
+                "No normal Basic Auth provider handshake was attempted by this readiness check."
             ),
         },
     }
