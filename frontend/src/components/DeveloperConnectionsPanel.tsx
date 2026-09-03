@@ -16,6 +16,7 @@ type Connection = {
   sandbox_resources: string[];
   future_use: string;
   production_writes_enabled: boolean;
+  sandbox_user_provisioning_enabled?: boolean;
   configured: boolean;
   status: string;
   secret_hint: string;
@@ -33,6 +34,17 @@ type Payload = {
   providers: Record<ProviderKey, Connection>;
 };
 type TestResponse = Connection & { result: { ok: boolean; configuration_ready: boolean; connected: boolean; verified: boolean; environment: string; message: string } };
+type ProvisionResponse = {
+  ok: boolean;
+  status: string;
+  http_status: number;
+  state: string;
+  environment: "sandbox";
+  endpoint: string;
+  user_key_returned: boolean;
+  user_key_saved: boolean;
+  message: string;
+};
 type RuntimeState = {
   resource: string;
   status: "idle" | "running" | "succeeded" | "failed";
@@ -92,8 +104,8 @@ type Field = { key: string; label: string; placeholder?: string };
 const FIELDS: Record<ProviderKey, Field[]> = {
   metrc: [
     { key: "state", label: "State / jurisdiction", placeholder: "MA" },
-    { key: "license_number", label: "Sandbox license / facility" },
-    { key: "base_url", label: "Sandbox API base URL", placeholder: "Optional until authenticated transport is enabled" },
+    { key: "license_number", label: "Sandbox license / facility", placeholder: "Optional until sandbox user is provisioned" },
+    { key: "base_url", label: "Sandbox API base URL", placeholder: "Optional; verified jurisdiction routing is used for provider calls" },
     { key: "notes", label: "Connection notes" },
   ],
   dutchie: [
@@ -126,7 +138,6 @@ export function DeveloperConnectionsPanel() {
     retry: false,
   });
 
-  // Non DEV/Admin users receive 403 and simply keep the existing Integrations screen.
   if (data.isError) return null;
   if (!data.data) return null;
 
@@ -170,11 +181,16 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
     await Promise.all([
       client.invalidateQueries({ queryKey: ["sandbox-provider-connections"] }),
       client.invalidateQueries({ queryKey: ["sandbox-provider-runtime", provider] }),
+      client.invalidateQueries({ queryKey: ["integrations"] }),
     ]);
   };
   const save = useMutation({
     mutationFn: () => apiPost<Connection>(`/api/v1/integrations/sandbox/${provider}`, { configuration, secret: secret || null }),
     onSuccess: async () => { setSecret(""); await refresh(); },
+  });
+  const provision = useMutation({
+    mutationFn: () => apiPost<ProvisionResponse>("/api/v1/integrations/sandbox/metrc/provision-user", {}),
+    onSuccess: refresh,
   });
   const test = useMutation({
     mutationFn: () => apiPost<TestResponse>(`/api/v1/integrations/sandbox/${provider}/test`, {}),
@@ -193,8 +209,8 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
     onSuccess: async () => { setConfiguration({}); setSecret(""); await refresh(); },
   });
   const missing = value.required_fields.some(field => !String(configuration[field] ?? "").trim());
-  const pending = save.isPending || test.isPending || sync.isPending || retry.isPending || clear.isPending;
-  const error = save.error?.message || test.error?.message || sync.error?.message || retry.error?.message || clear.error?.message || runtime.error?.message;
+  const pending = save.isPending || provision.isPending || test.isPending || sync.isPending || retry.isPending || clear.isPending;
+  const error = save.error?.message || provision.error?.message || test.error?.message || sync.error?.message || retry.error?.message || clear.error?.message || runtime.error?.message;
   const readiness = test.data?.result;
   const syncSummary = sync.data?.totals;
   const failedCount = runtime.data?.states.filter(state => state.status === "failed").length ?? 0;
@@ -215,10 +231,11 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
         <input type="password" autoComplete="new-password" value={secret} placeholder={value.configured ? `Saved ${value.secret_hint} · leave blank to keep` : "Enter sandbox credential"} onChange={event => setSecret(event.target.value)}/>
       </label>
     </div>
-    {provider === "metrc" ? <p className="source-caption">Use the vendor/integrator key issued to DoobieLogic by Metrc Connect here. The separate Metrc User API Key belongs in the main METRC integration card after Metrc creates or provides the sandbox user key.</p> : null}
+    {provider === "metrc" ? <p className="source-caption">1. Save the Metrc Connect Integrator/Vendor key. 2. Click Provision sandbox user. 3. If Metrc returns the User API Key immediately, DoobieLogic stores it encrypted automatically. Otherwise Metrc sends it to the integrator contact email; save that separate User API Key in the main METRC card.</p> : null}
     <p className="source-caption">Environment: sandbox · Scope: active facility · Production credential use: disabled · Production writes: disabled</p>
     <div className="button-row">
       <button className="primary" type="button" disabled={pending || missing || (!value.configured && !secret.trim())} onClick={() => save.mutate()}>Save sandbox connection</button>
+      {provider === "metrc" && value.sandbox_user_provisioning_enabled ? <button className="secondary" type="button" disabled={pending || !value.configured} onClick={() => provision.mutate()}>Provision sandbox user</button> : null}
       <button className="secondary" type="button" disabled={pending || !value.configured} onClick={() => test.mutate()}>Test readiness</button>
       <button className="secondary" type="button" disabled={pending || !value.configured} onClick={() => sync.mutate()}>Run sandbox sync</button>
       <button className="secondary" type="button" disabled={pending || !value.configured || failedCount === 0} onClick={() => retry.mutate()}>Retry failed syncs</button>
@@ -226,13 +243,14 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
     </div>
     <div className="connection-result">
       <strong>Sandbox runtime</strong>
-      <p>Resources: {value.sandbox_resources.join(", ")}. Read transport: deterministic sandbox fixture until authenticated vendor sandbox transport is enabled. This still exercises durable cursors, raw-record staging, normalization, dedupe, retry and reconciliation state.</p>
+      <p>Resources: {value.sandbox_resources.join(", ")}. Provider credentials stay encrypted server-side. Normal Metrc API traffic uses the distinct Integrator + User key pair after provisioning.</p>
       {runtime.data?.states.length ? <div className="runtime-state-list">
         {runtime.data.states.map(state => <p className="source-caption" key={state.resource}>
           <strong>{state.resource}</strong> · {state.status} · cursor {state.cursor || "not started"} · seen {state.records_seen} · written {state.records_written}{state.last_error ? ` · ${state.last_error}` : ""}
         </p>)}
       </div> : <p className="source-caption">No sandbox sync has run yet.</p>}
     </div>
+    {provision.data ? <div className="connection-result success">{provision.data.message}</div> : null}
     {readiness ? <div className="connection-result success">{readiness.message}</div> : null}
     {syncSummary ? <div className="connection-result success">Sandbox sync complete: {syncSummary.records} records, {syncSummary.accepted} accepted, {syncSummary.duplicates} deduplicated, {syncSummary.errors} errors.</div> : null}
     {retry.data ? <div className="connection-result success">Retry pass completed for {retry.data.retried} failed resource{retry.data.retried === 1 ? "" : "s"}.</div> : null}
