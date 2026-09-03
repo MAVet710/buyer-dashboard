@@ -118,6 +118,7 @@ class MetrcFacilityBootstrapService:
                     page_size=100,
                     page_number=1,
                     timeout_seconds=10,
+                    max_attempts=1,
                 )
             jobs.append((local_name, "metrc_normalized_v2", fetch))
 
@@ -268,18 +269,20 @@ class MetrcFacilityBootstrapService:
         accepted = 0
         duplicates = 0
         with self.sessions.begin() as session:
+            fingerprints = {_fingerprint(record) for record in records}
+            existing_fingerprints = set(session.scalars(select(IntegrationSyncRecord.fingerprint).where(
+                IntegrationSyncRecord.organization_id == organization_id,
+                IntegrationSyncRecord.facility_id == facility_id,
+                IntegrationSyncRecord.provider == "metrc",
+                IntegrationSyncRecord.resource == resource,
+                IntegrationSyncRecord.fingerprint.in_(fingerprints),
+            ))) if fingerprints else set()
             for record in records:
                 fingerprint = _fingerprint(record)
-                existing = session.scalar(select(IntegrationSyncRecord.id).where(
-                    IntegrationSyncRecord.organization_id == organization_id,
-                    IntegrationSyncRecord.facility_id == facility_id,
-                    IntegrationSyncRecord.provider == "metrc",
-                    IntegrationSyncRecord.resource == resource,
-                    IntegrationSyncRecord.fingerprint == fingerprint,
-                ))
-                if existing:
+                if fingerprint in existing_fingerprints:
                     duplicates += 1
                     continue
+                existing_fingerprints.add(fingerprint)
                 source = record.get("source") if isinstance(record.get("source"), dict) else record
                 normalized = {
                     "provider": "metrc",

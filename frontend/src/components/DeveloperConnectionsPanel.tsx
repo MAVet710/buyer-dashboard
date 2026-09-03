@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost } from "../lib/api";
 
@@ -47,6 +47,7 @@ type DiscoveredFacility = {
   message?: string;
   doobielogic_facility?: LocalFacility;
   suggested_matches?: LocalFacility[];
+  bootstrap_error?: string;
 };
 type FacilityDiscoveryResponse = {
   ok: boolean;
@@ -182,7 +183,7 @@ export function DeveloperConnectionsPanel() {
       Production credentials and production writes are disabled here. Sandbox secrets are encrypted server-side and are never returned to the browser. Organization <strong>{data.data.organization_id}</strong> · Current workspace <strong>{data.data.facility_id}</strong>.
     </div>
     <div className="integration-grid">
-      {(Object.keys(data.data.providers) as ProviderKey[]).map(provider => <ProviderCard key={provider} provider={provider} value={data.data!.providers[provider]} />)}
+      {(Object.keys(data.data.providers) as ProviderKey[]).map(provider => <ProviderCard key={`${data.data!.organization_id}:${data.data!.facility_id}:${provider}`} provider={provider} value={data.data!.providers[provider]} />)}
     </div>
   </section>;
 }
@@ -191,6 +192,37 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
   const client = useQueryClient();
   const [configuration, setConfiguration] = useState<Record<string, string>>({});
   const [secret, setSecret] = useState("");
+  const [initialSync, setInitialSync] = useState<Record<string, string>>({});
+  const [syncing, setSyncing] = useState(false);
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+
+  const bootstrapFacilities = async (rows: DiscoveredFacility[]) => {
+    setSyncing(true);
+    try {
+      for (const row of rows) {
+        if (!active.current) break;
+        const facility = row.doobielogic_facility;
+        if (!facility) continue;
+        setInitialSync(current => ({ ...current, [row.license_number]: "Syncing initial METRC data…" }));
+        try {
+          const result = await apiPost<{ ok: boolean; bootstrap: { totals: { failed: number; records: number }; resources: { status: string; message?: string }[] } }>(
+            "/api/v1/integrations/sandbox/metrc/facilities/bootstrap",
+            { facility_id: facility.id, license_number: row.license_number },
+          );
+          if (active.current) setInitialSync(current => ({ ...current, [row.license_number]: result.ok
+            ? `Initial sync complete · ${result.bootstrap.totals.records} records.`
+            : `Initial sync incomplete · ${result.bootstrap.totals.failed} resources failed. ${result.bootstrap.resources.find(resource => resource.status === "failed")?.message ?? "Retry is available."}` }));
+          if (!result.ok) break;
+        } catch (error) {
+          if (active.current) setInitialSync(current => ({ ...current, [row.license_number]: error instanceof Error ? error.message : "Initial sync failed. Retry is available." }));
+          break; // Do not cascade a database/provider outage across every facility.
+        }
+      }
+    } finally {
+      if (active.current) setSyncing(false);
+    }
+  };
 
   useEffect(() => {
     const next: Record<string, string> = {};
@@ -219,7 +251,7 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
   });
   const discovery = useMutation({
     mutationFn: () => apiPost<FacilityDiscoveryResponse>("/api/v1/integrations/sandbox/metrc/discover-facilities", {}),
-    onSuccess: refresh,
+    onSuccess: data => { void bootstrapFacilities(data.facilities).then(() => { if (active.current) void refresh(); }); },
   });
   const confirm = useMutation({
     mutationFn: (input: { license_number: string; target_facility_id?: string; create_new?: boolean }) => apiPost<{ ok: boolean; facility: DiscoveredFacility }>("/api/v1/integrations/sandbox/metrc/facilities/confirm", input),
@@ -227,7 +259,10 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
   });
   const provision = useMutation({
     mutationFn: () => apiPost<ProvisionResponse>("/api/v1/integrations/sandbox/metrc/provision-user", {}),
-    onSuccess: refresh,
+    onSuccess: data => {
+      if (data.facility_discovery) void bootstrapFacilities(data.facility_discovery.facilities).then(() => { if (active.current) void refresh(); });
+      else void refresh();
+    },
   });
   const test = useMutation({
     mutationFn: () => apiPost<TestResponse>(`/api/v1/integrations/sandbox/${provider}/test`, {}),
@@ -246,7 +281,7 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
     onSuccess: async () => { setConfiguration({}); setSecret(""); await refresh(); },
   });
   const missing = value.required_fields.some(field => !String(configuration[field] ?? "").trim());
-  const pending = save.isPending || provision.isPending || discovery.isPending || confirm.isPending || test.isPending || sync.isPending || retry.isPending || clear.isPending;
+  const pending = syncing || save.isPending || provision.isPending || discovery.isPending || confirm.isPending || test.isPending || sync.isPending || retry.isPending || clear.isPending;
   const error = save.error?.message || provision.error?.message || discovery.error?.message || confirm.error?.message || test.error?.message || sync.error?.message || retry.error?.message || clear.error?.message || runtime.error?.message;
   const readiness = test.data?.result;
   const syncSummary = sync.data?.totals;
@@ -287,6 +322,11 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
         {facilityDiscovery.facilities.map(row => <div key={row.license_number} className="connection-result">
           <strong>{row.name} · {row.license_number}</strong>
           {row.doobielogic_facility ? <p className="source-caption">{row.status === "created" ? "Created" : "Connected to"} DoobieLogic facility: {row.doobielogic_facility.name}. Mapping is durable for MA sandbox.</p> : null}
+          {row.doobielogic_facility ? <>
+            {row.bootstrap_error ? <p className="form-error">{row.bootstrap_error}</p> : null}
+            <p role="status">{initialSync[row.license_number] ?? "Initial sync pending. Saved mappings remain available if you leave this page."}</p>
+            <button className="secondary" type="button" disabled={pending} onClick={() => { void bootstrapFacilities([row]); }}>Retry initial sync</button>
+          </> : null}
           {row.status === "needs_confirmation" ? <>
             <p className="source-caption">{row.message}</p>
             <div className="button-row">

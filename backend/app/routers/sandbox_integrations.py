@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
+from sqlalchemy.exc import TimeoutError as DatabasePoolTimeout
 from sqlalchemy.orm import Session
 
 from modules.coman.models import AuditEvent
+from modules.regulatory.service import RegulatoryMappingService
 from modules.integrations import IntegrationConfigurationService, SandboxIntegrationRuntime
 from services.metrc_client import fetch_metrc_resource
 from services.metrc_facility_bootstrap import MetrcFacilityBootstrapService
@@ -23,6 +26,7 @@ from ..database import get_engine
 from ..services.metrc_context import metrc_scope_key
 
 router = APIRouter(prefix="/integrations/sandbox", tags=["integrations"])
+logger = logging.getLogger(__name__)
 
 _PROVIDER_IDS = {
     "metrc": "metrc_sandbox",
@@ -93,6 +97,11 @@ class MetrcFacilityConfirm(BaseModel):
     license_number: str = Field(min_length=1, max_length=160)
     target_facility_id: str = Field(default="", max_length=36)
     create_new: bool = False
+
+
+class MetrcFacilitySync(BaseModel):
+    facility_id: str = Field(min_length=1, max_length=36)
+    license_number: str = Field(min_length=1, max_length=160)
 
 
 def _service(engine: Engine, settings: Settings) -> IntegrationConfigurationService:
@@ -191,17 +200,25 @@ def _fetch_metrc_facilities(service: IntegrationConfigurationService, context: R
     state = str(user_config.get("state") or vendor_config.get("state") or "").strip().upper()
     if state != "MA":
         raise HTTPException(422, "The current sandbox facility discovery flow is limited to the verified Massachusetts sandbox.")
+    try:
+        user_key, vendor_key = service.secret(user), service.secret(vendor)
+    except RuntimeError as exc:
+        raise HTTPException(422, "The saved METRC credential could not be decrypted. Ask the administrator to check the server encryption configuration; do not reset the keys.") from exc
     result = fetch_metrc_resource(
         state="MA",
-        user_api_key=service.secret(user),
-        integrator_api_key=service.secret(vendor),
+        user_api_key=user_key,
+        integrator_api_key=vendor_key,
         resource="facilities",
         environment="sandbox",
         timeout_seconds=30,
+        max_attempts=1,
     )
     if not result.get("ok"):
         status_code = int(result.get("http_status") or 0)
-        status = status_code if status_code in {400, 401, 403, 429} else 502
+        logger.warning("metrc_discovery_provider_failed http_status=%s", status_code)
+        # A provider 401 is not an expired DoobieLogic login. Passing it through
+        # makes the browser refresh the app session and repeat the operation.
+        status = status_code if status_code in {400, 403, 429} else 502
         raise HTTPException(status, str(result.get("message") or "Metrc facilities discovery failed."))
     return vendor, user, [dict(row) for row in result.get("records", []) if isinstance(row, dict)]
 
@@ -216,7 +233,7 @@ def _bootstrap_bound_facilities(
     context: RequestContext,
     engine: Engine,
 ) -> None:
-    """Immediately prime mapped facility mirrors with real provider-owned state."""
+    """Save the discovered profile; leave slow provider reads to bounded steps."""
 
     records_by_license: dict[str, dict] = {}
     for record in records:
@@ -227,8 +244,6 @@ def _bootstrap_bound_facilities(
         key = "".join(ch for ch in parsed.license_number.casefold() if ch.isalnum())
         records_by_license[key] = parsed.raw
 
-    integrator_key = service.secret(vendor)
-    user_key = service.secret(user)
     bootstrapper = MetrcFacilityBootstrapService(engine)
     for row in discovery.get("facilities", []):
         if row.get("status") not in {"created", "linked"}:
@@ -240,22 +255,26 @@ def _bootstrap_bound_facilities(
             continue
         record_key = "".join(ch for ch in license_number.casefold() if ch.isalnum())
         try:
-            bootstrap = bootstrapper.sync(
-                organization_id=context.organization_id,
-                facility_id=facility_id,
-                license_number=license_number,
-                state="MA",
-                environment="sandbox",
-                integrator_api_key=integrator_key,
-                user_api_key=user_key,
-                actor=context.user_id,
-                facility_record=records_by_license.get(record_key),
-            )
-            row["bootstrap"] = bootstrap
-            row["sync_status"] = "connected" if not bootstrap["totals"]["failed"] else "degraded"
-        except Exception as exc:
+            profile = records_by_license.get(record_key)
+            if profile:
+                bootstrapper._persist(
+                    organization_id=context.organization_id,
+                    facility_id=facility_id,
+                    resource="facility_profile",
+                    environment="sandbox",
+                    actor=context.user_id,
+                    records=[profile],
+                    transport="metrc_facilities",
+                )
+            row["sync_status"] = "pending"
+        except DatabasePoolTimeout:
+            # Fail once with the middleware's 503 rather than waiting another
+            # pool timeout for every remaining discovered facility.
+            raise
+        except Exception:
+            logger.warning("metrc_facility_profile_persistence_failed")
             row["sync_status"] = "degraded"
-            row["bootstrap_error"] = f"{type(exc).__name__}: {exc}"[:512]
+            row["bootstrap_error"] = "Facility profile persistence failed; retry discovery."
 
 
 def _discover_metrc_facilities(
@@ -279,15 +298,11 @@ def _discover_metrc_facilities(
         )
     except (MetrcFacilityOnboardingError, RuntimeError) as exc:
         raise HTTPException(422, str(exc)) from exc
-    _bootstrap_bound_facilities(
-        discovery=discovery,
-        records=records,
-        vendor=vendor,
-        user=user,
-        service=service,
-        context=context,
-        engine=engine,
-    )
+    # Return durable mappings before the potentially minutes-long multi-facility
+    # bootstrap. The client advances one mapped facility at a time and can retry
+    # a failed step without replaying discovery or copying credentials again.
+    _bootstrap_bound_facilities(discovery=discovery, records=records, vendor=vendor,
+        user=user, service=service, context=context, engine=engine)
     return {
         "ok": True,
         "state": "MA",
@@ -409,7 +424,7 @@ def provision_metrc_sandbox_user(
 
     if not result.get("ok"):
         provider_status = int(result.get("http_status") or 0)
-        status = provider_status if provider_status in {400, 401, 403, 429} else 502
+        status = provider_status if provider_status in {400, 403, 429} else 502
         raise HTTPException(status, str(result.get("message") or "Metrc sandbox user provisioning failed."))
 
     facility_discovery = None
@@ -432,7 +447,7 @@ def provision_metrc_sandbox_user(
         "facility_discovery": facility_discovery,
         "facility_discovery_error": facility_discovery_error,
         "message": (
-            "Metrc returned the sandbox User API Key. DoobieLogic stored it encrypted, discovered the facilities this key can access, and started their initial Metrc sync."
+            "Metrc returned the sandbox User API Key. DoobieLogic stored it encrypted and discovered the facilities this key can access. Initial sync continues separately for each mapped facility."
             if user_key_saved and facility_discovery
             else "Metrc returned the sandbox User API Key and DoobieLogic stored it encrypted. Facility discovery can be retried from this card."
             if user_key_saved
@@ -489,17 +504,40 @@ def confirm_metrc_sandbox_facility(
         )
     except (MetrcFacilityOnboardingError, RuntimeError) as exc:
         raise HTTPException(422, str(exc)) from exc
-    wrapper = {"facilities": [result]}
-    _bootstrap_bound_facilities(
-        discovery=wrapper,
-        records=[selected],
-        vendor=vendor,
-        user=user,
-        service=service,
-        context=context,
-        engine=engine,
+    _bootstrap_bound_facilities(discovery={"facilities": [result]}, records=[selected],
+        vendor=vendor, user=user, service=service, context=context, engine=engine)
+    return {"ok": True, "facility": result}
+
+
+@router.post("/metrc/facilities/bootstrap")
+def bootstrap_metrc_sandbox_facility(
+    payload: MetrcFacilitySync,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_developer_connections(context)
+    mapping = RegulatoryMappingService(engine).get(
+        organization_id=context.organization_id, facility_id=payload.facility_id,
+        provider="metrc", license_number=payload.license_number, environment="sandbox",
     )
-    return {"ok": True, "facility": wrapper["facilities"][0]}
+    if mapping is None or mapping.jurisdiction_code != "MA":
+        raise HTTPException(404, "Discover and confirm this MA sandbox facility before syncing it.")
+    service = _service(engine, settings)
+    user = service.get("user", f"{context.user_id}|{payload.facility_id}", "metrc")
+    vendor = service.get("facility", f"{context.organization_id}:{payload.facility_id}:sandbox", "metrc_sandbox")
+    for row in (user, vendor):
+        if row is None or row.organization_id != context.organization_id or row.facility_id != payload.facility_id:
+            raise HTTPException(422, "Discover this facility with your saved sandbox credentials before syncing.")
+        config = service.public(row)["configuration"]
+        if config.get("environment") != "sandbox" or config.get("state") != "MA" or config.get("license_number") != payload.license_number:
+            raise HTTPException(422, "The saved sandbox credential scope does not match this facility.")
+    result = MetrcFacilityBootstrapService(engine).sync(
+        organization_id=context.organization_id, facility_id=payload.facility_id,
+        license_number=payload.license_number, state="MA", environment="sandbox",
+        integrator_api_key=service.secret(vendor), user_api_key=service.secret(user), actor=context.user_id,
+    )
+    return {"ok": not result["totals"]["failed"], "bootstrap": result}
 
 
 @router.post("/{provider}/test")
