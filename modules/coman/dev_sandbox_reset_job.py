@@ -24,11 +24,14 @@ from modules.coman.vertical_demo_inventory_release import (
     EXPECTED_ACTIVE_PLANTS,
     EXPECTED_EXTRACT_SKUS,
     EXPECTED_FINISHED_SKUS,
+    EXPECTED_FLOWER_SKUS,
     EXPECTED_MOCK_FINISHED_COAS,
     replace_scaled_vertical_dev_inventory,
 )
+from modules.coman.vertical_demo_ma_coas import DEV_MA_COA_EVIDENCE, DEV_MA_INHERITED_EVIDENCE
 from modules.commerce_storefronts.wholesale_service import WholesaleCommerceStorefrontService
 from modules.cultivation.service import ACTIVE_PLANT_PHASES, CultivationService
+from modules.demo_traceability import is_synthetic_metrc_tag
 from modules.extraction import ExtractionRepository
 from modules.inventory_availability.service import InventoryAvailabilityService
 from modules.inventory_quality import LotQualityEvidence
@@ -84,6 +87,8 @@ def _current_inventory(engine, organization_id: str, facility_id: str) -> dict[s
 
 def _validate(engine, organization_id: str, facility_id: str, result) -> dict[str, object]:
     final_ids = set(result.final_lots)
+    flower_ids = set(result.flower_final_lots)
+    extract_ids = set(result.extract_final_lots)
     final_product_ids = set(result.final_product_ids)
     if len(final_ids) != EXPECTED_FINISHED_SKUS or len(final_product_ids) != EXPECTED_FINISHED_SKUS:
         raise RuntimeError(
@@ -94,13 +99,20 @@ def _validate(engine, organization_id: str, facility_id: str, result) -> dict[st
     wholesale = WholesaleCommerceStorefrontService(engine).wholesale_inventory(organization_id, facility_id)
     eligible = [row for row in wholesale["items"] if row["lot_id"] in final_ids]
     blocked = [row for row in wholesale["blocked_items"] if row["lot_id"] in final_ids]
-    if len(eligible) != EXPECTED_FINISHED_SKUS or blocked:
+    eligible_ids = {row["lot_id"] for row in eligible}
+    blocked_ids = {row["lot_id"] for row in blocked}
+    if eligible_ids != flower_ids or blocked_ids != extract_ids:
         raise RuntimeError(
-            f"DEV vertical validation failed wholesale eligibility: eligible={len(eligible)} blocked={len(blocked)}"
+            "DEV vertical validation failed sourced-only wholesale eligibility: "
+            f"eligible={len(eligible_ids)} expected_flower={len(flower_ids)} "
+            f"blocked={len(blocked_ids)} expected_extract={len(extract_ids)}"
         )
-    wholesale_by_lot = {row["lot_id"]: row for row in eligible}
+    for row in blocked:
+        if "COA reference is missing" not in set(row.get("blocked_reasons") or []):
+            raise RuntimeError(f"Unsourced extraction lot {row['lot_id']} was not blocked for missing COA evidence.")
 
     with Session(engine) as session:
+        final_lots = [session.get(InventoryLot, lot_id) for lot_id in final_ids]
         quality_rows = [session.get(LotQualityEvidence, lot_id) for lot_id in final_ids]
         quality_count = sum(row is not None for row in quality_rows)
         packaging_count = sum(session.get(ProductPackagingProfile, product_id) is not None for product_id in final_product_ids)
@@ -111,6 +123,14 @@ def _validate(engine, organization_id: str, facility_id: str, result) -> dict[st
         mock_rows = [
             row for row in quality_rows
             if row is not None and row.evidence_source == "mock_finished_lab"
+        ]
+        sourced_rows = [
+            row for row in quality_rows
+            if row is not None and row.evidence_source in {DEV_MA_COA_EVIDENCE, DEV_MA_INHERITED_EVIDENCE}
+        ]
+        unsourced_rows = [
+            row for row in quality_rows
+            if row is not None and row.evidence_source == "dev_sandbox:no_sourced_coa"
         ]
         po_rows = list(
             session.scalars(
@@ -156,19 +176,31 @@ def _validate(engine, organization_id: str, facility_id: str, result) -> dict[st
             )
         )
 
+    if any(row is None or not is_synthetic_metrc_tag(row.compliance_package_id) for row in final_lots):
+        raise RuntimeError("Every current DEV finished lot must carry a realistic-looking synthetic traceability tag.")
     if quality_count != EXPECTED_FINISHED_SKUS or packaging_count != EXPECTED_FINISHED_SKUS or costed_count != EXPECTED_FINISHED_SKUS:
         raise RuntimeError(
             "DEV vertical validation failed product detail coverage: "
             f"quality={quality_count} packaging={packaging_count} costed={costed_count}"
         )
-    if len(mock_rows) != EXPECTED_MOCK_FINISHED_COAS:
-        raise RuntimeError(f"Expected {EXPECTED_MOCK_FINISHED_COAS} explicit finished mock COAs, got {len(mock_rows)}")
-    for evidence in mock_rows:
-        wholesale_row = wholesale_by_lot.get(evidence.lot_id)
-        if wholesale_row is None:
-            raise RuntimeError(f"Mock-COA lot {evidence.lot_id} is missing from Wholesale.")
-        if wholesale_row["coa_reference"] != evidence.coa_reference or wholesale_row["coa_url"] != evidence.coa_url:
-            raise RuntimeError(f"Mock COA did not propagate intact to Wholesale for lot {evidence.lot_id}.")
+    if mock_rows or EXPECTED_MOCK_FINISHED_COAS != 0:
+        raise RuntimeError(f"Operator-visible DEV data must expose 0 fake finished COAs; got {len(mock_rows)}")
+    if len(sourced_rows) != EXPECTED_FLOWER_SKUS:
+        raise RuntimeError(f"Expected {EXPECTED_FLOWER_SKUS} sourced flower lots, got {len(sourced_rows)}")
+    if len(unsourced_rows) != EXPECTED_EXTRACT_SKUS:
+        raise RuntimeError(f"Expected {EXPECTED_EXTRACT_SKUS} extraction lots awaiting sourced COAs, got {len(unsourced_rows)}")
+    for evidence in unsourced_rows:
+        if any((evidence.lab_testing_state, evidence.coa_reference, evidence.coa_url, evidence.coa_document_id)):
+            raise RuntimeError(f"Unsourced extraction lot {evidence.lot_id} leaked fabricated lab evidence.")
+        if any(value is not None for value in (
+            evidence.thca_percent,
+            evidence.tac_percent,
+            evidence.total_thc_percent,
+            evidence.total_cbd_percent,
+            evidence.total_cannabinoids_percent,
+            evidence.total_terpenes_percent,
+        )):
+            raise RuntimeError(f"Unsourced extraction lot {evidence.lot_id} leaked fabricated potency data.")
 
     plants = CultivationService(engine).list_plants(organization_id, facility_id)
     active_phase_counts = Counter(row.phase for row in plants if row.phase in ACTIVE_PLANT_PHASES)
@@ -176,11 +208,12 @@ def _validate(engine, organization_id: str, facility_id: str, result) -> dict[st
         raise RuntimeError(f"Expected {EXPECTED_ACTIVE_PLANTS} active plants, got {dict(active_phase_counts)}")
     if set(active_phase_counts) != {"clone", "seedling", "vegetative", "flowering"} or any(active_phase_counts[phase] != 20 for phase in active_phase_counts):
         raise RuntimeError(f"DEV active plant stages are not evenly populated: {dict(active_phase_counts)}")
+    if any(not is_synthetic_metrc_tag(row.plant_tag) for row in plants if row.phase in ACTIVE_PLANT_PHASES):
+        raise RuntimeError("Active DEV plants must use realistic-looking synthetic traceability tags.")
 
     lineage = MaterialLineageService(engine)
     plant_ancestry = 0
     extraction_graphs = 0
-    extract_ids = set(result.extract_final_lots)
     for lot_id in final_ids:
         graph = lineage.lot_graph(organization_id=organization_id, facility_id=facility_id, lot_id=lot_id)
         if any(node["type"] == "plant" for node in graph["nodes"]):
@@ -216,8 +249,12 @@ def _validate(engine, organization_id: str, facility_id: str, result) -> dict[st
     return {
         "finished_lots": len(final_ids),
         "wholesale_eligible": len(eligible),
+        "wholesale_blocked": len(blocked),
         "canonical_quality": quality_count,
+        "sourced_finished_coas": len(sourced_rows),
+        "unsourced_finished_items": len(unsourced_rows),
         "mock_finished_coas": len(mock_rows),
+        "realistic_package_tags": len(final_lots),
         "packaging_profiles": packaging_count,
         "positive_cogs": costed_count,
         "active_plants": sum(active_phase_counts.values()),
