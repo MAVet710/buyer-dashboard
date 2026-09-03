@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from time import perf_counter
 
 from sqlalchemy import create_engine, event
@@ -9,7 +10,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from backend.app.auth import RequestContext
-from backend.app.routers.coman_parity import workspace as production_workspace
+from backend.app.routers.coman_parity import (
+    ACTUAL_LIMIT,
+    LOT_LIMIT,
+    ORDER_LIMIT,
+    RESERVATION_LIMIT,
+    TRANSACTION_LIMIT,
+    workspace as production_workspace,
+)
 from backend.app.services.enterprise_control_fast import organization_secondary_metrics
 from modules.coman.models import (
     Base,
@@ -42,11 +50,12 @@ def _engine():
     return engine
 
 
-def _count_selects(engine):
+def _count_reads(engine):
     statements: list[str] = []
 
     def listener(_conn, _cursor, statement, _parameters, _context, _executemany):
-        if statement.lstrip().upper().startswith("SELECT"):
+        normalized = statement.lstrip().upper()
+        if normalized.startswith("SELECT") or normalized.startswith("WITH"):
             statements.append(statement)
 
     event.listen(engine, "before_cursor_execute", listener)
@@ -266,32 +275,132 @@ def _seed_production_volume(engine):
         return organization.id, facility.id
 
 
-def test_production_workspace_stays_bounded_at_realistic_volume() -> None:
-    engine = _engine()
-    organization_id, facility_id = _seed_production_volume(engine)
-    context = RequestContext(
+def _context(organization_id: str, facility_id: str) -> RequestContext:
+    return RequestContext(
         user_id="performance-test",
         organization_id=organization_id,
         facility_id=facility_id,
         role="dev",
     )
-    selects, listener = _count_selects(engine)
+
+
+def _measure(engine, fn):
+    reads, listener = _count_reads(engine)
     started = perf_counter()
     try:
-        payload = production_workspace(context=context, engine=engine)
+        payload = fn()
     finally:
         elapsed = perf_counter() - started
         event.remove(engine, "before_cursor_execute", listener)
+    return payload, reads, elapsed
 
+
+def test_production_initial_workspace_is_summary_first_at_realistic_volume() -> None:
+    engine = _engine()
+    organization_id, facility_id = _seed_production_volume(engine)
+    context = _context(organization_id, facility_id)
+
+    payload, reads, elapsed = _measure(
+        engine,
+        lambda: production_workspace(context=context, engine=engine),
+    )
     encoded_size = len(json.dumps(payload, default=str, separators=(",", ":")).encode("utf-8"))
-    assert len(selects) <= 12, f"Production workspace used {len(selects)} SELECTs at realistic volume"
-    assert elapsed < 3.0, f"Production workspace took {elapsed:.3f}s at realistic volume"
-    assert encoded_size < 4_000_000, f"Production workspace payload grew to {encoded_size} bytes"
-    assert len(payload["orders"]) == 500
-    assert len(payload["lots"]) == 1000
-    assert len(payload["transactions"]) == 250
-    assert len(payload["reservations"]) == 500
-    assert len(payload["actuals"]) == 300
+
+    assert len(reads) <= 8, f"Initial Production workspace used {len(reads)} SQL reads"
+    assert elapsed < 3.0, f"Initial Production workspace took {elapsed:.3f}s"
+    assert encoded_size < 1_000_000, f"Initial Production payload grew to {encoded_size} bytes"
+    assert len(payload["orders"]) == ORDER_LIMIT
+    assert payload["lots"] == []
+    assert payload["transactions"] == []
+    assert payload["reservations"] == []
+    assert payload["actuals"] == []
+    assert payload["windows"]["orders"] == {
+        "loaded": True,
+        "returned": ORDER_LIMIT,
+        "total": 500,
+        "limit": ORDER_LIMIT,
+        "truncated": True,
+    }
+    assert payload["windows"]["lots"]["loaded"] is False
+    assert payload["windows"]["actuals"]["loaded"] is False
+    assert payload["metrics"]["open_orders"] == 200
+    assert payload["metrics"]["customers"] == 80
+
+
+def test_production_inventory_section_is_bounded_set_based_and_counts_ctes() -> None:
+    engine = _engine()
+    organization_id, facility_id = _seed_production_volume(engine)
+    context = _context(organization_id, facility_id)
+
+    payload, reads, elapsed = _measure(
+        engine,
+        lambda: production_workspace(section="inventory", context=context, engine=engine),
+    )
+    encoded_size = len(json.dumps(payload, default=str, separators=(",", ":")).encode("utf-8"))
+
+    assert len(reads) <= 12, f"Inventory & BOM workspace used {len(reads)} SQL reads"
+    assert any(statement.lstrip().upper().startswith("WITH") for statement in reads), "Visible-lot balance CTE was not counted"
+    assert elapsed < 3.0, f"Inventory & BOM workspace took {elapsed:.3f}s"
+    assert encoded_size < 2_000_000, f"Inventory & BOM payload grew to {encoded_size} bytes"
+    assert len(payload["orders"]) == ORDER_LIMIT
+    assert len(payload["products"]) == 60
+    assert len(payload["lots"]) == LOT_LIMIT
+    assert len(payload["transactions"]) == TRANSACTION_LIMIT
+    assert len(payload["reservations"]) == RESERVATION_LIMIT
+    assert payload["actuals"] == []
+    assert payload["windows"]["lots"]["total"] == 1000
+    assert payload["windows"]["lots"]["truncated"] is True
+    assert payload["windows"]["transactions"]["total"] == 5000
+    assert payload["windows"]["transactions"]["truncated"] is True
+    assert payload["windows"]["reservations"]["total"] == 500
+    assert payload["windows"]["reservations"]["truncated"] is True
+    assert all(abs(float(row["on_hand"]) - 99.5) < 1e-9 for row in payload["lots"])
+
+
+def test_production_performance_section_is_bounded_on_demand() -> None:
+    engine = _engine()
+    organization_id, facility_id = _seed_production_volume(engine)
+    context = _context(organization_id, facility_id)
+
+    payload, reads, elapsed = _measure(
+        engine,
+        lambda: production_workspace(section="performance", context=context, engine=engine),
+    )
+
+    assert len(reads) <= 8, f"Performance workspace used {len(reads)} SQL reads"
+    assert elapsed < 3.0, f"Performance workspace took {elapsed:.3f}s"
+    assert len(payload["actuals"]) == ACTUAL_LIMIT
+    assert payload["lots"] == []
+    assert payload["transactions"] == []
+    assert payload["reservations"] == []
+    assert payload["windows"]["actuals"] == {
+        "loaded": True,
+        "returned": ACTUAL_LIMIT,
+        "total": 300,
+        "limit": ACTUAL_LIMIT,
+        "truncated": True,
+    }
+
+
+def test_react_production_wrapper_preserves_tabs_and_lazy_hydration_contract() -> None:
+    source = (Path(__file__).resolve().parents[1] / "frontend/src/pages/ProductionPage.tsx").read_text(encoding="utf-8")
+    legacy = (Path(__file__).resolve().parents[1] / "frontend/src/pages/ProductionPageLegacy.tsx")
+
+    assert legacy.exists()
+    assert "ProductionPageLegacy" in source
+    assert "workspace?section=" in source
+    assert "bounded working view" in source
+    for label in (
+        "Dashboard",
+        "New Job",
+        "Schedule",
+        "Resources",
+        "Inventory & BOM",
+        "Customers",
+        "Performance",
+        "Production Control",
+    ):
+        assert label in source
 
 
 def _seed_enterprise_history(engine):
@@ -348,7 +457,7 @@ def _seed_enterprise_history(engine):
 def test_enterprise_secondary_summary_is_fixed_query_and_bounded_by_legacy_windows() -> None:
     engine = _engine()
     organization_id, facility_ids = _seed_enterprise_history(engine)
-    selects, listener = _count_selects(engine)
+    reads, listener = _count_reads(engine)
     started = perf_counter()
     try:
         payload = organization_secondary_metrics(engine, organization_id)
@@ -356,7 +465,7 @@ def test_enterprise_secondary_summary_is_fixed_query_and_bounded_by_legacy_windo
         elapsed = perf_counter() - started
         event.remove(engine, "before_cursor_execute", listener)
 
-    assert len(selects) == 4, f"Enterprise secondary projection used {len(selects)} SELECTs"
+    assert len(reads) == 4, f"Enterprise secondary projection used {len(reads)} SQL reads"
     assert elapsed < 3.0, f"Enterprise secondary projection took {elapsed:.3f}s"
     for facility_id in facility_ids:
         trace = payload["traceability"][facility_id]
