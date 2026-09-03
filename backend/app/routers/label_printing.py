@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
 from modules.inventory_quality import CoaDocumentService, MAX_COA_BYTES
+from modules.label_studio_workflow import LabelProductionWorkflowService
 from modules.operational_moats.printing import LabelPrintingService
 from ..auth import RequestContext, get_request_context
 from ..database import get_engine
@@ -20,6 +21,7 @@ from ..services.label_studio_integrity import normalize_testing_label_source
 router = APIRouter(prefix="/label-printing", tags=["label-printing"])
 ADMIN_ROLES = {"dev", "admin"}
 COA_ROLES = {"dev", "admin", "supervisor", "operator", "qa"}
+LABEL_WORKFLOW_ROLES = {"dev", "admin", "supervisor", "operator", "qa"}
 
 
 class PrinterPayload(BaseModel):
@@ -45,6 +47,26 @@ class PrintCompletePayload(BaseModel):
     error: str = Field(default="", max_length=2000)
 
 
+class LabelProductionRunPayload(BaseModel):
+    source_lot_id: str = Field(min_length=1, max_length=36)
+    product_id: str = Field(min_length=1, max_length=36)
+    quantity: int = Field(ge=1, le=500)
+
+
+class LabelProductionTagPayload(BaseModel):
+    metrc_package_tag: str = Field(min_length=4, max_length=128)
+
+
+class LabelProductionPrintPayload(BaseModel):
+    copies: int | None = Field(default=None, ge=1, le=500)
+    reason: str = Field(default="", max_length=512)
+
+
+class LabelProductionTransitionPayload(BaseModel):
+    status: str = Field(min_length=1, max_length=24)
+    note: str = Field(default="", max_length=1000)
+
+
 def _printer(row) -> dict[str, Any]:
     return {key: getattr(row, key) for key in ("id", "name", "transport", "printer_key", "dpi", "width_mm", "height_mm", "active", "created_by", "created_at", "updated_at")}
 
@@ -60,6 +82,11 @@ def _job(row, *, include_content: bool = False) -> dict[str, Any]:
 def _require_coa_write(context: RequestContext) -> None:
     if context.role.casefold() not in COA_ROLES:
         raise HTTPException(403, "Your role can view COA-backed labels but cannot attach or confirm COA evidence.")
+
+
+def _require_label_workflow_write(context: RequestContext) -> None:
+    if context.role.casefold() not in LABEL_WORKFLOW_ROLES:
+        raise HTTPException(403, "Your role can view Label Studio but cannot create or advance production label runs.")
 
 
 async def _coa_bytes(file: UploadFile) -> bytes:
@@ -195,6 +222,109 @@ def get_coa_file(
         media_type=content_type or "application/pdf",
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{safe}"},
     )
+
+
+@router.get("/production-runs")
+def list_label_production_runs(
+    limit: int = Query(default=100, ge=1, le=500),
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    return LabelProductionWorkflowService(engine).list_runs(context.organization_id, context.facility_id, limit=limit)
+
+
+@router.post("/production-runs", status_code=201)
+def create_label_production_run(
+    payload: LabelProductionRunPayload,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_label_workflow_write(context)
+    try:
+        return LabelProductionWorkflowService(engine).create_run(
+            context.organization_id,
+            context.facility_id,
+            source_lot_id=payload.source_lot_id,
+            product_id=payload.product_id,
+            quantity=payload.quantity,
+            actor=context.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/production-runs/{run_id}")
+def get_label_production_run(
+    run_id: str,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    try:
+        return LabelProductionWorkflowService(engine).get_run(context.organization_id, context.facility_id, run_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/production-runs/{run_id}/tag")
+def assign_label_production_tag(
+    run_id: str,
+    payload: LabelProductionTagPayload,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_label_workflow_write(context)
+    try:
+        return LabelProductionWorkflowService(engine).assign_tag(
+            context.organization_id,
+            context.facility_id,
+            run_id,
+            payload.metrc_package_tag,
+            context.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/production-runs/{run_id}/print")
+def record_label_production_print(
+    run_id: str,
+    payload: LabelProductionPrintPayload,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_label_workflow_write(context)
+    try:
+        return LabelProductionWorkflowService(engine).record_print(
+            context.organization_id,
+            context.facility_id,
+            run_id,
+            actor=context.user_id,
+            copies=payload.copies,
+            reason=payload.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/production-runs/{run_id}/transition")
+def transition_label_production_run(
+    run_id: str,
+    payload: LabelProductionTransitionPayload,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_label_workflow_write(context)
+    try:
+        return LabelProductionWorkflowService(engine).transition(
+            context.organization_id,
+            context.facility_id,
+            run_id,
+            status=payload.status,
+            actor=context.user_id,
+            note=payload.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/printers")
