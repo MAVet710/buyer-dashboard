@@ -9,6 +9,12 @@ from sqlalchemy.orm import Session
 
 from modules.coman.models import AuditEvent
 from modules.integrations import IntegrationConfigurationService, SandboxIntegrationRuntime
+from services.metrc_client import fetch_metrc_resource
+from services.metrc_facility_onboarding import (
+    DiscoveredMetrcFacility,
+    MetrcFacilityOnboardingError,
+    MetrcFacilityOnboardingService,
+)
 from services.metrc_sandbox_bootstrap import MetrcSandboxBootstrapError, setup_ma_sandbox_integrator
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
@@ -32,11 +38,12 @@ _PROVIDER_SPECS = {
         "required": ("state",),
         "allowed": ("state", "license_number", "base_url", "notes"),
         "resources": ("packages", "transfers", "items"),
-        "future_use": "Provision the sandbox user, then run authenticated traceability reads, guarded writes, reconciliation, package and transfer workflows.",
+        "future_use": "Provision the sandbox user, discover regulator-owned facilities, then run authenticated traceability workflows.",
         "reference_jurisdiction": "MA",
         "documentation_url": "https://api-ma.metrc.com/Documentation",
         "documented_sandbox_endpoints": (
             "POST /sandbox/v2/integrator/setup",
+            "GET /facilities/v2/",
             "POST /sandbox/v2/packages/create",
             "POST /sandbox/v2/facility/tags",
             "GET /sandbox/v2/tagtypes",
@@ -79,6 +86,12 @@ class SandboxConnectionSave(BaseModel):
 
 class SandboxSyncRequest(BaseModel):
     resource: str = Field(default="", max_length=64)
+
+
+class MetrcFacilityConfirm(BaseModel):
+    license_number: str = Field(min_length=1, max_length=160)
+    target_facility_id: str = Field(default="", max_length=36)
+    create_new: bool = False
 
 
 def _service(engine: Engine, settings: Settings) -> IntegrationConfigurationService:
@@ -155,8 +168,72 @@ def _public_provider(service: IntegrationConfigurationService, context: RequestC
             "documented_sandbox_endpoints": list(spec["documented_sandbox_endpoints"]),
             "manifest_write_pilot": "MA sandbox only",
             "sandbox_user_provisioning_enabled": True,
+            "facility_discovery_enabled": True,
         })
     return response
+
+
+def _metrc_rows(service: IntegrationConfigurationService, context: RequestContext):
+    vendor = service.get("facility", _scope_key(context), "metrc_sandbox")
+    user = service.get("user", metrc_scope_key(context), "metrc")
+    if vendor is None or not vendor.encrypted_secret:
+        raise HTTPException(422, "Save the Metrc Integrator / Vendor API Key before discovering facilities.")
+    if user is None or not user.encrypted_secret:
+        raise HTTPException(422, "Save the distinct Metrc sandbox User API Key before discovering facilities.")
+    return vendor, user
+
+
+def _fetch_metrc_facilities(service: IntegrationConfigurationService, context: RequestContext) -> tuple[object, object, list[dict]]:
+    vendor, user = _metrc_rows(service, context)
+    vendor_config = service.public(vendor).get("configuration") or {}
+    user_config = service.public(user).get("configuration") or {}
+    state = str(user_config.get("state") or vendor_config.get("state") or "").strip().upper()
+    if state != "MA":
+        raise HTTPException(422, "The current sandbox facility discovery flow is limited to the verified Massachusetts sandbox.")
+    result = fetch_metrc_resource(
+        state="MA",
+        user_api_key=service.secret(user),
+        integrator_api_key=service.secret(vendor),
+        resource="facilities",
+        environment="sandbox",
+        timeout_seconds=30,
+    )
+    if not result.get("ok"):
+        status_code = int(result.get("http_status") or 0)
+        status = status_code if status_code in {400, 401, 403, 429} else 502
+        raise HTTPException(status, str(result.get("message") or "Metrc facilities discovery failed."))
+    return vendor, user, [dict(row) for row in result.get("records", []) if isinstance(row, dict)]
+
+
+def _discover_metrc_facilities(
+    *,
+    service: IntegrationConfigurationService,
+    context: RequestContext,
+    engine: Engine,
+    settings: Settings,
+) -> dict:
+    vendor, user, records = _fetch_metrc_facilities(service, context)
+    try:
+        discovery = MetrcFacilityOnboardingService(engine, settings.integration_encryption_key).discover(
+            organization_id=context.organization_id,
+            actor=context.user_id,
+            state="MA",
+            environment="sandbox",
+            records=records,
+            source_user_credential=user,
+            source_vendor_credential=vendor,
+            auto_create=True,
+        )
+    except (MetrcFacilityOnboardingError, RuntimeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "ok": True,
+        "state": "MA",
+        "environment": "sandbox",
+        "provider": "metrc",
+        "facility_count": len(records),
+        **discovery,
+    }
 
 
 @router.get("")
@@ -174,10 +251,7 @@ def sandbox_connections(
         "organization_id": context.organization_id,
         "facility_id": context.facility_id,
         "scope": "facility",
-        "providers": {
-            provider: _public_provider(service, context, provider)
-            for provider in _PROVIDER_IDS
-        },
+        "providers": {provider: _public_provider(service, context, provider) for provider in _PROVIDER_IDS},
     }
 
 
@@ -215,7 +289,7 @@ def provision_metrc_sandbox_user(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    """Call Metrc's special sandbox bootstrap using the saved vendor key."""
+    """Create the sandbox user and immediately discover Metrc-owned facilities when possible."""
 
     _require_developer_connections(context)
     service = _service(engine, settings)
@@ -238,22 +312,14 @@ def provision_metrc_sandbox_user(
         existing_user = service.get("user", metrc_scope_key(context), "metrc")
         existing_config = service.public(existing_user).get("configuration") if existing_user else {}
         existing_config = dict(existing_config) if isinstance(existing_config, dict) else {}
-        license_number = str(
-            existing_config.get("license_number")
-            or configuration.get("license_number")
-            or ""
-        ).strip()
+        license_number = str(existing_config.get("license_number") or configuration.get("license_number") or "").strip()
         service.save(
             scope_type="user",
             scope_key=metrc_scope_key(context),
             provider="metrc",
             organization_id=context.organization_id,
             facility_id=context.facility_id,
-            configuration={
-                "state": "MA",
-                "license_number": license_number,
-                "environment": "sandbox",
-            },
+            configuration={"state": "MA", "license_number": license_number, "environment": "sandbox"},
             secret=returned_user_key,
             actor=context.user_id,
         )
@@ -284,6 +350,14 @@ def provision_metrc_sandbox_user(
         status = provider_status if provider_status in {400, 401, 403, 429} else 502
         raise HTTPException(status, str(result.get("message") or "Metrc sandbox user provisioning failed."))
 
+    facility_discovery = None
+    facility_discovery_error = ""
+    if user_key_saved:
+        try:
+            facility_discovery = _discover_metrc_facilities(service=service, context=context, engine=engine, settings=settings)
+        except HTTPException as exc:
+            facility_discovery_error = str(exc.detail)
+
     return {
         "ok": True,
         "status": "provisioned" if user_key_saved else "requested",
@@ -293,12 +367,67 @@ def provision_metrc_sandbox_user(
         "endpoint": "/sandbox/v2/integrator/setup",
         "user_key_returned": bool(result.get("user_key_returned")),
         "user_key_saved": user_key_saved,
+        "facility_discovery": facility_discovery,
+        "facility_discovery_error": facility_discovery_error,
         "message": (
-            "Metrc returned the sandbox User API Key and DoobieLogic stored it encrypted for this facility."
+            "Metrc returned the sandbox User API Key. DoobieLogic stored it encrypted and discovered the facilities this key can access."
+            if user_key_saved and facility_discovery
+            else "Metrc returned the sandbox User API Key and DoobieLogic stored it encrypted. Facility discovery can be retried from this card."
             if user_key_saved
-            else "Metrc accepted the sandbox setup request. Check the Metrc Connect contact email for the sandbox User API Key, then save it in the main METRC integration card."
+            else "Metrc accepted the sandbox setup request. Check the Metrc Connect contact email for the sandbox User API Key, save it in the main METRC card, then Discover Metrc facilities."
         ),
     }
+
+
+@router.post("/metrc/discover-facilities")
+def discover_metrc_sandbox_facilities(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_developer_connections(context)
+    service = _service(engine, settings)
+    return _discover_metrc_facilities(service=service, context=context, engine=engine, settings=settings)
+
+
+@router.post("/metrc/facilities/confirm")
+def confirm_metrc_sandbox_facility(
+    payload: MetrcFacilityConfirm,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _require_developer_connections(context)
+    service = _service(engine, settings)
+    vendor, user, records = _fetch_metrc_facilities(service, context)
+    target_license = "".join(ch for ch in payload.license_number.casefold() if ch.isalnum())
+    selected = None
+    for record in records:
+        try:
+            discovered = DiscoveredMetrcFacility.from_record(record)
+        except MetrcFacilityOnboardingError:
+            continue
+        normalized = "".join(ch for ch in discovered.license_number.casefold() if ch.isalnum())
+        if normalized == target_license:
+            selected = record
+            break
+    if selected is None:
+        raise HTTPException(409, "That Metrc facility is no longer present in the current facilities response. Refresh discovery and try again.")
+    try:
+        result = MetrcFacilityOnboardingService(engine, settings.integration_encryption_key).confirm(
+            organization_id=context.organization_id,
+            actor=context.user_id,
+            state="MA",
+            environment="sandbox",
+            record=selected,
+            source_user_credential=user,
+            source_vendor_credential=vendor,
+            target_facility_id=payload.target_facility_id,
+            create_new=payload.create_new,
+        )
+    except (MetrcFacilityOnboardingError, RuntimeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True, "facility": result}
 
 
 @router.post("/{provider}/test")
