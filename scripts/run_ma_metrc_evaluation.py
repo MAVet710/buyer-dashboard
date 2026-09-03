@@ -3,8 +3,8 @@
 
 Secrets are read from environment variables and are never written into evidence
 files. The first/default mode performs the evaluation's required Facilities
-read. Master-data writes are opt-in, sandbox-only, and use the reviewed bounded
-payload adapters for location/strain/item create/update.
+read. Master-data and cultivation writes are opt-in, sandbox-only, and use
+fixed reviewed payload adapters rather than caller-supplied provider paths.
 """
 
 from __future__ import annotations
@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from services.metrc_client import fetch_metrc_resource
+from services.metrc_evaluation_cultivation import (
+    CULTIVATION_EVALUATION_ACTIONS,
+    execute_cultivation_evaluation_action,
+)
 from services.metrc_evaluation_master_data import (
     MASTER_DATA_EVALUATION_ACTIONS,
     execute_master_data_evaluation_action,
@@ -64,9 +68,18 @@ def _facilities(integrator_key: str, user_key: str) -> dict[str, Any]:
 
 
 def main() -> None:
+    choices = [
+        "facilities",
+        *sorted(MASTER_DATA_EVALUATION_ACTIONS),
+        *sorted(CULTIVATION_EVALUATION_ACTIONS),
+    ]
     parser = argparse.ArgumentParser(description="Run controlled MA Metrc sandbox evaluation evidence.")
-    parser.add_argument("--operation", default="facilities", choices=["facilities", *sorted(MASTER_DATA_EVALUATION_ACTIONS)])
-    parser.add_argument("--payload-file", default="", help="JSON object used for a master-data create/update operation.")
+    parser.add_argument("--operation", default="facilities", choices=choices)
+    parser.add_argument(
+        "--payload-file",
+        default="",
+        help="JSON object used for an explicit evaluation write operation.",
+    )
     parser.add_argument("--output", default="artifacts/metrc-evaluation/latest.json")
     args = parser.parse_args()
 
@@ -78,19 +91,31 @@ def main() -> None:
     else:
         license_number = _secret("METRC_LICENSE_NUMBER")
         if not args.payload_file:
-            raise SystemExit("--payload-file is required for a master-data evaluation write.")
+            raise SystemExit("--payload-file is required for an evaluation write.")
         raw = json.loads(Path(args.payload_file).read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise SystemExit("The payload file must contain one JSON object.")
-        evidence = execute_master_data_evaluation_action(
-            operation_type=args.operation,
-            payload=raw,
-            license_number=license_number,
-            integrator_api_key=integrator_key,
-            user_api_key=user_key,
-            state="MA",
-            environment="sandbox",
-        )
+
+        if args.operation in MASTER_DATA_EVALUATION_ACTIONS:
+            evidence = execute_master_data_evaluation_action(
+                operation_type=args.operation,
+                payload=raw,
+                license_number=license_number,
+                integrator_api_key=integrator_key,
+                user_api_key=user_key,
+                state="MA",
+                environment="sandbox",
+            )
+        else:
+            evidence = execute_cultivation_evaluation_action(
+                operation_type=args.operation,
+                payload=raw,
+                license_number=license_number,
+                integrator_api_key=integrator_key,
+                user_api_key=user_key,
+                state="MA",
+                environment="sandbox",
+            )
 
     _write_evidence(args.output, evidence)
     raise SystemExit(0 if evidence.get("passed") else 2)
