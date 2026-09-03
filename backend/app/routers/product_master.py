@@ -53,6 +53,10 @@ class PackagingUpdate(BaseModel):
     sellable_unit: str = Field(default="each", min_length=1, max_length=32)
     case_pack: float = Field(default=0, ge=0)
     warning_text: str = Field(default="", max_length=8000)
+    label_layout: str = Field(default="compact_single", max_length=32)
+    label_width_in: float = Field(default=3.5, gt=0, le=12)
+    label_height_in: float = Field(default=2.1, gt=0, le=12)
+    label_source_count: int = Field(default=1, ge=1, le=2)
 
 
 class AliasCreate(BaseModel):
@@ -103,7 +107,21 @@ def _identity(row: Product) -> dict:
 def _packaging(row: ProductPackagingProfile | None) -> dict | None:
     if row is None:
         return None
-    return {key: getattr(row, key) for key in ("net_content", "net_content_unit", "units_per_package", "sellable_unit", "case_pack", "warning_text")}
+    return {
+        key: getattr(row, key)
+        for key in (
+            "net_content",
+            "net_content_unit",
+            "units_per_package",
+            "sellable_unit",
+            "case_pack",
+            "warning_text",
+            "label_layout",
+            "label_width_in",
+            "label_height_in",
+            "label_source_count",
+        )
+    }
 
 
 def _snapshot(engine: Engine, organization_id: str, product_id: str) -> dict:

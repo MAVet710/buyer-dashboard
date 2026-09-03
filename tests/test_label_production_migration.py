@@ -14,7 +14,7 @@ def test_label_production_migration_upgrades_rolls_back_and_reupgrades(tmp_path,
     monkeypatch.setenv("COMAN_DATABASE_URL", database_url)
     config = Config(str(ROOT / "alembic.ini"))
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0068_label_production_workflow")
     engine = create_engine(database_url, future=True)
     with engine.connect() as connection:
         assert MigrationContext.configure(connection).get_current_revision() == "0068_label_production_workflow"
@@ -29,7 +29,7 @@ def test_label_production_migration_upgrades_rolls_back_and_reupgrades(tmp_path,
     assert "label_production_sources" not in tables
     assert "label_production_events" not in tables
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0068_label_production_workflow")
     with engine.connect() as connection:
         assert MigrationContext.configure(connection).get_current_revision() == "0068_label_production_workflow"
     engine.dispose()
