@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 import pytest
 import jwt
 from sqlalchemy import create_engine
@@ -116,17 +117,23 @@ def test_fresh_database_migrates_to_head_and_latest_revision_rolls_back(tmp_path
     database_url = f"sqlite+pysqlite:///{(tmp_path / 'migration-gate.db').as_posix()}"
     monkeypatch.setenv("COMAN_DATABASE_URL", database_url)
     config = Config(str(ROOT / "alembic.ini"))
+    script = ScriptDirectory.from_config(config)
+    head_revision = script.get_current_head()
+    head_script = script.get_revision(head_revision)
+    assert head_script is not None
+    down_revision = head_script.down_revision
+    assert isinstance(down_revision, str)
 
     command.upgrade(config, "head")
     engine = create_engine(database_url, future=True)
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0066_metrc_guide_v11_alignment"
+        assert MigrationContext.configure(connection).get_current_revision() == head_revision
 
     command.downgrade(config, "-1")
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0065_metrc_process_readiness"
+        assert MigrationContext.configure(connection).get_current_revision() == down_revision
 
     command.upgrade(config, "head")
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0066_metrc_guide_v11_alignment"
+        assert MigrationContext.configure(connection).get_current_revision() == head_revision
     engine.dispose()
