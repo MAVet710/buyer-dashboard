@@ -13,10 +13,12 @@ from modules.inventory_quality import CoaDocumentService, MAX_COA_BYTES
 from modules.label_studio_workflow import LabelProductionWorkflowService
 from modules.operational_moats.printing import LabelPrintingService
 from ..auth import RequestContext, get_request_context
+from ..config import Settings, get_settings
 from ..database import get_engine
 from ..services.label_studio import LabelInventoryService
 from ..services.label_studio_fast import FastLabelInventoryService
 from ..services.label_studio_integrity import normalize_testing_label_source
+from ..services.metrc_context import resolve_metrc_context
 
 router = APIRouter(prefix="/label-printing", tags=["label-printing"])
 ADMIN_ROLES = {"dev", "admin"}
@@ -271,8 +273,11 @@ def assign_label_production_tag(
     payload: LabelProductionTagPayload,
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
 ):
     _require_label_workflow_write(context)
+    _, metrc = resolve_metrc_context(engine, settings, context)
+    metrc_environment = metrc.environment if metrc.configured and metrc.trusted_mapping else ""
     try:
         return LabelProductionWorkflowService(engine).assign_tag(
             context.organization_id,
@@ -280,6 +285,7 @@ def assign_label_production_tag(
             run_id,
             payload.metrc_package_tag,
             context.user_id,
+            metrc_environment=metrc_environment,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
