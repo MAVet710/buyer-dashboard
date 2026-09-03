@@ -73,7 +73,7 @@ def _request(
     environment = _environment(environment)
     if not all(str(value or "").strip() for value in (integrator_api_key, user_api_key)):
         raise MetrcNativeError("Metrc integration credentials are incomplete.")
-    base, state_code = resolve_metrc_base_url(state)
+    base, state_code = resolve_metrc_base_url(state, environment=environment)
     if not base:
         raise MetrcNativeError("A valid Metrc state or API base URL is required.")
     url = f"{base.rstrip('/')}/{path.lstrip('/')}"
