@@ -15,6 +15,7 @@ from ..auth import RequestContext, get_request_context
 from ..database import get_engine
 from ..services.label_studio import LabelInventoryService
 from ..services.label_studio_fast import FastLabelInventoryService
+from ..services.label_studio_integrity import normalize_testing_label_source
 
 router = APIRouter(prefix="/label-printing", tags=["label-printing"])
 ADMIN_ROLES = {"dev", "admin"}
@@ -79,7 +80,13 @@ def list_inventory_label_sources(
     """Return on-hand label sources; summary mode avoids COA/render fan-out."""
     if summary:
         return FastLabelInventoryService(engine).list_summaries(context.organization_id, context.facility_id)
-    return LabelInventoryService(engine).list_sources(context.organization_id, context.facility_id)
+    # Keep the legacy/full collection endpoint semantically identical to the
+    # selected-lot endpoint: regulated testing-label facts are normalized at the
+    # API boundary before any client can consume them.
+    return [
+        normalize_testing_label_source(source)
+        for source in LabelInventoryService(engine).list_sources(context.organization_id, context.facility_id)
+    ]
 
 
 @router.get("/inventory-sources/{lot_id}")
