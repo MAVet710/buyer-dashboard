@@ -23,6 +23,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from backend.app.services.label_studio_fast import FastLabelInventoryService
+from modules.coman.dev_sandbox_policy import (
+    dev_sandbox_test_pass_active,
+    dev_sandbox_test_pass_audit,
+)
 from modules.coman.models import Base, InventoryLot, Product, TimestampMixin, new_id, utc_now
 from modules.product_master.models import ProductMasterProfile
 from modules.product_master.packaging import ProductPackagingProfile
@@ -191,14 +195,36 @@ def _barcode_svg(value: str) -> str:
     return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
 
 
-def _validated_source(service: FastLabelInventoryService, organization_id: str, facility_id: str, lot_id: str, label: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def _source_guard_issues(coa: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
+    if not coa.get("available"):
+        issues.append("verified_coa_missing")
+    if str(coa.get("overall_status") or "").casefold() not in {"pass", "passed"}:
+        issues.append("coa_not_passing")
+    if not coa.get("date_tested"):
+        issues.append("coa_test_date_missing")
+    if coa.get("needs_confirmation"):
+        issues.append("coa_association_unconfirmed")
+    return issues
+
+
+def _validated_source(
+    service: FastLabelInventoryService,
+    organization_id: str,
+    facility_id: str,
+    lot_id: str,
+    label: str,
+    *,
+    sandbox_test_pass: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     source = service.get_source(organization_id, facility_id, lot_id)
     coa = source.get("coa") or {}
-    if not coa.get("available") or str(coa.get("overall_status") or "").casefold() not in {"pass", "passed"} or not coa.get("date_tested"):
+    issues = _source_guard_issues(coa)
+    if issues and not sandbox_test_pass:
+        if "coa_association_unconfirmed" in issues:
+            raise ValueError(f"Confirm the {label.lower()} COA association before creating labels.")
         raise ValueError(f"{label} must have a verified passing COA with a test date before labels can be created.")
-    if coa.get("needs_confirmation"):
-        raise ValueError(f"Confirm the {label.lower()} COA association before creating labels.")
-    return source, coa
+    return source, coa, issues
 
 
 def _source_snapshot(source: dict[str, Any], lot_id: str) -> dict[str, Any]:
@@ -334,13 +360,28 @@ class LabelProductionWorkflowService:
         product_id: str,
         quantity: int,
         actor: str,
+        role: str = "",
         secondary_source_lot_id: str = "",
     ) -> dict[str, Any]:
         if quantity <= 0 or quantity > 500:
             raise ValueError("Finished quantity must be between 1 and 500 labels.")
 
+        with Session(self.engine) as scope_session:
+            sandbox_test_pass = dev_sandbox_test_pass_active(
+                scope_session,
+                organization_id,
+                facility_id,
+                role,
+            )
         fast = FastLabelInventoryService(self.engine)
-        primary_source, primary_coa = _validated_source(fast, organization_id, facility_id, source_lot_id, "Primary source")
+        primary_source, primary_coa, primary_guard_issues = _validated_source(
+            fast,
+            organization_id,
+            facility_id,
+            source_lot_id,
+            "Primary source",
+            sandbox_test_pass=sandbox_test_pass,
+        )
 
         with Session(self.engine) as session:
             primary_lot = session.get(InventoryLot, source_lot_id)
@@ -370,13 +411,22 @@ class LabelProductionWorkflowService:
             if secondary_id and secondary_id == source_lot_id:
                 raise ValueError("Choose two different tested source batches for a Duo label.")
 
-            source_records: list[tuple[str, dict[str, Any], dict[str, Any]]] = [(source_lot_id, primary_source, primary_coa)]
+            source_records: list[tuple[str, dict[str, Any], dict[str, Any], list[str]]] = [
+                (source_lot_id, primary_source, primary_coa, primary_guard_issues)
+            ]
             if source_count == 2:
-                secondary_source, secondary_coa = _validated_source(fast, organization_id, facility_id, secondary_id, "Second source")
+                secondary_source, secondary_coa, secondary_guard_issues = _validated_source(
+                    fast,
+                    organization_id,
+                    facility_id,
+                    secondary_id,
+                    "Second source",
+                    sandbox_test_pass=sandbox_test_pass,
+                )
                 secondary_lot = session.get(InventoryLot, secondary_id)
                 if not secondary_lot or secondary_lot.organization_id != organization_id or secondary_lot.facility_id != facility_id:
                     raise ValueError("Second source inventory was not found in this facility.")
-                source_records.append((secondary_id, secondary_source, secondary_coa))
+                source_records.append((secondary_id, secondary_source, secondary_coa, secondary_guard_issues))
 
             package_size, net_contents, composition = _package_fields(packaging, profile)
             primary_label = dict(primary_source.get("label") or {})
@@ -397,7 +447,12 @@ class LabelProductionWorkflowService:
                 "warning_text": _text(packaging.warning_text),
                 "package_id": "",
             })
-            source_snapshots = [_source_snapshot(source, lot_id) for lot_id, source, _coa in source_records]
+            source_snapshots = [_source_snapshot(source, lot_id) for lot_id, source, _coa, _issues in source_records]
+            bypassed_checks = [
+                f"source_{index + 1}:{issue}"
+                for index, (_lot_id, _source, _coa, issues) in enumerate(source_records)
+                for issue in issues
+            ]
             print_layout = {
                 "layout": layout,
                 "width_in": float(getattr(packaging, "label_width_in", 3.5) or 3.5),
@@ -434,6 +489,10 @@ class LabelProductionWorkflowService:
                 "quantity": quantity,
                 "expected_material_quantity": 0.0,
                 "expected_material_unit": "",
+                "sandbox": {
+                    **(dev_sandbox_test_pass_audit() if sandbox_test_pass else {"sandbox_test_pass": False}),
+                    "bypassed_checks": bypassed_checks,
+                },
             }
             now = utc_now()
             run = LabelProductionRun(
@@ -449,7 +508,7 @@ class LabelProductionWorkflowService:
             )
             session.add(run)
             session.flush()
-            for lot_id, source, _coa in source_records:
+            for lot_id, source, _coa, _issues in source_records:
                 session.add(LabelProductionSource(
                     organization_id=organization_id,
                     facility_id=facility_id,
@@ -458,16 +517,33 @@ class LabelProductionWorkflowService:
                     planned_quantity=0.0,
                     unit=_text(source.get("inventory_unit")),
                 ))
+            created_details: dict[str, Any] = {
+                "quantity": quantity,
+                "source_lot_ids": [item[0] for item in source_records],
+                "product_id": product_id,
+                "label_layout": layout,
+            }
+            if sandbox_test_pass:
+                created_details.update(dev_sandbox_test_pass_audit())
+                created_details["bypassed_checks"] = bypassed_checks
             self._event(
                 session,
                 run,
                 "created",
                 actor,
                 to_status="draft",
-                details={"quantity": quantity, "source_lot_ids": [item[0] for item in source_records], "product_id": product_id, "label_layout": layout},
+                details=created_details,
             )
             run.status = "validated"
             run.validated_at = now
+            validated_details: dict[str, Any] = {
+                "coa_document_ids": [_text(item[2].get("document_id")) for item in source_records],
+                "coa_test_dates": [_text(item[2].get("date_tested")) for item in source_records],
+                "source_count": source_count,
+            }
+            if sandbox_test_pass:
+                validated_details.update(dev_sandbox_test_pass_audit())
+                validated_details["bypassed_checks"] = bypassed_checks
             self._event(
                 session,
                 run,
@@ -475,11 +551,7 @@ class LabelProductionWorkflowService:
                 actor,
                 from_status="draft",
                 to_status="validated",
-                details={
-                    "coa_document_ids": [_text(item[2].get("document_id")) for item in source_records],
-                    "coa_test_dates": [_text(item[2].get("date_tested")) for item in source_records],
-                    "source_count": source_count,
-                },
+                details=validated_details,
             )
             session.commit()
             session.refresh(run)
@@ -494,6 +566,7 @@ class LabelProductionWorkflowService:
         actor: str,
         *,
         metrc_environment: str = "",
+        role: str = "",
     ) -> dict[str, Any]:
         clean = _text(tag)
         if len(clean) < 4 or len(clean) > 128 or any(ch.isspace() for ch in clean):
@@ -505,7 +578,15 @@ class LabelProductionWorkflowService:
             duplicate = session.scalar(select(LabelProductionRun.id).where(LabelProductionRun.organization_id == organization_id, LabelProductionRun.metrc_package_tag == clean, LabelProductionRun.id != run.id))
             if duplicate:
                 raise ValueError("That METRC package tag is already assigned to another finished package in this organization.")
-            validation_mode = self._validate_synced_package_tag(session, organization_id, facility_id, clean, metrc_environment)
+            sandbox_test_pass = dev_sandbox_test_pass_active(session, organization_id, facility_id, role)
+            environment = _text(metrc_environment).casefold()
+            if sandbox_test_pass and environment == "production":
+                raise ValueError("DEV Sandbox test pass refused because this sandbox is mapped to a production METRC environment.")
+            validation_mode = (
+                "dev_sandbox_test_pass"
+                if sandbox_test_pass
+                else self._validate_synced_package_tag(session, organization_id, facility_id, clean, metrc_environment)
+            )
             before = run.status
             run.metrc_package_tag = clean
             run.status = "tagged"
@@ -517,10 +598,15 @@ class LabelProductionWorkflowService:
             snapshot["finished_package"] = {
                 "metrc_package_tag": clean,
                 "tag_validation": validation_mode,
-                "metrc_environment": _text(metrc_environment).casefold(),
+                "metrc_environment": environment,
+                "sandbox_test_pass": sandbox_test_pass,
             }
             run.label_snapshot_json = json.dumps(snapshot, sort_keys=True)
-            self._event(session, run, "tag_assigned", actor, from_status=before, to_status="tagged", details={"metrc_package_tag": clean, "tag_validation": validation_mode})
+            tag_details: dict[str, Any] = {"metrc_package_tag": clean, "tag_validation": validation_mode}
+            if sandbox_test_pass:
+                tag_details.update(dev_sandbox_test_pass_audit())
+                tag_details["bypassed_checks"] = ["synced_metrc_package_tag_availability"]
+            self._event(session, run, "tag_assigned", actor, from_status=before, to_status="tagged", details=tag_details)
             try:
                 session.commit()
             except IntegrityError as exc:
