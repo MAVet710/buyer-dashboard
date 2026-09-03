@@ -18,9 +18,11 @@ from typing import Any
 
 import requests
 
+from modules.regulatory.registry import resolve_metrc_base_url
 
-BASE_URL = "https://api-ma.metrc.com"
+
 ENVIRONMENT = "sandbox"
+BASE_URL, _STATE_CODE = resolve_metrc_base_url("MA", environment=ENVIRONMENT)
 REQUIRED_ENV = (
     "METRC_INTEGRATOR_API_KEY",
     "METRC_MA_SANDBOX_USER_API_KEY",
@@ -31,6 +33,8 @@ REQUIRED_ENV = (
 def readiness(environ: dict[str, str] | None = None) -> dict[str, Any]:
     values = environ if environ is not None else os.environ
     missing = [name for name in REQUIRED_ENV if not str(values.get(name) or "").strip()]
+    if not BASE_URL:
+        missing = [*missing, "METRC_MA_SANDBOX_BASE_URL_VERIFICATION"]
     license_number = str(values.get("METRC_MA_SANDBOX_LICENSE_NUMBER") or "").strip()
     return {
         "ready": not missing,

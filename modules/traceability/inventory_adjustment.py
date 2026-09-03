@@ -197,6 +197,7 @@ def run_tracked_metrc_adjustment(
             user_api_key=str(getattr(credentials, "user_api_key", "") or ""),
             integrator_api_key=str(getattr(credentials, "integrator_api_key", "") or ""),
             license_number=str(getattr(credentials, "license_number", "") or ""),
+            environment=environment,
         ),
         actor="traceability-worker",
     )
