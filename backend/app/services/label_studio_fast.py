@@ -20,6 +20,7 @@ from modules.product_master.models import ProductMasterProfile
 from modules.product_master.packaging import ProductPackagingProfile
 
 from .label_studio import LabelInventoryService
+from .label_studio_integrity import normalize_testing_label_source
 
 
 class FastLabelInventoryService:
@@ -116,4 +117,5 @@ class FastLabelInventoryService:
             lot = row[0]
             coa, results = self.coas.resolve_for_lot(session, lot)
             pending, pending_results = (None, []) if coa else LabelInventoryService._pending_coa(session, lot)
-            return LabelInventoryService._source(*row, coa, results, pending, pending_results)
+            source = LabelInventoryService._source(*row, coa, results, pending, pending_results)
+            return normalize_testing_label_source(source)
