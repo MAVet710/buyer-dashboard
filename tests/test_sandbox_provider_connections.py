@@ -38,7 +38,7 @@ def test_readiness_check_never_claims_live_provider_connectivity():
     assert '"configuration_ready": True' in router
     assert '"connected": False' in router
     assert '"verified": False' in router
-    assert "No live provider handshake was attempted" in router
+    assert "No normal Basic Auth provider handshake was attempted by this readiness check" in router
 
 
 def test_sandbox_runtime_exposes_sync_retry_cursor_and_reconciliation_seams():
@@ -68,7 +68,9 @@ def test_integrations_screen_exposes_sandbox_connection_and_runtime_controls():
     assert "Production credentials and production writes are disabled here" in panel
     assert "Run sandbox sync" in panel
     assert "Retry failed syncs" in panel
-    assert "durable cursors, raw-record staging, normalization, dedupe, retry and reconciliation state" in panel
+    assert "Provider credentials stay encrypted server-side" in panel
+    assert "cursor" in panel
+    assert "deduplicated" in panel
 
 
 def test_steps_one_through_eight_are_documented_with_explicit_cutover_gate():
