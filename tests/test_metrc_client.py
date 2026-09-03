@@ -22,6 +22,8 @@ class _DummyResponse:
 
 def test_resolve_metrc_base_url_state_code():
     assert resolve_metrc_base_url("MA") == ("https://api-ma.metrc.com", "MA")
+    assert resolve_metrc_base_url("MA", environment="sandbox") == ("https://sandbox-api-ma.metrc.com", "MA")
+    assert resolve_metrc_base_url("https://sandbox-api-ma.metrc.com/", environment="sandbox") == ("https://sandbox-api-ma.metrc.com", "MA")
     assert resolve_metrc_base_url("California") == ("https://api-ca.metrc.com", "CA")
     assert resolve_metrc_base_url("https://api-mi.metrc.com/") == ("https://api-mi.metrc.com", "MI")
 
@@ -61,6 +63,26 @@ def test_metrc_connection_success_with_license_match(monkeypatch):
     assert result["facility_count"] == 1
     assert captured["url"] == "https://api-ma.metrc.com/facilities/v2/"
     assert captured["auth"] == ("integrator-key", "user-key")
+
+
+def test_metrc_connection_uses_explicit_ma_sandbox_host(monkeypatch):
+    captured = {}
+
+    def _fake_get(url, auth=None, timeout=None, headers=None):
+        captured["url"] = url
+        return _DummyResponse(200, [])
+
+    monkeypatch.setattr(requests, "get", _fake_get)
+    result = run_metrc_connection_test(
+        state="MA",
+        environment="sandbox",
+        integrator_api_key="integrator-key",
+        user_api_key="user-key",
+    )
+
+    assert result["ok"] is True
+    assert result["base_url"] == "https://sandbox-api-ma.metrc.com"
+    assert captured["url"] == "https://sandbox-api-ma.metrc.com/facilities/v2/"
 
 
 def test_metrc_connection_reports_missing_integrator_key():

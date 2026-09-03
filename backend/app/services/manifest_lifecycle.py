@@ -252,7 +252,7 @@ class ManifestLifecycleService:
         transfer_id = str(lifecycle.get("manifest_transfer_id") or "").strip()
         if not lifecycle.get("manifest_available") or not transfer_id:
             raise ManifestLifecycleError("The final Metrc manifest is not available for this approved shipment yet.")
-        base_url, state_code = resolve_metrc_base_url(state)
+        base_url, state_code = resolve_metrc_base_url(state, environment=environment)
         if not base_url or state_code != "MA" or str(environment).casefold() != "sandbox":
             raise ManifestLifecycleError("The manifest PDF request is not bound to the trusted Massachusetts sandbox.")
         url = f"{base_url.rstrip('/')}/transfers/v2/manifest/{quote(transfer_id, safe='')}/pdf"

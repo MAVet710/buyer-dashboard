@@ -56,6 +56,8 @@ def test_registry_resolves_only_explicit_verified_metrc_hosts():
     assert len(list_jurisdictions()) == 28
     assert resolve_metrc_base_url("Oregon") == ("https://api-or.metrc.com", "OR")
     assert resolve_metrc_base_url("https://api-or.metrc.com") == ("https://api-or.metrc.com", "OR")
+    assert resolve_metrc_base_url("MA", environment="sandbox") == ("https://sandbox-api-ma.metrc.com", "MA")
+    assert resolve_metrc_base_url("OR", environment="sandbox") == ("", "OR")
     assert resolve_metrc_base_url("ZZ") == ("", "ZZ")
     assert resolve_metrc_base_url("https://api-zz.metrc.com") == ("", "HTTPS://API-ZZ.METRC.COM")
     assert all(profile.source_url == "https://www.metrc.com/partners/" for profile in list_jurisdictions())

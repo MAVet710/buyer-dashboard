@@ -299,7 +299,7 @@ def test_manifest_pdf_is_only_retrieved_after_exact_manifest_match(monkeypatch):
     assert content.startswith(b"%PDF")
     assert name == "MA-MANIFEST-9001"
     assert calls == [(
-        "https://api-ma.metrc.com/transfers/v2/manifest/9001/pdf",
+        "https://sandbox-api-ma.metrc.com/transfers/v2/manifest/9001/pdf",
         {"auth": ("test-integrator-key", "test-user-key"), "headers": {"Accept": "application/pdf"}, "timeout": 20},
     )]
 

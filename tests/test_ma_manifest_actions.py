@@ -283,7 +283,7 @@ def test_ma_sandbox_transfer_template_uses_exact_provider_endpoint_and_environme
     assert result["state"] == "MA"
     assert result["external_reference"] == "321"
     assert calls[0][0] == "POST"
-    assert calls[0][1] == f"https://api-ma.metrc.com/transfers/v2/templates/outgoing?licenseNumber={LICENSE}"
+    assert calls[0][1] == f"https://sandbox-api-ma.metrc.com/transfers/v2/templates/outgoing?licenseNumber={LICENSE}"
     assert calls[0][2]["auth"] == (INTEGRATOR_KEY, USER_API_KEY)
 
 
