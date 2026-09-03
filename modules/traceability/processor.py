@@ -30,6 +30,7 @@ class TraceabilityCredentials:
     user_api_key: str = ""
     integrator_api_key: str = ""
     license_number: str = ""
+    environment: str = "production"
 
     @property
     def configured(self) -> bool:
@@ -111,6 +112,7 @@ def _submit_metrc_adjustment(transaction, credentials: TraceabilityCredentials, 
         unit=unit,
         reason=reason,
         reason_note=str(payload.get("reason_note") or ""),
+        environment=credentials.environment,
     )
 
 
@@ -148,6 +150,7 @@ def _submit_metrc_package_create(transaction, credentials: TraceabilityCredentia
         production_batch_number=str(payload.get("production_batch_number") or ""),
         is_finished_good=payload.get("is_finished_good") if isinstance(payload.get("is_finished_good"), bool) else None,
         expiration_date=expiration_date,
+        environment=credentials.environment,
     )
 
 

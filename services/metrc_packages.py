@@ -25,6 +25,7 @@ def submit_package_creation(
     production_batch_number: str = "",
     is_finished_good: bool | None = None,
     expiration_date: date | None = None,
+    environment: str = "production",
     timeout_seconds: int = 12,
 ) -> dict[str, Any]:
     """Create one Metrc package from one or more source-package ingredients.
@@ -100,6 +101,7 @@ def submit_package_creation(
         user_api_key=user_api_key,
         integrator_api_key=integrator_api_key,
         path="packages/v2/",
+        environment=environment,
         params={"licenseNumber": license_number},
         json_payload=payload,
         timeout_seconds=timeout_seconds,
