@@ -51,6 +51,7 @@ class PrintCompletePayload(BaseModel):
 
 class LabelProductionRunPayload(BaseModel):
     source_lot_id: str = Field(min_length=1, max_length=36)
+    secondary_source_lot_id: str = Field(default="", max_length=36)
     product_id: str = Field(min_length=1, max_length=36)
     quantity: int = Field(ge=1, le=500)
 
@@ -109,9 +110,6 @@ def list_inventory_label_sources(
     """Return on-hand label sources; summary mode avoids COA/render fan-out."""
     if summary:
         return FastLabelInventoryService(engine).list_summaries(context.organization_id, context.facility_id)
-    # Keep the legacy/full collection endpoint semantically identical to the
-    # selected-lot endpoint: regulated testing-label facts are normalized at the
-    # API boundary before any client can consume them.
     return [
         normalize_testing_label_source(source)
         for source in LabelInventoryService(engine).list_sources(context.organization_id, context.facility_id)
@@ -247,6 +245,7 @@ def create_label_production_run(
             context.organization_id,
             context.facility_id,
             source_lot_id=payload.source_lot_id,
+            secondary_source_lot_id=payload.secondary_source_lot_id,
             product_id=payload.product_id,
             quantity=payload.quantity,
             actor=context.user_id,
