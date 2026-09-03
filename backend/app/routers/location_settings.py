@@ -93,6 +93,7 @@ def _transport(metrc) -> MetrcTransport:
         state=metrc.state,
         user_api_key=metrc.user_api_key,
         integrator_api_key=metrc.integrator_api_key,
+        environment=metrc.environment,
         timeout_seconds=12,
         max_attempts=2,
     )
