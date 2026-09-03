@@ -3,7 +3,7 @@
 This workflow intentionally runs beside the existing testing/manual Label Studio.
 Operators choose source inventory, a finished Product Master item and quantity;
 DoobieLogic snapshots the verified source/COA and finished-product package facts,
-then binds one scanned METRC package tag to the finished package.  Retail label
+then binds one scanned METRC package tag to the finished package. Retail label
 copies share that finished-package traceability identity.
 """
 
@@ -26,6 +26,7 @@ from backend.app.services.label_studio_fast import FastLabelInventoryService
 from modules.coman.models import Base, InventoryLot, Product, TimestampMixin, new_id, utc_now
 from modules.product_master.models import ProductMasterProfile
 from modules.product_master.packaging import ProductPackagingProfile
+from modules.regulatory.metrc_process_models import MetrcTagInventory
 
 
 RUN_STATUSES = ("draft", "validated", "tagged", "printed", "applied", "released", "fulfilled", "archived")
@@ -37,6 +38,25 @@ _ALLOWED_TRANSITIONS = {
 }
 _GRAMS_PER_OUNCE = Decimal("28.349523125")
 _OUNCE_QUANTUM = Decimal("0.00001")
+_SOURCE_INHERITED_LABEL_FIELDS = (
+    "harvest_date",
+    "cultivated_by",
+    "cultivator_license",
+    "cultivator_contact",
+    "potency",
+    "total_thc",
+    "total_cbd",
+    "total_cannabinoids",
+    "total_terpenes",
+    "lab_testing_state",
+    "laboratory",
+    "lab_license_number",
+    "test_date",
+    "coa_reference",
+    "facility_name",
+    "license_number",
+    "batch_number",
+)
 
 
 class LabelProductionRun(TimestampMixin, Base):
@@ -209,6 +229,43 @@ class LabelProductionWorkflowService:
             return {}
         return value if isinstance(value, dict) else {}
 
+    @staticmethod
+    def _validate_synced_package_tag(
+        session: Session,
+        organization_id: str,
+        facility_id: str,
+        tag: str,
+        metrc_environment: str,
+    ) -> str:
+        environment = _text(metrc_environment).casefold()
+        if environment not in {"sandbox", "production"}:
+            return "local_uniqueness_only"
+        synced = session.scalar(
+            select(MetrcTagInventory.id).where(
+                MetrcTagInventory.organization_id == organization_id,
+                MetrcTagInventory.facility_id == facility_id,
+                MetrcTagInventory.environment == environment,
+                MetrcTagInventory.tag_type == "package",
+            ).limit(1)
+        )
+        if not synced:
+            return "local_uniqueness_only"
+        available = session.scalar(
+            select(MetrcTagInventory.id).where(
+                MetrcTagInventory.organization_id == organization_id,
+                MetrcTagInventory.facility_id == facility_id,
+                MetrcTagInventory.environment == environment,
+                MetrcTagInventory.tag_type == "package",
+                MetrcTagInventory.label == tag,
+                MetrcTagInventory.status == "available",
+            ).limit(1)
+        )
+        if not available:
+            raise ValueError(
+                "That package tag is not available in the synchronized METRC package-tag inventory for this facility."
+            )
+        return "synced_metrc_available"
+
     def _scoped_run(self, session: Session, organization_id: str, facility_id: str, run_id: str) -> LabelProductionRun:
         row = session.get(LabelProductionRun, run_id)
         if not row or row.organization_id != organization_id or row.facility_id != facility_id:
@@ -288,16 +345,21 @@ class LabelProductionWorkflowService:
             if expected_unit and str(source.get("inventory_unit") or "").casefold() == expected_unit.casefold() and expected > on_hand + 1e-9:
                 raise ValueError(f"Source inventory is insufficient: {expected:g} {expected_unit} required but {on_hand:g} {expected_unit} is available.")
             package_size, net_contents, composition = _package_fields(packaging, profile)
-            label = dict(source.get("label") or {})
+            source_label = dict(source.get("label") or {})
+            label = {
+                field: _text(source_label.get(field))
+                for field in _SOURCE_INHERITED_LABEL_FIELDS
+                if _text(source_label.get(field))
+            }
             label.update({
                 "product_name": product.name,
-                "brand": _text(profile.brand if profile else "") or label.get("brand", ""),
-                "strain": _text(profile.strain if profile else "") or label.get("strain", ""),
+                "brand": _text(profile.brand if profile else "") or _text(source_label.get("brand")),
+                "strain": _text(profile.strain if profile else "") or _text(source_label.get("strain")),
                 "product_type": _text(profile.product_format if profile else "") or _text(profile.category if profile else "") or product.item_type.replace("_", " ").title(),
                 "package_size": package_size,
                 "net_contents": net_contents,
                 "package_composition": composition,
-                "manufacturer": _text(profile.manufacturer if profile else "") or label.get("manufacturer", ""),
+                "manufacturer": _text(profile.manufacturer if profile else "") or _text(source_label.get("manufacturer")),
                 "warning_text": _text(packaging.warning_text),
                 "package_id": "",
             })
@@ -310,6 +372,7 @@ class LabelProductionWorkflowService:
                     "product_name": source.get("product_name", ""),
                     "on_hand": on_hand,
                     "inventory_unit": source.get("inventory_unit", ""),
+                    "label": source_label,
                     "coa": coa,
                     "source_summary": source.get("source_summary") or {},
                 },
@@ -366,7 +429,16 @@ class LabelProductionWorkflowService:
             session.refresh(run)
             return self._serialize(session, run)
 
-    def assign_tag(self, organization_id: str, facility_id: str, run_id: str, tag: str, actor: str) -> dict[str, Any]:
+    def assign_tag(
+        self,
+        organization_id: str,
+        facility_id: str,
+        run_id: str,
+        tag: str,
+        actor: str,
+        *,
+        metrc_environment: str = "",
+    ) -> dict[str, Any]:
         clean = _text(tag)
         if len(clean) < 4 or len(clean) > 128 or any(ch.isspace() for ch in clean):
             raise ValueError("Scan a package tag between 4 and 128 characters with no spaces.")
@@ -377,6 +449,13 @@ class LabelProductionWorkflowService:
             duplicate = session.scalar(select(LabelProductionRun.id).where(LabelProductionRun.organization_id == organization_id, LabelProductionRun.metrc_package_tag == clean, LabelProductionRun.id != run.id))
             if duplicate:
                 raise ValueError("That METRC package tag is already assigned to another finished package in this organization.")
+            validation_mode = self._validate_synced_package_tag(
+                session,
+                organization_id,
+                facility_id,
+                clean,
+                metrc_environment,
+            )
             before = run.status
             run.metrc_package_tag = clean
             run.status = "tagged"
@@ -385,9 +464,21 @@ class LabelProductionWorkflowService:
             label = dict(snapshot.get("label") or {})
             label["package_id"] = clean
             snapshot["label"] = label
-            snapshot["finished_package"] = {"metrc_package_tag": clean}
+            snapshot["finished_package"] = {
+                "metrc_package_tag": clean,
+                "tag_validation": validation_mode,
+                "metrc_environment": _text(metrc_environment).casefold(),
+            }
             run.label_snapshot_json = json.dumps(snapshot, sort_keys=True)
-            self._event(session, run, "tag_assigned", actor, from_status=before, to_status="tagged", details={"metrc_package_tag": clean})
+            self._event(
+                session,
+                run,
+                "tag_assigned",
+                actor,
+                from_status=before,
+                to_status="tagged",
+                details={"metrc_package_tag": clean, "tag_validation": validation_mode},
+            )
             try:
                 session.commit()
             except IntegrityError as exc:
