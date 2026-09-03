@@ -246,6 +246,7 @@ def test_metrc(
             user_api_key=metrc.user_api_key,
             integrator_api_key=metrc.integrator_api_key,
             license_number=metrc.license_number,
+            environment=metrc.environment,
         )
     except Exception as exc:
         result = {"ok": False, "message": str(exc)}
