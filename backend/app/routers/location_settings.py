@@ -29,6 +29,7 @@ WRITE_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa
 FACILITY_SETUP_MANAGE_ROLES = {"dev", "admin", "planner", "supervisor"}
 FACILITY_CAPABILITIES = ("retail", "production", "cultivation", "commercial")
 LIVE_PAGE_SIZE = 100
+MASTER_DATA_PAGE_SIZE = 20
 
 
 class LocationSettingsUpdate(BaseModel):
@@ -138,22 +139,22 @@ def _permissions_from_payload(value: Any) -> list[str]:
     return sorted(permission for permission in found if permission)
 
 
-def _page_query(metrc) -> dict[str, Any]:
-    return {"licenseNumber": metrc.license_number, "pageSize": LIVE_PAGE_SIZE, "pageNumber": 1}
+def _page_query(metrc, page_size: int = LIVE_PAGE_SIZE) -> dict[str, Any]:
+    return {"licenseNumber": metrc.license_number, "pageSize": page_size, "pageNumber": 1}
 
 
 def _license_query(metrc) -> dict[str, Any]:
     return {"licenseNumber": metrc.license_number}
 
 
-def _live_envelope(metrc) -> dict[str, Any]:
+def _live_envelope(metrc, page_size: int = LIVE_PAGE_SIZE) -> dict[str, Any]:
     return {
         "source": "metrc_live",
         "jurisdiction_code": metrc.state.upper(),
         "license_number": metrc.license_number,
         "environment": metrc.environment,
         "bounded": True,
-        "page_size": LIVE_PAGE_SIZE,
+        "page_size": page_size,
     }
 
 
@@ -371,15 +372,14 @@ def metrc_items(
 ):
     _, metrc = _trusted_metrc(context, engine, settings)
     transport = _transport(metrc)
-    common = _page_query(metrc)
-    license_query = _license_query(metrc)
+    common = _page_query(metrc, MASTER_DATA_PAGE_SIZE)
     active = _provider_rows(transport.get("items/v2/active", common), "active items")
     inactive = _provider_rows(transport.get("items/v2/inactive", common), "inactive items")
-    categories = _provider_rows(transport.get("items/v2/categories", license_query), "item categories")
-    brands = _provider_rows(transport.get("items/v2/brands", license_query), "item brands")
-    units = _provider_rows(transport.get("unitsofmeasure/v2/active", license_query), "units of measure")
+    categories = _provider_rows(transport.get("items/v2/categories", common), "item categories")
+    brands = _provider_rows(transport.get("items/v2/brands", common), "item brands")
+    units = _provider_rows(transport.get("unitsofmeasure/v2/active", {}), "units of measure")
     return {
-        **_live_envelope(metrc),
+        **_live_envelope(metrc, MASTER_DATA_PAGE_SIZE),
         "items": active,
         "inactive_items": inactive,
         "categories": categories,
@@ -396,14 +396,14 @@ def metrc_processing_setup(
 ):
     _, metrc = _trusted_metrc(context, engine, settings)
     transport = _transport(metrc)
-    common = _page_query(metrc)
+    common = _page_query(metrc, MASTER_DATA_PAGE_SIZE)
     license_query = _license_query(metrc)
     active = _provider_rows(transport.get("processing/v2/jobtypes/active", common), "active processing job types")
     inactive = _provider_rows(transport.get("processing/v2/jobtypes/inactive", common), "inactive processing job types")
     attributes = _provider_rows(transport.get("processing/v2/jobtypes/attributes", license_query), "processing job type attributes")
     categories = _provider_rows(transport.get("processing/v2/jobtypes/categories", license_query), "processing job type categories")
     return {
-        **_live_envelope(metrc),
+        **_live_envelope(metrc, MASTER_DATA_PAGE_SIZE),
         "job_types": active,
         "inactive_job_types": inactive,
         "attributes": attributes,
@@ -419,11 +419,11 @@ def metrc_additive_templates(
 ):
     _, metrc = _trusted_metrc(context, engine, settings)
     transport = _transport(metrc)
-    common = _page_query(metrc)
+    common = _page_query(metrc, MASTER_DATA_PAGE_SIZE)
     active = _provider_rows(transport.get("additivestemplates/v2/active", common), "active additive templates")
     inactive = _provider_rows(transport.get("additivestemplates/v2/inactive", common), "inactive additive templates")
     return {
-        **_live_envelope(metrc),
+        **_live_envelope(metrc, MASTER_DATA_PAGE_SIZE),
         "additive_templates": active,
         "inactive_additive_templates": inactive,
     }
@@ -437,11 +437,11 @@ def metrc_transportation(
 ):
     _, metrc = _trusted_metrc(context, engine, settings)
     transport = _transport(metrc)
-    license_query = _license_query(metrc)
-    drivers = _provider_rows(transport.get("transporters/v2/drivers", license_query), "transport drivers")
-    vehicles = _provider_rows(transport.get("transporters/v2/vehicles", license_query), "transport vehicles")
+    common = _page_query(metrc, MASTER_DATA_PAGE_SIZE)
+    drivers = _provider_rows(transport.get("transporters/v2/drivers", common), "transport drivers")
+    vehicles = _provider_rows(transport.get("transporters/v2/vehicles", common), "transport vehicles")
     return {
-        **_live_envelope(metrc),
+        **_live_envelope(metrc, MASTER_DATA_PAGE_SIZE),
         "drivers": drivers,
         "vehicles": vehicles,
     }
