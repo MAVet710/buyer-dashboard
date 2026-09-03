@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from modules.coman.models import Base, Product, TimestampMixin
 
 
-LABEL_LAYOUTS = {"compact_single", "compact_duo", "bulk_barcode"}
+LABEL_LAYOUTS = {"compact_single", "compact_split", "bulk_barcode"}
 DEFAULT_LABEL_WIDTH_IN = 3.5
 DEFAULT_LABEL_HEIGHT_IN = 2.1
 
@@ -56,8 +56,10 @@ class ProductPackagingService:
         if float(net_content) < 0 or float(units_per_package) <= 0 or float(case_pack) < 0:
             raise ValueError("Packaging quantities must be non-negative and units per package must be positive.")
         layout = str(label_layout or "compact_single").strip().casefold()
+        if layout == "compact_duo":
+            layout = "compact_split"
         if layout not in LABEL_LAYOUTS:
-            raise ValueError("Label layout must be compact_single, compact_duo, or bulk_barcode.")
+            raise ValueError("Label layout must be compact_single, compact_split, or bulk_barcode.")
         width = float(label_width_in)
         height = float(label_height_in)
         if width <= 0 or height <= 0 or width > 12 or height > 12:
