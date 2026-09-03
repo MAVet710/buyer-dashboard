@@ -29,7 +29,8 @@ DEFAULTS = {"auto_map_products_during_receive": False, "default_receiving_room":
 WRITE_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "trial"}
 FACILITY_SETUP_MANAGE_ROLES = {"dev", "admin", "planner", "supervisor"}
 FACILITY_CAPABILITIES = ("retail", "production", "cultivation", "commercial")
-LIVE_PAGE_SIZE = 100
+# Metrc locations/strains v2 reject pageSize > 50. Keep initial reads small.
+LIVE_PAGE_SIZE = 20
 MASTER_DATA_PAGE_SIZE = 20
 
 
@@ -102,7 +103,8 @@ def _transport(metrc) -> MetrcTransport:
 def _provider_rows(result: dict[str, Any], label: str) -> list[dict[str, Any]]:
     if not result.get("ok"):
         status = 403 if result.get("status") == "forbidden" else 502
-        raise HTTPException(status, str(result.get("message") or f"Metrc {label} request failed."))
+        message = str(result.get("message") or "Provider request failed.")
+        raise HTTPException(status, f"Metrc {label}: {message}")
     payload = result.get("payload")
     if isinstance(payload, list):
         return [dict(row) for row in payload if isinstance(row, dict)]

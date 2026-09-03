@@ -58,6 +58,28 @@ def test_items_live_read_uses_documented_master_data_endpoints(live_metrc):
     assert transport.calls[4][1] == {}
 
 
+def test_initial_facility_reads_stay_within_metrc_page_limit(live_metrc):
+    _, transport = live_metrc
+    location_settings.metrc_rooms(context=object(), engine=object(), settings=object())
+    location_settings.metrc_strains(context=object(), engine=object(), settings=object())
+    assert transport.calls
+    for _, query in transport.calls:
+        assert query["licenseNumber"] == "LIC-TEST"
+        if "pageSize" in query:
+            assert 1 <= query["pageSize"] <= 50
+            assert query["pageNumber"] == 1
+
+
+def test_provider_failure_identifies_the_failing_resource():
+    with pytest.raises(HTTPException) as error:
+        location_settings._provider_rows(
+            {"ok": False, "status": "auth_failed", "message": "Metrc rejected the saved API keys."},
+            "item brands",
+        )
+    assert error.value.status_code == 502
+    assert error.value.detail == "Metrc item brands: Metrc rejected the saved API keys."
+
+
 def test_processing_setup_live_read_uses_jobtype_metadata_endpoints(live_metrc):
     _, transport = live_metrc
     result = location_settings.metrc_processing_setup(context=object(), engine=object(), settings=object())
