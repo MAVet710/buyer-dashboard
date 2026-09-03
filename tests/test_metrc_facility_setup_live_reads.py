@@ -47,12 +47,14 @@ def test_items_live_read_uses_documented_master_data_endpoints(live_metrc):
     assert result["source"] == "metrc_live"
     assert result["license_number"] == "LIC-TEST"
     assert result["bounded"] is True
+    assert result["page_size"] == 20
     assert len(result["items"]) == 1
     assert len(result["brands"]) == 1
     assert len(result["categories"]) == 1
     assert len(result["units_of_measure"]) == 1
-    assert transport.calls[0][1] == {"licenseNumber": "LIC-TEST", "pageSize": 100, "pageNumber": 1}
-    assert transport.calls[2][1] == {"licenseNumber": "LIC-TEST"}
+    paged = {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1}
+    assert all(query == paged for _, query in transport.calls[:4])
+    assert transport.calls[4][1] == {}
 
 
 def test_processing_setup_live_read_uses_jobtype_metadata_endpoints(live_metrc):
@@ -69,6 +71,10 @@ def test_processing_setup_live_read_uses_jobtype_metadata_endpoints(live_metrc):
     assert len(result["inactive_job_types"]) == 1
     assert len(result["attributes"]) == 1
     assert len(result["categories"]) == 1
+    assert transport.calls[0][1] == {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1}
+    assert transport.calls[1][1] == {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1}
+    assert transport.calls[2][1] == {"licenseNumber": "LIC-TEST"}
+    assert transport.calls[3][1] == {"licenseNumber": "LIC-TEST"}
 
 
 def test_cultivation_additive_templates_are_live_read_only(live_metrc):
@@ -81,6 +87,7 @@ def test_cultivation_additive_templates_are_live_read_only(live_metrc):
     ]
     assert len(result["additive_templates"]) == 1
     assert len(result["inactive_additive_templates"]) == 1
+    assert all(query == {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1} for _, query in transport.calls)
 
 
 def test_transportation_live_read_loads_drivers_and_vehicles(live_metrc):
@@ -93,7 +100,7 @@ def test_transportation_live_read_loads_drivers_and_vehicles(live_metrc):
     ]
     assert len(result["drivers"]) == 1
     assert len(result["vehicles"]) == 1
-    assert all(query == {"licenseNumber": "LIC-TEST"} for _, query in transport.calls)
+    assert all(query == {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1} for _, query in transport.calls)
 
 
 def test_frontend_keeps_live_provider_reads_opt_in_and_visible():
