@@ -16,6 +16,7 @@ from ..database import get_engine
 from ..services.label_studio import LabelInventoryService
 from ..services.label_studio_fast import FastLabelInventoryService
 from ..services.label_studio_integrity import normalize_testing_label_source
+from ..services.sandbox_policy import sandbox_execution_policy
 
 router = APIRouter(prefix="/label-printing", tags=["label-printing"])
 ADMIN_ROLES = {"dev", "admin"}
@@ -71,6 +72,20 @@ async def _coa_bytes(file: UploadFile) -> bytes:
     return payload
 
 
+@router.get("/sandbox-context")
+def label_sandbox_context(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    """Expose DEV-only layout/rehearsal capability without changing compliance state."""
+    return sandbox_execution_policy(
+        engine,
+        organization_id=context.organization_id,
+        facility_id=context.facility_id,
+        role=context.role,
+    )
+
+
 @router.get("/inventory-sources")
 def list_inventory_label_sources(
     summary: bool = Query(default=False),
@@ -80,9 +95,6 @@ def list_inventory_label_sources(
     """Return on-hand label sources; summary mode avoids COA/render fan-out."""
     if summary:
         return FastLabelInventoryService(engine).list_summaries(context.organization_id, context.facility_id)
-    # Keep the legacy/full collection endpoint semantically identical to the
-    # selected-lot endpoint: regulated testing-label facts are normalized at the
-    # API boundary before any client can consume them.
     return [
         normalize_testing_label_source(source)
         for source in LabelInventoryService(engine).list_sources(context.organization_id, context.facility_id)
