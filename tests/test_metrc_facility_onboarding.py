@@ -157,3 +157,30 @@ def test_name_only_match_requires_one_confirmation_instead_of_creating_duplicate
     )
     assert confirmed["status"] == "linked"
     assert confirmed["match_reason"] == "administrator_confirmed"
+
+
+def test_single_unmapped_existing_facility_is_suggested_even_when_names_differ():
+    engine = _engine()
+    org_id, existing_id, user, vendor = _setup(engine, existing_name="New Bedford Facility", existing_license="")
+    result = MetrcFacilityOnboardingService(engine, KEY).discover(
+        organization_id=org_id,
+        actor="admin",
+        state="MA",
+        environment="sandbox",
+        records=[_record(name="Cowboy Kush Manufacturing")],
+        source_user_credential=user,
+        source_vendor_credential=vendor,
+    )
+
+    row = result["facilities"][0]
+    assert row["status"] == "needs_confirmation"
+    assert row["match_reason"] == "single_unmapped_facility"
+    assert row["suggested_matches"] == [{
+        "id": existing_id,
+        "name": "New Bedford Facility",
+        "code": "EXISTING",
+        "license_number": "",
+        "license_type": "",
+    }]
+    with Session(engine) as session:
+        assert len(list(session.scalars(select(Facility).where(Facility.organization_id == org_id)))) == 1
