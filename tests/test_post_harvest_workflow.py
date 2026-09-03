@@ -194,11 +194,24 @@ def test_post_harvest_frontend_keeps_operator_surface_simple_and_audit_depth_und
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    page = (root / "frontend" / "src" / "pages" / "CultivationOpsPage.tsx").read_text(encoding="utf-8")
+    cultivation_page = (root / "frontend" / "src" / "pages" / "CultivationOpsPage.tsx").read_text(encoding="utf-8")
+    post_harvest_page = (root / "frontend" / "src" / "pages" / "PostHarvestPage.tsx").read_text(encoding="utf-8")
+    handoff = (root / "frontend" / "src" / "components" / "PostHarvestHandoffSummary.tsx").read_text(encoding="utf-8")
     ui = (root / "frontend" / "src" / "components" / "PostHarvestBoard.tsx").read_text(encoding="utf-8")
+    shell = (root / "frontend" / "src" / "components" / "AppShell.tsx").read_text(encoding="utf-8")
+    routes = (root / "frontend" / "src" / "lib" / "workspaceRoutes.ts").read_text(encoding="utf-8")
+    app = (root / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
     router = (root / "backend" / "app" / "routers" / "production_mutations.py").read_text(encoding="utf-8")
 
-    assert "<PostHarvestBoard />" in page
+    assert "<PostHarvestBoard />" not in cultivation_page
+    assert "<PostHarvestHandoffSummary" in cultivation_page
+    assert "<PostHarvestBoard />" in post_harvest_page
+    assert 'onNavigate("Post-Harvest")' in cultivation_page
+    assert "Needs attention" in handoff
+    assert "Ready for trim" in handoff
+    assert '{ label: "Post-Harvest", page: "Post-Harvest" }' in shell
+    assert '{ page: "Post-Harvest", path: "/cultivation/post-harvest" }' in routes
+    assert 'page === "Post-Harvest" ? <PostHarvestPage />' in app
     for label in ("Needs Attention", "Drying", "Ready for Trim", "Trimming", "Curing", "Testing / Hold", "Ready"):
         assert label in ui
     for label in ("Update weights", "Remaining / WIP (g)", "Finished flower (g)", "Trim (g)", "Biomass (g)", "Waste (g)"):
