@@ -16,6 +16,7 @@ from modules.regulatory.facility_setup_contracts import (
     get_facility_setup_action,
     list_facility_setup_actions,
 )
+from modules.regulatory.registry import get_jurisdiction
 from services.metrc_client import MetrcTransport
 from ..auth import RequestContext, get_request_context, require_any_facility_capability
 from ..config import Settings, get_settings
@@ -241,7 +242,7 @@ def facility_setup_overview(
             "excluded": ["record lab result", "release lab result", "lab employee workflow"],
         },
         "retail_scope": {"mode": "deferred", "message": "POS/register, patient, receipt, and retail-delivery operations are intentionally outside this phase."},
-        "documentation_scope": "MA v2 master-data writes are documented here; provider dispatch remains locked until sandbox write/readback verification.",
+        "documentation_scope": "Metrc v2 Facility Setup request previews are bounded to reviewed provider fields; provider dispatch remains locked until jurisdiction-specific sandbox write/readback verification.",
     }
 
 
@@ -457,8 +458,9 @@ def metrc_action_preview(
     if context.role.casefold() not in FACILITY_SETUP_MANAGE_ROLES:
         raise HTTPException(403, "Your DoobieLogic role can review Facility Setup but cannot prepare provider-changing actions.")
     _, metrc = _trusted_metrc(context, engine, settings)
-    if metrc.state.upper() != "MA":
-        raise HTTPException(409, "This first Facility Setup write-contract pass is verified against the current Massachusetts v2 documentation only.")
+    profile = get_jurisdiction(metrc.state)
+    if profile is None or not profile.documentation_verified:
+        raise HTTPException(409, "Facility Setup request previews require a documentation-verified Metrc jurisdiction. Provider execution remains unavailable.")
     spec = get_facility_setup_action(request.operation_type)
     if spec is None:
         raise HTTPException(422, "Select a registered Facility Setup action.")
@@ -474,6 +476,11 @@ def metrc_action_preview(
         path = path.replace("{id}", str(provider_id))
     return {
         "operation": spec.public(),
+        "jurisdiction": {
+            "code": profile.code,
+            "documentation_verified": profile.documentation_verified,
+            "documentation_url": profile.documentation_url,
+        },
         "provider_request": {
             "method": spec.method,
             "path": path,
@@ -482,5 +489,5 @@ def metrc_action_preview(
         },
         "dispatch_enabled": False,
         "requires_human_confirmation": True,
-        "message": "Request validated. Network execution remains locked until a controlled Metrc sandbox write and fresh readback verify this contract; DoobieLogic will not fake success.",
+        "message": "Request preview validated against the bounded v2 adapter. Network execution remains locked until this exact jurisdiction/action passes a controlled Metrc sandbox write and fresh readback; DoobieLogic will not fake success.",
     }

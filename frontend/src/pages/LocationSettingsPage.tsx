@@ -43,7 +43,15 @@ type ProcessingPayload = LiveEnvelope & {
 type AdditivePayload = LiveEnvelope & { additive_templates: Record<string, unknown>[]; inactive_additive_templates: Record<string, unknown>[] };
 type TransportationPayload = LiveEnvelope & { drivers: Record<string, unknown>[]; vehicles: Record<string, unknown>[] };
 type PermissionPayload = { status: string; can_introspect: boolean; permissions: string[]; employee_license_number?: string; message: string };
-type PreviewPayload = { operation: SetupAction; provider_request: { method: string; path: string; query: Record<string, string>; body: Record<string, unknown>[] | null }; dispatch_enabled: boolean; requires_human_confirmation: boolean; message: string };
+type PreviewPayload = {
+  operation: SetupAction;
+  jurisdiction?: { code: string; documentation_verified: boolean; documentation_url: string };
+  provider_request: { method: string; path: string; query: Record<string, string>; body: Record<string, unknown>[] | null };
+  dispatch_enabled: boolean;
+  requires_human_confirmation: boolean;
+  message: string;
+};
+type PrepareRequest = { operation_type: string; payload: Record<string, unknown> };
 type Tab = "rooms" | "strains" | "items" | "production" | "cultivation" | "transportation" | "receiving";
 
 const value = (row: Record<string, unknown>, ...keys: string[]): string => {
@@ -55,6 +63,7 @@ const value = (row: Record<string, unknown>, ...keys: string[]): string => {
 };
 
 const joined = (row: Record<string, unknown>, keys: string[]): string => keys.map(key => value(row, key)).filter(Boolean).join(" · ");
+const names = (rows: Record<string, unknown>[], ...keys: string[]): string[] => Array.from(new Set(rows.map(row => value(row, ...keys)).filter(Boolean)));
 
 const resourcesForTab = (tab: Tab): string[] => {
   if (tab === "items") return ["items", "brands"];
@@ -98,13 +107,14 @@ export function LocationSettingsPage() {
     onSuccess: () => { client.invalidateQueries({ queryKey: ["facility-setup"] }); permissions.refetch(); },
   });
   const prepareAction = useMutation({
-    mutationFn: (request: { operation_type: string; payload: Record<string, unknown> }) => apiPost<PreviewPayload>("/api/v1/location-settings/metrc-action-preview", request),
+    mutationFn: (request: PrepareRequest) => apiPost<PreviewPayload>("/api/v1/location-settings/metrc-action-preview", request),
     onSuccess: data => setPreview(data),
   });
 
   const facility = context.data?.facilities.find(row => row.id === context.data?.facility_id);
   const roomTypes = rooms.data?.location_types ?? [];
   const canPrepare = Boolean(setup.data?.can_manage && setup.data?.metrc.configured && setup.data?.metrc.status === "connected" && setup.data?.metrc.trusted_mapping);
+  const onPrepare = (request: PrepareRequest) => { setPreview(null); prepareAction.mutate(request); };
 
   return <div className="page">
     <div className="eyebrow">DATA & SETTINGS / LOCATION · SETTINGS & ADMINISTRATION / FACILITY SETUP</div>
@@ -155,11 +165,10 @@ export function LocationSettingsPage() {
           <label className="span-2">New sublocation<input value={sublocationName} placeholder="Rack A / Shelf 2" onChange={event => setSublocationName(event.target.value)}/></label>
         </div>
         <div className="button-row">
-          <button className="primary" type="button" disabled={!canPrepare || !roomName || !roomType || prepareAction.isPending} onClick={() => prepareAction.mutate({ operation_type: "location_create", payload: { name: roomName, location_type_name: roomType } })}>Prepare room creation</button>
-          <button className="secondary" type="button" disabled={!canPrepare || !sublocationName || prepareAction.isPending} onClick={() => prepareAction.mutate({ operation_type: "sublocation_create", payload: { name: sublocationName } })}>Prepare sublocation creation</button>
+          <button className="primary" type="button" disabled={!canPrepare || !roomName || !roomType || prepareAction.isPending} onClick={() => onPrepare({ operation_type: "location_create", payload: { name: roomName, location_type_name: roomType } })}>Prepare room creation</button>
+          <button className="secondary" type="button" disabled={!canPrepare || !sublocationName || prepareAction.isPending} onClick={() => onPrepare({ operation_type: "sublocation_create", payload: { name: sublocationName } })}>Prepare sublocation creation</button>
         </div>
         {!canPrepare ? <p className="source-caption">Provider-changing controls require an authorized DoobieLogic role, a connected Metrc credential, and a trusted facility/license mapping.</p> : null}
-        {prepareAction.isError ? <div className="state error">{prepareAction.error.message}</div> : null}
       </section> : null}
 
       {tab === "strains" ? <section className="inventory-panel">
@@ -170,7 +179,7 @@ export function LocationSettingsPage() {
           <RecordGroup title="Active strains" rows={strains.data.strains} nameKeys={["Name", "name"]} detailKeys={["Genetics", "TestingStatus"]}/>
         </> : <div className="state">Choose “Load from Metrc” to inspect the current strain master.</div>}
         <div className="form-grid"><label className="span-2">New strain name<input value={strainName} placeholder="GMO" onChange={event => setStrainName(event.target.value)}/></label></div>
-        <button className="primary" type="button" disabled={!canPrepare || !strainName || prepareAction.isPending} onClick={() => prepareAction.mutate({ operation_type: "strain_create", payload: { name: strainName } })}>Prepare strain creation</button>
+        <button className="primary" type="button" disabled={!canPrepare || !strainName || prepareAction.isPending} onClick={() => onPrepare({ operation_type: "strain_create", payload: { name: strainName } })}>Prepare strain creation</button>
       </section> : null}
 
       {tab === "items" ? <section className="inventory-panel">
@@ -189,6 +198,7 @@ export function LocationSettingsPage() {
           <RecordGroup title="Units of measure" rows={items.data.units_of_measure} nameKeys={["Name", "UnitOfMeasureName"]} detailKeys={["Abbreviation", "QuantityType"]}/>
           <RecordGroup title="Inactive Metrc items" rows={items.data.inactive_items} nameKeys={["Name", "name"]} detailKeys={["ProductCategoryName", "BrandName"]}/>
         </> : <LiveReadState label="items, brands, categories, and units of measure"/>}
+        <ItemPreviewForm data={items.data} canPrepare={canPrepare} pending={prepareAction.isPending} onPrepare={onPrepare}/>
         <ActionCatalog actions={setup.data.actions.filter(action => resourcesForTab("items").includes(action.resource))}/>
       </section> : null}
 
@@ -207,6 +217,7 @@ export function LocationSettingsPage() {
           <RecordGroup title="Processing attributes" rows={processing.data.attributes} nameKeys={["Name", "AttributeName"]} detailKeys={["DataType", "Description"]}/>
           <RecordGroup title="Inactive Processing Job Types" rows={processing.data.inactive_job_types} nameKeys={["Name", "JobTypeName"]} detailKeys={["CategoryName"]}/>
         </> : <LiveReadState label="Processing Job Types, categories, and attributes"/>}
+        <ProcessingPreviewForm data={processing.data} canPrepare={canPrepare} pending={prepareAction.isPending} onPrepare={onPrepare}/>
         <ActionCatalog actions={setup.data.actions.filter(action => resourcesForTab("production").includes(action.resource))}/>
       </section> : null}
 
@@ -218,6 +229,7 @@ export function LocationSettingsPage() {
           <RecordGroup title="Active additive templates" rows={additives.data.additive_templates} nameKeys={["Name", "TemplateName"]} detailKeys={["AdditiveName", "ProductTradeName", "UnitOfMeasureName"]}/>
           <RecordGroup title="Inactive additive templates" rows={additives.data.inactive_additive_templates} nameKeys={["Name", "TemplateName"]} detailKeys={["AdditiveName", "ProductTradeName"]}/>
         </> : <LiveReadState label="active and inactive additive templates"/>}
+        <AdditivePreviewForm canPrepare={canPrepare} pending={prepareAction.isPending} onPrepare={onPrepare}/>
         <ActionCatalog actions={setup.data.actions.filter(action => resourcesForTab("cultivation").includes(action.resource))}/>
       </section> : null}
 
@@ -226,11 +238,14 @@ export function LocationSettingsPage() {
         {transportation.isError ? <div className="state error">{transportation.error.message}</div> : null}
         {transportation.data ? <>
           <div className="metric-grid"><div className="metric-card"><span>Drivers</span><strong>{transportation.data.drivers.length}</strong></div><div className="metric-card"><span>Vehicles</span><strong>{transportation.data.vehicles.length}</strong></div></div>
-          <RecordGroup title="Transport drivers" rows={transportation.data.drivers} nameKeys={["Name", "FullName", "FirstName", "LastName"]} detailKeys={["EmployeeLicenseNumber", "LicenseNumber", "PhoneNumber"]}/>
-          <RecordGroup title="Transport vehicles" rows={transportation.data.vehicles} nameKeys={["Name", "LicensePlateNumber", "VehicleName"]} detailKeys={["Make", "Model", "Year"]}/>
+          <RecordGroup title="Transport drivers" rows={transportation.data.drivers} nameKeys={["Name", "FullName", "FirstName", "LastName"]} detailKeys={["EmployeeId", "DriversLicenseNumber"]}/>
+          <RecordGroup title="Transport vehicles" rows={transportation.data.vehicles} nameKeys={["LicensePlateNumber", "VehicleName"]} detailKeys={["Make", "Model", "RegistrationNumber"]}/>
         </> : <LiveReadState label="Metrc transport drivers and vehicles"/>}
+        <TransportationPreviewForms canPrepare={canPrepare} pending={prepareAction.isPending} onPrepare={onPrepare}/>
         <ActionCatalog actions={setup.data.actions.filter(action => resourcesForTab("transportation").includes(action.resource))}/>
       </section> : null}
+
+      {prepareAction.isError ? <div className="state error">{prepareAction.error.message}</div> : null}
 
       {tab === "receiving" ? <section className="inventory-panel location-settings-card">
         <h3>Location settings</h3>
@@ -257,9 +272,184 @@ export function LocationSettingsPage() {
     {preview ? <section className="inventory-panel">
       <h3>Metrc request preview</h3>
       <p><strong>{preview.operation.label}</strong> · requires {preview.operation.required_permission}</p>
+      {preview.jurisdiction ? <p className="source-caption">{preview.jurisdiction.code} · documentation verified · execution still locked</p> : null}
       <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(preview.provider_request, null, 2)}</pre>
       <div className="state">{preview.message}</div>
     </section> : null}
+  </div>;
+}
+
+function ItemPreviewForm({ data, canPrepare, pending, onPrepare }: { data?: ItemsPayload; canPrepare: boolean; pending: boolean; onPrepare: (request: PrepareRequest) => void }) {
+  const [itemName, setItemName] = useState("");
+  const [category, setCategory] = useState("");
+  const [unit, setUnit] = useState("");
+  const [strain, setStrain] = useState("");
+  const [brand, setBrand] = useState("");
+  const [description, setDescription] = useState("");
+  const [thcContent, setThcContent] = useState("");
+  const [thcUnit, setThcUnit] = useState("");
+  const [unitWeight, setUnitWeight] = useState("");
+  const [unitWeightUnit, setUnitWeightUnit] = useState("");
+  const [unitVolume, setUnitVolume] = useState("");
+  const [unitVolumeUnit, setUnitVolumeUnit] = useState("");
+  const [processingJobType, setProcessingJobType] = useState("");
+  const [brandName, setBrandName] = useState("");
+  const categoryOptions = names(data?.categories ?? [], "Name", "ProductCategoryName");
+  const brandOptions = names(data?.brands ?? [], "Name", "BrandName");
+  const unitOptions = names(data?.units_of_measure ?? [], "Name", "UnitOfMeasureName");
+
+  const prepareItem = () => {
+    const payload: Record<string, unknown> = { name: itemName, item_category: category, unit_of_measure: unit };
+    if (strain.trim()) payload.strain = strain.trim();
+    if (brand.trim()) payload.item_brand = brand.trim();
+    if (description.trim()) payload.description = description.trim();
+    if (thcContent.trim()) payload.unit_thc_content = thcContent.trim();
+    if (thcUnit.trim()) payload.unit_thc_content_unit_of_measure = thcUnit.trim();
+    if (unitWeight.trim()) payload.unit_weight = unitWeight.trim();
+    if (unitWeightUnit.trim()) payload.unit_weight_unit_of_measure = unitWeightUnit.trim();
+    if (unitVolume.trim()) payload.unit_volume = unitVolume.trim();
+    if (unitVolumeUnit.trim()) payload.unit_volume_unit_of_measure = unitVolumeUnit.trim();
+    if (processingJobType.trim()) payload.processing_job_type_name = processingJobType.trim();
+    onPrepare({ operation_type: "item_create", payload });
+  };
+
+  return <div className="inventory-panel">
+    <h4>Prepare a Metrc item</h4>
+    <p>Build the documented provider request without sending it. Load Metrc first to use live category, brand, and unit choices.</p>
+    <div className="form-grid">
+      <label>Item name<input value={itemName} placeholder="GMO Flower 3.5g" onChange={event => setItemName(event.target.value)}/></label>
+      <label>Item category<select value={category} onChange={event => setCategory(event.target.value)}><option value="">Select category</option>{categoryOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+      <label>Unit of measure<select value={unit} onChange={event => setUnit(event.target.value)}><option value="">Select unit</option>{unitOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+      <label>Brand<select value={brand} onChange={event => setBrand(event.target.value)}><option value="">No brand / select later</option>{brandOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+    </div>
+    <details className="inventory-panel">
+      <summary><strong>Advanced item fields</strong></summary>
+      <div className="form-grid">
+        <label>Strain<input value={strain} placeholder="GMO" onChange={event => setStrain(event.target.value)}/></label>
+        <label>Description<input value={description} placeholder="Optional Metrc item description" onChange={event => setDescription(event.target.value)}/></label>
+        <label>Unit THC content<input type="number" step="any" value={thcContent} onChange={event => setThcContent(event.target.value)}/></label>
+        <label>THC content unit<select value={thcUnit} onChange={event => setThcUnit(event.target.value)}><option value="">Select unit</option>{unitOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+        <label>Unit weight<input type="number" step="any" value={unitWeight} onChange={event => setUnitWeight(event.target.value)}/></label>
+        <label>Weight unit<select value={unitWeightUnit} onChange={event => setUnitWeightUnit(event.target.value)}><option value="">Select unit</option>{unitOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+        <label>Unit volume<input type="number" step="any" value={unitVolume} onChange={event => setUnitVolume(event.target.value)}/></label>
+        <label>Volume unit<select value={unitVolumeUnit} onChange={event => setUnitVolumeUnit(event.target.value)}><option value="">Select unit</option>{unitOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+        <label className="span-2">Processing Job Type name<input value={processingJobType} placeholder="Optional processing linkage" onChange={event => setProcessingJobType(event.target.value)}/></label>
+      </div>
+    </details>
+    <button className="primary" type="button" disabled={!canPrepare || pending || !itemName || !category || !unit} onClick={prepareItem}>{pending ? "Preparing…" : "Prepare item request"}</button>
+
+    <div className="inventory-panel">
+      <h4>Prepare an item brand</h4>
+      <div className="form-grid"><label className="span-2">Brand name<input value={brandName} placeholder="DoobieLogic Reserve" onChange={event => setBrandName(event.target.value)}/></label></div>
+      <button className="secondary" type="button" disabled={!canPrepare || pending || !brandName} onClick={() => onPrepare({ operation_type: "brand_create", payload: { name: brandName } })}>Prepare brand request</button>
+    </div>
+  </div>;
+}
+
+function ProcessingPreviewForm({ data, canPrepare, pending, onPrepare }: { data?: ProcessingPayload; canPrepare: boolean; pending: boolean; onPrepare: (request: PrepareRequest) => void }) {
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("");
+  const [description, setDescription] = useState("");
+  const [steps, setSteps] = useState("");
+  const [attributeText, setAttributeText] = useState("");
+  const categories = names(data?.categories ?? [], "Name", "CategoryName");
+  const attributes = names(data?.attributes ?? [], "Name", "AttributeName");
+  const parsedAttributes = attributeText.split(",").map(row => row.trim()).filter(Boolean);
+
+  return <div className="inventory-panel">
+    <h4>Prepare a Processing Job Type</h4>
+    <p>Metrc uses <strong>Category</strong> when creating a Job Type and <strong>CategoryName</strong> when updating it. DoobieLogic handles that translation in the preview adapter.</p>
+    <div className="form-grid">
+      <label>Process name<input value={name} placeholder="Infuse Brownies" onChange={event => setName(event.target.value)}/></label>
+      <label>Category<select value={category} onChange={event => setCategory(event.target.value)}><option value="">Select category</option>{categories.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+      <label className="span-2">Description<input value={description} placeholder="Turn buds into brownies" onChange={event => setDescription(event.target.value)}/></label>
+      <label className="span-2">Processing steps<textarea value={steps} placeholder="Extract THC and bake" onChange={event => setSteps(event.target.value)}/></label>
+      <label className="span-2">Attributes, comma separated<input value={attributeText} list="processing-attribute-options" placeholder="Infuse, Cooking, Food" onChange={event => setAttributeText(event.target.value)}/><datalist id="processing-attribute-options">{attributes.map(option => <option key={option} value={option}/>)}</datalist></label>
+    </div>
+    <button className="primary" type="button" disabled={!canPrepare || pending || !name || !category || !description || !steps} onClick={() => onPrepare({ operation_type: "processing_job_type_create", payload: { name, category, description, processing_steps: steps, attributes: parsedAttributes } })}>{pending ? "Preparing…" : "Prepare process request"}</button>
+  </div>;
+}
+
+function AdditivePreviewForm({ canPrepare, pending, onPrepare }: { canPrepare: boolean; pending: boolean; onPrepare: (request: PrepareRequest) => void }) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState("");
+  const [device, setDevice] = useState("");
+  const [epa, setEpa] = useState("");
+  const [supplier, setSupplier] = useState("");
+  const [tradeName, setTradeName] = useState("");
+  const [note, setNote] = useState("");
+  const [intervalQuantity, setIntervalQuantity] = useState("");
+  const [intervalTime, setIntervalTime] = useState("");
+  const [ingredientLines, setIngredientLines] = useState("");
+
+  const prepare = () => {
+    const activeIngredients = ingredientLines.split("\n").map(line => {
+      const [ingredientName, percentage] = line.split("|").map(part => part.trim());
+      return ingredientName && percentage ? { name: ingredientName, percentage } : null;
+    }).filter((row): row is { name: string; percentage: string } => Boolean(row));
+    const payload: Record<string, unknown> = { name, additive_type: type, application_device: device };
+    if (epa.trim()) payload.epa_registration_number = epa.trim();
+    if (supplier.trim()) payload.product_supplier = supplier.trim();
+    if (tradeName.trim()) payload.product_trade_name = tradeName.trim();
+    if (note.trim()) payload.note = note.trim();
+    if (intervalQuantity.trim()) payload.restrictive_entry_interval_quantity_description = intervalQuantity.trim();
+    if (intervalTime.trim()) payload.restrictive_entry_interval_time_description = intervalTime.trim();
+    if (activeIngredients.length) payload.active_ingredients = activeIngredients;
+    onPrepare({ operation_type: "additive_template_create", payload });
+  };
+
+  return <div className="inventory-panel">
+    <h4>Prepare an additive template</h4>
+    <div className="form-grid">
+      <label>Template name<input value={name} placeholder="Flower Feed Week 4" onChange={event => setName(event.target.value)}/></label>
+      <label>Additive type<input value={type} placeholder="Fertilizer" onChange={event => setType(event.target.value)}/></label>
+      <label>Application device<input value={device} placeholder="Sprayer" onChange={event => setDevice(event.target.value)}/></label>
+      <label>EPA registration number<input value={epa} placeholder="Optional" onChange={event => setEpa(event.target.value)}/></label>
+    </div>
+    <details className="inventory-panel">
+      <summary><strong>Supplier, intervals & ingredients</strong></summary>
+      <div className="form-grid">
+        <label>Product supplier<input value={supplier} onChange={event => setSupplier(event.target.value)}/></label>
+        <label>Product trade name<input value={tradeName} onChange={event => setTradeName(event.target.value)}/></label>
+        <label>Restricted-entry quantity description<input value={intervalQuantity} placeholder="1" onChange={event => setIntervalQuantity(event.target.value)}/></label>
+        <label>Restricted-entry time description<input value={intervalTime} placeholder="1 day" onChange={event => setIntervalTime(event.target.value)}/></label>
+        <label className="span-2">Note<input value={note} onChange={event => setNote(event.target.value)}/></label>
+        <label className="span-2">Active ingredients, one per line as Name | Percentage<textarea value={ingredientLines} placeholder={"Ingredient 1 | 1.1\nIngredient 2 | 1.2"} onChange={event => setIngredientLines(event.target.value)}/></label>
+      </div>
+    </details>
+    <button className="primary" type="button" disabled={!canPrepare || pending || !name || !type || !device} onClick={prepare}>{pending ? "Preparing…" : "Prepare additive request"}</button>
+  </div>;
+}
+
+function TransportationPreviewForms({ canPrepare, pending, onPrepare }: { canPrepare: boolean; pending: boolean; onPrepare: (request: PrepareRequest) => void }) {
+  const [driverName, setDriverName] = useState("");
+  const [driverLicense, setDriverLicense] = useState("");
+  const [employeeId, setEmployeeId] = useState("");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+  const [plate, setPlate] = useState("");
+  const [registration, setRegistration] = useState("");
+
+  return <div className="inventory-grid">
+    <div className="inventory-panel">
+      <h4>Prepare a transport driver</h4>
+      <div className="form-grid">
+        <label className="span-2">Driver name<input value={driverName} placeholder="Joe Smith" onChange={event => setDriverName(event.target.value)}/></label>
+        <label>Driver's license number<input value={driverLicense} placeholder="ABC1234" onChange={event => setDriverLicense(event.target.value)}/></label>
+        <label>Employee ID<input value={employeeId} placeholder="BTS000007" onChange={event => setEmployeeId(event.target.value)}/></label>
+      </div>
+      <button className="primary" type="button" disabled={!canPrepare || pending || !driverName || !driverLicense || !employeeId} onClick={() => onPrepare({ operation_type: "driver_create", payload: { name: driverName, drivers_license_number: driverLicense, employee_id: employeeId } })}>Prepare driver request</button>
+    </div>
+    <div className="inventory-panel">
+      <h4>Prepare a transport vehicle</h4>
+      <div className="form-grid">
+        <label>Make<input value={make} placeholder="Toyota" onChange={event => setMake(event.target.value)}/></label>
+        <label>Model<input value={model} placeholder="Supra" onChange={event => setModel(event.target.value)}/></label>
+        <label>License plate<input value={plate} placeholder="ABC1234" onChange={event => setPlate(event.target.value)}/></label>
+        <label>Registration number<input value={registration} placeholder="Optional" onChange={event => setRegistration(event.target.value)}/></label>
+      </div>
+      <button className="primary" type="button" disabled={!canPrepare || pending || !make || !model || !plate} onClick={() => onPrepare({ operation_type: "vehicle_create", payload: { make, model, license_plate_number: plate, registration_number: registration || null } })}>Prepare vehicle request</button>
+    </div>
   </div>;
 }
 
@@ -293,8 +483,8 @@ function ActionCatalog({ actions }: { actions: SetupAction[] }) {
   if (!actions.length) return null;
   return <div className="inventory-panel">
     <h4>Provider-changing actions</h4>
-    <p>These controls are intentionally staged until their exact request bodies pass controlled Metrc sandbox write and fresh readback verification.</p>
+    <p>Request previews are available for the documented contracts above. Provider execution is still intentionally locked until the exact action passes controlled Metrc sandbox write and fresh readback verification for the connected jurisdiction.</p>
     <div className="inventory-grid">{actions.map(action => <article className="inventory-panel" key={action.operation_type}><strong>{action.label}</strong><p>{action.method} /{action.path}</p><p className="source-caption">Requires {action.required_permission} · {action.verification_status.replaceAll("_", " ")}</p></article>)}</div>
-    <div className="state">Live reads are available here now. Network writes remain fail-closed; DoobieLogic does not infer or fabricate a successful compliance change.</div>
+    <div className="state">Network writes remain fail-closed; DoobieLogic does not infer or fabricate a successful compliance change.</div>
   </div>;
 }

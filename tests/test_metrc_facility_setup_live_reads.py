@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from backend.app.routers import location_settings
 
@@ -103,6 +104,66 @@ def test_transportation_live_read_loads_drivers_and_vehicles(live_metrc):
     assert all(query == {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1} for _, query in transport.calls)
 
 
+def test_preview_accepts_documentation_verified_jurisdiction_but_never_dispatches(live_metrc):
+    metrc, _ = live_metrc
+    metrc.state = "RI"
+    request = location_settings.MetrcActionPreview(
+        operation_type="brand_create",
+        payload={"name": "Reserve", "unexpected": "drop"},
+    )
+    result = location_settings.metrc_action_preview(
+        request=request,
+        context=SimpleNamespace(role="admin"),
+        engine=object(),
+        settings=object(),
+    )
+
+    assert result["jurisdiction"]["code"] == "RI"
+    assert result["jurisdiction"]["documentation_verified"] is True
+    assert result["provider_request"] == {
+        "method": "POST",
+        "path": "items/v2/brand",
+        "query": {"licenseNumber": "LIC-TEST"},
+        "body": [{"Name": "Reserve"}],
+    }
+    assert result["dispatch_enabled"] is False
+    assert result["requires_human_confirmation"] is True
+
+
+def test_preview_rejects_jurisdiction_without_direct_documentation_verification(live_metrc):
+    metrc, _ = live_metrc
+    metrc.state = "VA"
+    request = location_settings.MetrcActionPreview(
+        operation_type="brand_create",
+        payload={"name": "Reserve"},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        location_settings.metrc_action_preview(
+            request=request,
+            context=SimpleNamespace(role="admin"),
+            engine=object(),
+            settings=object(),
+        )
+    assert exc_info.value.status_code == 409
+    assert "documentation-verified Metrc jurisdiction" in str(exc_info.value.detail)
+
+
+def test_preview_rejects_non_manager_role_before_provider_work(live_metrc):
+    request = location_settings.MetrcActionPreview(
+        operation_type="brand_create",
+        payload={"name": "Reserve"},
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        location_settings.metrc_action_preview(
+            request=request,
+            context=SimpleNamespace(role="operator"),
+            engine=object(),
+            settings=object(),
+        )
+    assert exc_info.value.status_code == 403
+
+
 def test_frontend_keeps_live_provider_reads_opt_in_and_visible():
     source = (ROOT / "frontend/src/pages/LocationSettingsPage.tsx").read_text(encoding="utf-8")
     for endpoint in (
@@ -123,3 +184,35 @@ def test_frontend_keeps_live_provider_reads_opt_in_and_visible():
     ):
         assert label in source
     assert source.count("enabled: false") >= 7
+
+
+def test_frontend_exposes_bounded_preview_forms_without_execute_controls():
+    source = (ROOT / "frontend/src/pages/LocationSettingsPage.tsx").read_text(encoding="utf-8")
+    for label in (
+        "Prepare a Metrc item",
+        "Advanced item fields",
+        "Prepare item request",
+        "Prepare an item brand",
+        "Prepare brand request",
+        "Prepare a Processing Job Type",
+        "Prepare process request",
+        "Prepare an additive template",
+        "Prepare additive request",
+        "Prepare a transport driver",
+        "Prepare driver request",
+        "Prepare a transport vehicle",
+        "Prepare vehicle request",
+        "Metrc request preview",
+    ):
+        assert label in source
+    for operation in (
+        'operation_type: "item_create"',
+        'operation_type: "brand_create"',
+        'operation_type: "processing_job_type_create"',
+        'operation_type: "additive_template_create"',
+        'operation_type: "driver_create"',
+        'operation_type: "vehicle_create"',
+    ):
+        assert operation in source
+    assert "Execute Metrc" not in source
+    assert "Submit to Metrc" not in source
