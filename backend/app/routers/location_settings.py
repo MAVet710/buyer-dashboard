@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -28,6 +28,8 @@ DEFAULTS = {"auto_map_products_during_receive": False, "default_receiving_room":
 WRITE_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "trial"}
 FACILITY_SETUP_MANAGE_ROLES = {"dev", "admin", "planner", "supervisor"}
 FACILITY_CAPABILITIES = ("retail", "production", "cultivation", "commercial")
+LIVE_PAGE_SIZE = 100
+MASTER_DATA_PAGE_SIZE = 20
 
 
 class LocationSettingsUpdate(BaseModel):
@@ -137,6 +139,25 @@ def _permissions_from_payload(value: Any) -> list[str]:
     return sorted(permission for permission in found if permission)
 
 
+def _page_query(metrc, page_size: int = LIVE_PAGE_SIZE) -> dict[str, Any]:
+    return {"licenseNumber": metrc.license_number, "pageSize": page_size, "pageNumber": 1}
+
+
+def _license_query(metrc) -> dict[str, Any]:
+    return {"licenseNumber": metrc.license_number}
+
+
+def _live_envelope(metrc, page_size: int = LIVE_PAGE_SIZE) -> dict[str, Any]:
+    return {
+        "source": "metrc_live",
+        "jurisdiction_code": metrc.state.upper(),
+        "license_number": metrc.license_number,
+        "environment": metrc.environment,
+        "bounded": True,
+        "page_size": page_size,
+    }
+
+
 @router.get("")
 def get_location_settings(
     context: RequestContext = Depends(get_request_context),
@@ -192,10 +213,10 @@ def facility_setup_overview(
     sections = [
         {"key": "rooms", "label": "Rooms & Locations", "priority": "P0", "status": "live-read", "description": "Metrc locations and sublocations, with reviewed create/edit/discontinue requests."},
         {"key": "strains", "label": "Strains", "priority": "P0", "status": "live-read", "description": "Active/inactive Metrc strains and staged master-data actions."},
-        {"key": "items", "label": "Products & Metrc Items", "priority": "P0", "status": "catalogued", "description": "Item and brand administration is registered for the next payload-verification pass."},
-        {"key": "production", "label": "Production Processes", "priority": "P1", "status": "catalogued", "description": "Processing Job Type administration stays in Facility Setup rather than a hidden Metrc screen."},
-        {"key": "cultivation", "label": "Cultivation Programs", "priority": "P1", "status": "catalogued", "description": "Additive templates and cultivation setup are registered without enabling unverified writes."},
-        {"key": "transportation", "label": "Transportation", "priority": "P2", "status": "catalogued", "description": "Driver and vehicle administration is registered for transfer/manifest workflows."},
+        {"key": "items", "label": "Products & Metrc Items", "priority": "P0", "status": "live-read", "description": "Inspect active/inactive Metrc items, brands, item categories, and units of measure from the active facility."},
+        {"key": "production", "label": "Production Processes", "priority": "P1", "status": "live-read", "description": "Inspect Metrc Processing Job Types, categories, and attributes without putting provider latency on routine page load."},
+        {"key": "cultivation", "label": "Cultivation Programs", "priority": "P1", "status": "live-read", "description": "Inspect active/inactive Metrc additive templates used by cultivation while unverified provider-changing actions remain locked."},
+        {"key": "transportation", "label": "Transportation", "priority": "P2", "status": "live-read", "description": "Inspect Metrc transport drivers and vehicles used by transfer and manifest workflows."},
     ]
     return {
         "workspace": "Facility Setup",
@@ -309,24 +330,19 @@ def metrc_rooms(
 ):
     _, metrc = _trusted_metrc(context, engine, settings)
     transport = _transport(metrc)
-    common = {"licenseNumber": metrc.license_number, "pageSize": 100, "pageNumber": 1}
+    common = _page_query(metrc)
     active = _provider_rows(transport.get("locations/v2/active", common), "active locations")
     inactive = _provider_rows(transport.get("locations/v2/inactive", common), "inactive locations")
-    types = _provider_rows(transport.get("locations/v2/types", {"licenseNumber": metrc.license_number}), "location types")
+    types = _provider_rows(transport.get("locations/v2/types", _license_query(metrc)), "location types")
     sublocations = _provider_rows(transport.get("sublocations/v2/active", common), "active sublocations")
     inactive_sublocations = _provider_rows(transport.get("sublocations/v2/inactive", common), "inactive sublocations")
     return {
-        "source": "metrc_live",
-        "jurisdiction_code": metrc.state.upper(),
-        "license_number": metrc.license_number,
-        "environment": metrc.environment,
+        **_live_envelope(metrc),
         "locations": active,
         "inactive_locations": inactive,
         "location_types": types,
         "sublocations": sublocations,
         "inactive_sublocations": inactive_sublocations,
-        "bounded": True,
-        "page_size": 100,
     }
 
 
@@ -338,18 +354,96 @@ def metrc_strains(
 ):
     _, metrc = _trusted_metrc(context, engine, settings)
     transport = _transport(metrc)
-    common = {"licenseNumber": metrc.license_number, "pageSize": 100, "pageNumber": 1}
+    common = _page_query(metrc)
     active = _provider_rows(transport.get("strains/v2/active", common), "active strains")
     inactive = _provider_rows(transport.get("strains/v2/inactive", common), "inactive strains")
     return {
-        "source": "metrc_live",
-        "jurisdiction_code": metrc.state.upper(),
-        "license_number": metrc.license_number,
-        "environment": metrc.environment,
+        **_live_envelope(metrc),
         "strains": active,
         "inactive_strains": inactive,
-        "bounded": True,
-        "page_size": 100,
+    }
+
+
+@router.get("/metrc-items")
+def metrc_items(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _, metrc = _trusted_metrc(context, engine, settings)
+    transport = _transport(metrc)
+    common = _page_query(metrc, MASTER_DATA_PAGE_SIZE)
+    active = _provider_rows(transport.get("items/v2/active", common), "active items")
+    inactive = _provider_rows(transport.get("items/v2/inactive", common), "inactive items")
+    categories = _provider_rows(transport.get("items/v2/categories", common), "item categories")
+    brands = _provider_rows(transport.get("items/v2/brands", common), "item brands")
+    units = _provider_rows(transport.get("unitsofmeasure/v2/active", {}), "units of measure")
+    return {
+        **_live_envelope(metrc, MASTER_DATA_PAGE_SIZE),
+        "items": active,
+        "inactive_items": inactive,
+        "categories": categories,
+        "brands": brands,
+        "units_of_measure": units,
+    }
+
+
+@router.get("/metrc-processing-setup")
+def metrc_processing_setup(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _, metrc = _trusted_metrc(context, engine, settings)
+    transport = _transport(metrc)
+    common = _page_query(metrc, MASTER_DATA_PAGE_SIZE)
+    license_query = _license_query(metrc)
+    active = _provider_rows(transport.get("processing/v2/jobtypes/active", common), "active processing job types")
+    inactive = _provider_rows(transport.get("processing/v2/jobtypes/inactive", common), "inactive processing job types")
+    attributes = _provider_rows(transport.get("processing/v2/jobtypes/attributes", license_query), "processing job type attributes")
+    categories = _provider_rows(transport.get("processing/v2/jobtypes/categories", license_query), "processing job type categories")
+    return {
+        **_live_envelope(metrc, MASTER_DATA_PAGE_SIZE),
+        "job_types": active,
+        "inactive_job_types": inactive,
+        "attributes": attributes,
+        "categories": categories,
+    }
+
+
+@router.get("/metrc-additive-templates")
+def metrc_additive_templates(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _, metrc = _trusted_metrc(context, engine, settings)
+    transport = _transport(metrc)
+    common = _page_query(metrc, MASTER_DATA_PAGE_SIZE)
+    active = _provider_rows(transport.get("additivestemplates/v2/active", common), "active additive templates")
+    inactive = _provider_rows(transport.get("additivestemplates/v2/inactive", common), "inactive additive templates")
+    return {
+        **_live_envelope(metrc, MASTER_DATA_PAGE_SIZE),
+        "additive_templates": active,
+        "inactive_additive_templates": inactive,
+    }
+
+
+@router.get("/metrc-transportation")
+def metrc_transportation(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _, metrc = _trusted_metrc(context, engine, settings)
+    transport = _transport(metrc)
+    common = _page_query(metrc, MASTER_DATA_PAGE_SIZE)
+    drivers = _provider_rows(transport.get("transporters/v2/drivers", common), "transport drivers")
+    vehicles = _provider_rows(transport.get("transporters/v2/vehicles", common), "transport vehicles")
+    return {
+        **_live_envelope(metrc, MASTER_DATA_PAGE_SIZE),
+        "drivers": drivers,
+        "vehicles": vehicles,
     }
 
 

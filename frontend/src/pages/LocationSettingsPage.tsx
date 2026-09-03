@@ -18,20 +18,30 @@ type FacilitySetup = {
   retail_scope: { mode: string; message: string };
   documentation_scope: string;
 };
-type RoomsPayload = {
-  source: string;
-  jurisdiction_code: string;
-  license_number: string;
-  environment: string;
+type LiveEnvelope = { source: string; jurisdiction_code: string; license_number: string; environment: string; bounded: boolean; page_size: number };
+type RoomsPayload = LiveEnvelope & {
   locations: Record<string, unknown>[];
   inactive_locations: Record<string, unknown>[];
   location_types: Record<string, unknown>[];
   sublocations: Record<string, unknown>[];
   inactive_sublocations: Record<string, unknown>[];
-  bounded: boolean;
-  page_size: number;
 };
-type StrainsPayload = { source: string; strains: Record<string, unknown>[]; inactive_strains: Record<string, unknown>[]; bounded: boolean; page_size: number };
+type StrainsPayload = LiveEnvelope & { strains: Record<string, unknown>[]; inactive_strains: Record<string, unknown>[] };
+type ItemsPayload = LiveEnvelope & {
+  items: Record<string, unknown>[];
+  inactive_items: Record<string, unknown>[];
+  categories: Record<string, unknown>[];
+  brands: Record<string, unknown>[];
+  units_of_measure: Record<string, unknown>[];
+};
+type ProcessingPayload = LiveEnvelope & {
+  job_types: Record<string, unknown>[];
+  inactive_job_types: Record<string, unknown>[];
+  attributes: Record<string, unknown>[];
+  categories: Record<string, unknown>[];
+};
+type AdditivePayload = LiveEnvelope & { additive_templates: Record<string, unknown>[]; inactive_additive_templates: Record<string, unknown>[] };
+type TransportationPayload = LiveEnvelope & { drivers: Record<string, unknown>[]; vehicles: Record<string, unknown>[] };
 type PermissionPayload = { status: string; can_introspect: boolean; permissions: string[]; employee_license_number?: string; message: string };
 type PreviewPayload = { operation: SetupAction; provider_request: { method: string; path: string; query: Record<string, string>; body: Record<string, unknown>[] | null }; dispatch_enabled: boolean; requires_human_confirmation: boolean; message: string };
 type Tab = "rooms" | "strains" | "items" | "production" | "cultivation" | "transportation" | "receiving";
@@ -43,6 +53,8 @@ const value = (row: Record<string, unknown>, ...keys: string[]): string => {
   }
   return "";
 };
+
+const joined = (row: Record<string, unknown>, keys: string[]): string => keys.map(key => value(row, key)).filter(Boolean).join(" · ");
 
 const resourcesForTab = (tab: Tab): string[] => {
   if (tab === "items") return ["items", "brands"];
@@ -59,6 +71,10 @@ export function LocationSettingsPage() {
   const setup = useQuery({ queryKey: ["facility-setup"], queryFn: ({ signal }) => apiGet<FacilitySetup>("/api/v1/location-settings/facility-setup", signal) });
   const rooms = useQuery({ queryKey: ["facility-setup", "metrc-rooms"], queryFn: ({ signal }) => apiGet<RoomsPayload>("/api/v1/location-settings/metrc-rooms", signal), enabled: false, retry: false });
   const strains = useQuery({ queryKey: ["facility-setup", "metrc-strains"], queryFn: ({ signal }) => apiGet<StrainsPayload>("/api/v1/location-settings/metrc-strains", signal), enabled: false, retry: false });
+  const items = useQuery({ queryKey: ["facility-setup", "metrc-items"], queryFn: ({ signal }) => apiGet<ItemsPayload>("/api/v1/location-settings/metrc-items", signal), enabled: false, retry: false });
+  const processing = useQuery({ queryKey: ["facility-setup", "metrc-processing-setup"], queryFn: ({ signal }) => apiGet<ProcessingPayload>("/api/v1/location-settings/metrc-processing-setup", signal), enabled: false, retry: false });
+  const additives = useQuery({ queryKey: ["facility-setup", "metrc-additive-templates"], queryFn: ({ signal }) => apiGet<AdditivePayload>("/api/v1/location-settings/metrc-additive-templates", signal), enabled: false, retry: false });
+  const transportation = useQuery({ queryKey: ["facility-setup", "metrc-transportation"], queryFn: ({ signal }) => apiGet<TransportationPayload>("/api/v1/location-settings/metrc-transportation", signal), enabled: false, retry: false });
   const permissions = useQuery({ queryKey: ["facility-setup", "metrc-permissions"], queryFn: ({ signal }) => apiGet<PermissionPayload>("/api/v1/location-settings/metrc-permissions", signal), enabled: false, retry: false });
   const [tab, setTab] = useState<Tab>("rooms");
   const [autoMap, setAutoMap] = useState(false);
@@ -129,8 +145,8 @@ export function LocationSettingsPage() {
             <div className="metric-card"><span>Sublocations</span><strong>{rooms.data.sublocations.length}</strong></div>
             <div className="metric-card"><span>Inactive rooms</span><strong>{rooms.data.inactive_locations.length}</strong></div>
           </div>
-          <div className="inventory-grid">{rooms.data.locations.map((location, index) => <article className="inventory-panel" key={value(location, "Id", "id") || `location-${index}`}><strong>{value(location, "Name", "name") || "Unnamed location"}</strong><p>{value(location, "LocationTypeName", "locationTypeName") || "Location"}</p><p className="source-caption">Metrc ID {value(location, "Id", "id") || "—"}</p></article>)}</div>
-          {rooms.data.sublocations.length ? <><h4>Sublocations</h4><div className="inventory-grid">{rooms.data.sublocations.map((location, index) => <article className="inventory-panel" key={value(location, "Id", "id") || `sublocation-${index}`}><strong>{value(location, "Name", "name") || "Unnamed sublocation"}</strong><p className="source-caption">Metrc ID {value(location, "Id", "id") || "—"}</p></article>)}</div></> : null}
+          <RecordGroup title="Active rooms" rows={rooms.data.locations} nameKeys={["Name", "name"]} detailKeys={["LocationTypeName", "locationTypeName"]}/>
+          <RecordGroup title="Sublocations" rows={rooms.data.sublocations} nameKeys={["Name", "name"]} detailKeys={["ParentLocationName", "LocationName"]}/>
         </> : <div className="state">Live Metrc rooms are not placed on the normal page-load critical path. Choose “Load from Metrc” when you want current provider structure.</div>}
 
         <div className="form-grid">
@@ -149,12 +165,72 @@ export function LocationSettingsPage() {
       {tab === "strains" ? <section className="inventory-panel">
         <div className="page-heading"><div><h3>Strains</h3><p>Read the current Metrc strain master and prepare reviewed create requests from the same Facility Setup workspace.</p></div><button className="primary" type="button" disabled={strains.isFetching} onClick={() => strains.refetch()}>{strains.isFetching ? "Syncing…" : strains.data ? "Refresh from Metrc" : "Load from Metrc"}</button></div>
         {strains.isError ? <div className="state error">{strains.error.message}</div> : null}
-        {strains.data ? <div className="inventory-grid">{strains.data.strains.map((strain, index) => <article className="inventory-panel" key={value(strain, "Id", "id") || `strain-${index}`}><strong>{value(strain, "Name", "name") || "Unnamed strain"}</strong><p>{value(strain, "Genetics", "genetics") || value(strain, "TestingStatus", "testingStatus") || "Active"}</p><p className="source-caption">Metrc ID {value(strain, "Id", "id") || "—"}</p></article>)}</div> : <div className="state">Choose “Load from Metrc” to inspect the current strain master.</div>}
+        {strains.data ? <>
+          <div className="metric-grid"><div className="metric-card"><span>Active strains</span><strong>{strains.data.strains.length}</strong></div><div className="metric-card"><span>Inactive strains</span><strong>{strains.data.inactive_strains.length}</strong></div></div>
+          <RecordGroup title="Active strains" rows={strains.data.strains} nameKeys={["Name", "name"]} detailKeys={["Genetics", "TestingStatus"]}/>
+        </> : <div className="state">Choose “Load from Metrc” to inspect the current strain master.</div>}
         <div className="form-grid"><label className="span-2">New strain name<input value={strainName} placeholder="GMO" onChange={event => setStrainName(event.target.value)}/></label></div>
         <button className="primary" type="button" disabled={!canPrepare || !strainName || prepareAction.isPending} onClick={() => prepareAction.mutate({ operation_type: "strain_create", payload: { name: strainName } })}>Prepare strain creation</button>
       </section> : null}
 
-      {(["items", "production", "cultivation", "transportation"] as Tab[]).includes(tab) ? <PlannedSection section={setup.data.sections.find(section => section.key === tab)} actions={setup.data.actions.filter(action => resourcesForTab(tab).includes(action.resource))} /> : null}
+      {tab === "items" ? <section className="inventory-panel">
+        <LiveHeading section={setup.data.sections.find(section => section.key === "items")} loading={items.isFetching} loaded={Boolean(items.data)} onLoad={() => items.refetch()}/>
+        {items.isError ? <div className="state error">{items.error.message}</div> : null}
+        {items.data ? <>
+          <div className="metric-grid">
+            <div className="metric-card"><span>Active items</span><strong>{items.data.items.length}</strong></div>
+            <div className="metric-card"><span>Inactive items</span><strong>{items.data.inactive_items.length}</strong></div>
+            <div className="metric-card"><span>Brands</span><strong>{items.data.brands.length}</strong></div>
+            <div className="metric-card"><span>Categories</span><strong>{items.data.categories.length}</strong></div>
+          </div>
+          <RecordGroup title="Active Metrc items" rows={items.data.items} nameKeys={["Name", "name"]} detailKeys={["ProductCategoryName", "ItemCategoryName", "BrandName", "UnitOfMeasureName"]}/>
+          <RecordGroup title="Item brands" rows={items.data.brands} nameKeys={["Name", "BrandName"]} detailKeys={["Status"]}/>
+          <RecordGroup title="Item categories" rows={items.data.categories} nameKeys={["Name", "ProductCategoryName"]} detailKeys={["ProductCategoryType", "Type"]}/>
+          <RecordGroup title="Units of measure" rows={items.data.units_of_measure} nameKeys={["Name", "UnitOfMeasureName"]} detailKeys={["Abbreviation", "QuantityType"]}/>
+          <RecordGroup title="Inactive Metrc items" rows={items.data.inactive_items} nameKeys={["Name", "name"]} detailKeys={["ProductCategoryName", "BrandName"]}/>
+        </> : <LiveReadState label="items, brands, categories, and units of measure"/>}
+        <ActionCatalog actions={setup.data.actions.filter(action => resourcesForTab("items").includes(action.resource))}/>
+      </section> : null}
+
+      {tab === "production" ? <section className="inventory-panel">
+        <LiveHeading section={setup.data.sections.find(section => section.key === "production")} loading={processing.isFetching} loaded={Boolean(processing.data)} onLoad={() => processing.refetch()}/>
+        {processing.isError ? <div className="state error">{processing.error.message}</div> : null}
+        {processing.data ? <>
+          <div className="metric-grid">
+            <div className="metric-card"><span>Active processes</span><strong>{processing.data.job_types.length}</strong></div>
+            <div className="metric-card"><span>Inactive processes</span><strong>{processing.data.inactive_job_types.length}</strong></div>
+            <div className="metric-card"><span>Categories</span><strong>{processing.data.categories.length}</strong></div>
+            <div className="metric-card"><span>Attributes</span><strong>{processing.data.attributes.length}</strong></div>
+          </div>
+          <RecordGroup title="Active Processing Job Types" rows={processing.data.job_types} nameKeys={["Name", "JobTypeName"]} detailKeys={["CategoryName", "Description"]}/>
+          <RecordGroup title="Processing categories" rows={processing.data.categories} nameKeys={["Name", "CategoryName"]} detailKeys={["Description"]}/>
+          <RecordGroup title="Processing attributes" rows={processing.data.attributes} nameKeys={["Name", "AttributeName"]} detailKeys={["DataType", "Description"]}/>
+          <RecordGroup title="Inactive Processing Job Types" rows={processing.data.inactive_job_types} nameKeys={["Name", "JobTypeName"]} detailKeys={["CategoryName"]}/>
+        </> : <LiveReadState label="Processing Job Types, categories, and attributes"/>}
+        <ActionCatalog actions={setup.data.actions.filter(action => resourcesForTab("production").includes(action.resource))}/>
+      </section> : null}
+
+      {tab === "cultivation" ? <section className="inventory-panel">
+        <LiveHeading section={setup.data.sections.find(section => section.key === "cultivation")} loading={additives.isFetching} loaded={Boolean(additives.data)} onLoad={() => additives.refetch()}/>
+        {additives.isError ? <div className="state error">{additives.error.message}</div> : null}
+        {additives.data ? <>
+          <div className="metric-grid"><div className="metric-card"><span>Active additive templates</span><strong>{additives.data.additive_templates.length}</strong></div><div className="metric-card"><span>Inactive templates</span><strong>{additives.data.inactive_additive_templates.length}</strong></div></div>
+          <RecordGroup title="Active additive templates" rows={additives.data.additive_templates} nameKeys={["Name", "TemplateName"]} detailKeys={["AdditiveName", "ProductTradeName", "UnitOfMeasureName"]}/>
+          <RecordGroup title="Inactive additive templates" rows={additives.data.inactive_additive_templates} nameKeys={["Name", "TemplateName"]} detailKeys={["AdditiveName", "ProductTradeName"]}/>
+        </> : <LiveReadState label="active and inactive additive templates"/>}
+        <ActionCatalog actions={setup.data.actions.filter(action => resourcesForTab("cultivation").includes(action.resource))}/>
+      </section> : null}
+
+      {tab === "transportation" ? <section className="inventory-panel">
+        <LiveHeading section={setup.data.sections.find(section => section.key === "transportation")} loading={transportation.isFetching} loaded={Boolean(transportation.data)} onLoad={() => transportation.refetch()}/>
+        {transportation.isError ? <div className="state error">{transportation.error.message}</div> : null}
+        {transportation.data ? <>
+          <div className="metric-grid"><div className="metric-card"><span>Drivers</span><strong>{transportation.data.drivers.length}</strong></div><div className="metric-card"><span>Vehicles</span><strong>{transportation.data.vehicles.length}</strong></div></div>
+          <RecordGroup title="Transport drivers" rows={transportation.data.drivers} nameKeys={["Name", "FullName", "FirstName", "LastName"]} detailKeys={["EmployeeLicenseNumber", "LicenseNumber", "PhoneNumber"]}/>
+          <RecordGroup title="Transport vehicles" rows={transportation.data.vehicles} nameKeys={["Name", "LicensePlateNumber", "VehicleName"]} detailKeys={["Make", "Model", "Year"]}/>
+        </> : <LiveReadState label="Metrc transport drivers and vehicles"/>}
+        <ActionCatalog actions={setup.data.actions.filter(action => resourcesForTab("transportation").includes(action.resource))}/>
+      </section> : null}
 
       {tab === "receiving" ? <section className="inventory-panel location-settings-card">
         <h3>Location settings</h3>
@@ -187,13 +263,38 @@ export function LocationSettingsPage() {
   </div>;
 }
 
-function PlannedSection({ section, actions }: { section?: SetupSection; actions: SetupAction[] }) {
+function LiveHeading({ section, loading, loaded, onLoad }: { section?: SetupSection; loading: boolean; loaded: boolean; onLoad: () => unknown }) {
   if (!section) return null;
-  return <section className="inventory-panel">
-    <div className="eyebrow">{section.priority} · {section.status}</div>
-    <h3>{section.label}</h3>
-    <p>{section.description}</p>
-    <div className="inventory-grid">{actions.map(action => <article className="inventory-panel" key={action.operation_type}><strong>{action.label}</strong><p>{action.method} /{action.path}</p><p className="source-caption">{action.required_permission} · {action.verification_status.replaceAll("_", " ")}</p></article>)}</div>
-    <div className="state">These actions live here in the app now so the operator surface is explicit. Network writes remain fail-closed until each exact request contract passes controlled sandbox verification.</div>
-  </section>;
+  return <div className="page-heading">
+    <div><div className="eyebrow">{section.priority} · {section.status}</div><h3>{section.label}</h3><p>{section.description}</p></div>
+    <button className="primary" type="button" disabled={loading} onClick={onLoad}>{loading ? "Syncing…" : loaded ? "Refresh from Metrc" : "Load from Metrc"}</button>
+  </div>;
+}
+
+function LiveReadState({ label }: { label: string }) {
+  return <div className="state">Current {label} are fetched only when requested. This keeps Metrc latency and availability out of the normal Facility Setup page-load path.</div>;
+}
+
+function RecordGroup({ title, rows, nameKeys, detailKeys }: { title: string; rows: Record<string, unknown>[]; nameKeys: string[]; detailKeys: string[] }) {
+  return <details className="inventory-panel" open={rows.length > 0 && rows.length <= 12}>
+    <summary><strong>{title}</strong> · {rows.length}</summary>
+    {rows.length ? <div className="inventory-grid">{rows.map((row, index) => {
+      const id = value(row, "Id", "id", "LicenseNumber", "licenseNumber");
+      const first = value(row, ...nameKeys);
+      const driverName = [value(row, "FirstName"), value(row, "LastName")].filter(Boolean).join(" ");
+      const name = first || driverName || `${title} ${index + 1}`;
+      const detail = joined(row, detailKeys);
+      return <article className="inventory-panel" key={id || `${title}-${index}`}><strong>{name}</strong>{detail ? <p>{detail}</p> : null}{id ? <p className="source-caption">Metrc ID {id}</p> : null}</article>;
+    })}</div> : <div className="state">No records returned by Metrc.</div>}
+  </details>;
+}
+
+function ActionCatalog({ actions }: { actions: SetupAction[] }) {
+  if (!actions.length) return null;
+  return <div className="inventory-panel">
+    <h4>Provider-changing actions</h4>
+    <p>These controls are intentionally staged until their exact request bodies pass controlled Metrc sandbox write and fresh readback verification.</p>
+    <div className="inventory-grid">{actions.map(action => <article className="inventory-panel" key={action.operation_type}><strong>{action.label}</strong><p>{action.method} /{action.path}</p><p className="source-caption">Requires {action.required_permission} · {action.verification_status.replaceAll("_", " ")}</p></article>)}</div>
+    <div className="state">Live reads are available here now. Network writes remain fail-closed; DoobieLogic does not infer or fabricate a successful compliance change.</div>
+  </div>;
 }
