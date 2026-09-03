@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 import json
 import re
 from dataclasses import dataclass
@@ -32,6 +33,27 @@ def _text(value: Any) -> str:
 
 def _normalize(value: Any) -> str:
     return "".join(character for character in _text(value).casefold() if character.isalnum())
+
+
+def _name_words(value: Any) -> set[str]:
+    stop = {"facility", "marijuana", "cannabis", "license", "licensed", "the", "inc", "llc", "corp", "corporation"}
+    return {
+        word
+        for word in re.findall(r"[a-z0-9]+", _text(value).casefold())
+        if len(word) > 2 and word not in stop
+    }
+
+
+def _name_score(left: str, right: str) -> float:
+    a = _normalize(left)
+    b = _normalize(right)
+    if not a or not b:
+        return 0.0
+    sequence = SequenceMatcher(None, a, b).ratio()
+    left_words = _name_words(left)
+    right_words = _name_words(right)
+    overlap = len(left_words & right_words) / max(1, len(left_words | right_words))
+    return max(sequence, overlap)
 
 
 def _license_number(record: Any) -> str:
@@ -97,7 +119,7 @@ def _facility_capabilities(license_type: str, facility_name: str) -> dict[str, b
     cultivation = any(token in text for token in ("cultivat", "grow", "producer", "nursery"))
     production = any(token in text for token in ("manufact", "process", "product manufacturer", "mip"))
     retail = any(token in text for token in ("retail", "dispens", "store"))
-    # All licensed cannabis facilities need commercial/receiving/transfer context.
+    # Navigation hints never grant Metrc permission; provider permissions remain authoritative.
     return {
         "retail_enabled": retail,
         "production_enabled": production,
@@ -183,6 +205,7 @@ class MetrcFacilityOnboardingService:
                 RegulatoryFacilityMapping.active.is_(True),
             )))
 
+        mapped_local_ids = {row.facility_id for row in existing_mappings}
         results: list[dict[str, Any]] = []
         for discovered in discovered_rows:
             mapping = next((row for row in existing_mappings if _normalize(row.license_number) == _normalize(discovered.license_number)), None)
@@ -202,7 +225,11 @@ class MetrcFacilityOnboardingService:
                     results.append(self._result(discovered, target, "linked", "existing_regulatory_mapping"))
                     continue
 
-            exact_license = [row for row in local_facilities if _normalize(row.license_number) and _normalize(row.license_number) == _normalize(discovered.license_number)]
+            exact_license = [
+                row for row in local_facilities
+                if _normalize(row.license_number)
+                and _normalize(row.license_number) == _normalize(discovered.license_number)
+            ]
             if len(exact_license) == 1:
                 target = exact_license[0]
                 self._bind(
@@ -218,15 +245,28 @@ class MetrcFacilityOnboardingService:
                 results.append(self._result(discovered, target, "linked", "exact_license"))
                 continue
 
-            exact_name = [row for row in local_facilities if _normalize(row.name) and _normalize(row.name) == _normalize(discovered.name)]
-            if exact_name:
+            # Existing DoobieLogic facilities with no regulatory identity deserve
+            # one explicit match decision instead of an automatic duplicate.
+            unmapped = [
+                row for row in local_facilities
+                if row.id not in mapped_local_ids and not _normalize(row.license_number)
+            ]
+            exact_name = [row for row in unmapped if _normalize(row.name) == _normalize(discovered.name)]
+            fuzzy_name = [row for row in unmapped if _name_score(row.name, discovered.name) >= 0.72]
+            suggested = exact_name or fuzzy_name
+            match_reason = "exact_name" if exact_name else "similar_name" if fuzzy_name else ""
+            if not suggested and len(unmapped) == 1 and len(discovered_rows) == 1:
+                suggested = unmapped
+                match_reason = "single_unmapped_facility"
+            if suggested:
+                unique = {row.id: row for row in suggested}
                 results.append({
                     **discovered.public(),
                     "status": "needs_confirmation",
-                    "match_reason": "exact_name",
-                    "suggested_matches": [self._local(row) for row in exact_name],
+                    "match_reason": match_reason,
+                    "suggested_matches": [self._local(row) for row in unique.values()],
                     "mapping_permanent": False,
-                    "message": "We found an existing DoobieLogic facility with the same name. Confirm the match once or create a separate mirror.",
+                    "message": "We found a possible existing DoobieLogic facility. Confirm the match once or create a separate mirror.",
                 })
                 continue
 
@@ -236,6 +276,7 @@ class MetrcFacilityOnboardingService:
 
             target = self._create_facility(organization_id=organization_id, discovered=discovered, actor=actor)
             local_facilities.append(target)
+            mapped_local_ids.add(target.id)
             self._bind(
                 organization_id=organization_id,
                 target=target,
@@ -255,7 +296,8 @@ class MetrcFacilityOnboardingService:
             "needs_confirmation": sum(1 for row in results if row.get("status") == "needs_confirmation"),
             "bootstrap_resources": [
                 "locations", "sublocations", "location_types", "strains", "items", "item_categories",
-                "item_brands", "units_of_measure", "tags", "packages", "plant_batches", "plants", "harvests",
+                "item_brands", "units_of_measure", "package_tags", "plant_tags", "packages", "plant_batches",
+                "plants", "harvests", "facility_permissions",
             ],
         }
 
