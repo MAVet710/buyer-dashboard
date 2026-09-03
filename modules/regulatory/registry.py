@@ -141,6 +141,13 @@ _VERIFIED_API_BASES = {
     "WV": "https://api-wv.metrc.com",
 }
 
+# Dedicated provider sandbox hosts are recorded only when Metrc explicitly
+# supplies the deployment URL. Do not infer sandbox hosts from state codes.
+# Massachusetts was provisioned to DoobieLogic by Metrc Connect on 2026-09-03.
+_VERIFIED_SANDBOX_API_BASES = {
+    "MA": "https://sandbox-api-ma.metrc.com",
+}
+
 _NAME_ALIASES = {name.casefold(): code for code, name in _MARKETS.items()}
 _NAME_ALIASES.update({"washington dc": "DC", "washington d.c.": "DC", "u.s. virgin islands": "VI", "virgin islands": "VI"})
 
@@ -234,9 +241,10 @@ def normalize_jurisdiction(value: str) -> str:
     token = str(value or "").strip()
     if token.casefold().startswith(("https://", "http://")):
         normalized = token.rstrip("/").casefold()
-        for code, base in _VERIFIED_API_BASES.items():
-            if normalized == base.casefold():
-                return code
+        for bases in (_VERIFIED_API_BASES, _VERIFIED_SANDBOX_API_BASES):
+            for code, base in bases.items():
+                if normalized == base.casefold():
+                    return code
         return ""
     upper = token.upper()
     if upper in _REGISTRY:
@@ -259,9 +267,23 @@ def list_jurisdictions(*, provider: str = "metrc", active_only: bool = True) -> 
     return tuple(profile for profile in _REGISTRY.values() if profile.active or not active_only)
 
 
-def resolve_metrc_base_url(value: str) -> tuple[str, str]:
+def resolve_metrc_base_url(value: str, *, environment: str = "production") -> tuple[str, str]:
+    """Resolve a verified Metrc host for one explicit environment.
+
+    Production and sandbox hosts are separate trust boundaries. Sandbox hosts
+    are fail-closed unless Metrc has explicitly provisioned and verified the
+    jurisdiction deployment. This prevents a sandbox-scoped workflow from ever
+    falling through to a production API host.
+    """
     profile = get_jurisdiction(value)
-    return (profile.api_base, profile.code) if profile else ("", str(value or "").strip().upper())
+    if profile is None:
+        return "", str(value or "").strip().upper()
+    normalized_environment = str(environment or "").strip().casefold()
+    if normalized_environment == "production":
+        return profile.api_base, profile.code
+    if normalized_environment == "sandbox":
+        return _VERIFIED_SANDBOX_API_BASES.get(profile.code, ""), profile.code
+    return "", profile.code
 
 
 def capability_status(jurisdiction: str, capability: str) -> CapabilityStatus:
