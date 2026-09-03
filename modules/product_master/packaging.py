@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, String, Text
+from sqlalchemy import Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from modules.coman.models import Base, Product, TimestampMixin
@@ -31,6 +31,7 @@ class ProductPackagingProfile(TimestampMixin, Base):
     label_layout: Mapped[str] = mapped_column(String(32), nullable=False, default="compact_single")
     label_width_in: Mapped[float] = mapped_column(Float, nullable=False, default=DEFAULT_LABEL_WIDTH_IN)
     label_height_in: Mapped[float] = mapped_column(Float, nullable=False, default=DEFAULT_LABEL_HEIGHT_IN)
+    label_source_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
 class ProductPackagingService:
@@ -49,6 +50,7 @@ class ProductPackagingService:
         label_layout: str = "compact_single",
         label_width_in: float = DEFAULT_LABEL_WIDTH_IN,
         label_height_in: float = DEFAULT_LABEL_HEIGHT_IN,
+        label_source_count: int = 1,
     ) -> ProductPackagingProfile:
         product = session.get(Product, product_id)
         if not product or product.organization_id != organization_id:
@@ -64,6 +66,11 @@ class ProductPackagingService:
         height = float(label_height_in)
         if width <= 0 or height <= 0 or width > 12 or height > 12:
             raise ValueError("Label width and height must be greater than zero and no larger than 12 inches.")
+        source_count = int(label_source_count)
+        if source_count not in {1, 2}:
+            raise ValueError("Label source count must be 1 or 2.")
+        if source_count == 2 and layout != "compact_split":
+            raise ValueError("Two-source labels require the compact split layout.")
         row = session.get(ProductPackagingProfile, product_id)
         if row is None:
             row = ProductPackagingProfile(product_id=product_id, organization_id=organization_id)
@@ -78,6 +85,7 @@ class ProductPackagingService:
         row.label_layout = layout
         row.label_width_in = width
         row.label_height_in = height
+        row.label_source_count = source_count
         return row
 
     @staticmethod
