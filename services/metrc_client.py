@@ -20,13 +20,14 @@ class MetrcTransport:
     state: str
     integrator_api_key: str
     user_api_key: str
+    environment: str = "production"
     timeout_seconds: int = 12
     max_attempts: int = 3
     request_get: Callable[..., Any] | None = None
     sleeper: Callable[[float], None] = time.sleep
 
     def get(self, path: str, params: dict[str, Any] | None = None, *, correlation_id: str = "") -> dict[str, Any]:
-        base_url, state_code = resolve_metrc_base_url(self.state)
+        base_url, state_code = resolve_metrc_base_url(self.state, environment=self.environment)
         correlation_id = str(correlation_id or uuid.uuid4())
         if not base_url:
             return self._error("missing_state", "Select a verified Metrc jurisdiction.", correlation_id, state_code, base_url)
@@ -147,6 +148,7 @@ def _metrc_get(
     user_api_key: str,
     integrator_api_key: str,
     path: str,
+    environment: str = "production",
     params: dict[str, Any] | None = None,
     timeout_seconds: int = 12,
     correlation_id: str = "",
@@ -156,6 +158,7 @@ def _metrc_get(
         state=state,
         user_api_key=str(user_api_key or "").strip(),
         integrator_api_key=str(integrator_api_key or "").strip(),
+        environment=environment,
         timeout_seconds=timeout_seconds,
     ).get(path, params, correlation_id=correlation_id)
 
@@ -214,6 +217,7 @@ def fetch_metrc_resource(
         user_api_key=user_api_key,
         integrator_api_key=integrator_api_key,
         path=plan.path,
+        environment=environment,
         params=plan.params,
         timeout_seconds=timeout_seconds,
     )
@@ -310,9 +314,10 @@ def test_metrc_connection(
     user_api_key: str,
     integrator_api_key: str,
     license_number: str = "",
+    environment: str = "production",
     timeout_seconds: int = 12,
 ) -> dict[str, Any]:
-    base_url, state_code = resolve_metrc_base_url(state)
+    base_url, state_code = resolve_metrc_base_url(state, environment=environment)
     user_api_key = str(user_api_key or "").strip()
     integrator_api_key = str(integrator_api_key or "").strip()
     license_number = str(license_number or "").strip()
