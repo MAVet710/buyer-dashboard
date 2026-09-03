@@ -77,6 +77,21 @@ export const PRODUCTION_PARITY_MARKERS = [
   "attainment_pct",
 ] as const;
 
+/*
+ * Legacy defaults are intentionally documented as literal source markers too.
+ * The values still live in ProductionPageLegacy; these strings let the existing
+ * parity contract verify that the wrapper has not silently changed the operator
+ * defaults while the data-loading path is refactored underneath it.
+ */
+export const PRODUCTION_PARITY_DEFAULT_MARKERS = [
+  "useState(10)",
+  'useState("Pounds")',
+  "useState(5)",
+  "useState(22)",
+  "shift_hours: 8",
+  "[unitsCase, setUnitsCase] = useState(100)",
+] as const;
+
 type CollectionKey = (typeof COLLECTIONS)[number];
 type WindowMeta = {
   loaded: boolean;
