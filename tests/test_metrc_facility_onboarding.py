@@ -101,6 +101,8 @@ def test_no_candidate_creates_local_mirror_and_permanent_mapping_automatically()
         assert mapping.provider_facility_id == "81722"
         assert mapping.environment == "sandbox"
         assert cloned is not None
+        assert cloned.status == "connected"
+        assert cloned.last_validated_at is not None
 
 
 def test_exact_license_reuses_existing_facility_without_duplicate():
@@ -122,6 +124,13 @@ def test_exact_license_reuses_existing_facility_without_duplicate():
     assert row["doobielogic_facility"]["id"] == existing_id
     with Session(engine) as session:
         assert len(list(session.scalars(select(Facility).where(Facility.organization_id == org_id)))) == 1
+        cloned = session.scalar(select(IntegrationConfiguration).where(
+            IntegrationConfiguration.facility_id == existing_id,
+            IntegrationConfiguration.provider == "metrc",
+        ))
+        assert cloned is not None
+        assert cloned.status == "connected"
+        assert cloned.last_validated_at is not None
 
 
 def test_name_only_match_requires_one_confirmation_instead_of_creating_duplicate():
@@ -157,6 +166,14 @@ def test_name_only_match_requires_one_confirmation_instead_of_creating_duplicate
     )
     assert confirmed["status"] == "linked"
     assert confirmed["match_reason"] == "administrator_confirmed"
+    with Session(engine) as session:
+        cloned = session.scalar(select(IntegrationConfiguration).where(
+            IntegrationConfiguration.facility_id == existing_id,
+            IntegrationConfiguration.provider == "metrc",
+        ))
+        assert cloned is not None
+        assert cloned.status == "connected"
+        assert cloned.last_validated_at is not None
 
 
 def test_single_unmapped_existing_facility_is_suggested_even_when_names_differ():
