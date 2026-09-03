@@ -94,4 +94,6 @@ All pre-existing write routes, validation, tenant/facility scoping, audit behavi
 
 This performance pass is complete only when the final acceptance head passes the normal repository gates as one combined revision: backend tests, frontend tests/build, responsive browser parity, operator browser testing against real FastAPI, production migrations/startup, container vulnerability scans, secret-history scan, and the isolated Release Candidate Preview smoke test.
 
+Release-candidate container images are published under commit-identified immutable tags. If a preview run is interrupted after publishing a tag, certification must use a fresh acceptance revision rather than attempting to overwrite the existing registry tag on a rerun.
+
 The acceptance tests do not replace production telemetry. `Server-Timing`, `X-Response-Time-Ms`, and slow-request warnings remain the source for identifying environment-specific or future workload regressions after release.
