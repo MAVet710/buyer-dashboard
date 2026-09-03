@@ -198,6 +198,7 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
   const readiness = test.data?.result;
   const syncSummary = sync.data?.totals;
   const failedCount = runtime.data?.states.filter(state => state.status === "failed").length ?? 0;
+  const secretLabel = provider === "metrc" ? "Metrc Integrator / Vendor API Key" : value.secret_label;
 
   return <article className="integration-card">
     <div className="integration-card-heading">
@@ -210,10 +211,11 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
         {field.label}{value.required_fields.includes(field.key) ? " *" : ""}
         <input value={configuration[field.key] ?? ""} placeholder={field.placeholder ?? ""} onChange={event => setConfiguration(current => ({ ...current, [field.key]: event.target.value }))}/>
       </label>)}
-      <label className="span-2">{value.secret_label} *
+      <label className="span-2">{secretLabel} *
         <input type="password" autoComplete="new-password" value={secret} placeholder={value.configured ? `Saved ${value.secret_hint} · leave blank to keep` : "Enter sandbox credential"} onChange={event => setSecret(event.target.value)}/>
       </label>
     </div>
+    {provider === "metrc" ? <p className="source-caption">Use the vendor/integrator key issued to DoobieLogic by Metrc Connect here. The separate Metrc User API Key belongs in the main METRC integration card after Metrc creates or provides the sandbox user key.</p> : null}
     <p className="source-caption">Environment: sandbox · Scope: active facility · Production credential use: disabled · Production writes: disabled</p>
     <div className="button-row">
       <button className="primary" type="button" disabled={pending || missing || (!value.configured && !secret.trim())} onClick={() => save.mutate()}>Save sandbox connection</button>
