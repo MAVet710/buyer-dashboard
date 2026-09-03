@@ -16,7 +16,12 @@ type LabelRun = {
 };
 
 const FLOW = ["Source", "Product", "Quantity", "Preview", "METRC tag", "Print"];
-const DISPLAY_FIELDS = ["brand","strain","product_type","package_size","net_contents","package_composition","total_thc","total_cbd","total_cannabinoids","total_terpenes","laboratory","lab_license_number","test_date","coa_reference","batch_number","warning_text"];
+const DISPLAY_FIELDS = [
+  "brand","strain","product_type","package_size","net_contents","package_composition",
+  "harvest_date","cultivated_by","cultivator_license","cultivator_contact",
+  "potency","total_thc","total_cbd","total_cannabinoids","total_terpenes","lab_testing_state","laboratory","lab_license_number","test_date","coa_reference",
+  "facility_name","license_number","manufacturer","batch_number","warning_text",
+];
 
 function graphicDataUri(graphic:Graphic|undefined){return graphic?.svg?`data:image/svg+xml;charset=utf-8,${encodeURIComponent(graphic.svg)}`:"";}
 function sourceName(row:InventorySummary){return `${row.product_name} · ${row.lot_code}${row.package_id?` · ${row.package_id}`:""}`;}
@@ -49,6 +54,8 @@ export function InventoryDrivenLabelWorkflow(){
   const packaging=product.data?.packaging;
   const expected=packaging?Number(packaging.net_content||0)*quantity:0;
   const label=run?.snapshot?.label??{};
+  const sourcePackage=String(run?.snapshot.source?.package_id??"");
+  const sourceLot=String(run?.snapshot.source?.lot_code??"");
   const copies=run?Array.from({length:Math.max(1,Math.min(run.quantity,500))},(_,index)=>index):[];
   const nextStatus=run?.status==="printed"?"applied":run?.status==="applied"?"released":run?.status==="released"?"fulfilled":run?.status==="fulfilled"?"archived":"";
   const nextAction=nextStatus==="applied"?"Mark labels applied":nextStatus==="released"?"Release finished package":nextStatus==="fulfilled"?"Mark fulfilled":nextStatus==="archived"?"Archive run":"";
@@ -72,14 +79,14 @@ export function InventoryDrivenLabelWorkflow(){
 
     {!run?<div style={{marginTop:16}}><button className="primary" disabled={!sourceLotId||!productId||!sourceReady||!packaging||create.isPending} onClick={()=>create.mutate()}>{create.isPending?"Building preview…":"4. Build & validate label preview"}</button><p className="section-note">This snapshots the current source COA and Product Master package facts. Later catalog edits cannot rewrite what this run used.</p></div>:null}
 
-    {run?<div className="production-label-preview"><div className="eyebrow">4. GENERATED LABEL PREVIEW · {run.status.toUpperCase()}</div><h3>{label.product_name||"Finished product"}</h3><div className="production-label-preview-grid">{DISPLAY_FIELDS.filter(field=>String(label[field]??"").trim()).map(field=><div key={field}><span>{fieldLabel(field)}</span><strong>{label[field]}</strong></div>)}<div><span>Source package</span><strong>{String(run.snapshot.source?.package_id??"")}</strong></div><div><span>Finished quantity</span><strong>{run.quantity} packages</strong></div><div><span>Expected material</span><strong>{fmt(run.expected_material_quantity)} {run.expected_material_unit}</strong></div></div>
+    {run?<div className="production-label-preview"><div className="eyebrow">4. GENERATED LABEL PREVIEW · {run.status.toUpperCase()}</div><h3>{label.product_name||"Finished product"}</h3><div className="production-label-preview-grid">{DISPLAY_FIELDS.filter(field=>String(label[field]??"").trim()).map(field=><div key={field}><span>{fieldLabel(field)}</span><strong>{label[field]}</strong></div>)}<div><span>Source package</span><strong>{sourcePackage}</strong></div><div><span>Source lot</span><strong>{sourceLot}</strong></div><div><span>Finished quantity</span><strong>{run.quantity} packages</strong></div><div><span>Expected material</span><strong>{fmt(run.expected_material_quantity)} {run.expected_material_unit}</strong></div></div>
       {run.status==="validated"?<div className="production-traceability"><div><strong>5. Scan METRC package tag</strong><p className="section-note">One physical finished-package tag for this run. Retail label copies inherit this same traceability identity.</p></div><div className="inline-form"><input autoFocus aria-label="METRC finished package tag" placeholder="Scan physical METRC package tag" value={tag} onChange={event=>setTag(event.target.value)}/><button className="primary" disabled={tag.trim().length<4||assign.isPending} onClick={()=>assign.mutate()}>{assign.isPending?"Validating…":"Assign tag"}</button></div></div>:null}
       {run.metrc_package_tag?<div className="production-traceability"><img src={graphicDataUri(run.traceability.qr)} alt={`QR code for finished METRC package ${run.metrc_package_tag}`}/><div><strong>{run.metrc_package_tag}</strong><img src={graphicDataUri(run.traceability.barcode)} alt={`Code 128 barcode for finished METRC package ${run.metrc_package_tag}`}/><p className="section-note">The database prevents this tag from being reused by another finished package in the organization.</p></div></div>:null}
       {run.status==="tagged"?<div style={{marginTop:16}}><button className="primary" disabled={print.isPending} onClick={()=>print.mutate()}>{print.isPending?"Recording print…":`6. Finalize & print ${run.quantity} labels`}</button></div>:null}
       {["printed","applied","released","fulfilled"].includes(run.status)?<div style={{marginTop:16}}><div className="inline-form"><input aria-label="Reprint reason" placeholder="Reason required for reprint" value={reprintReason} onChange={event=>setReprintReason(event.target.value)}/><button className="secondary" disabled={!reprintReason.trim()||print.isPending} onClick={()=>print.mutate()}>Reprint {run.quantity}</button>{nextStatus?<button className="primary" disabled={transition.isPending} onClick={()=>transition.mutate(nextStatus)}>{nextAction}</button>:null}</div></div>:null}
     </div>:null}
 
-    {run?.metrc_package_tag?<div className="production-label-print-batch" aria-label="Printable retail labels">{copies.map(index=><div className="production-label-copy" key={index}><h3>{label.product_name}</h3>{DISPLAY_FIELDS.filter(field=>field!=="warning_text"&&String(label[field]??"").trim()).map(field=><p key={field}><strong>{fieldLabel(field)}:</strong> {label[field]}</p>)}{label.warning_text?<p><strong>Warning:</strong> {label.warning_text}</p>:null}<div className="codes"><img src={graphicDataUri(run.traceability.qr)} alt="METRC QR"/><div><img src={graphicDataUri(run.traceability.barcode)} alt="METRC barcode"/><p>{run.metrc_package_tag}</p><p>Retail unit {index+1} of {run.quantity}</p></div></div></div>)}</div>:null}
+    {run?.metrc_package_tag?<div className="production-label-print-batch" aria-label="Printable retail labels">{copies.map(index=><div className="production-label-copy" key={index}><h3>{label.product_name}</h3>{DISPLAY_FIELDS.filter(field=>field!=="warning_text"&&String(label[field]??"").trim()).map(field=><p key={field}><strong>{fieldLabel(field)}:</strong> {label[field]}</p>)}<p><strong>Source package:</strong> {sourcePackage}</p><p><strong>Source lot:</strong> {sourceLot}</p>{label.warning_text?<p><strong>Warning:</strong> {label.warning_text}</p>:null}<div className="codes"><img src={graphicDataUri(run.traceability.qr)} alt="METRC QR"/><div><img src={graphicDataUri(run.traceability.barcode)} alt="METRC barcode"/><p>{run.metrc_package_tag}</p><p>Retail unit {index+1} of {run.quantity}</p></div></div></div>)}</div>:null}
 
     {run?<div style={{marginTop:18}}><h3>Audit trail</h3>{run.events.map(event=><div className="label-audit-row" key={event.id}><strong>{eventLabel(event.event_type)}</strong><span>{event.from_status&&event.to_status?`${event.from_status} → ${event.to_status}`:event.to_status||event.from_status}</span><small>{event.actor} · {new Date(event.occurred_at).toLocaleString()}</small></div>)}</div>:null}
     {error?<div className="form-error">{error.message}</div>:null}
