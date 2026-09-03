@@ -399,6 +399,12 @@ class MetrcFacilityOnboardingService:
             secret=user_secret,
             actor=actor,
         )
+        # Discovery/confirmation is only called with a fresh provider-owned facilities
+        # response fetched with this exact user/vendor credential pair. The cloned
+        # facility-scoped credential therefore inherits that successful validation.
+        # Mark only this exact cloned credential connected; later credential edits
+        # still reset status to configured and require a new provider validation.
+        target_credential = self.configurations.validation_result(target_credential.id, ok=True)
         if environment == "sandbox" and source_vendor_credential is not None:
             vendor_secret = self.configurations.secret(source_vendor_credential)
             vendor_public = self.configurations.public(source_vendor_credential)
