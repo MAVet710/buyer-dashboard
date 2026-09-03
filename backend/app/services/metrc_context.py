@@ -126,12 +126,12 @@ def resolve_metrc_context(
     environment = str(config.get("environment") or "production").strip().casefold()
 
     # The old React METRC card did not expose environment and therefore saved
-    # "production" even when an administrator had separately configured the
-    # explicit MA sandbox connection. Migrate that state safely at runtime only
-    # when the sandbox connection matches the same state/license and the saved
-    # single METRC secret is the same vendor key. This prevents a sandbox setup
-    # from ever falling through to production while avoiding a broad implicit
-    # environment switch for real production credentials.
+    # "production" even when the explicit Developer Connections sandbox card
+    # already held the same facility's MA sandbox configuration. A matching
+    # sandbox connection is an intentional, sandbox-only administrator action,
+    # so make it authoritative for that exact state/license. Production can be
+    # selected only after the sandbox connection is cleared or a different
+    # production facility/license credential is configured.
     sandbox_state = str(sandbox_config.get("state") or "").strip().upper()
     sandbox_license = str(sandbox_config.get("license_number") or "").strip()
     sandbox_matches = bool(
@@ -140,7 +140,7 @@ def resolve_metrc_context(
         and sandbox_state == state.upper()
         and (not sandbox_license or sandbox_license == license_number)
     )
-    if sandbox_matches and (environment == "sandbox" or (secret and secret == sandbox_vendor_key)):
+    if sandbox_matches:
         environment = "sandbox"
         integrator_api_key = str(sandbox_vendor_key or integrator_api_key).strip()
 
