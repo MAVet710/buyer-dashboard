@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from modules.coman.models import AuditEvent
 from modules.integrations import IntegrationConfigurationService, SandboxIntegrationRuntime
 from services.metrc_client import fetch_metrc_resource
+from services.metrc_facility_bootstrap import MetrcFacilityBootstrapService
 from services.metrc_facility_onboarding import (
     DiscoveredMetrcFacility,
     MetrcFacilityOnboardingError,
@@ -205,6 +206,58 @@ def _fetch_metrc_facilities(service: IntegrationConfigurationService, context: R
     return vendor, user, [dict(row) for row in result.get("records", []) if isinstance(row, dict)]
 
 
+def _bootstrap_bound_facilities(
+    *,
+    discovery: dict,
+    records: list[dict],
+    vendor,
+    user,
+    service: IntegrationConfigurationService,
+    context: RequestContext,
+    engine: Engine,
+) -> None:
+    """Immediately prime mapped facility mirrors with real provider-owned state."""
+
+    records_by_license: dict[str, dict] = {}
+    for record in records:
+        try:
+            parsed = DiscoveredMetrcFacility.from_record(record)
+        except MetrcFacilityOnboardingError:
+            continue
+        key = "".join(ch for ch in parsed.license_number.casefold() if ch.isalnum())
+        records_by_license[key] = parsed.raw
+
+    integrator_key = service.secret(vendor)
+    user_key = service.secret(user)
+    bootstrapper = MetrcFacilityBootstrapService(engine)
+    for row in discovery.get("facilities", []):
+        if row.get("status") not in {"created", "linked"}:
+            continue
+        local = row.get("doobielogic_facility") if isinstance(row.get("doobielogic_facility"), dict) else {}
+        facility_id = str(local.get("id") or "").strip()
+        license_number = str(row.get("license_number") or "").strip()
+        if not facility_id or not license_number:
+            continue
+        record_key = "".join(ch for ch in license_number.casefold() if ch.isalnum())
+        try:
+            bootstrap = bootstrapper.sync(
+                organization_id=context.organization_id,
+                facility_id=facility_id,
+                license_number=license_number,
+                state="MA",
+                environment="sandbox",
+                integrator_api_key=integrator_key,
+                user_api_key=user_key,
+                actor=context.user_id,
+                facility_record=records_by_license.get(record_key),
+            )
+            row["bootstrap"] = bootstrap
+            row["sync_status"] = "connected" if not bootstrap["totals"]["failed"] else "degraded"
+        except Exception as exc:
+            row["sync_status"] = "degraded"
+            row["bootstrap_error"] = f"{type(exc).__name__}: {exc}"[:512]
+
+
 def _discover_metrc_facilities(
     *,
     service: IntegrationConfigurationService,
@@ -226,6 +279,15 @@ def _discover_metrc_facilities(
         )
     except (MetrcFacilityOnboardingError, RuntimeError) as exc:
         raise HTTPException(422, str(exc)) from exc
+    _bootstrap_bound_facilities(
+        discovery=discovery,
+        records=records,
+        vendor=vendor,
+        user=user,
+        service=service,
+        context=context,
+        engine=engine,
+    )
     return {
         "ok": True,
         "state": "MA",
@@ -370,7 +432,7 @@ def provision_metrc_sandbox_user(
         "facility_discovery": facility_discovery,
         "facility_discovery_error": facility_discovery_error,
         "message": (
-            "Metrc returned the sandbox User API Key. DoobieLogic stored it encrypted and discovered the facilities this key can access."
+            "Metrc returned the sandbox User API Key. DoobieLogic stored it encrypted, discovered the facilities this key can access, and started their initial Metrc sync."
             if user_key_saved and facility_discovery
             else "Metrc returned the sandbox User API Key and DoobieLogic stored it encrypted. Facility discovery can be retried from this card."
             if user_key_saved
@@ -427,7 +489,17 @@ def confirm_metrc_sandbox_facility(
         )
     except (MetrcFacilityOnboardingError, RuntimeError) as exc:
         raise HTTPException(422, str(exc)) from exc
-    return {"ok": True, "facility": result}
+    wrapper = {"facilities": [result]}
+    _bootstrap_bound_facilities(
+        discovery=wrapper,
+        records=[selected],
+        vendor=vendor,
+        user=user,
+        service=service,
+        context=context,
+        engine=engine,
+    )
+    return {"ok": True, "facility": wrapper["facilities"][0]}
 
 
 @router.post("/{provider}/test")
