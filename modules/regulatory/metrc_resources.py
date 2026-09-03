@@ -51,12 +51,18 @@ class MetrcReadPlan:
 
 METRC_READ_RESOURCES: dict[str, MetrcReadResourceSpec] = {
     "facilities": MetrcReadResourceSpec("facilities", "facilities", "facilities/v2/", license_scoped=False, paginated=False),
+    "items_by_id": MetrcReadResourceSpec("items_by_id", "items", "items/v2/{id}", paginated=False, required_path_parameters=("id",)),
     "items_active": MetrcReadResourceSpec("items_active", "items", "items/v2/active"),
+    "strains_by_id": MetrcReadResourceSpec("strains_by_id", "strains", "strains/v2/{id}", paginated=False, required_path_parameters=("id",)),
+    "strains_active": MetrcReadResourceSpec("strains_active", "strains", "strains/v2/active"),
+    "packages_by_id": MetrcReadResourceSpec("packages_by_id", "packages", "packages/v2/{id}", paginated=False, required_path_parameters=("id",)),
     "packages_active": MetrcReadResourceSpec("packages_active", "packages", "packages/v2/active"),
+    "locations_by_id": MetrcReadResourceSpec("locations_by_id", "locations", "locations/v2/{id}", paginated=False, required_path_parameters=("id",)),
     "locations_active": MetrcReadResourceSpec("locations_active", "locations", "locations/v2/active"),
     "lab_results": MetrcReadResourceSpec("lab_results", "lab_tests", "labtests/v2/results"),
     "incoming_transfers": MetrcReadResourceSpec("incoming_transfers", "transfers", "transfers/v2/incoming"),
     "outgoing_transfers": MetrcReadResourceSpec("outgoing_transfers", "transfers", "transfers/v2/outgoing"),
+    "rejected_transfers": MetrcReadResourceSpec("rejected_transfers", "transfers", "transfers/v2/rejected"),
     "transfer_templates_outgoing": MetrcReadResourceSpec(
         "transfer_templates_outgoing", "transfer_templates", "transfers/v2/templates/outgoing"
     ),
@@ -73,12 +79,19 @@ METRC_READ_RESOURCES: dict[str, MetrcReadResourceSpec] = {
         "transfers/v2/deliveries/{delivery_id}/packages/wholesale",
         license_scoped=False, required_path_parameters=("delivery_id",),
     ),
+    "plant_batches_by_id": MetrcReadResourceSpec("plant_batches_by_id", "plant_batches", "plantbatches/v2/{id}", paginated=False, required_path_parameters=("id",)),
     "plant_batches_active": MetrcReadResourceSpec("plant_batches_active", "plant_batches", "plantbatches/v2/active"),
+    "plants_by_id": MetrcReadResourceSpec("plants_by_id", "plants", "plants/v2/{id}", paginated=False, required_path_parameters=("id",)),
     "plants_vegetative": MetrcReadResourceSpec("plants_vegetative", "plants", "plants/v2/vegetative"),
     "plants_flowering": MetrcReadResourceSpec("plants_flowering", "plants", "plants/v2/flowering"),
+    "harvests_by_id": MetrcReadResourceSpec("harvests_by_id", "harvests", "harvests/v2/{id}", paginated=False, required_path_parameters=("id",)),
     "harvests_active": MetrcReadResourceSpec("harvests_active", "harvests", "harvests/v2/active"),
+    "processing_by_id": MetrcReadResourceSpec("processing_by_id", "processing_jobs", "processing/v2/{id}", paginated=False, required_path_parameters=("id",)),
     "processing_active": MetrcReadResourceSpec("processing_active", "processing_jobs", "processing/v2/active"),
+    "sales_receipts_by_id": MetrcReadResourceSpec("sales_receipts_by_id", "sales", "sales/v2/receipts/{id}", paginated=False, required_path_parameters=("id",)),
     "sales_receipts_active": MetrcReadResourceSpec("sales_receipts_active", "sales", "sales/v2/receipts/active"),
+    "sales_deliveries_by_id": MetrcReadResourceSpec("sales_deliveries_by_id", "sales", "sales/v2/deliveries/{id}", paginated=False, required_path_parameters=("id",)),
+    "sales_deliveries_active": MetrcReadResourceSpec("sales_deliveries_active", "sales", "sales/v2/deliveries/active"),
     "package_tags_available": MetrcReadResourceSpec("package_tags_available", "tags", "tags/v2/package/available"),
     "plant_tags_available": MetrcReadResourceSpec("plant_tags_available", "tags", "tags/v2/plant/available"),
     "transporter_drivers": MetrcReadResourceSpec("transporter_drivers", "transporters", "transporters/v2/drivers"),
@@ -156,6 +169,10 @@ def payload_rows(payload: Any) -> list[dict[str, Any]]:
             value = payload.get(key)
             if isinstance(value, list):
                 return [dict(row) for row in value if isinstance(row, dict)]
+        # v2 by-ID endpoints commonly return one provider object rather than a
+        # paginated envelope. Preserve it as a single normalized record.
+        if payload:
+            return [dict(payload)]
     return []
 
 
