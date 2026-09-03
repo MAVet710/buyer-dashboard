@@ -211,10 +211,10 @@ test("selected inventory and COA facts arrive unchanged in pre-release review an
   ];
 
   for (const [label, value] of expectedFields) {
-    await expect(review.getByLabel(label)).toHaveValue(value);
+    await expect(review.getByLabel(label, { exact: true })).toHaveValue(value);
   }
 
-  await expect(review.getByLabel("Package / traceability ID")).toHaveJSProperty("readOnly", true);
+  await expect(review.getByLabel("Package / traceability ID", { exact: true })).toHaveJSProperty("readOnly", true);
   await expect(page.getByAltText(`QR code for METRC package ${packageTag}`)).toBeVisible();
   await expect(page.getByAltText(`Code 128 barcode for METRC package ${packageTag}`)).toBeVisible();
 
