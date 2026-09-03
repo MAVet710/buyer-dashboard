@@ -19,6 +19,39 @@ def test_label_production_schema_preserves_one_finished_tag_and_many_sources():
     assert 'A reprint reason is required after the first print.' in source
 
 
+def test_finished_label_inherits_source_lineage_without_copying_source_packaging_claims():
+    source = _read("modules/label_studio_workflow.py")
+    for field in (
+        '"harvest_date"',
+        '"cultivated_by"',
+        '"cultivator_license"',
+        '"total_thc"',
+        '"total_cbd"',
+        '"total_terpenes"',
+        '"laboratory"',
+        '"test_date"',
+        '"coa_reference"',
+        '"batch_number"',
+    ):
+        assert field in source
+    assert '"label": source_label' in source
+    assert 'field in _SOURCE_INHERITED_LABEL_FIELDS' in source
+    assert '"packaged_by"' not in source
+    assert '"package_date"' not in source
+
+
+def test_label_tag_validation_reuses_trusted_synced_metrc_inventory_without_provider_write():
+    service = _read("modules/label_studio_workflow.py")
+    router = _read("backend/app/routers/label_printing.py")
+    assert "MetrcTagInventory" in service
+    assert 'MetrcTagInventory.status == "available"' in service
+    assert "not available in the synchronized METRC package-tag inventory" in service
+    assert "resolve_metrc_context" in router
+    assert "metrc.configured and metrc.trusted_mapping" in router
+    assert "metrc_environment=metrc_environment" in router
+    assert "fetch_all_available_package_tags" not in service
+
+
 def test_label_production_api_is_parallel_to_existing_label_studio_routes():
     router = _read("backend/app/routers/label_printing.py")
     for route in (
@@ -43,6 +76,8 @@ def test_label_studio_workspace_keeps_existing_page_and_adds_simple_operator_flo
     for step in ("1. Source batch", "2. End product", "3. Finished quantity", "4. Build & validate label preview", "5. Scan METRC package tag", "6. Finalize & print"):
         assert step in workflow
     assert 'Retail unit {index+1} of {run.quantity}' in workflow
+    assert '<strong>Source package:</strong> {sourcePackage}' in workflow
+    assert '<strong>Source lot:</strong> {sourceLot}' in workflow
     assert 'Reason required for reprint' in workflow
     assert '/api/v1/label-printing/inventory-sources?summary=true' in workflow
     assert '/api/v1/product-master?operation=production&search=&status=active&item_type=finished_good' in workflow
