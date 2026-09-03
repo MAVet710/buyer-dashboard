@@ -141,6 +141,12 @@ _VERIFIED_API_BASES = {
     "WV": "https://api-wv.metrc.com",
 }
 
+_VERIFIED_SANDBOX_API_BASES = {
+    # Verified directly from Metrc's Massachusetts sandbox deployment details.
+    # Do not infer sandbox hosts for other jurisdictions until Metrc verifies them.
+    "MA": "https://sandbox-api-ma.metrc.com",
+}
+
 _NAME_ALIASES = {name.casefold(): code for code, name in _MARKETS.items()}
 _NAME_ALIASES.update({"washington dc": "DC", "washington d.c.": "DC", "u.s. virgin islands": "VI", "virgin islands": "VI"})
 
@@ -237,6 +243,9 @@ def normalize_jurisdiction(value: str) -> str:
         for code, base in _VERIFIED_API_BASES.items():
             if normalized == base.casefold():
                 return code
+        for code, base in _VERIFIED_SANDBOX_API_BASES.items():
+            if normalized == base.casefold():
+                return code
         return ""
     upper = token.upper()
     if upper in _REGISTRY:
@@ -259,9 +268,23 @@ def list_jurisdictions(*, provider: str = "metrc", active_only: bool = True) -> 
     return tuple(profile for profile in _REGISTRY.values() if profile.active or not active_only)
 
 
-def resolve_metrc_base_url(value: str) -> tuple[str, str]:
+def resolve_metrc_base_url(value: str, *, environment: str = "production") -> tuple[str, str]:
+    """Resolve the trusted Metrc API host for one jurisdiction + environment.
+
+    Production and sandbox are deliberately separate trust domains. Sandbox
+    hosts are never inferred from a state-code pattern; a jurisdiction must have
+    an explicitly verified sandbox host before network traffic can be routed
+    there. This prevents a sandbox-labelled action from reaching production.
+    """
     profile = get_jurisdiction(value)
-    return (profile.api_base, profile.code) if profile else ("", str(value or "").strip().upper())
+    if profile is None:
+        return "", str(value or "").strip().upper()
+    mode = str(environment or "").strip().casefold()
+    if mode == "production":
+        return profile.api_base, profile.code
+    if mode == "sandbox":
+        return _VERIFIED_SANDBOX_API_BASES.get(profile.code, ""), profile.code
+    return "", profile.code
 
 
 def capability_status(jurisdiction: str, capability: str) -> CapabilityStatus:
