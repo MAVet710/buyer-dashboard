@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 from backend.app.services.label_studio_fast import FastLabelInventoryService
 from backend.app.services.label_studio_integrity import (
     normalize_testing_label_source,
-    testing_source_mismatches,
+    testing_source_mismatches as source_mismatches,
 )
 from modules.coman import ComanRepository
 from modules.coman.models import Base, Facility
@@ -153,7 +153,7 @@ def test_selected_source_uses_verified_coa_test_date_despite_conflicting_metadat
     assert source["label"]["batch_number"] == "IK-2026-08"
     assert source["label"]["serial_number"] == "INT-001"
     assert source["label"]["package_date"] == "2026-08-31"
-    assert testing_source_mismatches(source) == []
+    assert source_mismatches(source) == []
 
 
 def test_quality_verification_timestamp_is_never_exposed_as_laboratory_test_date() -> None:
@@ -184,7 +184,15 @@ def test_quality_verification_timestamp_is_never_exposed_as_laboratory_test_date
     with Session(engine) as session, session.begin():
         lot_row = session.get(type(lot), lot.id)
         assert lot_row is not None
-        lot_row.notes = json.dumps({"analysis_date": "2026-08-20", "test_date": "2026-08-21"})
+        lot_row.notes = json.dumps(
+            {
+                "analysis_date": "2026-08-20",
+                "test_date": "2026-08-21",
+                "laboratory": "Old Metadata Lab",
+                "lab_license_number": "OLD-LAB",
+                "total_thc_percent": 99.9,
+            }
+        )
         session.add(
             LotQualityEvidence(
                 lot_id=lot.id,
@@ -192,6 +200,7 @@ def test_quality_verification_timestamp_is_never_exposed_as_laboratory_test_date
                 facility_id=facility.id,
                 lab_testing_state="Passed",
                 coa_reference="legacy-quality-record",
+                total_thc_percent=88.8,
                 evidence_source="manual",
                 actor="qa",
                 verified_at=datetime(2026, 9, 2, 15, 30, tzinfo=timezone.utc),
@@ -202,26 +211,53 @@ def test_quality_verification_timestamp_is_never_exposed_as_laboratory_test_date
 
     assert source["coa"]["available"] is False
     assert source["coa"]["date_tested"] == ""
-    # Neither metadata nor QA verified_at is allowed to masquerade as Date Tested.
-    assert source["label"]["test_date"] == ""
-    assert testing_source_mismatches(source) == []
+    # No unverified QA/metadata value can masquerade as verified lab evidence.
+    for field in (
+        "test_date",
+        "lab_testing_state",
+        "laboratory",
+        "lab_license_number",
+        "coa_reference",
+        "potency",
+        "total_thc",
+        "total_cbd",
+        "total_cannabinoids",
+        "total_terpenes",
+    ):
+        assert source["label"][field] == ""
+    assert source_mismatches(source) == []
 
 
-def test_integrity_boundary_repairs_package_and_test_date_drift() -> None:
+def test_integrity_boundary_clears_stale_coa_owned_values_when_coa_omits_them() -> None:
     source = {
         "package_id": PACKAGE,
-        "label": {"package_id": "WRONG", "qr_value": "WRONG", "test_date": "2026-09-03"},
+        "label": {
+            "package_id": "WRONG",
+            "qr_value": "WRONG",
+            "test_date": "2026-09-03",
+            "lab_testing_state": "Passed",
+            "laboratory": "Old Lab",
+            "lab_license_number": "OLD-LICENSE",
+            "coa_reference": "OLD-COA",
+            "potency": "THCA 99%",
+            "total_thc": "99%",
+            "total_cbd": "99%",
+            "total_cannabinoids": "99%",
+            "total_terpenes": "99%",
+        },
         "coa": {
             "available": True,
             "date_tested": "2026-08-30",
             "overall_status": "pass",
-            "lab_name": "Integrity Cannabis Lab",
-            "lab_license_number": "IL281234",
-            "lab_id": "COA-INTEGRITY-1",
-            "total_thc": 26.84,
-            "total_cbd": 0.12,
-            "total_cannabinoids": 31.2,
-            "total_terpenes": 2.75,
+            "lab_name": "",
+            "lab_license_number": "",
+            "lab_id": "",
+            "filename": "authoritative-coa.pdf",
+            "total_thc": None,
+            "total_cbd": None,
+            "total_cannabinoids": None,
+            "total_terpenes": None,
+            "results": [],
         },
         "qr": {"value": "WRONG", "svg": "<svg/>"},
         "barcode": {"value": "WRONG", "format": "Code128", "svg": "<svg/>"},
@@ -230,8 +266,17 @@ def test_integrity_boundary_repairs_package_and_test_date_drift() -> None:
     normalized = normalize_testing_label_source(source)
 
     assert normalized["label"]["test_date"] == "2026-08-30"
+    assert normalized["label"]["lab_testing_state"] == "Passed"
+    assert normalized["label"]["laboratory"] == ""
+    assert normalized["label"]["lab_license_number"] == ""
+    assert normalized["label"]["coa_reference"] == "authoritative-coa.pdf"
+    assert normalized["label"]["potency"] == ""
+    assert normalized["label"]["total_thc"] == ""
+    assert normalized["label"]["total_cbd"] == ""
+    assert normalized["label"]["total_cannabinoids"] == ""
+    assert normalized["label"]["total_terpenes"] == ""
     assert normalized["label"]["package_id"] == PACKAGE
     assert normalized["label"]["qr_value"] == PACKAGE
     assert normalized["qr"]["value"] == PACKAGE
     assert normalized["barcode"]["value"] == PACKAGE
-    assert testing_source_mismatches(normalized) == []
+    assert source_mismatches(normalized) == []
