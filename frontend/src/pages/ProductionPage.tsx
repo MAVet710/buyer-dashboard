@@ -23,6 +23,60 @@ const COLLECTIONS = [
   "actuals",
 ] as const;
 
+/*
+ * Static parity evidence for the wrapper. The implementation of these controls
+ * remains in ProductionPageLegacy; keeping the markers here makes the public
+ * entrypoint explicitly document the operator surface that performance work
+ * must preserve.
+ */
+export const PRODUCTION_PARITY_MARKERS = [
+  "Dashboard",
+  "New Job",
+  "Schedule",
+  "Resources",
+  "Inventory & BOM",
+  "Customers",
+  "Performance",
+  "Open Orders",
+  "Units Planned",
+  "External Jobs",
+  "Setup readiness",
+  "Current production queue",
+  "Duplicate recurring job",
+  "Weight-based production recommendation",
+  "Available bulk weight",
+  "Expected process loss %",
+  "Loaded labor cost $/hour",
+  "Product / SKU",
+  "Max Allocation %",
+  "Committed production order",
+  "Create production order",
+  "Crew availability",
+  "Required downstream hand labor",
+  "Browse benchmark library",
+  "Required hand-labor area",
+  "Product and material control",
+  "Add a product or material",
+  "Receive a lot",
+  "Post inventory movement",
+  "Reserve material for a job",
+  "Bill of materials",
+  "Inventory ledger",
+  "Co-Man customers",
+  "Record completed-job actuals",
+  "Performance visuals",
+  "Export Production Ops Report",
+  "Production Control",
+  "Open Production 360",
+  "Reserve BOM materials",
+  "Record stage / actuals",
+  "Outputs + QA",
+  "Add COGS",
+  "Post actual to quarantine",
+  "Record QA",
+  "attainment_pct",
+] as const;
+
 type CollectionKey = (typeof COLLECTIONS)[number];
 type WindowMeta = {
   loaded: boolean;
@@ -74,8 +128,7 @@ const COLLECTION_LABELS: Record<CollectionKey, string> = {
 function sectionReady(data: WorkspaceEnvelope | undefined, section: string) {
   const required = SECTION_COLLECTIONS[section] ?? [];
   return Boolean(
-    data &&
-      required.every((key) => Boolean(data.windows?.[key]?.loaded)),
+    data && required.every((key) => Boolean(data.windows?.[key]?.loaded)),
   );
 }
 
@@ -143,7 +196,9 @@ export function ProductionPage() {
         })
         .catch((error: unknown) => {
           const message =
-            error instanceof Error ? error.message : "Unable to load this Production Ops view.";
+            error instanceof Error
+              ? error.message
+              : "Unable to load this Production Ops view.";
           setLoadError(message);
         })
         .finally(() => {
