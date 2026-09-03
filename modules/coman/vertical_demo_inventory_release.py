@@ -5,18 +5,24 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from modules.coman.models import Facility, Organization
+from modules.coman.vertical_demo_integrity import enforce_vertical_demo_integrity
 from modules.coman.vertical_demo_inventory import DEV_FACILITY_CODE, DEV_ORGANIZATION_SLUG, VERTICAL_SEED_ACTOR
 from modules.coman.vertical_demo_inventory_scale import (
     EXPECTED_ACTIVE_PLANTS,
     EXPECTED_EXTRACT_SKUS,
     EXPECTED_FINISHED_SKUS,
     EXPECTED_FLOWER_SKUS,
-    EXPECTED_MOCK_FINISHED_COAS,
     EXPECTED_TOTAL_PLANTS,
     VerticalDevInventoryResult,
     replace_scaled_vertical_dev_inventory as _replace_scaled_vertical_dev_inventory,
     scaled_vertical_inventory_present,
 )
+
+# Public DEV data must not expose synthetic/mock COAs. The lower-level generator
+# may still exercise legacy QA transitions while constructing the graph; the
+# fail-closed release boundary removes every unsupported claim before the reset
+# becomes visible to operators.
+EXPECTED_MOCK_FINISHED_COAS = 0
 
 
 def assert_dev_sandbox_scope(engine: Engine, organization_id: str, facility_id: str) -> None:
@@ -42,15 +48,23 @@ def replace_scaled_vertical_dev_inventory(
     generation: str,
     actor: str = VERTICAL_SEED_ACTOR,
 ) -> VerticalDevInventoryResult:
-    """Guard tenant scope before *any* plant, order, inventory, or catalog mutation."""
+    """Guard scope, build the graph, then enforce operator-visible DEV integrity."""
     assert_dev_sandbox_scope(engine, organization_id, facility_id)
-    return _replace_scaled_vertical_dev_inventory(
+    result = _replace_scaled_vertical_dev_inventory(
         engine,
         organization_id,
         facility_id,
         generation=generation,
         actor=actor,
     )
+    enforce_vertical_demo_integrity(
+        engine,
+        organization_id,
+        facility_id,
+        generation=result.generation,
+        actor=actor,
+    )
+    return result
 
 
 __all__ = [
