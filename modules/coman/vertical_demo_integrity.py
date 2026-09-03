@@ -1,10 +1,10 @@
 """Post-seed integrity boundary for the canonical DEV vertical dataset.
 
 The vertical generator intentionally exercises production services. This boundary
-normalizes synthetic traceability identity into a realistic Metrc-like shape and
-removes old placeholder lab evidence that was never backed by an external source
-certificate. It is restricted to dev-sandbox/SANDBOX and never changes production
-or provider-issued identifiers.
+normalizes current-generation synthetic traceability identity into a realistic
+Metrc-like shape and removes placeholder lab evidence that was never backed by an
+external source certificate. It is restricted to dev-sandbox/SANDBOX and never
+changes production, provider-issued, or retired historical identifiers.
 """
 from __future__ import annotations
 
@@ -33,7 +33,6 @@ def _placeholder_lab_evidence(row: LotQualityEvidence) -> bool:
     return (
         "mock_finished" in source
         or "dev_vertical" in source
-        or source.startswith("inherited:dev_vertical")
         or reference.startswith("dev-mock-")
         or reference.startswith("dev-coa-")
         or "example.invalid/dev-coa" in url
@@ -64,7 +63,8 @@ def enforce_vertical_demo_integrity(
     generation: str,
     actor: str,
 ) -> dict[str, int]:
-    """Normalize DEV-only traceability IDs and strip unsupported demo COA claims."""
+    """Normalize current DEV identifiers and strip unsupported demo COA claims."""
+    normalized_generation = str(generation or "").strip().upper()
     with Session(engine) as session, session.begin():
         organization = session.get(Organization, organization_id)
         facility = session.get(Facility, facility_id)
@@ -76,10 +76,16 @@ def enforce_vertical_demo_integrity(
             select(InventoryLot).where(
                 InventoryLot.organization_id == organization_id,
                 InventoryLot.facility_id == facility_id,
+                InventoryLot.status != "depleted",
             )
         ):
             current = str(lot.compliance_package_id or "").strip()
-            if not current or not current.upper().startswith(("DEV", "PKG-", "PACKAGE-")):
+            current_upper = current.upper()
+            if (
+                not current
+                or not current_upper.startswith(("DEV", "PKG-", "PACKAGE-"))
+                or (normalized_generation and normalized_generation not in current_upper)
+            ):
                 continue
             replacement = synthetic_metrc_tag(f"package:{generation}:{lot.id}:{lot.lot_code}")
             if lot.barcode_value in {"", current}:
@@ -92,10 +98,15 @@ def enforce_vertical_demo_integrity(
             select(CultivationPlant).where(
                 CultivationPlant.organization_id == organization_id,
                 CultivationPlant.facility_id == facility_id,
+                CultivationPlant.phase != "destroyed",
             )
         ):
             current = str(plant.plant_tag or "").strip()
-            if current.upper().startswith("DEV"):
+            current_upper = current.upper()
+            if (
+                current_upper.startswith("DEV")
+                and (not normalized_generation or normalized_generation in current_upper)
+            ):
                 plant.plant_tag = synthetic_metrc_tag(f"plant:{generation}:{plant.id}:{current}")
                 plant_tags += 1
             mother = str(plant.mother_plant_tag or "").strip()
