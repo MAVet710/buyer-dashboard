@@ -5,7 +5,7 @@ export function CultivationOpsPage({ onNavigate }: { onNavigate: (page: string) 
   return <div className="page cultivation-ops-page">
     <div className="page-heading">
       <div>
-        <div className="eyebrow">GROW OPERATIONS</div>
+        <div className="eyebrow">CULTIVATION OPS · GROW OPERATIONS</div>
         <h1>Cultivation</h1>
         <p>Run rooms, plants and groups, nursery work, harvests, cultivation costs, yield, regulatory health, and plant lineage from the living grow workspace.</p>
       </div>
