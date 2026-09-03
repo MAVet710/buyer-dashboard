@@ -15,11 +15,12 @@ def _request(
     user_api_key: str,
     integrator_api_key: str,
     path: str,
+    environment: str = "production",
     params: dict[str, Any] | None = None,
     json_payload: Any = None,
     timeout_seconds: int = 12,
 ) -> dict[str, Any]:
-    base_url, state_code = resolve_metrc_base_url(state)
+    base_url, state_code = resolve_metrc_base_url(state, environment=environment)
     if not base_url:
         return {"ok": False, "status": "missing_state", "message": "Enter a valid Metrc state or API base URL."}
     if not str(integrator_api_key or "").strip():
@@ -83,6 +84,7 @@ def fetch_package_adjustment_reasons(
     user_api_key: str,
     integrator_api_key: str,
     license_number: str,
+    environment: str = "production",
     timeout_seconds: int = 12,
 ) -> dict[str, Any]:
     license_number = str(license_number or "").strip()
@@ -98,6 +100,7 @@ def fetch_package_adjustment_reasons(
             user_api_key=user_api_key,
             integrator_api_key=integrator_api_key,
             path="packages/v2/adjust/reasons",
+            environment=environment,
             params={"licenseNumber": license_number, "pageNumber": page, "pageSize": 20},
             timeout_seconds=timeout_seconds,
         )
@@ -151,6 +154,7 @@ def submit_package_adjustment(
     reason: str,
     reason_note: str = "",
     adjustment_date: date | None = None,
+    environment: str = "production",
     timeout_seconds: int = 12,
 ) -> dict[str, Any]:
     license_number = str(license_number or "").strip()
@@ -181,6 +185,7 @@ def submit_package_adjustment(
         user_api_key=user_api_key,
         integrator_api_key=integrator_api_key,
         path="packages/v2/adjust",
+        environment=environment,
         params={"licenseNumber": license_number},
         json_payload=payload,
         timeout_seconds=timeout_seconds,
