@@ -56,6 +56,7 @@ class PackagingUpdate(BaseModel):
     label_layout: str = Field(default="compact_single", max_length=32)
     label_width_in: float = Field(default=3.5, gt=0, le=12)
     label_height_in: float = Field(default=2.1, gt=0, le=12)
+    label_source_count: int = Field(default=1, ge=1, le=2)
 
 
 class AliasCreate(BaseModel):
@@ -118,6 +119,7 @@ def _packaging(row: ProductPackagingProfile | None) -> dict | None:
             "label_layout",
             "label_width_in",
             "label_height_in",
+            "label_source_count",
         )
     }
 
