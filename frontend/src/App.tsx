@@ -45,7 +45,7 @@ const ExecutiveReportsPage = lazy(() => import("./pages/ExecutiveReportsPage").t
 const ComplianceQAPage = lazy(() => import("./pages/ComplianceQAPage").then(module => ({ default: module.ComplianceQAPage })));
 const OperationsControlTowerPage = lazy(() => import("./pages/OperationsControlTowerPage").then(module => ({ default: module.OperationsControlTowerPage })));
 const EnterpriseControlPage = lazy(() => import("./pages/EnterpriseControlPage").then(module => ({ default: module.EnterpriseControlPage })));
-const LabelStudioPage = lazy(() => import("./pages/LabelStudioPage").then(module => ({ default: module.LabelStudioPage })));
+const LabelStudioWorkspacePage = lazy(() => import("./pages/LabelStudioWorkspacePage").then(module => ({ default: module.LabelStudioWorkspacePage })));
 
 function UnknownWorkspace({ path, onHome }: { path: string; onHome: () => void }) {
   return <section className="inventory-panel state error">
@@ -133,7 +133,7 @@ export default function App() {
     : page === "Compliance" ? <CompliancePage />
     : page === "Traceability Actions" ? <TraceabilityActionsPage onNavigate={navigate} />
     : page === "Compliance Q&A" ? <ComplianceQAPage />
-    : page === "Label Studio" ? <LabelStudioPage />
+    : page === "Label Studio" ? <LabelStudioWorkspacePage />
     : page === "MA Flower Equivalency" ? <MAFlowerEquivalencyPage />
     : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />

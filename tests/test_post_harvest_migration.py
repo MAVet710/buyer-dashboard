@@ -14,7 +14,7 @@ def test_post_harvest_migration_upgrades_rolls_back_and_reupgrades(tmp_path, mon
     monkeypatch.setenv("COMAN_DATABASE_URL", database_url)
     config = Config(str(ROOT / "alembic.ini"))
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0067_post_harvest_workflow")
     engine = create_engine(database_url, future=True)
     with engine.connect() as connection:
         assert MigrationContext.configure(connection).get_current_revision() == "0067_post_harvest_workflow"
@@ -23,7 +23,7 @@ def test_post_harvest_migration_upgrades_rolls_back_and_reupgrades(tmp_path, mon
     with engine.connect() as connection:
         assert MigrationContext.configure(connection).get_current_revision() == "0066_metrc_guide_v11_alignment"
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0067_post_harvest_workflow")
     with engine.connect() as connection:
         assert MigrationContext.configure(connection).get_current_revision() == "0067_post_harvest_workflow"
     engine.dispose()
