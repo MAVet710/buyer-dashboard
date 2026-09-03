@@ -52,7 +52,7 @@ def test_label_tag_validation_reuses_trusted_synced_metrc_inventory_without_prov
     assert "fetch_all_available_package_tags" not in service
 
 
-def test_label_production_api_is_parallel_to_existing_label_studio_routes():
+def test_label_production_api_preserves_existing_label_studio_routes():
     router = _read("backend/app/routers/label_printing.py")
     for route in (
         '@router.post("/production-runs", status_code=201)',
@@ -66,15 +66,26 @@ def test_label_production_api_is_parallel_to_existing_label_studio_routes():
     assert '@router.post("/jobs", status_code=201)' in router
 
 
-def test_label_studio_workspace_keeps_existing_page_and_adds_simple_operator_flow():
+def test_label_studio_workspace_integrates_simple_and_advanced_workflows():
     wrapper = _read("frontend/src/pages/LabelStudioWorkspacePage.tsx")
     workflow = _read("frontend/src/components/InventoryDrivenLabelWorkflow.tsx")
     app = _read("frontend/src/App.tsx")
+    assert 'const [mode,setMode]=useState<LabelStudioMode>("create")' in wrapper
+    assert "Create labels" in wrapper
+    assert "Advanced LabelGuard & templates" in wrapper
     assert "<InventoryDrivenLabelWorkflow />" in wrapper
     assert "<LabelStudioPage />" in wrapper
     assert 'page === "Label Studio" ? <LabelStudioWorkspacePage />' in app
     for step in ("1. Source batch", "2. End product", "3. Finished quantity", "4. Build & validate label preview", "5. Scan METRC package tag", "6. Finalize & print"):
         assert step in workflow
+    assert 'ariaLabel="Search source batches"' in workflow
+    assert 'ariaLabel="Search finished products"' in workflow
+    assert 'role="combobox"' in workflow
+    assert 'Search strain, batch, SKU, or METRC package' in workflow
+    assert 'Search product name, SKU, brand, or format' in workflow
+    assert 'selectedSummary.on_hand' not in workflow
+    assert 'theoretical material' not in workflow
+    assert 'Expected material' not in workflow
     assert 'Retail unit {index+1} of {run.quantity}' in workflow
     assert '<strong>Source package:</strong> {sourcePackage}' in workflow
     assert '<strong>Source lot:</strong> {sourceLot}' in workflow
