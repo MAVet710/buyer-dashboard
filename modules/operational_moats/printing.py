@@ -10,6 +10,10 @@ from typing import Any
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, select
 from sqlalchemy.orm import Mapped, mapped_column, sessionmaker
 
+from modules.coman.dev_sandbox_policy import (
+    DEV_SANDBOX_TEST_PASS_REASON,
+    dev_sandbox_test_pass_active,
+)
 from modules.coman.models import Base, TimestampMixin, new_id, utc_now
 from .models import LabelReview, LabelTemplate
 
@@ -149,6 +153,12 @@ class LabelPrintingService:
         if copies < 1 or copies > 500:
             raise ValueError("Copies must be between 1 and 500.")
         with self.sessions.begin() as session:
+            sandbox_test_pass = dev_sandbox_test_pass_active(
+                session,
+                organization_id,
+                facility_id,
+                role,
+            )
             printer = session.get(PrinterProfile, printer_profile_id)
             template = session.get(LabelTemplate, template_id)
             review = session.get(LabelReview, label_review_id)
@@ -156,17 +166,26 @@ class LabelPrintingService:
                 raise ValueError("Active printer profile was not found in this facility.")
             if not template or template.organization_id != organization_id or (template.facility_id and template.facility_id != facility_id):
                 raise ValueError("Label template was not found in this organization/facility.")
-            if template.status != "active":
+            if template.status != "active" and not sandbox_test_pass:
                 raise ValueError("Only an active, approved label template can be printed.")
             if not review or review.organization_id != organization_id or review.facility_id != facility_id:
                 raise ValueError("LabelGuard review was not found in this facility.")
             if review.template_id != template.id:
                 raise ValueError("LabelGuard review must reference the selected template version.")
-            if review.status == "fail":
+            if review.status == "fail" and not sandbox_test_pass:
                 raise ValueError("LabelGuard failed this label. Printing is blocked until the label passes review.")
             clean_override = str(override_reason or "").strip()
-            if review.status == "warning" and (role not in self.WARNING_OVERRIDE_ROLES or len(clean_override) < 3):
+            if review.status == "warning" and not sandbox_test_pass and (role not in self.WARNING_OVERRIDE_ROLES or len(clean_override) < 3):
                 raise PermissionError("Warning labels require a QA/Admin/DEV override reason before printing.")
+            if sandbox_test_pass:
+                passed_checks: list[str] = []
+                if template.status != "active":
+                    passed_checks.append(f"template_status={template.status}")
+                if review.status in {"warning", "fail"}:
+                    passed_checks.append(f"labelguard_status={review.status}")
+                if passed_checks:
+                    sandbox_reason = f"{DEV_SANDBOX_TEST_PASS_REASON}: " + ", ".join(passed_checks)
+                    clean_override = f"{clean_override}; {sandbox_reason}" if clean_override else sandbox_reason
             layout = _load_json(template.layout_json, {})
             output_format = "zpl" if printer.transport == "zpl" else "browser"
             template_text = str(layout.get("zpl_template") if output_format == "zpl" else layout.get("template") or layout.get("html_template") or "")
