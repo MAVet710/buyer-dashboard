@@ -32,7 +32,7 @@ class CapabilityStatus(StrEnum):
 
 
 CAPABILITIES = (
-    "facilities", "employee_permissions", "items", "packages",
+    "facilities", "employee_permissions", "items", "strains", "packages",
     "package_adjustments", "package_waste", "package_finish_unfinish",
     "locations", "lab_tests", "transfers", "transfer_templates",
     "deliveries", "wholesale_packages", "manifests", "transporters",
@@ -160,6 +160,7 @@ DOCUMENTATION_PENDING_JURISDICTIONS = frozenset(set(_MARKETS) - DOCUMENTATION_VE
 DOCUMENTED_V2_CAPABILITY_ENDPOINTS = {
     "employee_permissions": "GET /employees/v2/permissions",
     "items": "GET /items/v2/active",
+    "strains": "GET /strains/v2/active",
     "packages": "GET /packages/v2/active",
     "package_adjustments": "GET /packages/v2/adjustments",
     "package_finish_unfinish": "PUT /packages/v2/finish",
