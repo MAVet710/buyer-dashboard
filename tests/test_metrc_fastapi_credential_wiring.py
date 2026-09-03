@@ -70,7 +70,7 @@ def test_saved_sandbox_connection_supplies_integrator_key_without_server_env_sec
 
     _, metrc = resolve_metrc_context(
         engine,
-        Settings(integration_encryption_key=ENCRYPTION_KEY, metrc_integrator_key=""),
+        Settings(integration_encryption_key=ENCRYPTION_KEY),
         context,
     )
 
@@ -92,7 +92,7 @@ def test_legacy_single_key_misclassification_fails_closed_as_missing_user_key():
 
     _, metrc = resolve_metrc_context(
         engine,
-        Settings(integration_encryption_key=ENCRYPTION_KEY, metrc_integrator_key=""),
+        Settings(integration_encryption_key=ENCRYPTION_KEY),
         context,
     )
 
@@ -111,7 +111,7 @@ def test_sandbox_vendor_key_is_discoverable_even_before_user_key_is_saved():
 
     _, metrc = resolve_metrc_context(
         engine,
-        Settings(integration_encryption_key=ENCRYPTION_KEY, metrc_integrator_key=""),
+        Settings(integration_encryption_key=ENCRYPTION_KEY),
         context,
     )
 
