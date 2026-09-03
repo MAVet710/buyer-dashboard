@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import uuid
@@ -38,10 +39,14 @@ def _external_id(record: dict[str, Any]) -> str:
 class MetrcFacilityBootstrapService:
     """Prime one mapped facility with provider-owned Metrc state.
 
-    The first pass is intentionally bounded to page 1 / 100 rows per collection.
-    It gives operators useful master/traceability state immediately while durable
-    sync state records where continuation work belongs. Permission-specific 403s
-    are treated as skipped capabilities rather than breaking the whole facility.
+    The initial pass is bounded to page 1 / 100 rows for paginated collections.
+    Provider reads execute concurrently in a small pool, while durable database
+    persistence remains serialized. This keeps onboarding responsive without
+    weakening tenant isolation or provider rate/error handling.
+
+    Permission-specific 403/404 results are recorded as skipped capabilities,
+    because not every Metrc license is supposed to expose cultivation, retail,
+    plant-tag, or other facility-specific surfaces.
     """
 
     NORMALIZED_RESOURCES: tuple[tuple[str, str], ...] = (
@@ -92,6 +97,15 @@ class MetrcFacilityBootstrapService:
                 transport="metrc_facilities",
             ))
 
+        transport = MetrcTransport(
+            state=state,
+            integrator_api_key=integrator_api_key,
+            user_api_key=user_api_key,
+            environment=environment,
+            timeout_seconds=10,
+            max_attempts=1,
+        )
+        jobs: list[tuple[str, str, Callable[[], dict[str, Any]]]] = []
         for local_name, resource in self.NORMALIZED_RESOURCES:
             def fetch(resource_name=resource):
                 return fetch_metrc_resource(
@@ -103,26 +117,10 @@ class MetrcFacilityBootstrapService:
                     license_number=license_number,
                     page_size=100,
                     page_number=1,
-                    timeout_seconds=20,
+                    timeout_seconds=10,
                 )
-            summaries.append(self._fetch_and_persist(
-                organization_id=organization_id,
-                facility_id=facility_id,
-                resource=local_name,
-                environment=environment,
-                actor=actor,
-                fetch=fetch,
-                transport="metrc_normalized_v2",
-            ))
+            jobs.append((local_name, "metrc_normalized_v2", fetch))
 
-        transport = MetrcTransport(
-            state=state,
-            integrator_api_key=integrator_api_key,
-            user_api_key=user_api_key,
-            environment=environment,
-            timeout_seconds=20,
-            max_attempts=2,
-        )
         for local_name, path, paginated in self.DIRECT_RESOURCES:
             params: dict[str, Any] = {}
             if local_name != "units_of_measure":
@@ -135,15 +133,33 @@ class MetrcFacilityBootstrapService:
                 if result.get("ok"):
                     result["records"] = payload_rows(result.get("payload"))
                 return result
+            jobs.append((local_name, "metrc_direct_v2", fetch_direct))
 
-            summaries.append(self._fetch_and_persist(
+        results: dict[str, tuple[str, dict[str, Any] | Exception]] = {}
+        worker_count = max(1, min(5, len(jobs)))
+        with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="metrc-bootstrap") as pool:
+            future_map = {
+                pool.submit(fetch): (resource, transport_name)
+                for resource, transport_name, fetch in jobs
+            }
+            for future in as_completed(future_map):
+                resource, transport_name = future_map[future]
+                try:
+                    results[resource] = (transport_name, future.result())
+                except Exception as exc:
+                    results[resource] = (transport_name, exc)
+
+        # Persist in deterministic order even though provider reads ran concurrently.
+        for resource, transport_name, _ in jobs:
+            _, result = results[resource]
+            summaries.append(self._persist_fetch_result(
                 organization_id=organization_id,
                 facility_id=facility_id,
-                resource=local_name,
+                resource=resource,
                 environment=environment,
                 actor=actor,
-                fetch=fetch_direct,
-                transport="metrc_direct_v2",
+                result=result,
+                transport=transport_name,
             ))
 
         return {
@@ -151,6 +167,7 @@ class MetrcFacilityBootstrapService:
             "environment": environment,
             "license_number": license_number,
             "bounded_initial_sync": True,
+            "page_size": 100,
             "resources": summaries,
             "totals": {
                 "resources": len(summaries),
@@ -161,7 +178,7 @@ class MetrcFacilityBootstrapService:
             },
         }
 
-    def _fetch_and_persist(
+    def _persist_fetch_result(
         self,
         *,
         organization_id: str,
@@ -169,22 +186,40 @@ class MetrcFacilityBootstrapService:
         resource: str,
         environment: str,
         actor: str,
-        fetch: Callable[[], dict[str, Any]],
+        result: dict[str, Any] | Exception,
         transport: str,
     ) -> dict[str, Any]:
-        try:
-            result = fetch()
-        except Exception as exc:
-            return self._failure(organization_id, facility_id, resource, environment, actor, f"{type(exc).__name__}: {exc}")
-
+        if isinstance(result, Exception):
+            return self._failure(
+                organization_id,
+                facility_id,
+                resource,
+                environment,
+                actor,
+                f"{type(result).__name__}: {result}",
+            )
         if not result.get("ok"):
             status = str(result.get("status") or "")
             http_status = int(result.get("http_status") or 0)
             message = str(result.get("message") or "Metrc resource was unavailable.")[:512]
             if http_status in {403, 404} or status in {"forbidden", "regulatory_read_blocked"}:
                 self._mark_skipped(organization_id, facility_id, resource, environment, actor, message)
-                return {"resource": resource, "status": "skipped", "record_count": 0, "message": message, "http_status": http_status}
-            return self._failure(organization_id, facility_id, resource, environment, actor, message, http_status=http_status)
+                return {
+                    "resource": resource,
+                    "status": "skipped",
+                    "record_count": 0,
+                    "message": message,
+                    "http_status": http_status,
+                }
+            return self._failure(
+                organization_id,
+                facility_id,
+                resource,
+                environment,
+                actor,
+                message,
+                http_status=http_status,
+            )
 
         records = [dict(row) for row in result.get("records", []) if isinstance(row, dict)]
         summary = self._persist(
@@ -218,7 +253,7 @@ class MetrcFacilityBootstrapService:
             state.status = "running"
             state.last_started_at = started
             state.last_error = ""
-            attempt = IntegrationSyncAttempt(
+            session.add(IntegrationSyncAttempt(
                 organization_id=organization_id,
                 facility_id=facility_id,
                 provider="metrc",
@@ -228,8 +263,7 @@ class MetrcFacilityBootstrapService:
                 cursor_before=cursor_before,
                 actor=actor,
                 started_at=started,
-            )
-            session.add(attempt)
+            ))
 
         accepted = 0
         duplicates = 0
@@ -298,7 +332,15 @@ class MetrcFacilityBootstrapService:
             "transport": transport,
         }
 
-    def _mark_skipped(self, organization_id: str, facility_id: str, resource: str, environment: str, actor: str, message: str) -> None:
+    def _mark_skipped(
+        self,
+        organization_id: str,
+        facility_id: str,
+        resource: str,
+        environment: str,
+        actor: str,
+        message: str,
+    ) -> None:
         run_id = str(uuid.uuid4())
         now = utc_now()
         with self.sessions.begin() as session:
@@ -329,7 +371,17 @@ class MetrcFacilityBootstrapService:
                 completed_at=now,
             ))
 
-    def _failure(self, organization_id: str, facility_id: str, resource: str, environment: str, actor: str, message: str, *, http_status: int = 0) -> dict[str, Any]:
+    def _failure(
+        self,
+        organization_id: str,
+        facility_id: str,
+        resource: str,
+        environment: str,
+        actor: str,
+        message: str,
+        *,
+        http_status: int = 0,
+    ) -> dict[str, Any]:
         run_id = str(uuid.uuid4())
         now = utc_now()
         with self.sessions.begin() as session:
@@ -357,10 +409,23 @@ class MetrcFacilityBootstrapService:
                 started_at=now,
                 completed_at=now,
             ))
-        return {"resource": resource, "status": "failed", "record_count": 0, "message": message, "http_status": http_status}
+        return {
+            "resource": resource,
+            "status": "failed",
+            "record_count": 0,
+            "message": message,
+            "http_status": http_status,
+        }
 
     @staticmethod
-    def _state(session, organization_id: str, facility_id: str, resource: str, environment: str, actor: str) -> IntegrationSyncState:
+    def _state(
+        session,
+        organization_id: str,
+        facility_id: str,
+        resource: str,
+        environment: str,
+        actor: str,
+    ) -> IntegrationSyncState:
         state = session.scalar(select(IntegrationSyncState).where(
             IntegrationSyncState.organization_id == organization_id,
             IntegrationSyncState.facility_id == facility_id,
