@@ -24,6 +24,9 @@ def test_resolve_metrc_base_url_state_code():
     assert resolve_metrc_base_url("MA") == ("https://api-ma.metrc.com", "MA")
     assert resolve_metrc_base_url("California") == ("https://api-ca.metrc.com", "CA")
     assert resolve_metrc_base_url("https://api-mi.metrc.com/") == ("https://api-mi.metrc.com", "MI")
+    assert resolve_metrc_base_url("MA", environment="sandbox") == ("https://sandbox-api-ma.metrc.com", "MA")
+    assert resolve_metrc_base_url("https://sandbox-api-ma.metrc.com", environment="sandbox") == ("https://sandbox-api-ma.metrc.com", "MA")
+    assert resolve_metrc_base_url("CA", environment="sandbox") == ("", "CA")
 
 
 def test_resolver_rejects_unverified_arbitrary_metrc_url():
@@ -60,6 +63,27 @@ def test_metrc_connection_success_with_license_match(monkeypatch):
     assert result["license_found"] is True
     assert result["facility_count"] == 1
     assert captured["url"] == "https://api-ma.metrc.com/facilities/v2/"
+    assert captured["auth"] == ("integrator-key", "user-key")
+
+
+def test_metrc_connection_uses_verified_ma_sandbox_host(monkeypatch):
+    captured = {}
+
+    def _fake_get(url, auth=None, timeout=None, headers=None):
+        captured["url"] = url
+        captured["auth"] = auth
+        return _DummyResponse(200, [])
+
+    monkeypatch.setattr(requests, "get", _fake_get)
+    result = run_metrc_connection_test(
+        state="MA",
+        environment="sandbox",
+        integrator_api_key="integrator-key",
+        user_api_key="user-key",
+    )
+
+    assert result["ok"] is True
+    assert captured["url"] == "https://sandbox-api-ma.metrc.com/facilities/v2/"
     assert captured["auth"] == ("integrator-key", "user-key")
 
 
