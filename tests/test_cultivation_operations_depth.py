@@ -150,13 +150,17 @@ def test_harvest_weights_are_canonical_grams():
         service.transition_harvest(organization_id, facility_id, harvest["id"], status="active", actor="tester", wet_weight=2, unit="lb")
 
 
-def test_harvest_operations_do_not_import_or_dispatch_metrc_writes():
+def test_harvest_operations_keep_metrc_dispatch_out_of_core_service_and_govern_harvest_360():
     service_source = (ROOT / "modules" / "cultivation" / "service.py").read_text(encoding="utf-8")
     component_source = (ROOT / "frontend" / "src" / "components" / "CultivationOperationsControl.tsx").read_text(encoding="utf-8")
+    controls_source = (ROOT / "frontend" / "src" / "components" / "MetrcHarvestControls.tsx").read_text(encoding="utf-8")
     assert "metrc_" not in service_source.casefold()
     assert "TraceabilityDispatcher" not in service_source
-    assert "No Metrc harvest mutation is issued from Harvest 360" in component_source
-    assert "Metrc plant/harvest writes remain separately fail-closed" in component_source
+    assert "MetrcHarvestControls" in component_source
+    assert "Promoted Metrc harvest checkpoints execute only from Harvest 360 with confirmation, fresh readback, reconciliation, and durable evidence." in component_source
+    assert "provider state is verified before local state changes" in component_source
+    assert "/api/v1/metrc-harvest/actions/preview" in controls_source
+    assert "/api/v1/metrc-harvest/actions/execute" in controls_source
 
 
 def test_cultivation_api_and_frontend_expose_room_harvest_and_cost_depth_without_recreating_harvest_table():
