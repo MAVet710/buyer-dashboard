@@ -7,6 +7,7 @@ import json
 from typing import Any, Mapping
 
 from sqlalchemy import Engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from modules.coman.models import Facility, utc_now
@@ -122,12 +123,8 @@ class TraceabilityRepository:
         if not all((clean_operation, clean_entity_type, clean_entity_id, clean_idempotency, clean_actor)):
             raise ValueError("Operation, entity, idempotency key, and actor are required.")
 
-        with self._session_factory.begin() as session:
-            facility = session.get(Facility, facility_id)
-            if not facility or facility.organization_id != organization_id:
-                raise ValueError("Facility does not belong to the organization.")
-
-            existing = session.scalar(
+        def existing_transaction(session) -> TraceabilityTransaction | None:
+            return session.scalar(
                 select(TraceabilityTransaction).where(
                     TraceabilityTransaction.organization_id == organization_id,
                     TraceabilityTransaction.facility_id == facility_id,
@@ -135,29 +132,47 @@ class TraceabilityRepository:
                     TraceabilityTransaction.idempotency_key == clean_idempotency,
                 )
             )
-            if existing is not None:
-                return existing
 
-            transaction = TraceabilityTransaction(
-                organization_id=organization_id,
-                facility_id=facility_id,
-                provider=normalized_provider,
-                jurisdiction=_clean(jurisdiction).upper(),
-                environment=_clean(environment).casefold(),
-                license_number=_clean(license_number),
-                direction=clean_direction,
-                operation_type=clean_operation,
-                entity_type=clean_entity_type,
-                entity_id=clean_entity_id,
-                idempotency_key=clean_idempotency,
-                request_payload_json=_payload_json(request_payload),
-                local_state_json=_payload_json(local_state),
-                reason=_clean(reason),
-                requested_by=clean_actor,
-            )
-            session.add(transaction)
-            session.flush()
-            return transaction
+        try:
+            with self._session_factory.begin() as session:
+                facility = session.get(Facility, facility_id)
+                if not facility or facility.organization_id != organization_id:
+                    raise ValueError("Facility does not belong to the organization.")
+
+                existing = existing_transaction(session)
+                if existing is not None:
+                    return existing
+
+                transaction = TraceabilityTransaction(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    provider=normalized_provider,
+                    jurisdiction=_clean(jurisdiction).upper(),
+                    environment=_clean(environment).casefold(),
+                    license_number=_clean(license_number),
+                    direction=clean_direction,
+                    operation_type=clean_operation,
+                    entity_type=clean_entity_type,
+                    entity_id=clean_entity_id,
+                    idempotency_key=clean_idempotency,
+                    request_payload_json=_payload_json(request_payload),
+                    local_state_json=_payload_json(local_state),
+                    reason=_clean(reason),
+                    requested_by=clean_actor,
+                )
+                session.add(transaction)
+                session.flush()
+                return transaction
+        except IntegrityError:
+            # Two first-time requests can both miss the initial SELECT. The
+            # database uniqueness constraint is the final arbiter; after the
+            # losing insert rolls back, reuse the winner rather than leaking a
+            # 500 or allowing callers to invent a second confirmation.
+            with self._session_factory() as session:
+                existing = existing_transaction(session)
+                if existing is not None:
+                    return existing
+            raise
 
     def get_transaction(
         self,
