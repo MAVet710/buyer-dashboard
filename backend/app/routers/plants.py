@@ -27,6 +27,7 @@ from ..schemas.plants import (
     PlantTransition,
 )
 from ..services.cultivation_reconciliation import CultivationMetrcReconciliationService
+from ..services.cultivation_regulatory_guard import CultivationRegulatoryGuard
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
 
 router = APIRouter(prefix="/inventory/production/plants", tags=["cultivation"])
@@ -162,6 +163,13 @@ def transition_cultivation_group(
     if payload.phase is None and payload.room_code is None:
         raise HTTPException(422, "Choose a phase and/or room change for this cultivation group.")
     try:
+        CultivationRegulatoryGuard(engine).require_local_only_allowed(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            entity_type="cultivation_group",
+            entity_ids=[group_id],
+            action_label="This group phase/room change",
+        )
         return CultivationBatchService(engine).transition_group(
             context.organization_id,
             context.facility_id,
@@ -413,6 +421,13 @@ def transition_plant(
     require_write(context)
     require_cultivation(context, engine)
     try:
+        CultivationRegulatoryGuard(engine).require_local_only_allowed(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            entity_type="cultivation_plant",
+            entity_ids=[plant_id],
+            action_label="This plant phase/room change",
+        )
         return item(
             CultivationService(engine).transition(
                 context.organization_id,
