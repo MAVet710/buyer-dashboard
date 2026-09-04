@@ -3,8 +3,9 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 
+from modules.integrations.models import IntegrationSyncAttempt
 from modules.integrations.provider_snapshot import IntegrationProviderSnapshotRepository
 from services.metrc_facility_bootstrap import MetrcFacilityBootstrapService as BaseMetrcFacilityBootstrapService
 
@@ -46,6 +47,37 @@ class SnapshottingMetrcFacilityBootstrapService(BaseMetrcFacilityBootstrapServic
             records=records,
         )
         return {"status": "current", "snapshot_run_id": run_id, **stats}
+
+    def _mark_incomplete_snapshot_evidence(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        resource: str,
+        environment: str,
+        actor: str,
+    ) -> None:
+        """Correct the base cursor when a bounded provider read was incomplete."""
+
+        message = "Provider collection exceeded the defensive bootstrap page ceiling; current membership was not replaced."
+        with self.sessions.begin() as session:
+            state = self._state(session, organization_id, facility_id, resource, environment, actor)
+            state.cursor = "initial-incomplete"
+            state.last_error = message
+            state.updated_by = actor
+            attempt = session.scalar(
+                select(IntegrationSyncAttempt)
+                .where(
+                    IntegrationSyncAttempt.organization_id == organization_id,
+                    IntegrationSyncAttempt.facility_id == facility_id,
+                    IntegrationSyncAttempt.provider == "metrc",
+                    IntegrationSyncAttempt.resource == resource,
+                )
+                .order_by(IntegrationSyncAttempt.started_at.desc())
+            )
+            if attempt is not None and attempt.status == "succeeded":
+                attempt.cursor_after = "initial-incomplete"
+                attempt.error_message = message
 
     def _persist(
         self,
@@ -92,7 +124,7 @@ class SnapshottingMetrcFacilityBootstrapService(BaseMetrcFacilityBootstrapServic
         transport: str,
     ) -> dict[str, Any]:
         if isinstance(result, Exception):
-            return self._failure(
+            failure = self._failure(
                 organization_id,
                 facility_id,
                 resource,
@@ -100,6 +132,8 @@ class SnapshottingMetrcFacilityBootstrapService(BaseMetrcFacilityBootstrapServic
                 actor,
                 f"{type(result).__name__}: {result}",
             )
+            failure["current_snapshot"] = {"status": "unchanged_failed_read"}
+            return failure
 
         if not result.get("ok"):
             status = str(result.get("status") or "")
@@ -147,6 +181,13 @@ class SnapshottingMetrcFacilityBootstrapService(BaseMetrcFacilityBootstrapServic
         summary["truncated"] = bool(result.get("truncated"))
 
         if summary["truncated"]:
+            self._mark_incomplete_snapshot_evidence(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                resource=resource,
+                environment=environment,
+                actor=actor,
+            )
             summary["current_snapshot"] = {
                 "status": "unchanged_incomplete_read",
                 "reason": "The provider collection exceeded the defensive bootstrap page ceiling.",
