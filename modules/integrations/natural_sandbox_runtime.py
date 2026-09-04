@@ -5,6 +5,7 @@ from typing import Any
 from modules.coman.models import Facility
 from services.metrc_workspace_hydration import MetrcWorkspaceHydrationService
 
+from .provider_snapshot import IntegrationProviderSnapshotRepository
 from .sandbox_runtime import ADAPTERS, PROVIDER_IDS, SandboxIntegrationRuntime as BaseSandboxIntegrationRuntime
 
 
@@ -12,10 +13,11 @@ class NaturalSandboxIntegrationRuntime(BaseSandboxIntegrationRuntime):
     """Sandbox runtime that makes successful Metrc reads visible where operators work.
 
     The legacy sandbox adapter is still a deterministic fixture. After the durable
-    provider-sync ledger succeeds, the exact same fixture snapshot is routed through
-    the production-shaped Metrc workspace hydration service. This keeps the DEV
-    acceptance path honest: items appear in Product Master, packages appear in
-    Inventory, and transfers remain provider-owned state for Transfer Control.
+    provider-sync ledger succeeds, the exact same fixture snapshot is written to the
+    current provider mirror and routed through the production-shaped Metrc workspace
+    hydration service. This keeps the DEV acceptance path honest: items appear in
+    Product Master, packages appear in Inventory, and transfers remain provider-owned
+    state for Transfer Control.
 
     Production writes remain disabled. This class does not turn fixture records into
     Metrc writes or fabricate local manifest/receiving actions.
@@ -52,13 +54,31 @@ class NaturalSandboxIntegrationRuntime(BaseSandboxIntegrationRuntime):
         resources = (resource.strip().casefold(),) if resource.strip() else ADAPTERS["metrc"].resources
         scope_seed = f"{organization_id}:{facility_id}"
         snapshots: dict[str, list[dict[str, Any]]] = {}
+        current_snapshot = IntegrationProviderSnapshotRepository(self.engine)
+        summary_by_resource = {
+            str(summary.get("resource") or ""): summary
+            for summary in result.get("resources", [])
+            if isinstance(summary, dict)
+        }
+        current_counts: dict[str, dict[str, int]] = {}
         for name in resources:
             records = ADAPTERS["metrc"].fixture_records(
                 resource=name,
                 configuration=configuration,
                 scope_seed=scope_seed,
             )
-            snapshots[name] = self._enrich_metrc_fixture(name, records, scope_seed)
+            enriched = self._enrich_metrc_fixture(name, records, scope_seed)
+            snapshots[name] = enriched
+            run_id = str(summary_by_resource.get(name, {}).get("run_id") or f"sandbox-{name}")
+            current_counts[name] = current_snapshot.replace(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                provider=PROVIDER_IDS["metrc"],
+                environment="sandbox",
+                resource=name,
+                run_id=run_id,
+                records=enriched,
+            )
 
         with self.sessions() as session:
             facility = session.get(Facility, facility_id)
@@ -66,6 +86,12 @@ class NaturalSandboxIntegrationRuntime(BaseSandboxIntegrationRuntime):
         state = str(configuration.get("state") or "MA").strip().upper() or "MA"
         license_number = str(configuration.get("license_number") or local_license or "SANDBOX").strip()
 
+        result["current_snapshot"] = {
+            "provider": PROVIDER_IDS["metrc"],
+            "environment": "sandbox",
+            "resources": current_counts,
+            "network_request_required_for_workspace_reads": False,
+        }
         result["workspace_hydration"] = MetrcWorkspaceHydrationService(self.engine).hydrate(
             organization_id=organization_id,
             facility_id=facility_id,
