@@ -87,6 +87,12 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 settings.validate_production()
 
+# Public hosted storefronts are served from customer-specific first-level
+# DoobieLogic subdomains. Keep the normal explicit origin allowlist for the
+# authenticated operations app, and allow only HTTPS origins that are actually
+# under doobielogic.io for the hosted storefront browser runtime. CORS remains
+# a browser boundary rather than an authorization mechanism; protected API
+# routes still require their existing tenant/auth dependencies.
 DOOBIELOGIC_SUBDOMAIN_ORIGIN_REGEX = r"^https://[a-z0-9-]+\.doobielogic\.io$"
 
 
@@ -228,9 +234,15 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
 
 app.include_router(trial_router, prefix=settings.api_prefix)
 app.include_router(beta_router, prefix=settings.api_prefix)
+# Register trusted regulatory inventory GET routes before the legacy inventory
+# router so the same browser URLs fail closed on exact Metrc mapping/environment.
 app.include_router(inventory_reconciliation_router, prefix=settings.api_prefix)
 app.include_router(inventory_router, prefix=settings.api_prefix)
 app.include_router(inventory_transfers_router, prefix=settings.api_prefix)
+# The guide-v11 router intentionally precedes the broader readiness router for
+# the handful of overlapping paths where the supplied Metrc manual adds stricter
+# lifecycle semantics (midnight harvest cutoff, waste discontinue/unfinish, and
+# receive-quantity/UOM exceptions).
 # Guard provider-confirmed harvest shortcuts before the legacy readiness routers.
 app.include_router(metrc_harvest_legacy_guard_router, prefix=settings.api_prefix)
 app.include_router(metrc_guide_v11_router, prefix=settings.api_prefix)
