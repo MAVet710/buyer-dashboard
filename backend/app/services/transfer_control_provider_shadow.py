@@ -53,6 +53,8 @@ def _direction(resource: str, source: dict[str, Any]) -> str:
         return "incoming"
     if resource == "outgoing_transfers":
         return "outgoing"
+    if resource == "rejected_transfers":
+        return "rejected"
     value = _text(_first(source, "Direction", "TransferDirection", "direction")).casefold()
     return "incoming" if value.startswith("in") else "outgoing" if value.startswith("out") else "unknown"
 
@@ -88,26 +90,31 @@ class ProviderAwareTransferControlService(TransferControlService):
     def snapshot(self, organization_id: str, facility_id: str) -> dict[str, Any]:
         snapshot = super().snapshot(organization_id, facility_id)
         provider_rows = self._provider_rows(organization_id, facility_id)
-        provider_outgoing = [row for row in provider_rows if row["direction"] != "incoming"]
+        provider_rejected = [row for row in provider_rows if row["direction"] == "rejected"]
+        provider_outgoing = [row for row in provider_rows if row["direction"] in {"outgoing", "unknown"}]
         provider_inbound = [row for row in provider_rows if row["direction"] == "incoming"]
 
         snapshot["outgoing"] = [self._as_outgoing(row) for row in provider_outgoing] + snapshot["outgoing"]
         snapshot["inbound"] = [self._as_inbound(row) for row in provider_inbound] + snapshot["inbound"]
+        provider_exceptions = [self._as_exception(row) for row in provider_rejected]
+        snapshot["exceptions"] = provider_exceptions + snapshot["exceptions"]
 
         open_outgoing = sum(_is_open(row["status"]) for row in provider_outgoing)
         open_inbound = sum(_is_open(row["status"]) for row in provider_inbound)
         snapshot["metrics"]["outgoing_open"] += open_outgoing
         snapshot["metrics"]["inbound_open"] += open_inbound
         snapshot["metrics"]["provider_in_flight"] += open_outgoing + open_inbound
+        snapshot["metrics"]["exceptions"] += len(provider_exceptions)
         snapshot["provider_synced"] = {
             "count": len(provider_rows),
             "open": open_outgoing + open_inbound,
+            "rejected": len(provider_rejected),
             "source": "integration_provider_snapshots",
             "network_request_made": False,
         }
         snapshot["policy"]["message"] = (
             "Durable DoobieLogic transfer state and the current successfully synced provider transfer snapshot load without contacting Metrc. "
-            "Provider-synced rows are read-only shadows; DoobieLogic never fabricates a manifest proposal or receiving event from an existing provider record."
+            "Provider-synced rows are read-only shadows; rejected provider transfers surface in the exception queue, and DoobieLogic never fabricates a manifest proposal or receiving event from an existing provider record."
         )
         return snapshot
 
@@ -139,10 +146,11 @@ class ProviderAwareTransferControlService(TransferControlService):
             external_id = _text(record.external_id or _first(source, "Id", "ID", "id"))
             if not external_id:
                 continue
-            status = _provider_status(source)
+            status = "rejected" if record.resource == "rejected_transfers" else _provider_status(source)
             output.append(
                 {
                     "provider": record.provider,
+                    "environment": record.environment,
                     "resource": record.resource,
                     "external_id": external_id,
                     "direction": _direction(record.resource, source),
@@ -155,6 +163,7 @@ class ProviderAwareTransferControlService(TransferControlService):
                     "package_count": _package_count(source),
                     "departure": _text(_first(source, "EstimatedDepartureDateTime", "DepartureDateTime", "departure")),
                     "arrival": _text(_first(source, "EstimatedArrivalDateTime", "ArrivalDateTime", "arrival")),
+                    "reason": _text(_first(source, "Reason", "RejectionReason", "RejectReason", "Notes", "reason")),
                     "last_seen_at": record.last_seen_at.isoformat() if record.last_seen_at is not None else None,
                 }
             )
@@ -186,6 +195,7 @@ class ProviderAwareTransferControlService(TransferControlService):
             "mismatch_reason": "",
             "provider_synced": True,
             "provider": row["provider"],
+            "environment": row["environment"],
         }
 
     @staticmethod
@@ -197,7 +207,7 @@ class ProviderAwareTransferControlService(TransferControlService):
             "status": row["status"].strip().casefold().replace(" ", "_") or "provider_synced",
             "provider": row["provider"],
             "jurisdiction": "",
-            "environment": "sandbox" if row["provider"] == "metrc_sandbox" else "production",
+            "environment": row["environment"],
             "manifest": row["manifest"],
             "vendor": row["vendor"],
             "vendor_license": row["vendor_license"],
@@ -207,4 +217,25 @@ class ProviderAwareTransferControlService(TransferControlService):
             "received_count": 0,
             "reason": "Provider-synced transfer. Prepare a controlled receiving preflight before posting local inventory.",
             "provider_synced": True,
+        }
+
+    @staticmethod
+    def _as_exception(row: dict[str, Any]) -> dict[str, Any]:
+        reference = row["manifest"] or row["external_id"]
+        return {
+            "kind": "provider_rejected",
+            "reference": reference,
+            "status": "rejected",
+            "message": row["reason"] or "Metrc reports this transfer as rejected. Review the provider record before taking further action.",
+            "provider_synced": True,
+            "provider": row["provider"],
+            "environment": row["environment"],
+            "transfer_id": row["external_id"],
+            "manifest": row["manifest"],
+            "vendor": row["vendor"],
+            "vendor_license": row["vendor_license"],
+            "recipient": row["recipient"],
+            "recipient_license": row["recipient_license"],
+            "package_count": row["package_count"],
+            "last_seen_at": row["last_seen_at"],
         }
