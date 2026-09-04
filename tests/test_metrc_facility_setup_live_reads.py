@@ -27,6 +27,11 @@ def live_metrc(monkeypatch: pytest.MonkeyPatch):
         state="MA",
         license_number="LIC-TEST",
         environment="sandbox",
+        configured=True,
+        status="connected",
+        trusted_mapping=True,
+        user_api_key="user-key",
+        integrator_api_key="integrator-key",
     )
     transport = FakeTransport()
     monkeypatch.setattr(location_settings, "_trusted_metrc", lambda *_args, **_kwargs: (None, metrc))
@@ -126,7 +131,7 @@ def test_transportation_live_read_loads_drivers_and_vehicles(live_metrc):
     assert all(query == {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1} for _, query in transport.calls)
 
 
-def test_preview_accepts_documentation_verified_jurisdiction_but_never_dispatches(live_metrc):
+def test_preview_accepts_documentation_verified_jurisdiction_but_never_dispatches_unpromoted_action(live_metrc):
     metrc, _ = live_metrc
     metrc.state = "RI"
     request = location_settings.MetrcActionPreview(
@@ -149,7 +154,35 @@ def test_preview_accepts_documentation_verified_jurisdiction_but_never_dispatche
         "body": [{"Name": "Reserve"}],
     }
     assert result["dispatch_enabled"] is False
+    assert result["confirmation_id"] == ""
+    assert result["confirmation_token"] == ""
     assert result["requires_human_confirmation"] is True
+
+
+def test_ma_master_data_preview_promotes_exact_write_and_binds_confirmation(live_metrc):
+    request = location_settings.MetrcActionPreview(
+        operation_type="location_create",
+        payload={"name": "Flower Room 2", "location_type_name": "Default", "unexpected": "drop"},
+    )
+    result = location_settings.metrc_action_preview(
+        request=request,
+        context=SimpleNamespace(role="admin"),
+        engine=object(),
+        settings=object(),
+    )
+
+    assert result["dispatch_enabled"] is True
+    assert result["operation"]["dispatch_enabled"] is True
+    assert result["operation"]["verification_status"] == "ma_sandbox_write_readback_promoted"
+    assert result["provider_request"] == {
+        "method": "POST",
+        "path": "locations/v2/",
+        "query": {"licenseNumber": "LIC-TEST"},
+        "body": [{"Name": "Flower Room 2", "LocationTypeName": "Default"}],
+    }
+    assert result["confirmation_id"]
+    assert len(result["confirmation_token"]) == 64
+    assert "fresh exact by-ID readback" in result["message"]
 
 
 def test_preview_rejects_jurisdiction_without_direct_documentation_verification(live_metrc):
@@ -202,33 +235,53 @@ def test_frontend_keeps_live_provider_reads_opt_in_and_visible():
         "Transport drivers",
         "Transport vehicles",
         "Provider-changing actions",
-        "Network writes remain fail-closed",
+        "reconciliation instead of blind retry",
     ):
         assert label in source
     assert source.count("enabled: false") >= 7
 
 
-def test_frontend_exposes_bounded_preview_forms_without_execute_controls():
+def test_frontend_exposes_simple_master_data_actions_and_governed_confirmation():
     source = (ROOT / "frontend/src/pages/LocationSettingsPage.tsx").read_text(encoding="utf-8")
     for label in (
-        "Prepare a Metrc item",
-        "Advanced item fields",
-        "Prepare item request",
-        "Prepare an item brand",
-        "Prepare brand request",
-        "Prepare a Processing Job Type",
-        "Prepare process request",
-        "Prepare an additive template",
-        "Prepare additive request",
-        "Prepare a transport driver",
-        "Prepare driver request",
-        "Prepare a transport vehicle",
-        "Prepare vehicle request",
-        "Metrc request preview",
+        "Create room",
+        "Edit an existing room",
+        "Create strain",
+        "Edit an existing strain",
+        "Create a Metrc item",
+        "Edit an existing Metrc item",
+        "Review Metrc change",
+        "Confirm & submit to Metrc",
+        "Compliance evidence details",
+        "Verified in Metrc",
     ):
         assert label in source
     for operation in (
+        'operation_type: "location_create"',
+        'operation_type: "location_update"',
+        'operation_type: "strain_create"',
+        'operation_type: "strain_update"',
         'operation_type: "item_create"',
+        'operation_type: "item_update"',
+    ):
+        assert operation in source
+    assert "/api/v1/location-settings/metrc-action-preview" in source
+    assert "/api/v1/location-settings/metrc-action-execute" in source
+
+
+def test_frontend_keeps_unpromoted_provider_actions_review_only():
+    source = (ROOT / "frontend/src/pages/LocationSettingsPage.tsx").read_text(encoding="utf-8")
+    for label in (
+        "Review sublocation request",
+        "Review brand request",
+        "Review process request",
+        "Review additive request",
+        "Review driver request",
+        "Review vehicle request",
+        "Preview only",
+    ):
+        assert label in source
+    for operation in (
         'operation_type: "brand_create"',
         'operation_type: "processing_job_type_create"',
         'operation_type: "additive_template_create"',
@@ -236,5 +289,3 @@ def test_frontend_exposes_bounded_preview_forms_without_execute_controls():
         'operation_type: "vehicle_create"',
     ):
         assert operation in source
-    assert "Execute Metrc" not in source
-    assert "Submit to Metrc" not in source
