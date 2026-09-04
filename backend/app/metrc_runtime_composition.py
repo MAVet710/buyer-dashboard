@@ -18,8 +18,12 @@ def compose_metrc_runtime() -> None:
     from fastapi import HTTPException
 
     from services import metrc_facility_bootstrap as metrc_facility_bootstrap
+    from services import metrc_incremental_sync as metrc_incremental_sync_module
+    from services.metrc_expanded_workspace_hydration import (
+        MetrcWorkspaceHydrationService as ExpandedMetrcWorkspaceHydrationService,
+    )
+    from services.metrc_natural_bootstrap import NaturalMetrcFacilityBootstrapService
     from services.metrc_rate_limit_policy import install_metrc_rate_limit_policy
-    from services.metrc_resilient_bootstrap import ResilientSnapshottingMetrcFacilityBootstrapService
 
     from .routers import alpha_sandbox_connections
     from .routers import inventory_reconciliation
@@ -36,6 +40,7 @@ def compose_metrc_runtime() -> None:
     from .routers.metrc_production_snapshot import router as metrc_production_snapshot_router
     from .routers.metrc_retail_snapshot import router as metrc_retail_snapshot_router
     from .routers.regulatory_detail import router as regulatory_detail_router
+    from .services import metrc_natural_sync as metrc_natural_sync_module
     from .services.metrc_context import resolve_metrc_context
     from .services.metrc_natural_sync import MetrcNaturalSyncControlService
 
@@ -43,11 +48,17 @@ def compose_metrc_runtime() -> None:
     # Installing here avoids any import-time dependency loop through traceability.
     install_metrc_rate_limit_policy()
 
-    # sandbox_integrations imported the bootstrap class by value. Patch both the
-    # service module and the router module so every authenticated initial-sync path
-    # uses the resilient snapshot/checkpoint implementation.
-    metrc_facility_bootstrap.MetrcFacilityBootstrapService = ResilientSnapshottingMetrcFacilityBootstrapService
-    sandbox_integrations.MetrcFacilityBootstrapService = ResilientSnapshottingMetrcFacilityBootstrapService
+    # Compose one final authenticated bootstrap: resilient page checkpointing +
+    # current provider snapshots + canonical natural-workspace hydration. Modules
+    # that imported earlier classes by value are explicitly rebound here.
+    metrc_facility_bootstrap.MetrcFacilityBootstrapService = NaturalMetrcFacilityBootstrapService
+    sandbox_integrations.MetrcFacilityBootstrapService = NaturalMetrcFacilityBootstrapService
+    metrc_natural_sync_module.ResilientSnapshottingMetrcFacilityBootstrapService = NaturalMetrcFacilityBootstrapService
+
+    # Incremental sync keeps its non-destructive delta algorithm but routes newly
+    # changed provider objects through the expanded Product/Inventory/Cultivation
+    # materializer rather than the earlier Product/Inventory-only implementation.
+    metrc_incremental_sync_module.MetrcWorkspaceHydrationService = ExpandedMetrcWorkspaceHydrationService
 
     # Attach locally synchronized regulatory projections before main.py includes
     # these parent routers into the FastAPI application.
