@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from backend.app.services.transfer_control_provider_shadow import ProviderAwareTransferControlService
 from modules.coman.models import Base, Facility, InventoryLot, InventoryTransaction, Organization, Product
 from modules.integrations import IntegrationConfigurationService, SandboxIntegrationRuntime
+from modules.integrations.models import IntegrationProviderSnapshot
+from modules.integrations.provider_snapshot import IntegrationProviderSnapshotRepository
 from modules.product_master.models import ProductMasterProfile
 from modules.traceability.object_links import TraceabilityObjectLink
 
@@ -65,6 +67,10 @@ def test_successful_metrc_sandbox_sync_materializes_items_packages_and_keeps_tra
     assert hydration["workspaces"]["inventory"]["created_inventory_lots"] == 3
     assert hydration["workspaces"]["inventory"]["created_inventory_transactions"] == 3
     assert hydration["workspaces"]["transfer_control"]["source_transfer_count"] == 2
+    assert first["current_snapshot"]["network_request_required_for_workspace_reads"] is False
+    assert first["current_snapshot"]["resources"]["items"]["present"] == 3
+    assert first["current_snapshot"]["resources"]["packages"]["present"] == 3
+    assert first["current_snapshot"]["resources"]["transfers"]["present"] == 2
 
     with Session(engine) as session:
         products = list(session.scalars(select(Product).where(Product.organization_id == "org-natural")))
@@ -72,6 +78,10 @@ def test_successful_metrc_sandbox_sync_materializes_items_packages_and_keeps_tra
         lots = list(session.scalars(select(InventoryLot).where(InventoryLot.facility_id == "fac-natural")))
         transactions = list(session.scalars(select(InventoryTransaction).where(InventoryTransaction.facility_id == "fac-natural")))
         links = list(session.scalars(select(TraceabilityObjectLink).where(TraceabilityObjectLink.facility_id == "fac-natural")))
+        current = list(session.scalars(select(IntegrationProviderSnapshot).where(
+            IntegrationProviderSnapshot.facility_id == "fac-natural",
+            IntegrationProviderSnapshot.present.is_(True),
+        )))
 
     assert {product.name for product in products} == {"Sandbox Flower", "Sandbox Distillate", "Sandbox Live Resin"}
     assert len(profiles) == 3
@@ -81,6 +91,7 @@ def test_successful_metrc_sandbox_sync_materializes_items_packages_and_keeps_tra
     assert len([link for link in links if link.provider_resource == "items"]) == 3
     assert len([link for link in links if link.provider_resource == "packages"]) == 3
     assert all(link.license_number == "SAN-MA-001" for link in links)
+    assert len(current) == 8
 
     second = runtime.sync(
         organization_id="org-natural",
@@ -91,14 +102,19 @@ def test_successful_metrc_sandbox_sync_materializes_items_packages_and_keeps_tra
     assert second["workspace_hydration"]["workspaces"]["product_master"]["created_products"] == 0
     assert second["workspace_hydration"]["workspaces"]["inventory"]["created_inventory_lots"] == 0
     assert second["workspace_hydration"]["workspaces"]["inventory"]["created_inventory_transactions"] == 0
+    assert second["current_snapshot"]["resources"]["transfers"]["updated"] == 2
 
     with Session(engine) as session:
         assert len(list(session.scalars(select(Product).where(Product.organization_id == "org-natural")))) == 3
         assert len(list(session.scalars(select(InventoryLot).where(InventoryLot.facility_id == "fac-natural")))) == 3
         assert len(list(session.scalars(select(InventoryTransaction).where(InventoryTransaction.facility_id == "fac-natural")))) == 3
+        assert len(list(session.scalars(select(IntegrationProviderSnapshot).where(
+            IntegrationProviderSnapshot.facility_id == "fac-natural",
+            IntegrationProviderSnapshot.present.is_(True),
+        )))) == 8
 
 
-def test_transfer_control_naturally_surfaces_last_synced_metrc_transfers_without_fabricating_workflow_rows():
+def test_transfer_control_naturally_surfaces_current_synced_metrc_transfers_without_fabricating_workflow_rows():
     engine = _runtime()
     SandboxIntegrationRuntime(engine, ENCRYPTION_KEY).sync(
         organization_id="org-natural",
@@ -112,7 +128,7 @@ def test_transfer_control_naturally_surfaces_last_synced_metrc_transfers_without
     assert snapshot["provider_synced"] == {
         "count": 2,
         "open": 2,
-        "source": "integration_sync_records",
+        "source": "integration_provider_snapshots",
         "network_request_made": False,
     }
     assert snapshot["metrics"]["provider_in_flight"] == 2
@@ -124,3 +140,47 @@ def test_transfer_control_naturally_surfaces_last_synced_metrc_transfers_without
     assert snapshot["inbound"][0]["operation"] == "provider_sync"
     assert snapshot["outgoing"][0]["proposal_id"].startswith("provider-shadow:")
     assert snapshot["inbound"][0]["preflight_id"].startswith("provider-shadow:")
+
+
+def test_complete_provider_snapshot_removes_rows_that_are_no_longer_present():
+    engine = _runtime()
+    runtime = SandboxIntegrationRuntime(engine, ENCRYPTION_KEY)
+    runtime.sync(
+        organization_id="org-natural",
+        facility_id="fac-natural",
+        provider="metrc",
+        actor="developer",
+    )
+
+    repository = IntegrationProviderSnapshotRepository(engine)
+    repository.replace(
+        organization_id="org-natural",
+        facility_id="fac-natural",
+        provider="metrc_sandbox",
+        environment="sandbox",
+        resource="transfers",
+        run_id="replacement-run",
+        records=[
+            {
+                "id": "METRC-XFER-ONLY",
+                "manifest_number": "MAN-ONLY",
+                "direction": "incoming",
+                "status": "Scheduled",
+            }
+        ],
+    )
+
+    current = repository.current(
+        organization_id="org-natural",
+        facility_id="fac-natural",
+        provider="metrc_sandbox",
+        resources=("transfers",),
+        environment="sandbox",
+    )
+    assert len(current) == 1
+    assert current[0].external_id == "METRC-XFER-ONLY"
+
+    snapshot = ProviderAwareTransferControlService(engine).snapshot("org-natural", "fac-natural")
+    assert snapshot["provider_synced"]["count"] == 1
+    assert len(snapshot["inbound"]) == 1
+    assert len(snapshot["outgoing"]) == 0
