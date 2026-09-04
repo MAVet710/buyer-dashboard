@@ -7,6 +7,7 @@ from sqlalchemy import Engine
 from modules.cultivation.bulk import CultivationBulkService
 from ..auth import RequestContext, get_request_context, require_facility_capability
 from ..database import get_engine
+from ..services.cultivation_regulatory_guard import CultivationRegulatoryGuard
 
 router = APIRouter(prefix="/inventory/production/plants", tags=["cultivation"])
 WRITE_ROLES = {"dev", "admin", "supervisor", "operator", "qa"}
@@ -33,6 +34,13 @@ def bulk_transition_plants(
     if payload.phase is None and not str(payload.room_code or "").strip():
         raise HTTPException(422, "Choose a phase and/or room change for the selected plants.")
     try:
+        CultivationRegulatoryGuard(engine).require_local_only_allowed(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            entity_type="cultivation_plant",
+            entity_ids=payload.plant_ids,
+            action_label="This bulk plant phase/room change",
+        )
         return CultivationBulkService(engine).transition(
             context.organization_id,
             context.facility_id,
