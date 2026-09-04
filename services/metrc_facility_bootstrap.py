@@ -13,6 +13,11 @@ from modules.coman.models import utc_now
 from modules.integrations.models import IntegrationSyncAttempt, IntegrationSyncRecord, IntegrationSyncState
 from modules.regulatory.metrc_resources import payload_rows
 from services.metrc_client import MetrcTransport, fetch_metrc_resource
+from services.metrc_facility_materialization import MetrcCanonicalInventorySeeder
+
+
+PAGE_SIZE = 100
+MAX_INITIAL_PAGES = 100
 
 
 class MetrcFacilityBootstrapError(RuntimeError):
@@ -36,17 +41,27 @@ def _external_id(record: dict[str, Any]) -> str:
     return _fingerprint(record)[:24]
 
 
+def _total_pages(payload: Any) -> int:
+    if not isinstance(payload, dict):
+        return 1
+    try:
+        return max(1, int(payload.get("TotalPages") or payload.get("totalPages") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
 class MetrcFacilityBootstrapService:
-    """Prime one mapped facility with provider-owned Metrc state.
+    """Hydrate one mapped facility with provider-owned Metrc state.
 
-    The initial pass is bounded to page 1 / 100 rows for paginated collections.
-    Provider reads execute concurrently in a small pool, while durable database
-    persistence remains serialized. This keeps onboarding responsive without
-    weakening tenant isolation or provider rate/error handling.
+    Discovery remains fast and mapping-only. This explicit initial-sync step walks
+    every available page, up to a defensive 100-page ceiling per collection,
+    stores the lossless provider mirror, and then seeds only unambiguous new Metrc
+    packages into the canonical DoobieLogic inventory ledger.
 
-    Permission-specific 403/404 results are recorded as skipped capabilities,
-    because not every Metrc license is supposed to expose cultivation, retail,
-    plant-tag, or other facility-specific surfaces.
+    Existing local package/product state is never overwritten. Differences remain
+    visible to the existing reconciliation layer. Permission-specific 403/404
+    results are recorded as skipped capabilities because not every license exposes
+    every cultivation, retail, tag, or transport resource.
     """
 
     NORMALIZED_RESOURCES: tuple[tuple[str, str], ...] = (
@@ -70,7 +85,85 @@ class MetrcFacilityBootstrapService:
     )
 
     def __init__(self, engine: Engine):
+        self.engine = engine
         self.sessions = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+    def _fetch_all_normalized(
+        self,
+        *,
+        resource: str,
+        state: str,
+        user_api_key: str,
+        integrator_api_key: str,
+        license_number: str,
+        environment: str,
+    ) -> dict[str, Any]:
+        records: list[dict[str, Any]] = []
+        first_result: dict[str, Any] | None = None
+        total_pages = 1
+        page = 1
+        while page <= min(total_pages, MAX_INITIAL_PAGES):
+            result = fetch_metrc_resource(
+                state=state,
+                user_api_key=user_api_key,
+                integrator_api_key=integrator_api_key,
+                resource=resource,
+                environment=environment,
+                license_number=license_number,
+                page_size=PAGE_SIZE,
+                page_number=page,
+                timeout_seconds=10,
+                max_attempts=1,
+            )
+            if first_result is None:
+                first_result = dict(result)
+            if not result.get("ok"):
+                return result
+            records.extend(dict(row) for row in result.get("records", []) if isinstance(row, dict))
+            total_pages = _total_pages(result.get("payload"))
+            page += 1
+        output = first_result or {"ok": True, "status": "connected", "message": "Metrc request succeeded."}
+        output["records"] = records
+        output["page_count"] = min(total_pages, MAX_INITIAL_PAGES)
+        output["truncated"] = total_pages > MAX_INITIAL_PAGES
+        return output
+
+    @staticmethod
+    def _fetch_all_direct(
+        *,
+        transport: MetrcTransport,
+        path: str,
+        params: dict[str, Any],
+        paginated: bool,
+    ) -> dict[str, Any]:
+        if not paginated:
+            result = transport.get(path, params)
+            if result.get("ok"):
+                result["records"] = payload_rows(result.get("payload"))
+                result["page_count"] = 1
+                result["truncated"] = False
+            return result
+
+        records: list[dict[str, Any]] = []
+        first_result: dict[str, Any] | None = None
+        total_pages = 1
+        page = 1
+        while page <= min(total_pages, MAX_INITIAL_PAGES):
+            query = dict(params)
+            query.update({"pageSize": PAGE_SIZE, "pageNumber": page})
+            result = transport.get(path, query)
+            if first_result is None:
+                first_result = dict(result)
+            if not result.get("ok"):
+                return result
+            records.extend(payload_rows(result.get("payload")))
+            total_pages = _total_pages(result.get("payload"))
+            page += 1
+        output = first_result or {"ok": True, "status": "connected", "message": "Metrc request succeeded."}
+        output["records"] = records
+        output["page_count"] = min(total_pages, MAX_INITIAL_PAGES)
+        output["truncated"] = total_pages > MAX_INITIAL_PAGES
+        return output
 
     def sync(
         self,
@@ -108,17 +201,13 @@ class MetrcFacilityBootstrapService:
         jobs: list[tuple[str, str, Callable[[], dict[str, Any]]]] = []
         for local_name, resource in self.NORMALIZED_RESOURCES:
             def fetch(resource_name=resource):
-                return fetch_metrc_resource(
+                return self._fetch_all_normalized(
+                    resource=resource_name,
                     state=state,
                     user_api_key=user_api_key,
                     integrator_api_key=integrator_api_key,
-                    resource=resource_name,
-                    environment=environment,
                     license_number=license_number,
-                    page_size=100,
-                    page_number=1,
-                    timeout_seconds=10,
-                    max_attempts=1,
+                    environment=environment,
                 )
             jobs.append((local_name, "metrc_normalized_v2", fetch))
 
@@ -126,14 +215,14 @@ class MetrcFacilityBootstrapService:
             params: dict[str, Any] = {}
             if local_name != "units_of_measure":
                 params["licenseNumber"] = license_number
-            if paginated:
-                params.update({"pageSize": 100, "pageNumber": 1})
 
-            def fetch_direct(provider_path=path, query=dict(params)):
-                result = transport.get(provider_path, query)
-                if result.get("ok"):
-                    result["records"] = payload_rows(result.get("payload"))
-                return result
+            def fetch_direct(provider_path=path, query=dict(params), provider_paginated=paginated):
+                return self._fetch_all_direct(
+                    transport=transport,
+                    path=provider_path,
+                    params=query,
+                    paginated=provider_paginated,
+                )
             jobs.append((local_name, "metrc_direct_v2", fetch_direct))
 
         results: dict[str, tuple[str, dict[str, Any] | Exception]] = {}
@@ -163,13 +252,45 @@ class MetrcFacilityBootstrapService:
                 transport=transport_name,
             ))
 
+        package_result = results.get("packages", ("", RuntimeError("Package snapshot unavailable.")))[1]
+        if isinstance(package_result, dict) and package_result.get("ok") and not package_result.get("truncated"):
+            materialization = MetrcCanonicalInventorySeeder(self.engine).seed(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                state=state,
+                environment=environment,
+                license_number=license_number,
+                actor=actor,
+                packages=[dict(row) for row in package_result.get("records", []) if isinstance(row, dict)],
+            )
+            materialization["status"] = "completed"
+        else:
+            materialization = {
+                "provider": "metrc",
+                "status": "blocked",
+                "created_products": 0,
+                "created_inventory_lots": 0,
+                "created_inventory_transactions": 0,
+                "conflict_count": 0,
+                "warning_count": 0,
+                "overwrite_existing": False,
+                "message": (
+                    "Canonical inventory materialization was blocked because the active-package snapshot was incomplete."
+                    if isinstance(package_result, dict) and package_result.get("truncated")
+                    else "Canonical inventory materialization was skipped because the active-package read did not complete successfully."
+                ),
+            }
+
         return {
             "provider": "metrc",
             "environment": environment,
             "license_number": license_number,
-            "bounded_initial_sync": True,
-            "page_size": 100,
+            "bounded_initial_sync": False,
+            "full_initial_sync": True,
+            "page_size": PAGE_SIZE,
+            "max_pages_per_resource": MAX_INITIAL_PAGES,
             "resources": summaries,
+            "materialization": materialization,
             "totals": {
                 "resources": len(summaries),
                 "succeeded": sum(1 for row in summaries if row["status"] == "succeeded"),
@@ -211,6 +332,8 @@ class MetrcFacilityBootstrapService:
                     "record_count": 0,
                     "message": message,
                     "http_status": http_status,
+                    "page_count": int(result.get("page_count") or 0),
+                    "truncated": bool(result.get("truncated")),
                 }
             return self._failure(
                 organization_id,
@@ -233,6 +356,8 @@ class MetrcFacilityBootstrapService:
             transport=transport,
         )
         summary["http_status"] = int(result.get("http_status") or 200)
+        summary["page_count"] = int(result.get("page_count") or 1)
+        summary["truncated"] = bool(result.get("truncated"))
         return summary
 
     def _persist(
@@ -309,7 +434,7 @@ class MetrcFacilityBootstrapService:
 
             completed = utc_now()
             state = self._state(session, organization_id, facility_id, resource, environment, actor)
-            state.cursor = "initial-page-1"
+            state.cursor = "initial-full"
             state.status = "succeeded"
             state.last_completed_at = completed
             state.last_success_at = completed
@@ -319,7 +444,7 @@ class MetrcFacilityBootstrapService:
             state.updated_by = actor
             attempt = session.scalar(select(IntegrationSyncAttempt).where(IntegrationSyncAttempt.run_id == run_id))
             attempt.status = "succeeded"
-            attempt.cursor_after = "initial-page-1"
+            attempt.cursor_after = "initial-full"
             attempt.record_count = len(records)
             attempt.accepted_count = accepted
             attempt.duplicate_count = duplicates

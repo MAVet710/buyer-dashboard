@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from modules.coman.models import Base, TimestampMixin, new_id, utc_now
@@ -121,6 +121,57 @@ class IntegrationSyncRecord(Base):
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="accepted")
     error_message: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class IntegrationProviderSnapshot(TimestampMixin, Base):
+    """Current provider-owned state for fast operator-facing read models.
+
+    IntegrationSyncRecord remains immutable audit history. This table represents
+    current membership after a complete successful provider snapshot so normal
+    workspaces do not need an external provider request or history reconstruction.
+    Rows missing from the latest complete snapshot remain durable but are marked
+    present=False, preserving last-seen evidence without treating them as current.
+    """
+
+    __tablename__ = "integration_provider_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "facility_id",
+            "provider",
+            "environment",
+            "resource",
+            "external_id",
+            name="uq_integration_provider_snapshot_identity",
+        ),
+        CheckConstraint(
+            "provider in ('metrc','biotrack','quickbooks','metrc_sandbox','dutchie_sandbox','biotrack_sandbox','quickbooks_sandbox')",
+            name="ck_integration_provider_snapshot_provider",
+        ),
+        Index(
+            "ix_integration_provider_snapshot_current",
+            "organization_id",
+            "facility_id",
+            "provider",
+            "resource",
+            "present",
+        ),
+        Index("ix_integration_provider_snapshot_seen", "facility_id", "provider", "last_seen_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    facility_id: Mapped[str] = mapped_column(ForeignKey("coman_facilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    environment: Mapped[str] = mapped_column(String(24), nullable=False, default="sandbox")
+    resource: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_label: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    present: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    snapshot_run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
 class IntegrationSyncAttempt(Base):

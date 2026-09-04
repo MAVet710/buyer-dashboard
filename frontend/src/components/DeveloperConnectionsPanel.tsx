@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPost } from "../lib/api";
+import { ApiError, apiGet, apiPost } from "../lib/api";
 
 type ProviderKey = "metrc" | "dutchie" | "biotrack" | "quickbooks";
 type Configuration = Record<string, string | boolean>;
@@ -160,6 +160,11 @@ const FIELDS: Record<ProviderKey, Field[]> = {
   ],
 };
 
+function stopFacilitySweep(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return true;
+  return [401, 429, 500, 502, 503, 504].includes(error.status);
+}
+
 export function DeveloperConnectionsPanel() {
   const data = useQuery({
     queryKey: ["sandbox-provider-connections"],
@@ -213,10 +218,17 @@ function ProviderCard({ provider, value }: { provider: ProviderKey; value: Conne
           if (active.current) setInitialSync(current => ({ ...current, [row.license_number]: result.ok
             ? `Initial sync complete · ${result.bootstrap.totals.records} records.`
             : `Initial sync incomplete · ${result.bootstrap.totals.failed} resources failed. ${result.bootstrap.resources.find(resource => resource.status === "failed")?.message ?? "Retry is available."}` }));
-          if (!result.ok) break;
+          // A complete HTTP response belongs to this exact facility/license. An
+          // incomplete resource set must not prevent other discovered licenses from
+          // hydrating; each one has its own durable sync state and retry controls.
+          continue;
         } catch (error) {
           if (active.current) setInitialSync(current => ({ ...current, [row.license_number]: error instanceof Error ? error.message : "Initial sync failed. Retry is available." }));
-          break; // Do not cascade a database/provider outage across every facility.
+          // Continue through license-specific validation/permission failures. Stop
+          // only when the signal indicates shared auth, rate-limit, server, or
+          // network pressure that would make immediately hammering every license
+          // counterproductive.
+          if (stopFacilitySweep(error)) break;
         }
       }
     } finally {

@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { apiGet } from "../lib/api";
 
 type CultivationSnapshot = {
@@ -9,6 +8,9 @@ type CultivationSnapshot = {
   license_number?: string;
   environment?: string;
   read_only: boolean;
+  source?: string;
+  network_request_made?: boolean;
+  last_synced_at?: string | null;
   message: string;
   summary?: {
     active_plant_batch_count: number;
@@ -39,47 +41,64 @@ type CultivationSnapshot = {
 };
 
 export function CultivationRegulatoryHealth() {
-  const [open, setOpen] = useState(false);
-  const snapshot = useQuery({
-    queryKey: ["cultivation-metrc-regulatory-health"],
+  const synced = useQuery({
+    queryKey: ["cultivation-metrc-regulatory-snapshot"],
+    queryFn: ({ signal }) =>
+      apiGet<CultivationSnapshot>("/api/v1/inventory/production/plants/regulatory-snapshot", signal),
+    retry: false,
+  });
+  const live = useQuery({
+    queryKey: ["cultivation-metrc-regulatory-live"],
     queryFn: ({ signal }) =>
       apiGet<CultivationSnapshot>("/api/v1/inventory/production/plants/regulatory", signal),
-    enabled: open,
+    enabled: false,
     retry: false,
   });
 
-  const reconciliation = snapshot.data?.reconciliation;
+  const active = live.data ?? synced.data;
+  const reconciliation = active?.reconciliation;
+  const sourceCaption = live.data
+    ? "Live Metrc verification · provider request made explicitly by the operator"
+    : active?.last_synced_at
+      ? `Last synchronized ${new Date(active.last_synced_at).toLocaleString()} · no Metrc request on page load`
+      : "Synchronized regulatory state loads locally; live Metrc verification is optional.";
+
   return (
     <section className="inventory-panel cultivation-regulatory-health">
       <div className="section-heading">
         <div>
           <div className="eyebrow">Cultivation · Metrc</div>
           <h3>Regulatory Health</h3>
-          <p className="source-caption">Read-only plant, batch, and harvest check. Metrc loads only when requested.</p>
+          <p className="source-caption">Plant batches, active plants, and harvests appear from the last complete facility sync. Use live verification only when you need a fresh provider check.</p>
         </div>
-        <button className="secondary" type="button" onClick={() => setOpen((value) => !value)}>
-          {open ? "Hide Metrc" : "Check Metrc"}
+        <button className="secondary" type="button" disabled={live.isFetching} onClick={() => void live.refetch()}>
+          {live.isFetching ? "Verifying…" : "Verify live"}
         </button>
       </div>
-      {!open ? <div className="empty">No live Metrc request has been made from this panel.</div> : null}
-      {open && snapshot.isLoading ? <div className="state">Checking the verified cultivation license…</div> : null}
-      {open && snapshot.isError ? <div className="state error">{snapshot.error.message}</div> : null}
-      {open && snapshot.data && !snapshot.data.ready ? <div className="info-banner">{snapshot.data.message}</div> : null}
-      {open && snapshot.data?.ready ? (
+
+      {synced.isLoading && !active ? <div className="state">Loading synchronized cultivation state…</div> : null}
+      {synced.isError && !active ? <div className="state error">{synced.error.message}</div> : null}
+      {live.isError ? <div className="state error">Live Metrc verification failed: {live.error.message}. The last synchronized state remains visible below.</div> : null}
+      {active && !active.configured ? <div className="info-banner">{active.message}</div> : null}
+      {active?.configured && !active.ready ? <div className="info-banner">{active.message}</div> : null}
+
+      {active?.configured && active.summary ? (
         <>
           <div className="metrics four">
-            <Metric label="Plant Batches" value={snapshot.data.summary?.active_plant_batch_count ?? 0} />
-            <Metric label="Vegetative" value={snapshot.data.summary?.vegetative_plant_count ?? 0} />
-            <Metric label="Flowering" value={snapshot.data.summary?.flowering_plant_count ?? 0} />
-            <Metric label="Active Harvests" value={snapshot.data.summary?.active_harvest_count ?? 0} />
+            <Metric label="Plant Batches" value={active.summary.active_plant_batch_count} />
+            <Metric label="Vegetative" value={active.summary.vegetative_plant_count} />
+            <Metric label="Flowering" value={active.summary.flowering_plant_count} />
+            <Metric label="Active Harvests" value={active.summary.active_harvest_count} />
           </div>
           <div className="metrics four">
             <Metric label="Matched Tags" value={reconciliation?.summary.matched_plant_count ?? 0} />
             <Metric label="Discrepancies" value={reconciliation?.summary.discrepancy_count ?? 0} />
             <Metric label="High Priority" value={reconciliation?.summary.high_count ?? 0} />
-            <Metric label="Environment" value={snapshot.data.environment ?? "—"} />
+            <Metric label="Environment" value={active.environment ?? "—"} />
           </div>
-          <p className="source-caption">License {snapshot.data.license_number || "—"} · {snapshot.data.jurisdiction_code || "—"} · read-only · exact trusted facility mapping</p>
+          <p className="source-caption">{sourceCaption}</p>
+          <p className="source-caption">License {active.license_number || "—"} · {active.jurisdiction_code || "—"} · read-only regulatory mirror</p>
+
           {reconciliation?.discrepancies.length ? (
             <div className="table-wrap">
               <table>
@@ -97,10 +116,12 @@ export function CultivationRegulatoryHealth() {
                 </tbody>
               </table>
             </div>
-          ) : reconciliation ? <div className="empty">Tagged vegetative and flowering plants match the active Metrc plant reads.</div> : null}
+          ) : reconciliation ? <div className="empty">Tagged vegetative and flowering plants match the synchronized Metrc plant state.</div> : null}
+
           {(reconciliation?.summary.local_immature_unreconciled_count ?? 0) > 0 ? (
             <p className="source-caption">{reconciliation?.summary.local_immature_unreconciled_count} local clone/seedling record(s) remain outside individual-tag reconciliation and are represented separately by Metrc plant batches.</p>
           ) : null}
+          {!reconciliation && active.ready === false ? <div className="empty">Plant reconciliation is withheld until both synchronized vegetative and flowering snapshots are complete.</div> : null}
         </>
       ) : null}
     </section>

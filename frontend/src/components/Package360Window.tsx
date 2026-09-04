@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api";
 import { MaterialLineageGraph } from "./MaterialLineageGraph";
+import { MetrcPackageLabResults } from "./MetrcPackageLabResults";
 import { RecallBlastRadius } from "./RecallBlastRadius";
+import { RegulatoryDetailPanel } from "./RegulatoryDetailPanel";
 import { WorkspaceWindow } from "./WorkspaceWindow";
 
 type TimelineEvent = { occurred_at:string|null;area:string;event_type:string;title:string;detail:string;actor:string;reference:string;status:string;quantity:number|null;unit:string };
@@ -21,12 +23,15 @@ export function Package360Window({ code, open, onClose, onNavigate }: { code:str
   const title=data?.product.name??"Package 360";
   const subtitle=data?`${data.package.package_id||data.package.lot_code} · ${data.package.location||"Unassigned"} · ${formatTitle(data.package.status)}`:"Building facility-scoped package history…";
   const footer=data&&onNavigate?<><button className="secondary" type="button" onClick={()=>onNavigate("Package Studio")}>Work package</button><button className="secondary" type="button" onClick={()=>onNavigate("Compliance")}>Traceability</button></>:null;
+  const regulatoryEnvironment=data?.traceability.environment==="sandbox"||data?.traceability.environment==="production"?data.traceability.environment:"";
   return <WorkspaceWindow open={open} onClose={onClose} eyebrow="PACKAGE 360 · source trail" title={title} subtitle={subtitle} footer={footer} ariaLabel="Package 360" windowKey={`package-360:${code}`} className="package-360-window">
     {snapshot.isLoading?<div className="state">Building package source trail…</div>:null}
     {snapshot.isError?<div className="warning-banner">{snapshot.error.message}</div>:null}
     {data?<>
       <section className="metrics four"><Metric label="On hand" value={`${number(data.package.balance)} ${data.package.unit}`}/><Metric label="Lineage runs" value={data.summary.package_studio_runs}/><Metric label="Audits" value={data.summary.audits}/><Metric label="Traceability" value={data.summary.traceability_actions}/></section>
       <section className="inventory-panel"><div className="eyebrow">COMPLIANCE SYNC</div><h3>{data.traceability.operator_status}</h3><Row label="Provider" value={data.traceability.provider?data.traceability.provider.toUpperCase():"Not requested"}/><Row label="Latest operation" value={formatTitle(data.traceability.latest_operation)}/><Row label="Jurisdiction / environment" value={[data.traceability.jurisdiction,data.traceability.environment].filter(Boolean).join(" · ")||"—"}/><Row label="Attempts" value={String(data.traceability.attempt_count)}/><Row label="Last attempt" value={date(data.traceability.last_attempt_at)}/><Row label="Retry eligible" value={data.traceability.retry_eligible?"Yes — review required":"No"}/>{data.traceability.mismatch_reason||data.traceability.latest_error?<div className="warning-banner">{data.traceability.mismatch_reason||data.traceability.latest_error}</div>:null}</section>
+      <RegulatoryDetailPanel entityType="inventory_lot" entityId={data.package.id} environment={regulatoryEnvironment}/>
+      <MetrcPackageLabResults lotId={data.package.id} environment={regulatoryEnvironment}/>
       <section className="inventory-panel"><div className="eyebrow">CURRENT STATE</div><Row label="Package ID" value={data.package.package_id||"—"}/><Row label="Lot code" value={data.package.lot_code}/><Row label="Location" value={data.package.location||"—"}/><Row label="Status" value={formatTitle(data.package.status)}/><Row label="Received" value={date(data.package.received_at)}/><Row label="Expiration" value={date(data.package.expiration_at)}/><Row label="Inventory events" value={String(data.summary.inventory_events)}/><Row label="Order allocations" value={String(data.summary.order_allocations)}/></section>
       <section className="inventory-panel"><div className="eyebrow">PACKAGE STUDIO GENEALOGY</div><h3>Inputs</h3>{data.lineage.inputs.length?data.lineage.inputs.map((row,index)=><Lineage key={`in-${index}`} row={row}/>):<div className="info-banner">No Package Studio source inputs are linked to this package yet.</div>}<h3>Outputs</h3>{data.lineage.outputs.length?data.lineage.outputs.map((row,index)=><Lineage key={`out-${index}`} row={row}/>):<div className="info-banner">No Package Studio child outputs are linked to this package yet.</div>}</section>
       <MaterialLineageGraph lotId={data.package.id}/>
