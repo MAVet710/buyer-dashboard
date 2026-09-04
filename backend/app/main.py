@@ -15,11 +15,13 @@ from .config import get_settings
 from .routers.inventory import router as inventory_router
 from .routers.inventory_transfers import router as inventory_transfers_router
 from .routers.inventory_reconciliation import router as inventory_reconciliation_router
+from .routers.metrc_package_legacy_guard import router as metrc_package_legacy_guard_router
 from .routers.metrc_harvest_legacy_guard import router as metrc_harvest_legacy_guard_router
 from .routers.metrc_guide_v11 import router as metrc_guide_v11_router
 from .routers.metrc_readiness import router as metrc_readiness_router
 from .routers.metrc_cultivation_actions import router as metrc_cultivation_actions_router
 from .routers.metrc_harvest_actions import router as metrc_harvest_actions_router
+from .routers.metrc_package_actions import router as metrc_package_actions_router
 from .routers.audits import router as audit_router
 from .routers.plants import router as plants_router
 from .routers.cultivation_bulk import router as cultivation_bulk_router
@@ -240,6 +242,7 @@ app.include_router(beta_router, prefix=settings.api_prefix)
 # Register trusted regulatory inventory GET routes before the legacy inventory
 # router so the same browser URLs fail closed on exact Metrc mapping/environment.
 app.include_router(inventory_reconciliation_router, prefix=settings.api_prefix)
+app.include_router(metrc_package_legacy_guard_router, prefix=settings.api_prefix)
 app.include_router(inventory_router, prefix=settings.api_prefix)
 app.include_router(inventory_transfers_router, prefix=settings.api_prefix)
 # The guide-v11 router intentionally precedes the broader readiness router for
@@ -252,6 +255,7 @@ app.include_router(metrc_guide_v11_router, prefix=settings.api_prefix)
 app.include_router(metrc_readiness_router, prefix=settings.api_prefix)
 app.include_router(metrc_cultivation_actions_router, prefix=settings.api_prefix)
 app.include_router(metrc_harvest_actions_router, prefix=settings.api_prefix)
+app.include_router(metrc_package_actions_router, prefix=settings.api_prefix)
 app.include_router(audit_router, prefix=settings.api_prefix)
 app.include_router(plants_router, prefix=settings.api_prefix)
 app.include_router(cultivation_bulk_router, prefix=settings.api_prefix)
