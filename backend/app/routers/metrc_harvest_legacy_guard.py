@@ -34,6 +34,20 @@ def _governed_required(action: str) -> None:
     )
 
 
+def _strict_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        token = value.strip().casefold()
+        if token in {"true", "1", "yes", "y", "on"}:
+            return True
+        if token in {"false", "0", "no", "n", "off", ""}:
+            return False
+    raise ValueError("provider_confirmed must be a boolean value.")
+
+
 @router.post("/metrc-readiness/cultivation/harvests/{harvest_id}/wet-weights")
 def block_legacy_harvest_wet_weights(
     harvest_id: str,
@@ -115,7 +129,7 @@ def guarded_legacy_waste(
         _governed_required("Recording Metrc harvest waste")
     try:
         data = dict(payload)
-        provider_confirmed = bool(data.pop("provider_confirmed", False))
+        provider_confirmed = _strict_bool(data.pop("provider_confirmed", False))
         return MetrcGuideV11Service(engine).record_waste(
             context.organization_id,
             context.facility_id,
