@@ -39,6 +39,7 @@ def compose_metrc_runtime() -> None:
         router as metrc_facility_setup_snapshot_router,
     )
     from .routers.metrc_incremental_sync import router as metrc_incremental_sync_router
+    from .routers.metrc_package_lab_detail import router as metrc_package_lab_detail_router
     from .routers.metrc_production_snapshot import router as metrc_production_snapshot_router
     from .routers.metrc_retail_snapshot import router as metrc_retail_snapshot_router
     from .routers.regulatory_detail import router as regulatory_detail_router
@@ -75,6 +76,10 @@ def compose_metrc_runtime() -> None:
     plants.router.include_router(metrc_cultivation_snapshot_router)
     inventory_reconciliation.router.include_router(metrc_production_snapshot_router)
     inventory_reconciliation.router.include_router(regulatory_detail_router)
+    # Package lab evidence is package-scoped rather than a facility-wide baseline;
+    # expose cached + explicit live verification through the same Regulatory Detail
+    # parent router so Package 360 can reach the new endpoints.
+    inventory_reconciliation.router.include_router(metrc_package_lab_detail_router)
     retail_insights.router.include_router(metrc_retail_snapshot_router)
     sandbox_integrations.router.include_router(metrc_incremental_sync_router)
     location_settings.router.include_router(metrc_facility_setup_snapshot_router)
