@@ -20,6 +20,7 @@ from ..services.metrc_harvest_actions import (
     harvest_confirmation_token,
 )
 from ..services.metrc_harvest_operator_service import MetrcHarvestOperatorService
+from ..services.metrc_harvest_reference import MetrcHarvestReferenceError, fetch_harvest_waste_types
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
 
 
@@ -123,6 +124,24 @@ def harvest_action_status(
             else "Local Harvest 360 remains available; promoted provider writes stay disabled."
         ),
     }
+
+
+@router.get("/waste-types")
+def harvest_waste_types(
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    metrc = _metrc(context, engine, settings)
+    try:
+        return fetch_harvest_waste_types(
+            state=metrc.state,
+            environment=metrc.environment,
+            integrator_api_key=metrc.integrator_api_key,
+            user_api_key=metrc.user_api_key,
+        )
+    except MetrcHarvestReferenceError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 @router.post("/actions/preview")
