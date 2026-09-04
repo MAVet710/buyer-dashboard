@@ -84,6 +84,11 @@ from .database import get_engine
 from .observability import install_observability
 from .services.sandbox_extraction import ensure_rich_extraction_sandbox
 from .services.sandbox_sales import sync_sandbox_retail_sales
+from .metrc_runtime_composition import compose_metrc_runtime
+
+# Cross-router METRC behavior is attached only after every router module above has
+# initialized, but before any APIRouter is copied into the FastAPI application.
+compose_metrc_runtime()
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
