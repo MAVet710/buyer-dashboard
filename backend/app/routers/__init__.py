@@ -39,6 +39,14 @@ from .metrc_retail_snapshot import router as _metrc_retail_snapshot_router
 
 _retail_insights.router.include_router(_metrc_retail_snapshot_router)
 
+# The sandbox control plane owns explicit provider synchronization. The incremental
+# child route resolves the active trusted facility mapping and uses LastModified
+# deltas without accepting a caller-supplied license override.
+from . import sandbox_integrations as _sandbox_integrations
+from .metrc_incremental_sync import router as _metrc_incremental_sync_router
+
+_sandbox_integrations.router.include_router(_metrc_incremental_sync_router)
+
 # Facility Setup already loads one overview request on page entry. Enrich that
 # existing response with locally synchronized Metrc master-data counts/freshness,
 # and expose the detailed local snapshot on a separate read-only child endpoint.
