@@ -148,6 +148,15 @@ class TraceabilityDispatcher:
                 code="environment_not_verified",
                 message="The Metrc write environment must be explicitly saved as sandbox or production.",
             )
+        if environment != "sandbox":
+            return self._no_request(
+                tx,
+                actor,
+                code="alpha_mode_production_blocked",
+                message=(
+                    "Metrc Sandbox is the only provider mode enabled during alpha. A production-configured credential cannot dispatch from this operating mode."
+                ),
+            )
         if not state or not configured_license:
             return self._no_request(
                 tx,
