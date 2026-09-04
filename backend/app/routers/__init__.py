@@ -22,8 +22,13 @@ _plants.router.include_router(_metrc_cultivation_snapshot_router)
 # Production workspace consumes the last synchronized current snapshot locally.
 from . import inventory_reconciliation as _inventory_reconciliation
 from .metrc_production_snapshot import router as _metrc_production_snapshot_router
+from .regulatory_detail import router as _regulatory_detail_router
 
 _inventory_reconciliation.router.include_router(_metrc_production_snapshot_router)
+# Keep one tenant-scoped, provider-neutral detail contract underneath the already
+# authenticated inventory/regulatory router. Package 360, Product 360 and other
+# operator surfaces can consume the same local snapshot API without calling Metrc.
+_inventory_reconciliation.router.include_router(_regulatory_detail_router)
 
 # Retail Insights receives provider-owned Metrc sales receipt/delivery shadows.
 # These do not become local POS ledger rows simply because they already exist at
