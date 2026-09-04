@@ -13,6 +13,7 @@ from services.metrc_evaluation_master_data import (
     MetrcEvaluationError,
     execute_master_data_evaluation_action,
 )
+from .metrc_master_data_readback import compare_master_data_readback
 
 
 PROMOTED_MASTER_DATA_ACTIONS = frozenset(MASTER_DATA_EVALUATION_ACTIONS)
@@ -172,20 +173,22 @@ class MetrcMasterDataActionService:
             reason=f"Authorized operator confirmed {summary['label'].lower()} from Facility Setup.",
         )
 
-        # Idempotency is confirmation-scoped. A repeated browser submission may
-        # inspect the existing transaction but must never repeat the provider write.
-        if transaction.status != "requested":
-            return self._existing(transaction, summary)
-
-        transaction = self.traceability.transition_logged(
+        # A confirmation is an execution lease, not only an idempotency label.
+        # Exactly one concurrent request may claim requested -> validated.
+        # Every loser returns the durable transaction without calling Metrc.
+        transaction, claimed = self.traceability.claim_transition_logged(
             organization_id=organization_id,
             facility_id=facility_id,
             transaction_id=transaction.id,
+            expected_status="requested",
             new_status="validated",
             actor=actor,
             reason="Exact MA sandbox operation, facility/license scope, bounded payload, and confirmation fingerprint validated.",
             source="system",
         )
+        if not claimed:
+            return self._existing(transaction, summary)
+
         transaction = self.traceability.transition_logged(
             organization_id=organization_id,
             facility_id=facility_id,
@@ -292,11 +295,25 @@ class MetrcMasterDataActionService:
             transaction_id=transaction.id,
             new_status="accepted",
             actor=actor,
-            reason="Metrc returned HTTP 200. Exact provider readback is still required before this action is verified.",
+            reason="Metrc returned HTTP 200. Exact provider readback and reviewed-field equality are still required before this action is verified.",
             source="provider_worker",
             external_reference=provider_id,
             response_payload=evidence.get("response") if isinstance(evidence.get("response"), dict) else {"response": evidence.get("response")},
         )
+
+        readback = evidence.get("readback") if isinstance(evidence.get("readback"), dict) else None
+        field_verification = compare_master_data_readback(
+            provider_request_body=body,
+            readback=readback,
+            provider_id=provider_id,
+        )
+        verified = bool(evidence.get("passed")) and bool(field_verification.get("matched"))
+        mismatch_message = ""
+        if not evidence.get("passed"):
+            mismatch_message = str(evidence.get("message") or "Exact readback did not verify the provider object.")
+        elif not field_verification.get("matched"):
+            mismatch_message = "Fresh Metrc readback found the object, but one or more reviewed business fields do not match the confirmed request."
+
         self.traceability.record_reconciliation(
             organization_id=organization_id,
             facility_id=facility_id,
@@ -307,12 +324,14 @@ class MetrcMasterDataActionService:
                 "http_status": http_status,
                 "last_modified": str(evidence.get("last_modified") or ""),
             },
-            readback_result=evidence.get("readback") if isinstance(evidence.get("readback"), dict) else None,
-            mismatch_reason="" if evidence.get("passed") else str(evidence.get("message") or "Exact readback did not verify the provider object."),
+            readback_result=readback,
+            mismatch_reason=mismatch_message,
             evidence={
                 "operation_type": operation,
                 "stage": evidence.get("stage"),
-                "passed": bool(evidence.get("passed")),
+                "evaluator_passed": bool(evidence.get("passed")),
+                "field_verification": field_verification,
+                "verified": verified,
                 "provider_id": provider_id,
                 "last_modified": str(evidence.get("last_modified") or ""),
                 "blind_retry_allowed": False,
@@ -320,18 +339,18 @@ class MetrcMasterDataActionService:
             retry_eligible=False,
         )
 
-        if evidence.get("passed"):
+        if verified:
             transaction = self.traceability.transition_logged(
                 organization_id=organization_id,
                 facility_id=facility_id,
                 transaction_id=transaction.id,
                 new_status="verified",
                 actor=actor,
-                reason="Fresh exact by-ID Metrc readback verified the created/updated master-data record after HTTP 200.",
+                reason="Fresh exact by-ID Metrc readback verified both provider identity and every reviewed master-data field after HTTP 200.",
                 source="provider_readback",
                 external_reference=provider_id,
             )
-            return self._result(transaction, summary, evidence, "Metrc confirmed the change and fresh readback verified it.")
+            return self._result(transaction, summary, evidence, "Metrc confirmed the change and fresh readback verified every reviewed field.")
 
         transaction = self.traceability.transition_logged(
             organization_id=organization_id,
@@ -339,13 +358,13 @@ class MetrcMasterDataActionService:
             transaction_id=transaction.id,
             new_status="reconciliation_required",
             actor=actor,
-            reason="Metrc accepted the write, but the required exact by-ID readback did not verify the object. Do not repeat the write blindly.",
+            reason="Metrc accepted the write, but exact readback did not verify the confirmed business state. Do not repeat the write blindly.",
             source="provider_readback",
             external_reference=provider_id,
             error_code="readback_not_verified",
-            error_message=str(evidence.get("message") or "Exact provider readback did not verify the object."),
+            error_message=mismatch_message or "Exact provider readback did not verify the confirmed business state.",
         )
-        return self._result(transaction, summary, evidence, str(evidence.get("message") or "Verification requires reconciliation."))
+        return self._result(transaction, summary, evidence, mismatch_message or "Verification requires reconciliation.")
 
     @staticmethod
     def _existing(transaction, summary: dict[str, str]) -> dict[str, Any]:
