@@ -33,6 +33,7 @@ from services.metrc_evaluation_transfers import (
     execute_transfer_evaluation_read,
     execute_transfer_template_write,
 )
+from services.metrc_evaluation_verification import verify_transfer_workbook_read
 from services.metrc_evaluation_workbook import ma_workbook_plan
 
 
@@ -65,17 +66,23 @@ def _facilities(integrator_key: str, user_key: str) -> dict[str, Any]:
         environment="sandbox",
         timeout_seconds=30,
     )
+    records = list(result.get("records") or [])
+    passed = bool(result.get("ok") and int(result.get("http_status") or 0) == 200 and records)
     return {
-        "passed": bool(result.get("ok") and int(result.get("http_status") or 0) == 200),
-        "stage": "complete" if result.get("ok") else "facilities",
+        "passed": passed,
+        "stage": "complete" if passed else "facilities",
         "operation_type": "facilities",
         "state": "MA",
         "environment": "sandbox",
         "http_status": int(result.get("http_status") or 0),
         "request": {"method": "GET", "path": "facilities/v2/", "query": {}},
         "response": result.get("payload"),
-        "records": result.get("records", []),
-        "message": result.get("message", ""),
+        "records": records,
+        "message": (
+            "Metrc facilities returned HTTP 200 with verifiable facility/permission records."
+            if passed
+            else str(result.get("message") or "The facilities workbook row requires at least one verifiable facility record.")
+        ),
     }
 
 
@@ -145,7 +152,11 @@ def main() -> None:
         elif args.operation in SALES_EVALUATION_ACTIONS:
             evidence = execute_sales_evaluation_action(**common)
         elif args.operation in TRANSFER_READ_EVALUATION_ACTIONS:
-            evidence = execute_transfer_evaluation_read(**common)
+            evidence = verify_transfer_workbook_read(
+                args.operation,
+                raw,
+                execute_transfer_evaluation_read(**common),
+            )
         elif args.operation in TRANSFER_WRITE_EVALUATION_ACTIONS:
             evidence = execute_transfer_template_write(**common)
         else:
