@@ -6,6 +6,7 @@ import {
   type MouseEvent,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { ProductionRegulatoryState } from "../components/ProductionRegulatoryState";
 import { apiGet } from "../lib/api";
 import { ProductionPage as LegacyProductionPage } from "./ProductionPageLegacy";
 
@@ -257,6 +258,7 @@ export function ProductionPage() {
         </div>
       ) : null}
       {loadError ? <div className="form-error">{loadError}</div> : null}
+      <ProductionRegulatoryState />
       <LegacyProductionPage />
     </div>
   );
