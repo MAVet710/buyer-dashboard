@@ -66,6 +66,10 @@ METRC_READ_RESOURCES: dict[str, MetrcReadResourceSpec] = {
     "transfer_templates_outgoing": MetrcReadResourceSpec(
         "transfer_templates_outgoing", "transfer_templates", "transfers/v2/templates/outgoing"
     ),
+    "transfer_template_deliveries": MetrcReadResourceSpec(
+        "transfer_template_deliveries", "transfer_templates", "transfers/v2/templates/outgoing/{template_id}/deliveries",
+        license_scoped=False, required_path_parameters=("template_id",),
+    ),
     "transfer_deliveries": MetrcReadResourceSpec(
         "transfer_deliveries", "deliveries", "transfers/v2/{transfer_id}/deliveries",
         license_scoped=False, required_path_parameters=("transfer_id",),
@@ -169,20 +173,13 @@ def payload_rows(payload: Any) -> list[dict[str, Any]]:
             value = payload.get(key)
             if isinstance(value, list):
                 return [dict(row) for row in value if isinstance(row, dict)]
-        # v2 by-ID endpoints commonly return one provider object rather than a
-        # paginated envelope. Preserve it as a single normalized record.
         if payload:
             return [dict(payload)]
     return []
 
 
 def normalize_metrc_payload(*, jurisdiction: str, resource: str, payload: Any) -> list[dict[str, Any]]:
-    """Wrap provider records in a stable, lossless regulatory envelope.
-
-    The source record is preserved under ``source`` so resource-specific fields
-    are never discarded while callers can rely on a common set of identity and
-    status keys across states and resource families.
-    """
+    """Wrap provider records in a stable, lossless regulatory envelope."""
 
     profile = get_jurisdiction(jurisdiction)
     if profile is None:
