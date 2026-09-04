@@ -60,10 +60,7 @@ def _plan(payload: Plan) -> PackageStudioPlan:
     )
 
 
-def _tracked_source_ids(engine: Engine, context: RequestContext, payload: Plan) -> list[str]:
-    source_ids = {row.lot_id for row in payload.inputs if row.lot_id}
-    if not source_ids:
-        return []
+def _tracked_lot_ids(engine: Engine, context: RequestContext) -> list[str]:
     links = TraceabilityObjectLinkRepository(engine).list_facility(
         organization_id=context.organization_id,
         facility_id=context.facility_id,
@@ -75,9 +72,15 @@ def _tracked_source_ids(engine: Engine, context: RequestContext, payload: Plan) 
         for row in links
         if row.entity_type == "inventory_lot"
         and row.provider_resource == "packages"
-        and row.entity_id in source_ids
         and row.status in {"verified", "stale", "reconciliation_required"}
     })
+
+
+def _tracked_source_ids(engine: Engine, context: RequestContext, payload: Plan) -> list[str]:
+    source_ids = {row.lot_id for row in payload.inputs if row.lot_id}
+    if not source_ids:
+        return []
+    return sorted(source_ids.intersection(_tracked_lot_ids(engine, context)))
 
 
 def _alpha_mode(engine: Engine, context: RequestContext):
@@ -101,6 +104,7 @@ def workspace(
         "can_commit": context.role.casefold() in COMMIT_ROLES,
         "operating_mode": mode.effective_mode,
         "metrc_enabled": mode.metrc_enabled,
+        "tracked_metrc_lot_ids": _tracked_lot_ids(engine, context) if mode.metrc_enabled else [],
     }
 
 
