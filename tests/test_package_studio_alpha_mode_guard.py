@@ -36,7 +36,7 @@ def _context():
 
 
 def test_doobielogic_sandbox_allows_local_package_studio_even_with_historical_metrc_link(monkeypatch):
-    committed = SimpleNamespace(__dict__={"run_id": "run-1", "output_lot_ids": ["out-1"]})
+    committed = SimpleNamespace(run_id="run-1", output_lot_ids=["out-1"])
 
     class FakePackageStudioService:
         def __init__(self, engine):
