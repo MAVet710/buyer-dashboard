@@ -25,6 +25,15 @@ from .metrc_production_snapshot import router as _metrc_production_snapshot_rout
 
 _inventory_reconciliation.router.include_router(_metrc_production_snapshot_router)
 
+# Retail Insights receives provider-owned Metrc sales receipt/delivery shadows.
+# These do not become local POS ledger rows simply because they already exist at
+# the provider; normal retail analytics continue to use DoobieLogic's durable
+# local sales ledger while the regulatory panel shows synchronized provider state.
+from . import retail_insights as _retail_insights
+from .metrc_retail_snapshot import router as _metrc_retail_snapshot_router
+
+_retail_insights.router.include_router(_metrc_retail_snapshot_router)
+
 # Facility Setup already loads one overview request on page entry. Enrich that
 # existing response with locally synchronized Metrc master-data counts/freshness,
 # and expose the detailed local snapshot on a separate read-only child endpoint.
