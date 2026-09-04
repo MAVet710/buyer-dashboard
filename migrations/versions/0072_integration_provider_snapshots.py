@@ -1,13 +1,13 @@
 """Add current provider-owned integration snapshots.
 
-Revision ID: 0072_integration_provider_snapshots
+Revision ID: 0072_provider_snapshots
 Revises: 0071_alpha_operating_modes
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0072_integration_provider_snapshots"
+revision = "0072_provider_snapshots"
 down_revision = "0071_alpha_operating_modes"
 branch_labels = None
 depends_on = None
