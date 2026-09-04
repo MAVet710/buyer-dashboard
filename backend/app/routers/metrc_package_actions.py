@@ -16,11 +16,11 @@ from ..config import Settings, get_settings
 from ..database import get_engine
 from ..services.metrc_package_actions import (
     MetrcPackageActionError,
-    MetrcPackageActionService,
     PROMOTED_PACKAGE_ACTIONS,
     package_confirmation_token,
 )
 from ..services.metrc_package_identity import MetrcPackageIdentityError, MetrcPackageIdentityService
+from ..services.metrc_package_operator_service import GovernedMetrcPackageActionService
 from ..services.metrc_package_reference import MetrcPackageReferenceError, fetch_package_adjustment_reasons
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
 
@@ -272,7 +272,7 @@ def preview_package_action(
 ):
     _write(context)
     metrc = _metrc(context, engine, settings)
-    service = MetrcPackageActionService(engine)
+    service = GovernedMetrcPackageActionService(engine)
     try:
         prepared = service.prepare(
             organization_id=context.organization_id, facility_id=context.facility_id,
@@ -309,7 +309,7 @@ def execute_package_action(
     _write(context)
     metrc = _metrc(context, engine, settings)
     try:
-        return MetrcPackageActionService(engine).execute(
+        return GovernedMetrcPackageActionService(engine).execute(
             organization_id=context.organization_id, facility_id=context.facility_id, actor=context.user_id,
             state=metrc.state, environment=metrc.environment, license_number=metrc.license_number,
             integrator_api_key=metrc.integrator_api_key, user_api_key=metrc.user_api_key,
