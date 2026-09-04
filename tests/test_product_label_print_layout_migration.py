@@ -17,9 +17,10 @@ def test_product_label_print_layout_migration_round_trip(tmp_path, monkeypatch):
     command.upgrade(config, "head")
     engine = create_engine(database_url, future=True)
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0070_traceability_object_links"
+        assert MigrationContext.configure(connection).get_current_revision() == "0071_alpha_operating_modes"
     columns = {column["name"] for column in inspect(engine).get_columns("product_packaging_profiles")}
     assert {"label_layout", "label_width_in", "label_height_in", "label_source_count"} <= columns
+    assert "alpha_operating_modes" in inspect(engine).get_table_names()
 
     command.downgrade(config, "0068_label_production_workflow")
     with engine.connect() as connection:
@@ -27,8 +28,9 @@ def test_product_label_print_layout_migration_round_trip(tmp_path, monkeypatch):
     columns = {column["name"] for column in inspect(engine).get_columns("product_packaging_profiles")}
     assert "label_layout" not in columns
     assert "label_source_count" not in columns
+    assert "alpha_operating_modes" not in inspect(engine).get_table_names()
 
     command.upgrade(config, "head")
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == "0070_traceability_object_links"
+        assert MigrationContext.configure(connection).get_current_revision() == "0071_alpha_operating_modes"
     engine.dispose()

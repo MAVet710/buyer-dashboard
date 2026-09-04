@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import Engine
 
+from modules.alpha_mode import AlphaOperatingModeService
 from modules.coman.models import utc_now
 from modules.integrations import IntegrationConfigurationService
 from modules.regulatory import RegulatoryMappingService, require_metrc_write_contract
@@ -96,6 +97,25 @@ class TraceabilityDispatcher:
         }
 
     def _dispatch_metrc(self, tx, payload: dict[str, Any], actor: str) -> dict[str, Any]:
+        try:
+            mode = AlphaOperatingModeService(self.engine).current(tx.organization_id, tx.facility_id)
+        except ValueError as exc:
+            return self._no_request(
+                tx,
+                actor,
+                code="facility_mode_unavailable",
+                message=str(exc),
+            )
+        if not mode.metrc_enabled:
+            return self._no_request(
+                tx,
+                actor,
+                code="alpha_mode_doobielogic_sandbox",
+                message=(
+                    "DoobieLogic Sandbox is active for this facility. Metrc dispatch is disabled until an administrator selects Metrc Sandbox."
+                ),
+            )
+
         scope_key = f"{tx.requested_by}|{tx.facility_id}"
         row = self.integrations.get("user", scope_key, "metrc")
         if row is None:
@@ -127,6 +147,15 @@ class TraceabilityDispatcher:
                 actor,
                 code="environment_not_verified",
                 message="The Metrc write environment must be explicitly saved as sandbox or production.",
+            )
+        if environment != "sandbox":
+            return self._no_request(
+                tx,
+                actor,
+                code="alpha_mode_production_blocked",
+                message=(
+                    "Metrc Sandbox is the only provider mode enabled during alpha. A production-configured credential cannot dispatch from this operating mode."
+                ),
             )
         if not state or not configured_license:
             return self._no_request(

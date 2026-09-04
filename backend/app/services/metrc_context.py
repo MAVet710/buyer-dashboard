@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import Engine
 
+from modules.alpha_mode import AlphaOperatingModeService
 from modules.integrations import IntegrationConfigurationService
 from modules.integrations.models import IntegrationConfiguration
 from modules.regulatory import RegulatoryMappingService
@@ -28,13 +29,7 @@ class MetrcContext:
 
 
 def metrc_scope_key(context: RequestContext) -> str:
-    """Keep a user's Metrc key/license isolated to the active facility.
-
-    A user may legitimately work in a retail license and a separate
-    production/cultivation license. Reusing one user-wide record would leak the
-    wrong license into the other operation. The composite key preserves the
-    existing user-scoped credential model while adding facility isolation.
-    """
+    """Keep a user's Metrc key/license isolated to the active facility."""
 
     return f"{context.user_id}|{context.facility_id}"
 
@@ -49,14 +44,7 @@ def _sandbox_vendor_context(
     service: IntegrationConfigurationService,
     context: RequestContext,
 ) -> tuple[IntegrationConfiguration | None, dict, str]:
-    """Return the encrypted Metrc sandbox vendor/integrator credential, if saved.
-
-    The Developer Connections surface predates the live Metrc adapter. Its
-    ``metrc_sandbox`` encrypted secret is now the canonical in-app location for
-    the Metrc Connect vendor/integrator key. This keeps the key out of source,
-    Streamlit, and browser-readable configuration while allowing FastAPI to use
-    the credential that an administrator already saved in the app.
-    """
+    """Return the encrypted Metrc sandbox vendor/integrator credential, if saved."""
 
     row = service.get("facility", metrc_sandbox_scope_key(context), "metrc_sandbox")
     if row is None:
@@ -70,16 +58,25 @@ def _sandbox_vendor_context(
 def resolve_metrc_context(
     engine: Engine, settings: Settings, context: RequestContext
 ) -> tuple[IntegrationConfigurationService | None, MetrcContext]:
-    # Development/test environments intentionally allow local deterministic
-    # inventory workflows without integration secrets. Production startup is
-    # already fail-closed on INTEGRATION_ENCRYPTION_KEY, so treating a missing
-    # key as an unconfigured METRC connection here preserves local inventory
-    # work without weakening production credential handling.
+    mode = AlphaOperatingModeService(engine).current(
+        context.organization_id,
+        context.facility_id,
+    )
+
+    # Alpha exposes only local operation or the provider sandbox. Production is
+    # deliberately outside this selector and requires a future explicit release
+    # path rather than being inferred from an older saved connection.
     if not str(settings.integration_encryption_key or "").strip():
         return None, MetrcContext(
             configured=False,
-            integrator_api_key=settings.metrc_integrator_key,
-            message="METRC encrypted credential storage is not configured for this environment.",
+            integrator_api_key=settings.metrc_integrator_key if mode.metrc_enabled else "",
+            environment="sandbox",
+            status="disabled_by_alpha_mode" if not mode.metrc_enabled else "not_connected",
+            message=(
+                "DoobieLogic Sandbox is active for this facility. Metrc provider reads and writes are disabled until an administrator selects Metrc Sandbox."
+                if not mode.metrc_enabled
+                else "Metrc Sandbox is selected, but encrypted credential storage is not configured for this environment."
+            ),
         )
 
     service = IntegrationConfigurationService(engine, settings.integration_encryption_key)
@@ -95,6 +92,27 @@ def resolve_metrc_context(
 
     sandbox_row, sandbox_config, sandbox_vendor_key = _sandbox_vendor_context(service, context)
     integrator_api_key = str(sandbox_vendor_key or settings.metrc_integrator_key or "").strip()
+
+    # The alpha operating mode is authoritative before provider credentials are
+    # decrypted or a provider call can be prepared. Keep the saved row visible
+    # to the Integrations UI, but do not expose a usable runtime key in local mode.
+    if not mode.metrc_enabled:
+        public = service.public(row)
+        config = public.get("configuration", {}) if isinstance(public, dict) else {}
+        return service, MetrcContext(
+            configured=False,
+            state=str(config.get("state") or sandbox_config.get("state") or "").strip(),
+            license_number=str(config.get("license_number") or sandbox_config.get("license_number") or "").strip(),
+            integrator_api_key="",
+            status="disabled_by_alpha_mode",
+            environment="sandbox",
+            trusted_mapping=False,
+            message=(
+                "DoobieLogic Sandbox is active for this facility. Saved Metrc credentials remain encrypted, "
+                "but provider reads and writes are disabled until an administrator selects Metrc Sandbox."
+            ),
+            row=row,
+        )
 
     if row is None:
         sandbox_state = str(sandbox_config.get("state") or "").strip()
@@ -115,23 +133,16 @@ def resolve_metrc_context(
         return service, MetrcContext(
             configured=False,
             integrator_api_key=integrator_api_key,
-            message="No METRC user/facility integration is saved for this account at the active facility.",
+            environment="sandbox",
+            message="Metrc Sandbox is selected, but no Metrc user/facility sandbox integration is saved for this account at the active facility.",
         )
 
     public = service.public(row)
     config = public.get("configuration", {})
-    secret = service.secret(row)
     state = str(config.get("state") or "").strip()
     license_number = str(config.get("license_number") or "").strip()
-    environment = str(config.get("environment") or "production").strip().casefold()
+    configured_environment = str(config.get("environment") or "production").strip().casefold()
 
-    # The old React METRC card did not expose environment and therefore saved
-    # "production" even when the explicit Developer Connections sandbox card
-    # already held the same facility's MA sandbox configuration. A matching
-    # sandbox connection is an intentional, sandbox-only administrator action,
-    # so make it authoritative for that exact state/license. Production can be
-    # selected only after the sandbox connection is cleared or a different
-    # production facility/license credential is configured.
     sandbox_state = str(sandbox_config.get("state") or "").strip().upper()
     sandbox_license = str(sandbox_config.get("license_number") or "").strip()
     sandbox_matches = bool(
@@ -140,16 +151,35 @@ def resolve_metrc_context(
         and sandbox_state == state.upper()
         and (not sandbox_license or sandbox_license == license_number)
     )
-    if sandbox_matches:
+
+    # Older web UI saved production as its implicit default. A verified sandbox
+    # vendor connection for the same facility safely proves that this old row is
+    # actually part of the sandbox setup. Otherwise, never reinterpret or use a
+    # production credential while the alpha Metrc Sandbox mode is selected.
+    if configured_environment == "sandbox" or sandbox_matches:
         environment = "sandbox"
+    else:
+        return service, MetrcContext(
+            configured=False,
+            state=state,
+            license_number=license_number,
+            integrator_api_key="",
+            status="production_blocked_by_alpha_mode",
+            environment="sandbox",
+            trusted_mapping=False,
+            message=(
+                "Metrc Sandbox is selected, but the saved Metrc user credential is marked production. "
+                "Alpha will not use or reinterpret a production credential. Save or discover the sandbox credential for this facility."
+            ),
+            row=row,
+        )
+
+    if sandbox_matches:
         integrator_api_key = str(sandbox_vendor_key or integrator_api_key).strip()
 
+    secret = service.secret(row)
     user_api_key = str(secret or "").strip()
     if integrator_api_key and user_api_key == integrator_api_key:
-        # A Metrc Connect vendor/integrator key and a Metrc user API key are two
-        # different credentials. Older UI exposed only one METRC key input, so
-        # fail closed and explain the missing user key instead of sending the
-        # vendor key in both Basic Auth positions.
         user_api_key = ""
 
     mapping = RegulatoryMappingService(engine).get(
@@ -157,8 +187,8 @@ def resolve_metrc_context(
         facility_id=context.facility_id,
         provider="metrc",
         license_number=license_number,
-        environment=environment,
-    ) if state and license_number and environment in {"sandbox", "production"} else None
+        environment="sandbox",
+    ) if state and license_number else None
     trusted_mapping = bool(
         mapping
         and mapping.integration_configuration_id == row.id
@@ -167,18 +197,18 @@ def resolve_metrc_context(
     configured = bool(user_api_key and state and license_number and integrator_api_key)
 
     if configured and trusted_mapping:
-        message = "METRC connection and trusted facility mapping are ready."
+        message = "METRC sandbox connection and trusted facility mapping are ready."
     elif configured:
-        message = "An administrator must verify the facility, license, jurisdiction, provider, credential, and environment mapping before live regulatory operations."
+        message = "An administrator must verify the exact sandbox facility, license, jurisdiction, credential, and environment mapping before regulatory operations."
     elif integrator_api_key and not user_api_key:
         message = (
             "The Metrc integrator/vendor key is saved. Add the distinct Metrc user API key for this sandbox facility, "
             "then validate the connection."
         )
     elif not integrator_api_key:
-        message = "Save the Metrc integrator/vendor key in DoobieLogic before validating this facility."
+        message = "Save the Metrc sandbox integrator/vendor key in DoobieLogic before validating this facility."
     else:
-        message = "Save and validate METRC credentials for this facility before loading live provider data."
+        message = "Save and validate Metrc sandbox credentials for this facility before loading provider data."
 
     return service, MetrcContext(
         configured=configured,
@@ -187,7 +217,7 @@ def resolve_metrc_context(
         user_api_key=user_api_key,
         integrator_api_key=integrator_api_key,
         status=str(public.get("status") or "not_connected"),
-        environment=environment,
+        environment="sandbox",
         trusted_mapping=trusted_mapping,
         message=message,
         row=row,

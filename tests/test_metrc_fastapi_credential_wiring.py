@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 from backend.app.auth import RequestContext
 from backend.app.config import Settings
 from backend.app.services.metrc_context import metrc_sandbox_scope_key, metrc_scope_key, resolve_metrc_context
+from modules.alpha_mode import AlphaOperatingModeService
 from modules.coman.models import Base, Facility, Organization
 from modules.integrations import IntegrationConfigurationService
 
@@ -26,6 +27,15 @@ def _engine():
 
 def _context() -> RequestContext:
     return RequestContext(user_id="dev-1", organization_id="org-1", facility_id="fac-1", role="dev")
+
+
+def _select_metrc_sandbox(engine, context: RequestContext) -> None:
+    AlphaOperatingModeService(engine).set_mode(
+        context.organization_id,
+        context.facility_id,
+        mode="metrc_sandbox",
+        actor=context.user_id,
+    )
 
 
 def _save_sandbox_vendor(service: IntegrationConfigurationService, context: RequestContext, secret: str = "vendor-key"):
@@ -62,6 +72,7 @@ def _save_user_key(service: IntegrationConfigurationService, context: RequestCon
 def test_saved_sandbox_connection_supplies_integrator_key_without_server_env_secret():
     engine = _engine()
     context = _context()
+    _select_metrc_sandbox(engine, context)
     service = IntegrationConfigurationService(engine, ENCRYPTION_KEY)
     _save_sandbox_vendor(service, context)
     _save_user_key(service, context, "user-key")
@@ -80,6 +91,7 @@ def test_saved_sandbox_connection_supplies_integrator_key_without_server_env_sec
 def test_legacy_single_key_misclassification_fails_closed_as_missing_user_key():
     engine = _engine()
     context = _context()
+    _select_metrc_sandbox(engine, context)
     service = IntegrationConfigurationService(engine, ENCRYPTION_KEY)
     _save_sandbox_vendor(service, context, "vendor-key")
     _save_user_key(service, context, "vendor-key")
@@ -96,6 +108,7 @@ def test_legacy_single_key_misclassification_fails_closed_as_missing_user_key():
 def test_sandbox_vendor_key_is_discoverable_even_before_user_key_is_saved():
     engine = _engine()
     context = _context()
+    _select_metrc_sandbox(engine, context)
     service = IntegrationConfigurationService(engine, ENCRYPTION_KEY)
     _save_sandbox_vendor(service, context)
 
