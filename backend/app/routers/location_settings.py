@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -22,6 +23,12 @@ from ..auth import RequestContext, get_request_context, require_any_facility_cap
 from ..config import Settings, get_settings
 from ..database import get_engine
 from ..services.metrc_context import metrc_scope_key, resolve_metrc_context
+from ..services.metrc_master_data_actions import (
+    PROMOTED_MASTER_DATA_ACTIONS,
+    MetrcMasterDataActionError,
+    MetrcMasterDataActionService,
+    master_data_confirmation_token,
+)
 
 router = APIRouter(prefix="/location-settings", tags=["location-settings"])
 DATASET_KEY = "location_settings"
@@ -46,6 +53,11 @@ class MetrcEmployeeIdentityUpdate(BaseModel):
 class MetrcActionPreview(BaseModel):
     operation_type: str = Field(min_length=1, max_length=80)
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class MetrcActionExecute(MetrcActionPreview):
+    confirmation_id: str = Field(min_length=1, max_length=80)
+    confirmation_token: str = Field(min_length=32, max_length=128)
 
 
 def _load(repository: DataHubRepository, context: RequestContext) -> dict[str, object]:
@@ -162,6 +174,31 @@ def _live_envelope(metrc, page_size: int = LIVE_PAGE_SIZE) -> dict[str, Any]:
     }
 
 
+def _master_data_execution_enabled(metrc, operation_type: str) -> bool:
+    return bool(
+        str(operation_type or "").strip().casefold() in PROMOTED_MASTER_DATA_ACTIONS
+        and str(metrc.state or "").strip().upper() == "MA"
+        and str(metrc.environment or "").strip().casefold() == "sandbox"
+        and metrc.configured
+        and metrc.status == "connected"
+        and metrc.trusted_mapping
+    )
+
+
+def _facility_setup_actions(metrc) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for spec in list_facility_setup_actions():
+        public = spec.public()
+        if _master_data_execution_enabled(metrc, spec.operation_type):
+            public["dispatch_enabled"] = True
+            public["verification_status"] = "ma_sandbox_write_readback_promoted"
+            public["note"] = (
+                "This exact MA sandbox create/update action uses the #452 evaluation payload and requires HTTP 200 plus fresh by-ID readback before DoobieLogic marks it verified."
+            )
+        output.append(public)
+    return output
+
+
 @router.get("")
 def get_location_settings(
     context: RequestContext = Depends(get_request_context),
@@ -222,6 +259,7 @@ def facility_setup_overview(
         {"key": "cultivation", "label": "Cultivation Programs", "priority": "P1", "status": "live-read", "description": "Inspect active/inactive Metrc additive templates used by cultivation while unverified provider-changing actions remain locked."},
         {"key": "transportation", "label": "Transportation", "priority": "P2", "status": "live-read", "description": "Inspect Metrc transport drivers and vehicles used by transfer and manifest workflows."},
     ]
+    promoted = str(metrc.state or "").strip().upper() == "MA" and str(metrc.environment or "").strip().casefold() == "sandbox"
     return {
         "workspace": "Facility Setup",
         "facility_id": context.facility_id,
@@ -238,14 +276,18 @@ def facility_setup_overview(
             "message": metrc.message,
         },
         "sections": sections,
-        "actions": [row.public() for row in list_facility_setup_actions()],
+        "actions": _facility_setup_actions(metrc),
         "lab_data_scope": {
             "mode": "read_only",
             "included": ["testing status", "results", "COA/document references", "retest/remediation context", "release readiness"],
             "excluded": ["record lab result", "release lab result", "lab employee workflow"],
         },
         "retail_scope": {"mode": "deferred", "message": "POS/register, patient, receipt, and retail-delivery operations are intentionally outside this phase."},
-        "documentation_scope": "Metrc v2 Facility Setup request previews are bounded to reviewed provider fields; provider dispatch remains locked until jurisdiction-specific sandbox write/readback verification.",
+        "documentation_scope": (
+            "The six #452 location/strain/item create/update contracts are promoted for the trusted Massachusetts sandbox and require HTTP 200 plus fresh exact by-ID readback. Other documented Facility Setup mutations remain preview-only until separately proven."
+            if promoted
+            else "Metrc v2 Facility Setup request previews are bounded to reviewed provider fields; provider dispatch remains locked until jurisdiction-specific sandbox write/readback verification."
+        ),
     }
 
 
@@ -477,8 +519,31 @@ def metrc_action_preview(
         if provider_id in (None, ""):
             raise HTTPException(422, "Provider ID is required for this action.")
         path = path.replace("{id}", str(provider_id))
+
+    dispatch_enabled = _master_data_execution_enabled(metrc, spec.operation_type)
+    confirmation_id = str(uuid4()) if dispatch_enabled else ""
+    confirmation_token = ""
+    if dispatch_enabled:
+        try:
+            confirmation_token = master_data_confirmation_token(
+                operation_type=spec.operation_type,
+                payload=request.payload,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+                confirmation_id=confirmation_id,
+            )
+        except MetrcMasterDataActionError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    operation = spec.public()
+    if dispatch_enabled:
+        operation["dispatch_enabled"] = True
+        operation["verification_status"] = "ma_sandbox_write_readback_promoted"
+        operation["note"] = "Human confirmation submits this exact #452-reviewed request and requires fresh by-ID readback before verification."
+
     return {
-        "operation": spec.public(),
+        "operation": operation,
         "jurisdiction": {
             "code": profile.code,
             "documentation_verified": profile.documentation_verified,
@@ -490,7 +555,45 @@ def metrc_action_preview(
             "query": {"licenseNumber": metrc.license_number},
             "body": body,
         },
-        "dispatch_enabled": False,
+        "dispatch_enabled": dispatch_enabled,
         "requires_human_confirmation": True,
-        "message": "Request preview validated against the bounded v2 adapter. Network execution remains locked until this exact jurisdiction/action passes a controlled Metrc sandbox write and fresh readback; DoobieLogic will not fake success.",
+        "confirmation_id": confirmation_id,
+        "confirmation_token": confirmation_token,
+        "message": (
+            "Review this change, then confirm it. DoobieLogic will submit the exact reviewed Massachusetts sandbox request, capture the HTTP result, perform fresh exact by-ID readback, and mark the action verified only when that readback matches."
+            if dispatch_enabled
+            else "Request preview validated against the bounded v2 adapter. Network execution remains locked until this exact action passes its controlled Metrc sandbox write and fresh readback promotion gate."
+        ),
     }
+
+
+@router.post("/metrc-action-execute")
+def metrc_action_execute(
+    request: MetrcActionExecute,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    if context.role.casefold() not in FACILITY_SETUP_MANAGE_ROLES:
+        raise HTTPException(403, "Your DoobieLogic role cannot confirm Facility Setup provider actions.")
+    _, metrc = _trusted_metrc(context, engine, settings)
+    if not _master_data_execution_enabled(metrc, request.operation_type):
+        raise HTTPException(409, "This Facility Setup action is not promoted for execution in the active Metrc facility/environment.")
+    try:
+        result = MetrcMasterDataActionService(engine).execute(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            actor=context.user_id,
+            operation_type=request.operation_type,
+            payload=request.payload,
+            state=metrc.state,
+            environment=metrc.environment,
+            license_number=metrc.license_number,
+            integrator_api_key=metrc.integrator_api_key,
+            user_api_key=metrc.user_api_key,
+            confirmation_id=request.confirmation_id,
+            confirmation_token=request.confirmation_token,
+        )
+    except MetrcMasterDataActionError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return result
