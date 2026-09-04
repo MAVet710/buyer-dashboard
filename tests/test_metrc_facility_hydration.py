@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from modules.coman.models import Base, Facility, InventoryLot, InventoryTransaction, Organization, Product
+from modules.traceability.object_links import TraceabilityObjectLink
 from services import metrc_facility_bootstrap as bootstrap_module
 from services.metrc_facility_bootstrap import MetrcFacilityBootstrapService
 from services.metrc_facility_materialization import MetrcCanonicalInventorySeeder
@@ -79,6 +80,8 @@ def test_metrc_materialization_seeds_new_packages_once_and_preserves_existing_ba
     assert first["created_products"] == 1
     assert first["created_inventory_lots"] == 2
     assert first["created_inventory_transactions"] == 2
+    assert first["created_product_links"] == 1
+    assert first["created_package_links"] == 2
     assert first["conflict_count"] == 0
     assert first["overwrite_existing"] is False
 
@@ -86,6 +89,18 @@ def test_metrc_materialization_seeds_new_packages_once_and_preserves_existing_ba
         assert session.scalar(select(func.count()).select_from(Product)) == 1
         assert session.scalar(select(func.count()).select_from(InventoryLot)) == 2
         assert session.scalar(select(func.count()).select_from(InventoryTransaction)) == 2
+        assert session.scalar(select(func.count()).select_from(TraceabilityObjectLink)) == 3
+        product = session.scalar(select(Product))
+        assert product is not None and product.external_product_id == ""
+        links = list(session.scalars(select(TraceabilityObjectLink).order_by(
+            TraceabilityObjectLink.provider_resource, TraceabilityObjectLink.provider_id
+        )))
+        assert {(row.provider_resource, row.provider_id) for row in links} == {
+            ("items", "41"), ("packages", "100"), ("packages", "101")
+        }
+        assert all(row.provider == "metrc" for row in links)
+        assert all(row.environment == "sandbox" for row in links)
+        assert all(row.license_number == "LIC-HYD" for row in links)
         balance = session.scalar(select(func.sum(InventoryTransaction.quantity_delta)))
         assert float(balance or 0) == 150.0
         lots = list(session.scalars(select(InventoryLot).order_by(InventoryLot.lot_code)))
@@ -106,13 +121,74 @@ def test_metrc_materialization_seeds_new_packages_once_and_preserves_existing_ba
     assert second["created_products"] == 0
     assert second["created_inventory_lots"] == 0
     assert second["created_inventory_transactions"] == 0
+    assert second["created_product_links"] == 0
+    assert second["created_package_links"] == 0
     assert second["existing_package_count"] == 2
 
     with Session(engine) as session:
         assert session.scalar(select(func.count()).select_from(InventoryLot)) == 2
         assert session.scalar(select(func.count()).select_from(InventoryTransaction)) == 2
+        assert session.scalar(select(func.count()).select_from(TraceabilityObjectLink)) == 3
         balance = session.scalar(select(func.sum(InventoryTransaction.quantity_delta)))
         assert float(balance or 0) == 150.0
+
+
+def test_existing_exact_package_label_gets_identity_links_without_balance_mutation():
+    engine = _engine()
+    organization_id, facility_id = _tenant(engine)
+    with Session(engine) as session, session.begin():
+        product = Product(
+            organization_id=organization_id,
+            sku="LOCAL-GMO",
+            name="GMO Bulk Flower",
+            item_type="cannabis",
+            base_unit="Grams",
+            active=True,
+        )
+        session.add(product)
+        session.flush()
+        lot = InventoryLot(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            product_id=product.id,
+            lot_code="LOCAL-300",
+            compliance_package_id="PKG-300",
+            location_code="LOCAL",
+            status="available",
+        )
+        session.add(lot)
+        session.flush()
+        session.add(InventoryTransaction(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            lot_id=lot.id,
+            transaction_type="receive",
+            quantity_delta=30.0,
+            unit="Grams",
+            reason="Existing local package",
+            reference="PKG-300",
+            actor="tester",
+        ))
+
+    result = MetrcCanonicalInventorySeeder(engine).seed(
+        organization_id=organization_id,
+        facility_id=facility_id,
+        state="MA",
+        environment="sandbox",
+        license_number="LIC-HYD",
+        actor="tester",
+        packages=[_package("PKG-300", 25.0)],
+    )
+    assert result["created_products"] == 0
+    assert result["created_inventory_lots"] == 0
+    assert result["created_inventory_transactions"] == 0
+    assert result["created_product_links"] == 1
+    assert result["created_package_links"] == 1
+    assert result["existing_package_count"] == 1
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(TraceabilityObjectLink)) == 2
+        balance = session.scalar(select(func.sum(InventoryTransaction.quantity_delta)))
+        assert float(balance or 0) == 30.0
 
 
 def test_metrc_materialization_fails_closed_on_local_lot_code_collision():
@@ -154,6 +230,7 @@ def test_metrc_materialization_fails_closed_on_local_lot_code_collision():
     with Session(engine) as session:
         assert session.scalar(select(func.count()).select_from(InventoryLot)) == 1
         assert session.scalar(select(func.count()).select_from(InventoryTransaction)) == 0
+        assert session.scalar(select(func.count()).select_from(TraceabilityObjectLink)) == 0
 
 
 def test_normalized_initial_hydration_walks_every_provider_page(monkeypatch):
