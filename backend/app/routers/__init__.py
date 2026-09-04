@@ -17,6 +17,14 @@ from .metrc_cultivation_snapshot import router as _metrc_cultivation_snapshot_ro
 
 _plants.router.include_router(_metrc_cultivation_snapshot_router)
 
+# Production follows the same pattern: the existing manufacturing regulatory
+# endpoint stays available for an explicit provider verification, while the normal
+# Production workspace consumes the last synchronized current snapshot locally.
+from . import inventory_reconciliation as _inventory_reconciliation
+from .metrc_production_snapshot import router as _metrc_production_snapshot_router
+
+_inventory_reconciliation.router.include_router(_metrc_production_snapshot_router)
+
 # Facility Setup already loads one overview request on page entry. Enrich that
 # existing response with locally synchronized Metrc master-data counts/freshness,
 # and expose the detailed local snapshot on a separate read-only child endpoint.
