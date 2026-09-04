@@ -57,10 +57,11 @@ def compose_metrc_runtime() -> None:
     metrc_resilient_bootstrap_module.MAX_INITIAL_PAGES = FULL_SYNC_PAGE_SAFETY_CEILING
     metrc_incremental_sync_module.MAX_INITIAL_PAGES = FULL_SYNC_PAGE_SAFETY_CEILING
 
-    # Compose one final authenticated bootstrap: resilient page checkpointing +
-    # current provider snapshots + canonical natural-workspace hydration. Modules
-    # that imported earlier classes by value are explicitly rebound here.
-    metrc_facility_bootstrap.MetrcFacilityBootstrapService = NaturalMetrcFacilityBootstrapService
+    # Compose one final authenticated bootstrap at the actual runtime consumers.
+    # Do NOT replace services.metrc_facility_bootstrap.MetrcFacilityBootstrapService
+    # globally: that class is the stable core/audit primitive used by isolated tests
+    # and by incremental persistence. Global rebinding made behavior depend on import
+    # order. Consumers that need the natural runtime are explicitly rebound instead.
     sandbox_integrations.MetrcFacilityBootstrapService = NaturalMetrcFacilityBootstrapService
     metrc_natural_sync_module.ResilientSnapshottingMetrcFacilityBootstrapService = NaturalMetrcFacilityBootstrapService
 
