@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from backend.app.auth import RequestContext
-from backend.app.main import app as production_app
 from backend.app.routers.metrc_package_lab_detail import _lab_resource, cached_package_lab_results
 from modules.coman.models import Base, Facility, InventoryLot, Organization, Product
 from modules.integrations.provider_snapshot import IntegrationProviderSnapshotRepository
@@ -103,20 +106,29 @@ def test_package_lab_detail_returns_only_exact_package_cached_evidence():
     assert result["results"] == [{"Id": 1, "TestTypeName": "THC", "TestResultLevel": 22.1}]
 
 
-def test_package_lab_detail_routes_are_registered_on_production_api_graph():
-    # The operator contract is the FastAPI graph built at application startup. Other
-    # isolation tests may replace intermediate router modules later in the same pytest
-    # process, but they must not be able to erase routes already copied into the app.
-    paths = {str(getattr(route, "path", "")) for route in production_app.routes}
-    assert any(
-        path.endswith(
-            "/inventory/regulatory-detail/local/inventory_lot/{entity_id}/lab-results"
-        )
-        for path in paths
+def test_package_lab_detail_routes_are_registered_on_clean_startup_api_graph():
+    # Several isolation tests intentionally swap imported router modules in the main
+    # pytest interpreter. Production starts in a clean interpreter, so prove the API
+    # registration contract in an equally clean child process rather than inspecting
+    # a module graph that prior tests are allowed to mutate.
+    script = r'''
+from backend.app.main import app
+
+paths = {str(getattr(route, "path", "")) for route in app.routes}
+required = (
+    "/inventory/regulatory-detail/local/inventory_lot/{entity_id}/lab-results",
+    "/inventory/regulatory-detail/local/inventory_lot/{entity_id}/lab-results/live",
+)
+missing = [suffix for suffix in required if not any(path.endswith(suffix) for path in paths)]
+if missing:
+    raise SystemExit("missing startup routes: " + ", ".join(missing))
+'''
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
     )
-    assert any(
-        path.endswith(
-            "/inventory/regulatory-detail/local/inventory_lot/{entity_id}/lab-results/live"
-        )
-        for path in paths
-    )
+    assert result.returncode == 0, result.stdout + result.stderr
