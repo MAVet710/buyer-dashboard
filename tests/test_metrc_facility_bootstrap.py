@@ -29,6 +29,23 @@ def _engine():
         return engine, org.id, facility.id
 
 
+def _expected_bootstrap_resources() -> set[str]:
+    """Derive the contract from the composed bootstrap class under test.
+
+    The authenticated runtime intentionally extends the core bootstrap as new Metrc
+    resource families gain natural DoobieLogic operator surfaces. This assertion
+    should fail when a configured resource is not attempted or an unexpected
+    resource appears, but it must not hard-code a stale count every time the
+    explicit class contract grows.
+    """
+
+    return {
+        "facility_profile",
+        *(local_name for local_name, _provider_resource in MetrcFacilityBootstrapService.NORMALIZED_RESOURCES),
+        *(local_name for local_name, _path, _paginated in MetrcFacilityBootstrapService.DIRECT_RESOURCES),
+    }
+
+
 def test_bootstrap_cascades_master_tags_and_operational_resources(monkeypatch):
     engine, org_id, facility_id = _engine()
 
@@ -62,23 +79,21 @@ def test_bootstrap_cascades_master_tags_and_operational_resources(monkeypatch):
         facility_record={"Id": 81722, "Name": "Cowboy Kush Manufacturing", "Permissions": ["Manage Packages"]},
     )
 
+    expected_resources = _expected_bootstrap_resources()
     assert result["totals"]["failed"] == 0
     assert result["totals"]["skipped"] == 0
-    assert result["totals"]["resources"] == 16
-    assert result["totals"]["records"] == 16
+    assert result["totals"]["resources"] == len(expected_resources)
+    assert result["totals"]["records"] == len(expected_resources)
     names = {row["resource"] for row in result["resources"]}
-    assert {
-        "facility_profile", "locations", "sublocations", "location_types", "strains", "items",
-        "item_categories", "item_brands", "units_of_measure", "package_tags", "plant_tags",
-        "packages", "plant_batches", "plants_vegetative", "plants_flowering", "harvests",
-    } == names
+    assert names == expected_resources
     with Session(engine) as session:
         stored = list(session.scalars(select(IntegrationSyncRecord).where(
             IntegrationSyncRecord.organization_id == org_id,
             IntegrationSyncRecord.facility_id == facility_id,
             IntegrationSyncRecord.provider == "metrc",
         )))
-        assert len(stored) == 16
+        assert len(stored) == len(expected_resources)
+        assert {row.resource for row in stored} == expected_resources
         facility_profile = next(row for row in stored if row.resource == "facility_profile")
         assert "Manage Packages" in facility_profile.raw_payload_json
 
