@@ -1,7 +1,9 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from modules.coman.models import Facility, Organization
@@ -76,6 +78,59 @@ def test_traceability_create_is_idempotent_and_redacts_credentials():
     assert payload["UserApiKey"] == "[REDACTED]"
     assert payload["nested"]["authorization"] == "[REDACTED]"
     assert "never-store-this" not in first.request_payload_json
+
+
+def test_traceability_create_reuses_winner_after_unique_insert_race():
+    repo = _repository()
+    winner = SimpleNamespace(id="winner-tx")
+
+    class FakeContext:
+        def __init__(self, session):
+            self.session = session
+
+        def __enter__(self):
+            return self.session
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FirstSession:
+        def get(self, _model, _facility_id):
+            return SimpleNamespace(organization_id="org-1")
+
+        def scalar(self, _statement):
+            return None
+
+        def add(self, _transaction):
+            return None
+
+        def flush(self):
+            raise IntegrityError("duplicate idempotency key", {}, Exception("unique"))
+
+    class WinnerSession:
+        def scalar(self, _statement):
+            return winner
+
+    class FakeFactory:
+        def begin(self):
+            return FakeContext(FirstSession())
+
+        def __call__(self):
+            return FakeContext(WinnerSession())
+
+    repo._session_factory = FakeFactory()
+    result = repo.create_transaction(
+        organization_id="org-1",
+        facility_id="fac-1",
+        provider="metrc",
+        operation_type="location_create",
+        entity_type="location",
+        entity_id="Flower Room 2",
+        idempotency_key="confirmation-1",
+        actor="admin",
+    )
+
+    assert result is winner
 
 
 def test_traceability_lifecycle_requires_valid_transitions():
