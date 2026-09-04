@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -7,6 +8,7 @@ from sqlalchemy import Engine, select
 
 from modules.integrations.models import IntegrationSyncAttempt
 from modules.integrations.provider_snapshot import IntegrationProviderSnapshotRepository
+from services.metrc_available_tag_mirror import MetrcAvailableTagMirror
 from services.metrc_facility_bootstrap import MetrcFacilityBootstrapService as BaseMetrcFacilityBootstrapService
 
 
@@ -26,6 +28,92 @@ class SnapshottingMetrcFacilityBootstrapService(BaseMetrcFacilityBootstrapServic
     def __init__(self, engine: Engine):
         super().__init__(engine)
         self.provider_snapshots = IntegrationProviderSnapshotRepository(engine)
+        self.tag_mirror = MetrcAvailableTagMirror(engine)
+
+    def sync(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        license_number: str,
+        state: str,
+        environment: str,
+        integrator_api_key: str,
+        user_api_key: str,
+        actor: str,
+        facility_record: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = super().sync(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            license_number=license_number,
+            state=state,
+            environment=environment,
+            integrator_api_key=integrator_api_key,
+            user_api_key=user_api_key,
+            actor=actor,
+            facility_record=facility_record,
+        )
+
+        resource_summaries = {
+            str(row.get("resource") or ""): row
+            for row in result.get("resources", [])
+            if isinstance(row, dict)
+        }
+        selector_hydration: dict[str, Any] = {}
+        for resource, tag_type in (("plant_tags", "plant"), ("package_tags", "package")):
+            summary = resource_summaries.get(resource) or {}
+            current_status = str((summary.get("current_snapshot") or {}).get("status") or "")
+            if current_status != "current":
+                selector_hydration[tag_type] = {
+                    "status": "unchanged",
+                    "reason": current_status or str(summary.get("status") or "not_synced"),
+                }
+                continue
+
+            rows = self.provider_snapshots.current(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                provider="metrc",
+                resources=(resource,),
+                environment=environment,
+                limit=10000,
+            )
+            records: list[dict[str, Any]] = []
+            for row in rows:
+                try:
+                    payload = json.loads(row.raw_payload_json or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if isinstance(payload, dict):
+                    records.append(payload)
+            try:
+                selector_hydration[tag_type] = {
+                    "status": "current",
+                    **self.tag_mirror.replace(
+                        organization_id=organization_id,
+                        facility_id=facility_id,
+                        jurisdiction_code=state,
+                        license_number=license_number,
+                        environment=environment,
+                        tag_type=tag_type,
+                        records=records,
+                    ),
+                }
+            except ValueError as exc:
+                # Provider truth remains safely captured in the current snapshot,
+                # but a local selector identity conflict must not be guessed away.
+                selector_hydration[tag_type] = {
+                    "status": "reconciliation_required",
+                    "message": str(exc),
+                }
+
+        result["selector_hydration"] = {
+            "source": "integration_provider_snapshots",
+            "network_request_made": False,
+            "tags": selector_hydration,
+        }
+        return result
 
     def _replace_current_snapshot(
         self,
