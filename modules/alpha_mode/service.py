@@ -71,6 +71,7 @@ class AlphaOperatingModeService:
                 RegulatoryFacilityMapping.provider == "metrc",
                 RegulatoryFacilityMapping.environment == "sandbox",
                 RegulatoryFacilityMapping.active.is_(True),
+                RegulatoryFacilityMapping.verified_at.is_not(None),
             )
             .order_by(RegulatoryFacilityMapping.verified_at.desc())
             .limit(1)
