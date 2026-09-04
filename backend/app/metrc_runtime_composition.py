@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 _COMPOSED = False
+FULL_SYNC_PAGE_SAFETY_CEILING = 10_000
 
 
 def compose_metrc_runtime() -> None:
@@ -19,6 +20,7 @@ def compose_metrc_runtime() -> None:
 
     from services import metrc_facility_bootstrap as metrc_facility_bootstrap
     from services import metrc_incremental_sync as metrc_incremental_sync_module
+    from services import metrc_resilient_bootstrap as metrc_resilient_bootstrap_module
     from services.metrc_expanded_workspace_hydration import (
         MetrcWorkspaceHydrationService as ExpandedMetrcWorkspaceHydrationService,
     )
@@ -42,11 +44,18 @@ def compose_metrc_runtime() -> None:
     from .routers.regulatory_detail import router as regulatory_detail_router
     from .services import metrc_natural_sync as metrc_natural_sync_module
     from .services.metrc_context import resolve_metrc_context
-    from .services.metrc_natural_sync import MetrcNaturalSyncControlService
+    from .services.metrc_sync_policy import MetrcPolicySyncControlService
 
     # All shared Metrc reads now honor Retry-After up to a bounded 30 seconds.
     # Installing here avoids any import-time dependency loop through traceability.
     install_metrc_rate_limit_policy()
+
+    # A real full import must not stop at the old 100-page/10k-row bootstrap
+    # boundary. Keep a pathological-provider safety ceiling, but allow up to one
+    # million rows per collection while preserving page checkpoints and resume.
+    metrc_facility_bootstrap.MAX_INITIAL_PAGES = FULL_SYNC_PAGE_SAFETY_CEILING
+    metrc_resilient_bootstrap_module.MAX_INITIAL_PAGES = FULL_SYNC_PAGE_SAFETY_CEILING
+    metrc_incremental_sync_module.MAX_INITIAL_PAGES = FULL_SYNC_PAGE_SAFETY_CEILING
 
     # Compose one final authenticated bootstrap: resilient page checkpointing +
     # current provider snapshots + canonical natural-workspace hydration. Modules
@@ -102,7 +111,7 @@ def compose_metrc_runtime() -> None:
         sandbox_integrations._require_developer_connections(context)
         metrc = natural_metrc_context(context=context, engine=engine, settings=settings)
         try:
-            return MetrcNaturalSyncControlService(engine).sync(
+            return MetrcPolicySyncControlService(engine).sync(
                 organization_id=context.organization_id,
                 facility_id=context.facility_id,
                 metrc=metrc,
@@ -124,7 +133,7 @@ def compose_metrc_runtime() -> None:
             _service, metrc = resolve_metrc_context(engine, settings, context)
         except RuntimeError as exc:
             raise HTTPException(503, str(exc)) from exc
-        return MetrcNaturalSyncControlService(engine).status(
+        return MetrcPolicySyncControlService(engine).status(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             metrc=metrc,
@@ -141,7 +150,7 @@ def compose_metrc_runtime() -> None:
         sandbox_integrations._require_developer_connections(context)
         metrc = natural_metrc_context(context=context, engine=engine, settings=settings)
         try:
-            result = MetrcNaturalSyncControlService(engine).sync(
+            result = MetrcPolicySyncControlService(engine).sync(
                 organization_id=context.organization_id,
                 facility_id=context.facility_id,
                 metrc=metrc,
