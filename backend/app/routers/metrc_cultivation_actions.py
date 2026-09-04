@@ -17,7 +17,6 @@ from ..config import Settings, get_settings
 from ..database import get_engine
 from ..services.metrc_cultivation_actions import (
     MetrcCultivationActionError,
-    MetrcCultivationActionService,
     PROMOTED_CULTIVATION_ACTIONS,
     cultivation_confirmation_token,
 )
@@ -25,6 +24,7 @@ from ..services.metrc_cultivation_identity import (
     MetrcCultivationIdentityError,
     MetrcCultivationIdentityService,
 )
+from ..services.metrc_cultivation_operator_service import GovernedMetrcCultivationActionService
 from ..services.metrc_cultivation_tags import MetrcCultivationTagMirror
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
 
@@ -225,7 +225,7 @@ def preview_cultivation_action(
     metrc = _metrc(context, engine, settings)
     if payload.operation_type == "plant_batch_vegetative":
         _refresh_plant_tag_snapshot(context, engine, metrc)
-    service = MetrcCultivationActionService(engine)
+    service = GovernedMetrcCultivationActionService(engine)
     try:
         prepared = service.prepare(
             organization_id=context.organization_id,
@@ -277,7 +277,7 @@ def execute_cultivation_action(
     if payload.operation_type == "plant_batch_vegetative":
         _refresh_plant_tag_snapshot(context, engine, metrc)
     try:
-        return MetrcCultivationActionService(engine).execute(
+        return GovernedMetrcCultivationActionService(engine).execute(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             actor=context.user_id,
