@@ -1,13 +1,13 @@
 """API routers and runtime service composition."""
 
 # The authenticated Metrc facility bootstrap is imported by the sandbox router
-# from its long-lived service module. Compose the current-snapshot behavior here
-# before any router module imports that class, avoiding duplicate provider reads
-# while keeping the base bootstrap independently testable.
+# from its long-lived service module. Compose the current-snapshot + reliability
+# behavior here before any router module imports that class, avoiding duplicate
+# provider reads while keeping the base bootstrap independently testable.
 from services import metrc_facility_bootstrap as _metrc_facility_bootstrap
-from services.metrc_facility_snapshot_bootstrap import SnapshottingMetrcFacilityBootstrapService
+from services.metrc_resilient_bootstrap import ResilientSnapshottingMetrcFacilityBootstrapService
 
-_metrc_facility_bootstrap.MetrcFacilityBootstrapService = SnapshottingMetrcFacilityBootstrapService
+_metrc_facility_bootstrap.MetrcFacilityBootstrapService = ResilientSnapshottingMetrcFacilityBootstrapService
 
 # Cultivation keeps its explicit live verification endpoint, but normal page-load
 # regulatory state comes from the locally synchronized provider snapshot. Attach
@@ -67,4 +67,4 @@ for _route in _location_settings.router.routes:
             _route.dependant.call = _synced_facility_setup_overview
         break
 
-__all__ = ["SnapshottingMetrcFacilityBootstrapService"]
+__all__ = ["ResilientSnapshottingMetrcFacilityBootstrapService"]
