@@ -145,6 +145,31 @@ const preservedItemPayload = (row: Record<string, unknown>): Record<string, unkn
   return payload;
 };
 
+const REVIEW_FIELDS: Record<string, string[]> = {
+  location_create: ["name", "location_type_name"],
+  location_update: ["id", "name", "location_type_name"],
+  strain_create: ["name"],
+  strain_update: ["id", "name", "testing_status", "thc_level", "cbd_level", "indica_percentage", "sativa_percentage"],
+  item_create: ["name", "item_category", "unit_of_measure", "item_brand", "strain", "description"],
+  item_update: ["id", "name", "item_category", "unit_of_measure", "item_brand", "strain", "description"],
+};
+
+const REVIEW_LABELS: Record<string, string> = {
+  id: "Metrc ID",
+  name: "Name",
+  location_type_name: "Location type",
+  testing_status: "Testing status",
+  thc_level: "THC level",
+  cbd_level: "CBD level",
+  indica_percentage: "Indica %",
+  sativa_percentage: "Sativa %",
+  item_category: "Item category",
+  unit_of_measure: "Unit of measure",
+  item_brand: "Brand",
+  strain: "Strain",
+  description: "Description",
+};
+
 export function LocationSettingsPage() {
   const client = useQueryClient();
   const settings = useQuery({ queryKey: ["location-settings"], queryFn: ({ signal }) => apiGet<Settings>("/api/v1/location-settings", signal) });
@@ -376,8 +401,9 @@ export function LocationSettingsPage() {
     {preview ? <section className="inventory-panel">
       <div className="page-heading"><div><h3>Review Metrc change</h3><p><strong>{preview.operation.label}</strong> · {preview.provider_request.query.licenseNumber || "active facility"}</p></div></div>
       <div className="state">{preview.message}</div>
+      <BusinessReview request={preparedRequest}/>
       {preview.dispatch_enabled ? <>
-        <p>Nothing has been sent yet. Confirm only if the change shown above is what you intend for this facility.</p>
+        <p>Nothing has been sent yet. Confirm only if the business values shown above are exactly what you intend for this facility.</p>
         <button className="primary" type="button" disabled={executeAction.isPending || Boolean(execution?.verified)} onClick={() => executeAction.mutate()}>{executeAction.isPending ? "Submitting and verifying…" : execution?.verified ? "Verified in Metrc" : "Confirm & submit to Metrc"}</button>
       </> : <div className="state">This action is available for review but is not yet promoted for provider execution.</div>}
       {executeAction.isError ? <div className="state error">{executeAction.error.message}</div> : null}
@@ -392,6 +418,20 @@ export function LocationSettingsPage() {
         <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(preview.provider_request, null, 2)}</pre>
       </details>
     </section> : null}
+  </div>;
+}
+
+function BusinessReview({ request }: { request: PrepareRequest | null }) {
+  if (!request) return null;
+  const keys = REVIEW_FIELDS[request.operation_type] ?? Object.keys(request.payload);
+  const entries = keys.filter(key => Object.prototype.hasOwnProperty.call(request.payload, key)).map(key => [key, request.payload[key]] as const);
+  if (!entries.length) return null;
+  return <div className="inventory-panel">
+    <h4>Business values to submit</h4>
+    <div className="inventory-grid">{entries.map(([key, raw]) => {
+      const display = raw === null || raw === undefined || String(raw).trim() === "" ? "Clear / none" : typeof raw === "object" ? JSON.stringify(raw) : String(raw);
+      return <article className="inventory-panel" key={key}><span className="source-caption">{REVIEW_LABELS[key] || key.replaceAll("_", " ")}</span><strong>{display}</strong></article>;
+    })}</div>
   </div>;
 }
 
@@ -543,7 +583,7 @@ function ItemUpdateForm({ data, canPrepare, pending, onPrepare }: { data?: Items
     setCategory(value(selected, "ProductCategoryName", "ItemCategoryName", "ItemCategory", "CategoryName"));
     setUnit(value(selected, "UnitOfMeasureName", "UnitOfMeasure"));
     setBrand(value(selected, "ItemBrand", "BrandName"));
-    setStrain(value(selected, "Strain"));
+    setStrain(value(selected, "Strain", "StrainName"));
     setDescription(value(selected, "Description"));
   }, [selectedId, data]);
 
@@ -556,10 +596,10 @@ function ItemUpdateForm({ data, canPrepare, pending, onPrepare }: { data?: Items
       name,
       item_category: category,
       unit_of_measure: unit,
+      item_brand: brand.trim() || null,
+      strain: strain.trim() || null,
+      description: description.trim() || null,
     };
-    if (brand) payload.item_brand = brand;
-    if (strain) payload.strain = strain;
-    if (description) payload.description = description;
     onPrepare({ operation_type: "item_update", payload });
   };
 
@@ -574,7 +614,7 @@ function ItemUpdateForm({ data, canPrepare, pending, onPrepare }: { data?: Items
       <label>Strain<input value={strain} onChange={event => setStrain(event.target.value)}/></label>
       <label>Description<input value={description} onChange={event => setDescription(event.target.value)}/></label>
     </div>
-    <p className="source-caption">Fields not shown in this quick editor are carried forward from the live Metrc record into the bounded update payload so a simple edit does not silently zero unrelated item metadata.</p>
+    <p className="source-caption">Fields not shown in this quick editor are carried forward from the live Metrc record into the bounded update payload. Clearing Brand, Strain, or Description is sent explicitly rather than silently restoring the prior value.</p>
     <button className="primary" type="button" disabled={!canPrepare || pending || !selectedId || !name || !category || !unit} onClick={review}>Review item changes</button>
   </details>;
 }
