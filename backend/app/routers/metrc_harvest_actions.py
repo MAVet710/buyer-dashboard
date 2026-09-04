@@ -19,7 +19,7 @@ from ..services.metrc_harvest_actions import (
     PROMOTED_HARVEST_ACTIONS,
     harvest_confirmation_token,
 )
-from ..services.metrc_harvest_execution import GovernedMetrcHarvestActionService
+from ..services.metrc_harvest_operator_service import MetrcHarvestOperatorService
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
 
 
@@ -172,7 +172,7 @@ def execute_harvest_action(
     _write(context)
     metrc = _metrc(context, engine, settings)
     try:
-        return GovernedMetrcHarvestActionService(engine).execute(
+        return MetrcHarvestOperatorService(engine).execute(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             actor=context.user_id,
