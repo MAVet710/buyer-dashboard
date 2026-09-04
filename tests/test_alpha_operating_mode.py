@@ -109,13 +109,11 @@ def test_explicit_doobielogic_sandbox_overrides_existing_metrc_mapping():
     with Session(engine) as session:
         row = session.scalar(select(AlphaOperatingMode).where(AlphaOperatingMode.facility_id == facility_id))
         audit = session.scalar(
-            select(AuditEvent)
-            .where(
+            select(AuditEvent).where(
                 AuditEvent.facility_id == facility_id,
                 AuditEvent.entity_type == "alpha_operating_mode",
                 AuditEvent.action == "operating_mode_changed",
             )
-            .order_by(AuditEvent.created_at.desc())
         )
     assert row is not None and row.mode == "doobielogic_sandbox"
     assert audit is not None
