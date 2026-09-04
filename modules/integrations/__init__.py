@@ -1,5 +1,6 @@
 from .models import (
     IntegrationConfiguration,
+    IntegrationProviderSnapshot,
     IntegrationSyncAttempt,
     IntegrationSyncRecord,
     IntegrationSyncState,
@@ -19,6 +20,7 @@ from .natural_sandbox_runtime import NaturalSandboxIntegrationRuntime as Sandbox
 __all__ = [
     "IntegrationConfiguration",
     "IntegrationConfigurationService",
+    "IntegrationProviderSnapshot",
     "IntegrationSyncAttempt",
     "IntegrationSyncRecord",
     "IntegrationSyncState",
