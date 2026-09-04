@@ -54,7 +54,7 @@ class FakeTraceability:
 def _plan(*, loss=0.0):
     return PackageStudioPlan(
         action_type="breakdown",
-        inputs=(PackageStudioInputPlan(lot_id="source-lot", quantity=10, unit="g"),),
+        inputs=(PackageStudioInputPlan(lot_id="source-lot", quantity=10 + loss, unit="g"),),
         outputs=(
             PackageStudioOutputPlan(
                 product_id="product-1",
@@ -74,6 +74,7 @@ def _plan(*, loss=0.0):
 
 def _prepared(output_count=1):
     rows = []
+    source_share = 10.0 / output_count
     for position in range(1, output_count + 1):
         rows.append(
             {
@@ -84,7 +85,7 @@ def _prepared(output_count=1):
                 "tag": f"TAG-{position}",
                 "inventory_quantity": 5.0,
                 "inventory_unit": "g",
-                "source_equivalent_quantity": 5.0,
+                "source_equivalent_quantity": source_share,
                 "provider_payload": {"tag": f"TAG-{position}"},
                 "provider_request_body": [{"Tag": f"TAG-{position}"}],
             }
