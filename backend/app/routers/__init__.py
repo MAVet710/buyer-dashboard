@@ -1,5 +1,7 @@
 """API routers and runtime service composition."""
 
+from fastapi import HTTPException
+
 # Apply one bounded provider-pressure policy before any runtime Metrc reads are
 # composed. Retry-After is honored up to 30 seconds rather than being collapsed to
 # a sub-second retry that can amplify provider throttling during large hydration.
@@ -51,8 +53,100 @@ _retail_insights.router.include_router(_metrc_retail_snapshot_router)
 # deltas without accepting a caller-supplied license override.
 from . import sandbox_integrations as _sandbox_integrations
 from .metrc_incremental_sync import router as _metrc_incremental_sync_router
+from ..services.metrc_context import resolve_metrc_context as _resolve_metrc_context
+from ..services.metrc_natural_sync import MetrcNaturalSyncControlService as _MetrcNaturalSyncControlService
 
 _sandbox_integrations.router.include_router(_metrc_incremental_sync_router)
+
+# Keep non-Metrc developer providers on their deterministic sandbox adapters. For
+# Metrc, however, the operator-facing Sync/Runtime/Retry controls must have one
+# meaning: authenticated state for the exact trusted facility. A real Metrc card
+# must never report that three fixture packages were synchronized.
+_original_sandbox_sync = _sandbox_integrations.run_sandbox_sync
+_original_sandbox_status = _sandbox_integrations.sandbox_runtime_status
+_original_sandbox_retry = _sandbox_integrations.retry_sandbox_sync
+
+
+def _natural_metrc_context(*, context, engine, settings):
+    try:
+        _service, metrc = _resolve_metrc_context(engine, settings, context)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    if not metrc.configured:
+        raise HTTPException(422, metrc.message or "Configure the Metrc sandbox connection before synchronization.")
+    if not metrc.trusted_mapping:
+        raise HTTPException(409, "Verify the exact Metrc sandbox facility/license mapping before synchronization.")
+    return metrc
+
+
+def _natural_sandbox_sync(provider, payload, context, engine, settings):
+    if str(provider or "").strip().casefold() != "metrc":
+        return _original_sandbox_sync(provider, payload, context=context, engine=engine, settings=settings)
+    _sandbox_integrations._require_developer_connections(context)
+    metrc = _natural_metrc_context(context=context, engine=engine, settings=settings)
+    try:
+        return _MetrcNaturalSyncControlService(engine).sync(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            metrc=metrc,
+            actor=context.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+def _natural_sandbox_status(provider, context, engine, settings):
+    if str(provider or "").strip().casefold() != "metrc":
+        return _original_sandbox_status(provider, context=context, engine=engine, settings=settings)
+    _sandbox_integrations._require_developer_connections(context)
+    try:
+        _service, metrc = _resolve_metrc_context(engine, settings, context)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return _MetrcNaturalSyncControlService(engine).status(
+        organization_id=context.organization_id,
+        facility_id=context.facility_id,
+        metrc=metrc,
+    )
+
+
+def _natural_sandbox_retry(provider, context, engine, settings):
+    if str(provider or "").strip().casefold() != "metrc":
+        return _original_sandbox_retry(provider, context=context, engine=engine, settings=settings)
+    _sandbox_integrations._require_developer_connections(context)
+    metrc = _natural_metrc_context(context=context, engine=engine, settings=settings)
+    try:
+        result = _MetrcNaturalSyncControlService(engine).sync(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            metrc=metrc,
+            actor=context.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "provider":"metrc",
+        "environment":metrc.environment,
+        "retried":sum(1 for row in result.get("resources",[]) if row.get("status") in {"succeeded","skipped"}),
+        "natural_sync":result,
+    }
+
+
+def _replace_route_call(path, replacement):
+    for route in _sandbox_integrations.router.routes:
+        if getattr(route, "path", "") == path:
+            route.endpoint = replacement
+            if getattr(route, "dependant", None) is not None:
+                route.dependant.call = replacement
+            break
+
+
+_sandbox_integrations.run_sandbox_sync = _natural_sandbox_sync
+_sandbox_integrations.sandbox_runtime_status = _natural_sandbox_status
+_sandbox_integrations.retry_sandbox_sync = _natural_sandbox_retry
+_replace_route_call("/{provider}/sync", _natural_sandbox_sync)
+_replace_route_call("/{provider}/runtime", _natural_sandbox_status)
+_replace_route_call("/{provider}/retry", _natural_sandbox_retry)
 
 # Facility Setup already loads one overview request on page entry. Enrich that
 # existing response with locally synchronized Metrc master-data counts/freshness,
