@@ -37,10 +37,7 @@ def _text(value: Any) -> str:
 
 def _package_label(record: dict[str, Any]) -> str:
     source = _source(record)
-    return _text(
-        record.get("label")
-        or _first(source, "Label", "PackageLabel", "PackageTag", "Tag")
-    )
+    return _text(record.get("label") or _first(source, "Label", "PackageLabel", "PackageTag", "Tag"))
 
 
 def _package_provider_id(record: dict[str, Any]) -> str:
@@ -51,10 +48,7 @@ def _package_provider_id(record: dict[str, Any]) -> str:
 def _item_identity(record: dict[str, Any]) -> tuple[str, str, str]:
     source = _source(record)
     item = _nested(source, "Item")
-    item_id = _text(
-        _first(source, "ItemId")
-        or _first(item, "Id", "ItemId")
-    )
+    item_id = _text(_first(source, "ItemId") or _first(item, "Id", "ItemId"))
     item_name = _text(
         _first(source, "ItemName", "ProductName")
         or _first(item, "Name", "ItemName", "ProductName")
@@ -101,10 +95,7 @@ def _location(record: dict[str, Any]) -> str:
 
 def _lab_state(record: dict[str, Any]) -> str:
     source = _source(record)
-    return _text(
-        _first(source, "LabTestingState", "LabTestResultStatus")
-        or record.get("status")
-    )
+    return _text(_first(source, "LabTestingState", "LabTestResultStatus") or record.get("status"))
 
 
 def _local_status(lab_state: str) -> str:
@@ -126,9 +117,8 @@ def _received_at(record: dict[str, Any]) -> datetime | None:
     )
     if not value:
         return None
-    text = _text(value)
     try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(_text(value).replace("Z", "+00:00"))
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
@@ -181,6 +171,12 @@ def _local_link(
     ))
 
 
+def _link_scope_matches(link: TraceabilityObjectLink | None, *, state: str, license_number: str) -> bool:
+    if link is None:
+        return True
+    return link.jurisdiction == state.upper() and link.license_number == license_number
+
+
 def _ensure_verified_link(
     session,
     *,
@@ -211,10 +207,15 @@ def _ensure_verified_link(
         resource=provider_resource,
         provider_id=provider_id,
     )
+    if not _link_scope_matches(local, state=state, license_number=license_number):
+        raise ValueError("This DoobieLogic object is linked under a different Metrc license scope.")
+    if not _link_scope_matches(provider, state=state, license_number=license_number):
+        raise ValueError("That Metrc object is linked under a different facility license scope.")
     if provider is not None and (provider.entity_type != entity_type or provider.entity_id != entity_id):
         raise ValueError("That Metrc object is already linked to a different DoobieLogic object.")
     if local is not None and (local.provider_resource != provider_resource or local.provider_id != provider_id):
         raise ValueError("This DoobieLogic object is already linked to a different Metrc identity.")
+
     row = local or provider
     now = utc_now()
     if row is None:
@@ -236,9 +237,6 @@ def _ensure_verified_link(
         )
         session.add(row)
     else:
-        if row.license_number != license_number:
-            raise ValueError("Metrc identity belongs to a different facility license.")
-        row.jurisdiction = state.upper()
         row.provider_label = provider_label or row.provider_label
         row.status = "verified"
         row.mismatch_reason = ""
@@ -247,18 +245,21 @@ def _ensure_verified_link(
     return row
 
 
+def _conflict(conflicts: list[dict[str, str]], code: str, package_id: str, message: str) -> None:
+    conflicts.append({"code": code, "package_id": package_id, "message": message})
+
+
 class MetrcCanonicalInventorySeeder:
-    """Seed canonical DoobieLogic inventory from a verified Metrc package snapshot.
+    """Seed canonical inventory from a complete, verified Metrc package snapshot.
 
-    The provider-neutral TraceabilityObjectLink table is the identity spine. New
-    Products and Inventory Lots are linked to exact Metrc Item/Package IDs in the
-    same database transaction that creates the canonical records. Generic Product
-    external IDs remain available for POS/catalog providers and are not claimed by
-    Metrc hydration.
+    TraceabilityObjectLink is the provider-neutral identity spine. New Products
+    and Inventory Lots are linked to exact Metrc Item/Package IDs atomically with
+    canonical creation. Generic Product/external inventory IDs remain available
+    for POS/catalog providers and are not claimed by Metrc hydration.
 
-    Existing local package/product state is never silently overwritten. Exact
-    identity can be enriched when it is unambiguous; collisions become explicit
-    reconciliation conflicts.
+    Existing balances, Product metadata, locations and statuses are never silently
+    overwritten. Exact identity may be enriched when unambiguous; every collision
+    or cross-license identity is returned for controlled reconciliation.
     """
 
     def __init__(self, engine: Engine):
@@ -276,7 +277,9 @@ class MetrcCanonicalInventorySeeder:
         packages: list[dict[str, Any]],
     ) -> dict[str, Any]:
         actor = _text(actor) or "system"
+        state = _text(state).upper()
         environment = _text(environment).casefold()
+        license_number = _text(license_number)
         conflicts: list[dict[str, str]] = []
         warnings: list[dict[str, str]] = []
         created_products = 0
@@ -302,8 +305,8 @@ class MetrcCanonicalInventorySeeder:
             products = list(session.scalars(select(Product).where(Product.organization_id == organization_id)))
             by_product_id = {product.id: product for product in products}
             by_sku = {_text(product.sku).casefold(): product for product in products}
-
             seen_provider_packages: set[str] = set()
+
             for record in packages:
                 if not isinstance(record, dict):
                     skipped += 1
@@ -311,46 +314,30 @@ class MetrcCanonicalInventorySeeder:
                 label = _package_label(record)
                 package_id = _package_provider_id(record)
                 package_key = _identity_key(label)
+                item_id, item_name, category = _item_identity(record)
+                quantity = _quantity(record)
+                unit = _unit(record)
+
                 if not label or not package_id or not package_key:
                     skipped += 1
-                    conflicts.append({
-                        "code": "missing_package_identity",
-                        "package_id": label,
-                        "message": "Metrc package has no exact provider id + label pair.",
-                    })
+                    _conflict(conflicts, "missing_package_identity", label, "Metrc package has no exact provider id + label pair.")
                     continue
                 provider_package_key = f"{package_id.casefold()}|{package_key}"
                 if provider_package_key in seen_provider_packages:
                     skipped += 1
-                    conflicts.append({
-                        "code": "duplicate_provider_package",
-                        "package_id": label,
-                        "message": "The same Metrc package identity appeared more than once in the import snapshot.",
-                    })
+                    _conflict(conflicts, "duplicate_provider_package", label, "The same Metrc package identity appeared more than once in the import snapshot.")
                     continue
                 seen_provider_packages.add(provider_package_key)
-
-                item_id, item_name, category = _item_identity(record)
                 if not item_id or not item_name:
                     skipped += 1
-                    conflicts.append({
-                        "code": "missing_item_identity",
-                        "package_id": label,
-                        "message": "Metrc package has no exact Item id/name pair, so DoobieLogic will not guess Product Master identity.",
-                    })
+                    _conflict(conflicts, "missing_item_identity", label, "Metrc package has no exact Item id/name pair, so DoobieLogic will not guess Product Master identity.")
                     continue
-                quantity = _quantity(record)
                 if quantity < -1e-12:
                     skipped += 1
-                    conflicts.append({
-                        "code": "invalid_negative_quantity",
-                        "package_id": label,
-                        "message": "Metrc returned a negative active-package quantity; canonical inventory was not seeded.",
-                    })
+                    _conflict(conflicts, "invalid_negative_quantity", label, "Metrc returned a negative active-package quantity; canonical inventory was not seeded.")
                     continue
-                unit = _unit(record)
 
-                provider_item_link = _provider_link(
+                item_link = _provider_link(
                     session,
                     organization_id=organization_id,
                     facility_id=facility_id,
@@ -358,37 +345,29 @@ class MetrcCanonicalInventorySeeder:
                     resource="items",
                     provider_id=item_id,
                 )
+                if not _link_scope_matches(item_link, state=state, license_number=license_number):
+                    skipped += 1
+                    _conflict(conflicts, "item_link_license_mismatch", label, "The exact Metrc Item is already linked under a different facility license scope.")
+                    continue
                 product: Product | None = None
-                if provider_item_link is not None:
-                    if provider_item_link.entity_type != "product":
+                if item_link is not None:
+                    if item_link.entity_type != "product":
                         skipped += 1
-                        conflicts.append({
-                            "code": "item_link_collision",
-                            "package_id": label,
-                            "message": "This Metrc Item is linked to a non-Product DoobieLogic object.",
-                        })
+                        _conflict(conflicts, "item_link_collision", label, "This Metrc Item is linked to a non-Product DoobieLogic object.")
                         continue
-                    product = by_product_id.get(provider_item_link.entity_id)
+                    product = by_product_id.get(item_link.entity_id)
                     if product is None:
                         skipped += 1
-                        conflicts.append({
-                            "code": "orphan_item_link",
-                            "package_id": label,
-                            "message": "The exact Metrc Item link points to a Product that is not present in this organization.",
-                        })
+                        _conflict(conflicts, "orphan_item_link", label, "The exact Metrc Item link points to a Product that is not present in this organization.")
                         continue
 
                 local_matches = by_package.get(package_key, [])
                 if len(local_matches) > 1:
                     skipped += 1
-                    conflicts.append({
-                        "code": "duplicate_local_package",
-                        "package_id": label,
-                        "message": "Multiple DoobieLogic lots already use this Metrc package label.",
-                    })
+                    _conflict(conflicts, "duplicate_local_package", label, "Multiple DoobieLogic lots already use this Metrc package label.")
                     continue
 
-                existing_package_link = _provider_link(
+                package_link = _provider_link(
                     session,
                     organization_id=organization_id,
                     facility_id=facility_id,
@@ -396,24 +375,20 @@ class MetrcCanonicalInventorySeeder:
                     resource="packages",
                     provider_id=package_id,
                 )
-                if existing_package_link is not None and existing_package_link.entity_type != "inventory_lot":
+                if not _link_scope_matches(package_link, state=state, license_number=license_number):
                     skipped += 1
-                    conflicts.append({
-                        "code": "package_link_collision",
-                        "package_id": label,
-                        "message": "This Metrc Package is linked to a non-inventory DoobieLogic object.",
-                    })
+                    _conflict(conflicts, "package_link_license_mismatch", label, "The exact Metrc Package is already linked under a different facility license scope.")
+                    continue
+                if package_link is not None and package_link.entity_type != "inventory_lot":
+                    skipped += 1
+                    _conflict(conflicts, "package_link_collision", label, "This Metrc Package is linked to a non-inventory DoobieLogic object.")
                     continue
 
                 if len(local_matches) == 1:
                     lot = local_matches[0]
-                    if existing_package_link is not None and existing_package_link.entity_id != lot.id:
+                    if package_link is not None and package_link.entity_id != lot.id:
                         skipped += 1
-                        conflicts.append({
-                            "code": "package_link_collision",
-                            "package_id": label,
-                            "message": "The exact Metrc Package is already linked to a different DoobieLogic lot.",
-                        })
+                        _conflict(conflicts, "package_link_collision", label, "The exact Metrc Package is already linked to a different DoobieLogic lot.")
                         continue
                     local_package_link = _local_link(
                         session,
@@ -423,25 +398,21 @@ class MetrcCanonicalInventorySeeder:
                         entity_type="inventory_lot",
                         entity_id=lot.id,
                     )
+                    if not _link_scope_matches(local_package_link, state=state, license_number=license_number):
+                        skipped += 1
+                        _conflict(conflicts, "local_package_link_license_mismatch", label, "This DoobieLogic lot is already linked under a different Metrc license scope.")
+                        continue
                     if local_package_link is not None and (
                         local_package_link.provider_resource != "packages" or local_package_link.provider_id != package_id
                     ):
                         skipped += 1
-                        conflicts.append({
-                            "code": "local_package_link_differs",
-                            "package_id": label,
-                            "message": "This DoobieLogic lot is already linked to a different provider package identity.",
-                        })
+                        _conflict(conflicts, "local_package_link_differs", label, "This DoobieLogic lot is already linked to a different provider package identity.")
                         continue
 
                     local_product = by_product_id.get(lot.product_id)
                     if local_product is None:
                         skipped += 1
-                        conflicts.append({
-                            "code": "missing_local_product",
-                            "package_id": label,
-                            "message": "Existing DoobieLogic lot has no valid Product Master record.",
-                        })
+                        _conflict(conflicts, "missing_local_product", label, "Existing DoobieLogic lot has no valid Product Master record.")
                         continue
                     local_product_link = _local_link(
                         session,
@@ -451,23 +422,19 @@ class MetrcCanonicalInventorySeeder:
                         entity_type="product",
                         entity_id=local_product.id,
                     )
+                    if not _link_scope_matches(local_product_link, state=state, license_number=license_number):
+                        skipped += 1
+                        _conflict(conflicts, "local_product_link_license_mismatch", label, "This package's local Product is already linked under a different Metrc license scope.")
+                        continue
                     if local_product_link is not None and (
                         local_product_link.provider_resource != "items" or local_product_link.provider_id != item_id
                     ):
                         skipped += 1
-                        conflicts.append({
-                            "code": "local_product_link_differs",
-                            "package_id": label,
-                            "message": "This package's local Product is already linked to a different Metrc Item.",
-                        })
+                        _conflict(conflicts, "local_product_link_differs", label, "This package's local Product is already linked to a different Metrc Item.")
                         continue
-                    if provider_item_link is not None and provider_item_link.entity_id != local_product.id:
+                    if item_link is not None and item_link.entity_id != local_product.id:
                         skipped += 1
-                        conflicts.append({
-                            "code": "item_link_collision",
-                            "package_id": label,
-                            "message": "The package's Metrc Item is already linked to a different DoobieLogic Product.",
-                        })
+                        _conflict(conflicts, "item_link_collision", label, "The package's Metrc Item is already linked to a different DoobieLogic Product.")
                         continue
 
                     if local_product_link is None:
@@ -506,19 +473,11 @@ class MetrcCanonicalInventorySeeder:
                 lot_collision = by_lot_code.get(package_key)
                 if lot_collision is not None:
                     skipped += 1
-                    conflicts.append({
-                        "code": "lot_code_collision",
-                        "package_id": label,
-                        "message": "A local lot already uses this package label without the same compliance-package identity.",
-                    })
+                    _conflict(conflicts, "lot_code_collision", label, "A local lot already uses this package label without the same compliance-package identity.")
                     continue
-                if existing_package_link is not None:
+                if package_link is not None:
                     skipped += 1
-                    conflicts.append({
-                        "code": "orphan_or_mismatched_package_link",
-                        "package_id": label,
-                        "message": "The Metrc Package already has a provider link but no matching local package label was found.",
-                    })
+                    _conflict(conflicts, "orphan_or_mismatched_package_link", label, "The Metrc Package already has a provider link but no matching local package label was found.")
                     continue
 
                 if product is None:
@@ -530,11 +489,7 @@ class MetrcCanonicalInventorySeeder:
                         sku_owner = by_sku.get(sku.casefold())
                     if sku_owner is not None:
                         skipped += 1
-                        conflicts.append({
-                            "code": "product_sku_collision",
-                            "package_id": label,
-                            "message": "A local Product Master SKU collides with the deterministic Metrc Item SKU.",
-                        })
+                        _conflict(conflicts, "product_sku_collision", label, "A local Product Master SKU collides with the deterministic Metrc Item SKU.")
                         continue
                     product = Product(
                         organization_id=organization_id,
@@ -582,7 +537,7 @@ class MetrcCanonicalInventorySeeder:
                     "source_name": "Metrc",
                     "provider": "metrc",
                     "provider_seeded": True,
-                    "jurisdiction_code": state.upper(),
+                    "jurisdiction_code": state,
                     "environment": environment,
                     "license_number": license_number,
                     "metrc_package_id": package_id,
@@ -664,7 +619,7 @@ class MetrcCanonicalInventorySeeder:
 
             summary = {
                 "provider": "metrc",
-                "state": state.upper(),
+                "state": state,
                 "environment": environment,
                 "license_number": license_number,
                 "source_package_count": len(packages),
@@ -688,8 +643,9 @@ class MetrcCanonicalInventorySeeder:
                 entity_id=facility_id,
                 action="metrc_initial_inventory_hydration_completed",
                 actor=actor,
-                changes_json=json.dumps({
-                    key: value for key, value in summary.items() if key not in {"conflicts", "warnings"}
-                }, sort_keys=True),
+                changes_json=json.dumps(
+                    {key: value for key, value in summary.items() if key not in {"conflicts", "warnings"}},
+                    sort_keys=True,
+                ),
             ))
             return summary
