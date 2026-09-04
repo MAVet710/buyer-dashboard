@@ -40,12 +40,11 @@ class NaturalMetrcFacilityBootstrapService(ResilientSnapshottingMetrcFacilityBoo
     dependency to be complete in the same provider baseline.
     """
 
-    # These resources already have a verified read contract but do not belong to
-    # the earlier core bootstrap. Mirror them during each complete baseline so
-    # compliance/testing and transfer-control views are not dependent on a live
-    # provider request just to discover existing regulatory state.
+    # Transfer templates are facility-scoped and can safely join the complete
+    # baseline. Lab-test results are intentionally excluded here: Metrc documents
+    # GET /labtests/v2/results as a package-specific lookup, so those remain exact
+    # package reads instead of an invalid facility-wide call.
     NORMALIZED_RESOURCES = ResilientSnapshottingMetrcFacilityBootstrapService.NORMALIZED_RESOURCES + (
-        ("lab_results", "lab_results"),
         ("transfer_templates_outgoing", "transfer_templates_outgoing"),
     )
 
