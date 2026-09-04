@@ -112,16 +112,22 @@ def test_package_lab_detail_routes_are_registered_on_clean_startup_api_graph():
     # registration contract in an equally clean child process rather than inspecting
     # a module graph that prior tests are allowed to mutate.
     script = r'''
-from backend.app.main import app
+from backend.app.main import app, metrc_package_lab_detail_router
 
 paths = {str(getattr(route, "path", "")) for route in app.routes}
+child_paths = {str(getattr(route, "path", "")) for route in metrc_package_lab_detail_router.routes}
 required = (
     "/inventory/regulatory-detail/local/inventory_lot/{entity_id}/lab-results",
     "/inventory/regulatory-detail/local/inventory_lot/{entity_id}/lab-results/live",
 )
 missing = [suffix for suffix in required if not any(path.endswith(suffix) for path in paths)]
 if missing:
-    raise SystemExit("missing startup routes: " + ", ".join(missing))
+    related = sorted(path for path in paths if "regulatory-detail" in path or "lab-results" in path)
+    raise SystemExit(
+        "missing startup routes: " + ", ".join(missing)
+        + "; child_paths=" + repr(sorted(child_paths))
+        + "; related_app_paths=" + repr(related)
+    )
 '''
     result = subprocess.run(
         [sys.executable, "-c", script],
