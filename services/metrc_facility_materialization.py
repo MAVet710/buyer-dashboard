@@ -138,28 +138,22 @@ def _identity_key(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", _text(value).upper())
 
 
-def _external_product_id(state: str, item_id: str, item_name: str) -> str:
-    if item_id:
-        return f"metrc:{state.upper()}:{item_id}"[:120]
-    digest = hashlib.sha256(item_name.casefold().encode("utf-8")).hexdigest()[:20]
-    return f"metrc:{state.upper()}:name:{digest}"[:120]
+def _external_product_id(state: str, item_id: str) -> str:
+    return f"metrc:{state.upper()}:{item_id}"[:120]
 
 
-def _product_sku(state: str, item_id: str, item_name: str) -> str:
+def _product_sku(state: str, item_id: str) -> str:
     token = re.sub(r"[^A-Z0-9]+", "-", _text(item_id).upper()).strip("-")
-    if token:
-        return f"METRC-{state.upper()}-{token}"[:120]
-    digest = hashlib.sha256(item_name.casefold().encode("utf-8")).hexdigest()[:16].upper()
-    return f"METRC-{state.upper()}-{digest}"[:120]
+    return f"METRC-{state.upper()}-{token}"[:120]
 
 
 class MetrcCanonicalInventorySeeder:
     """Seed canonical DoobieLogic inventory from a verified Metrc package snapshot.
 
     This service is intentionally conservative. It creates canonical records only
-    when a Metrc package is not already represented locally and its item identity
-    is usable. Existing local package/product state is never overwritten. Any
-    collision or ambiguity is returned to the caller for reconciliation.
+    when a Metrc package is not already represented locally and its exact Metrc
+    Item identity is available. Existing local package/product state is never
+    overwritten. Any collision or ambiguity is returned for reconciliation.
     """
 
     def __init__(self, engine: Engine):
@@ -237,16 +231,29 @@ class MetrcCanonicalInventorySeeder:
                     continue
 
                 item_id, item_name, category = _item_identity(record)
-                if not item_name:
+                if not item_id or not item_name:
                     skipped += 1
-                    conflicts.append({"code": "missing_item_identity", "package_id": label, "message": "Metrc package has no usable Item name, so DoobieLogic cannot safely create Product Master data."})
+                    conflicts.append({
+                        "code": "missing_item_identity",
+                        "package_id": label,
+                        "message": "Metrc package has no exact Item id/name pair, so DoobieLogic will not guess Product Master identity.",
+                    })
+                    continue
+                quantity = _quantity(record)
+                if quantity < -1e-12:
+                    skipped += 1
+                    conflicts.append({
+                        "code": "invalid_negative_quantity",
+                        "package_id": label,
+                        "message": "Metrc returned a negative active-package quantity; canonical inventory was not seeded.",
+                    })
                     continue
 
                 unit = _unit(record)
-                external_id = _external_product_id(state, item_id, item_name)
+                external_id = _external_product_id(state, item_id)
                 product = by_external.get(external_id)
                 if product is None:
-                    sku = _product_sku(state, item_id, item_name)
+                    sku = _product_sku(state, item_id)
                     sku_owner = by_sku.get(sku.casefold())
                     if sku_owner is not None and _text(sku_owner.external_product_id) != external_id:
                         digest = hashlib.sha256(external_id.encode("utf-8")).hexdigest()[:8].upper()
@@ -273,16 +280,14 @@ class MetrcCanonicalInventorySeeder:
                     by_external[external_id] = product
                     by_sku[sku.casefold()] = product
                     created_products += 1
-                else:
-                    if _text(product.name) != item_name or (_text(product.base_unit) and _text(product.base_unit).casefold() != unit.casefold()):
-                        warnings.append({
-                            "code": "existing_product_metadata_differs",
-                            "package_id": label,
-                            "message": "Exact Metrc Item identity already exists locally, but Product Master name/unit differs; the local Product was preserved unchanged.",
-                        })
+                elif _text(product.name) != item_name or (_text(product.base_unit) and _text(product.base_unit).casefold() != unit.casefold()):
+                    warnings.append({
+                        "code": "existing_product_metadata_differs",
+                        "package_id": label,
+                        "message": "Exact Metrc Item identity already exists locally, but Product Master name/unit differs; the local Product was preserved unchanged.",
+                    })
 
                 lab_state = _lab_state(record)
-                quantity = _quantity(record)
                 provider_id = _package_provider_id(record)
                 metadata = {
                     "operation": "metrc_facility_hydration",
@@ -318,7 +323,7 @@ class MetrcCanonicalInventorySeeder:
                 by_lot_code[package_key] = lot
                 created_lots += 1
 
-                if abs(quantity) > 1e-12:
+                if quantity > 1e-12:
                     session.add(InventoryTransaction(
                         organization_id=organization_id,
                         facility_id=facility_id,
