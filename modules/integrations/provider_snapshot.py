@@ -64,7 +64,7 @@ def normalized_snapshot_record(
     }
 
 
-def replace_snapshot_in_session(
+def _upsert_rows(
     session: Session,
     *,
     organization_id: str,
@@ -74,14 +74,8 @@ def replace_snapshot_in_session(
     resource: str,
     run_id: str,
     records: Iterable[Mapping[str, Any]],
+    mark_missing_absent: bool,
 ) -> dict[str, int]:
-    """Replace current membership for one fully successful provider resource.
-
-    This function must only be called after the caller has a complete snapshot for
-    the resource. Existing rows are batch-loaded once, marked not-present, then
-    current rows are upserted in-memory. No per-row SQL reads are performed.
-    """
-
     provider = str(provider or "").strip().casefold()
     environment = str(environment or "").strip().casefold()
     resource = str(resource or "").strip().casefold()
@@ -98,8 +92,9 @@ def replace_snapshot_in_session(
         )
     )
     by_external = {row.external_id: row for row in existing_rows}
-    for row in existing_rows:
-        row.present = False
+    if mark_missing_absent:
+        for row in existing_rows:
+            row.present = False
 
     seen: set[str] = set()
     created = 0
@@ -151,12 +146,72 @@ def replace_snapshot_in_session(
             updated += 1
 
     return {
-        "present": len(seen),
+        "present": sum(1 for row in by_external.values() if row.present),
+        "touched": len(seen),
         "created": created,
         "updated": updated,
-        "removed": sum(1 for row in existing_rows if not row.present),
+        "removed": sum(1 for row in existing_rows if not row.present) if mark_missing_absent else 0,
         "duplicates": duplicates,
     }
+
+
+def replace_snapshot_in_session(
+    session: Session,
+    *,
+    organization_id: str,
+    facility_id: str,
+    provider: str,
+    environment: str,
+    resource: str,
+    run_id: str,
+    records: Iterable[Mapping[str, Any]],
+) -> dict[str, int]:
+    """Replace current membership for one fully successful provider resource.
+
+    This must only be called with a complete provider collection. Missing rows are
+    marked not-present because the caller has proven full membership.
+    """
+    return _upsert_rows(
+        session,
+        organization_id=organization_id,
+        facility_id=facility_id,
+        provider=provider,
+        environment=environment,
+        resource=resource,
+        run_id=run_id,
+        records=records,
+        mark_missing_absent=True,
+    )
+
+
+def upsert_delta_snapshot_in_session(
+    session: Session,
+    *,
+    organization_id: str,
+    facility_id: str,
+    provider: str,
+    environment: str,
+    resource: str,
+    run_id: str,
+    records: Iterable[Mapping[str, Any]],
+) -> dict[str, int]:
+    """Apply provider changes without asserting complete resource membership.
+
+    LastModified-filtered reads are deltas. They can safely create/update current
+    rows but cannot prove that an omitted row has left an active collection. A
+    periodic/full snapshot remains the authority for absence/removal.
+    """
+    return _upsert_rows(
+        session,
+        organization_id=organization_id,
+        facility_id=facility_id,
+        provider=provider,
+        environment=environment,
+        resource=resource,
+        run_id=run_id,
+        records=records,
+        mark_missing_absent=False,
+    )
 
 
 class IntegrationProviderSnapshotRepository:
@@ -176,6 +231,29 @@ class IntegrationProviderSnapshotRepository:
     ) -> dict[str, int]:
         with self.sessions.begin() as session:
             return replace_snapshot_in_session(
+                session,
+                organization_id=organization_id,
+                facility_id=facility_id,
+                provider=provider,
+                environment=environment,
+                resource=resource,
+                run_id=run_id,
+                records=records,
+            )
+
+    def upsert_delta(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        provider: str,
+        environment: str,
+        resource: str,
+        run_id: str,
+        records: Iterable[Mapping[str, Any]],
+    ) -> dict[str, int]:
+        with self.sessions.begin() as session:
+            return upsert_delta_snapshot_in_session(
                 session,
                 organization_id=organization_id,
                 facility_id=facility_id,
