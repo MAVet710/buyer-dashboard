@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import Engine
 
+from modules.alpha_mode import AlphaOperatingModeService
 from modules.integrations import IntegrationConfigurationService
 from modules.integrations.models import IntegrationConfiguration
 from modules.regulatory import RegulatoryMappingService
@@ -70,6 +71,11 @@ def _sandbox_vendor_context(
 def resolve_metrc_context(
     engine: Engine, settings: Settings, context: RequestContext
 ) -> tuple[IntegrationConfigurationService | None, MetrcContext]:
+    mode = AlphaOperatingModeService(engine).current(
+        context.organization_id,
+        context.facility_id,
+    )
+
     # Development/test environments intentionally allow local deterministic
     # inventory workflows without integration secrets. Production startup is
     # already fail-closed on INTEGRATION_ENCRYPTION_KEY, so treating a missing
@@ -79,7 +85,13 @@ def resolve_metrc_context(
         return None, MetrcContext(
             configured=False,
             integrator_api_key=settings.metrc_integrator_key,
-            message="METRC encrypted credential storage is not configured for this environment.",
+            environment="sandbox" if not mode.metrc_enabled else "production",
+            status="disabled_by_alpha_mode" if not mode.metrc_enabled else "not_connected",
+            message=(
+                "DoobieLogic Sandbox is active for this facility. Metrc provider reads and writes are disabled until an administrator selects Metrc Sandbox."
+                if not mode.metrc_enabled
+                else "METRC encrypted credential storage is not configured for this environment."
+            ),
         )
 
     service = IntegrationConfigurationService(engine, settings.integration_encryption_key)
@@ -95,6 +107,28 @@ def resolve_metrc_context(
 
     sandbox_row, sandbox_config, sandbox_vendor_key = _sandbox_vendor_context(service, context)
     integrator_api_key = str(sandbox_vendor_key or settings.metrc_integrator_key or "").strip()
+
+    # The alpha operating mode is authoritative before any provider credential
+    # is decrypted or any provider call can be prepared. Keep the saved row in
+    # the returned context so the Integrations UI can show that credentials are
+    # still stored while DoobieLogic Sandbox is selected.
+    if not mode.metrc_enabled:
+        public = service.public(row)
+        config = public.get("configuration", {}) if isinstance(public, dict) else {}
+        return service, MetrcContext(
+            configured=False,
+            state=str(config.get("state") or sandbox_config.get("state") or "").strip(),
+            license_number=str(config.get("license_number") or sandbox_config.get("license_number") or "").strip(),
+            integrator_api_key="",
+            status="disabled_by_alpha_mode",
+            environment="sandbox",
+            trusted_mapping=False,
+            message=(
+                "DoobieLogic Sandbox is active for this facility. Saved Metrc credentials remain encrypted, "
+                "but provider reads and writes are disabled until an administrator selects Metrc Sandbox."
+            ),
+            row=row,
+        )
 
     if row is None:
         sandbox_state = str(sandbox_config.get("state") or "").strip()
