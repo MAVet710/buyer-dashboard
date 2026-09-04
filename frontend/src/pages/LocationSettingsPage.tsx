@@ -49,6 +49,21 @@ type PreviewPayload = {
   provider_request: { method: string; path: string; query: Record<string, string>; body: Record<string, unknown>[] | null };
   dispatch_enabled: boolean;
   requires_human_confirmation: boolean;
+  confirmation_id: string;
+  confirmation_token: string;
+  message: string;
+};
+type ActionResult = {
+  ok: boolean;
+  transaction_id: string;
+  status: string;
+  verified: boolean;
+  already_submitted?: boolean;
+  external_reference?: string;
+  http_status?: number;
+  last_modified?: string;
+  stage?: string;
+  summary?: { action: string; entity_type: string; entity_id: string; label: string; name: string };
   message: string;
 };
 type PrepareRequest = { operation_type: string; payload: Record<string, unknown> };
@@ -62,6 +77,12 @@ const value = (row: Record<string, unknown>, ...keys: string[]): string => {
   return "";
 };
 
+const numberValue = (row: Record<string, unknown>, ...keys: string[]): number => {
+  const candidate = value(row, ...keys);
+  const parsed = Number(candidate);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 const joined = (row: Record<string, unknown>, keys: string[]): string => keys.map(key => value(row, key)).filter(Boolean).join(" · ");
 const names = (rows: Record<string, unknown>[], ...keys: string[]): string[] => Array.from(new Set(rows.map(row => value(row, ...keys)).filter(Boolean)));
 
@@ -71,6 +92,82 @@ const resourcesForTab = (tab: Tab): string[] => {
   if (tab === "cultivation") return ["additive_templates"];
   if (tab === "transportation") return ["drivers", "vehicles"];
   return [];
+};
+
+const ITEM_PRESERVE_FIELDS: [string, string][] = [
+  ["global_product_name", "GlobalProductName"],
+  ["administration_method", "AdministrationMethod"],
+  ["unit_cbd_content_unit_of_measure", "UnitCbdContentUnitOfMeasure"],
+  ["unit_cbd_content_dose_unit_of_measure", "UnitCbdContentDoseUnitOfMeasure"],
+  ["unit_thc_content_unit_of_measure", "UnitThcContentUnitOfMeasure"],
+  ["unit_thc_content_dose_unit_of_measure", "UnitThcContentDoseUnitOfMeasure"],
+  ["unit_cbda_content_unit_of_measure", "UnitCbdAContentUnitOfMeasure"],
+  ["unit_cbda_content_dose_unit_of_measure", "UnitCbdAContentDoseUnitOfMeasure"],
+  ["unit_thca_content_unit_of_measure", "UnitThcAContentUnitOfMeasure"],
+  ["unit_thca_content_dose_unit_of_measure", "UnitThcAContentDoseUnitOfMeasure"],
+  ["unit_volume_unit_of_measure", "UnitVolumeUnitOfMeasure"],
+  ["unit_weight_unit_of_measure", "UnitWeightUnitOfMeasure"],
+  ["public_ingredients", "PublicIngredients"],
+  ["allergens", "Allergens"],
+  ["product_photo_description", "ProductPhotoDescription"],
+  ["label_photo_description", "LabelPhotoDescription"],
+  ["packaging_photo_description", "PackagingPhotoDescription"],
+  ["processing_job_category_name", "ProcessingJobCategoryName"],
+  ["processing_job_type_name", "ProcessingJobTypeName"],
+  ["unit_cbd_percent", "UnitCbdPercent"],
+  ["unit_cbd_content", "UnitCbdContent"],
+  ["unit_cbd_content_dose", "UnitCbdContentDose"],
+  ["unit_thc_percent", "UnitThcPercent"],
+  ["unit_thc_content", "UnitThcContent"],
+  ["unit_thc_content_dose", "UnitThcContentDose"],
+  ["unit_cbda_percent", "UnitCbdAPercent"],
+  ["unit_cbda_content", "UnitCbdAContent"],
+  ["unit_cbda_content_dose", "UnitCbdAContentDose"],
+  ["unit_thca_percent", "UnitThcAPercent"],
+  ["unit_thca_content", "UnitThcAContent"],
+  ["unit_thca_content_dose", "UnitThcAContentDose"],
+  ["unit_volume", "UnitVolume"],
+  ["unit_weight", "UnitWeight"],
+  ["serving_size", "ServingSize"],
+  ["supply_duration_days", "SupplyDurationDays"],
+  ["number_of_doses", "NumberOfDoses"],
+  ["product_image_file_system_ids", "ProductImageFileSystemIds"],
+  ["label_image_file_system_ids", "LabelImageFileSystemIds"],
+  ["packaging_image_file_system_ids", "PackagingImageFileSystemIds"],
+  ["product_pdf_file_system_ids", "ProductPDFFileSystemIds"],
+];
+
+const preservedItemPayload = (row: Record<string, unknown>): Record<string, unknown> => {
+  const payload: Record<string, unknown> = {};
+  for (const [target, source] of ITEM_PRESERVE_FIELDS) {
+    if (row[source] !== undefined && row[source] !== null) payload[target] = row[source];
+  }
+  return payload;
+};
+
+const REVIEW_FIELDS: Record<string, string[]> = {
+  location_create: ["name", "location_type_name"],
+  location_update: ["id", "name", "location_type_name"],
+  strain_create: ["name"],
+  strain_update: ["id", "name", "testing_status", "thc_level", "cbd_level", "indica_percentage", "sativa_percentage"],
+  item_create: ["name", "item_category", "unit_of_measure", "item_brand", "strain", "description"],
+  item_update: ["id", "name", "item_category", "unit_of_measure", "item_brand", "strain", "description"],
+};
+
+const REVIEW_LABELS: Record<string, string> = {
+  id: "Metrc ID",
+  name: "Name",
+  location_type_name: "Location type",
+  testing_status: "Testing status",
+  thc_level: "THC level",
+  cbd_level: "CBD level",
+  indica_percentage: "Indica %",
+  sativa_percentage: "Sativa %",
+  item_category: "Item category",
+  unit_of_measure: "Unit of measure",
+  item_brand: "Brand",
+  strain: "Strain",
+  description: "Description",
 };
 
 export function LocationSettingsPage() {
@@ -94,6 +191,8 @@ export function LocationSettingsPage() {
   const [sublocationName, setSublocationName] = useState("");
   const [strainName, setStrainName] = useState("");
   const [preview, setPreview] = useState<PreviewPayload | null>(null);
+  const [preparedRequest, setPreparedRequest] = useState<PrepareRequest | null>(null);
+  const [execution, setExecution] = useState<ActionResult | null>(null);
 
   useEffect(() => { if (settings.data) { setAutoMap(Boolean(settings.data.auto_map_products_during_receive)); setRoom(settings.data.default_receiving_room || "Receiving"); } }, [settings.data]);
   useEffect(() => { if (setup.data) setEmployeeLicense(setup.data.metrc.employee_license_number || ""); }, [setup.data]);
@@ -109,19 +208,35 @@ export function LocationSettingsPage() {
   const validateMetrc = useMutation({
     mutationFn: () => apiPost<{ result: { ok: boolean; message: string } }>("/api/v1/integrations/metrc/test", {}),
     onSuccess: async () => {
-      // Clear old disabled live-read errors as well as refreshing readiness.
       await client.resetQueries({ queryKey: ["facility-setup"] });
     },
   });
   const prepareAction = useMutation({
     mutationFn: (request: PrepareRequest) => apiPost<PreviewPayload>("/api/v1/location-settings/metrc-action-preview", request),
-    onSuccess: data => setPreview(data),
+    onSuccess: (data, request) => { setPreparedRequest(request); setPreview(data); setExecution(null); },
+  });
+  const executeAction = useMutation({
+    mutationFn: () => {
+      if (!preview || !preparedRequest || !preview.confirmation_id || !preview.confirmation_token) throw new Error("Review the current Metrc change before submitting it.");
+      return apiPost<ActionResult>("/api/v1/location-settings/metrc-action-execute", {
+        ...preparedRequest,
+        confirmation_id: preview.confirmation_id,
+        confirmation_token: preview.confirmation_token,
+      });
+    },
+    onSuccess: async data => {
+      setExecution(data);
+      if (!data.verified || !preparedRequest) return;
+      if (preparedRequest.operation_type.startsWith("location_")) await rooms.refetch();
+      if (preparedRequest.operation_type.startsWith("strain_")) await strains.refetch();
+      if (preparedRequest.operation_type.startsWith("item_")) await items.refetch();
+    },
   });
 
   const facility = context.data?.facilities.find(row => row.id === context.data?.facility_id);
   const roomTypes = rooms.data?.location_types ?? [];
   const canPrepare = Boolean(setup.data?.can_manage && setup.data?.metrc.configured && setup.data?.metrc.status === "connected" && setup.data?.metrc.trusted_mapping);
-  const onPrepare = (request: PrepareRequest) => { setPreview(null); prepareAction.mutate(request); };
+  const onPrepare = (request: PrepareRequest) => { setPreview(null); setPreparedRequest(null); setExecution(null); prepareAction.mutate(request); };
 
   return <div className="page">
     <div className="eyebrow">DATA & SETTINGS / LOCATION · SETTINGS & ADMINISTRATION / FACILITY SETUP</div>
@@ -158,7 +273,7 @@ export function LocationSettingsPage() {
       </section>
 
       {tab === "rooms" ? <section className="inventory-panel">
-        <div className="page-heading"><div><h3>Rooms & Locations</h3><p>Locations and sublocations are loaded directly from the active Metrc facility. Create/edit/discontinue requests are visible here, but provider mutation stays locked until sandbox write/readback verification.</p></div><button className="primary" type="button" disabled={rooms.isFetching} onClick={() => rooms.refetch()}>{rooms.isFetching ? "Syncing…" : rooms.data ? "Refresh from Metrc" : "Load from Metrc"}</button></div>
+        <div className="page-heading"><div><h3>Rooms & Locations</h3><p>Load the current Metrc structure when needed. Room create/edit now uses the reviewed Massachusetts sandbox write + readback flow; sublocation and discontinue actions remain preview-only until separately proven.</p></div><button className="primary" type="button" disabled={rooms.isFetching} onClick={() => rooms.refetch()}>{rooms.isFetching ? "Syncing…" : rooms.data ? "Refresh from Metrc" : "Load from Metrc"}</button></div>
         {rooms.isError ? <div className="state error">{rooms.error.message}</div> : null}
         {rooms.data ? <>
           <div className="metric-grid">
@@ -176,21 +291,23 @@ export function LocationSettingsPage() {
           <label className="span-2">New sublocation<input value={sublocationName} placeholder="Rack A / Shelf 2" onChange={event => setSublocationName(event.target.value)}/></label>
         </div>
         <div className="button-row">
-          <button className="primary" type="button" disabled={!canPrepare || !roomName || !roomType || prepareAction.isPending} onClick={() => onPrepare({ operation_type: "location_create", payload: { name: roomName, location_type_name: roomType } })}>Prepare room creation</button>
-          <button className="secondary" type="button" disabled={!canPrepare || !sublocationName || prepareAction.isPending} onClick={() => onPrepare({ operation_type: "sublocation_create", payload: { name: sublocationName } })}>Prepare sublocation creation</button>
+          <button className="primary" type="button" disabled={!canPrepare || !roomName || !roomType || prepareAction.isPending} onClick={() => onPrepare({ operation_type: "location_create", payload: { name: roomName, location_type_name: roomType } })}>Create room</button>
+          <button className="secondary" type="button" disabled={!canPrepare || !sublocationName || prepareAction.isPending} onClick={() => onPrepare({ operation_type: "sublocation_create", payload: { name: sublocationName } })}>Review sublocation request</button>
         </div>
+        <LocationUpdateForm data={rooms.data} canPrepare={canPrepare} pending={prepareAction.isPending} onPrepare={onPrepare}/>
         {!canPrepare ? <p className="source-caption">Provider-changing controls require an authorized DoobieLogic role, a connected Metrc credential, and a trusted facility/license mapping.</p> : null}
       </section> : null}
 
       {tab === "strains" ? <section className="inventory-panel">
-        <div className="page-heading"><div><h3>Strains</h3><p>Read the current Metrc strain master and prepare reviewed create requests from the same Facility Setup workspace.</p></div><button className="primary" type="button" disabled={strains.isFetching} onClick={() => strains.refetch()}>{strains.isFetching ? "Syncing…" : strains.data ? "Refresh from Metrc" : "Load from Metrc"}</button></div>
+        <div className="page-heading"><div><h3>Strains</h3><p>Create and edit strains through the reviewed Massachusetts sandbox action. DoobieLogic does not mark the change complete until the exact provider object is visible by ID after the write.</p></div><button className="primary" type="button" disabled={strains.isFetching} onClick={() => strains.refetch()}>{strains.isFetching ? "Syncing…" : strains.data ? "Refresh from Metrc" : "Load from Metrc"}</button></div>
         {strains.isError ? <div className="state error">{strains.error.message}</div> : null}
         {strains.data ? <>
           <div className="metric-grid"><div className="metric-card"><span>Active strains</span><strong>{strains.data.strains.length}</strong></div><div className="metric-card"><span>Inactive strains</span><strong>{strains.data.inactive_strains.length}</strong></div></div>
           <RecordGroup title="Active strains" rows={strains.data.strains} nameKeys={["Name", "name"]} detailKeys={["Genetics", "TestingStatus"]}/>
         </> : <div className="state">Choose “Load from Metrc” to inspect the current strain master.</div>}
         <div className="form-grid"><label className="span-2">New strain name<input value={strainName} placeholder="GMO" onChange={event => setStrainName(event.target.value)}/></label></div>
-        <button className="primary" type="button" disabled={!canPrepare || !strainName || prepareAction.isPending} onClick={() => onPrepare({ operation_type: "strain_create", payload: { name: strainName } })}>Prepare strain creation</button>
+        <button className="primary" type="button" disabled={!canPrepare || !strainName || prepareAction.isPending} onClick={() => onPrepare({ operation_type: "strain_create", payload: { name: strainName } })}>Create strain</button>
+        <StrainUpdateForm data={strains.data} canPrepare={canPrepare} pending={prepareAction.isPending} onPrepare={onPrepare}/>
       </section> : null}
 
       {tab === "items" ? <section className="inventory-panel">
@@ -210,6 +327,7 @@ export function LocationSettingsPage() {
           <RecordGroup title="Inactive Metrc items" rows={items.data.inactive_items} nameKeys={["Name", "name"]} detailKeys={["ProductCategoryName", "BrandName"]}/>
         </> : <LiveReadState label="items, brands, categories, and units of measure"/>}
         <ItemPreviewForm data={items.data} canPrepare={canPrepare} pending={prepareAction.isPending} onPrepare={onPrepare}/>
+        <ItemUpdateForm data={items.data} canPrepare={canPrepare} pending={prepareAction.isPending} onPrepare={onPrepare}/>
         <ActionCatalog actions={setup.data.actions.filter(action => resourcesForTab("items").includes(action.resource))}/>
       </section> : null}
 
@@ -281,13 +399,101 @@ export function LocationSettingsPage() {
     </> : null}
 
     {preview ? <section className="inventory-panel">
-      <h3>Metrc request preview</h3>
-      <p><strong>{preview.operation.label}</strong> · requires {preview.operation.required_permission}</p>
-      {preview.jurisdiction ? <p className="source-caption">{preview.jurisdiction.code} · documentation verified · execution still locked</p> : null}
-      <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(preview.provider_request, null, 2)}</pre>
+      <div className="page-heading"><div><h3>Review Metrc change</h3><p><strong>{preview.operation.label}</strong> · {preview.provider_request.query.licenseNumber || "active facility"}</p></div></div>
       <div className="state">{preview.message}</div>
+      <BusinessReview request={preparedRequest}/>
+      {preview.dispatch_enabled ? <>
+        <p>Nothing has been sent yet. Confirm only if the business values shown above are exactly what you intend for this facility.</p>
+        <button className="primary" type="button" disabled={executeAction.isPending || Boolean(execution?.verified)} onClick={() => executeAction.mutate()}>{executeAction.isPending ? "Submitting and verifying…" : execution?.verified ? "Verified in Metrc" : "Confirm & submit to Metrc"}</button>
+      </> : <div className="state">This action is available for review but is not yet promoted for provider execution.</div>}
+      {executeAction.isError ? <div className="state error">{executeAction.error.message}</div> : null}
+      {execution ? <div className={execution.verified ? "success-banner" : execution.status === "reconciliation_required" || execution.status === "rejected" ? "state error" : "state"}>
+        <strong>{execution.verified ? "Verified" : execution.status.replaceAll("_", " ")}</strong>
+        <p>{execution.message}</p>
+        <p className="source-caption">Traceability {execution.transaction_id}{execution.external_reference ? ` · Metrc ID ${execution.external_reference}` : ""}{execution.http_status ? ` · HTTP ${execution.http_status}` : ""}{execution.last_modified ? ` · Last modified ${execution.last_modified}` : ""}</p>
+      </div> : null}
+      <details className="inventory-panel">
+        <summary><strong>Compliance evidence details</strong></summary>
+        <p className="source-caption">{preview.jurisdiction?.code || "Metrc"} · requires {preview.operation.required_permission} · {preview.operation.verification_status.replaceAll("_", " ")}</p>
+        <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{JSON.stringify(preview.provider_request, null, 2)}</pre>
+      </details>
     </section> : null}
   </div>;
+}
+
+function BusinessReview({ request }: { request: PrepareRequest | null }) {
+  if (!request) return null;
+  const keys = REVIEW_FIELDS[request.operation_type] ?? Object.keys(request.payload);
+  const entries = keys.filter(key => Object.prototype.hasOwnProperty.call(request.payload, key)).map(key => [key, request.payload[key]] as const);
+  if (!entries.length) return null;
+  return <div className="inventory-panel">
+    <h4>Business values to submit</h4>
+    <div className="inventory-grid">{entries.map(([key, raw]) => {
+      const display = raw === null || raw === undefined || String(raw).trim() === "" ? "Clear / none" : typeof raw === "object" ? JSON.stringify(raw) : String(raw);
+      return <article className="inventory-panel" key={key}><span className="source-caption">{REVIEW_LABELS[key] || key.replaceAll("_", " ")}</span><strong>{display}</strong></article>;
+    })}</div>
+  </div>;
+}
+
+function LocationUpdateForm({ data, canPrepare, pending, onPrepare }: { data?: RoomsPayload; canPrepare: boolean; pending: boolean; onPrepare: (request: PrepareRequest) => void }) {
+  const [selectedId, setSelectedId] = useState("");
+  const [name, setName] = useState("");
+  const [locationType, setLocationType] = useState("");
+  const selected = data?.locations.find(row => value(row, "Id", "id") === selectedId);
+  const roomTypes = names(data?.location_types ?? [], "Name", "name", "LocationTypeName");
+
+  useEffect(() => {
+    if (!selected) return;
+    setName(value(selected, "Name", "name"));
+    setLocationType(value(selected, "LocationTypeName", "locationTypeName"));
+  }, [selectedId, data]);
+
+  if (!data?.locations.length) return null;
+  return <details className="inventory-panel">
+    <summary><strong>Edit an existing room</strong></summary>
+    <div className="form-grid">
+      <label className="span-2">Room<select value={selectedId} onChange={event => setSelectedId(event.target.value)}><option value="">Select room</option>{data.locations.map((row, index) => { const id = value(row, "Id", "id"); const label = value(row, "Name", "name") || `Room ${index + 1}`; return <option key={id || label} value={id}>{label}</option>; })}</select></label>
+      <label>Room name<input value={name} onChange={event => setName(event.target.value)}/></label>
+      <label>Location type<select value={locationType} onChange={event => setLocationType(event.target.value)}><option value="">Select type</option>{roomTypes.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+    </div>
+    <button className="primary" type="button" disabled={!canPrepare || pending || !selectedId || !name || !locationType} onClick={() => onPrepare({ operation_type: "location_update", payload: { id: selectedId, name, location_type_name: locationType } })}>Review room changes</button>
+  </details>;
+}
+
+function StrainUpdateForm({ data, canPrepare, pending, onPrepare }: { data?: StrainsPayload; canPrepare: boolean; pending: boolean; onPrepare: (request: PrepareRequest) => void }) {
+  const [selectedId, setSelectedId] = useState("");
+  const [name, setName] = useState("");
+  const selected = data?.strains.find(row => value(row, "Id", "id") === selectedId);
+
+  useEffect(() => {
+    if (selected) setName(value(selected, "Name", "name"));
+  }, [selectedId, data]);
+
+  if (!data?.strains.length) return null;
+  const review = () => {
+    if (!selected) return;
+    onPrepare({
+      operation_type: "strain_update",
+      payload: {
+        id: selectedId,
+        name,
+        testing_status: value(selected, "TestingStatus", "testingStatus"),
+        thc_level: numberValue(selected, "ThcLevel", "thcLevel"),
+        cbd_level: numberValue(selected, "CbdLevel", "cbdLevel"),
+        indica_percentage: numberValue(selected, "IndicaPercentage", "indicaPercentage"),
+        sativa_percentage: numberValue(selected, "SativaPercentage", "sativaPercentage"),
+      },
+    });
+  };
+  return <details className="inventory-panel">
+    <summary><strong>Edit an existing strain</strong></summary>
+    <div className="form-grid">
+      <label>Strain<select value={selectedId} onChange={event => setSelectedId(event.target.value)}><option value="">Select strain</option>{data.strains.map((row, index) => { const id = value(row, "Id", "id"); const label = value(row, "Name", "name") || `Strain ${index + 1}`; return <option key={id || label} value={id}>{label}</option>; })}</select></label>
+      <label>Name<input value={name} onChange={event => setName(event.target.value)}/></label>
+    </div>
+    <p className="source-caption">Testing status and cannabinoid/indica/sativa values are preserved from the live Metrc record while you edit the name.</p>
+    <button className="primary" type="button" disabled={!canPrepare || pending || !selectedId || !name} onClick={review}>Review strain changes</button>
+  </details>;
 }
 
 function ItemPreviewForm({ data, canPrepare, pending, onPrepare }: { data?: ItemsPayload; canPrepare: boolean; pending: boolean; onPrepare: (request: PrepareRequest) => void }) {
@@ -325,8 +531,8 @@ function ItemPreviewForm({ data, canPrepare, pending, onPrepare }: { data?: Item
   };
 
   return <div className="inventory-panel">
-    <h4>Prepare a Metrc item</h4>
-    <p>Build the documented provider request without sending it. Load Metrc first to use live category, brand, and unit choices.</p>
+    <h4>Create a Metrc item</h4>
+    <p>Choose the business fields DoobieLogic needs. The reviewed provider request is generated underneath and shown only at the confirmation step.</p>
     <div className="form-grid">
       <label>Item name<input value={itemName} placeholder="GMO Flower 3.5g" onChange={event => setItemName(event.target.value)}/></label>
       <label>Item category<select value={category} onChange={event => setCategory(event.target.value)}><option value="">Select category</option>{categoryOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
@@ -347,14 +553,70 @@ function ItemPreviewForm({ data, canPrepare, pending, onPrepare }: { data?: Item
         <label className="span-2">Processing Job Type name<input value={processingJobType} placeholder="Optional processing linkage" onChange={event => setProcessingJobType(event.target.value)}/></label>
       </div>
     </details>
-    <button className="primary" type="button" disabled={!canPrepare || pending || !itemName || !category || !unit} onClick={prepareItem}>{pending ? "Preparing…" : "Prepare item request"}</button>
+    <button className="primary" type="button" disabled={!canPrepare || pending || !itemName || !category || !unit} onClick={prepareItem}>{pending ? "Reviewing…" : "Create Metrc item"}</button>
 
     <div className="inventory-panel">
-      <h4>Prepare an item brand</h4>
+      <h4>Item brand</h4>
       <div className="form-grid"><label className="span-2">Brand name<input value={brandName} placeholder="DoobieLogic Reserve" onChange={event => setBrandName(event.target.value)}/></label></div>
-      <button className="secondary" type="button" disabled={!canPrepare || pending || !brandName} onClick={() => onPrepare({ operation_type: "brand_create", payload: { name: brandName } })}>Prepare brand request</button>
+      <button className="secondary" type="button" disabled={!canPrepare || pending || !brandName} onClick={() => onPrepare({ operation_type: "brand_create", payload: { name: brandName } })}>Review brand request</button>
+      <p className="source-caption">Brand writes remain preview-only until their own controlled sandbox write/readback proof is complete.</p>
     </div>
   </div>;
+}
+
+function ItemUpdateForm({ data, canPrepare, pending, onPrepare }: { data?: ItemsPayload; canPrepare: boolean; pending: boolean; onPrepare: (request: PrepareRequest) => void }) {
+  const [selectedId, setSelectedId] = useState("");
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("");
+  const [unit, setUnit] = useState("");
+  const [brand, setBrand] = useState("");
+  const [strain, setStrain] = useState("");
+  const [description, setDescription] = useState("");
+  const selected = data?.items.find(row => value(row, "Id", "id") === selectedId);
+  const categories = names(data?.categories ?? [], "Name", "ProductCategoryName");
+  const units = names(data?.units_of_measure ?? [], "Name", "UnitOfMeasureName");
+  const brands = names(data?.brands ?? [], "Name", "BrandName");
+
+  useEffect(() => {
+    if (!selected) return;
+    setName(value(selected, "Name", "name"));
+    setCategory(value(selected, "ProductCategoryName", "ItemCategoryName", "ItemCategory", "CategoryName"));
+    setUnit(value(selected, "UnitOfMeasureName", "UnitOfMeasure"));
+    setBrand(value(selected, "ItemBrand", "BrandName"));
+    setStrain(value(selected, "Strain", "StrainName"));
+    setDescription(value(selected, "Description"));
+  }, [selectedId, data]);
+
+  if (!data?.items.length) return null;
+  const review = () => {
+    if (!selected) return;
+    const payload: Record<string, unknown> = {
+      ...preservedItemPayload(selected),
+      id: selectedId,
+      name,
+      item_category: category,
+      unit_of_measure: unit,
+      item_brand: brand.trim() || null,
+      strain: strain.trim() || null,
+      description: description.trim() || null,
+    };
+    onPrepare({ operation_type: "item_update", payload });
+  };
+
+  return <details className="inventory-panel">
+    <summary><strong>Edit an existing Metrc item</strong></summary>
+    <div className="form-grid">
+      <label className="span-2">Item<select value={selectedId} onChange={event => setSelectedId(event.target.value)}><option value="">Select item</option>{data.items.map((row, index) => { const id = value(row, "Id", "id"); const label = value(row, "Name", "name") || `Item ${index + 1}`; return <option key={id || label} value={id}>{label}</option>; })}</select></label>
+      <label>Name<input value={name} onChange={event => setName(event.target.value)}/></label>
+      <label>Category<input value={category} list="item-update-categories" onChange={event => setCategory(event.target.value)}/><datalist id="item-update-categories">{categories.map(option => <option key={option} value={option}/>)}</datalist></label>
+      <label>Unit of measure<input value={unit} list="item-update-units" onChange={event => setUnit(event.target.value)}/><datalist id="item-update-units">{units.map(option => <option key={option} value={option}/>)}</datalist></label>
+      <label>Brand<input value={brand} list="item-update-brands" onChange={event => setBrand(event.target.value)}/><datalist id="item-update-brands">{brands.map(option => <option key={option} value={option}/>)}</datalist></label>
+      <label>Strain<input value={strain} onChange={event => setStrain(event.target.value)}/></label>
+      <label>Description<input value={description} onChange={event => setDescription(event.target.value)}/></label>
+    </div>
+    <p className="source-caption">Fields not shown in this quick editor are carried forward from the live Metrc record into the bounded update payload. Clearing Brand, Strain, or Description is sent explicitly rather than silently restoring the prior value.</p>
+    <button className="primary" type="button" disabled={!canPrepare || pending || !selectedId || !name || !category || !unit} onClick={review}>Review item changes</button>
+  </details>;
 }
 
 function ProcessingPreviewForm({ data, canPrepare, pending, onPrepare }: { data?: ProcessingPayload; canPrepare: boolean; pending: boolean; onPrepare: (request: PrepareRequest) => void }) {
@@ -377,7 +639,7 @@ function ProcessingPreviewForm({ data, canPrepare, pending, onPrepare }: { data?
       <label className="span-2">Processing steps<textarea value={steps} placeholder="Extract THC and bake" onChange={event => setSteps(event.target.value)}/></label>
       <label className="span-2">Attributes, comma separated<input value={attributeText} list="processing-attribute-options" placeholder="Infuse, Cooking, Food" onChange={event => setAttributeText(event.target.value)}/><datalist id="processing-attribute-options">{attributes.map(option => <option key={option} value={option}/>)}</datalist></label>
     </div>
-    <button className="primary" type="button" disabled={!canPrepare || pending || !name || !category || !description || !steps} onClick={() => onPrepare({ operation_type: "processing_job_type_create", payload: { name, category, description, processing_steps: steps, attributes: parsedAttributes } })}>{pending ? "Preparing…" : "Prepare process request"}</button>
+    <button className="primary" type="button" disabled={!canPrepare || pending || !name || !category || !description || !steps} onClick={() => onPrepare({ operation_type: "processing_job_type_create", payload: { name, category, description, processing_steps: steps, attributes: parsedAttributes } })}>{pending ? "Preparing…" : "Review process request"}</button>
   </div>;
 }
 
@@ -428,7 +690,7 @@ function AdditivePreviewForm({ canPrepare, pending, onPrepare }: { canPrepare: b
         <label className="span-2">Active ingredients, one per line as Name | Percentage<textarea value={ingredientLines} placeholder={"Ingredient 1 | 1.1\nIngredient 2 | 1.2"} onChange={event => setIngredientLines(event.target.value)}/></label>
       </div>
     </details>
-    <button className="primary" type="button" disabled={!canPrepare || pending || !name || !type || !device} onClick={prepare}>{pending ? "Preparing…" : "Prepare additive request"}</button>
+    <button className="primary" type="button" disabled={!canPrepare || pending || !name || !type || !device} onClick={prepare}>{pending ? "Preparing…" : "Review additive request"}</button>
   </div>;
 }
 
@@ -449,7 +711,7 @@ function TransportationPreviewForms({ canPrepare, pending, onPrepare }: { canPre
         <label>Driver's license number<input value={driverLicense} placeholder="ABC1234" onChange={event => setDriverLicense(event.target.value)}/></label>
         <label>Employee ID<input value={employeeId} placeholder="BTS000007" onChange={event => setEmployeeId(event.target.value)}/></label>
       </div>
-      <button className="primary" type="button" disabled={!canPrepare || pending || !driverName || !driverLicense || !employeeId} onClick={() => onPrepare({ operation_type: "driver_create", payload: { name: driverName, drivers_license_number: driverLicense, employee_id: employeeId } })}>Prepare driver request</button>
+      <button className="primary" type="button" disabled={!canPrepare || pending || !driverName || !driverLicense || !employeeId} onClick={() => onPrepare({ operation_type: "driver_create", payload: { name: driverName, drivers_license_number: driverLicense, employee_id: employeeId } })}>Review driver request</button>
     </div>
     <div className="inventory-panel">
       <h4>Prepare a transport vehicle</h4>
@@ -459,7 +721,7 @@ function TransportationPreviewForms({ canPrepare, pending, onPrepare }: { canPre
         <label>License plate<input value={plate} placeholder="ABC1234" onChange={event => setPlate(event.target.value)}/></label>
         <label>Registration number<input value={registration} placeholder="Optional" onChange={event => setRegistration(event.target.value)}/></label>
       </div>
-      <button className="primary" type="button" disabled={!canPrepare || pending || !make || !model || !plate} onClick={() => onPrepare({ operation_type: "vehicle_create", payload: { make, model, license_plate_number: plate, registration_number: registration || null } })}>Prepare vehicle request</button>
+      <button className="primary" type="button" disabled={!canPrepare || pending || !make || !model || !plate} onClick={() => onPrepare({ operation_type: "vehicle_create", payload: { make, model, license_plate_number: plate, registration_number: registration || null } })}>Review vehicle request</button>
     </div>
   </div>;
 }
@@ -492,10 +754,11 @@ function RecordGroup({ title, rows, nameKeys, detailKeys }: { title: string; row
 
 function ActionCatalog({ actions }: { actions: SetupAction[] }) {
   if (!actions.length) return null;
+  const promoted = actions.filter(action => action.dispatch_enabled).length;
   return <div className="inventory-panel">
     <h4>Provider-changing actions</h4>
-    <p>Request previews are available for the documented contracts above. Provider execution is still intentionally locked until the exact action passes controlled Metrc sandbox write and fresh readback verification for the connected jurisdiction.</p>
-    <div className="inventory-grid">{actions.map(action => <article className="inventory-panel" key={action.operation_type}><strong>{action.label}</strong><p>{action.method} /{action.path}</p><p className="source-caption">Requires {action.required_permission} · {action.verification_status.replaceAll("_", " ")}</p></article>)}</div>
-    <div className="state">Network writes remain fail-closed; DoobieLogic does not infer or fabricate a successful compliance change.</div>
+    <p>{promoted ? `${promoted} reviewed action${promoted === 1 ? " is" : "s are"} promoted for the connected Massachusetts sandbox. ` : ""}Other documented actions stay review-only until their exact sandbox write/readback contract is proven.</p>
+    <div className="inventory-grid">{actions.map(action => <article className="inventory-panel" key={action.operation_type}><strong>{action.label}</strong><p>{action.dispatch_enabled ? "Ready for confirmation" : "Preview only"}</p><p className="source-caption">Requires {action.required_permission} · {action.verification_status.replaceAll("_", " ")}</p></article>)}</div>
+    <div className="state">Provider acceptance is not treated as completion. Promoted actions must reach fresh readback verification; uncertain outcomes go to reconciliation instead of blind retry.</div>
   </div>;
 }

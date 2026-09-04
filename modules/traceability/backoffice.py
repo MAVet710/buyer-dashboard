@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from modules.coman.models import utc_now
 from .models import TraceabilityStatusEvent, TraceabilityTransaction
@@ -203,6 +203,86 @@ class TraceabilityBackofficeRepository(TraceabilityRepository):
             )
             session.flush()
             return transaction
+
+    def claim_transition_logged(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        transaction_id: str,
+        expected_status: str,
+        new_status: str,
+        actor: str,
+        reason: str = "",
+        source: str = "system",
+    ) -> tuple[TraceabilityTransaction, bool]:
+        """Compare-and-set one lifecycle transition and record evidence atomically.
+
+        This is the execution lease for provider-changing work. Exactly one
+        concurrent caller can move a confirmation out of its expected status;
+        all others receive the durable current transaction without dispatching.
+        """
+
+        expected = _clean(expected_status).casefold()
+        target = _clean(new_status).casefold()
+        clean_actor = _clean(actor)
+        clean_source = _clean(source).casefold() or "system"
+        clean_reason = _clean(reason)
+        if not clean_actor:
+            raise ValueError("An actor is required for traceability lifecycle changes.")
+        if target not in VALID_TRANSITIONS.get(expected, frozenset()):
+            raise ValueError(f"Traceability transition {expected} -> {target} is not allowed.")
+        if clean_source == "manual" and not clean_reason:
+            raise ValueError("A reason is required for manual traceability lifecycle changes.")
+
+        with self._session_factory.begin() as session:
+            now = utc_now()
+            values: dict[str, Any] = {
+                "status": target,
+                "error_code": "",
+                "error_message": "",
+                "next_attempt_at": None,
+                "retry_eligible": False,
+            }
+            if target in {"queued", "submitted", "accepted", "verified"}:
+                values["approved_by"] = clean_actor
+            if target == "submitted":
+                values["submitted_at"] = now
+            if target in TERMINAL_STATUSES:
+                values["completed_at"] = now
+
+            result = session.execute(
+                update(TraceabilityTransaction)
+                .where(
+                    TraceabilityTransaction.id == transaction_id,
+                    TraceabilityTransaction.organization_id == organization_id,
+                    TraceabilityTransaction.facility_id == facility_id,
+                    TraceabilityTransaction.status == expected,
+                )
+                .values(**values)
+            )
+            claimed = int(result.rowcount or 0) == 1
+            transaction = self._require_transaction(
+                session, organization_id, facility_id, transaction_id
+            )
+            if not claimed:
+                return transaction, False
+
+            session.add(
+                TraceabilityStatusEvent(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    transaction_id=transaction.id,
+                    from_status=expected,
+                    to_status=target,
+                    actor=clean_actor,
+                    reason=clean_reason,
+                    source=clean_source[:32],
+                )
+            )
+            session.flush()
+            session.refresh(transaction)
+            return transaction, True
 
     def requeue_manual(
         self,

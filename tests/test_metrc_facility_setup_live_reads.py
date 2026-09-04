@@ -21,12 +21,40 @@ class FakeTransport:
         return {"ok": True, "payload": [{"Id": len(self.calls), "Name": path}]}
 
 
+class PagedFakeTransport:
+    def __init__(self, *, full_pages: int, tail_count: int):
+        self.full_pages = full_pages
+        self.tail_count = tail_count
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def get(self, path: str, query: dict[str, object]):
+        self.calls.append((path, dict(query)))
+        page = int(query.get("pageNumber") or 1)
+        page_size = int(query.get("pageSize") or 50)
+        if page <= self.full_pages:
+            count = page_size
+        elif page == self.full_pages + 1:
+            count = self.tail_count
+        else:
+            count = 0
+        start = (page - 1) * page_size
+        return {
+            "ok": True,
+            "payload": [{"Id": start + index + 1, "Name": f"row-{start + index + 1}"} for index in range(count)],
+        }
+
+
 @pytest.fixture
 def live_metrc(monkeypatch: pytest.MonkeyPatch):
     metrc = SimpleNamespace(
         state="MA",
         license_number="LIC-TEST",
         environment="sandbox",
+        configured=True,
+        status="connected",
+        trusted_mapping=True,
+        user_api_key="user-key",
+        integrator_api_key="integrator-key",
     )
     transport = FakeTransport()
     monkeypatch.setattr(location_settings, "_trusted_metrc", lambda *_args, **_kwargs: (None, metrc))
@@ -48,14 +76,58 @@ def test_items_live_read_uses_documented_master_data_endpoints(live_metrc):
     assert result["source"] == "metrc_live"
     assert result["license_number"] == "LIC-TEST"
     assert result["bounded"] is True
-    assert result["page_size"] == 20
+    assert result["page_size"] == 50
     assert len(result["items"]) == 1
     assert len(result["brands"]) == 1
     assert len(result["categories"]) == 1
     assert len(result["units_of_measure"]) == 1
-    paged = {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1}
+    paged = {"licenseNumber": "LIC-TEST", "pageSize": 50, "pageNumber": 1}
     assert all(query == paged for _, query in transport.calls[:4])
     assert transport.calls[4][1] == {}
+    assert result["pagination"]["items"] == {
+        "page_size": 50,
+        "pages_loaded": 1,
+        "records_loaded": 1,
+        "truncated": False,
+        "max_pages": 20,
+    }
+
+
+def test_master_data_paging_reaches_records_beyond_first_page():
+    metrc = SimpleNamespace(license_number="LIC-TEST")
+    transport = PagedFakeTransport(full_pages=1, tail_count=3)
+
+    rows, page = location_settings._paged_provider_rows(
+        transport,
+        metrc,
+        "items/v2/active",
+        "active items",
+    )
+
+    assert len(rows) == 53
+    assert [query["pageNumber"] for _, query in transport.calls] == [1, 2]
+    assert all(query["pageSize"] == 50 for _, query in transport.calls)
+    assert page["pages_loaded"] == 2
+    assert page["records_loaded"] == 53
+    assert page["truncated"] is False
+
+
+def test_master_data_paging_has_a_hard_provider_call_bound():
+    metrc = SimpleNamespace(license_number="LIC-TEST")
+    transport = PagedFakeTransport(full_pages=20, tail_count=0)
+
+    rows, page = location_settings._paged_provider_rows(
+        transport,
+        metrc,
+        "locations/v2/active",
+        "active locations",
+        max_pages=2,
+    )
+
+    assert len(rows) == 100
+    assert len(transport.calls) == 2
+    assert page["max_pages"] == 2
+    assert page["truncated"] is True
 
 
 def test_initial_facility_reads_stay_within_metrc_page_limit(live_metrc):
@@ -126,7 +198,7 @@ def test_transportation_live_read_loads_drivers_and_vehicles(live_metrc):
     assert all(query == {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1} for _, query in transport.calls)
 
 
-def test_preview_accepts_documentation_verified_jurisdiction_but_never_dispatches(live_metrc):
+def test_preview_accepts_documentation_verified_jurisdiction_but_never_dispatches_unpromoted_action(live_metrc):
     metrc, _ = live_metrc
     metrc.state = "RI"
     request = location_settings.MetrcActionPreview(
@@ -149,7 +221,35 @@ def test_preview_accepts_documentation_verified_jurisdiction_but_never_dispatche
         "body": [{"Name": "Reserve"}],
     }
     assert result["dispatch_enabled"] is False
+    assert result["confirmation_id"] == ""
+    assert result["confirmation_token"] == ""
     assert result["requires_human_confirmation"] is True
+
+
+def test_ma_master_data_preview_promotes_exact_write_and_binds_confirmation(live_metrc):
+    request = location_settings.MetrcActionPreview(
+        operation_type="location_create",
+        payload={"name": "Flower Room 2", "location_type_name": "Default", "unexpected": "drop"},
+    )
+    result = location_settings.metrc_action_preview(
+        request=request,
+        context=SimpleNamespace(role="admin"),
+        engine=object(),
+        settings=object(),
+    )
+
+    assert result["dispatch_enabled"] is True
+    assert result["operation"]["dispatch_enabled"] is True
+    assert result["operation"]["verification_status"] == "ma_sandbox_write_readback_promoted"
+    assert result["provider_request"] == {
+        "method": "POST",
+        "path": "locations/v2/",
+        "query": {"licenseNumber": "LIC-TEST"},
+        "body": [{"Name": "Flower Room 2", "LocationTypeName": "Default"}],
+    }
+    assert result["confirmation_id"]
+    assert len(result["confirmation_token"]) == 64
+    assert "fresh exact by-ID readback" in result["message"]
 
 
 def test_preview_rejects_jurisdiction_without_direct_documentation_verification(live_metrc):
@@ -202,33 +302,61 @@ def test_frontend_keeps_live_provider_reads_opt_in_and_visible():
         "Transport drivers",
         "Transport vehicles",
         "Provider-changing actions",
-        "Network writes remain fail-closed",
+        "reconciliation instead of blind retry",
     ):
         assert label in source
     assert source.count("enabled: false") >= 7
 
 
-def test_frontend_exposes_bounded_preview_forms_without_execute_controls():
+def test_frontend_exposes_simple_master_data_actions_and_governed_confirmation():
     source = (ROOT / "frontend/src/pages/LocationSettingsPage.tsx").read_text(encoding="utf-8")
     for label in (
-        "Prepare a Metrc item",
-        "Advanced item fields",
-        "Prepare item request",
-        "Prepare an item brand",
-        "Prepare brand request",
-        "Prepare a Processing Job Type",
-        "Prepare process request",
-        "Prepare an additive template",
-        "Prepare additive request",
-        "Prepare a transport driver",
-        "Prepare driver request",
-        "Prepare a transport vehicle",
-        "Prepare vehicle request",
-        "Metrc request preview",
+        "Create room",
+        "Edit an existing room",
+        "Create strain",
+        "Edit an existing strain",
+        "Create a Metrc item",
+        "Edit an existing Metrc item",
+        "Review Metrc change",
+        "Business values to submit",
+        "Confirm & submit to Metrc",
+        "Compliance evidence details",
+        "Verified in Metrc",
+        "Clear / none",
     ):
         assert label in source
     for operation in (
+        'operation_type: "location_create"',
+        'operation_type: "location_update"',
+        'operation_type: "strain_create"',
+        'operation_type: "strain_update"',
         'operation_type: "item_create"',
+        'operation_type: "item_update"',
+    ):
+        assert operation in source
+    for explicit_clear in (
+        "item_brand: brand.trim() || null",
+        "strain: strain.trim() || null",
+        "description: description.trim() || null",
+    ):
+        assert explicit_clear in source
+    assert "/api/v1/location-settings/metrc-action-preview" in source
+    assert "/api/v1/location-settings/metrc-action-execute" in source
+
+
+def test_frontend_keeps_unpromoted_provider_actions_review_only():
+    source = (ROOT / "frontend/src/pages/LocationSettingsPage.tsx").read_text(encoding="utf-8")
+    for label in (
+        "Review sublocation request",
+        "Review brand request",
+        "Review process request",
+        "Review additive request",
+        "Review driver request",
+        "Review vehicle request",
+        "Preview only",
+    ):
+        assert label in source
+    for operation in (
         'operation_type: "brand_create"',
         'operation_type: "processing_job_type_create"',
         'operation_type: "additive_template_create"',
@@ -236,5 +364,3 @@ def test_frontend_exposes_bounded_preview_forms_without_execute_controls():
         'operation_type: "vehicle_create"',
     ):
         assert operation in source
-    assert "Execute Metrc" not in source
-    assert "Submit to Metrc" not in source
