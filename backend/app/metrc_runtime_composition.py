@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+
 _COMPOSED = False
 FULL_SYNC_PAGE_SAFETY_CEILING = 10_000
 
@@ -30,30 +32,72 @@ def compose_metrc_runtime() -> None:
     from services.metrc_natural_bootstrap import NaturalMetrcFacilityBootstrapService
     from services.metrc_rate_limit_policy import install_metrc_rate_limit_policy
 
-    from .routers import alpha_sandbox_connections
-    from .routers import inventory_reconciliation
-    from .routers import location_settings
-    from .routers import plants
-    from .routers import retail_insights
-    from .routers import sandbox_integrations
-    from .routers.metrc_cultivation_snapshot import router as metrc_cultivation_snapshot_router
-    from .routers.metrc_facility_setup_snapshot import (
-        augment_facility_setup_overview,
-        router as metrc_facility_setup_snapshot_router,
+    # Resolve reload-sensitive modules from the import registry on every call instead
+    # of through backend.app.routers package attributes. Test/dev isolation can replace
+    # a module in sys.modules while the package attribute still points at the previous
+    # object; composing against that stale object makes route ownership depend on
+    # import order. import_module() returns the current registered module instead.
+    alpha_sandbox_connections = importlib.import_module(
+        "backend.app.routers.alpha_sandbox_connections"
     )
-    from .routers.metrc_incremental_sync import router as metrc_incremental_sync_router
-    from .routers.metrc_package_lab_detail import router as metrc_package_lab_detail_router
-    from .routers.metrc_production_snapshot import router as metrc_production_snapshot_router
-    from .routers.metrc_retail_snapshot import router as metrc_retail_snapshot_router
-    from .routers.regulatory_detail import router as regulatory_detail_router
-    from .services import metrc_natural_sync as metrc_natural_sync_module
+    inventory_reconciliation = importlib.import_module(
+        "backend.app.routers.inventory_reconciliation"
+    )
+    location_settings = importlib.import_module("backend.app.routers.location_settings")
+    plants = importlib.import_module("backend.app.routers.plants")
+    retail_insights = importlib.import_module("backend.app.routers.retail_insights")
+    sandbox_integrations = importlib.import_module(
+        "backend.app.routers.sandbox_integrations"
+    )
+
+    metrc_cultivation_snapshot_module = importlib.import_module(
+        "backend.app.routers.metrc_cultivation_snapshot"
+    )
+    metrc_facility_setup_snapshot_module = importlib.import_module(
+        "backend.app.routers.metrc_facility_setup_snapshot"
+    )
+    metrc_incremental_sync_router_module = importlib.import_module(
+        "backend.app.routers.metrc_incremental_sync"
+    )
+    metrc_package_lab_detail_module = importlib.import_module(
+        "backend.app.routers.metrc_package_lab_detail"
+    )
+    metrc_production_snapshot_module = importlib.import_module(
+        "backend.app.routers.metrc_production_snapshot"
+    )
+    metrc_retail_snapshot_module = importlib.import_module(
+        "backend.app.routers.metrc_retail_snapshot"
+    )
+    regulatory_detail_module = importlib.import_module(
+        "backend.app.routers.regulatory_detail"
+    )
+    metrc_natural_sync_module = importlib.import_module(
+        "backend.app.services.metrc_natural_sync"
+    )
+
+    metrc_cultivation_snapshot_router = metrc_cultivation_snapshot_module.router
+    metrc_facility_setup_snapshot_router = metrc_facility_setup_snapshot_module.router
+    augment_facility_setup_overview = (
+        metrc_facility_setup_snapshot_module.augment_facility_setup_overview
+    )
+    metrc_incremental_sync_router = metrc_incremental_sync_router_module.router
+    metrc_package_lab_detail_router = metrc_package_lab_detail_module.router
+    metrc_production_snapshot_router = metrc_production_snapshot_module.router
+    metrc_retail_snapshot_router = metrc_retail_snapshot_module.router
+    regulatory_detail_router = regulatory_detail_module.router
+
     from .services.metrc_context import resolve_metrc_context
     from .services.metrc_sync_policy import MetrcPolicySyncControlService
 
     def route_key(route) -> tuple[str, tuple[str, ...]]:
         return (
             str(getattr(route, "path", "") or ""),
-            tuple(sorted(str(method) for method in (getattr(route, "methods", None) or ()))),
+            tuple(
+                sorted(
+                    str(method)
+                    for method in (getattr(route, "methods", None) or ())
+                )
+            ),
         )
 
     def include_router_once(parent, child) -> None:
@@ -77,9 +121,13 @@ def compose_metrc_runtime() -> None:
     # true. This block is side-effect-safe because already-present route sets are
     # detected and left untouched.
     include_router_once(plants.router, metrc_cultivation_snapshot_router)
-    include_router_once(inventory_reconciliation.router, metrc_production_snapshot_router)
+    include_router_once(
+        inventory_reconciliation.router, metrc_production_snapshot_router
+    )
     include_router_once(inventory_reconciliation.router, regulatory_detail_router)
-    include_router_once(inventory_reconciliation.router, metrc_package_lab_detail_router)
+    include_router_once(
+        inventory_reconciliation.router, metrc_package_lab_detail_router
+    )
     include_router_once(retail_insights.router, metrc_retail_snapshot_router)
     include_router_once(sandbox_integrations.router, metrc_incremental_sync_router)
     include_router_once(location_settings.router, metrc_facility_setup_snapshot_router)
@@ -103,13 +151,19 @@ def compose_metrc_runtime() -> None:
     # globally: that class is the stable core/audit primitive used by isolated tests
     # and by incremental persistence. Global rebinding made behavior depend on import
     # order. Consumers that need the natural runtime are explicitly rebound instead.
-    sandbox_integrations.MetrcFacilityBootstrapService = NaturalMetrcFacilityBootstrapService
-    metrc_natural_sync_module.ResilientSnapshottingMetrcFacilityBootstrapService = NaturalMetrcFacilityBootstrapService
+    sandbox_integrations.MetrcFacilityBootstrapService = (
+        NaturalMetrcFacilityBootstrapService
+    )
+    metrc_natural_sync_module.ResilientSnapshottingMetrcFacilityBootstrapService = (
+        NaturalMetrcFacilityBootstrapService
+    )
 
     # Incremental sync keeps its non-destructive delta algorithm but routes newly
     # changed provider objects through the expanded Product/Inventory/Cultivation
     # materializer rather than the earlier Product/Inventory-only implementation.
-    metrc_incremental_sync_module.MetrcWorkspaceHydrationService = ExpandedMetrcWorkspaceHydrationService
+    metrc_incremental_sync_module.MetrcWorkspaceHydrationService = (
+        ExpandedMetrcWorkspaceHydrationService
+    )
 
     original_sandbox_sync = sandbox_integrations.run_sandbox_sync
     original_sandbox_status = sandbox_integrations.sandbox_runtime_status
@@ -123,7 +177,8 @@ def compose_metrc_runtime() -> None:
         if not metrc.configured:
             raise HTTPException(
                 422,
-                metrc.message or "Configure the Metrc sandbox connection before synchronization.",
+                metrc.message
+                or "Configure the Metrc sandbox connection before synchronization.",
             )
         if not metrc.trusted_mapping:
             raise HTTPException(
@@ -142,7 +197,9 @@ def compose_metrc_runtime() -> None:
                 settings=settings,
             )
         sandbox_integrations._require_developer_connections(context)
-        metrc = natural_metrc_context(context=context, engine=engine, settings=settings)
+        metrc = natural_metrc_context(
+            context=context, engine=engine, settings=settings
+        )
         try:
             return MetrcPolicySyncControlService(engine).sync(
                 organization_id=context.organization_id,
@@ -181,7 +238,9 @@ def compose_metrc_runtime() -> None:
                 settings=settings,
             )
         sandbox_integrations._require_developer_connections(context)
-        metrc = natural_metrc_context(context=context, engine=engine, settings=settings)
+        metrc = natural_metrc_context(
+            context=context, engine=engine, settings=settings
+        )
         try:
             result = MetrcPolicySyncControlService(engine).sync(
                 organization_id=context.organization_id,
@@ -210,16 +269,24 @@ def compose_metrc_runtime() -> None:
                 if getattr(route, "dependant", None) is not None:
                     route.dependant.call = replacement
                 return
-        raise RuntimeError(f"Expected FastAPI route ending in {suffix!r} was not found during METRC composition.")
+        raise RuntimeError(
+            f"Expected FastAPI route ending in {suffix!r} was not found during METRC composition."
+        )
 
     # Replace captured APIRoute callables as well as module globals. The alpha
     # wrapper imported legacy function objects earlier, so patch those aliases too.
     sandbox_integrations.run_sandbox_sync = natural_sandbox_sync
     sandbox_integrations.sandbox_runtime_status = natural_sandbox_status
     sandbox_integrations.retry_sandbox_sync = natural_sandbox_retry
-    replace_route_call(sandbox_integrations.router, "/{provider}/sync", natural_sandbox_sync)
-    replace_route_call(sandbox_integrations.router, "/{provider}/runtime", natural_sandbox_status)
-    replace_route_call(sandbox_integrations.router, "/{provider}/retry", natural_sandbox_retry)
+    replace_route_call(
+        sandbox_integrations.router, "/{provider}/sync", natural_sandbox_sync
+    )
+    replace_route_call(
+        sandbox_integrations.router, "/{provider}/runtime", natural_sandbox_status
+    )
+    replace_route_call(
+        sandbox_integrations.router, "/{provider}/retry", natural_sandbox_retry
+    )
     alpha_sandbox_connections.legacy_run_sandbox_sync = natural_sandbox_sync
     alpha_sandbox_connections.legacy_retry_sandbox_sync = natural_sandbox_retry
 
@@ -238,6 +305,8 @@ def compose_metrc_runtime() -> None:
         )
 
     location_settings.facility_setup_overview = synced_facility_setup_overview
-    replace_route_call(location_settings.router, "/facility-setup", synced_facility_setup_overview)
+    replace_route_call(
+        location_settings.router, "/facility-setup", synced_facility_setup_overview
+    )
 
     _COMPOSED = True
