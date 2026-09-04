@@ -1,4 +1,9 @@
-from backend.app.services.metrc_harvest_readback import verify_harvest_state, verify_plant_harvested
+from backend.app.services.metrc_harvest_readback import (
+    verify_harvest_finished,
+    verify_harvest_state,
+    verify_harvest_waste,
+    verify_plant_harvested,
+)
 
 
 def _readback(provider_id: str, source: dict):
@@ -50,3 +55,48 @@ def test_source_plant_requires_exact_harvest_evidence_or_absence():
         harvest_name="HARV-001",
     )
     assert wrong["matched"] is False
+
+
+def test_harvest_waste_requires_exact_baseline_plus_delta():
+    good = verify_harvest_waste(
+        readback=_readback("71", {"TotalWasteWeight": 17.5}),
+        provider_id="71",
+        baseline_waste_weight_g=10.0,
+        submitted_waste_weight_g=7.5,
+    )
+    assert good["matched"] is True
+
+    wrong = verify_harvest_waste(
+        readback=_readback("71", {"TotalWasteWeight": 16.0}),
+        provider_id="71",
+        baseline_waste_weight_g=10.0,
+        submitted_waste_weight_g=7.5,
+    )
+    assert wrong["matched"] is False
+
+
+def test_finish_and_unfinish_require_explicit_post_state():
+    assert verify_harvest_finished(
+        readback=_readback("71", {"IsFinished": True, "FinishDate": "2026-09-04"}),
+        provider_id="71",
+        expected_finished=True,
+    )["matched"] is True
+    assert verify_harvest_finished(
+        readback=_readback("71", {"IsFinished": False, "FinishDate": None}),
+        provider_id="71",
+        expected_finished=False,
+    )["matched"] is True
+    assert verify_harvest_finished(
+        readback=_readback("71", {"IsFinished": True}),
+        provider_id="71",
+        expected_finished=False,
+    )["matched"] is False
+
+
+def test_finish_fails_closed_without_finish_indicator():
+    result = verify_harvest_finished(
+        readback=_readback("71", {"Name": "HARV-001"}),
+        provider_id="71",
+        expected_finished=True,
+    )
+    assert result["matched"] is False
