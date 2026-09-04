@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+import json
 import uuid
 from typing import Any
 
@@ -17,6 +18,13 @@ from services.metrc_workspace_hydration import MetrcWorkspaceHydrationService
 LAST_MODIFIED_OVERLAP = timedelta(minutes=5)
 READ_MAX_ATTEMPTS = 4
 PROVIDER_CONCURRENCY = 3
+CULTIVATION_RESOURCES = (
+    "locations",
+    "plant_batches",
+    "plants_vegetative",
+    "plants_flowering",
+    "harvests",
+)
 
 # These are normalized active/current resources for which the Metrc v2 read
 # planner accepts query parameters and the provider's LastModified filtering can
@@ -62,8 +70,8 @@ class MetrcIncrementalSyncService:
     delta are created/updated, while omitted rows remain current until a complete
     full snapshot proves their absence.
 
-    New Items/Packages still pass through the same safe workspace materializers.
-    Existing local operational state is never silently overwritten.
+    Newly changed provider objects pass through the same safe natural-workspace
+    materializers. Existing local operational state is never silently overwritten.
     """
 
     def __init__(self, engine: Engine):
@@ -87,13 +95,31 @@ class MetrcIncrementalSyncService:
             facility_id=facility_id,
             environment=environment,
         )
+        permission_skipped = self._permission_skipped_resources(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            environment=environment,
+        )
         resources: list[dict[str, Any]] = []
         deltas: dict[str, list[dict[str, Any]]] = {}
 
         eligible = [(local, provider, baselines.get(local)) for local, provider in INCREMENTAL_RESOURCES]
-        to_read = [(local, provider, baseline) for local, provider, baseline in eligible if baseline is not None]
+        to_read = [
+            (local, provider, baseline)
+            for local, provider, baseline in eligible
+            if baseline is not None and local not in permission_skipped
+        ]
         for local, provider, baseline in eligible:
-            if baseline is None:
+            if local in permission_skipped:
+                resources.append({
+                    "resource": local,
+                    "provider_resource": provider,
+                    "status": "skipped",
+                    "record_count": 0,
+                    "message": "This resource was permission-skipped during the verified full baseline; incremental sync will not repeatedly treat it as missing.",
+                    "current_snapshot_changed": False,
+                })
+            elif baseline is None:
                 resources.append({
                     "resource": local,
                     "provider_resource": provider,
@@ -226,6 +252,35 @@ class MetrcIncrementalSyncService:
                 "omitted_rows_marked_absent": False,
             })
 
+        workspace_snapshots: dict[str, list[dict[str, Any]]] = {
+            "items": deltas.get("items", []),
+            "packages": deltas.get("packages", []),
+        }
+        cultivation_changed = any(deltas.get(resource) for resource in CULTIVATION_RESOURCES)
+        cultivation_baseline_complete = all(baselines.get(resource) is not None for resource in CULTIVATION_RESOURCES)
+        if cultivation_changed and cultivation_baseline_complete:
+            # Changed plants/harvests need the already-current location and batch
+            # dependencies even when those master records were not part of this
+            # LastModified window. Read them from DoobieLogic's local snapshot,
+            # never by making a second provider request.
+            workspace_snapshots.update({
+                "locations": self._current_snapshot_records(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    environment=environment,
+                    resource="locations",
+                ),
+                "plant_batches": self._current_snapshot_records(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    environment=environment,
+                    resource="plant_batches",
+                ),
+                "plants_vegetative": deltas.get("plants_vegetative", []),
+                "plants_flowering": deltas.get("plants_flowering", []),
+                "harvests": deltas.get("harvests", []),
+            })
+
         workspace = MetrcWorkspaceHydrationService(self.engine).hydrate(
             organization_id=organization_id,
             facility_id=facility_id,
@@ -233,11 +288,15 @@ class MetrcIncrementalSyncService:
             environment=environment,
             license_number=license_number,
             actor=actor,
-            resource_snapshots={
-                "items": deltas.get("items", []),
-                "packages": deltas.get("packages", []),
-            },
+            resource_snapshots=workspace_snapshots,
         )
+        if cultivation_changed:
+            workspace.setdefault("workspace_gates", {})["cultivation"] = {
+                "status": "current_delta_applied" if cultivation_baseline_complete else "withheld_incomplete_baseline",
+                "required_resources": list(CULTIVATION_RESOURCES),
+                "network_request_made_for_dependencies": False,
+            }
+
         ordered = sorted(resources, key=lambda row: row["resource"])
         return {
             "provider": "metrc",
@@ -283,6 +342,51 @@ class MetrcIncrementalSyncService:
             if baseline is not None and (cursor_value.startswith("initial-full") or cursor_value.startswith("incremental:")):
                 output[str(resource)] = baseline
         return output
+
+    def _permission_skipped_resources(self, *, organization_id: str, facility_id: str, environment: str) -> set[str]:
+        resource_names = tuple(name for name, _provider in INCREMENTAL_RESOURCES)
+        with self.engine.connect() as connection:
+            rows = list(connection.execute(
+                select(IntegrationSyncState.resource, IntegrationSyncState.cursor).where(
+                    IntegrationSyncState.organization_id == organization_id,
+                    IntegrationSyncState.facility_id == facility_id,
+                    IntegrationSyncState.provider == "metrc",
+                    IntegrationSyncState.environment == environment,
+                    IntegrationSyncState.resource.in_(resource_names),
+                    IntegrationSyncState.status == "succeeded",
+                )
+            ))
+        return {
+            str(resource)
+            for resource, cursor in rows
+            if str(cursor or "").startswith("permission-skipped")
+        }
+
+    def _current_snapshot_records(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        environment: str,
+        resource: str,
+    ) -> list[dict[str, Any]]:
+        rows = self.snapshots.current(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            provider="metrc",
+            resources=(resource,),
+            environment=environment,
+            limit=10000,
+        )
+        records: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(row.raw_payload_json or "{}")
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(payload, dict):
+                records.append(payload)
+        return records
 
     def _fetch_delta(
         self,
