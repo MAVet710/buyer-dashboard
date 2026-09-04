@@ -10,11 +10,14 @@ def compose_metrc_runtime() -> None:
     The composition is deliberately late and idempotent. Router package imports stay
     side-effect free, while main.py invokes this once after importing every router and
     before any APIRouter is copied into the FastAPI application.
+
+    Route attachment is revalidated on every call. This matters in test/dev reload
+    environments where a parent router module can be reloaded after the one-time
+    runtime behavior has already been composed. Missing child projections are safely
+    reattached without duplicating routes that are already present.
     """
 
     global _COMPOSED
-    if _COMPOSED:
-        return
 
     from fastapi import HTTPException
 
@@ -47,6 +50,43 @@ def compose_metrc_runtime() -> None:
     from .services.metrc_context import resolve_metrc_context
     from .services.metrc_sync_policy import MetrcPolicySyncControlService
 
+    def route_key(route) -> tuple[str, tuple[str, ...]]:
+        return (
+            str(getattr(route, "path", "") or ""),
+            tuple(sorted(str(method) for method in (getattr(route, "methods", None) or ()))),
+        )
+
+    def include_router_once(parent, child) -> None:
+        child_keys = {route_key(route) for route in child.routes}
+        if not child_keys:
+            return
+        parent_keys = {route_key(route) for route in parent.routes}
+        missing = child_keys - parent_keys
+        if not missing:
+            return
+        if len(missing) != len(child_keys):
+            raise RuntimeError(
+                "METRC runtime composition found a partially attached child router; "
+                "refusing to duplicate routes or hide an inconsistent API graph."
+            )
+        parent.include_router(child)
+
+    # Revalidate local provider projections on every call. FastAPI copies child
+    # routes into the parent at include time, so a dev/test reload of a parent
+    # router can otherwise erase projections while the one-time runtime flag stays
+    # true. This block is side-effect-safe because already-present route sets are
+    # detected and left untouched.
+    include_router_once(plants.router, metrc_cultivation_snapshot_router)
+    include_router_once(inventory_reconciliation.router, metrc_production_snapshot_router)
+    include_router_once(inventory_reconciliation.router, regulatory_detail_router)
+    include_router_once(inventory_reconciliation.router, metrc_package_lab_detail_router)
+    include_router_once(retail_insights.router, metrc_retail_snapshot_router)
+    include_router_once(sandbox_integrations.router, metrc_incremental_sync_router)
+    include_router_once(location_settings.router, metrc_facility_setup_snapshot_router)
+
+    if _COMPOSED:
+        return
+
     # All shared Metrc reads now honor Retry-After up to a bounded 30 seconds.
     # Installing here avoids any import-time dependency loop through traceability.
     install_metrc_rate_limit_policy()
@@ -70,19 +110,6 @@ def compose_metrc_runtime() -> None:
     # changed provider objects through the expanded Product/Inventory/Cultivation
     # materializer rather than the earlier Product/Inventory-only implementation.
     metrc_incremental_sync_module.MetrcWorkspaceHydrationService = ExpandedMetrcWorkspaceHydrationService
-
-    # Attach locally synchronized regulatory projections before main.py includes
-    # these parent routers into the FastAPI application.
-    plants.router.include_router(metrc_cultivation_snapshot_router)
-    inventory_reconciliation.router.include_router(metrc_production_snapshot_router)
-    inventory_reconciliation.router.include_router(regulatory_detail_router)
-    # Package lab evidence is package-scoped rather than a facility-wide baseline;
-    # expose cached + explicit live verification through the same Regulatory Detail
-    # parent router so Package 360 can reach the new endpoints.
-    inventory_reconciliation.router.include_router(metrc_package_lab_detail_router)
-    retail_insights.router.include_router(metrc_retail_snapshot_router)
-    sandbox_integrations.router.include_router(metrc_incremental_sync_router)
-    location_settings.router.include_router(metrc_facility_setup_snapshot_router)
 
     original_sandbox_sync = sandbox_integrations.run_sandbox_sync
     original_sandbox_status = sandbox_integrations.sandbox_runtime_status
