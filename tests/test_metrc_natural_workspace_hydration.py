@@ -128,6 +128,7 @@ def test_transfer_control_naturally_surfaces_current_synced_metrc_transfers_with
     assert snapshot["provider_synced"] == {
         "count": 2,
         "open": 2,
+        "rejected": 0,
         "source": "integration_provider_snapshots",
         "network_request_made": False,
     }
@@ -140,6 +141,7 @@ def test_transfer_control_naturally_surfaces_current_synced_metrc_transfers_with
     assert snapshot["inbound"][0]["operation"] == "provider_sync"
     assert snapshot["outgoing"][0]["proposal_id"].startswith("provider-shadow:")
     assert snapshot["inbound"][0]["preflight_id"].startswith("provider-shadow:")
+    assert snapshot["inbound"][0]["environment"] == "sandbox"
 
 
 def test_complete_provider_snapshot_removes_rows_that_are_no_longer_present():
@@ -184,3 +186,41 @@ def test_complete_provider_snapshot_removes_rows_that_are_no_longer_present():
     assert snapshot["provider_synced"]["count"] == 1
     assert len(snapshot["inbound"]) == 1
     assert len(snapshot["outgoing"]) == 0
+
+
+def test_rejected_provider_transfer_routes_to_exception_queue_and_preserves_snapshot_environment():
+    engine = _runtime()
+    repository = IntegrationProviderSnapshotRepository(engine)
+    repository.replace(
+        organization_id="org-natural",
+        facility_id="fac-natural",
+        provider="metrc",
+        environment="sandbox",
+        resource="rejected_transfers",
+        run_id="rejected-run",
+        records=[
+            {
+                "Id": 9001,
+                "ManifestNumber": "MAN-REJECTED",
+                "Status": "Rejected",
+                "RejectionReason": "Recipient license could not accept the transfer.",
+                "RecipientFacilityName": "Example Retail",
+                "RecipientFacilityLicenseNumber": "MR281111",
+            }
+        ],
+    )
+
+    snapshot = ProviderAwareTransferControlService(engine).snapshot("org-natural", "fac-natural")
+
+    assert snapshot["provider_synced"]["count"] == 1
+    assert snapshot["provider_synced"]["rejected"] == 1
+    assert snapshot["provider_synced"]["open"] == 0
+    assert snapshot["outgoing"] == []
+    assert snapshot["inbound"] == []
+    assert snapshot["metrics"]["exceptions"] == 1
+    assert len(snapshot["exceptions"]) == 1
+    exception = snapshot["exceptions"][0]
+    assert exception["kind"] == "provider_rejected"
+    assert exception["reference"] == "MAN-REJECTED"
+    assert exception["environment"] == "sandbox"
+    assert "Recipient license" in exception["message"]
