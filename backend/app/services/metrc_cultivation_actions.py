@@ -7,11 +7,11 @@ from typing import Any
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import sessionmaker
 
-from modules.cultivation.batch_models import CultivationPlantGroup
 from modules.cultivation.models import CultivationPlant, CultivationRoom
 from modules.cultivation.batches import CultivationBatchService
 from modules.cultivation.service import CultivationService
 from modules.regulatory.metrc_process_compliance import MetrcProcessComplianceService
+from modules.regulatory.metrc_process_models import CultivationRegulatoryIdentity
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
 from modules.traceability.object_links import TraceabilityObjectLinkRepository
 from services.metrc_client import fetch_metrc_resource
@@ -165,7 +165,7 @@ class MetrcCultivationActionService:
         if not code or code.casefold() == "unassigned":
             return None
         with self.sessions() as session:
-            return session.scalar(
+            room = session.scalar(
                 select(CultivationRoom).where(
                     CultivationRoom.organization_id == organization_id,
                     CultivationRoom.facility_id == facility_id,
@@ -173,6 +173,11 @@ class MetrcCultivationActionService:
                     CultivationRoom.active.is_(True),
                 )
             )
+        if room is None:
+            raise MetrcCultivationActionError(
+                f"Cultivation group is assigned to room {code}, but that active local room does not exist. Fix the room assignment before Metrc synchronization."
+            )
+        return room
 
     def _exact_read(
         self,
@@ -445,6 +450,7 @@ class MetrcCultivationActionService:
                 "title": "Move plant batch to vegetative",
                 "group": batch_name,
                 "count": len(immature),
+                "strain": local_strain,
                 "starting_tag": start,
                 "destination_room": room.display_name or room.room_code,
                 "metrc_location": payload["new_location"],
@@ -457,6 +463,7 @@ class MetrcCultivationActionService:
                 "room_provider_id": room_link.provider_id,
                 "destination_room_id": room.id,
                 "destination_room_code": room.room_code,
+                "strain": local_strain,
                 "plant_ids": sorted(str(row.get("id") or "") for row in immature),
                 "provider_batch_last_modified": str(batch_record.get("last_modified") or ""),
                 "reason": str(reason or "").strip(),
@@ -903,7 +910,7 @@ class MetrcCultivationActionService:
             readbacks=readbacks,
             expected_count=expected_count,
             expected_location=str(prepared["provider_payload"]["new_location"]),
-            expected_strain=str(prepared["summary"].get("strain") or "") or str(prepared.get("fingerprint_context", {}).get("strain") or ""),
+            expected_strain=str(prepared["summary"].get("strain") or ""),
         )
         if len(provider_ids) != expected_count:
             verification["differences"].append({
@@ -915,8 +922,6 @@ class MetrcCultivationActionService:
             verification["matched"] = False
         verification["provider_ids"] = provider_ids
         verification["evaluator_passed"] = bool(evidence.get("passed"))
-        # The evaluator verifies the first returned plant; this stricter gate
-        # verifies every returned plant and remains fail-closed if either layer fails.
         verification["matched"] = bool(evidence.get("passed")) and bool(verification.get("matched"))
         return verification
 
@@ -938,6 +943,8 @@ class MetrcCultivationActionService:
             record = verification.get("record") if isinstance(verification.get("record"), dict) else {}
             provider_id = str(record.get("provider_id") or _source(record).get("Id") or "").strip()
             provider_label = str(record.get("name") or _first(_source(record), "Name", "PlantBatchName") or prepared["summary"]["group"]).strip()
+            if not provider_id:
+                raise MetrcCultivationActionError("Verified Metrc plant batch did not retain a provider ID for local identity reconciliation.")
             link = self.links.upsert_verified(
                 organization_id=organization_id,
                 facility_id=facility_id,
@@ -952,7 +959,31 @@ class MetrcCultivationActionService:
                 provider_label=provider_label,
                 source_transaction_id=transaction_id,
             )
-            return {"group_id": prepared["entity_id"], "plant_batch_link": self.links.payload(link)}
+            group = CultivationBatchService(self.engine).group_detail(organization_id, facility_id, prepared["entity_id"])
+            plant_ids = [str(row.get("id") or "").strip() for row in group.get("plants") or [] if isinstance(row, dict) and row.get("id")]
+            origin_reference = f"metrc:plant_batch:{provider_id}"
+            with self.sessions.begin() as session:
+                for plant_id in plant_ids:
+                    identity = session.scalar(
+                        select(CultivationRegulatoryIdentity).where(CultivationRegulatoryIdentity.plant_id == plant_id)
+                    )
+                    if identity is None:
+                        session.add(
+                            CultivationRegulatoryIdentity(
+                                organization_id=organization_id,
+                                facility_id=facility_id,
+                                plant_id=plant_id,
+                                origin_type="state_authorized",
+                                origin_reference=origin_reference,
+                                metrc_plant_tag=None,
+                            )
+                        )
+            return {
+                "group_id": prepared["entity_id"],
+                "plant_batch_link": self.links.payload(link),
+                "regulatory_origin": origin_reference,
+                "origin_member_count": len(plant_ids),
+            }
 
         if operation == "plant_move":
             room_id = str(prepared["fingerprint_context"]["destination_room_id"])
