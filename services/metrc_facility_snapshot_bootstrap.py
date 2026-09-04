@@ -25,6 +25,33 @@ class SnapshottingMetrcFacilityBootstrapService(BaseMetrcFacilityBootstrapServic
     previously known provider objects absent.
     """
 
+    # The authenticated application runtime should mirror all provider resources
+    # that already have a natural DoobieLogic operator surface. Keep the base
+    # bootstrap's proven core intact, then extend it here so direct unit tests of
+    # the base service remain stable while the composed runtime gains coverage.
+    NORMALIZED_RESOURCES = BaseMetrcFacilityBootstrapService.NORMALIZED_RESOURCES + (
+        ("incoming_transfers", "incoming_transfers"),
+        ("outgoing_transfers", "outgoing_transfers"),
+        ("rejected_transfers", "rejected_transfers"),
+        ("processing_jobs", "processing_active"),
+        ("sales_receipts", "sales_receipts_active"),
+        ("sales_deliveries", "sales_deliveries_active"),
+        ("transport_drivers", "transporter_drivers"),
+        ("transport_vehicles", "transporter_vehicles"),
+    )
+    DIRECT_RESOURCES = BaseMetrcFacilityBootstrapService.DIRECT_RESOURCES + (
+        ("locations_inactive", "locations/v2/inactive", True),
+        ("sublocations_inactive", "sublocations/v2/inactive", True),
+        ("strains_inactive", "strains/v2/inactive", True),
+        ("items_inactive", "items/v2/inactive", True),
+        ("processing_job_types", "processing/v2/jobtypes/active", True),
+        ("processing_job_types_inactive", "processing/v2/jobtypes/inactive", True),
+        ("processing_job_attributes", "processing/v2/jobtypes/attributes", False),
+        ("processing_job_categories", "processing/v2/jobtypes/categories", False),
+        ("additive_templates", "additivestemplates/v2/active", True),
+        ("additive_templates_inactive", "additivestemplates/v2/inactive", True),
+    )
+
     def __init__(self, engine: Engine):
         super().__init__(engine)
         self.provider_snapshots = IntegrationProviderSnapshotRepository(engine)
