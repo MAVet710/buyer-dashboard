@@ -4,6 +4,18 @@ from math import isclose
 from typing import Any
 
 
+_UNIT_ALIASES = {
+    "g": "grams", "gram": "grams", "grams": "grams",
+    "kg": "kilograms", "kilogram": "kilograms", "kilograms": "kilograms",
+    "oz": "ounces", "ounce": "ounces", "ounces": "ounces",
+    "lb": "pounds", "lbs": "pounds", "pound": "pounds", "pounds": "pounds",
+    "ea": "each", "each": "each", "unit": "each", "units": "each",
+    "mg": "milligrams", "milligram": "milligrams", "milligrams": "milligrams",
+    "ml": "milliliters", "milliliter": "milliliters", "milliliters": "milliliters",
+    "l": "liters", "liter": "liters", "liters": "liters",
+}
+
+
 def _records(readback: Any) -> list[dict[str, Any]]:
     if not isinstance(readback, dict) or not readback.get("ok"):
         return []
@@ -37,6 +49,11 @@ def _text(value: Any) -> str:
 
 def _same_text(left: Any, right: Any) -> bool:
     return _text(left).casefold() == _text(right).casefold()
+
+
+def canonical_unit(value: Any) -> str:
+    token = _text(value).casefold().replace(".", "")
+    return _UNIT_ALIASES.get(token, token)
 
 
 def _number(value: Any) -> float | None:
@@ -124,8 +141,8 @@ def verify_package_state(
         actual = snapshot.get("quantity")
         if actual is None or not isclose(float(actual), float(expected_quantity), rel_tol=1e-9, abs_tol=1e-6):
             differences.append({"field": "quantity", "expected": float(expected_quantity), "actual": actual})
-    if expected_unit:
-        compare("unit_of_measure", expected_unit, snapshot.get("unit_of_measure"))
+    if expected_unit and canonical_unit(expected_unit) != canonical_unit(snapshot.get("unit_of_measure")):
+        differences.append({"field": "unit_of_measure", "expected": expected_unit, "actual": snapshot.get("unit_of_measure")})
     if expected_finished is not None and snapshot.get("finished") is not expected_finished:
         differences.append({"field": "finished", "expected": expected_finished, "actual": snapshot.get("finished")})
     if expected_location:
