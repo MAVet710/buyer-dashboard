@@ -32,14 +32,18 @@ def _write(context: RequestContext) -> None:
         raise HTTPException(403, "Your role does not allow controlled harvest traceability changes.")
 
 
-def _metrc(context: RequestContext, engine: Engine, settings: Settings):
+def _resolved_metrc(context: RequestContext, engine: Engine, settings: Settings):
     require_facility_capability(context, engine, "cultivation")
-    metrc = resolve_trusted_regulatory_metrc(
+    return resolve_trusted_regulatory_metrc(
         context=context,
         engine=engine,
         settings=settings,
         facility_capability="cultivation",
     )
+
+
+def _metrc(context: RequestContext, engine: Engine, settings: Settings):
+    metrc = _resolved_metrc(context, engine, settings)
     if not metrc.configured:
         raise HTTPException(409, metrc.message)
     if str(metrc.state or "").strip().upper() != "MA" or str(metrc.environment or "").strip().casefold() != "sandbox":
@@ -97,15 +101,27 @@ def harvest_action_status(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    metrc = _metrc(context, engine, settings)
+    metrc = _resolved_metrc(context, engine, settings)
+    jurisdiction = str(metrc.state or "").strip().upper()
+    environment = str(metrc.environment or "").strip().casefold()
+    ready = bool(metrc.configured and jurisdiction == "MA" and environment == "sandbox")
     return {
-        "ready": True,
+        "ready": ready,
         "provider": "metrc",
-        "jurisdiction_code": str(metrc.state).upper(),
-        "environment": metrc.environment,
-        "license_number": metrc.license_number,
-        "promoted_actions": sorted(PROMOTED_HARVEST_ACTIONS),
-        "execution_boundary": "Start harvest is a reviewed composite of individually verified plant writes, not a provider-atomic operation. Partial/unknown provider outcomes stop immediately in reconciliation.",
+        "jurisdiction_code": jurisdiction,
+        "environment": environment,
+        "license_number": str(metrc.license_number or "").strip(),
+        "promoted_actions": sorted(PROMOTED_HARVEST_ACTIONS) if ready else [],
+        "message": (
+            "Verified Massachusetts Metrc sandbox harvest checkpoints are available."
+            if ready
+            else str(metrc.message or "This facility remains on the local-only Harvest 360 workflow because the promoted MA sandbox boundary is not active.")
+        ),
+        "execution_boundary": (
+            "Start harvest is a reviewed composite of individually verified plant writes, not a provider-atomic operation. Partial/unknown provider outcomes stop immediately in reconciliation."
+            if ready
+            else "Local Harvest 360 remains available; promoted provider writes stay disabled."
+        ),
     }
 
 
