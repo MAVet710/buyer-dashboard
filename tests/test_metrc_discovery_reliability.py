@@ -68,16 +68,23 @@ def discover(monkeypatch, setup):
 
 
 def test_discovery_returns_mappings_without_inline_provider_fanout(monkeypatch, setup):
-    engine, _, _, _ = setup
+    engine, context, _, service = setup
     result = discover(monkeypatch, setup)
     assert result["facilities"][0]["sync_status"] == "pending"
     assert result["auto_created"] == 1
+    facility_id = result["facilities"][0]["doobielogic_facility"]["id"]
+    connection = service.get("user", f"{context.user_id}|{facility_id}", "metrc")
+    assert connection.status == "connected"
+    assert connection.last_validated_at is not None
+    # Unmapped bootstrap credentials are not blessed by another license's proof.
+    assert service.get("user", f"{context.user_id}|{context.facility_id}", "metrc").status == "configured"
     with Session(engine) as session:
         profile = session.scalar(select(IntegrationSyncRecord).where(IntegrationSyncRecord.resource == "facility_profile"))
         assert "test-permission" in profile.raw_payload_json
     repeated = discover(monkeypatch, setup)
     assert repeated["auto_created"] == 0
     assert repeated["auto_linked"] == 1
+    assert service.get("user", f"{context.user_id}|{facility_id}", "metrc").status == "connected"
 
 
 def test_bootstrap_checks_organization_and_credential_scope(monkeypatch, setup):
@@ -99,6 +106,51 @@ def test_bootstrap_checks_organization_and_credential_scope(monkeypatch, setup):
         routes.bootstrap_metrc_sandbox_facility(payload, other, engine, settings)
     assert error.value.status_code == 404
     assert len(calls) == 1
+
+
+def test_discovered_facilities_validate_independently_and_failure_does_not_reset_them(monkeypatch, setup):
+    engine, context, settings, service = setup
+    monkeypatch.setattr(routes, "fetch_metrc_resource", lambda **kwargs: {
+        "ok": True, "records": [
+            {"source": {"Id": index, "Name": f"Facility {index}", "License": {"Number": f"MP-{index}"}}}
+            for index in (1, 2)
+        ],
+    })
+    result = routes.discover_metrc_sandbox_facilities(context, engine, settings)
+    connections = []
+    for facility in result["facilities"]:
+        row = service.get("user", f"{context.user_id}|{facility['doobielogic_facility']['id']}", "metrc")
+        assert row.status == "connected"
+        assert service.public(row)["configuration"]["license_number"] == facility["license_number"]
+        connections.append(row)
+    assert len(connections) == 2
+    assert connections[0].id != connections[1].id
+    monkeypatch.setattr(routes, "fetch_metrc_resource", lambda **kwargs: {"ok": False, "http_status": 401})
+    with pytest.raises(HTTPException):
+        routes.discover_metrc_sandbox_facilities(context, engine, settings)
+    for row in connections:
+        assert service.get("user", row.scope_key, "metrc").status == "connected"
+
+
+@pytest.mark.parametrize("change", ["unconfirmed", "wrong_license", "production", "other_org"])
+def test_discovery_validation_does_not_bless_unbound_or_mismatched_connections(monkeypatch, setup, change):
+    _, context, _, service = setup
+    bound = discover(monkeypatch, setup)["facilities"][0]
+    credential = service.get("user", f"{context.user_id}|{bound['doobielogic_facility']['id']}", "metrc")
+    service.validation_result(credential.id, ok=False, error="test")
+    if change == "unconfirmed":
+        bound["status"] = "needs_confirmation"
+    elif change == "wrong_license":
+        bound["license_number"] = "DIFFERENT"
+    else:
+        config = service.public(credential)["configuration"]
+        if change == "production":
+            config["environment"] = "production"
+        service.save(scope_type="user", scope_key=credential.scope_key, provider="metrc",
+                     organization_id="other-org" if change == "other_org" else context.organization_id,
+                     facility_id=credential.facility_id, configuration=config, secret=None, actor=context.user_id)
+    routes._validate_discovered_connections(service, context, {"facilities": [bound]})
+    assert service.get("user", credential.scope_key, "metrc").status != "connected"
 
 
 def test_metrc_401_does_not_trigger_app_login_refresh(monkeypatch, setup):
