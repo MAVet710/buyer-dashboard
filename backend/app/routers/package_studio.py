@@ -8,6 +8,7 @@ from modules.package_studio.service import (
     PackageStudioPlan,
     PackageStudioService,
 )
+from modules.traceability.object_links import TraceabilityObjectLinkRepository
 from ..auth import RequestContext, get_request_context
 from ..database import get_engine
 
@@ -56,6 +57,26 @@ def _plan(payload: Plan) -> PackageStudioPlan:
         outputs=tuple(PackageStudioOutputPlan(**row.model_dump()) for row in payload.outputs),
         **payload.model_dump(exclude={"action_type", "inputs", "outputs"}),
     )
+
+
+def _tracked_source_ids(engine: Engine, context: RequestContext, payload: Plan) -> list[str]:
+    source_ids = {row.lot_id for row in payload.inputs if row.lot_id}
+    if not source_ids:
+        return []
+    links = TraceabilityObjectLinkRepository(engine).list_facility(
+        organization_id=context.organization_id,
+        facility_id=context.facility_id,
+        provider="metrc",
+        limit=5000,
+    )
+    return sorted({
+        row.entity_id
+        for row in links
+        if row.entity_type == "inventory_lot"
+        and row.provider_resource == "packages"
+        and row.entity_id in source_ids
+        and row.status in {"verified", "stale", "reconciliation_required"}
+    })
 
 
 @router.get("/workspace")
@@ -108,6 +129,12 @@ def commit(
 ):
     if context.role.casefold() not in COMMIT_ROLES:
         raise HTTPException(403, "Your role cannot commit package transformations.")
+    tracked = _tracked_source_ids(engine, context, payload)
+    if tracked:
+        raise HTTPException(
+            409,
+            "This Package Studio run consumes a Metrc-tracked source package. Use the governed Metrc package transformation workflow so provider outputs are verified before local inventory is committed.",
+        )
     try:
         return PackageStudioService(engine).commit(
             _plan(payload),
