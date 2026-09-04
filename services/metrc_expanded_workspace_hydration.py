@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping
 
 from sqlalchemy import Engine
 
+from modules.integrations.provider_snapshot import IntegrationProviderSnapshotRepository
 from services.metrc_cultivation_materialization import MetrcCultivationMaterializer
 from services.metrc_workspace_hydration import MetrcWorkspaceHydrationService as BaseMetrcWorkspaceHydrationService
+
+
+def _source(record: Mapping[str, Any]) -> Mapping[str, Any]:
+    nested = record.get("source")
+    return nested if isinstance(nested, Mapping) else record
+
+
+def _explicit_batch_strain(record: Mapping[str, Any]) -> str:
+    source = _source(record)
+    value = source.get("StrainName") or source.get("strainName") or source.get("Strain") or source.get("strain")
+    if isinstance(value, Mapping):
+        value = value.get("Name") or value.get("name")
+    return str(value or "").strip()
 
 
 class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
@@ -19,6 +34,33 @@ class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
     def __init__(self, engine: Engine):
         super().__init__(engine)
         self.engine = engine
+        self.provider_snapshots = IntegrationProviderSnapshotRepository(engine)
+
+    def _current_records(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        environment: str,
+        resource: str,
+    ) -> list[dict[str, Any]]:
+        rows = self.provider_snapshots.current(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            provider="metrc",
+            resources=(resource,),
+            environment=environment,
+            limit=10000,
+        )
+        records: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                value = json.loads(row.raw_payload_json or "{}")
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(value, dict):
+                records.append(value)
+        return records
 
     def hydrate(
         self,
@@ -55,7 +97,32 @@ class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
             "plants_flowering",
             "harvests",
         )
-        if any(snapshots.get(key) for key in cultivation_keys):
+        cultivation_requested = any(snapshots.get(key) for key in cultivation_keys)
+        if cultivation_requested:
+            # A changed plant/harvest may reference an unchanged location or plant
+            # batch. Resolve those dependencies from the current local provider
+            # mirror; never make an extra Metrc call from workspace hydration.
+            if not snapshots.get("locations"):
+                snapshots["locations"] = self._current_records(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    environment=environment,
+                    resource="locations",
+                )
+            if not snapshots.get("plant_batches") and (
+                snapshots.get("plants_vegetative") or snapshots.get("plants_flowering")
+            ):
+                snapshots["plant_batches"] = self._current_records(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    environment=environment,
+                    resource="plant_batches",
+                )
+
+            all_batches = [dict(row) for row in snapshots.get("plant_batches", []) if isinstance(row, dict)]
+            valid_batches = [row for row in all_batches if _explicit_batch_strain(row)]
+            invalid_batches = [row for row in all_batches if not _explicit_batch_strain(row)]
+
             cultivation = MetrcCultivationMaterializer(self.engine).seed(
                 organization_id=organization_id,
                 facility_id=facility_id,
@@ -64,11 +131,25 @@ class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
                 license_number=license_number,
                 actor=actor,
                 locations=[dict(row) for row in snapshots.get("locations", []) if isinstance(row, dict)],
-                plant_batches=[dict(row) for row in snapshots.get("plant_batches", []) if isinstance(row, dict)],
+                plant_batches=valid_batches,
                 vegetative_plants=[dict(row) for row in snapshots.get("plants_vegetative", []) if isinstance(row, dict)],
                 flowering_plants=[dict(row) for row in snapshots.get("plants_flowering", []) if isinstance(row, dict)],
                 harvests=[dict(row) for row in snapshots.get("harvests", []) if isinstance(row, dict)],
             )
+            if invalid_batches:
+                rejected = [
+                    {
+                        "code": "plant_batch_missing_explicit_strain",
+                        "provider_id": str(row.get("provider_id") or _source(row).get("Id") or ""),
+                        "message": "Metrc plant batch did not provide an explicit strain identity; DoobieLogic did not infer strain from the mutable batch name.",
+                    }
+                    for row in invalid_batches
+                ]
+                cultivation.setdefault("conflicts", []).extend(rejected)
+                cultivation["conflict_count"] = int(cultivation.get("conflict_count") or 0) + len(rejected)
+                cultivation.setdefault("source_counts", {})["plant_batches"] = len(all_batches)
+            cultivation["dependency_source"] = "integration_provider_snapshots"
+            cultivation["dependency_network_request_made"] = False
             result.setdefault("workspaces", {})["cultivation"] = cultivation
 
         workspaces = result.get("workspaces", {})
