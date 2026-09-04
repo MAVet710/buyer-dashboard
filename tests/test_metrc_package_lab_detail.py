@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import importlib
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from backend.app.auth import RequestContext
-from backend.app.metrc_runtime_composition import compose_metrc_runtime
+from backend.app.main import app as production_app
 from backend.app.routers.metrc_package_lab_detail import _lab_resource, cached_package_lab_results
 from modules.coman.models import Base, Facility, InventoryLot, Organization, Product
 from modules.integrations.provider_snapshot import IntegrationProviderSnapshotRepository
@@ -105,12 +103,20 @@ def test_package_lab_detail_returns_only_exact_package_cached_evidence():
     assert result["results"] == [{"Id": 1, "TestTypeName": "THC", "TestResultLevel": 22.1}]
 
 
-def test_package_lab_detail_routes_are_registered_on_current_router_graph():
-    # Other isolation tests can reload router modules during the full suite. Resolve
-    # the current module after composition so this assertion inspects the same router
-    # graph FastAPI would copy into the application, not a collection-time stale object.
-    compose_metrc_runtime()
-    inventory_reconciliation = importlib.import_module("backend.app.routers.inventory_reconciliation")
-    paths = {str(getattr(route, "path", "")) for route in inventory_reconciliation.router.routes}
-    assert "/regulatory-detail/local/inventory_lot/{entity_id}/lab-results" in paths
-    assert "/regulatory-detail/local/inventory_lot/{entity_id}/lab-results/live" in paths
+def test_package_lab_detail_routes_are_registered_on_production_api_graph():
+    # The operator contract is the FastAPI graph built at application startup. Other
+    # isolation tests may replace intermediate router modules later in the same pytest
+    # process, but they must not be able to erase routes already copied into the app.
+    paths = {str(getattr(route, "path", "")) for route in production_app.routes}
+    assert any(
+        path.endswith(
+            "/inventory/regulatory-detail/local/inventory_lot/{entity_id}/lab-results"
+        )
+        for path in paths
+    )
+    assert any(
+        path.endswith(
+            "/inventory/regulatory-detail/local/inventory_lot/{entity_id}/lab-results/live"
+        )
+        for path in paths
+    )
