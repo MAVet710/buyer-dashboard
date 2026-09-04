@@ -18,7 +18,9 @@ from services.metrc_facility_snapshot_bootstrap import SnapshottingMetrcFacility
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCES = {
     "locations": [{"provider_id": "loc-1", "name": "Flower 1", "source": {"Id": 1, "Name": "Flower 1"}}],
+    "locations_inactive": [],
     "sublocations": [{"provider_id": "sub-1", "name": "Rack A", "source": {"Id": 2, "Name": "Rack A"}}],
+    "sublocations_inactive": [],
     "location_types": [
         {"provider_id": "type-1", "name": "Default", "source": {"Id": 3, "Name": "Default"}},
         {"provider_id": "type-2", "name": "Quarantine", "source": {"Id": 4, "Name": "Quarantine"}},
@@ -27,17 +29,30 @@ RESOURCES = {
         {"provider_id": "strain-1", "name": "GMO", "source": {"Id": 5, "Name": "GMO"}},
         {"provider_id": "strain-2", "name": "Papaya", "source": {"Id": 6, "Name": "Papaya"}},
     ],
+    "strains_inactive": [{"provider_id": "strain-old", "name": "Legacy", "source": {"Id": 61, "Name": "Legacy"}}],
     "items": [
         {"provider_id": "item-1", "name": "GMO Flower", "source": {"Id": 7, "Name": "GMO Flower"}},
         {"provider_id": "item-2", "name": "Papaya Flower", "source": {"Id": 8, "Name": "Papaya Flower"}},
         {"provider_id": "item-3", "name": "GMO Pre-Roll", "source": {"Id": 9, "Name": "GMO Pre-Roll"}},
     ],
+    "items_inactive": [],
     "item_categories": [{"provider_id": "cat-1", "name": "Flower", "source": {"Id": 10, "Name": "Flower"}}],
     "item_brands": [{"provider_id": "brand-1", "name": "House", "source": {"Id": 11, "Name": "House"}}],
     "units_of_measure": [
         {"provider_id": "uom-1", "name": "Grams", "source": {"Id": 12, "Name": "Grams"}},
         {"provider_id": "uom-2", "name": "Each", "source": {"Id": 13, "Name": "Each"}},
     ],
+    "processing_job_types": [
+        {"provider_id": "job-1", "name": "Infusion", "source": {"Id": 14, "Name": "Infusion"}},
+        {"provider_id": "job-2", "name": "Packaging", "source": {"Id": 15, "Name": "Packaging"}},
+    ],
+    "processing_job_types_inactive": [{"provider_id": "job-old", "name": "Legacy Job", "source": {"Id": 16, "Name": "Legacy Job"}}],
+    "processing_job_attributes": [{"provider_id": "attr-1", "name": "Cooking", "source": {"Id": 17, "Name": "Cooking"}}],
+    "processing_job_categories": [{"provider_id": "jobcat-1", "name": "Manufacturing", "source": {"Id": 18, "Name": "Manufacturing"}}],
+    "additive_templates": [{"provider_id": "add-1", "name": "Veg Feed", "source": {"Id": 19, "Name": "Veg Feed"}}],
+    "additive_templates_inactive": [],
+    "transport_drivers": [{"provider_id": "driver-1", "name": "Driver One", "source": {"Id": 20, "Name": "Driver One"}}],
+    "transport_vehicles": [{"provider_id": "vehicle-1", "label": "MA-123", "source": {"Id": 21, "LicensePlateNumber": "MA-123"}}],
 }
 
 
@@ -94,19 +109,30 @@ def test_facility_setup_snapshot_exposes_current_master_data_without_metrc_reque
     snapshot = read_facility_setup_snapshot(context=context, engine=engine)
 
     assert snapshot["ready"] is True
+    assert snapshot["all_supported_complete"] is True
     assert snapshot["network_request_made"] is False
     assert snapshot["source"] == "integration_provider_snapshots"
-    assert snapshot["summary"] == {
+    expected = {
         "active_location_count": 1,
+        "inactive_location_count": 0,
         "active_sublocation_count": 1,
         "location_type_count": 2,
         "active_strain_count": 2,
+        "inactive_strain_count": 1,
         "active_item_count": 3,
         "item_category_count": 1,
         "item_brand_count": 1,
         "unit_of_measure_count": 2,
+        "active_processing_job_type_count": 2,
+        "inactive_processing_job_type_count": 1,
+        "active_additive_template_count": 1,
+        "transport_driver_count": 1,
+        "transport_vehicle_count": 1,
     }
+    for key, value in expected.items():
+        assert snapshot["summary"][key] == value
     assert snapshot["resources"]["locations"]["records"][0]["source"]["Name"] == "Flower 1"
+    assert all(section["status"] == "synced" for section in snapshot["sections"].values())
 
 
 def test_existing_facility_setup_overview_is_augmented_with_visible_synced_counts():
@@ -132,7 +158,9 @@ def test_existing_facility_setup_overview_is_augmented_with_visible_synced_count
             {"key": "rooms", "label": "Rooms & Locations", "priority": "P0", "status": "live-read", "description": "old"},
             {"key": "strains", "label": "Strains", "priority": "P0", "status": "live-read", "description": "old"},
             {"key": "items", "label": "Products & Metrc Items", "priority": "P0", "status": "live-read", "description": "old"},
-            {"key": "production", "label": "Production Processes", "priority": "P1", "status": "live-read", "description": "unchanged"},
+            {"key": "production", "label": "Production Processes", "priority": "P1", "status": "live-read", "description": "old"},
+            {"key": "cultivation", "label": "Cultivation Programs", "priority": "P1", "status": "live-read", "description": "old"},
+            {"key": "transportation", "label": "Transportation", "priority": "P2", "status": "live-read", "description": "old"},
         ],
     }
     context = RequestContext("user-1", organization_id, facility_id, "admin")
@@ -142,9 +170,12 @@ def test_existing_facility_setup_overview_is_augmented_with_visible_synced_count
     assert sections["rooms"]["label"] == "Rooms & Locations · 1 / 1"
     assert sections["strains"]["label"] == "Strains · 2"
     assert sections["items"]["label"] == "Products & Metrc Items · 3"
-    assert sections["rooms"]["status"] == "synced"
+    assert sections["production"]["label"] == "Production Processes · 2"
+    assert sections["cultivation"]["label"] == "Cultivation Programs · 1"
+    assert sections["transportation"]["label"] == "Transportation · 1 / 1"
+    assert all(row["status"] == "synced" for row in sections.values())
     assert "3 active items" in sections["items"]["description"]
-    assert sections["production"]["description"] == "unchanged"
+    assert "2 active" in sections["production"]["description"]
     assert result["metrc"]["synchronized_state"]["network_request_made"] is False
     assert "loaded locally" in result["metrc"]["message"]
 
