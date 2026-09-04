@@ -10,6 +10,7 @@ export type HarvestForMetrc = {
 
 type Room = {id:string;room_code:string;display_name:string;active:boolean};
 type Status = {ready:boolean;environment:string;license_number:string;promoted_actions:string[]};
+type WasteTypes = {ok:boolean;items:string[];http_status:number;correlation_id:string;bounded_page_size:number};
 type Preview = {
   ready:boolean;operation_type:string;summary:Record<string,unknown>;confirmation_id:string;confirmation_token:string;message:string;
   compliance_evidence:{method:string;path:string;license_number:string;environment:string;provider_request_body:unknown;provider_atomic:boolean};
@@ -72,11 +73,17 @@ function StartHarvest({harvest,linkedRooms,onClose,onDone}:{harvest:HarvestForMe
 }
 
 function WasteHarvest({harvest,onClose,onDone}:{harvest:HarvestForMetrc;onClose:()=>void;onDone:()=>void|Promise<void>}){
+  const wasteTypes=useQuery({queryKey:["metrc-harvest-waste-types"],queryFn:({signal})=>apiGet<WasteTypes>("/api/v1/metrc-harvest/waste-types",signal),retry:false,staleTime:5*60_000});
   const [form,setForm]=useState({waste_type:"",weight:"",method:"",reason:"",location:"",basis:"wet" as "wet"|"dry",date:today()});
   const weight=Number(form.weight||0);
-  const valid=Boolean(form.waste_type.trim()&&form.weight!==""&&weight>0&&form.method.trim()&&form.reason.trim()&&form.location.trim());
-  const request:Request={operation_type:"harvest_waste",harvest_id:harvest.id,actual_date:form.date,waste_type:form.waste_type.trim(),waste_weight_g:weight,waste_method:form.method.trim(),waste_reason:form.reason.trim(),waste_location:form.location.trim(),measurement_basis:form.basis,reason:form.reason.trim()||"Harvest waste"};
-  return <ActionPanel request={request} disabled={!valid} onClose={onClose} onDone={onDone} beforeReview={<div className="form-grid two"><label>Waste type<input value={form.waste_type} onChange={e=>setForm({...form,waste_type:e.target.value})}/></label><label>Weight (g)<input type="number" min="0" step="0.01" value={form.weight} onChange={e=>setForm({...form,weight:e.target.value})}/></label><label>Measurement basis<select value={form.basis} onChange={e=>setForm({...form,basis:e.target.value as "wet"|"dry"})}><option value="wet">Wet</option><option value="dry">Dry</option></select></label><label>Waste date<input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></label><label>Disposal method<input value={form.method} onChange={e=>setForm({...form,method:e.target.value})}/></label><label>Physical location<input value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></label><label className="span-2">Reason<input value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})}/></label></div>}/>;
+  const providerTypes=wasteTypes.data?.items??[];
+  const valid=Boolean(providerTypes.includes(form.waste_type)&&form.weight!==""&&weight>0&&form.method.trim()&&form.reason.trim()&&form.location.trim());
+  const request:Request={operation_type:"harvest_waste",harvest_id:harvest.id,actual_date:form.date,waste_type:form.waste_type,waste_weight_g:weight,waste_method:form.method.trim(),waste_reason:form.reason.trim(),waste_location:form.location.trim(),measurement_basis:form.basis,reason:form.reason.trim()||"Harvest waste"};
+  return <ActionPanel request={request} disabled={!valid} onClose={onClose} onDone={onDone} beforeReview={<>
+    <div className="form-grid two"><label>Metrc waste type<select value={form.waste_type} disabled={wasteTypes.isLoading||wasteTypes.isError} onChange={e=>setForm({...form,waste_type:e.target.value})}><option value="">{wasteTypes.isLoading?"Loading Metrc waste types…":"Choose exact waste type"}</option>{providerTypes.map(value=><option key={value} value={value}>{value}</option>)}</select></label><label>Weight (g)<input type="number" min="0" step="0.01" value={form.weight} onChange={e=>setForm({...form,weight:e.target.value})}/></label><label>Measurement basis<select value={form.basis} onChange={e=>setForm({...form,basis:e.target.value as "wet"|"dry"})}><option value="wet">Wet</option><option value="dry">Dry</option></select></label><label>Waste date<input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></label><label>Disposal method<input value={form.method} onChange={e=>setForm({...form,method:e.target.value})}/></label><label>Physical location<input value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></label><label className="span-2">Reason<input value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})}/></label></div>
+    {wasteTypes.isError?<div className="warning-banner"><strong>Metrc waste types could not be loaded.</strong><br/><span>Harvest waste submission remains blocked rather than guessing a provider value.</span></div>:null}
+    {wasteTypes.data&&!providerTypes.length?<div className="warning-banner">Metrc returned no usable harvest waste types. Submission remains blocked.</div>:null}
+  </>}/>;
 }
 
 function FinishHarvest({harvest,onClose,onDone}:{harvest:HarvestForMetrc;onClose:()=>void;onDone:()=>void|Promise<void>}){
