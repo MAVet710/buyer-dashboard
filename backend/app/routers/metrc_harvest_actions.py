@@ -96,6 +96,30 @@ def _kwargs(payload: HarvestActionRequest) -> dict[str, Any]:
     }
 
 
+def _waste_types(metrc) -> dict[str, Any]:
+    try:
+        return fetch_harvest_waste_types(
+            state=metrc.state,
+            environment=metrc.environment,
+            integrator_api_key=metrc.integrator_api_key,
+            user_api_key=metrc.user_api_key,
+        )
+    except MetrcHarvestReferenceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+def _validate_waste_type(payload: HarvestActionRequest, metrc) -> None:
+    if payload.operation_type != "harvest_waste":
+        return
+    selected = str(payload.waste_type or "").strip()
+    allowed = _waste_types(metrc).get("items") or []
+    if selected not in allowed:
+        raise HTTPException(
+            422,
+            "Select an exact current Metrc harvest waste type before reviewing or submitting harvest waste.",
+        )
+
+
 @router.get("/status")
 def harvest_action_status(
     context: RequestContext = Depends(get_request_context),
@@ -132,16 +156,7 @@ def harvest_waste_types(
     engine: Engine = Depends(get_engine),
     settings: Settings = Depends(get_settings),
 ):
-    metrc = _metrc(context, engine, settings)
-    try:
-        return fetch_harvest_waste_types(
-            state=metrc.state,
-            environment=metrc.environment,
-            integrator_api_key=metrc.integrator_api_key,
-            user_api_key=metrc.user_api_key,
-        )
-    except MetrcHarvestReferenceError as exc:
-        raise HTTPException(502, str(exc)) from exc
+    return _waste_types(_metrc(context, engine, settings))
 
 
 @router.post("/actions/preview")
@@ -153,6 +168,7 @@ def preview_harvest_action(
 ):
     _write(context)
     metrc = _metrc(context, engine, settings)
+    _validate_waste_type(payload, metrc)
     try:
         prepared = MetrcHarvestActionService(engine).prepare(
             organization_id=context.organization_id,
@@ -206,6 +222,7 @@ def execute_harvest_action(
 ):
     _write(context)
     metrc = _metrc(context, engine, settings)
+    _validate_waste_type(payload, metrc)
     try:
         return MetrcHarvestOperatorService(engine).execute(
             organization_id=context.organization_id,
