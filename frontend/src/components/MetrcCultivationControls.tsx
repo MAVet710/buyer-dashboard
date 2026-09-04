@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiGet, apiPost } from "../lib/api";
-import { StreamlitDialog } from "./StreamlitDialog";
 
 export type MetrcObjectLink = {
   id:string; provider:string; jurisdiction:string; environment:string; license_number:string;
@@ -39,11 +38,7 @@ type MetrcLocation = {provider_id:string;name:string;status:string;last_modified
 type LocationList = {items:MetrcLocation[];truncated:boolean;page_size:number;max_pages:number};
 
 export function MetrcCultivationActionDialog({request,onClose,onChanged}:{request:CultivationActionRequest;onClose:()=>void;onChanged:()=>void|Promise<void>}) {
-  const preview=useQuery({
-    queryKey:["metrc-cultivation-action-preview",request],
-    queryFn:()=>apiPost<ActionPreview>("/api/v1/metrc-cultivation/actions/preview",request),
-    retry:false,
-  });
+  const preview=useQuery({queryKey:["metrc-cultivation-action-preview",request],queryFn:()=>apiPost<ActionPreview>("/api/v1/metrc-cultivation/actions/preview",request),retry:false});
   const execute=useMutation({
     mutationFn:()=>apiPost<ActionResult>("/api/v1/metrc-cultivation/actions/execute",{
       ...request,
@@ -54,7 +49,8 @@ export function MetrcCultivationActionDialog({request,onClose,onChanged}:{reques
   });
   const result=execute.data;
   const title=String(preview.data?.summary?.title||actionTitle(request.operation_type));
-  return <StreamlitDialog open onClose={onClose} eyebrow="Cultivation · Metrc" title={title} subtitle="DoobieLogic verifies the exact provider state before changing local cultivation state.">
+  return <section className="inventory-panel compact metrc-action-review">
+    <div className="section-heading"><div><div className="eyebrow">Cultivation · Metrc</div><h4>{title}</h4><p className="source-caption">DoobieLogic verifies the exact provider state before changing local cultivation state.</p></div><button className="secondary" type="button" onClick={onClose}>Close</button></div>
     {preview.isLoading?<div className="state">Checking current DoobieLogic and Metrc state…</div>:null}
     {preview.isError?<div className="state error">{preview.error.message}</div>:null}
     {preview.data&&!result?<>
@@ -66,23 +62,17 @@ export function MetrcCultivationActionDialog({request,onClose,onChanged}:{reques
     </>:null}
     {result?<div className={result.verified?"success-banner":"warning-banner"}><strong>{result.verified?"Verified":"Reconciliation required"}</strong><br/><span>{result.message}</span><br/><small>Transaction {result.transaction_id}{result.external_reference?` · Metrc ${result.external_reference}`:""}</small></div>:null}
     {result?<button className="secondary submit" type="button" onClick={onClose}>Done</button>:null}
-  </StreamlitDialog>;
+  </section>;
 }
 
 export function MetrcRoomLinkDialog({room,onClose,onLinked}:{room:{id:string;room_code:string;display_name:string};onClose:()=>void;onLinked:()=>void|Promise<void>}) {
   const [search,setSearch]=useState("");
   const [selected,setSelected]=useState("");
   const locations=useQuery({queryKey:["metrc-cultivation-locations"],queryFn:({signal})=>apiGet<LocationList>("/api/v1/metrc-cultivation/locations",signal),retry:false});
-  const filtered=useMemo(()=>{
-    const needle=search.trim().toLowerCase();
-    const rows=locations.data?.items??[];
-    return needle?rows.filter(row=>`${row.name} ${row.provider_id}`.toLowerCase().includes(needle)):rows;
-  },[locations.data,search]);
-  const link=useMutation({
-    mutationFn:()=>apiPost(`/api/v1/metrc-cultivation/rooms/${room.id}/link`,{provider_location_id:selected}),
-    onSuccess:async()=>{await onLinked()},
-  });
-  return <StreamlitDialog open onClose={onClose} eyebrow="Cultivation · Metrc identity" title={`Link ${room.display_name||room.room_code}`} subtitle="Choose the exact Metrc Location identity. DoobieLogic never guesses this link from matching room names.">
+  const filtered=useMemo(()=>{const needle=search.trim().toLowerCase();const rows=locations.data?.items??[];return needle?rows.filter(row=>`${row.name} ${row.provider_id}`.toLowerCase().includes(needle)):rows},[locations.data,search]);
+  const link=useMutation({mutationFn:()=>apiPost(`/api/v1/metrc-cultivation/rooms/${room.id}/link`,{provider_location_id:selected}),onSuccess:async()=>{await onLinked()}});
+  return <section className="inventory-panel compact metrc-room-link">
+    <div className="section-heading"><div><div className="eyebrow">Cultivation · Metrc identity</div><h4>Link {room.display_name||room.room_code}</h4><p className="source-caption">Choose the exact Metrc Location identity. DoobieLogic never guesses this link from matching room names.</p></div><button className="secondary" type="button" onClick={onClose}>Close</button></div>
     {locations.isLoading?<div className="state">Loading active Metrc locations…</div>:null}
     {locations.isError?<div className="state error">{locations.error.message}</div>:null}
     {locations.data&&!link.isSuccess?<>
@@ -94,16 +84,11 @@ export function MetrcRoomLinkDialog({room,onClose,onLinked}:{room:{id:string;roo
       {link.isError?<div className="form-error">{link.error.message}</div>:null}
     </>:null}
     {link.isSuccess?<><div className="success-banner"><strong>Metrc location verified and linked.</strong><br/><span>The provider ID is now the durable identity; the display name is only an operator label.</span></div><button className="secondary submit" type="button" onClick={onClose}>Done</button></>:null}
-  </StreamlitDialog>;
+  </section>;
 }
 
 export function useMetrcCultivationIdentities(enabled=true){
-  return useQuery({
-    queryKey:["metrc-cultivation-identities"],
-    queryFn:({signal})=>apiGet<CultivationIdentityResponse>("/api/v1/metrc-cultivation/identities",signal),
-    enabled,
-    retry:false,
-  });
+  return useQuery({queryKey:["metrc-cultivation-identities"],queryFn:({signal})=>apiGet<CultivationIdentityResponse>("/api/v1/metrc-cultivation/identities",signal),enabled,retry:false});
 }
 
 function actionTitle(value:string){return value==="plant_batch_sync"?"Create Metrc plant batch":value==="plant_batch_vegetative"?"Move plant batch to vegetative":"Move plant"}
