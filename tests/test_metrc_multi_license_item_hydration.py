@@ -50,7 +50,7 @@ def _package(provider_id: str, label: str, quantity: float) -> dict:
     }
 
 
-def test_same_exact_metrc_item_across_three_licenses_reuses_one_organization_product():
+def test_same_numeric_metrc_item_id_across_three_licenses_stays_exact_and_visible_without_sku_collision():
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
     Base.metadata.create_all(engine)
     facilities = [
@@ -88,12 +88,13 @@ def test_same_exact_metrc_item_across_three_licenses_reuses_one_organization_pro
         resource_snapshots={"items": [_item()], "packages": [packages[0]]},
     )
     assert first["workspaces"]["product_master"]["created_products"] == 1
+    assert first["workspaces"]["product_master"]["identity_scope"] == "facility_license"
     assert first["workspaces"]["inventory"]["created_inventory_lots"] == 1
 
     # These two licenses intentionally receive only changed Package rows. Exact
-    # embedded Item identity must link to the existing organization Product before
-    # Inventory hydration, rather than creating a second Product or hitting a SKU
-    # collision because the Item itself did not change in the incremental window.
+    # embedded Item identity must be materialized for each same-license scope before
+    # Inventory hydration. Numeric Item IDs are not assumed globally unique across
+    # licenses, and license-scoped Product SKUs prevent organization-wide collision.
     second = hydrator.hydrate(
         organization_id="org-multi-item",
         facility_id="fac-mfg",
@@ -113,11 +114,11 @@ def test_same_exact_metrc_item_across_three_licenses_reuses_one_organization_pro
         resource_snapshots={"packages": [packages[2]]},
     )
 
-    assert second["workspaces"]["product_master"]["created_products"] == 0
-    assert second["workspaces"]["product_master"]["reused_cross_facility_product_count"] == 1
+    assert second["workspaces"]["product_master"]["created_products"] == 1
     assert second["workspaces"]["product_master"]["embedded_package_item_evidence_count"] == 1
-    assert third["workspaces"]["product_master"]["created_products"] == 0
-    assert third["workspaces"]["product_master"]["reused_cross_facility_product_count"] == 1
+    assert second["workspaces"]["inventory"]["created_inventory_lots"] == 1
+    assert third["workspaces"]["product_master"]["created_products"] == 1
+    assert third["workspaces"]["product_master"]["embedded_package_item_evidence_count"] == 1
     assert third["workspaces"]["inventory"]["created_inventory_lots"] == 1
 
     with Session(engine) as session:
@@ -139,20 +140,24 @@ def test_same_exact_metrc_item_across_three_licenses_reuses_one_organization_pro
             TraceabilityObjectLink.provider_resource == "packages",
         )))
 
-    assert len(products) == 1
-    assert products[0].name == "GMO Flower"
-    assert products[0].sku == "METRC-MA-501"
-    assert len(profiles) == 1
+    assert len(products) == 3
+    assert {product.name for product in products} == {"GMO Flower"}
+    assert {product.sku for product in products} == {
+        "METRC-MA-MC281001-501",
+        "METRC-MA-MP281002-501",
+        "METRC-MA-MR281003-501",
+    }
+    assert len(profiles) == 3
     assert len(lots) == 3
     assert {lot.facility_id for lot in lots} == {"fac-cult", "fac-mfg", "fac-retail"}
-    assert {lot.product_id for lot in lots} == {products[0].id}
+    assert {lot.product_id for lot in lots} == {product.id for product in products}
     assert len(transactions) == 3
     assert sorted(transaction.quantity_delta for transaction in transactions) == [100.0, 200.0, 300.0]
 
     assert len(item_links) == 3
     assert {link.facility_id for link in item_links} == {"fac-cult", "fac-mfg", "fac-retail"}
     assert {link.license_number for link in item_links} == {"MC281001", "MP281002", "MR281003"}
-    assert {link.entity_id for link in item_links} == {products[0].id}
+    assert {link.entity_id for link in item_links} == {product.id for product in products}
     assert len(package_links) == 3
 
     replay = hydrator.hydrate(
@@ -165,10 +170,11 @@ def test_same_exact_metrc_item_across_three_licenses_reuses_one_organization_pro
         resource_snapshots={"packages": [packages[2]]},
     )
     assert replay["workspaces"]["product_master"]["created_products"] == 0
+    assert replay["workspaces"]["product_master"]["existing_product_count"] == 1
     assert replay["workspaces"]["inventory"]["created_inventory_lots"] == 0
     assert replay["workspaces"]["inventory"]["created_inventory_transactions"] == 0
 
     with Session(engine) as session:
-        assert len(list(session.scalars(select(Product).where(Product.organization_id == "org-multi-item")))) == 1
+        assert len(list(session.scalars(select(Product).where(Product.organization_id == "org-multi-item")))) == 3
         assert len(list(session.scalars(select(InventoryLot).where(InventoryLot.organization_id == "org-multi-item")))) == 3
         assert len(list(session.scalars(select(InventoryTransaction).where(InventoryTransaction.organization_id == "org-multi-item")))) == 3
