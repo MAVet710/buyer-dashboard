@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from modules.integrations.models import IntegrationSyncRecord
+from modules.integrations.models import IntegrationProviderSnapshot
 from backend.app.services.transfer_control import TransferControlService
 
 
@@ -33,7 +33,7 @@ def _first(source: dict[str, Any], *keys: str) -> Any:
     return None
 
 
-def _raw(row: IntegrationSyncRecord) -> dict[str, Any]:
+def _raw(row: IntegrationProviderSnapshot) -> dict[str, Any]:
     try:
         parsed = json.loads(row.raw_payload_json or "{}")
     except (TypeError, json.JSONDecodeError):
@@ -77,11 +77,12 @@ def _is_open(status: str) -> bool:
 
 
 class ProviderAwareTransferControlService(TransferControlService):
-    """Blend last-synced provider transfer state into the durable transfer read model.
+    """Blend current synced provider transfer state into the durable transfer read model.
 
     This remains a read-only surface. Provider rows are virtual view rows backed by
-    IntegrationSyncRecord; no ActionProposal, receiving preflight, manifest, order,
-    or traceability mutation is fabricated merely because Metrc already has history.
+    IntegrationProviderSnapshot; no ActionProposal, receiving preflight, manifest,
+    order, or traceability mutation is fabricated merely because Metrc already has
+    workflow history. No provider network request is made by this read model.
     """
 
     def snapshot(self, organization_id: str, facility_id: str) -> dict[str, Any]:
@@ -101,11 +102,11 @@ class ProviderAwareTransferControlService(TransferControlService):
         snapshot["provider_synced"] = {
             "count": len(provider_rows),
             "open": open_outgoing + open_inbound,
-            "source": "integration_sync_records",
+            "source": "integration_provider_snapshots",
             "network_request_made": False,
         }
         snapshot["policy"]["message"] = (
-            "Durable DoobieLogic transfer state and the last successfully synced provider transfer state load without contacting Metrc. "
+            "Durable DoobieLogic transfer state and the current successfully synced provider transfer snapshot load without contacting Metrc. "
             "Provider-synced rows are read-only shadows; DoobieLogic never fabricates a manifest proposal or receiving event from an existing provider record."
         )
         return snapshot
@@ -115,32 +116,31 @@ class ProviderAwareTransferControlService(TransferControlService):
         with Session(self.engine) as session:
             records = list(
                 session.scalars(
-                    select(IntegrationSyncRecord)
+                    select(IntegrationProviderSnapshot)
                     .where(
-                        IntegrationSyncRecord.organization_id == organization_id,
-                        IntegrationSyncRecord.facility_id == facility_id,
-                        IntegrationSyncRecord.provider.in_(("metrc", "metrc_sandbox")),
-                        IntegrationSyncRecord.resource.in_(resources),
-                        IntegrationSyncRecord.status == "accepted",
+                        IntegrationProviderSnapshot.organization_id == organization_id,
+                        IntegrationProviderSnapshot.facility_id == facility_id,
+                        IntegrationProviderSnapshot.provider.in_(("metrc", "metrc_sandbox")),
+                        IntegrationProviderSnapshot.resource.in_(resources),
+                        IntegrationProviderSnapshot.present.is_(True),
                     )
-                    .order_by(IntegrationSyncRecord.received_at.desc())
+                    .order_by(
+                        IntegrationProviderSnapshot.resource,
+                        IntegrationProviderSnapshot.provider_label,
+                        IntegrationProviderSnapshot.external_id,
+                    )
                     .limit(1000)
                 )
             )
 
-        latest: list[dict[str, Any]] = []
-        seen: set[tuple[str, str, str]] = set()
+        output: list[dict[str, Any]] = []
         for record in records:
             source = _raw(record)
             external_id = _text(record.external_id or _first(source, "Id", "ID", "id"))
             if not external_id:
                 continue
-            key = (record.provider, record.resource, external_id.casefold())
-            if key in seen:
-                continue
-            seen.add(key)
             status = _provider_status(source)
-            latest.append(
+            output.append(
                 {
                     "provider": record.provider,
                     "resource": record.resource,
@@ -155,10 +155,10 @@ class ProviderAwareTransferControlService(TransferControlService):
                     "package_count": _package_count(source),
                     "departure": _text(_first(source, "EstimatedDepartureDateTime", "DepartureDateTime", "departure")),
                     "arrival": _text(_first(source, "EstimatedArrivalDateTime", "ArrivalDateTime", "arrival")),
-                    "last_seen_at": record.received_at.isoformat() if record.received_at is not None else None,
+                    "last_seen_at": record.last_seen_at.isoformat() if record.last_seen_at is not None else None,
                 }
             )
-        return latest
+        return output
 
     @staticmethod
     def _as_outgoing(row: dict[str, Any]) -> dict[str, Any]:
