@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import Engine
 
+from modules.alpha_mode import AlphaOperatingModeService
 from modules.package_studio.service import (
     PackageStudioInputPlan,
     PackageStudioOutputPlan,
@@ -79,17 +80,27 @@ def _tracked_source_ids(engine: Engine, context: RequestContext, payload: Plan) 
     })
 
 
+def _alpha_mode(engine: Engine, context: RequestContext):
+    return AlphaOperatingModeService(engine).current(
+        context.organization_id,
+        context.facility_id,
+    )
+
+
 @router.get("/workspace")
 def workspace(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
     service = PackageStudioService(engine)
+    mode = _alpha_mode(engine, context)
     return {
         "lots": [row.__dict__ for row in service.list_available_lots(context.organization_id, context.facility_id)],
         "products": [row.__dict__ for row in service.list_products(context.organization_id)],
         "runs": service.recent_runs(context.organization_id, context.facility_id),
         "can_commit": context.role.casefold() in COMMIT_ROLES,
+        "operating_mode": mode.effective_mode,
+        "metrc_enabled": mode.metrc_enabled,
     }
 
 
@@ -129,11 +140,12 @@ def commit(
 ):
     if context.role.casefold() not in COMMIT_ROLES:
         raise HTTPException(403, "Your role cannot commit package transformations.")
-    tracked = _tracked_source_ids(engine, context, payload)
+    mode = _alpha_mode(engine, context)
+    tracked = _tracked_source_ids(engine, context, payload) if mode.metrc_enabled else []
     if tracked:
         raise HTTPException(
             409,
-            "This Package Studio run consumes a Metrc-tracked source package. Use the governed Metrc package transformation workflow so provider outputs are verified before local inventory is committed.",
+            "This Package Studio run consumes a Metrc-tracked source package while Metrc Sandbox is active. Use the governed Metrc package transformation workflow so provider outputs are verified before local inventory is committed.",
         )
     try:
         return PackageStudioService(engine).commit(
