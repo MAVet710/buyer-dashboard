@@ -31,6 +31,15 @@ class NaturalMetrcFacilityBootstrapService(ResilientSnapshottingMetrcFacilityBoo
     This final layer materializes only resources proven current by that run.
     """
 
+    # These resources already have a verified read contract but do not belong to
+    # the earlier core bootstrap. Mirror them during each complete baseline so
+    # compliance/testing and transfer-control views are not dependent on a live
+    # provider request just to discover existing regulatory state.
+    NORMALIZED_RESOURCES = ResilientSnapshottingMetrcFacilityBootstrapService.NORMALIZED_RESOURCES + (
+        ("lab_results", "lab_results"),
+        ("transfer_templates_outgoing", "transfer_templates_outgoing"),
+    )
+
     def __init__(self, engine: Engine):
         super().__init__(engine)
         self.engine = engine
