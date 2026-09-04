@@ -293,7 +293,7 @@ def test_react_package_studio_keeps_the_streamlit_tabs_controls_and_drawer_prefi
         "PACKAGE STUDIO", "Package transformation", "New Run", "Source Trail", "Recent Runs",
         "Package action", "Source package", "Available", "Source", "Product", "Location",
         "Number of outputs", "Recorded loss / waste", "Reason / work note", "Outputs",
-        "Output product", "Lot / package code", "METRC package tag", "Finished quantity",
+        "Output product", "Lot / package code", "Metrc package tag", "Finished quantity",
         "Finished unit", "Source used", "Sample type", "Output purpose", "Mass balance preview",
         "I reviewed the source, outputs, and mass balance.", "Parent source", "Downstream use",
     ]:
