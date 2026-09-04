@@ -9,7 +9,7 @@ from ..config import Settings, get_settings
 from ..database import get_engine
 from ..schemas.inventory import InventoryReceiptCreate
 from ..services.receiving_preflight import ReceivingPreflightService
-from ..services.transfer_control import TransferControlService
+from ..services.transfer_control_provider_shadow import ProviderAwareTransferControlService as TransferControlService
 from .inventory import _metrc_context
 
 
@@ -29,9 +29,9 @@ def transfer_control_snapshot(
     """Return one durable outgoing/inbound transfer control surface.
 
     This endpoint performs no provider network request and enables no regulatory
-    write. It exposes only tenant/facility-scoped Doobie action, traceability,
-    and receiving-preflight state so operators can work exceptions without
-    depending on live sandbox credentials.
+    write. It exposes tenant/facility-scoped Doobie action, traceability,
+    receiving-preflight, and last-synced provider state so operators can work
+    naturally without depending on a new live Metrc request.
     """
 
     return TransferControlService(engine).snapshot(
