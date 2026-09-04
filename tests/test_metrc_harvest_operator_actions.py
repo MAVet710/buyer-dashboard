@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from backend.app.routers.metrc_harvest_legacy_guard import _strict_bool
 from backend.app.services import metrc_harvest_execution as subject
 from backend.app.services.metrc_harvest_actions import harvest_confirmation_token
 
@@ -199,3 +200,14 @@ def test_concurrent_confirmation_loser_never_dispatches(monkeypatch: pytest.Monk
     assert called is False
     assert result["already_submitted"] is True
     assert result["status"] == "validated"
+
+
+def test_legacy_provider_confirmation_parsing_does_not_treat_false_string_as_true():
+    assert _strict_bool(False) is False
+    assert _strict_bool("false") is False
+    assert _strict_bool("0") is False
+    assert _strict_bool(True) is True
+    assert _strict_bool("true") is True
+    assert _strict_bool("1") is True
+    with pytest.raises(ValueError, match="must be a boolean"):
+        _strict_bool("definitely")
