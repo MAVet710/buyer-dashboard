@@ -174,7 +174,10 @@ def test_incomplete_or_permission_skipped_read_does_not_clear_current_snapshot()
     assert rows[0].present is True
 
 
-def test_router_composition_uses_snapshotting_authenticated_bootstrap():
+def test_runtime_composition_uses_natural_authenticated_bootstrap():
+    from backend.app.metrc_runtime_composition import compose_metrc_runtime
     from backend.app.routers import sandbox_integrations
+    from services.metrc_natural_bootstrap import NaturalMetrcFacilityBootstrapService
 
-    assert sandbox_integrations.MetrcFacilityBootstrapService is SnapshottingMetrcFacilityBootstrapService
+    compose_metrc_runtime()
+    assert sandbox_integrations.MetrcFacilityBootstrapService is NaturalMetrcFacilityBootstrapService
