@@ -8,7 +8,8 @@ from modules.integrations.hydration_checkpoints import (
     page_fingerprint,
 )
 from modules.regulatory.metrc_resources import payload_rows
-from services.metrc_client import MetrcTransport, fetch_metrc_resource
+from services import metrc_facility_bootstrap as base_bootstrap
+from services.metrc_client import MetrcTransport
 from services.metrc_facility_bootstrap import MAX_INITIAL_PAGES, PAGE_SIZE, _total_pages
 from services.metrc_facility_snapshot_bootstrap import SnapshottingMetrcFacilityBootstrapService
 
@@ -92,7 +93,11 @@ class ResilientSnapshottingMetrcFacilityBootstrapService(SnapshottingMetrcFacili
                 resume = None
 
             def read(page_number: int) -> dict[str, Any]:
-                return fetch_metrc_resource(
+                # Use the base module's provider function dynamically. Existing
+                # unit/integration tests monkeypatch this stable seam and must not
+                # accidentally hit Metrc merely because the resilient composition
+                # layer was introduced above the core bootstrap.
+                return base_bootstrap.fetch_metrc_resource(
                     state=state,
                     user_api_key=user_api_key,
                     integrator_api_key=integrator_api_key,
