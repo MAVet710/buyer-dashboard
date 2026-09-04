@@ -1,5 +1,12 @@
 """API routers and runtime service composition."""
 
+# Apply one bounded provider-pressure policy before any runtime Metrc reads are
+# composed. Retry-After is honored up to 30 seconds rather than being collapsed to
+# a sub-second retry that can amplify provider throttling during large hydration.
+from services.metrc_rate_limit_policy import install_metrc_rate_limit_policy
+
+install_metrc_rate_limit_policy()
+
 # The authenticated Metrc facility bootstrap is imported by the sandbox router
 # from its long-lived service module. Compose the current-snapshot + reliability
 # behavior here before any router module imports that class, avoiding duplicate
