@@ -8,6 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from modules.package_studio.service import (
+    PackageStudioInputPlan,
+    PackageStudioOutputPlan,
+    PackageStudioPlan,
+)
 from services.metrc_client import fetch_metrc_resource
 from services.metrc_evaluation_lifecycle import LIFECYCLE_EVALUATION_ACTIONS
 
@@ -22,6 +27,11 @@ from ..services.metrc_package_actions import (
 from ..services.metrc_package_identity import MetrcPackageIdentityError, MetrcPackageIdentityService
 from ..services.metrc_package_operator_service import GovernedMetrcPackageActionService
 from ..services.metrc_package_reference import MetrcPackageReferenceError, fetch_package_adjustment_reasons
+from ..services.metrc_package_transformations import (
+    GovernedMetrcPackageTransformationService,
+    MetrcPackageTransformationError,
+    package_transformation_confirmation_token,
+)
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
 
 
@@ -99,6 +109,45 @@ class PackageActionExecute(PackageActionRequest):
     confirmation_token: str = Field(min_length=32, max_length=128)
 
 
+class TransformationInput(BaseModel):
+    lot_id: str = Field(min_length=1, max_length=64)
+    quantity: float
+    unit: str = Field(min_length=1, max_length=32)
+    purpose: str = Field(default="source", max_length=64)
+
+
+class TransformationOutput(BaseModel):
+    product_id: str = Field(min_length=1, max_length=64)
+    lot_code: str = Field(min_length=1, max_length=255)
+    inventory_quantity: float
+    inventory_unit: str = Field(min_length=1, max_length=32)
+    source_equivalent_quantity: float
+    source_equivalent_unit: str = Field(min_length=1, max_length=32)
+    compliance_package_id: str = Field(min_length=1, max_length=255)
+    purpose: str = Field(default="standard", max_length=32)
+    location_code: str = Field(default="FINISHED-GOODS", max_length=120)
+    notes: str = Field(default="", max_length=2000)
+
+
+class PackageTransformationRequest(BaseModel):
+    action_type: str = Field(min_length=1, max_length=32)
+    inputs: list[TransformationInput] = Field(min_length=1, max_length=1)
+    outputs: list[TransformationOutput] = Field(min_length=1, max_length=8)
+    loss_quantity: float = 0.0
+    source_unit: str = Field(min_length=1, max_length=32)
+    reason: str = Field(default="Tracked Package Studio transformation", min_length=3, max_length=255)
+    notes: str = Field(default="", max_length=4000)
+    run_number: str = Field(default="", max_length=64)
+    production_order_id: str | None = Field(default=None, max_length=64)
+    commercial_order_id: str | None = Field(default=None, max_length=64)
+    actual_date: date = Field(default_factory=date.today)
+
+
+class PackageTransformationExecute(PackageTransformationRequest):
+    confirmation_id: str = Field(min_length=1, max_length=128)
+    confirmation_token: str = Field(min_length=32, max_length=128)
+
+
 def _kwargs(payload: PackageActionRequest) -> dict[str, Any]:
     return {
         "operation_type": payload.operation_type,
@@ -112,6 +161,21 @@ def _kwargs(payload: PackageActionRequest) -> dict[str, Any]:
     }
 
 
+def _transformation_plan(payload: PackageTransformationRequest) -> PackageStudioPlan:
+    return PackageStudioPlan(
+        action_type=payload.action_type,
+        inputs=tuple(PackageStudioInputPlan(**row.model_dump()) for row in payload.inputs),
+        outputs=tuple(PackageStudioOutputPlan(**row.model_dump()) for row in payload.outputs),
+        loss_quantity=payload.loss_quantity,
+        source_unit=payload.source_unit,
+        reason=payload.reason,
+        notes=payload.notes,
+        run_number=payload.run_number,
+        production_order_id=payload.production_order_id,
+        commercial_order_id=payload.commercial_order_id,
+    )
+
+
 @router.get("/status")
 def package_status(
     context: RequestContext = Depends(get_request_context),
@@ -122,13 +186,14 @@ def package_status(
     jurisdiction = str(metrc.state or "").strip().upper()
     environment = str(metrc.environment or "").strip().casefold()
     ready = bool(metrc.configured and jurisdiction == "MA" and environment == "sandbox")
+    promoted = sorted(set(PROMOTED_PACKAGE_ACTIONS) | {"package_studio_transform"}) if ready else []
     return {
         "ready": ready,
         "provider": "metrc",
         "jurisdiction_code": jurisdiction,
         "environment": environment,
         "license_number": str(metrc.license_number or "").strip(),
-        "promoted_actions": sorted(PROMOTED_PACKAGE_ACTIONS) if ready else [],
+        "promoted_actions": promoted,
         "message": "Verified Massachusetts Metrc sandbox package checkpoints are available." if ready else str(metrc.message or "This facility remains on the local-only package workflow."),
         "execution_boundary": "Every write requires exact Product↔Item and Inventory Lot↔Package identities plus fresh local/provider equality before preview and again before execution." if ready else "Local package workflows remain available; promoted provider writes stay disabled.",
     }
@@ -195,7 +260,8 @@ def available_package_tags(
     labels = []
     seen = set()
     for row in result["records"]:
-        label = str(row.get("label") or row.get("name") or "").strip()
+        source = row.get("source") if isinstance(row.get("source"), dict) else {}
+        label = str(row.get("label") or row.get("name") or source.get("Label") or source.get("Tag") or "").strip()
         key = label.casefold()
         if label and key not in seen:
             labels.append(label)
@@ -317,4 +383,86 @@ def execute_package_action(
             **_kwargs(payload),
         )
     except MetrcPackageActionError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/transformations/preview")
+def preview_package_transformation(
+    payload: PackageTransformationRequest,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _write(context)
+    metrc = _metrc(context, engine, settings)
+    service = GovernedMetrcPackageTransformationService(engine)
+    try:
+        prepared = service.prepare(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            plan=_transformation_plan(payload),
+            actual_date=payload.actual_date.isoformat(),
+            state=metrc.state,
+            environment=metrc.environment,
+            license_number=metrc.license_number,
+            integrator_api_key=metrc.integrator_api_key,
+            user_api_key=metrc.user_api_key,
+        )
+        confirmation_id = str(uuid4())
+        token = package_transformation_confirmation_token(
+            prepared=prepared,
+            state=metrc.state,
+            environment=metrc.environment,
+            license_number=metrc.license_number,
+            confirmation_id=confirmation_id,
+        )
+        spec = LIFECYCLE_EVALUATION_ACTIONS["package_create"]
+        return {
+            "ready": True,
+            "operation_type": "package_studio_transform",
+            "summary": prepared["summary"],
+            "confirmation_id": confirmation_id,
+            "confirmation_token": token,
+            "compliance_evidence": {
+                "method": spec.method,
+                "path": spec.path,
+                "license_number": metrc.license_number,
+                "environment": metrc.environment,
+                "provider_atomic": False,
+                "provider_requests": [
+                    {"position": row["position"], "body": row["provider_request_body"]}
+                    for row in prepared["provider_outputs"]
+                ],
+            },
+            "message": "Review every output tag, Item, quantity, source consumption, and remaining source quantity. Provider children verify before the local Package Studio ledger can commit.",
+        }
+    except MetrcPackageTransformationError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/transformations/execute")
+def execute_package_transformation(
+    payload: PackageTransformationExecute,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    _write(context)
+    metrc = _metrc(context, engine, settings)
+    try:
+        return GovernedMetrcPackageTransformationService(engine).execute(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            actor=context.user_id,
+            plan=_transformation_plan(payload),
+            actual_date=payload.actual_date.isoformat(),
+            confirmation_id=payload.confirmation_id,
+            confirmation_token=payload.confirmation_token,
+            state=metrc.state,
+            environment=metrc.environment,
+            license_number=metrc.license_number,
+            integrator_api_key=metrc.integrator_api_key,
+            user_api_key=metrc.user_api_key,
+        )
+    except MetrcPackageTransformationError as exc:
         raise HTTPException(422, str(exc)) from exc
