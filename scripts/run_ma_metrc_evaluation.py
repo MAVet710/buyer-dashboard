@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Run bounded Massachusetts Metrc evaluation evidence from an authorized runtime.
+"""Run bounded Massachusetts Metrc proficiency-evaluation evidence.
 
-Secrets are read from environment variables and are never written into evidence
-files. The default mode performs the evaluation's required Facilities read.
-Master-data and lifecycle writes are explicit opt-in, sandbox-only operations
-with reviewed payload adapters and exact provider readback.
+The runner covers every Massachusetts-applicable task family in the 10.2025
+Generic Evaluation workbook. It never accepts an arbitrary provider method/path.
+Writes are sandbox-only reviewed adapters; list reads walk every provider page.
+Secrets are read from environment variables and never written to evidence files.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from services.metrc_client import fetch_metrc_resource
+from services.metrc_evaluation_lab import LAB_EVALUATION_ACTIONS, execute_lab_evaluation_action
 from services.metrc_evaluation_lifecycle import (
     LIFECYCLE_EVALUATION_ACTIONS,
     execute_lifecycle_evaluation_action,
@@ -24,6 +25,15 @@ from services.metrc_evaluation_master_data import (
     MASTER_DATA_EVALUATION_ACTIONS,
     execute_master_data_evaluation_action,
 )
+from services.metrc_evaluation_reads import READ_EVALUATION_ACTIONS, execute_evaluation_read
+from services.metrc_evaluation_sales import SALES_EVALUATION_ACTIONS, execute_sales_evaluation_action
+from services.metrc_evaluation_transfers import (
+    TRANSFER_READ_EVALUATION_ACTIONS,
+    TRANSFER_WRITE_EVALUATION_ACTIONS,
+    execute_transfer_evaluation_read,
+    execute_transfer_template_write,
+)
+from services.metrc_evaluation_workbook import ma_workbook_plan
 
 
 def _secret(name: str) -> str:
@@ -38,8 +48,10 @@ def _write_evidence(path: str, evidence: dict[str, Any]) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(evidence, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
     print(f"Evidence written: {target}")
-    print(f"Passed: {bool(evidence.get('passed'))}")
-    print(f"Stage: {evidence.get('stage', '')}")
+    if "passed" in evidence:
+        print(f"Passed: {bool(evidence.get('passed'))}")
+    if evidence.get("stage"):
+        print(f"Stage: {evidence.get('stage')}")
     if evidence.get("http_status") is not None:
         print(f"HTTP: {evidence.get('http_status')}")
 
@@ -67,17 +79,41 @@ def _facilities(integrator_key: str, user_key: str) -> dict[str, Any]:
     }
 
 
+def _load_payload(path: str, *, required: bool) -> dict[str, Any]:
+    if not path:
+        if required:
+            raise SystemExit("--payload-file is required for this evaluation operation.")
+        return {}
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise SystemExit("The payload file must contain one JSON object.")
+    return raw
+
+
 def main() -> None:
     choices = [
+        "workbook_plan",
         "facilities",
         *sorted(MASTER_DATA_EVALUATION_ACTIONS),
+        *sorted(READ_EVALUATION_ACTIONS),
         *sorted(LIFECYCLE_EVALUATION_ACTIONS),
+        *sorted(LAB_EVALUATION_ACTIONS),
+        *sorted(SALES_EVALUATION_ACTIONS),
+        *sorted(TRANSFER_READ_EVALUATION_ACTIONS),
+        *sorted(TRANSFER_WRITE_EVALUATION_ACTIONS),
     ]
-    parser = argparse.ArgumentParser(description="Run controlled MA Metrc sandbox evaluation evidence.")
-    parser.add_argument("--operation", default="facilities", choices=choices)
-    parser.add_argument("--payload-file", default="", help="JSON object used for an explicit evaluation write operation.")
+    parser = argparse.ArgumentParser(description="Run controlled MA Metrc sandbox proficiency-evaluation evidence.")
+    parser.add_argument("--operation", default="workbook_plan", choices=choices)
+    parser.add_argument("--payload-file", default="", help="JSON object for the selected bounded evaluation operation.")
     parser.add_argument("--output", default="artifacts/metrc-evaluation/latest.json")
     args = parser.parse_args()
+
+    if args.operation == "workbook_plan":
+        plan = ma_workbook_plan()
+        _write_evidence(args.output, plan)
+        print(f"Workbook sheets: {plan['sheet_count']}")
+        print(f"MA applicable task rows: {plan['applicable_task_count']}")
+        return
 
     integrator_key = _secret("METRC_INTEGRATOR_API_KEY")
     user_key = _secret("METRC_USER_API_KEY")
@@ -86,32 +122,34 @@ def main() -> None:
         evidence = _facilities(integrator_key, user_key)
     else:
         license_number = _secret("METRC_LICENSE_NUMBER")
-        if not args.payload_file:
-            raise SystemExit("--payload-file is required for an evaluation write.")
-        raw = json.loads(Path(args.payload_file).read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
-            raise SystemExit("The payload file must contain one JSON object.")
+        payload_optional = args.operation in {"transfer_rejected"}
+        raw = _load_payload(args.payload_file, required=not payload_optional)
 
+        common = {
+            "operation_type": args.operation,
+            "payload": raw,
+            "license_number": license_number,
+            "integrator_api_key": integrator_key,
+            "user_api_key": user_key,
+            "state": "MA",
+            "environment": "sandbox",
+        }
         if args.operation in MASTER_DATA_EVALUATION_ACTIONS:
-            evidence = execute_master_data_evaluation_action(
-                operation_type=args.operation,
-                payload=raw,
-                license_number=license_number,
-                integrator_api_key=integrator_key,
-                user_api_key=user_key,
-                state="MA",
-                environment="sandbox",
-            )
+            evidence = execute_master_data_evaluation_action(**common)
+        elif args.operation in READ_EVALUATION_ACTIONS:
+            evidence = execute_evaluation_read(**common)
+        elif args.operation in LIFECYCLE_EVALUATION_ACTIONS:
+            evidence = execute_lifecycle_evaluation_action(**common)
+        elif args.operation in LAB_EVALUATION_ACTIONS:
+            evidence = execute_lab_evaluation_action(**common)
+        elif args.operation in SALES_EVALUATION_ACTIONS:
+            evidence = execute_sales_evaluation_action(**common)
+        elif args.operation in TRANSFER_READ_EVALUATION_ACTIONS:
+            evidence = execute_transfer_evaluation_read(**common)
+        elif args.operation in TRANSFER_WRITE_EVALUATION_ACTIONS:
+            evidence = execute_transfer_template_write(**common)
         else:
-            evidence = execute_lifecycle_evaluation_action(
-                operation_type=args.operation,
-                payload=raw,
-                license_number=license_number,
-                integrator_api_key=integrator_key,
-                user_api_key=user_key,
-                state="MA",
-                environment="sandbox",
-            )
+            raise SystemExit("Selected operation is not wired to a bounded evaluation executor.")
 
     _write_evidence(args.output, evidence)
     raise SystemExit(0 if evidence.get("passed") else 2)
