@@ -128,9 +128,26 @@ def _identity_key(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", _text(value).upper())
 
 
-def _product_sku(state: str, item_id: str) -> str:
-    token = re.sub(r"[^A-Z0-9]+", "-", _text(item_id).upper()).strip("-")
-    return f"METRC-{state.upper()}-{token}"[:120]
+def _sku_token(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", "-", _text(value).upper()).strip("-")
+
+
+def _product_sku(state: str, license_number: str, item_id: str) -> str:
+    """Keep provider-seeded organization Product SKUs unique per Metrc license.
+
+    Metrc Item identity is facility/license scoped. The canonical Product table is
+    organization-wide, so the fallback package-only seeder must not assume that the
+    same numeric Item ID on two licenses represents the same provider object.
+    """
+
+    state_token = _sku_token(state) or "STATE"
+    license_token = _sku_token(license_number) or "LICENSE"
+    item_token = _sku_token(item_id) or "ITEM"
+    candidate = f"METRC-{state_token}-{license_token}-{item_token}"
+    if len(candidate) <= 120:
+        return candidate
+    digest = hashlib.sha256(f"{state}:{license_number}:{item_id}".encode("utf-8")).hexdigest()[:10].upper()
+    return f"METRC-{state_token[:12]}-{license_token[:42]}-{item_token[:42]}-{digest}"[:120]
 
 
 def _provider_link(
@@ -481,15 +498,17 @@ class MetrcCanonicalInventorySeeder:
                     continue
 
                 if product is None:
-                    sku = _product_sku(state, item_id)
+                    sku = _product_sku(state, license_number, item_id)
                     sku_owner = by_sku.get(sku.casefold())
                     if sku_owner is not None:
-                        digest = hashlib.sha256(f"{state}:{item_id}".encode("utf-8")).hexdigest()[:8].upper()
+                        digest = hashlib.sha256(
+                            f"{state}:{license_number}:{item_id}:collision".encode("utf-8")
+                        ).hexdigest()[:8].upper()
                         sku = f"{sku[:110]}-{digest}"[:120]
                         sku_owner = by_sku.get(sku.casefold())
                     if sku_owner is not None:
                         skipped += 1
-                        _conflict(conflicts, "product_sku_collision", label, "A local Product Master SKU collides with the deterministic Metrc Item SKU.")
+                        _conflict(conflicts, "product_sku_collision", label, "A local Product Master SKU collides with the deterministic license-scoped Metrc Item SKU.")
                         continue
                     product = Product(
                         organization_id=organization_id,
