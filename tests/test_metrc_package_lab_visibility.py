@@ -19,7 +19,7 @@ def test_package_360_surfaces_cached_metrc_lab_results_with_explicit_live_verifi
     assert "network_request_made" in lab_panel
 
 
-def test_package_lab_live_route_is_late_composed_under_regulatory_detail_parent():
-    composition = (ROOT / "backend/app/metrc_runtime_composition.py").read_text(encoding="utf-8")
-    assert "metrc_package_lab_detail_router" in composition
-    assert "inventory_reconciliation.router.include_router(metrc_package_lab_detail_router)" in composition
+def test_package_lab_routes_are_statically_owned_by_inventory_reconciliation():
+    inventory_reconciliation = (ROOT / "backend/app/routers/inventory_reconciliation.py").read_text(encoding="utf-8")
+    assert "from .metrc_package_lab_detail import router as metrc_package_lab_detail_router" in inventory_reconciliation
+    assert "router.include_router(metrc_package_lab_detail_router)" in inventory_reconciliation
