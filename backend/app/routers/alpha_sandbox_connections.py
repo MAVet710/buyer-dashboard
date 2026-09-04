@@ -7,6 +7,7 @@ from modules.alpha_mode import AlphaOperatingModeService
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
+from .alpha_integrations_status import router as alpha_integrations_status_router
 from .sandbox_integrations import (
     _PROVIDER_IDS,
     _public_provider,
@@ -15,10 +16,11 @@ from .sandbox_integrations import (
 )
 
 
-router = APIRouter(prefix="/integrations/sandbox", tags=["integrations", "alpha"])
+router = APIRouter()
+sandbox_router = APIRouter(prefix="/integrations/sandbox", tags=["integrations", "alpha"])
 
 
-@router.get("")
+@sandbox_router.get("")
 def alpha_aware_sandbox_connections(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
@@ -56,3 +58,7 @@ def alpha_aware_sandbox_connections(
             for provider in visible
         },
     }
+
+
+router.include_router(alpha_integrations_status_router)
+router.include_router(sandbox_router)
