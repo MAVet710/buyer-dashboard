@@ -5,14 +5,29 @@ from collections.abc import Iterable
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import sessionmaker
 
+from modules.traceability.models import TraceabilityTransaction
 from modules.traceability.object_links import TraceabilityObjectLink
 
 
+UNRESOLVED_METRC_STATUSES = {
+    "requested",
+    "validated",
+    "queued",
+    "submitted",
+    "accepted",
+    "reconciliation_required",
+}
+
+
 class CultivationRegulatoryGuard:
-    """Fail closed when a verified state-system object would be changed locally only."""
+    """Fail closed when a state-system object cannot safely change locally only."""
 
     def __init__(self, engine: Engine):
         self.sessions = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+    @staticmethod
+    def _ids(entity_ids: Iterable[str]) -> set[str]:
+        return {str(value or "").strip() for value in entity_ids if str(value or "").strip()}
 
     def verified_metrc_ids(
         self,
@@ -22,7 +37,7 @@ class CultivationRegulatoryGuard:
         entity_type: str,
         entity_ids: Iterable[str],
     ) -> set[str]:
-        ids = {str(value or "").strip() for value in entity_ids if str(value or "").strip()}
+        ids = self._ids(entity_ids)
         if not ids:
             return set()
         with self.sessions() as session:
@@ -34,7 +49,32 @@ class CultivationRegulatoryGuard:
                         TraceabilityObjectLink.provider == "metrc",
                         TraceabilityObjectLink.entity_type == str(entity_type or "").strip().casefold(),
                         TraceabilityObjectLink.entity_id.in_(ids),
-                        TraceabilityObjectLink.status == "verified",
+                        TraceabilityObjectLink.status.in_({"verified", "reconciliation_required", "stale"}),
+                    )
+                )
+            )
+
+    def unresolved_metrc_ids(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        entity_type: str,
+        entity_ids: Iterable[str],
+    ) -> set[str]:
+        ids = self._ids(entity_ids)
+        if not ids:
+            return set()
+        with self.sessions() as session:
+            return set(
+                session.scalars(
+                    select(TraceabilityTransaction.entity_id).where(
+                        TraceabilityTransaction.organization_id == organization_id,
+                        TraceabilityTransaction.facility_id == facility_id,
+                        TraceabilityTransaction.provider == "metrc",
+                        TraceabilityTransaction.entity_type == str(entity_type or "").strip().casefold(),
+                        TraceabilityTransaction.entity_id.in_(ids),
+                        TraceabilityTransaction.status.in_(UNRESOLVED_METRC_STATUSES),
                     )
                 )
             )
@@ -48,15 +88,27 @@ class CultivationRegulatoryGuard:
         entity_ids: Iterable[str],
         action_label: str,
     ) -> None:
+        ids = self._ids(entity_ids)
         tracked = self.verified_metrc_ids(
             organization_id=organization_id,
             facility_id=facility_id,
             entity_type=entity_type,
-            entity_ids=entity_ids,
+            entity_ids=ids,
         )
-        if tracked:
-            noun = "object" if len(tracked) == 1 else "objects"
+        unresolved = self.unresolved_metrc_ids(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            entity_type=entity_type,
+            entity_ids=ids,
+        )
+        blocked = tracked | unresolved
+        if blocked:
+            noun = "object" if len(blocked) == 1 else "objects"
+            if unresolved:
+                reason = "has an in-flight or reconciliation-required Metrc transaction"
+            else:
+                reason = "already has a state-system identity that is verified or requires reconciliation"
             raise ValueError(
-                f"{len(tracked)} selected cultivation {noun} already has a verified Metrc identity. "
-                f"{action_label} cannot be applied as a DoobieLogic-only change; use the controlled Metrc workflow so provider readback is verified before local state changes."
+                f"{len(blocked)} selected cultivation {noun} {reason}. "
+                f"{action_label} cannot be applied as a DoobieLogic-only change; use or reconcile the controlled Metrc workflow before changing local state."
             )
