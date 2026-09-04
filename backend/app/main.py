@@ -15,7 +15,11 @@ from .config import get_settings
 from .routers.inventory import router as inventory_router
 from .routers.inventory_transfers import router as inventory_transfers_router
 from .routers.inventory_reconciliation import router as inventory_reconciliation_router
-from .routers.metrc_package_lab_detail import router as metrc_package_lab_detail_router
+from .routers.metrc_package_lab_detail import (
+    cached_package_lab_results,
+    live_package_lab_results,
+    router as metrc_package_lab_detail_router,
+)
 from .routers.metrc_harvest_legacy_guard import router as metrc_harvest_legacy_guard_router
 from .routers.metrc_guide_v11 import router as metrc_guide_v11_router
 from .routers.metrc_readiness import router as metrc_readiness_router
@@ -246,9 +250,6 @@ app.include_router(beta_router, prefix=settings.api_prefix)
 # Register trusted regulatory inventory GET routes before the legacy inventory
 # router so the same browser URLs fail closed on exact Metrc mapping/environment.
 app.include_router(inventory_reconciliation_router, prefix=settings.api_prefix)
-# Package-scoped lab reads are mounted directly on the production app so their
-# registration never depends on intermediate APIRouter copy/reload semantics.
-app.include_router(metrc_package_lab_detail_router, prefix=f"{settings.api_prefix}/inventory")
 app.include_router(inventory_router, prefix=settings.api_prefix)
 app.include_router(inventory_transfers_router, prefix=settings.api_prefix)
 # The guide-v11 router intentionally precedes the broader readiness router for
@@ -330,3 +331,41 @@ app.include_router(slow_movers_parity_router, prefix=settings.api_prefix)
 app.include_router(executive_reports_router, prefix=settings.api_prefix)
 app.include_router(coman_parity_router, prefix=settings.api_prefix)
 app.include_router(analytics_router, prefix=settings.api_prefix)
+
+# These package-scoped Metrc lab routes are registered directly at the final
+# FastAPI boundary. Their endpoint functions remain defined in the dedicated
+# router module, but registration no longer depends on nested APIRouter copy or
+# reload order. That makes the production contract deterministic.
+_PACKAGE_LAB_CACHED_PATH = (
+    f"{settings.api_prefix}/inventory/regulatory-detail/local/inventory_lot/"
+    "{entity_id}/lab-results"
+)
+_PACKAGE_LAB_LIVE_PATH = f"{_PACKAGE_LAB_CACHED_PATH}/live"
+app.add_api_route(
+    _PACKAGE_LAB_CACHED_PATH,
+    cached_package_lab_results,
+    methods=["GET"],
+    tags=["regulatory-detail"],
+    name="cached_package_lab_results",
+)
+app.add_api_route(
+    _PACKAGE_LAB_LIVE_PATH,
+    live_package_lab_results,
+    methods=["GET"],
+    tags=["regulatory-detail"],
+    name="live_package_lab_results",
+)
+
+_package_lab_registered_paths = {
+    str(getattr(route, "path", "")) for route in app.routes
+}
+_package_lab_missing = sorted(
+    path
+    for path in (_PACKAGE_LAB_CACHED_PATH, _PACKAGE_LAB_LIVE_PATH)
+    if path not in _package_lab_registered_paths
+)
+if _package_lab_missing:
+    raise RuntimeError(
+        "Package-scoped Metrc lab routes were not registered on the production "
+        f"FastAPI graph: {_package_lab_missing}"
+    )
