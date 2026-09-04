@@ -21,6 +21,29 @@ class FakeTransport:
         return {"ok": True, "payload": [{"Id": len(self.calls), "Name": path}]}
 
 
+class PagedFakeTransport:
+    def __init__(self, *, full_pages: int, tail_count: int):
+        self.full_pages = full_pages
+        self.tail_count = tail_count
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def get(self, path: str, query: dict[str, object]):
+        self.calls.append((path, dict(query)))
+        page = int(query.get("pageNumber") or 1)
+        page_size = int(query.get("pageSize") or 50)
+        if page <= self.full_pages:
+            count = page_size
+        elif page == self.full_pages + 1:
+            count = self.tail_count
+        else:
+            count = 0
+        start = (page - 1) * page_size
+        return {
+            "ok": True,
+            "payload": [{"Id": start + index + 1, "Name": f"row-{start + index + 1}"} for index in range(count)],
+        }
+
+
 @pytest.fixture
 def live_metrc(monkeypatch: pytest.MonkeyPatch):
     metrc = SimpleNamespace(
@@ -53,14 +76,58 @@ def test_items_live_read_uses_documented_master_data_endpoints(live_metrc):
     assert result["source"] == "metrc_live"
     assert result["license_number"] == "LIC-TEST"
     assert result["bounded"] is True
-    assert result["page_size"] == 20
+    assert result["page_size"] == 50
     assert len(result["items"]) == 1
     assert len(result["brands"]) == 1
     assert len(result["categories"]) == 1
     assert len(result["units_of_measure"]) == 1
-    paged = {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1}
+    paged = {"licenseNumber": "LIC-TEST", "pageSize": 50, "pageNumber": 1}
     assert all(query == paged for _, query in transport.calls[:4])
     assert transport.calls[4][1] == {}
+    assert result["pagination"]["items"] == {
+        "page_size": 50,
+        "pages_loaded": 1,
+        "records_loaded": 1,
+        "truncated": False,
+        "max_pages": 20,
+    }
+
+
+def test_master_data_paging_reaches_records_beyond_first_page():
+    metrc = SimpleNamespace(license_number="LIC-TEST")
+    transport = PagedFakeTransport(full_pages=1, tail_count=3)
+
+    rows, page = location_settings._paged_provider_rows(
+        transport,
+        metrc,
+        "items/v2/active",
+        "active items",
+    )
+
+    assert len(rows) == 53
+    assert [query["pageNumber"] for _, query in transport.calls] == [1, 2]
+    assert all(query["pageSize"] == 50 for _, query in transport.calls)
+    assert page["pages_loaded"] == 2
+    assert page["records_loaded"] == 53
+    assert page["truncated"] is False
+
+
+def test_master_data_paging_has_a_hard_provider_call_bound():
+    metrc = SimpleNamespace(license_number="LIC-TEST")
+    transport = PagedFakeTransport(full_pages=20, tail_count=0)
+
+    rows, page = location_settings._paged_provider_rows(
+        transport,
+        metrc,
+        "locations/v2/active",
+        "active locations",
+        max_pages=2,
+    )
+
+    assert len(rows) == 100
+    assert len(transport.calls) == 2
+    assert page["max_pages"] == 2
+    assert page["truncated"] is True
 
 
 def test_initial_facility_reads_stay_within_metrc_page_limit(live_metrc):
@@ -251,9 +318,11 @@ def test_frontend_exposes_simple_master_data_actions_and_governed_confirmation()
         "Create a Metrc item",
         "Edit an existing Metrc item",
         "Review Metrc change",
+        "Business values to submit",
         "Confirm & submit to Metrc",
         "Compliance evidence details",
         "Verified in Metrc",
+        "Clear / none",
     ):
         assert label in source
     for operation in (
@@ -265,6 +334,12 @@ def test_frontend_exposes_simple_master_data_actions_and_governed_confirmation()
         'operation_type: "item_update"',
     ):
         assert operation in source
+    for explicit_clear in (
+        "item_brand: brand.trim() || null",
+        "strain: strain.trim() || null",
+        "description: description.trim() || null",
+    ):
+        assert explicit_clear in source
     assert "/api/v1/location-settings/metrc-action-preview" in source
     assert "/api/v1/location-settings/metrc-action-execute" in source
 
