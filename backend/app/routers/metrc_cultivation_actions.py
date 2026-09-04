@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 
 from services.metrc_client import fetch_metrc_resource
 from services.metrc_evaluation_lifecycle import LIFECYCLE_EVALUATION_ACTIONS
+from services.metrc_production import fetch_all_available_plant_tags
 
 from ..auth import RequestContext, get_request_context, require_facility_capability
 from ..config import Settings, get_settings
@@ -24,6 +25,7 @@ from ..services.metrc_cultivation_identity import (
     MetrcCultivationIdentityError,
     MetrcCultivationIdentityService,
 )
+from ..services.metrc_cultivation_tags import MetrcCultivationTagMirror
 from ..services.regulatory_metrc import resolve_trusted_regulatory_metrc
 
 
@@ -49,6 +51,30 @@ def _metrc(context: RequestContext, engine: Engine, settings: Settings):
     if str(metrc.state or "").strip().upper() != "MA" or str(metrc.environment or "").strip().casefold() != "sandbox":
         raise HTTPException(409, "Promoted cultivation writes are currently restricted to the verified Massachusetts Metrc sandbox.")
     return metrc
+
+
+def _refresh_plant_tag_snapshot(context: RequestContext, engine: Engine, metrc) -> dict[str, Any]:
+    result = fetch_all_available_plant_tags(
+        state=metrc.state,
+        user_api_key=metrc.user_api_key,
+        integrator_api_key=metrc.integrator_api_key,
+        license_number=metrc.license_number,
+        environment=metrc.environment,
+    )
+    if not result.get("ok"):
+        raise HTTPException(502, str(result.get("message") or "Fresh Metrc available plant-tag lookup failed."))
+    records = [dict(row) for row in result.get("records") or [] if isinstance(row, dict)]
+    try:
+        return MetrcCultivationTagMirror(engine).replace_available_plant_snapshot(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            jurisdiction_code=metrc.state,
+            license_number=metrc.license_number,
+            environment=metrc.environment,
+            records=records,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 class RoomLinkRequest(BaseModel):
@@ -197,6 +223,8 @@ def preview_cultivation_action(
 ):
     _write(context)
     metrc = _metrc(context, engine, settings)
+    if payload.operation_type == "plant_batch_vegetative":
+        _refresh_plant_tag_snapshot(context, engine, metrc)
     service = MetrcCultivationActionService(engine)
     try:
         prepared = service.prepare(
@@ -246,6 +274,8 @@ def execute_cultivation_action(
 ):
     _write(context)
     metrc = _metrc(context, engine, settings)
+    if payload.operation_type == "plant_batch_vegetative":
+        _refresh_plant_tag_snapshot(context, engine, metrc)
     try:
         return MetrcCultivationActionService(engine).execute(
             organization_id=context.organization_id,
