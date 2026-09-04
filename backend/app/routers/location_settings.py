@@ -36,9 +36,12 @@ DEFAULTS = {"auto_map_products_during_receive": False, "default_receiving_room":
 WRITE_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "trial"}
 FACILITY_SETUP_MANAGE_ROLES = {"dev", "admin", "planner", "supervisor"}
 FACILITY_CAPABILITIES = ("retail", "production", "cultivation", "commercial")
-# Metrc locations/strains v2 reject pageSize > 50. Keep initial reads small.
+# Metrc locations/strains v2 reject pageSize > 50. Routine reads stay small;
+# operator-triggered master-data edit loads walk bounded 50-row pages.
 LIVE_PAGE_SIZE = 20
 MASTER_DATA_PAGE_SIZE = 20
+MASTER_DATA_EDIT_PAGE_SIZE = 50
+MASTER_DATA_EDIT_MAX_PAGES = 20
 
 
 class LocationSettingsUpdate(BaseModel):
@@ -155,8 +158,48 @@ def _permissions_from_payload(value: Any) -> list[str]:
     return sorted(permission for permission in found if permission)
 
 
-def _page_query(metrc, page_size: int = LIVE_PAGE_SIZE) -> dict[str, Any]:
-    return {"licenseNumber": metrc.license_number, "pageSize": page_size, "pageNumber": 1}
+def _page_query(metrc, page_size: int = LIVE_PAGE_SIZE, page_number: int = 1) -> dict[str, Any]:
+    return {
+        "licenseNumber": metrc.license_number,
+        "pageSize": max(1, min(int(page_size or LIVE_PAGE_SIZE), 50)),
+        "pageNumber": max(1, int(page_number or 1)),
+    }
+
+
+def _paged_provider_rows(
+    transport: MetrcTransport,
+    metrc,
+    path: str,
+    label: str,
+    *,
+    page_size: int = MASTER_DATA_EDIT_PAGE_SIZE,
+    max_pages: int = MASTER_DATA_EDIT_MAX_PAGES,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Walk user-requested Metrc master-data pages with a hard provider-call bound."""
+
+    safe_page_size = max(1, min(int(page_size or MASTER_DATA_EDIT_PAGE_SIZE), 50))
+    safe_max_pages = max(1, min(int(max_pages or MASTER_DATA_EDIT_MAX_PAGES), MASTER_DATA_EDIT_MAX_PAGES))
+    rows: list[dict[str, Any]] = []
+    pages_loaded = 0
+    last_page_count = 0
+    for page_number in range(1, safe_max_pages + 1):
+        page_rows = _provider_rows(
+            transport.get(path, _page_query(metrc, safe_page_size, page_number)),
+            label,
+        )
+        rows.extend(page_rows)
+        pages_loaded = page_number
+        last_page_count = len(page_rows)
+        if last_page_count < safe_page_size:
+            break
+    truncated = pages_loaded == safe_max_pages and last_page_count == safe_page_size
+    return rows, {
+        "page_size": safe_page_size,
+        "pages_loaded": pages_loaded,
+        "records_loaded": len(rows),
+        "truncated": truncated,
+        "max_pages": safe_max_pages,
+    }
 
 
 def _license_query(metrc) -> dict[str, Any]:
@@ -376,19 +419,24 @@ def metrc_rooms(
 ):
     _, metrc = _trusted_metrc(context, engine, settings)
     transport = _transport(metrc)
-    common = _page_query(metrc)
-    active = _provider_rows(transport.get("locations/v2/active", common), "active locations")
-    inactive = _provider_rows(transport.get("locations/v2/inactive", common), "inactive locations")
+    active, active_page = _paged_provider_rows(transport, metrc, "locations/v2/active", "active locations")
+    inactive, inactive_page = _paged_provider_rows(transport, metrc, "locations/v2/inactive", "inactive locations")
     types = _provider_rows(transport.get("locations/v2/types", _license_query(metrc)), "location types")
-    sublocations = _provider_rows(transport.get("sublocations/v2/active", common), "active sublocations")
-    inactive_sublocations = _provider_rows(transport.get("sublocations/v2/inactive", common), "inactive sublocations")
+    sublocations, sublocation_page = _paged_provider_rows(transport, metrc, "sublocations/v2/active", "active sublocations")
+    inactive_sublocations, inactive_sublocation_page = _paged_provider_rows(transport, metrc, "sublocations/v2/inactive", "inactive sublocations")
     return {
-        **_live_envelope(metrc),
+        **_live_envelope(metrc, MASTER_DATA_EDIT_PAGE_SIZE),
         "locations": active,
         "inactive_locations": inactive,
         "location_types": types,
         "sublocations": sublocations,
         "inactive_sublocations": inactive_sublocations,
+        "pagination": {
+            "locations": active_page,
+            "inactive_locations": inactive_page,
+            "sublocations": sublocation_page,
+            "inactive_sublocations": inactive_sublocation_page,
+        },
     }
 
 
@@ -400,13 +448,13 @@ def metrc_strains(
 ):
     _, metrc = _trusted_metrc(context, engine, settings)
     transport = _transport(metrc)
-    common = _page_query(metrc)
-    active = _provider_rows(transport.get("strains/v2/active", common), "active strains")
-    inactive = _provider_rows(transport.get("strains/v2/inactive", common), "inactive strains")
+    active, active_page = _paged_provider_rows(transport, metrc, "strains/v2/active", "active strains")
+    inactive, inactive_page = _paged_provider_rows(transport, metrc, "strains/v2/inactive", "inactive strains")
     return {
-        **_live_envelope(metrc),
+        **_live_envelope(metrc, MASTER_DATA_EDIT_PAGE_SIZE),
         "strains": active,
         "inactive_strains": inactive,
+        "pagination": {"strains": active_page, "inactive_strains": inactive_page},
     }
 
 
@@ -418,19 +466,24 @@ def metrc_items(
 ):
     _, metrc = _trusted_metrc(context, engine, settings)
     transport = _transport(metrc)
-    common = _page_query(metrc, MASTER_DATA_PAGE_SIZE)
-    active = _provider_rows(transport.get("items/v2/active", common), "active items")
-    inactive = _provider_rows(transport.get("items/v2/inactive", common), "inactive items")
-    categories = _provider_rows(transport.get("items/v2/categories", common), "item categories")
-    brands = _provider_rows(transport.get("items/v2/brands", common), "item brands")
+    active, active_page = _paged_provider_rows(transport, metrc, "items/v2/active", "active items")
+    inactive, inactive_page = _paged_provider_rows(transport, metrc, "items/v2/inactive", "inactive items")
+    categories, category_page = _paged_provider_rows(transport, metrc, "items/v2/categories", "item categories")
+    brands, brand_page = _paged_provider_rows(transport, metrc, "items/v2/brands", "item brands")
     units = _provider_rows(transport.get("unitsofmeasure/v2/active", {}), "units of measure")
     return {
-        **_live_envelope(metrc, MASTER_DATA_PAGE_SIZE),
+        **_live_envelope(metrc, MASTER_DATA_EDIT_PAGE_SIZE),
         "items": active,
         "inactive_items": inactive,
         "categories": categories,
         "brands": brands,
         "units_of_measure": units,
+        "pagination": {
+            "items": active_page,
+            "inactive_items": inactive_page,
+            "categories": category_page,
+            "brands": brand_page,
+        },
     }
 
 
