@@ -7,38 +7,84 @@ type Configuration = Record<string, string | boolean>;
 type Integration = { configured: boolean; status: string; secret_hint: string; configuration: Configuration; last_validated_at: string | null; last_error: string };
 type Payload = { metrc: Integration; doobie: Integration | null; ai_runtime?: Integration | null; spacemail?: Integration | null };
 type NativePayload = { metrc: Integration; biotrack: Integration; quickbooks: Integration; activation_rules: Record<string, string>; quickbooks_sync?: { managed_entities: string[]; manual_mapping_required: string[]; idempotent: boolean } };
+type AlphaOperatingMode = {
+  selected_mode: "doobielogic_sandbox" | "metrc_sandbox";
+  effective_mode: "doobielogic_sandbox" | "metrc_sandbox";
+  explicit: boolean;
+  source: string;
+  metrc_sandbox_mapping_available: boolean;
+  production_writes_enabled: false;
+  choices: Array<{ id: "doobielogic_sandbox" | "metrc_sandbox"; label: string; description: string }>;
+  message: string;
+};
 
 export function IntegrationsPage() {
   const client = useQueryClient();
+  const mode = useQuery({ queryKey: ["alpha-operating-mode"], queryFn: ({ signal }) => apiGet<AlphaOperatingMode>("/api/v1/alpha-operating-mode", signal), retry: false });
   const data = useQuery({ queryKey: ["integrations"], queryFn: ({ signal }) => apiGet<Payload>("/api/v1/integrations", signal), retry: false });
   const native = useQuery({ queryKey: ["native-integrations"], queryFn: ({ signal }) => apiGet<NativePayload>("/api/v1/native-integrations", signal), retry: false });
-  const refresh = () => { client.invalidateQueries({ queryKey: ["integrations"] }); client.invalidateQueries({ queryKey: ["native-integrations"] }); };
+  const refresh = () => {
+    client.invalidateQueries({ queryKey: ["alpha-operating-mode"] });
+    client.invalidateQueries({ queryKey: ["integrations"] });
+    client.invalidateQueries({ queryKey: ["native-integrations"] });
+    client.invalidateQueries({ queryKey: ["sandbox-provider-connections"] });
+  };
   const devMode = Boolean(data.data?.doobie || data.data?.ai_runtime || data.data?.spacemail);
+  const metrcEnabled = mode.data?.effective_mode === "metrc_sandbox";
   return <div className="page">
-    <div className="page-heading"><div><div className="eyebrow">Secure connections</div><h1>{devMode ? "AI & METRC Integrations" : "METRC Integrations"}</h1><p>{devMode ? "Level DEV settings for DoobieLogic AI, Spacemail onboarding, grounded knowledge, cloud fallback, and METRC connections." : "Connect the METRC account and licensed facility used by your workflows. These settings are stored for your app account and active facility only."}</p></div></div>
+    <div className="page-heading"><div><div className="eyebrow">Alpha operating mode</div><h1>Choose how this facility runs</h1><p>Use DoobieLogic by itself during alpha, or opt into the connected Metrc sandbox when you are ready. The selection is facility-specific and can be changed later.</p></div></div>
+    {mode.isError ? <div className="state error">{mode.error.message}</div> : null}
+    {mode.data ? <AlphaOperatingModeCard value={mode.data} onSaved={refresh}/> : null}
+
+    <div className="page-heading"><div><div className="eyebrow">Secure connections</div><h1>{devMode ? "AI & METRC Integrations" : "METRC Integrations"}</h1><p>{metrcEnabled ? (devMode ? "Level DEV settings for DoobieLogic AI, Spacemail onboarding, grounded knowledge, cloud fallback, and METRC connections." : "Connect the METRC account and licensed facility used by your workflows. These settings are stored for your app account and active facility only.") : "Metrc is optional during alpha. This facility is currently running entirely in DoobieLogic Sandbox."}</p></div></div>
     {data.isError ? <div className="state error">{data.error.message}</div> : null}
-    {data.data ? <div className="integration-grid">{data.data.spacemail ? <SpacemailCard value={data.data.spacemail} onSaved={refresh}/> : null}{data.data.ai_runtime ? <AIRuntimeCard value={data.data.ai_runtime} onSaved={refresh}/> : null}{devMode ? <KnowledgeLibraryCard canSeedApproved={true}/> : null}{data.data.doobie ? <DoobieCard value={data.data.doobie} onSaved={refresh}/> : null}<MetrcCard value={data.data.metrc} onSaved={refresh}/></div> : null}
+    {data.data ? <div className="integration-grid">{data.data.spacemail ? <SpacemailCard value={data.data.spacemail} onSaved={refresh}/> : null}{data.data.ai_runtime ? <AIRuntimeCard value={data.data.ai_runtime} onSaved={refresh}/> : null}{devMode ? <KnowledgeLibraryCard canSeedApproved={true}/> : null}{data.data.doobie ? <DoobieCard value={data.data.doobie} onSaved={refresh}/> : null}<MetrcCard value={data.data.metrc} enabled={metrcEnabled} onSaved={refresh}/></div> : null}
     <div className="page-heading"><div><div className="eyebrow">Native operations</div><h2>State & Accounting Connections</h2><p>Facility-scoped production connectors. A saved credential is not treated as live until the provider-specific validation succeeds.</p></div></div>
     {native.isError ? <div className="state error">{native.error.message}</div> : null}
     {native.data ? <div className="integration-grid"><BioTrackCard value={native.data.biotrack} onSaved={refresh}/><QuickBooksCard value={native.data.quickbooks} onSaved={refresh}/></div> : null}
   </div>;
 }
 
-function MetrcCard({ value, onSaved }: { value: Integration; onSaved: () => void }) {
+function AlphaOperatingModeCard({ value, onSaved }: { value: AlphaOperatingMode; onSaved: () => void }) {
+  const change = useMutation({
+    mutationFn: (mode: AlphaOperatingMode["effective_mode"]) => apiPost<AlphaOperatingMode>("/api/v1/alpha-operating-mode", { mode }),
+    onSuccess: onSaved,
+  });
+  return <section className="inventory-panel integration-card">
+    <header>
+      <div><h2>{value.effective_mode === "doobielogic_sandbox" ? "DoobieLogic Sandbox" : "Metrc Sandbox"}</h2><p>{value.message}</p></div>
+      <span className={`badge ${value.effective_mode === "metrc_sandbox" ? "production-ready" : ""}`}>{value.effective_mode === "doobielogic_sandbox" ? "LOCAL ALPHA" : "METRC SANDBOX"}</span>
+    </header>
+    <div className="integration-grid">
+      {value.choices.map(choice => <section className="inventory-panel" key={choice.id}>
+        <h3>{choice.label}</h3>
+        <p>{choice.description}</p>
+        <button className={value.effective_mode === choice.id ? "secondary" : "primary"} disabled={change.isPending || value.effective_mode === choice.id} onClick={() => change.mutate(choice.id)}>{value.effective_mode === choice.id ? "Active" : `Use ${choice.label}`}</button>
+      </section>)}
+    </div>
+    <div className="info-banner"><strong>Alpha safety boundary:</strong> DoobieLogic Sandbox never requires Metrc credentials and blocks Metrc provider dispatch. Metrc Sandbox remains sandbox-only; production credentials and production writes are not enabled by this selector.</div>
+    <p className="source-caption">Selection source: {value.explicit ? "saved facility choice" : value.source.replaceAll("_", " ")}. Existing verified Metrc sandbox facilities keep their current behavior until an administrator explicitly changes the mode.</p>
+    {change.isError ? <div className="form-error">{change.error.message}</div> : null}
+  </section>;
+}
+
+function MetrcCard({ value, enabled, onSaved }: { value: Integration; enabled: boolean; onSaved: () => void }) {
   const [form, setForm] = useState({ state: "", license_number: "", api_key: "" });
   useEffect(() => setForm(current => ({ ...current, state: String(value.configuration.state ?? ""), license_number: String(value.configuration.license_number ?? "") })), [value]);
   const save = useMutation({ mutationFn: () => apiPost("/api/v1/integrations/metrc", { state: form.state, license_number: form.license_number, api_key: form.api_key || null }), onSuccess: () => { setForm({ ...form, api_key: "" }); onSaved(); } });
   const test = useMutation({ mutationFn: () => apiPost<Integration & { result: { ok: boolean; message: string } }>("/api/v1/integrations/metrc/test", {}), onSuccess: onSaved });
   const clear = useMutation({ mutationFn: () => apiPost("/api/v1/integrations/metrc/clear", {}), onSuccess: () => { setForm({ state: "", license_number: "", api_key: "" }); onSaved(); } });
-  return <IntegrationCard title="METRC" description="The app performs a read-only facility check. Your METRC user key is masked after it is saved." value={value}>
-    <div className="form-grid">
-      <label>METRC User API Key<input type="password" autoComplete="off" placeholder={value.configured ? `Saved ${value.secret_hint} · leave blank to keep` : "Enter API key"} value={form.api_key} onChange={event => setForm({ ...form, api_key: event.target.value })}/></label>
-      <label>METRC State<input value={form.state} placeholder="e.g., CA, MA, MI, or https://api-ca.metrc.com" onChange={event => setForm({ ...form, state: event.target.value })}/></label>
-      <label className="span-2">METRC License / Facility<input value={form.license_number} onChange={event => setForm({ ...form, license_number: event.target.value })}/></label>
-    </div>
-    <Actions save={() => save.mutate()} test={() => test.mutate()} clear={() => clear.mutate()} disabled={!form.state || !form.license_number || (!value.configured && !form.api_key)} pending={save.isPending || test.isPending || clear.isPending}/>
-    {save.isError || test.isError || clear.isError ? <div className="form-error">{save.error?.message || test.error?.message || clear.error?.message}</div> : null}
-    {test.data ? <div className={test.data.result.ok ? "connection-result success" : "connection-result error"}>{test.data.result.message}</div> : null}
+  return <IntegrationCard title="METRC" description={enabled ? "The app performs a read-only facility check. Your METRC user key is masked after it is saved." : "Optional during alpha. Select Metrc Sandbox above before configuring or testing provider credentials."} value={value}>
+    {!enabled ? <div className="info-banner">DoobieLogic Sandbox is active. Existing saved Metrc credentials are left encrypted in place, but provider reads and writes are disabled.</div> : <>
+      <div className="form-grid">
+        <label>METRC User API Key<input type="password" autoComplete="off" placeholder={value.configured ? `Saved ${value.secret_hint} · leave blank to keep` : "Enter API key"} value={form.api_key} onChange={event => setForm({ ...form, api_key: event.target.value })}/></label>
+        <label>METRC State<input value={form.state} placeholder="e.g., CA, MA, MI, or https://api-ca.metrc.com" onChange={event => setForm({ ...form, state: event.target.value })}/></label>
+        <label className="span-2">METRC License / Facility<input value={form.license_number} onChange={event => setForm({ ...form, license_number: event.target.value })}/></label>
+      </div>
+      <Actions save={() => save.mutate()} test={() => test.mutate()} clear={() => clear.mutate()} disabled={!form.state || !form.license_number || (!value.configured && !form.api_key)} pending={save.isPending || test.isPending || clear.isPending}/>
+      {save.isError || test.isError || clear.isError ? <div className="form-error">{save.error?.message || test.error?.message || clear.error?.message}</div> : null}
+      {test.data ? <div className={test.data.result.ok ? "connection-result success" : "connection-result error"}>{test.data.result.message}</div> : null}
+    </>}
   </IntegrationCard>;
 }
 
