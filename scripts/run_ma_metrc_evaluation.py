@@ -27,6 +27,7 @@ from services.metrc_evaluation_master_data import (
 )
 from services.metrc_evaluation_reads import READ_EVALUATION_ACTIONS, execute_evaluation_read
 from services.metrc_evaluation_sales import SALES_EVALUATION_ACTIONS, execute_sales_evaluation_action
+from services.metrc_evaluation_submission import ma_submission_context
 from services.metrc_evaluation_transfers import (
     TRANSFER_READ_EVALUATION_ACTIONS,
     TRANSFER_WRITE_EVALUATION_ACTIONS,
@@ -117,6 +118,7 @@ def main() -> None:
 
     if args.operation == "workbook_plan":
         plan = ma_workbook_plan()
+        plan["submission_context"] = ma_submission_context()
         _write_evidence(args.output, plan)
         print(f"Workbook sheets: {plan['sheet_count']}")
         print(f"MA applicable task rows: {plan['applicable_task_count']}")
