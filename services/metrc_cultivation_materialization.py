@@ -57,6 +57,9 @@ def _provider_label(record: Mapping[str, Any], *source_keys: str) -> str:
 
 def _strain(record: Mapping[str, Any]) -> str:
     source = _source(record)
+    # A normalized record's generic `name` can be a plant-batch display label,
+    # not a strain. Only provider fields that explicitly describe strain are
+    # authoritative enough to seed canonical cultivation master data.
     return _nested_name(
         _first(
             source,
@@ -67,7 +70,6 @@ def _strain(record: Mapping[str, Any]) -> str:
             "Strain",
             "strain",
         )
-        or record.get("name")
     )
 
 
