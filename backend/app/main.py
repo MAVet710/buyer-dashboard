@@ -59,6 +59,7 @@ from .routers.admin_facilities import update_facility
 from .routers.admin_storefronts import router as admin_storefronts_router
 from .routers.admin_user_create import router as admin_user_create_router
 from .routers.admin_uploads import router as admin_uploads_router
+from .routers.alpha_operating_mode import router as alpha_operating_mode_router
 from .routers.integrations import router as integrations_router
 from .routers.native_integrations import router as native_integrations_router
 from .routers.quickbooks_purchasing import router as quickbooks_purchasing_router
@@ -208,6 +209,7 @@ def readiness(engine: Engine = Depends(get_engine)) -> dict:
         "cultivation_plants",
         "retail_planning_policies",
         "integration_configurations",
+        "alpha_operating_modes",
         "sop_documents",
         "label_reviews",
         "machine_telemetry_events",
@@ -300,6 +302,7 @@ app.add_api_route(
     name="update_facility",
 )
 app.include_router(admin_uploads_router, prefix=settings.api_prefix)
+app.include_router(alpha_operating_mode_router, prefix=settings.api_prefix)
 app.include_router(integrations_router, prefix=settings.api_prefix)
 app.include_router(native_integrations_router, prefix=settings.api_prefix)
 app.include_router(quickbooks_purchasing_router, prefix=settings.api_prefix)
