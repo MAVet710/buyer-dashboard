@@ -13,10 +13,12 @@ The explicit facility initial-sync step now:
 1. Reads every available page for the verified Metrc bootstrap resources, using 100-record pages and a defensive 100-page ceiling per collection.
 2. Preserves the provider records in the existing immutable integration-sync mirror with deterministic fingerprint deduplication.
 3. Uses the completed active-package snapshot to seed new canonical Product + Inventory Lot + append-only inventory balance records when package and Metrc Item identity are unambiguous.
-4. Leaves every already-existing local package and Product unchanged.
-5. Returns collisions and ambiguous identities as materialization conflicts rather than guessing or silently overwriting local state.
-6. Marks unknown/untested package lab state as local hold; only explicit passed/released/not-required states seed as available.
-7. Records provider-seeded inventory through the normal organization/facility ledger and audit trail, so existing Inventory and reconciliation surfaces can see it immediately.
+4. Writes exact Product↔Metrc Item and Inventory Lot↔Metrc Package identities into the existing provider-neutral `traceability_object_links` spine. Generic Product/POS external IDs are not claimed by Metrc hydration.
+5. Can establish those exact identity links for an already-existing local package when its compliance package label matches the provider package and no conflicting link exists; it still does not change the existing balance, room, Product metadata, or status.
+6. Fails closed if an existing traceability link belongs to another jurisdiction/license scope, even when the provider ID itself matches.
+7. Returns collisions and ambiguous identities as materialization conflicts rather than guessing or silently overwriting local state.
+8. Marks unknown/untested package lab state as local hold; only explicit passed/released/not-required states seed as available.
+9. Records provider-seeded inventory through the normal organization/facility ledger and audit trail, so existing Inventory and reconciliation surfaces can see it immediately.
 
 ### Provider resources hydrated
 
@@ -43,15 +45,16 @@ Direct resources:
 
 ## Non-overwrite rule
 
-Initial hydration is allowed to create missing canonical state. It is not allowed to repair a disagreement by mutating an existing canonical record.
+Initial hydration is allowed to create missing canonical state and establish exact provider identity. It is not allowed to repair a disagreement by mutating an existing canonical record.
 
 Examples:
 
-- Metrc package exists and DoobieLogic package does not: seed the package when exact Item identity is available.
-- Same Metrc package already exists locally: do not change quantity, room, Product, or status; reconciliation owns the difference.
+- Metrc package exists and DoobieLogic package does not: seed the package when exact Package and Item identity are available.
+- Same Metrc package label already exists locally: establish exact identity links when unambiguous, but do not change quantity, room, Product metadata, or status; reconciliation owns any difference.
 - Local lot code collides with the Metrc package label but does not carry the same compliance package identity: block materialization and return a conflict.
 - Exact Metrc Item identity exists but local Product name/unit differs: preserve the local Product and report a warning.
-- Metrc package has no exact Item id/name pair: do not guess Product identity.
+- Metrc package has no exact Item id/name pair or no exact provider Package ID + label pair: do not guess identity.
+- Existing Item/Package link belongs to a different license scope: block hydration and require reconciliation rather than rebinding it.
 
 ## Still required by the approved end state
 
