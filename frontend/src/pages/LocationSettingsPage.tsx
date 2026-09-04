@@ -106,6 +106,13 @@ export function LocationSettingsPage() {
     mutationFn: () => apiPost<{ employee_license_number: string }>("/api/v1/location-settings/metrc-employee", { employee_license_number: employeeLicense }),
     onSuccess: () => { client.invalidateQueries({ queryKey: ["facility-setup"] }); permissions.refetch(); },
   });
+  const validateMetrc = useMutation({
+    mutationFn: () => apiPost<{ result: { ok: boolean; message: string } }>("/api/v1/integrations/metrc/test", {}),
+    onSuccess: async () => {
+      // Clear old disabled live-read errors as well as refreshing readiness.
+      await client.resetQueries({ queryKey: ["facility-setup"] });
+    },
+  });
   const prepareAction = useMutation({
     mutationFn: (request: PrepareRequest) => apiPost<PreviewPayload>("/api/v1/location-settings/metrc-action-preview", request),
     onSuccess: data => setPreview(data),
@@ -130,10 +137,14 @@ export function LocationSettingsPage() {
           <label className="span-2">Metrc employee license number<input value={employeeLicense} placeholder="Used only for facility-specific permission introspection" onChange={event => setEmployeeLicense(event.target.value)}/></label>
         </div>
         <div className="button-row">
+          {setup.data.metrc.environment === "sandbox" && setup.data.metrc.trusted_mapping ? <button className="secondary" type="button" disabled={validateMetrc.isPending || !setup.data.metrc.configured} onClick={() => validateMetrc.mutate()}>{validateMetrc.isPending ? "Validating facility…" : "Validate this sandbox facility"}</button> : null}
           <button className="secondary" type="button" disabled={!setup.data.can_manage || saveEmployee.isPending || !setup.data.metrc.configured} onClick={() => saveEmployee.mutate()}>{saveEmployee.isPending ? "Saving…" : "Save employee identity"}</button>
           <button className="secondary" type="button" disabled={permissions.isFetching || !setup.data.metrc.configured} onClick={() => permissions.refetch()}>{permissions.isFetching ? "Checking…" : "Check Metrc permissions"}</button>
         </div>
         {saveEmployee.isError ? <div className="state error">{saveEmployee.error.message}</div> : null}
+        {validateMetrc.isError ? <div className="state error">{validateMetrc.error.message}</div> : null}
+        {validateMetrc.data ? <div className={validateMetrc.data.result.ok ? "success-banner" : "state error"}>{validateMetrc.data.result.message}</div> : null}
+        {setup.data.metrc.environment === "sandbox" ? <p className="source-caption">Switch sandbox facilities using the Facility selector above. Each discovered license keeps its own connection; you do not need to edit the license or re-enter keys. A placeholder or unmapped facility must be discovered and linked in Integrations first.</p> : null}
         {permissions.isError ? <div className="state error">{permissions.error.message}</div> : null}
         {permissions.data ? <div className="inventory-panel"><strong>{permissions.data.status === "synced" ? "Permission sync complete" : "Permission enforcement"}</strong><p>{permissions.data.message}</p>{permissions.data.permissions.length ? <p className="source-caption">{permissions.data.permissions.join(" · ")}</p> : null}</div> : null}
       </section>

@@ -298,6 +298,7 @@ def _discover_metrc_facilities(
         )
     except (MetrcFacilityOnboardingError, RuntimeError) as exc:
         raise HTTPException(422, str(exc)) from exc
+    _validate_discovered_connections(service, context, discovery)
     # Return durable mappings before the potentially minutes-long multi-facility
     # bootstrap. The client advances one mapped facility at a time and can retry
     # a failed step without replaying discovery or copying credentials again.
@@ -311,6 +312,27 @@ def _discover_metrc_facilities(
         "facility_count": len(records),
         **discovery,
     }
+
+
+def _validate_discovered_connections(service, context, discovery: dict) -> None:
+    # Call only after successful provider discovery/confirmation and binding.
+    # The fresh authenticated facilities response proves access to each bound
+    # license. Do not discard that proof when copying the same key pair into
+    # its facility-scoped connection. Unconfirmed matches stay unvalidated.
+    for bound in discovery.get("facilities", []):
+        if bound.get("status") not in {"created", "linked"}:
+            continue
+        facility_id = str((bound.get("doobielogic_facility") or {}).get("id") or "")
+        credential = service.get("user", f"{context.user_id}|{facility_id}", "metrc")
+        if credential is None:
+            continue
+        configuration = service.public(credential).get("configuration") or {}
+        if (credential.organization_id == context.organization_id
+                and credential.facility_id == facility_id
+                and configuration.get("environment") == "sandbox"
+                and configuration.get("state") == "MA"
+                and configuration.get("license_number") == bound.get("license_number")):
+            service.validation_result(credential.id, ok=True)
 
 
 @router.get("")
@@ -504,6 +526,7 @@ def confirm_metrc_sandbox_facility(
         )
     except (MetrcFacilityOnboardingError, RuntimeError) as exc:
         raise HTTPException(422, str(exc)) from exc
+    _validate_discovered_connections(service, context, {"facilities": [result]})
     _bootstrap_bound_facilities(discovery={"facilities": [result]}, records=[selected],
         vendor=vendor, user=user, service=service, context=context, engine=engine)
     return {"ok": True, "facility": result}
