@@ -103,7 +103,7 @@ def test_profitability_analytics_use_current_invoice_and_product_cost_schema():
     assert insights["period_days"] == 30
 
 
-def test_integrations_get_returns_unconfigured_metrc_instead_of_crashing_without_encryption_key():
+def test_integrations_get_returns_local_alpha_metrc_status_without_crashing_without_encryption_key():
     engine = _engine()
     organization_id, facility_id, _ = _operation(engine)
     context = RequestContext("alpha", organization_id, facility_id, role="admin")
@@ -115,7 +115,7 @@ def test_integrations_get_returns_unconfigured_metrc_instead_of_crashing_without
     assert result["metrc"]["status"] == "not_connected"
     assert result["metrc"]["facility_id"] == facility_id
     assert result["metrc"]["facility_scoped"] is True
-    assert "not configured" in result["metrc"]["message"].casefold()
+    assert "doobielogic sandbox is active" in result["metrc"]["message"].casefold()
 
 
 def test_slow_movers_normalizes_sqlite_naive_received_timestamp():
