@@ -47,9 +47,9 @@ def test_harvest_waste_types_use_exact_fixed_path_and_unique_provider_names():
         transport=transport,
     )
 
-    assert transport.calls == [("harvests/v2/waste/types", {"pageSize": 100, "pageNumber": 1})]
+    assert transport.calls == [("harvests/v2/waste/types", {"pageSize": 20, "pageNumber": 1})]
     assert result["items"] == ["Plant Material", "Trim"]
-    assert result["bounded_page_size"] == 100
+    assert result["bounded_page_size"] == 20
     assert result["correlation_id"] == "corr-1"
 
 

@@ -254,6 +254,13 @@ class SnapshottingMetrcFacilityBootstrapService(BaseMetrcFacilityBootstrapServic
             status = str(result.get("status") or "")
             http_status = int(result.get("http_status") or 0)
             message = str(result.get("message") or "Metrc resource was unavailable.")[:512]
+            if http_status == 401:
+                message = (
+                    "Metrc rejected this resource request (HTTP 401). Verify the saved key pair and the selected "
+                    "license's permission for this resource. A successful Facilities or other authenticated Metrc "
+                    "read means this should be investigated as resource/license permission scope before treating "
+                    "the saved keys as globally invalid."
+                )
             if http_status in {403, 404} or status in {"forbidden", "regulatory_read_blocked"}:
                 self._mark_skipped(organization_id, facility_id, resource, environment, actor, message)
                 return {

@@ -19,6 +19,9 @@ class RegulatoryReadError(ValueError):
     """Raised when a regulatory read cannot be proven safe to plan."""
 
 
+METRC_V2_MAX_PAGE_SIZE = 20
+
+
 @dataclass(frozen=True)
 class MetrcReadResourceSpec:
     name: str
@@ -96,8 +99,14 @@ METRC_READ_RESOURCES: dict[str, MetrcReadResourceSpec] = {
     "sales_receipts_active": MetrcReadResourceSpec("sales_receipts_active", "sales", "sales/v2/receipts/active"),
     "sales_deliveries_by_id": MetrcReadResourceSpec("sales_deliveries_by_id", "sales", "sales/v2/deliveries/{id}", paginated=False, required_path_parameters=("id",)),
     "sales_deliveries_active": MetrcReadResourceSpec("sales_deliveries_active", "sales", "sales/v2/deliveries/active"),
-    "package_tags_available": MetrcReadResourceSpec("package_tags_available", "tags", "tags/v2/package/available"),
-    "plant_tags_available": MetrcReadResourceSpec("plant_tags_available", "tags", "tags/v2/plant/available"),
+    # Available-tag endpoints return the full available set for the license and do
+    # not accept the standard v2 pageSize/pageNumber parameters.
+    "package_tags_available": MetrcReadResourceSpec(
+        "package_tags_available", "tags", "tags/v2/package/available", paginated=False
+    ),
+    "plant_tags_available": MetrcReadResourceSpec(
+        "plant_tags_available", "tags", "tags/v2/plant/available", paginated=False
+    ),
     "transporter_drivers": MetrcReadResourceSpec("transporter_drivers", "transporters", "transporters/v2/drivers"),
     "transporter_vehicles": MetrcReadResourceSpec("transporter_vehicles", "vehicles", "transporters/v2/vehicles"),
 }
@@ -147,12 +156,17 @@ def build_metrc_read_plan(
     if spec.license_scoped:
         params["licenseNumber"] = license_number
     if spec.paginated:
-        params["pageSize"] = max(1, min(int(page_size), 100))
+        params["pageSize"] = max(1, min(int(page_size), METRC_V2_MAX_PAGE_SIZE))
         params["pageNumber"] = max(1, int(page_number))
 
     for key, value in (query or {}).items():
         if key == "licenseNumber" and spec.license_scoped and str(value or "").strip() != license_number:
             raise RegulatoryReadError("Query parameters cannot substitute a different Metrc facility license.")
+        if key == "pageSize" and spec.paginated:
+            try:
+                value = max(1, min(int(value), METRC_V2_MAX_PAGE_SIZE))
+            except (TypeError, ValueError):
+                raise RegulatoryReadError("Metrc pageSize must be an integer between 1 and 20.")
         params[key] = value
 
     return MetrcReadPlan(

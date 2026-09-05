@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from modules.regulatory.metrc_resources import METRC_V2_MAX_PAGE_SIZE
 from services.metrc_client import fetch_metrc_resource
 
 
 MAX_EVALUATION_PAGES = 10_000
-DEFAULT_PAGE_SIZE = 20
+DEFAULT_PAGE_SIZE = METRC_V2_MAX_PAGE_SIZE
 
 
 def _total_pages(payload: Any) -> int:
@@ -54,7 +55,7 @@ def fetch_all_metrc_resource_pages(
     """
 
     fetch = fetch_fn or fetch_metrc_resource
-    size = max(1, min(int(page_size), 100))
+    size = max(1, min(int(page_size), METRC_V2_MAX_PAGE_SIZE))
     ceiling = max(1, int(max_pages))
     page = 1
     total_pages = 1

@@ -7,15 +7,16 @@ from modules.integrations.hydration_checkpoints import (
     IntegrationHydrationCheckpointRepository,
     page_fingerprint,
 )
-from modules.regulatory.metrc_resources import payload_rows
+from modules.regulatory.metrc_resources import METRC_V2_MAX_PAGE_SIZE, payload_rows
 from services import metrc_facility_bootstrap as base_bootstrap
 from services.metrc_client import MetrcTransport
-from services.metrc_facility_bootstrap import MAX_INITIAL_PAGES, PAGE_SIZE, _total_pages
+from services.metrc_facility_bootstrap import MAX_INITIAL_PAGES, _total_pages
 from services.metrc_facility_snapshot_bootstrap import SnapshottingMetrcFacilityBootstrapService
 
 
 READ_MAX_ATTEMPTS = 4
 PROVIDER_CONCURRENCY = 3
+PAGE_SIZE = METRC_V2_MAX_PAGE_SIZE
 
 
 class ResilientSnapshottingMetrcFacilityBootstrapService(SnapshottingMetrcFacilityBootstrapService):
@@ -53,6 +54,9 @@ class ResilientSnapshottingMetrcFacilityBootstrapService(SnapshottingMetrcFacili
             result = super().sync(**kwargs)
         finally:
             self._hydration_scope = {}
+        # The base bootstrap historically reported a 100-record request size.
+        # Runtime hydration is v2 and must stay within Metrc's 20-record page cap.
+        result["page_size"] = PAGE_SIZE
         result["hydration_reliability"] = {
             "page_checkpoint_resume": True,
             "resume_anchor_validation": True,
