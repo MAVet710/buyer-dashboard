@@ -88,6 +88,7 @@ def compose_metrc_runtime() -> None:
     regulatory_detail_router = regulatory_detail_module.router
 
     from .services.metrc_context import resolve_metrc_context
+    from .services.metrc_permission_evidence import MetrcPermissionEvidenceStore
     from .services.metrc_sync_policy import MetrcPolicySyncControlService
 
     def route_key(route) -> tuple[str, tuple[str, ...]]:
@@ -169,6 +170,7 @@ def compose_metrc_runtime() -> None:
     original_sandbox_sync = sandbox_integrations.run_sandbox_sync
     original_sandbox_status = sandbox_integrations.sandbox_runtime_status
     original_sandbox_retry = sandbox_integrations.retry_sandbox_sync
+    original_discover_metrc_facilities = sandbox_integrations._discover_metrc_facilities
 
     def natural_metrc_context(*, context, engine, settings):
         try:
@@ -187,6 +189,31 @@ def compose_metrc_runtime() -> None:
                 "Verify the exact Metrc sandbox facility/license mapping before synchronization.",
             )
         return metrc
+
+    def discovered_facilities_without_permission_prerequisite(*, service, context, engine, settings):
+        result = original_discover_metrc_facilities(
+            service=service,
+            context=context,
+            engine=engine,
+            settings=settings,
+        )
+        public = dict(result)
+        public["bootstrap_resources"] = [
+            str(resource)
+            for resource in result.get("bootstrap_resources", [])
+            if str(resource) != "facility_permissions"
+        ]
+        public["optional_capability_checks"] = [
+            {
+                "resource": "employee_permissions",
+                "endpoint": "GET /employees/v2/permissions",
+                "required_for_initial_hydration": False,
+                "message": (
+                    "Permission introspection is optional and is captured as audit evidence when the connected employee identity and provider access allow it. Metrc still enforces permissions on every resource request."
+                ),
+            }
+        ]
+        return public
 
     @wraps(original_sandbox_sync)
     def natural_sandbox_sync(provider, payload, context, engine, settings):
@@ -279,6 +306,9 @@ def compose_metrc_runtime() -> None:
 
     # Replace captured APIRoute callables as well as module globals. The alpha
     # wrapper imported legacy function objects earlier, so patch those aliases too.
+    sandbox_integrations._discover_metrc_facilities = (
+        discovered_facilities_without_permission_prerequisite
+    )
     sandbox_integrations.run_sandbox_sync = natural_sandbox_sync
     sandbox_integrations.sandbox_runtime_status = natural_sandbox_status
     sandbox_integrations.retry_sandbox_sync = natural_sandbox_retry
@@ -295,6 +325,7 @@ def compose_metrc_runtime() -> None:
     alpha_sandbox_connections.legacy_retry_sandbox_sync = natural_sandbox_retry
 
     original_facility_setup_overview = location_settings.facility_setup_overview
+    original_metrc_permissions = location_settings.metrc_permissions
 
     @wraps(original_facility_setup_overview)
     def synced_facility_setup_overview(
@@ -314,9 +345,49 @@ def compose_metrc_runtime() -> None:
             engine=engine,
         )
 
+    @wraps(original_metrc_permissions)
+    def persisted_metrc_permissions(
+        *,
+        context=Depends(location_settings.get_request_context),
+        engine=Depends(location_settings.get_engine),
+        settings=Depends(location_settings.get_settings),
+    ):
+        result = original_metrc_permissions(
+            context=context,
+            engine=engine,
+            settings=settings,
+        )
+        public = dict(result)
+        public["evidence_persisted"] = False
+        public["evidence_optional"] = True
+        if result.get("status") != "synced" or not result.get("can_introspect"):
+            return public
+        try:
+            _service, metrc = resolve_metrc_context(engine, settings, context)
+            evidence = MetrcPermissionEvidenceStore(engine).persist(
+                organization_id=context.organization_id,
+                facility_id=context.facility_id,
+                actor=context.user_id,
+                jurisdiction_code=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+                employee_license_number=str(result.get("employee_license_number") or ""),
+                permissions=result.get("permissions") or [],
+            )
+        except Exception as exc:  # permission evidence must never block normal provider reads
+            public["evidence_error"] = f"Permission evidence was not persisted: {exc}"
+            return public
+        public["evidence_persisted"] = True
+        public["evidence"] = evidence
+        return public
+
     location_settings.facility_setup_overview = synced_facility_setup_overview
     replace_route_call(
         location_settings.router, "/facility-setup", synced_facility_setup_overview
+    )
+    location_settings.metrc_permissions = persisted_metrc_permissions
+    replace_route_call(
+        location_settings.router, "/metrc-permissions", persisted_metrc_permissions
     )
 
     _COMPOSED = True
