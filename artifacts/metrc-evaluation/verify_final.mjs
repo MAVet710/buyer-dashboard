@@ -39,6 +39,13 @@ const SECRET_TOKENS = [
   "secret",
   "token",
 ];
+const REDACTED_METADATA_KEYS = new Set([
+  "secret_workbook_fields",
+  "secret_handling",
+  "secret_fields_filled",
+  "secret_values_recorded",
+  "secret",
+]);
 
 function fail(message) {
   console.error(`ERROR: ${message}`);
@@ -72,15 +79,11 @@ function credentialLikePaths(value, prefix = "") {
     for (const [key, nested] of Object.entries(value)) {
       const next = prefix ? `${prefix}.${key}` : key;
       const normalized = normalizeKey(key);
+      if (REDACTED_METADATA_KEYS.has(normalized)) {
+        continue;
+      }
       if (SECRET_TOKENS.some((token) => normalized.includes(token))) {
-        // Redacted bookkeeping fields are explicitly allowed.
-        const allowed = new Set([
-          "secret_workbook_fields",
-          "secret_handling",
-          "secret_fields_filled",
-          "secret_values_recorded",
-        ]);
-        if (!allowed.has(normalized)) findings.push(next);
+        findings.push(next);
       }
       findings.push(...credentialLikePaths(nested, next));
     }
