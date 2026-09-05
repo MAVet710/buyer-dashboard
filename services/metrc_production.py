@@ -22,7 +22,7 @@ def _fetch_all(
     environment: str = "production",
     timeout_seconds: int = 12,
 ) -> dict[str, Any]:
-    return _paged_resource_get(
+    result = _paged_resource_get(
         state=state,
         user_api_key=user_api_key,
         integrator_api_key=integrator_api_key,
@@ -31,6 +31,19 @@ def _fetch_all(
         license_number=license_number,
         timeout_seconds=timeout_seconds,
     )
+    if not result.get("ok") and int(result.get("http_status") or 0) == 401:
+        # A resource-scoped 401 is not enough evidence to declare both saved keys
+        # invalid. Metrc can reject a request because the user/license does not
+        # have the required module permission. Keep the failure fail-closed while
+        # giving the operator the correct next diagnostic step.
+        result["status"] = "authentication_or_permission_rejected"
+        result["message"] = (
+            "Metrc rejected this resource request (HTTP 401). Verify the saved user/integrator key pair "
+            "and that this user has permission for this resource on the selected license. If the Facilities "
+            "connection test still succeeds, treat this as a resource/license permission issue rather than "
+            "assuming the saved keys are globally invalid."
+        )
+    return result
 
 
 def fetch_all_active_processing_jobs(
