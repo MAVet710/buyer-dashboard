@@ -33,6 +33,8 @@ type ItemsPayload = LiveEnvelope & {
   categories: Record<string, unknown>[];
   brands: Record<string, unknown>[];
   units_of_measure: Record<string, unknown>[];
+  verification_status: "complete" | "partial";
+  warnings: { resource: string; label: string; status: "restricted" | "failed"; provider_status: string; http_status: number | null; message: string }[];
 };
 type ProcessingPayload = LiveEnvelope & {
   job_types: Record<string, unknown>[];
@@ -235,6 +237,7 @@ export function LocationSettingsPage() {
 
   const facility = context.data?.facilities.find(row => row.id === context.data?.facility_id);
   const roomTypes = rooms.data?.location_types ?? [];
+  const itemBrandsWarning = items.data?.warnings?.find(warning => warning.resource === "brands");
   const canPrepare = Boolean(setup.data?.can_manage && setup.data?.metrc.configured && setup.data?.metrc.status === "connected" && setup.data?.metrc.trusted_mapping);
   const onPrepare = (request: PrepareRequest) => { setPreview(null); setPreparedRequest(null); setExecution(null); prepareAction.mutate(request); };
 
@@ -314,14 +317,15 @@ export function LocationSettingsPage() {
         <LiveHeading section={setup.data.sections.find(section => section.key === "items")} loading={items.isFetching} loaded={Boolean(items.data)} onLoad={() => items.refetch()}/>
         {items.isError ? <div className="state error">{items.error.message}</div> : null}
         {items.data ? <>
+          {items.data.warnings.map(warning => <div className="state" key={warning.resource}><strong>{warning.label} unavailable.</strong> {warning.message}{warning.http_status ? ` Provider HTTP ${warning.http_status}.` : ""}</div>)}
           <div className="metric-grid">
             <div className="metric-card"><span>Active items</span><strong>{items.data.items.length}</strong></div>
             <div className="metric-card"><span>Inactive items</span><strong>{items.data.inactive_items.length}</strong></div>
-            <div className="metric-card"><span>Brands</span><strong>{items.data.brands.length}</strong></div>
+            <div className="metric-card"><span>Brands</span><strong>{itemBrandsWarning ? "—" : items.data.brands.length}</strong></div>
             <div className="metric-card"><span>Categories</span><strong>{items.data.categories.length}</strong></div>
           </div>
           <RecordGroup title="Active Metrc items" rows={items.data.items} nameKeys={["Name", "name"]} detailKeys={["ProductCategoryName", "ItemCategoryName", "BrandName", "UnitOfMeasureName"]}/>
-          <RecordGroup title="Item brands" rows={items.data.brands} nameKeys={["Name", "BrandName"]} detailKeys={["Status"]}/>
+          {!itemBrandsWarning ? <RecordGroup title="Item brands" rows={items.data.brands} nameKeys={["Name", "BrandName"]} detailKeys={["Status"]}/> : null}
           <RecordGroup title="Item categories" rows={items.data.categories} nameKeys={["Name", "ProductCategoryName"]} detailKeys={["ProductCategoryType", "Type"]}/>
           <RecordGroup title="Units of measure" rows={items.data.units_of_measure} nameKeys={["Name", "UnitOfMeasureName"]} detailKeys={["Abbreviation", "QuantityType"]}/>
           <RecordGroup title="Inactive Metrc items" rows={items.data.inactive_items} nameKeys={["Name", "name"]} detailKeys={["ProductCategoryName", "BrandName"]}/>
