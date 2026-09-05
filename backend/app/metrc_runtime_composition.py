@@ -21,7 +21,12 @@ def compose_metrc_runtime() -> None:
 
     global _COMPOSED
 
-    from fastapi import HTTPException
+    from fastapi import Depends, HTTPException
+    from sqlalchemy import Engine
+
+    from .auth import RequestContext, get_request_context
+    from .config import Settings, get_settings
+    from .database import get_engine
 
     from services import metrc_facility_bootstrap as metrc_facility_bootstrap
     from services import metrc_incremental_sync as metrc_incremental_sync_module
@@ -292,7 +297,11 @@ def compose_metrc_runtime() -> None:
 
     original_facility_setup_overview = location_settings.facility_setup_overview
 
-    def synced_facility_setup_overview(*, context, engine, settings):
+    def synced_facility_setup_overview(
+        context: RequestContext = Depends(get_request_context),
+        engine: Engine = Depends(get_engine),
+        settings: Settings = Depends(get_settings),
+    ):
         overview = original_facility_setup_overview(
             context=context,
             engine=engine,

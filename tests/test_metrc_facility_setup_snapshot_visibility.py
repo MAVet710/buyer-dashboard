@@ -185,3 +185,22 @@ def test_location_settings_frontend_renders_backend_section_labels_on_normal_pag
     assert 'apiGet<FacilitySetup>("/api/v1/location-settings/facility-setup"' in source
     assert "setup.data.sections.map(section" in source
     assert "{section.label}" in source
+
+
+def test_composed_facility_setup_route_injects_runtime_dependencies():
+    from fastapi import FastAPI
+
+    from backend.app.metrc_runtime_composition import compose_metrc_runtime
+    from backend.app.routers.location_settings import router
+
+    compose_metrc_runtime()
+    test_app = FastAPI()
+    test_app.include_router(router, prefix="/api/v1")
+    parameters = test_app.openapi()["paths"]["/api/v1/location-settings/facility-setup"]["get"].get("parameters", [])
+    required_query_fields = {
+        str(field.get("name") or "")
+        for field in parameters
+        if field.get("in") == "query" and field.get("required")
+    }
+
+    assert required_query_fields.isdisjoint({"context", "engine", "settings"})
