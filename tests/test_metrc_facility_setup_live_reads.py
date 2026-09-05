@@ -44,6 +44,19 @@ class PagedFakeTransport:
         }
 
 
+class RestrictedBrandsTransport(FakeTransport):
+    def get(self, path: str, query: dict[str, object]):
+        self.calls.append((path, dict(query)))
+        if path == "items/v2/brands":
+            return {
+                "ok": False,
+                "http_status": 401,
+                "status": "auth_failed",
+                "message": "Metrc rejected the saved API keys.",
+            }
+        return {"ok": True, "http_status": 200, "payload": [{"Id": len(self.calls), "Name": path}]}
+
+
 @pytest.fixture
 def live_metrc(monkeypatch: pytest.MonkeyPatch):
     metrc = SimpleNamespace(
@@ -91,6 +104,51 @@ def test_items_live_read_uses_documented_master_data_endpoints(live_metrc):
         "truncated": False,
         "max_pages": 20,
     }
+    assert result["verification_status"] == "complete"
+    assert result["warnings"] == []
+
+
+def test_items_live_read_keeps_verified_data_when_brands_are_restricted(monkeypatch: pytest.MonkeyPatch):
+    metrc = SimpleNamespace(
+        state="MA",
+        license_number="LIC-TEST",
+        environment="sandbox",
+        configured=True,
+        status="connected",
+        trusted_mapping=True,
+        user_api_key="user-key",
+        integrator_api_key="integrator-key",
+    )
+    transport = RestrictedBrandsTransport()
+    monkeypatch.setattr(location_settings, "_trusted_metrc", lambda *_args, **_kwargs: (None, metrc))
+    monkeypatch.setattr(location_settings, "_transport", lambda _metrc: transport)
+
+    result = location_settings.metrc_items(context=object(), engine=object(), settings=object())
+
+    assert [path for path, _ in transport.calls] == [
+        "items/v2/active",
+        "items/v2/inactive",
+        "items/v2/categories",
+        "items/v2/brands",
+        "unitsofmeasure/v2/active",
+    ]
+    assert len(result["items"]) == 1
+    assert len(result["inactive_items"]) == 1
+    assert len(result["categories"]) == 1
+    assert len(result["units_of_measure"]) == 1
+    assert result["brands"] == []
+    assert result["verification_status"] == "partial"
+    assert result["warnings"] == [{
+        "resource": "brands",
+        "label": "item brands",
+        "status": "restricted",
+        "provider_status": "auth_failed",
+        "http_status": 401,
+        "message": "Metrc did not authorize item brands for this facility or user. Other verified item data remains available.",
+    }]
+    assert result["pagination"]["brands"]["complete"] is False
+    assert result["pagination"]["brands"]["failed_page"] == 1
+    assert result["pagination"]["brands"]["http_status"] == 401
 
 
 def test_master_data_paging_reaches_records_beyond_first_page():
@@ -324,6 +382,8 @@ def test_frontend_keeps_live_provider_reads_opt_in_and_visible():
         "reconciliation instead of blind retry",
     ):
         assert label in source
+    assert "items.data.warnings.map" in source
+    assert 'itemBrandsWarning ? "—" : items.data.brands.length' in source
     assert source.count("enabled: false") >= 7
 
 

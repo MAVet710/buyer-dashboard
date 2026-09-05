@@ -202,6 +202,69 @@ def _paged_provider_rows(
     }
 
 
+def _optional_paged_provider_rows(
+    transport: MetrcTransport,
+    metrc,
+    path: str,
+    label: str,
+    resource: str,
+    *,
+    page_size: int = MASTER_DATA_EDIT_PAGE_SIZE,
+    max_pages: int = MASTER_DATA_EDIT_MAX_PAGES,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
+    """Load an optional collection without hiding independently verified data."""
+
+    safe_page_size = max(1, min(int(page_size or MASTER_DATA_EDIT_PAGE_SIZE), METRC_V2_MAX_PAGE_SIZE))
+    safe_max_pages = max(1, min(int(max_pages or MASTER_DATA_EDIT_MAX_PAGES), MASTER_DATA_EDIT_MAX_PAGES))
+    rows: list[dict[str, Any]] = []
+    pages_loaded = 0
+    last_page_count = 0
+    for page_number in range(1, safe_max_pages + 1):
+        result = transport.get(path, _page_query(metrc, safe_page_size, page_number))
+        if not result.get("ok"):
+            http_status = int(result.get("http_status") or 0) or None
+            provider_status = str(result.get("status") or "provider_error")
+            restricted = http_status in {401, 403} or provider_status in {"auth_failed", "forbidden"}
+            warning_status = "restricted" if restricted else "failed"
+            message = (
+                f"Metrc did not authorize {label} for this facility or user. Other verified item data remains available."
+                if restricted
+                else f"Metrc could not load {label}. Other verified item data remains available."
+            )
+            return [], {
+                "page_size": safe_page_size,
+                "pages_loaded": pages_loaded,
+                "records_loaded": 0,
+                "truncated": False,
+                "max_pages": safe_max_pages,
+                "complete": False,
+                "failed_page": page_number,
+                "http_status": http_status,
+            }, {
+                "resource": resource,
+                "label": label,
+                "status": warning_status,
+                "provider_status": provider_status,
+                "http_status": http_status,
+                "message": message,
+            }
+        page_rows = _provider_rows(result, label)
+        rows.extend(page_rows)
+        pages_loaded = page_number
+        last_page_count = len(page_rows)
+        if last_page_count < safe_page_size:
+            break
+    truncated = pages_loaded == safe_max_pages and last_page_count == safe_page_size
+    return rows, {
+        "page_size": safe_page_size,
+        "pages_loaded": pages_loaded,
+        "records_loaded": len(rows),
+        "truncated": truncated,
+        "max_pages": safe_max_pages,
+        "complete": not truncated,
+    }, None
+
+
 def _license_query(metrc) -> dict[str, Any]:
     return {"licenseNumber": metrc.license_number}
 
@@ -469,8 +532,15 @@ def metrc_items(
     active, active_page = _paged_provider_rows(transport, metrc, "items/v2/active", "active items")
     inactive, inactive_page = _paged_provider_rows(transport, metrc, "items/v2/inactive", "inactive items")
     categories, category_page = _paged_provider_rows(transport, metrc, "items/v2/categories", "item categories")
-    brands, brand_page = _paged_provider_rows(transport, metrc, "items/v2/brands", "item brands")
+    brands, brand_page, brand_warning = _optional_paged_provider_rows(
+        transport,
+        metrc,
+        "items/v2/brands",
+        "item brands",
+        "brands",
+    )
     units = _provider_rows(transport.get("unitsofmeasure/v2/active", {}), "units of measure")
+    warnings = [brand_warning] if brand_warning else []
     return {
         **_live_envelope(metrc, MASTER_DATA_EDIT_PAGE_SIZE),
         "items": active,
@@ -478,6 +548,8 @@ def metrc_items(
         "categories": categories,
         "brands": brands,
         "units_of_measure": units,
+        "verification_status": "partial" if warnings else "complete",
+        "warnings": warnings,
         "pagination": {
             "items": active_page,
             "inactive_items": inactive_page,
