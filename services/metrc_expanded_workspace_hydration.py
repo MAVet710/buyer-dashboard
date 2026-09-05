@@ -6,6 +6,7 @@ from typing import Any, Mapping
 from sqlalchemy import Engine
 
 from modules.integrations.provider_snapshot import IntegrationProviderSnapshotRepository
+from services.metrc_authoritative_inventory import MetrcAuthoritativeInventoryReconciler
 from services.metrc_cultivation_materialization import MetrcCultivationMaterializer
 from services.metrc_workspace_hydration import MetrcWorkspaceHydrationService as BaseMetrcWorkspaceHydrationService
 
@@ -24,11 +25,13 @@ def _explicit_batch_strain(record: Mapping[str, Any]) -> str:
 
 
 class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
-    """Extend the established Product/Inventory hydrator into Cultivation.
+    """Extend provider hydration into canonical Inventory and Cultivation workspaces.
 
-    Existing provider-owned transfer/history objects remain shadows. Existing local
-    cultivation objects remain non-overwrite; exact provider IDs and regulatory tags
-    are the identity boundary for provider-seeded canonical state.
+    Metrc is authoritative for regulated package state. The base hydrator establishes
+    exact Product/Package identity and seeds new canonical rows; this layer then
+    reconciles already-linked inventory to the current provider quantity/location/
+    testing state with an append-only ledger delta. Provider-owned transfer/history
+    objects remain shadows. Cultivation identity remains exact and fail-closed.
     """
 
     def __init__(self, engine: Engine):
@@ -89,6 +92,29 @@ class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
             actor=actor,
             resource_snapshots=snapshots,
         )
+
+        packages = [dict(row) for row in snapshots.get("packages", []) if isinstance(row, dict)]
+        if packages:
+            authoritative = MetrcAuthoritativeInventoryReconciler(self.engine).reconcile(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                state=state,
+                environment=environment,
+                license_number=license_number,
+                actor=actor,
+                packages=packages,
+            )
+            inventory = result.setdefault("workspaces", {}).setdefault(
+                "inventory",
+                {
+                    "workspace": "inventory",
+                    "mode": "materialized",
+                    "source_package_count": len(packages),
+                },
+            )
+            inventory["authority"] = "metrc"
+            inventory["regulated_state_authoritative"] = True
+            inventory["authoritative_reconciliation"] = authoritative
 
         cultivation_keys = (
             "locations",
