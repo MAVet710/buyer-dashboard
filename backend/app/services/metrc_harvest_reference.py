@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from modules.regulatory.metrc_resources import METRC_V2_MAX_PAGE_SIZE
 from services.metrc_client import MetrcTransport
 
 
@@ -38,7 +39,7 @@ def fetch_harvest_waste_types(
     )
     result = client.get(
         "harvests/v2/waste/types",
-        {"pageSize": 100, "pageNumber": 1},
+        {"pageSize": METRC_V2_MAX_PAGE_SIZE, "pageNumber": 1},
     )
     if not isinstance(result, dict) or not result.get("ok"):
         raise MetrcHarvestReferenceError(
@@ -63,5 +64,5 @@ def fetch_harvest_waste_types(
         "items": sorted(names, key=str.casefold),
         "http_status": int(result.get("http_status") or 200),
         "correlation_id": str(result.get("correlation_id") or ""),
-        "bounded_page_size": 100,
+        "bounded_page_size": METRC_V2_MAX_PAGE_SIZE,
     }
