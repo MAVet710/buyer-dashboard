@@ -25,6 +25,31 @@ def _explicit_batch_strain(record: Mapping[str, Any]) -> str:
     return str(value or "").strip()
 
 
+def _provider_id(record: Mapping[str, Any]) -> str:
+    source = _source(record)
+    return str(record.get("provider_id") or source.get("Id") or source.get("ID") or source.get("id") or "").strip()
+
+
+def _referenced_location_id(record: Mapping[str, Any]) -> str:
+    source = _source(record)
+    nested = source.get("Location") or source.get("location") or source.get("DryingLocation") or source.get("dryingLocation")
+    nested_id = ""
+    if isinstance(nested, Mapping):
+        nested_id = str(nested.get("Id") or nested.get("id") or "").strip()
+    return str(
+        source.get("LocationId")
+        or source.get("locationId")
+        or source.get("CurrentLocationId")
+        or source.get("currentLocationId")
+        or source.get("DryingLocationId")
+        or source.get("dryingLocationId")
+        or source.get("HarvestLocationId")
+        or source.get("harvestLocationId")
+        or nested_id
+        or ""
+    ).strip()
+
+
 class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
     """Extend provider hydration into canonical Inventory and Cultivation workspaces.
 
@@ -181,6 +206,15 @@ class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
                 cultivation["conflict_count"] = int(cultivation.get("conflict_count") or 0) + len(rejected)
                 cultivation.setdefault("source_counts", {})["plant_batches"] = len(all_batches)
 
+            referenced_location_ids = {
+                location_id
+                for row in [*valid_batches, *vegetative_rows, *flowering_rows, *harvest_rows]
+                for location_id in [_referenced_location_id(row)]
+                if location_id
+            }
+            authority_locations = [
+                row for row in location_rows if _provider_id(row) in referenced_location_ids
+            ]
             authoritative = MetrcAuthoritativeCultivationReconciler(self.engine).reconcile(
                 organization_id=organization_id,
                 facility_id=facility_id,
@@ -188,7 +222,7 @@ class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
                 environment=environment,
                 license_number=license_number,
                 actor=actor,
-                locations=location_rows,
+                locations=authority_locations,
                 plant_batches=valid_batches,
                 vegetative_plants=vegetative_rows,
                 flowering_plants=flowering_rows,
