@@ -88,7 +88,7 @@ def test_rate_limit_is_degraded_and_retryable():
     assert result.retry_recommended is True
 
 
-def test_module_summary_allows_retail_without_cultivation_access():
+def test_retail_shared_reference_reads_do_not_fabricate_cultivation_capability():
     states = [
         _state("sales_receipts", "succeeded", cursor="initial-full"),
         _state("sales_deliveries", "succeeded", cursor="initial-full"),
@@ -106,10 +106,27 @@ def test_module_summary_allows_retail_without_cultivation_access():
     by_module = {row["module"]: row for row in modules}
 
     assert by_module["sales"]["status"] == "available"
-    # Cultivation is partially available because shared reference data such as
-    # strains/locations may be readable even when plant lifecycle resources are not.
-    assert by_module["cultivation"]["status"] == "available"
+    assert by_module["cultivation"]["status"] == "restricted"
+    assert by_module["cultivation"]["core_available_resources"] == 0
+    assert by_module["cultivation"]["core_restricted_resources"] == 4
     summary = metrc_operator_summary(capabilities, modules)
     assert summary["actionable_failures"] == 0
     assert summary["restricted_resources"] >= 1
+    assert "cultivation" in summary["restricted_modules"]
     assert summary["healthy"] is True
+
+
+def test_shared_packages_do_not_make_sales_or_processing_available():
+    states = [
+        _state("packages", "succeeded", cursor="initial-full"),
+        _state("sales_receipts", "failed", error="HTTP 401 permission"),
+        _state("sales_deliveries", "failed", error="HTTP 401 permission"),
+        _state("processing_jobs", "failed", error="HTTP 401 permission"),
+        _state("processing_job_types", "failed", error="HTTP 401 permission"),
+    ]
+    capabilities = classify_metrc_resources(states, authenticated_facility_access=True)
+    by_module = {row["module"]: row for row in summarize_metrc_modules(capabilities)}
+
+    assert by_module["inventory"]["status"] == "available"
+    assert by_module["sales"]["status"] == "restricted"
+    assert by_module["processing"]["status"] == "restricted"
