@@ -21,7 +21,7 @@ def compose_metrc_runtime() -> None:
 
     global _COMPOSED
 
-    from fastapi import HTTPException
+    from fastapi import Depends, HTTPException
 
     from services import metrc_facility_bootstrap as metrc_facility_bootstrap
     from services import metrc_incremental_sync as metrc_incremental_sync_module
@@ -292,7 +292,12 @@ def compose_metrc_runtime() -> None:
 
     original_facility_setup_overview = location_settings.facility_setup_overview
 
-    def synced_facility_setup_overview(*, context, engine, settings):
+    def synced_facility_setup_overview(
+        *,
+        context=Depends(location_settings.get_request_context),
+        engine=Depends(location_settings.get_engine),
+        settings=Depends(location_settings.get_settings),
+    ):
         overview = original_facility_setup_overview(
             context=context,
             engine=engine,
