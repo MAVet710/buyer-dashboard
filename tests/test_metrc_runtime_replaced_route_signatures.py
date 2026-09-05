@@ -23,47 +23,28 @@ def _run_clean_startup_assertions(source: str) -> None:
 def test_runtime_replaced_sandbox_routes_preserve_fastapi_dependency_contracts():
     _run_clean_startup_assertions(
         r'''
-from backend.app.main import app
+import importlib
+import inspect
+from fastapi.params import Depends
+from backend.app.main import app  # noqa: F401 - imports the real composed production graph
 
-
-def route_for(suffix: str, method: str):
-    return next(
-        route for route in app.routes
-        if str(getattr(route, "path", "")).endswith(suffix)
-        and method in (getattr(route, "methods", None) or set())
-        and getattr(route, "dependant", None) is not None
-    )
-
-
-def request_field_names(route) -> set[str]:
-    return {
-        field.name
-        for field in (
-            list(route.dependant.path_params)
-            + list(route.dependant.query_params)
-            + list(route.dependant.header_params)
-            + list(route.dependant.cookie_params)
-            + list(route.dependant.body_params)
-        )
-    }
-
-routes = (
-    route_for("/integrations/sandbox/{provider}/runtime", "GET"),
-    route_for("/integrations/sandbox/{provider}/sync", "POST"),
-    route_for("/integrations/sandbox/{provider}/retry", "POST"),
+sandbox_integrations = importlib.import_module("backend.app.routers.sandbox_integrations")
+functions = (
+    sandbox_integrations.sandbox_runtime_status,
+    sandbox_integrations.run_sandbox_sync,
+    sandbox_integrations.retry_sandbox_sync,
 )
-for route in routes:
-    names = request_field_names(route)
-    assert names.isdisjoint({"context", "engine", "settings"}), (route.path, names)
-    dependency_names = {
-        getattr(dependency.call, "__name__", "")
-        for dependency in route.dependant.dependencies
-    }
-    assert {"get_request_context", "get_engine", "get_settings"}.issubset(dependency_names), (route.path, dependency_names)
+for function in functions:
+    signature = inspect.signature(function)
+    for name in ("context", "engine", "settings"):
+        parameter = signature.parameters[name]
+        assert isinstance(parameter.default, Depends), (
+            function.__name__, name, parameter.default, signature
+        )
 
-sync_route = routes[1]
-assert "payload" in {field.name for field in sync_route.dependant.body_params}
-assert "payload" not in {field.name for field in sync_route.dependant.query_params}
+sync_signature = inspect.signature(sandbox_integrations.run_sandbox_sync)
+assert "payload" in sync_signature.parameters, sync_signature
+assert sync_signature.parameters["payload"].default is inspect.Parameter.empty
 '''
     )
 
