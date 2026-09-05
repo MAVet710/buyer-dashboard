@@ -94,12 +94,16 @@ def test_full_authenticated_hydration_populates_cultivation_workspace(monkeypatc
         actor="tester",
     )
 
-    cultivation = result["workspace_hydration"]["workspaces"]["cultivation"]
+    hydration = result["workspace_hydration"]
+    cultivation = hydration["workspaces"]["cultivation"]
     assert cultivation["created_rooms"] == 1
     assert cultivation["created_groups"] == 1
     assert cultivation["created_plants"] == 1
     assert cultivation["created_harvests"] == 1
-    assert result["workspace_hydration"]["complete_snapshot_only"] is True
+    assert hydration["complete_snapshot_only"] is False
+    assert hydration["verified_resource_only"] is True
+    assert hydration["workspace_gates"]["cultivation"]["status"] == "current"
+    assert hydration["projection_integrity"]["zero_orphan_contract"] is True
     with Session(engine) as session:
         plants = list(session.scalars(select(CultivationPlant)))
         assert len(plants) == 1

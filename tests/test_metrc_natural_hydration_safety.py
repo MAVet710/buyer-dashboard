@@ -66,7 +66,7 @@ def _baseline(engine, resource: str, cursor: str = "initial-full"):
         ))
 
 
-def test_full_hydration_withholds_canonical_cultivation_when_one_dependency_fails(monkeypatch):
+def test_full_hydration_projects_verified_cultivation_when_one_dependency_fails(monkeypatch):
     engine = _engine()
     location = {"Id": "loc-1", "Name": "VEG 1"}
     plant = {
@@ -112,10 +112,17 @@ def test_full_hydration_withholds_canonical_cultivation_when_one_dependency_fail
         actor="tester",
     )
 
-    assert result["workspace_hydration"]["workspace_gates"]["cultivation"]["status"] == "withheld_incomplete_snapshot"
-    assert "cultivation" not in result["workspace_hydration"]["workspaces"]
+    hydration = result["workspace_hydration"]
+    gate = hydration["workspace_gates"]["cultivation"]
+    assert gate["status"] == "partial_current"
+    assert "plants_flowering" in gate["missing_or_restricted_resources"]
+    assert gate["independently_verified_resources_project"] is True
+    assert gate["unrelated_resource_failure_blocks_projection"] is False
+    assert "cultivation" in hydration["workspaces"]
     with Session(engine) as session:
-        assert list(session.scalars(select(CultivationPlant))) == []
+        plants = list(session.scalars(select(CultivationPlant)))
+        assert len(plants) == 1
+        assert plants[0].plant_tag == "1A4FF0100000000000000201"
 
 
 def test_incremental_permission_skipped_resource_is_not_reclassified_as_missing(monkeypatch):
