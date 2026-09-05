@@ -18,7 +18,7 @@ def test_massachusetts_package_plan_is_license_scoped_and_evidence_backed():
     assert plan.jurisdiction_code == "MA"
     assert plan.capability == "packages"
     assert plan.path == "packages/v2/active"
-    assert plan.params == {"licenseNumber": "LIC-123", "pageSize": 50, "pageNumber": 2}
+    assert plan.params == {"licenseNumber": "LIC-123", "pageSize": 20, "pageNumber": 2}
     assert plan.evidence is not None
     assert plan.evidence.source_url == "https://api-ma.metrc.com/Documentation/"
 
