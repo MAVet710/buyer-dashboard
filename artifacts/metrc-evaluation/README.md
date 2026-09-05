@@ -41,7 +41,7 @@ You need:
 - the repository's Python environment/dependencies installed;
 - Node.js for `verify_final.mjs`;
 - valid Massachusetts Metrc sandbox credentials for real evaluation execution;
-- the regulator-provided `Generic_Evaluation_for_All_States_MASTER 10.2025.xlsx` for the workbook-preservation smoke test and final local submission package.
+- the regulator-provided `Generic_Evaluation_for_All_States_MASTER 10.2025.xlsx` for local workbook preservation and the final submission package.
 
 Do **not** substitute a recreated workbook for the regulator-provided file.
 
@@ -163,7 +163,7 @@ python artifacts/metrc-evaluation/preserve_workbook.py \
 
 This step:
 
-1. requires the exact canonical 22-sheet structure;
+1. requires the exact canonical 22-sheet structure, including the regulator template's intentional trailing spaces on `Instructions ` and `Closed Loop Environment `;
 2. finds CompanyInformation fields by their labels instead of hard-coded guessed cell coordinates;
 3. fills only safely identified value cells;
 4. obtains Vendor/User keys only from environment variables when `--with-secret-keys` is supplied;
@@ -203,7 +203,8 @@ These tests use synthetic/local fixtures. Passing them proves the finalization c
 pytest -q \
   tests/test_metrc_evaluation_finalization.py \
   tests/test_metrc_evaluation_workbook_preservation.py \
-  tests/test_metrc_evaluation_final_verifier.py
+  tests/test_metrc_evaluation_final_verifier.py \
+  tests/test_metrc_regulator_workbook_sheet_names.py
 ```
 
 The normal repository PR CI must also be green at the exact PR head before merge.
@@ -236,4 +237,6 @@ Before calling the package ready for Metrc review:
 
 ## Current repository boundary
 
-The code and synthetic tests can validate the finalization mechanics without the regulator workbook or live sandbox evidence. However, the workflow is **not fully smoke-tested against the actual regulator workbook until that exact `.xlsx` is supplied locally**, and the 47 tasks are **not considered passed until real Massachusetts sandbox evidence satisfies the finalizer**.
+The finalization mechanics and exact 10.2025 regulator workbook structure have now been smoke-tested locally against the regulator-provided workbook. That test confirmed all 22 physical worksheet titles, including the two intentional trailing-space titles, all required CompanyInformation labels, and preservation of every non-CompanyInformation XLSX package member. The regulator workbook and generated submission copy remain local and uncommitted.
+
+The remaining external evidence boundary is the Massachusetts sandbox itself: the 47 evaluation tasks are **not considered passed** until real sandbox execution evidence satisfies the fail-closed finalizer. A locally complete package may be described as **ready for Metrc review**, but only Metrc can approve the official evaluation.
