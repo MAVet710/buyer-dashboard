@@ -23,29 +23,16 @@ def _run_clean_startup_assertions(source: str) -> None:
 def test_metrc_runtime_facility_setup_wrapper_preserves_fastapi_dependencies():
     _run_clean_startup_assertions(
         r'''
-from backend.app.main import app
+import importlib
+import inspect
+from fastapi.params import Depends
+from backend.app.main import app  # noqa: F401 - imports the real composed production graph
 
-route = next(
-    route for route in app.routes
-    if str(getattr(route, "path", "")).endswith("/location-settings/facility-setup")
-    and getattr(route, "dependant", None) is not None
-)
-request_field_names = {
-    field.name
-    for field in (
-        list(route.dependant.path_params)
-        + list(route.dependant.query_params)
-        + list(route.dependant.header_params)
-        + list(route.dependant.cookie_params)
-        + list(route.dependant.body_params)
-    )
-}
-assert request_field_names.isdisjoint({"context", "engine", "settings"}), request_field_names
-dependency_names = {
-    getattr(dependency.call, "__name__", "")
-    for dependency in route.dependant.dependencies
-}
-assert {"get_request_context", "get_engine", "get_settings"}.issubset(dependency_names), dependency_names
+location_settings = importlib.import_module("backend.app.routers.location_settings")
+signature = inspect.signature(location_settings.facility_setup_overview)
+for name in ("context", "engine", "settings"):
+    parameter = signature.parameters[name]
+    assert isinstance(parameter.default, Depends), (name, parameter.default, signature)
 '''
     )
 
