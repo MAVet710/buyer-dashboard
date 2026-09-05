@@ -65,7 +65,9 @@ def test_integrations_screen_exposes_sandbox_connection_and_runtime_controls():
     for provider in ("metrc", "dutchie", "biotrack", "quickbooks"):
         assert f'{provider}:' in panel
     assert "SANDBOX ONLY" in panel
-    assert "Production credentials and production writes are disabled here" in panel
+    assert "Connected regulatory backbone" in panel
+    assert "Metrc is the authoritative source for regulated cannabis state" in panel
+    assert "Production credentials and production writes remain disabled" in panel
     assert "Run sandbox sync" in panel
     assert "Retry failed syncs" in panel
     assert "Provider credentials stay encrypted server-side" in panel
