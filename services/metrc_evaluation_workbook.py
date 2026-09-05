@@ -24,15 +24,17 @@ class WorkbookTask:
     note: str = ""
 
 
+# These names intentionally preserve the regulator template's exact worksheet
+# titles, including the trailing spaces on Instructions and Closed Loop Environment.
 WORKBOOK_SHEETS = (
     "CompanyInformation",
-    "Instructions",
+    "Instructions ",
     "Permissions",
     "States",
     "Locations",
     "Strains",
     "Items",
-    "Closed Loop Environment",
+    "Closed Loop Environment ",
     "Closed Loop States PlantBatches",
     "PlantBatches",
     "Plants",
@@ -145,9 +147,10 @@ def ma_workbook_plan() -> dict[str, object]:
         raise RuntimeError("The MA Metrc workbook coverage map is incomplete.")
     sheet_status = []
     for sheet in WORKBOOK_SHEETS:
-        if sheet in MA_NA_SHEETS:
+        logical_sheet = sheet.rstrip()
+        if logical_sheet in MA_NA_SHEETS:
             status = "not_applicable_ma"
-        elif sheet in MA_CONTEXT_SHEETS:
+        elif logical_sheet in MA_CONTEXT_SHEETS:
             status = "context"
         else:
             status = "applicable"
