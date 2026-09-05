@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import Base, Facility, Organization
-from modules.integrations.models import IntegrationProviderSnapshot
+from modules.integrations.models import IntegrationProviderSnapshot, IntegrationSyncState
 from services.metrc_facility_snapshot_bootstrap import SnapshottingMetrcFacilityBootstrapService
 
 
@@ -172,6 +172,91 @@ def test_incomplete_or_permission_skipped_read_does_not_clear_current_snapshot()
     assert len(rows) == 1
     assert rows[0].external_id == "11"
     assert rows[0].present is True
+
+
+def test_resource_401_after_authenticated_facility_discovery_is_restricted_not_global_auth_failure():
+    engine, organization_id, facility_id = _engine()
+    service = SnapshottingMetrcFacilityBootstrapService(engine)
+
+    service._persist(
+        organization_id=organization_id,
+        facility_id=facility_id,
+        resource="facility_profile",
+        environment="sandbox",
+        actor="admin",
+        records=[{"Id": 81722, "Name": "Snapshot Facility", "LicenseNumber": "MP281234"}],
+        transport="metrc_facilities",
+    )
+    service._persist_fetch_result(
+        organization_id=organization_id,
+        facility_id=facility_id,
+        resource="items",
+        environment="sandbox",
+        actor="admin",
+        result={
+            "ok": True,
+            "http_status": 200,
+            "records": [{"source": {"Id": 101, "Name": "GMO Flower"}}],
+            "page_count": 1,
+            "truncated": False,
+        },
+        transport="test",
+    )
+
+    restricted = service._persist_fetch_result(
+        organization_id=organization_id,
+        facility_id=facility_id,
+        resource="items",
+        environment="sandbox",
+        actor="admin",
+        result={"ok": False, "http_status": 401, "status": "auth_failed", "message": "unauthorized"},
+        transport="test",
+    )
+
+    assert restricted["status"] == "skipped"
+    assert restricted["restriction_scope"] == "license_or_user_permission"
+    assert restricted["authenticated_facility_access"] is True
+    assert restricted["current_snapshot"]["status"] == "unchanged_permission_skipped"
+
+    with Session(engine) as session:
+        state = session.scalar(select(IntegrationSyncState).where(
+            IntegrationSyncState.organization_id == organization_id,
+            IntegrationSyncState.facility_id == facility_id,
+            IntegrationSyncState.provider == "metrc",
+            IntegrationSyncState.resource == "items",
+        ))
+        rows = list(session.scalars(select(IntegrationProviderSnapshot).where(
+            IntegrationProviderSnapshot.organization_id == organization_id,
+            IntegrationProviderSnapshot.facility_id == facility_id,
+            IntegrationProviderSnapshot.provider == "metrc",
+            IntegrationProviderSnapshot.environment == "sandbox",
+            IntegrationProviderSnapshot.resource == "items",
+            IntegrationProviderSnapshot.present.is_(True),
+        )))
+
+    assert state is not None
+    assert state.status == "succeeded"
+    assert state.cursor == "permission-skipped"
+    assert len(rows) == 1
+    assert rows[0].external_id == "101"
+
+
+def test_resource_401_without_facility_auth_proof_remains_failed():
+    engine, organization_id, facility_id = _engine()
+    service = SnapshottingMetrcFacilityBootstrapService(engine)
+
+    failure = service._persist_fetch_result(
+        organization_id=organization_id,
+        facility_id=facility_id,
+        resource="items",
+        environment="sandbox",
+        actor="admin",
+        result={"ok": False, "http_status": 401, "status": "auth_failed", "message": "unauthorized"},
+        transport="test",
+    )
+
+    assert failure["status"] == "failed"
+    assert failure["http_status"] == 401
 
 
 def test_runtime_composition_uses_natural_authenticated_bootstrap():
