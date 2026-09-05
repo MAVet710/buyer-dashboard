@@ -23,13 +23,12 @@ def _run_clean_startup_assertions(source: str) -> None:
 def test_metrc_runtime_facility_setup_wrapper_preserves_fastapi_dependencies():
     _run_clean_startup_assertions(
         r'''
-from fastapi.routing import APIRoute
 from backend.app.main import app
 
 route = next(
     route for route in app.routes
-    if isinstance(route, APIRoute)
-    and route.path.endswith("/location-settings/facility-setup")
+    if str(getattr(route, "path", "")).endswith("/location-settings/facility-setup")
+    and getattr(route, "dependant", None) is not None
 )
 request_field_names = {
     field.name
