@@ -20,57 +20,57 @@ const pillars = [
     number: "01",
     label: "BUYING",
     icon: ShoppingCart,
-    title: "Purchasing Intelligence",
-    body: "Understand inventory needs, build smarter orders, track vendor performance, and make purchasing decisions with real operational context.",
+    title: "Purchasing",
+    body: "See what actually needs to be bought, what can wait, how vendors are performing, and what inventory is about to become tomorrow's emergency.",
   },
   {
     number: "02",
     label: "INVENTORY",
     icon: Warehouse,
     title: "Inventory & Receiving",
-    body: "Receive, audit, reconcile, and understand inventory across facilities without losing the trail between physical stock and source systems.",
+    body: "Receive, count, audit, reconcile, and follow inventory across facilities without losing the trail between the physical product and the systems tracking it.",
   },
   {
     number: "03",
     label: "COMPLIANCE",
     icon: ClipboardCheck,
     title: "Compliance Workflows",
-    body: "Bring compliance checks closer to the work itself with tools designed around cannabis labels, records, inventory, and human-approved regulatory controls.",
+    body: "Keep labels, records, inventory actions, approvals, and evidence close to the work. The goal is fewer 'how did this happen?' meetings.",
   },
   {
     number: "04",
     label: "PRODUCTION",
     icon: Factory,
-    title: "Production Operations",
-    body: "Plan manufacturing and cultivation workflows, manage production inventory, work queues, bulk cannabis products, and facility-specific operations.",
+    title: "Production Planning",
+    body: "Plan manufacturing and cultivation work, manage bulk inventory, schedule what runs next, and see when materials, machines, labor, or deadlines are about to collide.",
   },
   {
     number: "05",
     label: "EXTRACTION",
     icon: FlaskConical,
-    title: "Extraction Operations",
-    body: "Plan and track extraction runs from source material through finished output. Monitor yields, recovery, potency, run performance, material movement, and downstream handoffs.",
+    title: "Extraction",
+    body: "Track source material, run status, yields, recovery, potency, cost, outputs, and downstream handoffs without reconstructing the run after the fact.",
   },
   {
     number: "06",
     label: "WHOLESALE + PORTAL",
     icon: Store,
     title: "Wholesale & Customer Portal",
-    body: "Publish a branded wholesale storefront, let licensed customers submit order requests, approve them into the same commercial order engine, allocate production inventory, work fulfillment, and keep manifest readiness tied to the shipment.",
+    body: "Put a branded wholesale menu in front of licensed buyers, control pricing and sales units, approve orders, allocate inventory, and move the order into fulfillment without typing it twice.",
   },
   {
     number: "07",
     label: "DOOBIE AGENT",
     icon: Bot,
-    title: "Operational Intelligence",
-    body: "Doobie Agent works across DoobieLogic to surface what needs attention and what should happen next. It connects purchasing, inventory, compliance, production, extraction, wholesale, and reporting data to explain exceptions and prepare governed actions for employee review.",
+    title: "Doobie Agent",
+    body: "Ask what needs attention across the facility and get answers grounded in your operation. Doobie can surface issues and prepare the next step; people still control regulated actions.",
   },
   {
     number: "08",
     label: "REPORTING",
     icon: BarChart3,
-    title: "Reports That Matter",
-    body: "Move from raw exports to information operators can actually use, share, and act on across purchasing, inventory, compliance, production, extraction, and wholesale.",
+    title: "Reporting",
+    body: "Turn the data you already have into reports your team can understand, share, and use without another hour of spreadsheet cleanup first.",
   },
 ] as const;
 
@@ -133,9 +133,9 @@ export function BetaPartnerPage() {
         <section className="beta-hero">
           <div className="beta-hero-copy">
             <div className="marketing-eyebrow">DoobieLogic Beta Partner Program</div>
-            <h1>Help build the operating system <span>cannabis deserves.</span></h1>
+            <h1>Help us build cannabis software <span>people actually want to use.</span></h1>
             <p>
-              DoobieLogic brings purchasing, inventory, receiving, compliance, production, extraction, wholesale, customer ordering, and operational intelligence into one platform built for the people actually running cannabis businesses.
+              We&apos;re building DoobieLogic for the people doing the work: buyers, inventory teams, production crews, extractors, compliance managers, sales teams, and operators. The beta is where we find out what works in a real operation and what still needs to get out of your way.
             </p>
             <div className="beta-hero-actions">
               <a className="marketing-primary" href="#apply">Apply for Free Beta Access <ArrowRight size={18} /></a>
@@ -143,7 +143,7 @@ export function BetaPartnerPage() {
             </div>
             <div className="beta-proof-line">
               <span><CircleCheck size={15} /> No beta subscription fee</span>
-              <span><CircleCheck size={15} /> Built with real operators</span>
+              <span><CircleCheck size={15} /> Built with operator feedback</span>
               <span><CircleCheck size={15} /> Your data stays yours</span>
             </div>
           </div>
@@ -151,13 +151,13 @@ export function BetaPartnerPage() {
           <aside className="beta-partner-card">
             <span className="beta-open-badge"><i /> Applications Open</span>
             <h2>Become a Beta Partner</h2>
-            <p>Get early access to DoobieLogic while helping us validate how the platform performs inside real cannabis operations.</p>
+            <p>Use DoobieLogic in real workflows, tell us what saves time, tell us what gets in the way, and help us make the platform better before wider release.</p>
             <div className="beta-price">$0 <small>/ beta access</small></div>
             <div className="beta-card-divider" />
             {[
               "Early access to approved DoobieLogic modules",
-              "Direct line to the development team",
-              "Influence product priorities and workflows",
+              "Direct feedback channel with development",
+              "A say in workflow and product priorities",
               "Priority onboarding and beta support",
             ].map((item) => <div className="beta-check-row" key={item}><CircleCheck size={17} /> <span>{item}</span></div>)}
           </aside>
@@ -166,9 +166,9 @@ export function BetaPartnerPage() {
         <section className="beta-section" id="platform">
           <div className="beta-section-inner">
             <div className="beta-section-heading">
-              <div className="marketing-eyebrow">One operational platform</div>
-              <h2>Built inside cannabis operations. Not outside looking in.</h2>
-              <p>Buyer Dash has grown into DoobieLogic: a connected operations platform designed around the problems buyers, inventory teams, compliance managers, production teams, extraction teams, sales teams, and operators deal with every day.</p>
+              <div className="marketing-eyebrow">What you&apos;ll be testing</div>
+              <h2>Keep the operation together without flattening every license into the same workflow.</h2>
+              <p>DoobieLogic connects purchasing, inventory, compliance, production, extraction, wholesale, and reporting while keeping the differences that matter. A dispensary, a cultivation facility, and a manufacturing floor do not run the same way, and the software should know that.</p>
             </div>
             <div className="beta-pillar-grid">
               {pillars.map(({ number, label, icon: Icon, title, body }) => (
@@ -176,7 +176,7 @@ export function BetaPartnerPage() {
                   <div className="beta-pillar-top"><span>{number} / {label}</span><Icon size={22} /></div>
                   <h3>{title}</h3>
                   <p>{body}</p>
-                  {label === "DOOBIE AGENT" && <strong className="beta-agent-line">Less searching through reports. More knowing what needs to happen next.</strong>}
+                  {label === "DOOBIE AGENT" && <strong className="beta-agent-line">Spend less time digging through reports and more time knowing where to look next.</strong>}
                 </article>
               ))}
             </div>
@@ -186,9 +186,9 @@ export function BetaPartnerPage() {
         <section className="beta-section" id="program">
           <div className="beta-section-inner">
             <div className="beta-section-heading">
-              <div className="marketing-eyebrow">The partnership</div>
-              <h2>Free access isn&apos;t the catch. Participation is the trade.</h2>
-              <p>The beta program is a genuine partnership. We give selected operators meaningful access to the platform. In return, we ask them to help us make it better.</p>
+              <div className="marketing-eyebrow">The deal</div>
+              <h2>You get the software. We ask you not to be polite about it.</h2>
+              <p>Selected beta partners get meaningful access to DoobieLogic at no subscription cost during the approved beta period. In return, we want real use and useful feedback. If a workflow is great, tell us. If it makes you want to throw the laptop, definitely tell us.</p>
             </div>
             <div className="beta-exchange-grid">
               <article className="beta-exchange-card highlight">
@@ -198,7 +198,7 @@ export function BetaPartnerPage() {
                   "Free access during your approved beta period",
                   "Early access to new workflows and tools",
                   "Direct feedback channel with development",
-                  "A voice in what DoobieLogic becomes",
+                  "A real voice in what gets improved next",
                 ].map((item) => <div className="beta-check-row" key={item}><CircleCheck size={17} /><span>{item}</span></div>)}
               </article>
               <article className="beta-exchange-card">
@@ -206,9 +206,9 @@ export function BetaPartnerPage() {
                 <h3>Real Testing & Feedback</h3>
                 {[
                   "Use the platform in agreed testing workflows",
-                  "Report problems, friction, and missing functionality",
-                  "Share approved usage, diagnostic, or operational test data that helps improve the product",
-                  "Participate in occasional structured feedback",
+                  "Tell us where the software creates friction or misses the point",
+                  "Share approved usage, diagnostic, or operational test data that helps us improve it",
+                  "Join occasional structured feedback sessions",
                 ].map((item) => <div className="beta-check-row" key={item}><CircleCheck size={17} /><span>{item}</span></div>)}
               </article>
             </div>
@@ -216,8 +216,8 @@ export function BetaPartnerPage() {
             <div className="beta-data-card" id="data">
               <ShieldCheck size={30} />
               <div>
-                <h3>Your data stays yours. Your experience helps shape DoobieLogic.</h3>
-                <p>Beta partners help us understand how the platform performs in real cannabis operations. The information you choose to share helps us find problems, improve workflows, and build better tools. We use it to make DoobieLogic better, not to make your business our business.</p>
+                <h3>Your data stays yours. We&apos;re here to learn from the workflow.</h3>
+                <p>Beta partners help us understand how DoobieLogic behaves inside real cannabis operations. Approved usage and diagnostic information helps us find bugs, confusing workflows, and missing functionality. Your operational data remains yours, and access stays governed by the beta agreement.</p>
               </div>
             </div>
           </div>
@@ -227,19 +227,19 @@ export function BetaPartnerPage() {
           <div className="beta-apply-layout beta-section-inner">
             <div className="beta-apply-copy">
               <div className="marketing-eyebrow">Apply to join</div>
-              <h2>We want operators who will push the platform.</h2>
-              <p>Retail. Cultivation. Manufacturing. Extraction. Wholesale. Vertically integrated. We want partners who understand the work and aren&apos;t afraid to tell us what isn&apos;t good enough yet.</p>
+              <h2>We&apos;re looking for operators who know the work.</h2>
+              <p>Retail, cultivation, manufacturing, extraction, wholesale, or vertically integrated — if you know where the headaches are and you&apos;ll tell us when something doesn&apos;t make sense, we want to hear from you.</p>
               <div className="beta-steps">
                 <span><b>1</b> Tell us about your operation.</span>
                 <span><b>2</b> We review fit for the current beta phase.</span>
                 <span><b>3</b> Approved partners receive onboarding access.</span>
-                <span><b>4</b> You help shape what ships next.</span>
+                <span><b>4</b> You use it, break it, question it, and help improve it.</span>
               </div>
             </div>
 
             <form className="beta-form" onSubmit={handleSubmit}>
               <div className="beta-form-heading">
-                <div><h3>Beta Partner Application</h3><p>Tell us enough to understand where DoobieLogic could help.</p></div>
+                <div><h3>Beta Partner Application</h3><p>Give us enough context to understand your operation and where DoobieLogic could earn its keep.</p></div>
                 <span>FREE TO APPLY</span>
               </div>
               <div className="beta-form-grid">
@@ -251,14 +251,14 @@ export function BetaPartnerPage() {
                 <label>Facilities / licenses<select name="facilities" required defaultValue=""><option value="" disabled>Select range</option><option>1</option><option>2–3</option><option>4–10</option><option>11+</option></select></label>
                 <label>Primary POS / ERP<input name="stack" placeholder="Dutchie, Treez, spreadsheets..." /></label>
                 <label>State<input name="state" required placeholder="MA" /></label>
-                <label className="full">What&apos;s the biggest operational problem you want DoobieLogic to solve?<textarea name="pain" required minLength={10} placeholder="Tell us where your team loses the most time, money, or visibility..." /></label>
-                <label className="full">What would make DoobieLogic indispensable to your operation?<textarea name="must_have" placeholder="The feature or outcome you would never want to work without..." /></label>
+                <label className="full">What operational problem wastes the most time right now?<textarea name="pain" required minLength={10} placeholder="Inventory, production planning, compliance, wholesale, reporting... tell us where it hurts." /></label>
+                <label className="full">What would make DoobieLogic something your team would not want to give up?<textarea name="must_have" placeholder="A workflow, result, or capability that would make the platform genuinely useful..." /></label>
                 <label className="beta-honeypot" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off" /></label>
               </div>
               <label className="beta-consent"><input name="consent" type="checkbox" required /><span>I understand beta participation includes structured feedback and the sharing of approved usage, diagnostic, or operational test data under the Beta Participation & Data Use Agreement.</span></label>
               <button className="beta-submit" type="submit" disabled={submitting}>{submitting ? "Submitting..." : <>Submit Beta Application <ArrowRight size={18} /></>}</button>
               {error && <div className="beta-error" role="alert">{error}</div>}
-              {submitted && <div className="beta-success" role="status"><strong>Application received.</strong><span>Thanks for putting your hand up. The DoobieLogic team will review your application and follow up using the email you provided.</span></div>}
+              {submitted && <div className="beta-success" role="status"><strong>Application received.</strong><span>Thanks for putting your hand up. We&apos;ll review the fit and follow up using the email you provided.</span></div>}
             </form>
           </div>
         </section>
@@ -266,7 +266,7 @@ export function BetaPartnerPage() {
 
       <footer className="beta-footer">
         <div className="marketing-brand"><img className="marketing-brand-image" src={BRAND_IMAGE_URL} alt="DoobieLogic" /><span className="marketing-wordmark"><strong>Doobie</strong><em>Logic</em></span></div>
-        <span>Commercial-ready cannabis intelligence system.</span>
+        <span>Cannabis operations software built around the work.</span>
         <span>Powered by Good Weed and Data</span>
       </footer>
     </div>
