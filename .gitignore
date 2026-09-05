@@ -62,3 +62,13 @@ frontend/dist/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+
+# Local Metrc evaluation evidence/submission outputs
+# The final workbook can contain live Vendor/User API keys and must never be committed.
+artifacts/metrc-evaluation/evidence/
+artifacts/metrc-evaluation/*.xlsx
+artifacts/metrc-evaluation/*.local.json
+artifacts/metrc-evaluation/*.manifest.json
+artifacts/metrc-evaluation/latest.json
+artifacts/metrc-evaluation/final_report.json
+artifacts/metrc-evaluation/final_report.md
