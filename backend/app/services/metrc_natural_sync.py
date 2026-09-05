@@ -7,6 +7,11 @@ from sqlalchemy import Engine, desc, select
 from sqlalchemy.orm import Session
 
 from modules.integrations.models import IntegrationSyncAttempt, IntegrationSyncState
+from services.metrc_capability_matrix import (
+    classify_metrc_resources,
+    metrc_operator_summary,
+    summarize_metrc_modules,
+)
 from services.metrc_incremental_sync import MetrcIncrementalSyncService
 from services.metrc_resilient_bootstrap import ResilientSnapshottingMetrcFacilityBootstrapService
 from .metrc_context import MetrcContext
@@ -198,41 +203,61 @@ class MetrcNaturalSyncControlService:
                     IntegrationSyncAttempt.provider == "metrc",
                 ).order_by(desc(IntegrationSyncAttempt.started_at)).limit(20)
             ))
-        rendered=[]
+        rendered = []
         for resource in expected:
-            row=by_resource.get(resource)
+            row = by_resource.get(resource)
             rendered.append({
-                "resource":resource,
-                "status":row.status if row is not None else "idle",
-                "cursor":row.cursor if row is not None else "",
-                "last_started_at":_iso(row.last_started_at) if row is not None else None,
-                "last_completed_at":_iso(row.last_completed_at) if row is not None else None,
-                "last_success_at":_iso(row.last_success_at) if row is not None else None,
-                "last_error":row.last_error if row is not None else "",
-                "records_seen":int(row.records_seen or 0) if row is not None else 0,
-                "records_written":int(row.records_written or 0) if row is not None else 0,
+                "resource": resource,
+                "status": row.status if row is not None else "idle",
+                "cursor": row.cursor if row is not None else "",
+                "last_started_at": _iso(row.last_started_at) if row is not None else None,
+                "last_completed_at": _iso(row.last_completed_at) if row is not None else None,
+                "last_success_at": _iso(row.last_success_at) if row is not None else None,
+                "last_error": row.last_error if row is not None else "",
+                "records_seen": int(row.records_seen or 0) if row is not None else 0,
+                "records_written": int(row.records_written or 0) if row is not None else 0,
             })
+
+        authenticated_provider_data = bool(metrc.configured and metrc.trusted_mapping)
+        resource_capabilities = classify_metrc_resources(
+            rendered,
+            authenticated_facility_access=authenticated_provider_data,
+        )
+        module_health = summarize_metrc_modules(resource_capabilities)
+        operator_summary = metrc_operator_summary(resource_capabilities, module_health)
+
         return {
-            "provider":"metrc",
-            "provider_id":"metrc",
-            "environment":metrc.environment or "sandbox",
-            "resources":list(expected),
-            "configured_resources":list(expected),
-            "read_mode":"authenticated_metrc_regulatory_snapshot",
-            "production_writes_enabled":False,
-            "adapter_contract_ready":True,
-            "authenticated_provider_data":bool(metrc.configured and metrc.trusted_mapping),
-            "trusted_mapping":bool(metrc.trusted_mapping),
-            "license_number":metrc.license_number,
-            "full_baseline_ready":self.full_baseline_ready(
-                organization_id=organization_id,facility_id=facility_id,environment=metrc.environment or "sandbox"
+            "provider": "metrc",
+            "provider_id": "metrc",
+            "environment": metrc.environment or "sandbox",
+            "resources": list(expected),
+            "configured_resources": list(expected),
+            "read_mode": "authenticated_metrc_regulatory_snapshot",
+            "production_writes_enabled": False,
+            "adapter_contract_ready": True,
+            "authenticated_provider_data": authenticated_provider_data,
+            "trusted_mapping": bool(metrc.trusted_mapping),
+            "license_number": metrc.license_number,
+            "full_baseline_ready": self.full_baseline_ready(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                environment=metrc.environment or "sandbox",
             ) if metrc.configured else False,
-            "message":metrc.message,
-            "states":rendered,
-            "recent_attempts":[{
-                "run_id":row.run_id,"resource":row.resource,"status":row.status,
-                "record_count":int(row.record_count or 0),"accepted_count":int(row.accepted_count or 0),
-                "duplicate_count":int(row.duplicate_count or 0),"error_count":int(row.error_count or 0),
-                "error_message":row.error_message,"started_at":_iso(row.started_at),"completed_at":_iso(row.completed_at),
+            "message": metrc.message,
+            "operator_summary": operator_summary,
+            "resource_capabilities": resource_capabilities,
+            "module_health": module_health,
+            "states": rendered,
+            "recent_attempts": [{
+                "run_id": row.run_id,
+                "resource": row.resource,
+                "status": row.status,
+                "record_count": int(row.record_count or 0),
+                "accepted_count": int(row.accepted_count or 0),
+                "duplicate_count": int(row.duplicate_count or 0),
+                "error_count": int(row.error_count or 0),
+                "error_message": row.error_message,
+                "started_at": _iso(row.started_at),
+                "completed_at": _iso(row.completed_at),
             } for row in attempts],
         }
