@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import wraps
 import importlib
 
 _COMPOSED = False
@@ -187,6 +188,7 @@ def compose_metrc_runtime() -> None:
             )
         return metrc
 
+    @wraps(original_sandbox_sync)
     def natural_sandbox_sync(provider, payload, context, engine, settings):
         if str(provider or "").strip().casefold() != "metrc":
             return original_sandbox_sync(
@@ -210,6 +212,7 @@ def compose_metrc_runtime() -> None:
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @wraps(original_sandbox_status)
     def natural_sandbox_status(provider, context, engine, settings):
         if str(provider or "").strip().casefold() != "metrc":
             return original_sandbox_status(
@@ -229,6 +232,7 @@ def compose_metrc_runtime() -> None:
             metrc=metrc,
         )
 
+    @wraps(original_sandbox_retry)
     def natural_sandbox_retry(provider, context, engine, settings):
         if str(provider or "").strip().casefold() != "metrc":
             return original_sandbox_retry(
@@ -292,6 +296,7 @@ def compose_metrc_runtime() -> None:
 
     original_facility_setup_overview = location_settings.facility_setup_overview
 
+    @wraps(original_facility_setup_overview)
     def synced_facility_setup_overview(
         *,
         context=Depends(location_settings.get_request_context),
