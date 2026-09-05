@@ -28,18 +28,50 @@ RESOURCE_FAILED = "failed"
 RESOURCE_UNKNOWN = "unknown"
 
 
-# These are ERP projection groups, not Metrc license guesses. A module is considered
-# available when at least one of its provider resources is authorized for the current
-# facility. Exact write capability remains separately governed by the write registry.
+# ERP module contracts deliberately distinguish *core authority resources* from
+# supporting/reference resources. A retailer may legitimately read strains or
+# locations, for example, but those shared references must never make Cultivation
+# appear enabled when every plant/harvest lifecycle resource is restricted. This is
+# an operator projection contract, not a hard-coded Metrc license-type guess.
+METRC_MODULE_CONTRACTS: dict[str, dict[str, tuple[str, ...]]] = {
+    "facility_setup": {
+        "core": ("locations",),
+        "resources": ("locations", "locations_inactive", "sublocations", "sublocations_inactive", "location_types"),
+    },
+    "product_master": {
+        "core": ("items",),
+        "resources": ("items", "items_inactive", "item_categories", "item_brands", "units_of_measure"),
+    },
+    "inventory": {
+        "core": ("packages",),
+        "resources": ("packages", "package_tags", "items", "item_categories", "units_of_measure"),
+    },
+    "cultivation": {
+        "core": ("plant_batches", "plants_vegetative", "plants_flowering", "harvests"),
+        "resources": ("plant_batches", "plants_vegetative", "plants_flowering", "plant_tags", "strains", "harvests", "locations"),
+    },
+    "post_harvest": {
+        "core": ("harvests",),
+        "resources": ("harvests", "packages", "package_tags", "locations"),
+    },
+    "receiving_wholesale": {
+        "core": ("incoming_transfers", "outgoing_transfers"),
+        "resources": ("incoming_transfers", "outgoing_transfers", "rejected_transfers", "transfer_templates_outgoing", "transport_drivers", "transport_vehicles"),
+    },
+    "sales": {
+        "core": ("sales_receipts", "sales_deliveries"),
+        "resources": ("sales_receipts", "sales_deliveries", "packages"),
+    },
+    "processing": {
+        "core": ("processing_jobs", "processing_job_types"),
+        "resources": ("processing_jobs", "processing_job_types", "processing_job_types_inactive", "processing_job_categories", "processing_job_attributes", "additive_templates", "additive_templates_inactive", "packages"),
+    },
+}
+
+# Backwards-compatible public mapping used by a few tests/callers that only need the
+# complete resource projection set.
 METRC_MODULE_RESOURCES: dict[str, tuple[str, ...]] = {
-    "facility_setup": ("locations", "locations_inactive", "sublocations", "sublocations_inactive", "location_types"),
-    "product_master": ("items", "items_inactive", "item_categories", "item_brands", "units_of_measure"),
-    "inventory": ("packages", "package_tags", "items", "item_categories", "units_of_measure"),
-    "cultivation": ("plant_batches", "plants_vegetative", "plants_flowering", "plant_tags", "strains", "harvests", "locations"),
-    "post_harvest": ("harvests", "packages", "package_tags", "locations"),
-    "receiving_wholesale": ("incoming_transfers", "outgoing_transfers", "rejected_transfers", "transfer_templates_outgoing", "transport_drivers", "transport_vehicles"),
-    "sales": ("sales_receipts", "sales_deliveries", "packages"),
-    "processing": ("processing_jobs", "processing_job_types", "processing_job_types_inactive", "processing_job_categories", "processing_job_attributes", "additive_templates", "additive_templates_inactive", "packages"),
+    module: contract["resources"] for module, contract in METRC_MODULE_CONTRACTS.items()
 }
 
 
@@ -177,21 +209,37 @@ def summarize_metrc_modules(capabilities: Iterable[Mapping[str, Any]]) -> list[d
         for row in capabilities
     }
     modules: list[dict[str, Any]] = []
-    for module, resources in METRC_MODULE_RESOURCES.items():
+    restricted_values = {RESOURCE_RESTRICTED, RESOURCE_NOT_AVAILABLE}
+    failure_values = {RESOURCE_FAILED, RESOURCE_DEGRADED}
+
+    for module, contract in METRC_MODULE_CONTRACTS.items():
+        resources = contract["resources"]
+        core_resources = contract["core"]
         states = [by_resource.get(resource, RESOURCE_UNKNOWN) for resource in resources]
+        core_states = [by_resource.get(resource, RESOURCE_UNKNOWN) for resource in core_resources]
+
         available = sum(state == RESOURCE_AVAILABLE for state in states)
         syncing = sum(state == RESOURCE_SYNCING for state in states)
-        restricted = sum(state in {RESOURCE_RESTRICTED, RESOURCE_NOT_AVAILABLE} for state in states)
-        actionable_failures = sum(state in {RESOURCE_FAILED, RESOURCE_DEGRADED} for state in states)
+        restricted = sum(state in restricted_values for state in states)
+        actionable_failures = sum(state in failure_values for state in states)
         unknown = sum(state == RESOURCE_UNKNOWN for state in states)
 
-        if available:
-            status = "degraded" if actionable_failures else "syncing" if syncing else "available"
-        elif syncing:
+        core_available = sum(state == RESOURCE_AVAILABLE for state in core_states)
+        core_syncing = sum(state == RESOURCE_SYNCING for state in core_states)
+        core_restricted = sum(state in restricted_values for state in core_states)
+        core_failures = sum(state in failure_values for state in core_states)
+
+        # Module availability is driven by the regulatory objects that define the
+        # module, not by shared reference tables. Supporting failures can degrade an
+        # otherwise available module, but supporting successes cannot fabricate core
+        # capability.
+        if core_available:
+            status = "degraded" if actionable_failures else "syncing" if core_syncing else "available"
+        elif core_syncing:
             status = "syncing"
-        elif restricted == len(resources):
+        elif core_resources and core_restricted == len(core_resources):
             status = "restricted"
-        elif actionable_failures:
+        elif core_failures:
             status = "failed"
         else:
             status = "pending"
@@ -204,6 +252,10 @@ def summarize_metrc_modules(capabilities: Iterable[Mapping[str, Any]]) -> list[d
             "restricted_resources": restricted,
             "failed_resources": actionable_failures,
             "pending_resources": unknown + syncing,
+            "core_resources": list(core_resources),
+            "core_available_resources": core_available,
+            "core_restricted_resources": core_restricted,
+            "core_failed_resources": core_failures,
             "resources": list(resources),
         })
     return modules
