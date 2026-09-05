@@ -11,7 +11,7 @@ local submission workbook and must never be copied into evidence JSON or reports
 
 from __future__ import annotations
 
-from collections import defaultdict, deque
+from collections import defaultdict
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
@@ -98,7 +98,9 @@ def discover_evidence_files(directory: str | Path) -> list[Path]:
     paths = [
         path
         for path in root.rglob("*.json")
-        if path.is_file() and path.name.casefold() not in _GENERATED_REPORT_NAMES
+        if path.is_file()
+        and path.name.casefold() not in _GENERATED_REPORT_NAMES
+        and not path.name.casefold().endswith((".local.json", ".manifest.json"))
     ]
     return sorted(paths, key=lambda path: path.as_posix().casefold())
 
@@ -122,12 +124,35 @@ def _load_evidence(directory: str | Path) -> list[tuple[Path, dict[str, Any]]]:
     return [(path, _read_json_object(path)) for path in discover_evidence_files(directory)]
 
 
+def _complete_pass(payload: dict[str, Any]) -> bool:
+    try:
+        http_status = int(payload.get("http_status") or 0)
+    except (TypeError, ValueError):
+        http_status = 0
+    return (
+        payload.get("passed") is True
+        and _text(payload.get("stage")).casefold() == "complete"
+        and http_status == 200
+        and _text(payload.get("state")).upper() == "MA"
+        and _text(payload.get("environment")).casefold() == "sandbox"
+    )
+
+
+def _evidence_rank(record: tuple[Path, dict[str, Any]]) -> tuple[int, int, str]:
+    path, payload = record
+    try:
+        modified = path.stat().st_mtime_ns
+    except OSError:
+        modified = 0
+    return (1 if _complete_pass(payload) else 0, modified, path.as_posix().casefold())
+
+
 def _assign_evidence(
     records: Iterable[tuple[Path, dict[str, Any]]],
 ) -> tuple[dict[int, tuple[Path, dict[str, Any]]], list[dict[str, Any]]]:
     tasks_by_number = {task.number: task for task in MA_WORKBOOK_TASKS}
-    assigned: dict[int, tuple[Path, dict[str, Any]]] = {}
-    unhinted: dict[str, deque[tuple[Path, dict[str, Any]]]] = defaultdict(deque)
+    hinted: dict[int, list[tuple[Path, dict[str, Any]]]] = defaultdict(list)
+    unhinted: dict[str, list[tuple[Path, dict[str, Any]]]] = defaultdict(list)
     extras: list[dict[str, Any]] = []
 
     for path, payload in records:
@@ -144,31 +169,36 @@ def _assign_evidence(
                     "expected_operation_type": task.operation_type,
                 })
                 continue
-            if hint in assigned:
-                extras.append({
-                    "file": str(path),
-                    "reason": "duplicate_task_evidence",
-                    "task_number": hint,
-                    "operation_type": operation,
-                })
-                continue
-            assigned[hint] = (path, payload)
-            continue
-        unhinted[operation].append((path, payload))
+            hinted[hint].append((path, payload))
+        else:
+            unhinted[operation].append((path, payload))
 
-    for task in MA_WORKBOOK_TASKS:
-        if task.number in assigned:
-            continue
-        queue = unhinted.get(task.operation_type.casefold())
-        if queue:
-            assigned[task.number] = queue.popleft()
-
-    for operation, queue in sorted(unhinted.items()):
-        while queue:
-            path, _payload = queue.popleft()
+    assigned: dict[int, tuple[Path, dict[str, Any]]] = {}
+    for task_number, candidates in hinted.items():
+        ranked = sorted(candidates, key=_evidence_rank, reverse=True)
+        assigned[task_number] = ranked[0]
+        for path, payload in ranked[1:]:
             extras.append({
                 "file": str(path),
-                "reason": "unmatched_or_extra_evidence",
+                "reason": "superseded_task_evidence",
+                "task_number": task_number,
+                "operation_type": _text(payload.get("operation_type")).casefold(),
+            })
+
+    tasks_for_operation: dict[str, list[int]] = defaultdict(list)
+    for task in MA_WORKBOOK_TASKS:
+        if task.number not in assigned:
+            tasks_for_operation[task.operation_type.casefold()].append(task.number)
+
+    for operation, candidates in unhinted.items():
+        ranked = sorted(candidates, key=_evidence_rank, reverse=True)
+        task_numbers = tasks_for_operation.get(operation, [])
+        for task_number, record in zip(task_numbers, ranked):
+            assigned[task_number] = record
+        for path, _payload in ranked[len(task_numbers):]:
+            extras.append({
+                "file": str(path),
+                "reason": "superseded_or_extra_evidence",
                 "operation_type": operation,
             })
     return assigned, extras
@@ -242,11 +272,15 @@ def build_final_report(
         else:
             path, payload = pair
             status, reasons = _validate_task_evidence(task, path, payload)
+            try:
+                http_status = int(payload.get("http_status") or 0)
+            except (TypeError, ValueError):
+                http_status = 0
             row.update({
                 "status": status,
                 "evidence_file": str(path),
                 "reasons": reasons,
-                "http_status": int(payload.get("http_status") or 0),
+                "http_status": http_status,
                 "stage": _text(payload.get("stage")),
                 "provider_id": _text(payload.get("provider_id")),
                 "correlation_id": _text(payload.get("correlation_id")),
@@ -330,7 +364,7 @@ def render_markdown_report(report: dict[str, Any]) -> str:
     lines.append("")
     extras = report.get("extra_or_unmatched_evidence") or []
     if extras:
-        lines.extend(["## Extra or unmatched evidence", ""])
+        lines.extend(["## Extra or superseded evidence", ""])
         lines.extend(f"- `{item.get('file')}` — {item.get('reason')}" for item in extras)
         lines.append("")
     return "\n".join(lines)
