@@ -57,6 +57,34 @@ class SnapshottingMetrcFacilityBootstrapService(BaseMetrcFacilityBootstrapServic
         self.provider_snapshots = IntegrationProviderSnapshotRepository(engine)
         self.tag_mirror = MetrcAvailableTagMirror(engine)
 
+    def _facility_access_proven(
+        self,
+        *,
+        organization_id: str,
+        facility_id: str,
+        environment: str,
+    ) -> bool:
+        """Return whether this exact facility already has authenticated Metrc proof.
+
+        Facility discovery is an authenticated provider read and persists the exact
+        regulator-owned facility profile into the provider mirror before slow
+        resource hydration begins. Once that proof exists, a later resource-specific
+        401 must not be reinterpreted as evidence that the same credential pair is
+        globally invalid. The resource remains unavailable to this credential scope,
+        its previous current snapshot is preserved, and write capability stays
+        fail-closed.
+        """
+
+        rows = self.provider_snapshots.current(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            provider="metrc",
+            resources=("facility_profile",),
+            environment=environment,
+            limit=1,
+        )
+        return bool(rows)
+
     def sync(
         self,
         *,
@@ -254,12 +282,36 @@ class SnapshottingMetrcFacilityBootstrapService(BaseMetrcFacilityBootstrapServic
             status = str(result.get("status") or "")
             http_status = int(result.get("http_status") or 0)
             message = str(result.get("message") or "Metrc resource was unavailable.")[:512]
+            facility_access_proven = self._facility_access_proven(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                environment=environment,
+            )
+            if http_status == 401 and facility_access_proven:
+                message = (
+                    "Metrc rejected this specific resource request (HTTP 401) after authenticated facility discovery "
+                    "already proved the credential pair for this facility. DoobieLogic is treating this resource as "
+                    "restricted for the current license/user scope; existing provider state is preserved and writes "
+                    "remain disabled unless an explicit write contract and permission are proven."
+                )
+                self._mark_skipped(organization_id, facility_id, resource, environment, actor, message)
+                return {
+                    "resource": resource,
+                    "status": "skipped",
+                    "record_count": 0,
+                    "message": message,
+                    "http_status": http_status,
+                    "page_count": int(result.get("page_count") or 0),
+                    "truncated": bool(result.get("truncated")),
+                    "current_snapshot": {"status": "unchanged_permission_skipped"},
+                    "restriction_scope": "license_or_user_permission",
+                    "authenticated_facility_access": True,
+                }
             if http_status == 401:
                 message = (
                     "Metrc rejected this resource request (HTTP 401). Verify the saved key pair and the selected "
-                    "license's permission for this resource. A successful Facilities or other authenticated Metrc "
-                    "read means this should be investigated as resource/license permission scope before treating "
-                    "the saved keys as globally invalid."
+                    "license's permission for this resource. No authenticated facility profile was available to "
+                    "prove that this is only a resource-scoped restriction."
                 )
             if http_status in {403, 404} or status in {"forbidden", "regulatory_read_blocked"}:
                 self._mark_skipped(organization_id, facility_id, resource, environment, actor, message)
@@ -272,6 +324,7 @@ class SnapshottingMetrcFacilityBootstrapService(BaseMetrcFacilityBootstrapServic
                     "page_count": int(result.get("page_count") or 0),
                     "truncated": bool(result.get("truncated")),
                     "current_snapshot": {"status": "unchanged_permission_skipped"},
+                    "restriction_scope": "license_or_user_permission",
                 }
             failure = self._failure(
                 organization_id,
