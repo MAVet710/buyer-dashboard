@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import Engine
 
+from services.metrc_authoritative_inventory_membership import MetrcAuthoritativeInventoryMembershipReconciler
 from services.metrc_expanded_workspace_hydration import MetrcWorkspaceHydrationService
 from services.metrc_resilient_bootstrap import ResilientSnapshottingMetrcFacilityBootstrapService
 
@@ -38,6 +39,10 @@ class NaturalMetrcFacilityBootstrapService(ResilientSnapshottingMetrcFacilityBoo
     This final layer materializes only resources proven current by that run.
     Composite cultivation materialization additionally requires every cultivation
     dependency to be complete in the same provider baseline.
+
+    A complete active-package snapshot also owns absence semantics: a previously
+    linked package missing from that complete snapshot is closed to zero and marked
+    inactive locally. Incremental LastModified sync never infers absence.
     """
 
     # Transfer templates are facility-scoped and can safely join the complete
@@ -88,6 +93,9 @@ class NaturalMetrcFacilityBootstrapService(ResilientSnapshottingMetrcFacilityBoo
         organization_id = str(kwargs.get("organization_id") or "")
         facility_id = str(kwargs.get("facility_id") or "")
         environment = str(kwargs.get("environment") or "").strip().casefold()
+        state = str(kwargs.get("state") or "")
+        license_number = str(kwargs.get("license_number") or "")
+        actor = str(kwargs.get("actor") or "system")
         snapshots: dict[str, list[dict[str, Any]]] = {}
         for resource in HYDRATABLE_CURRENT_RESOURCES:
             if resource not in current_resources:
@@ -107,13 +115,41 @@ class NaturalMetrcFacilityBootstrapService(ResilientSnapshottingMetrcFacilityBoo
         workspace = MetrcWorkspaceHydrationService(self.engine).hydrate(
             organization_id=organization_id,
             facility_id=facility_id,
-            state=str(kwargs.get("state") or ""),
+            state=state,
             environment=environment,
-            license_number=str(kwargs.get("license_number") or ""),
-            actor=str(kwargs.get("actor") or "system"),
+            license_number=license_number,
+            actor=actor,
             resource_snapshots=snapshots,
         )
         workspace["complete_snapshot_only"] = True
+
+        if "packages" in current_resources:
+            membership = MetrcAuthoritativeInventoryMembershipReconciler(self.engine).reconcile_absent(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                state=state,
+                environment=environment,
+                license_number=license_number,
+                actor=actor,
+                current_packages=snapshots.get("packages", []),
+            )
+            inventory = workspace.setdefault("workspaces", {}).setdefault(
+                "inventory",
+                {
+                    "workspace": "inventory",
+                    "mode": "materialized",
+                    "source_package_count": len(snapshots.get("packages", [])),
+                    "authority": "metrc",
+                    "regulated_state_authoritative": True,
+                },
+            )
+            inventory["complete_membership_reconciliation"] = membership
+            workspace["materialized_workspaces"] = sorted(
+                name
+                for name, row in workspace.get("workspaces", {}).items()
+                if isinstance(row, dict) and row.get("mode") == "materialized"
+            )
+
         workspace.setdefault("workspace_gates", {})["cultivation"] = {
             "status": "current" if cultivation_complete else "withheld_incomplete_snapshot",
             "required_resources": list(CULTIVATION_RESOURCES),
