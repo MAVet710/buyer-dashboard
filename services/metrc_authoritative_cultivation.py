@@ -141,11 +141,9 @@ class MetrcAuthoritativeCultivationReconciler:
     """Project verified Metrc cultivation state into canonical DoobieLogic objects.
 
     Metrc is authoritative for regulated identity and the explicit lifecycle fields
-    it reports. This service never binds by a mutable name and never infers terminal
-    lifecycle state from absence in an active collection. Harvest weights are also
-    intentionally excluded until their exact provider semantics are separately
-    verified; post-harvest operational weights and other local ERP enrichment remain
-    untouched here.
+    it reports. Exact provider links are required; mutable names never establish
+    identity. Entity rows are batch-loaded for realistic facility scale, and every
+    regulated correction receives durable per-object audit evidence.
     """
 
     def __init__(self, engine: Engine):
@@ -189,13 +187,72 @@ class MetrcAuthoritativeCultivationReconciler:
             conflicts.append({"code": code, "provider_id": provider_id, "message": message})
 
         with self.sessions.begin() as session:
-            links = list(session.scalars(select(TraceabilityObjectLink).where(
-                TraceabilityObjectLink.organization_id == organization_id,
-                TraceabilityObjectLink.facility_id == facility_id,
-                TraceabilityObjectLink.provider == "metrc",
-                TraceabilityObjectLink.environment == environment,
-            )))
+            links = list(
+                session.scalars(
+                    select(TraceabilityObjectLink).where(
+                        TraceabilityObjectLink.organization_id == organization_id,
+                        TraceabilityObjectLink.facility_id == facility_id,
+                        TraceabilityObjectLink.provider == "metrc",
+                        TraceabilityObjectLink.environment == environment,
+                    )
+                )
+            )
             provider_links = {(row.provider_resource, row.provider_id): row for row in links}
+
+            def scoped_entity_ids(entity_type: str) -> set[str]:
+                return {
+                    row.entity_id
+                    for row in links
+                    if row.entity_type == entity_type
+                    and row.license_number == license_number
+                    and row.jurisdiction == state
+                }
+
+            room_ids = scoped_entity_ids("cultivation_room")
+            group_ids = scoped_entity_ids("cultivation_group")
+            plant_ids = scoped_entity_ids("cultivation_plant")
+            harvest_ids = scoped_entity_ids("cultivation_harvest")
+
+            rooms = {
+                row.id: row
+                for row in session.scalars(
+                    select(CultivationRoom).where(
+                        CultivationRoom.id.in_(room_ids),
+                        CultivationRoom.organization_id == organization_id,
+                        CultivationRoom.facility_id == facility_id,
+                    )
+                )
+            } if room_ids else {}
+            groups = {
+                row.id: row
+                for row in session.scalars(
+                    select(CultivationPlantGroup).where(
+                        CultivationPlantGroup.id.in_(group_ids),
+                        CultivationPlantGroup.organization_id == organization_id,
+                        CultivationPlantGroup.facility_id == facility_id,
+                    )
+                )
+            } if group_ids else {}
+            plants = {
+                row.id: row
+                for row in session.scalars(
+                    select(CultivationPlant).where(
+                        CultivationPlant.id.in_(plant_ids),
+                        CultivationPlant.organization_id == organization_id,
+                        CultivationPlant.facility_id == facility_id,
+                    )
+                )
+            } if plant_ids else {}
+            local_harvests = {
+                row.id: row
+                for row in session.scalars(
+                    select(CultivationHarvest).where(
+                        CultivationHarvest.id.in_(harvest_ids),
+                        CultivationHarvest.organization_id == organization_id,
+                        CultivationHarvest.facility_id == facility_id,
+                    )
+                )
+            } if harvest_ids else {}
 
             def exact_link(resource: str, provider_id: str, entity_type: str) -> TraceabilityObjectLink | None:
                 link = provider_links.get((resource, provider_id))
@@ -219,10 +276,15 @@ class MetrcAuthoritativeCultivationReconciler:
                 if not provider_location_id:
                     return None
                 link = provider_links.get(("locations", provider_location_id))
-                if link is None or link.license_number != license_number or link.jurisdiction != state or link.entity_type != "cultivation_room":
+                if (
+                    link is None
+                    or link.license_number != license_number
+                    or link.jurisdiction != state
+                    or link.entity_type != "cultivation_room"
+                ):
                     return None
-                room = session.get(CultivationRoom, link.entity_id)
-                if room is None or room.organization_id != organization_id or room.facility_id != facility_id:
+                room = rooms.get(link.entity_id)
+                if room is None:
                     link.status = "reconciliation_required"
                     link.mismatch_reason = "Metrc location identity points to a missing or out-of-scope cultivation room."
                     return None
@@ -236,17 +298,55 @@ class MetrcAuthoritativeCultivationReconciler:
                 link.verified_at = now
                 link.last_seen_at = now
 
+            def record_reconciliation(
+                *,
+                resource: str,
+                provider_id: str,
+                entity_type: str,
+                entity_id: str,
+                changes: dict[str, Any],
+            ) -> None:
+                evidence = {
+                    "provider": "metrc",
+                    "resource": resource,
+                    "provider_id": provider_id,
+                    "environment": environment,
+                    "jurisdiction_code": state,
+                    "license_number": license_number,
+                    "changes": changes,
+                }
+                reconciled.append({"resource": resource, "provider_id": provider_id, "entity_id": entity_id, "changes": changes})
+                session.add(
+                    AuditEvent(
+                        organization_id=organization_id,
+                        facility_id=facility_id,
+                        entity_type=entity_type,
+                        entity_id=entity_id,
+                        action=f"metrc_{resource}_authoritative_reconciliation",
+                        actor=actor,
+                        changes_json=json.dumps(evidence, sort_keys=True, default=str),
+                    )
+                )
+
+            referenced_location_ids = {
+                location_id
+                for record in [*plant_batches, *vegetative_plants, *flowering_plants, *harvests]
+                if isinstance(record, dict)
+                for location_id in [_location_id(record)]
+                if location_id
+            }
+
             for record in locations:
                 if not isinstance(record, dict):
                     continue
                 provider_id = _provider_id(record)
-                if not provider_id:
+                if not provider_id or provider_id not in referenced_location_ids:
                     continue
                 link = exact_link("locations", provider_id, "cultivation_room")
                 if link is None:
                     continue
-                room = session.get(CultivationRoom, link.entity_id)
-                if room is None or room.organization_id != organization_id or room.facility_id != facility_id:
+                room = rooms.get(link.entity_id)
+                if room is None:
                     link.status = "reconciliation_required"
                     link.mismatch_reason = "Exact Metrc location link points to a missing or out-of-scope room."
                     conflict("orphan_location_link", provider_id, link.mismatch_reason)
@@ -263,7 +363,13 @@ class MetrcAuthoritativeCultivationReconciler:
                 verify_link(link, label=name)
                 if changes:
                     counters["room_updates"] += 1
-                    reconciled.append({"resource": "locations", "provider_id": provider_id, "changes": changes})
+                    record_reconciliation(
+                        resource="locations",
+                        provider_id=provider_id,
+                        entity_type="cultivation_room",
+                        entity_id=room.id,
+                        changes=changes,
+                    )
                 else:
                     counters["unchanged"] += 1
 
@@ -276,8 +382,8 @@ class MetrcAuthoritativeCultivationReconciler:
                 link = exact_link("plant_batches", provider_id, "cultivation_group")
                 if link is None:
                     continue
-                group = session.get(CultivationPlantGroup, link.entity_id)
-                if group is None or group.organization_id != organization_id or group.facility_id != facility_id:
+                group = groups.get(link.entity_id)
+                if group is None:
                     link.status = "reconciliation_required"
                     link.mismatch_reason = "Exact Metrc plant-batch link points to a missing or out-of-scope cultivation group."
                     conflict("orphan_plant_batch_link", provider_id, link.mismatch_reason)
@@ -307,7 +413,13 @@ class MetrcAuthoritativeCultivationReconciler:
                 verify_link(link, label=_provider_label(record, "Name"))
                 if changes:
                     counters["group_updates"] += 1
-                    reconciled.append({"resource": "plant_batches", "provider_id": provider_id, "changes": changes})
+                    record_reconciliation(
+                        resource="plant_batches",
+                        provider_id=provider_id,
+                        entity_type="cultivation_group",
+                        entity_id=group.id,
+                        changes=changes,
+                    )
                 else:
                     counters["unchanged"] += 1
 
@@ -321,8 +433,8 @@ class MetrcAuthoritativeCultivationReconciler:
                     link = exact_link("plants", provider_id, "cultivation_plant")
                     if link is None:
                         continue
-                    plant = session.get(CultivationPlant, link.entity_id)
-                    if plant is None or plant.organization_id != organization_id or plant.facility_id != facility_id:
+                    plant = plants.get(link.entity_id)
+                    if plant is None:
                         link.status = "reconciliation_required"
                         link.mismatch_reason = "Exact Metrc plant link points to a missing or out-of-scope cultivation plant."
                         conflict("orphan_plant_link", provider_id, link.mismatch_reason)
@@ -341,17 +453,19 @@ class MetrcAuthoritativeCultivationReconciler:
                         before = plant.phase
                         plant.phase = phase
                         changes["phase"] = {"before": before, "after": phase}
-                        session.add(CultivationPlantEvent(
-                            organization_id=organization_id,
-                            facility_id=facility_id,
-                            plant_id=plant.id,
-                            event_type="metrc_phase_reconciled",
-                            from_value=before,
-                            to_value=phase,
-                            reason="Metrc authoritative lifecycle state",
-                            notes="",
-                            actor=actor,
-                        ))
+                        session.add(
+                            CultivationPlantEvent(
+                                organization_id=organization_id,
+                                facility_id=facility_id,
+                                plant_id=plant.id,
+                                event_type="metrc_phase_reconciled",
+                                from_value=before,
+                                to_value=phase,
+                                reason="Metrc authoritative lifecycle state",
+                                notes="",
+                                actor=actor,
+                            )
+                        )
                         counters["plant_events"] += 1
 
                     strain = _explicit_strain(record)
@@ -359,17 +473,19 @@ class MetrcAuthoritativeCultivationReconciler:
                         before = plant.strain_name
                         plant.strain_name = strain
                         changes["strain_name"] = {"before": before, "after": strain}
-                        session.add(CultivationPlantEvent(
-                            organization_id=organization_id,
-                            facility_id=facility_id,
-                            plant_id=plant.id,
-                            event_type="metrc_strain_reconciled",
-                            from_value=before,
-                            to_value=strain,
-                            reason="Metrc authoritative strain identity",
-                            notes="",
-                            actor=actor,
-                        ))
+                        session.add(
+                            CultivationPlantEvent(
+                                organization_id=organization_id,
+                                facility_id=facility_id,
+                                plant_id=plant.id,
+                                event_type="metrc_strain_reconciled",
+                                from_value=before,
+                                to_value=strain,
+                                reason="Metrc authoritative strain identity",
+                                notes="",
+                                actor=actor,
+                            )
+                        )
                         counters["plant_events"] += 1
 
                     provider_location_id = _location_id(record)
@@ -385,21 +501,25 @@ class MetrcAuthoritativeCultivationReconciler:
                             before = plant.room_code
                             plant.room_code = room.room_code
                             changes["room_code"] = {"before": before, "after": room.room_code}
-                            session.add(CultivationPlantEvent(
-                                organization_id=organization_id,
-                                facility_id=facility_id,
-                                plant_id=plant.id,
-                                event_type="metrc_location_reconciled",
-                                from_value=before,
-                                to_value=room.room_code,
-                                reason="Metrc authoritative plant location",
-                                notes="",
-                                actor=actor,
-                            ))
+                            session.add(
+                                CultivationPlantEvent(
+                                    organization_id=organization_id,
+                                    facility_id=facility_id,
+                                    plant_id=plant.id,
+                                    event_type="metrc_location_reconciled",
+                                    from_value=before,
+                                    to_value=room.room_code,
+                                    reason="Metrc authoritative plant location",
+                                    notes="",
+                                    actor=actor,
+                                )
+                            )
                             counters["plant_events"] += 1
 
                     source = _source(record)
-                    provider_planted_at = _parse_date(_first(source, "PlantedDate", "plantedDate", "PlantDate", "plantDate"))
+                    provider_planted_at = _parse_date(
+                        _first(source, "PlantedDate", "plantedDate", "PlantDate", "plantDate")
+                    )
                     if provider_planted_at is not None and plant.planted_at != provider_planted_at:
                         changes["planted_at"] = {
                             "before": plant.planted_at.isoformat() if plant.planted_at else None,
@@ -410,7 +530,13 @@ class MetrcAuthoritativeCultivationReconciler:
                     verify_link(link, label=tag)
                     if changes:
                         counters["plant_updates"] += 1
-                        reconciled.append({"resource": "plants", "provider_id": provider_id, "changes": changes})
+                        record_reconciliation(
+                            resource="plants",
+                            provider_id=provider_id,
+                            entity_type="cultivation_plant",
+                            entity_id=plant.id,
+                            changes=changes,
+                        )
                     else:
                         counters["unchanged"] += 1
 
@@ -426,8 +552,8 @@ class MetrcAuthoritativeCultivationReconciler:
                 link = exact_link("harvests", provider_id, "cultivation_harvest")
                 if link is None:
                     continue
-                harvest = session.get(CultivationHarvest, link.entity_id)
-                if harvest is None or harvest.organization_id != organization_id or harvest.facility_id != facility_id:
+                harvest = local_harvests.get(link.entity_id)
+                if harvest is None:
                     link.status = "reconciliation_required"
                     link.mismatch_reason = "Exact Metrc harvest link points to a missing or out-of-scope local harvest."
                     conflict("orphan_harvest_link", provider_id, link.mismatch_reason)
@@ -467,7 +593,13 @@ class MetrcAuthoritativeCultivationReconciler:
                 verify_link(link, label=_provider_label(record, "Name"))
                 if changes:
                     counters["harvest_updates"] += 1
-                    reconciled.append({"resource": "harvests", "provider_id": provider_id, "changes": changes})
+                    record_reconciliation(
+                        resource="harvests",
+                        provider_id=provider_id,
+                        entity_type="cultivation_harvest",
+                        entity_id=harvest.id,
+                        changes=changes,
+                    )
                 else:
                     counters["unchanged"] += 1
 
@@ -503,18 +635,23 @@ class MetrcAuthoritativeCultivationReconciler:
                 "terminal_state_inferred_from_absence": False,
                 "harvest_weight_reconciliation_enabled": False,
                 "identity_strategy": "exact_traceability_object_link",
+                "entity_loading_strategy": "batched_by_linked_entity_type",
+                "unused_provider_locations_ignored": True,
+                "per_object_audit_evidence": True,
             }
-            session.add(AuditEvent(
-                organization_id=organization_id,
-                facility_id=facility_id,
-                entity_type="metrc_authoritative_cultivation",
-                entity_id=facility_id,
-                action="metrc_authoritative_cultivation_reconciliation_completed",
-                actor=actor,
-                changes_json=json.dumps(
-                    {key: value for key, value in summary.items() if key not in {"conflicts", "reconciled"}},
-                    sort_keys=True,
-                    default=str,
-                ),
-            ))
+            session.add(
+                AuditEvent(
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    entity_type="metrc_authoritative_cultivation",
+                    entity_id=facility_id,
+                    action="metrc_authoritative_cultivation_reconciliation_completed",
+                    actor=actor,
+                    changes_json=json.dumps(
+                        {key: value for key, value in summary.items() if key != "conflicts"},
+                        sort_keys=True,
+                        default=str,
+                    ),
+                )
+            )
             return summary
