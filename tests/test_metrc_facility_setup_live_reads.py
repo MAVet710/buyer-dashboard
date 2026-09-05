@@ -30,7 +30,7 @@ class PagedFakeTransport:
     def get(self, path: str, query: dict[str, object]):
         self.calls.append((path, dict(query)))
         page = int(query.get("pageNumber") or 1)
-        page_size = int(query.get("pageSize") or 50)
+        page_size = int(query.get("pageSize") or 20)
         if page <= self.full_pages:
             count = page_size
         elif page == self.full_pages + 1:
@@ -76,16 +76,16 @@ def test_items_live_read_uses_documented_master_data_endpoints(live_metrc):
     assert result["source"] == "metrc_live"
     assert result["license_number"] == "LIC-TEST"
     assert result["bounded"] is True
-    assert result["page_size"] == 50
+    assert result["page_size"] == 20
     assert len(result["items"]) == 1
     assert len(result["brands"]) == 1
     assert len(result["categories"]) == 1
     assert len(result["units_of_measure"]) == 1
-    paged = {"licenseNumber": "LIC-TEST", "pageSize": 50, "pageNumber": 1}
+    paged = {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1}
     assert all(query == paged for _, query in transport.calls[:4])
     assert transport.calls[4][1] == {}
     assert result["pagination"]["items"] == {
-        "page_size": 50,
+        "page_size": 20,
         "pages_loaded": 1,
         "records_loaded": 1,
         "truncated": False,
@@ -104,11 +104,11 @@ def test_master_data_paging_reaches_records_beyond_first_page():
         "active items",
     )
 
-    assert len(rows) == 53
+    assert len(rows) == 23
     assert [query["pageNumber"] for _, query in transport.calls] == [1, 2]
-    assert all(query["pageSize"] == 50 for _, query in transport.calls)
+    assert all(query["pageSize"] == 20 for _, query in transport.calls)
     assert page["pages_loaded"] == 2
-    assert page["records_loaded"] == 53
+    assert page["records_loaded"] == 23
     assert page["truncated"] is False
 
 
@@ -124,7 +124,7 @@ def test_master_data_paging_has_a_hard_provider_call_bound():
         max_pages=2,
     )
 
-    assert len(rows) == 100
+    assert len(rows) == 40
     assert len(transport.calls) == 2
     assert page["max_pages"] == 2
     assert page["truncated"] is True
@@ -138,8 +138,27 @@ def test_initial_facility_reads_stay_within_metrc_page_limit(live_metrc):
     for _, query in transport.calls:
         assert query["licenseNumber"] == "LIC-TEST"
         if "pageSize" in query:
-            assert 1 <= query["pageSize"] <= 50
+            assert 1 <= query["pageSize"] <= 20
             assert query["pageNumber"] == 1
+
+
+def test_master_data_page_size_is_clamped_to_reviewed_metrc_v2_limit():
+    metrc = SimpleNamespace(license_number="LIC-TEST")
+    transport = PagedFakeTransport(full_pages=0, tail_count=1)
+
+    rows, page = location_settings._paged_provider_rows(
+        transport,
+        metrc,
+        "locations/v2/active",
+        "active locations",
+        page_size=50,
+    )
+
+    assert len(rows) == 1
+    assert transport.calls == [
+        ("locations/v2/active", {"licenseNumber": "LIC-TEST", "pageSize": 20, "pageNumber": 1})
+    ]
+    assert page["page_size"] == 20
 
 
 def test_provider_failure_identifies_the_failing_resource():
