@@ -1,22 +1,42 @@
 from __future__ import annotations
 
-from fastapi.routing import APIRoute
+from pathlib import Path
+import subprocess
+import sys
 
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _run_clean_startup_assertions(source: str) -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", source],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_runtime_replaced_sandbox_routes_preserve_fastapi_dependency_contracts():
+    _run_clean_startup_assertions(
+        r'''
+from fastapi.routing import APIRoute
 from backend.app.main import app
 
 
-def _route(suffix: str, method: str) -> APIRoute:
-    for route in app.routes:
-        if (
-            isinstance(route, APIRoute)
-            and route.path.endswith(suffix)
-            and method in (route.methods or set())
-        ):
-            return route
-    raise AssertionError(f"Expected {method} route ending in {suffix!r}.")
+def route_for(suffix: str, method: str) -> APIRoute:
+    return next(
+        route for route in app.routes
+        if isinstance(route, APIRoute)
+        and route.path.endswith(suffix)
+        and method in (route.methods or set())
+    )
 
 
-def _request_field_names(route: APIRoute) -> set[str]:
+def request_field_names(route: APIRoute) -> set[str]:
     return {
         field.name
         for field in (
@@ -28,36 +48,41 @@ def _request_field_names(route: APIRoute) -> set[str]:
         )
     }
 
+routes = (
+    route_for("/integrations/sandbox/{provider}/runtime", "GET"),
+    route_for("/integrations/sandbox/{provider}/sync", "POST"),
+    route_for("/integrations/sandbox/{provider}/retry", "POST"),
+)
+for route in routes:
+    names = request_field_names(route)
+    assert names.isdisjoint({"context", "engine", "settings"}), (route.path, names)
+    dependency_names = {
+        getattr(dependency.call, "__name__", "")
+        for dependency in route.dependant.dependencies
+    }
+    assert {"get_request_context", "get_engine", "get_settings"}.issubset(dependency_names), (route.path, dependency_names)
 
-def test_runtime_replaced_sandbox_routes_preserve_fastapi_dependency_contracts():
-    routes = (
-        _route("/integrations/sandbox/{provider}/runtime", "GET"),
-        _route("/integrations/sandbox/{provider}/sync", "POST"),
-        _route("/integrations/sandbox/{provider}/retry", "POST"),
+sync_route = routes[1]
+assert "payload" in {field.name for field in sync_route.dependant.body_params}
+assert "payload" not in {field.name for field in sync_route.dependant.query_params}
+'''
     )
-    for route in routes:
-        names = _request_field_names(route)
-        assert names.isdisjoint({"context", "engine", "settings"})
-        dependency_names = {
-            getattr(dependency.call, "__name__", "")
-            for dependency in route.dependant.dependencies
-        }
-        assert {"get_request_context", "get_engine", "get_settings"}.issubset(dependency_names)
-
-    sync_route = routes[1]
-    assert "payload" in {field.name for field in sync_route.dependant.body_params}
-    assert "payload" not in {field.name for field in sync_route.dependant.query_params}
 
 
 def test_runtime_replaced_sandbox_openapi_keeps_sync_payload_in_request_body():
-    schema = app.openapi()
-    paths = schema["paths"]
-    sync_path = next(
-        path
-        for path in paths
-        if path.endswith("/integrations/sandbox/{provider}/sync")
+    _run_clean_startup_assertions(
+        r'''
+from backend.app.main import app
+
+schema = app.openapi()
+paths = schema["paths"]
+sync_path = next(
+    path for path in paths
+    if path.endswith("/integrations/sandbox/{provider}/sync")
+)
+operation = paths[sync_path]["post"]
+parameter_names = {str(parameter.get("name") or "") for parameter in operation.get("parameters", [])}
+assert parameter_names.isdisjoint({"context", "engine", "settings", "payload"}), parameter_names
+assert "requestBody" in operation
+'''
     )
-    operation = paths[sync_path]["post"]
-    parameter_names = {str(parameter.get("name") or "") for parameter in operation.get("parameters", [])}
-    assert parameter_names.isdisjoint({"context", "engine", "settings", "payload"})
-    assert "requestBody" in operation
