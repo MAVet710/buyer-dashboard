@@ -11,12 +11,13 @@ from services.metrc_capability_matrix import (
 )
 
 
-def _state(resource: str, status: str, *, cursor: str = "", error: str = "") -> dict:
+def _state(resource: str, status: str, *, cursor: str = "", error: str = "", provider_capability: str = "") -> dict:
     return {
         "resource": resource,
         "status": status,
         "cursor": cursor,
         "last_error": error,
+        "provider_capability": provider_capability,
     }
 
 
@@ -30,9 +31,24 @@ def test_successful_resource_is_available_even_with_zero_records():
     assert result.retry_recommended is False
 
 
-def test_permission_skipped_is_expected_license_boundary():
+def test_permission_skipped_remains_conservatively_restricted_without_explicit_permission_metadata():
     result = classify_metrc_resource_state(
         _state("plants_vegetative", "succeeded", cursor="permission-skipped"),
+        authenticated_facility_access=True,
+    )
+    assert result.capability == RESOURCE_RESTRICTED
+    assert result.operational_status == "restricted"
+    assert result.retry_recommended is False
+
+
+def test_explicit_provider_capability_can_mark_license_unavailable():
+    result = classify_metrc_resource_state(
+        _state(
+            "plants_vegetative",
+            "succeeded",
+            cursor="permission-skipped",
+            provider_capability="not_available_for_license",
+        ),
         authenticated_facility_access=True,
     )
     assert result.capability == RESOURCE_NOT_AVAILABLE
