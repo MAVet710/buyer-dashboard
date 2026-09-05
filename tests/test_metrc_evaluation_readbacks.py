@@ -59,7 +59,7 @@ def test_evaluation_lifecycle_readbacks_cover_created_provider_objects():
         assert plan.params == {"licenseNumber": "MA-SANDBOX-LIC"}
 
 
-def test_rejected_transfer_evaluation_read_is_normalized_and_paginated():
+def test_rejected_transfer_evaluation_read_is_normalized_and_paginated_with_v2_ceiling():
     plan = build_metrc_read_plan(
         jurisdiction="MA",
         resource="rejected_transfers",
@@ -71,9 +71,26 @@ def test_rejected_transfer_evaluation_read_is_normalized_and_paginated():
     assert plan.path == "transfers/v2/rejected"
     assert plan.params == {
         "licenseNumber": "MA-SANDBOX-LIC",
-        "pageSize": 100,
+        "pageSize": 20,
         "pageNumber": 2,
     }
+
+
+def test_available_tag_reads_do_not_send_standard_pagination_parameters():
+    for resource, expected_path in {
+        "package_tags_available": "tags/v2/package/available",
+        "plant_tags_available": "tags/v2/plant/available",
+    }.items():
+        plan = build_metrc_read_plan(
+            jurisdiction="MA",
+            resource=resource,
+            environment="sandbox",
+            license_number="MA-SANDBOX-LIC",
+            page_size=100,
+            page_number=5,
+        )
+        assert plan.path == expected_path
+        assert plan.params == {"licenseNumber": "MA-SANDBOX-LIC"}
 
 
 def test_by_id_object_payload_normalizes_as_one_lossless_record():
