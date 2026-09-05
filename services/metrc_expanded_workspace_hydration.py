@@ -6,6 +6,7 @@ from typing import Any, Mapping
 from sqlalchemy import Engine
 
 from modules.integrations.provider_snapshot import IntegrationProviderSnapshotRepository
+from services.metrc_authoritative_cultivation import MetrcAuthoritativeCultivationReconciler
 from services.metrc_authoritative_inventory import MetrcAuthoritativeInventoryReconciler
 from services.metrc_cultivation_materialization import MetrcCultivationMaterializer
 from services.metrc_workspace_hydration import MetrcWorkspaceHydrationService as BaseMetrcWorkspaceHydrationService
@@ -24,14 +25,40 @@ def _explicit_batch_strain(record: Mapping[str, Any]) -> str:
     return str(value or "").strip()
 
 
+def _provider_id(record: Mapping[str, Any]) -> str:
+    source = _source(record)
+    return str(record.get("provider_id") or source.get("Id") or source.get("ID") or source.get("id") or "").strip()
+
+
+def _referenced_location_id(record: Mapping[str, Any]) -> str:
+    source = _source(record)
+    nested = source.get("Location") or source.get("location") or source.get("DryingLocation") or source.get("dryingLocation")
+    nested_id = ""
+    if isinstance(nested, Mapping):
+        nested_id = str(nested.get("Id") or nested.get("id") or "").strip()
+    return str(
+        source.get("LocationId")
+        or source.get("locationId")
+        or source.get("CurrentLocationId")
+        or source.get("currentLocationId")
+        or source.get("DryingLocationId")
+        or source.get("dryingLocationId")
+        or source.get("HarvestLocationId")
+        or source.get("harvestLocationId")
+        or nested_id
+        or ""
+    ).strip()
+
+
 class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
     """Extend provider hydration into canonical Inventory and Cultivation workspaces.
 
-    Metrc is authoritative for regulated package state. The base hydrator establishes
-    exact Product/Package identity and seeds new canonical rows; this layer then
-    reconciles already-linked inventory to the current provider quantity/location/
-    testing state with an append-only ledger delta. Provider-owned transfer/history
-    objects remain shadows. Cultivation identity remains exact and fail-closed.
+    Metrc is authoritative for the regulated package and cultivation fields it
+    explicitly reports. The base hydrator establishes exact provider identity and
+    seeds new canonical rows; this layer then reconciles already-linked objects to
+    provider truth while preserving local ERP enrichment and append-only evidence.
+    Provider-owned transfer/history objects remain shadows. Identity is always exact
+    and fail-closed; no mutable-name rebinding is allowed.
     """
 
     def __init__(self, engine: Engine):
@@ -145,9 +172,13 @@ class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
                     resource="plant_batches",
                 )
 
+            location_rows = [dict(row) for row in snapshots.get("locations", []) if isinstance(row, dict)]
             all_batches = [dict(row) for row in snapshots.get("plant_batches", []) if isinstance(row, dict)]
             valid_batches = [row for row in all_batches if _explicit_batch_strain(row)]
             invalid_batches = [row for row in all_batches if not _explicit_batch_strain(row)]
+            vegetative_rows = [dict(row) for row in snapshots.get("plants_vegetative", []) if isinstance(row, dict)]
+            flowering_rows = [dict(row) for row in snapshots.get("plants_flowering", []) if isinstance(row, dict)]
+            harvest_rows = [dict(row) for row in snapshots.get("harvests", []) if isinstance(row, dict)]
 
             cultivation = MetrcCultivationMaterializer(self.engine).seed(
                 organization_id=organization_id,
@@ -156,11 +187,11 @@ class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
                 environment=environment,
                 license_number=license_number,
                 actor=actor,
-                locations=[dict(row) for row in snapshots.get("locations", []) if isinstance(row, dict)],
+                locations=location_rows,
                 plant_batches=valid_batches,
-                vegetative_plants=[dict(row) for row in snapshots.get("plants_vegetative", []) if isinstance(row, dict)],
-                flowering_plants=[dict(row) for row in snapshots.get("plants_flowering", []) if isinstance(row, dict)],
-                harvests=[dict(row) for row in snapshots.get("harvests", []) if isinstance(row, dict)],
+                vegetative_plants=vegetative_rows,
+                flowering_plants=flowering_rows,
+                harvests=harvest_rows,
             )
             if invalid_batches:
                 rejected = [
@@ -174,6 +205,32 @@ class MetrcWorkspaceHydrationService(BaseMetrcWorkspaceHydrationService):
                 cultivation.setdefault("conflicts", []).extend(rejected)
                 cultivation["conflict_count"] = int(cultivation.get("conflict_count") or 0) + len(rejected)
                 cultivation.setdefault("source_counts", {})["plant_batches"] = len(all_batches)
+
+            referenced_location_ids = {
+                location_id
+                for row in [*valid_batches, *vegetative_rows, *flowering_rows, *harvest_rows]
+                for location_id in [_referenced_location_id(row)]
+                if location_id
+            }
+            authority_locations = [
+                row for row in location_rows if _provider_id(row) in referenced_location_ids
+            ]
+            authoritative = MetrcAuthoritativeCultivationReconciler(self.engine).reconcile(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                state=state,
+                environment=environment,
+                license_number=license_number,
+                actor=actor,
+                locations=authority_locations,
+                plant_batches=valid_batches,
+                vegetative_plants=vegetative_rows,
+                flowering_plants=flowering_rows,
+                harvests=harvest_rows,
+            )
+            cultivation["authority"] = "metrc"
+            cultivation["regulated_state_authoritative"] = True
+            cultivation["authoritative_reconciliation"] = authoritative
             cultivation["dependency_source"] = "integration_provider_snapshots"
             cultivation["dependency_network_request_made"] = False
             result.setdefault("workspaces", {})["cultivation"] = cultivation
