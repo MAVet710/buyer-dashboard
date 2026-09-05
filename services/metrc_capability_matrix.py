@@ -76,13 +76,26 @@ def classify_metrc_resource_state(
     provider_status = str(state.get("status") or "idle").strip().casefold() or "idle"
     cursor = str(state.get("cursor") or "").strip().casefold()
     error = str(state.get("last_error") or "").strip()
+    explicit_capability = str(state.get("provider_capability") or "").strip().casefold()
 
-    if cursor == "permission-skipped":
+    if explicit_capability == RESOURCE_NOT_AVAILABLE:
         return ResourceCapability(
             resource=resource,
             capability=RESOURCE_NOT_AVAILABLE,
             operational_status="healthy",
-            reason="Metrc does not expose this resource to the selected facility/license scope.",
+            reason="Metrc explicitly reports this resource as unavailable for the selected facility/license.",
+            retry_recommended=False,
+            provider_status=provider_status,
+        )
+    if cursor == "permission-skipped":
+        return ResourceCapability(
+            resource=resource,
+            capability=RESOURCE_RESTRICTED,
+            operational_status="restricted",
+            reason=(
+                "Metrc denied or did not expose this resource for the current authenticated facility scope. "
+                "DoobieLogic will not guess whether the boundary is license capability or user permission until explicit provider permissions are available."
+            ),
             retry_recommended=False,
             provider_status=provider_status,
         )
@@ -177,7 +190,7 @@ def summarize_metrc_modules(capabilities: Iterable[Mapping[str, Any]]) -> list[d
         elif syncing:
             status = "syncing"
         elif restricted == len(resources):
-            status = "not_available_for_license"
+            status = "restricted"
         elif actionable_failures:
             status = "failed"
         else:
@@ -216,6 +229,6 @@ def metrc_operator_summary(
         "pending_resources": pending,
         "available_modules": [row.get("module") for row in module_rows if row.get("status") == "available"],
         "degraded_modules": [row.get("module") for row in module_rows if row.get("status") in {"degraded", "failed"}],
-        "restricted_modules": [row.get("module") for row in module_rows if row.get("status") == "not_available_for_license"],
+        "restricted_modules": [row.get("module") for row in module_rows if row.get("status") in {"restricted", "not_available_for_license"}],
         "healthy": actionable_failures == 0,
     }
