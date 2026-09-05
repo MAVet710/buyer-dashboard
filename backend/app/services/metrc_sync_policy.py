@@ -115,22 +115,35 @@ class MetrcPolicySyncControlService(MetrcNaturalSyncControlService):
         )
         failed = int(full.get("totals", {}).get("failed") or 0)
         records = int(full.get("totals", {}).get("records") or 0)
-        resources = [
-            {
-                "resource": str(row.get("resource") or ""),
-                "run_id": str(row.get("run_id") or ""),
-                "status": str(row.get("status") or ""),
-                "cursor_before": "",
-                "cursor_after": str((row.get("hydration_checkpoint") or {}).get("status") or "initial-full"),
-                "record_count": int(row.get("record_count") or 0),
-                "accepted_count": int(row.get("accepted_count") or row.get("record_count") or 0),
-                "duplicate_count": int(row.get("duplicate_count") or 0),
-                "error_count": 1 if row.get("status") == "failed" else 0,
-                "transport": str(row.get("transport") or "metrc_authenticated_full"),
-            }
-            for row in full.get("resources", [])
-            if isinstance(row, dict)
-        ]
+        resources = []
+        for row in full.get("resources", []):
+            if not isinstance(row, dict):
+                continue
+            accepted_value = row.get("accepted_count")
+            accepted_count = (
+                int(accepted_value)
+                if accepted_value is not None
+                else int(row.get("record_count") or 0)
+            )
+            resources.append(
+                {
+                    "resource": str(row.get("resource") or ""),
+                    "run_id": str(row.get("run_id") or ""),
+                    "status": str(row.get("status") or ""),
+                    "cursor_before": "",
+                    "cursor_after": str((row.get("hydration_checkpoint") or {}).get("status") or "initial-full"),
+                    "record_count": int(row.get("record_count") or 0),
+                    "accepted_count": accepted_count,
+                    "duplicate_count": int(row.get("duplicate_count") or 0),
+                    "error_count": 1 if row.get("status") == "failed" else 0,
+                    "transport": str(row.get("transport") or "metrc_authenticated_full"),
+                }
+            )
+        restrictions = sum(
+            1
+            for row in resources
+            if row["cursor_after"] == "permission-skipped" or row["status"] == "skipped"
+        )
         return {
             "provider": "metrc",
             "provider_id": "metrc",
@@ -143,9 +156,10 @@ class MetrcPolicySyncControlService(MetrcNaturalSyncControlService):
             "resources": resources,
             "totals": {
                 "records": records,
-                "accepted": records,
+                "accepted": sum(row["accepted_count"] for row in resources),
                 "duplicates": sum(row["duplicate_count"] for row in resources),
-                "errors": failed,
+                "errors": failed + restrictions,
+                "restrictions": restrictions,
             },
             "bootstrap": full,
         }
