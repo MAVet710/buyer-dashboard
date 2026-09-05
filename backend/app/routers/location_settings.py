@@ -17,6 +17,7 @@ from modules.regulatory.facility_setup_contracts import (
     get_facility_setup_action,
     list_facility_setup_actions,
 )
+from modules.regulatory.metrc_resources import METRC_V2_MAX_PAGE_SIZE
 from modules.regulatory.registry import get_jurisdiction
 from services.metrc_client import MetrcTransport
 from ..auth import RequestContext, get_request_context, require_any_facility_capability
@@ -36,11 +37,10 @@ DEFAULTS = {"auto_map_products_during_receive": False, "default_receiving_room":
 WRITE_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa", "trial"}
 FACILITY_SETUP_MANAGE_ROLES = {"dev", "admin", "planner", "supervisor"}
 FACILITY_CAPABILITIES = ("retail", "production", "cultivation", "commercial")
-# Metrc locations/strains v2 reject pageSize > 50. Routine reads stay small;
-# operator-triggered master-data edit loads walk bounded 50-row pages.
+# Keep every Facility Setup collection within the reviewed Metrc v2 page cap.
 LIVE_PAGE_SIZE = 20
 MASTER_DATA_PAGE_SIZE = 20
-MASTER_DATA_EDIT_PAGE_SIZE = 50
+MASTER_DATA_EDIT_PAGE_SIZE = METRC_V2_MAX_PAGE_SIZE
 MASTER_DATA_EDIT_MAX_PAGES = 20
 
 
@@ -161,7 +161,7 @@ def _permissions_from_payload(value: Any) -> list[str]:
 def _page_query(metrc, page_size: int = LIVE_PAGE_SIZE, page_number: int = 1) -> dict[str, Any]:
     return {
         "licenseNumber": metrc.license_number,
-        "pageSize": max(1, min(int(page_size or LIVE_PAGE_SIZE), 50)),
+        "pageSize": max(1, min(int(page_size or LIVE_PAGE_SIZE), METRC_V2_MAX_PAGE_SIZE)),
         "pageNumber": max(1, int(page_number or 1)),
     }
 
@@ -177,7 +177,7 @@ def _paged_provider_rows(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Walk user-requested Metrc master-data pages with a hard provider-call bound."""
 
-    safe_page_size = max(1, min(int(page_size or MASTER_DATA_EDIT_PAGE_SIZE), 50))
+    safe_page_size = max(1, min(int(page_size or MASTER_DATA_EDIT_PAGE_SIZE), METRC_V2_MAX_PAGE_SIZE))
     safe_max_pages = max(1, min(int(max_pages or MASTER_DATA_EDIT_MAX_PAGES), MASTER_DATA_EDIT_MAX_PAGES))
     rows: list[dict[str, Any]] = []
     pages_loaded = 0
