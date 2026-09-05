@@ -122,6 +122,8 @@ def test_existing_metrc_cultivation_state_becomes_canonical_without_fake_history
     assert cultivation["created_group_memberships"] == 1
     assert cultivation["created_links"] == 5
     assert cultivation["fabricated_lifecycle_history"] is False
+    assert cultivation["authority"] == "metrc"
+    assert cultivation["regulated_state_authoritative"] is True
     assert "cultivation" in result["materialized_workspaces"]
 
     with Session(engine) as session:
@@ -173,6 +175,7 @@ def test_cultivation_hydration_replay_is_idempotent():
     assert second["created_plants"] == 0
     assert second["created_harvests"] == 0
     assert second["created_group_memberships"] == 0
+    assert second["authoritative_reconciliation"]["plant_updates"] == 0
 
     with Session(engine) as session:
         assert len(list(session.scalars(select(CultivationRoom)))) == 1
@@ -182,7 +185,7 @@ def test_cultivation_hydration_replay_is_idempotent():
         assert len(list(session.scalars(select(CultivationPlantGroupMember)))) == 1
 
 
-def test_exact_existing_plant_tag_can_link_without_overwriting_local_state():
+def test_exact_existing_plant_tag_links_then_regulated_state_reconciles_to_metrc():
     engine, organization_id, facility_id = _facility()
     with Session(engine) as session, session.begin():
         existing = CultivationPlant(
@@ -192,6 +195,7 @@ def test_exact_existing_plant_tag_can_link_without_overwriting_local_state():
             strain_name="LOCAL GMO",
             phase="flowering",
             room_code="LOCAL ROOM",
+            notes="Keep local note",
         )
         session.add(existing)
         session.flush()
@@ -212,11 +216,13 @@ def test_exact_existing_plant_tag_can_link_without_overwriting_local_state():
 
     assert result["created_plants"] == 0
     assert result["warning_count"] >= 1
+    assert result["authoritative_reconciliation"]["plant_updates"] == 1
     with Session(engine) as session:
         plant = session.get(CultivationPlant, existing_id)
-        assert plant.phase == "flowering"
-        assert plant.strain_name == "LOCAL GMO"
-        assert plant.room_code == "LOCAL ROOM"
+        assert plant.phase == "vegetative"
+        assert plant.strain_name == "GMO"
+        assert plant.room_code == "VEG 1"
+        assert plant.notes == "Keep local note"
         link = session.scalar(select(TraceabilityObjectLink).where(
             TraceabilityObjectLink.entity_type == "cultivation_plant",
             TraceabilityObjectLink.entity_id == existing_id,
@@ -224,3 +230,4 @@ def test_exact_existing_plant_tag_can_link_without_overwriting_local_state():
         assert link is not None
         assert link.provider_resource == "plants"
         assert link.provider_id == "plant-1"
+        assert link.status == "verified"
