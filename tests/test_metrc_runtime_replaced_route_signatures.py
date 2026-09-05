@@ -23,20 +23,19 @@ def _run_clean_startup_assertions(source: str) -> None:
 def test_runtime_replaced_sandbox_routes_preserve_fastapi_dependency_contracts():
     _run_clean_startup_assertions(
         r'''
-from fastapi.routing import APIRoute
 from backend.app.main import app
 
 
-def route_for(suffix: str, method: str) -> APIRoute:
+def route_for(suffix: str, method: str):
     return next(
         route for route in app.routes
-        if isinstance(route, APIRoute)
-        and route.path.endswith(suffix)
-        and method in (route.methods or set())
+        if str(getattr(route, "path", "")).endswith(suffix)
+        and method in (getattr(route, "methods", None) or set())
+        and getattr(route, "dependant", None) is not None
     )
 
 
-def request_field_names(route: APIRoute) -> set[str]:
+def request_field_names(route) -> set[str]:
     return {
         field.name
         for field in (
