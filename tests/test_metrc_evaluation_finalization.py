@@ -89,6 +89,44 @@ def test_final_report_fails_closed_for_failed_or_missing_task_evidence(tmp_path)
     assert by_number[41]["status"] == "missing"
 
 
+def test_final_report_prefers_successful_retry_over_stale_failed_attempt(tmp_path):
+    _write_evidence(tmp_path, failed_task=27)
+    task = MA_WORKBOOK_TASKS[26]
+    retry_path = tmp_path / "task-27-package_adjust-retry.json"
+    retry_path.write_text(
+        json.dumps({
+            "task_number": 27,
+            "passed": True,
+            "stage": "complete",
+            "operation_type": task.operation_type,
+            "state": "MA",
+            "environment": "sandbox",
+            "license_number": "MP281234",
+            "http_status": 200,
+            "provider_id": "retry-provider-id",
+            "correlation_id": "retry-correlation-id",
+            "readback": {"verified": True},
+        }),
+        encoding="utf-8",
+    )
+
+    report = build_final_report(
+        evidence_directory=tmp_path,
+        company_information=_company_information(),
+    )
+
+    assert report["submission_ready"] is True
+    assert report["summary"]["passed"] == 47
+    assert report["summary"]["failed"] == 0
+    assert report["summary"]["missing"] == 0
+    assert report["summary"]["evidence_files_seen"] == 48
+    assert report["summary"]["extra_or_unmatched_evidence"] == 1
+    row = next(item for item in report["tasks"] if item["number"] == 27)
+    assert Path(row["evidence_file"]).name == retry_path.name
+    assert row["provider_id"] == "retry-provider-id"
+    assert report["extra_or_unmatched_evidence"][0]["reason"] == "superseded_task_evidence"
+
+
 def test_final_report_requires_non_secret_company_information(tmp_path):
     _write_evidence(tmp_path)
     company = _company_information()
