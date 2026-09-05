@@ -5,13 +5,13 @@ import path from "node:path";
 
 const WORKBOOK_SHEETS = [
   "CompanyInformation",
-  "Instructions",
+  "Instructions ",
   "Permissions",
   "States",
   "Locations",
   "Strains",
   "Items",
-  "Closed Loop Environment",
+  "Closed Loop Environment ",
   "Closed Loop States PlantBatches",
   "PlantBatches",
   "Plants",
