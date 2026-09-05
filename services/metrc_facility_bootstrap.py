@@ -11,12 +11,12 @@ from sqlalchemy.orm import sessionmaker
 
 from modules.coman.models import utc_now
 from modules.integrations.models import IntegrationSyncAttempt, IntegrationSyncRecord, IntegrationSyncState
-from modules.regulatory.metrc_resources import payload_rows
+from modules.regulatory.metrc_resources import METRC_V2_MAX_PAGE_SIZE, payload_rows
 from services.metrc_client import MetrcTransport, fetch_metrc_resource
 from services.metrc_facility_materialization import MetrcCanonicalInventorySeeder
 
 
-PAGE_SIZE = 100
+PAGE_SIZE = METRC_V2_MAX_PAGE_SIZE
 MAX_INITIAL_PAGES = 100
 
 
