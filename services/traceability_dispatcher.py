@@ -13,6 +13,8 @@ from modules.coman.models import utc_now
 from modules.integrations import IntegrationConfigurationService
 from modules.regulatory import RegulatoryMappingService, require_metrc_write_contract
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
+from modules.traceability.metrc_provider import MetrcProviderAdapter
+from modules.traceability.provider_contract import TraceabilityProviderRegistry
 from services.metrc_native import MetrcNativeError, submit_metrc_action, validate_metrc_action
 
 
@@ -35,6 +37,8 @@ class TraceabilityDispatcher:
     an exact trusted tenant/facility mapping and an operation-specific write
     contract before a provider request can leave DoobieLogic. Every attempt is
     durable and uncertain outcomes reconcile instead of being blindly retried.
+    Provider-specific execution is normalized through the provider contract;
+    registering an adapter never grants permission to write.
     """
 
     def __init__(self, engine: Engine, *, encryption_key: str, metrc_integrator_api_key: str):
@@ -230,6 +234,25 @@ class TraceabilityDispatcher:
             )
             return {"ok": False, "status": "reconciliation_required", "provider": "metrc", "outbound_request_sent": False, "retryable": False}
 
+        adapter = MetrcProviderAdapter(
+            state=state,
+            environment=environment,
+            license_number=license_number,
+            integrator_api_key=self.metrc_integrator_api_key,
+            user_api_key=user_api_key,
+            submitter=submit_metrc_action,
+        )
+        capability = adapter.capabilities().get(contract.operation_type)
+        if capability is None or not capability.supports_write:
+            return self._no_request(
+                tx,
+                actor,
+                code="provider_adapter_blocked",
+                message=f"The registered Metrc adapter does not enable {contract.operation_type!r} for this state/environment.",
+            )
+        registry = TraceabilityProviderRegistry()
+        registry.register(adapter)
+
         self.traceability.transition_logged(
             organization_id=tx.organization_id,
             facility_id=tx.facility_id,
@@ -239,55 +262,49 @@ class TraceabilityDispatcher:
             reason=f"Provider worker began the authenticated Metrc {environment} {contract.operation_type} request.",
             source="provider_worker",
         )
-        try:
-            result = submit_metrc_action(
-                state=state,
-                environment=environment,
-                license_number=license_number,
-                integrator_api_key=self.metrc_integrator_api_key,
-                user_api_key=user_api_key,
-                operation_type=tx.operation_type,
-                entity_id=tx.entity_id,
-                payload=payload,
-                reason=tx.reason,
-            )
-        except MetrcNativeError as exc:
+        result = registry.get("metrc").execute(
+            operation_type=tx.operation_type,
+            entity_id=tx.entity_id,
+            payload=payload,
+            reason=tx.reason,
+        )
+        if not result.ok:
             self.traceability.record_attempt(
                 organization_id=tx.organization_id,
                 facility_id=tx.facility_id,
                 transaction_id=tx.id,
                 request_payload={"operation_type": tx.operation_type, "entity_id": tx.entity_id, "payload": payload},
-                response_payload=exc.response if isinstance(exc.response, dict) else None,
-                http_status=exc.http_status,
-                error_code="retryable_provider_error" if exc.retryable else "provider_rejected",
-                error_message=str(exc),
+                response_payload=dict(result.payload) or None,
+                http_status=result.http_status,
+                error_code=result.status,
+                error_message=result.message,
             )
-            target = "reconciliation_required" if exc.retryable or not exc.request_sent else "rejected"
+            target = "reconciliation_required" if result.retryable or not result.request_sent else "rejected"
             self.traceability.transition_logged(
                 organization_id=tx.organization_id,
                 facility_id=tx.facility_id,
                 transaction_id=tx.id,
                 new_status=target,
                 actor=actor,
-                reason=str(exc),
+                reason=result.message or "Metrc provider execution failed.",
                 source="provider_worker",
-                next_attempt_at=utc_now() + timedelta(minutes=5) if exc.retryable else None,
+                next_attempt_at=utc_now() + timedelta(minutes=5) if result.retryable else None,
             )
             return {
-                "ok": False,
+                **result.as_dict(),
                 "status": target,
-                "provider": "metrc",
-                "outbound_request_sent": exc.request_sent,
-                "retryable": exc.retryable,
+                "environment": environment,
+                "operation_type": contract.operation_type,
                 "blind_retry_allowed": False,
             }
+
         self.traceability.record_attempt(
             organization_id=tx.organization_id,
             facility_id=tx.facility_id,
             transaction_id=tx.id,
             request_payload={"operation_type": tx.operation_type, "entity_id": tx.entity_id, "payload": payload},
-            response_payload=result.get("payload") if isinstance(result.get("payload"), dict) else {"result": result.get("payload")},
-            http_status=int(result.get("http_status") or 0),
+            response_payload=dict(result.payload),
+            http_status=result.http_status,
         )
         accepted = self.traceability.transition_logged(
             organization_id=tx.organization_id,
@@ -297,16 +314,14 @@ class TraceabilityDispatcher:
             actor=actor,
             reason="Metrc accepted the authenticated request. Verification remains a separate reconciliation step.",
             source="provider_worker",
-            external_reference=str(result.get("external_reference") or ""),
+            external_reference=result.external_reference,
         )
         return {
-            "ok": True,
+            **result.as_dict(),
             "status": accepted.status,
-            "provider": "metrc",
             "environment": environment,
             "operation_type": contract.operation_type,
-            "verification_resource": contract.verification_resource,
-            "outbound_request_sent": True,
+            "verification_resource": result.verification_resource or contract.verification_resource,
             "verified": False,
-            "external_reference": str(result.get("external_reference") or ""),
+            "blind_retry_allowed": False,
         }
