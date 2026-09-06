@@ -9,9 +9,8 @@ import pandas as pd
 import streamlit as st
 
 from modules.coman.db import ComanDatabaseConfigurationError, create_coman_engine
-from modules.inventory_receiving import resolve_traceability_credentials
 from .backoffice import MANUAL_TRACEABILITY_ROLES, TraceabilityBackofficeRepository
-from .processor import TraceabilityCredentials, process_queued
+from .runtime_context import resolve_streamlit_traceability_runtime
 
 
 STATUS_LABELS = {
@@ -274,42 +273,37 @@ def _drain_queue(
     organization_id: str,
     facility_id: str,
 ) -> None:
-    """Opportunistically submit queued transactions when this screen is opened.
+    """Opportunistically submit queued rows through the canonical dispatcher."""
 
-    Buyer Dash has no background worker (Streamlit Cloud + Supabase free tier
-    don't run one), so the queue is drained on the visits that already happen
-    rather than on a schedule. process_queued only touches rows still in the
-    'queued' status, so repeated reruns of this page are self-limiting and
-    never resubmit an item that already moved to a terminal-ish status.
-    """
-
-    credentials_source = resolve_traceability_credentials(state)
-    if not credentials_source.configured:
+    runtime = resolve_streamlit_traceability_runtime(state)
+    if not runtime.ready or runtime.provider_dispatch is None:
         return
 
-    credentials = TraceabilityCredentials(
+    queued = repository.list_transactions(
+        organization_id,
+        facility_id,
+        statuses=("queued",),
         provider="metrc",
-        state=credentials_source.state,
-        user_api_key=credentials_source.user_api_key,
-        integrator_api_key=credentials_source.integrator_api_key,
-        license_number=credentials_source.license_number,
+        limit=25,
     )
-    try:
-        processed = process_queued(
-            repository,
-            organization_id=organization_id,
-            facility_id=facility_id,
-            credentials=credentials,
-            actor=_actor(state),
-        )
-    except Exception:
+    if not queued:
         return
+
+    processed = []
+    for transaction in queued:
+        try:
+            runtime.provider_dispatch(transaction.id)
+        except Exception:
+            continue
+        processed.append(repository.get_transaction(organization_id, facility_id, transaction.id))
 
     if not processed:
         return
     accepted = sum(1 for transaction in processed if transaction.status == "accepted")
-    needs_review = len(processed) - accepted
-    message = f"Synced {len(processed)} queued Metrc action(s)"
+    needs_review = sum(
+        1 for transaction in processed if transaction.status in {"rejected", "reconciliation_required"}
+    )
+    message = f"Processed {len(processed)} queued Metrc action(s)"
     if accepted:
         message += f" · {accepted} accepted"
     if needs_review:
@@ -377,11 +371,7 @@ def render_traceability_console(state: MutableMapping[str, Any]) -> None:
         st.info("No traceability actions match this queue view.")
         return
 
-    st.dataframe(
-        frame.drop(columns=["ID"]),
-        width="stretch",
-        hide_index=True,
-    )
+    st.dataframe(frame.drop(columns=["ID"]), width="stretch", hide_index=True)
     labels = {
         f"{row['Status']} · {row['Operation']} · {row['Entity']}": row["ID"]
         for _, row in frame.iterrows()
@@ -391,18 +381,8 @@ def render_traceability_console(state: MutableMapping[str, Any]) -> None:
         list(labels.keys()),
         key="traceability_selected_transaction",
     )
-    selected = repository.get_transaction(
-        organization_id,
-        facility_id,
-        labels[selected_label],
-    )
-    _render_transaction_detail(
-        state,
-        repository,
-        organization_id,
-        facility_id,
-        selected,
-    )
+    selected = repository.get_transaction(organization_id, facility_id, labels[selected_label])
+    _render_transaction_detail(state, repository, organization_id, facility_id, selected)
 
 
 def render_traceability_console_dialog(state: MutableMapping[str, Any]) -> None:

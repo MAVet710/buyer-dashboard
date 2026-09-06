@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date
-import json
 from typing import Any
 
 from sqlalchemy import Engine, select
@@ -11,14 +10,14 @@ from sqlalchemy.orm import sessionmaker
 
 from modules.coman.models import InventoryLot
 from modules.product_master.models import ProductExternalMapping
+from modules.regulatory import require_metrc_write_contract
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
-from modules.traceability.processor import TraceabilityCredentials, process_transaction
 
 from .models import ExtractionRun, ExtractionRunInput, ExtractionRunOutput
 
 
 class ExtractionTraceabilityService:
-    """Queue and reconcile extraction package actions without persisting credentials."""
+    """Queue extraction compliance work only after the write contract is promoted."""
 
     def __init__(self, engine: Engine):
         self._session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
@@ -127,6 +126,24 @@ class ExtractionTraceabilityService:
             }
             provider = str(run.compliance_provider or "metrc").strip().casefold()
             license_number = str(run.license_number or "").strip()
+            jurisdiction = str(run.jurisdiction or "").strip().upper()
+
+            if provider == "metrc":
+                if not jurisdiction:
+                    raise ValueError(
+                        "Set the extraction run jurisdiction before preparing a Metrc output package."
+                    )
+                try:
+                    require_metrc_write_contract(
+                        operation_type="package_create",
+                        jurisdiction=jurisdiction,
+                        environment="sandbox",
+                    )
+                except ValueError as exc:
+                    raise ValueError(
+                        "Metrc output package creation is not enabled for this jurisdiction/environment yet. "
+                        "No provider transaction was queued. Complete the sandbox write contract and readback proof first."
+                    ) from exc
 
         transaction = self.traceability.create_transaction(
             organization_id=organization_id,
@@ -169,66 +186,12 @@ class ExtractionTraceabilityService:
         organization_id: str,
         facility_id: str,
         transaction_id: str,
-        credentials: TraceabilityCredentials,
+        credentials: Any,
         actor: str,
     ):
-        """Submit a queued package create, apply local link, then verify lifecycle.
+        """Deprecated legacy execution entry point; never submits provider work."""
 
-        If the provider accepts but the local write fails, the transaction is
-        deliberately moved to reconciliation_required instead of pretending the
-        two systems agree.
-        """
-
-        result = process_transaction(
-            self.traceability,
-            organization_id=organization_id,
-            facility_id=facility_id,
-            transaction_id=transaction_id,
-            credentials=credentials,
-            actor=actor,
-        )
-        if result.status != "accepted":
-            return result
-
-        try:
-            payload = json.loads(result.request_payload_json or "{}")
-            tag = str(payload.get("tag") or "").strip()
-            output_id = str(payload.get("output_id") or result.entity_id or "").strip()
-            if not tag or not output_id:
-                raise ValueError("Accepted package create is missing its local output/tag linkage.")
-            with self._session_factory.begin() as session:
-                output = session.get(ExtractionRunOutput, output_id)
-                if (
-                    not output
-                    or output.organization_id != organization_id
-                    or output.facility_id != facility_id
-                ):
-                    raise ValueError("Accepted package create output is not present in the active facility.")
-                output.compliance_package_id = tag
-                if output.lot_id:
-                    lot = session.get(InventoryLot, output.lot_id)
-                    if not lot or lot.organization_id != organization_id or lot.facility_id != facility_id:
-                        raise ValueError("Accepted package create output lot is not present in the active facility.")
-                    lot.compliance_package_id = tag
-        except Exception as exc:
-            return self.traceability.transition_logged(
-                organization_id=organization_id,
-                facility_id=facility_id,
-                transaction_id=result.id,
-                new_status="reconciliation_required",
-                actor=actor,
-                reason=f"Provider accepted package creation but local output linking failed: {type(exc).__name__}.",
-                source="system",
-                error_code="local_link_failed",
-                error_message="External package may exist but Buyer Dash could not complete the local package link.",
-            )
-
-        return self.traceability.transition_logged(
-            organization_id=organization_id,
-            facility_id=facility_id,
-            transaction_id=result.id,
-            new_status="verified",
-            actor=actor,
-            reason="Provider accepted package creation and Buyer Dash linked the output tag locally.",
-            source="system",
+        del organization_id, facility_id, transaction_id, credentials, actor
+        raise RuntimeError(
+            "Legacy extraction package-create execution is disabled. Use the canonical traceability dispatcher after the operation is promoted and sandbox-verified."
         )
