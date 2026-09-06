@@ -6,7 +6,7 @@ This repository is the DoobieLogic cannabis operations platform. The production 
 
 DoobieLogic spans retail inventory and purchasing, cultivation, production/manufacturing, extraction, packages/labels/COAs, traceability, wholesale/commercial operations, finance/reporting, customer/storefront workflows, integrations, enterprise controls, and provider-neutral AI assistance.
 
-Read `PLAN.md`, `docs/BACKOFFICE_SCOPE.md`, and `docs/PERFORMANCE_CONTRACT.md` before broad architectural changes.
+Read `PLAN.md`, `docs/BACKOFFICE_SCOPE.md`, `docs/PERFORMANCE_CONTRACT.md`, and `docs/CANONICAL_OPERATIONS_FOUNDATION.md` before broad architectural changes.
 
 ## Core engineering rules
 
@@ -18,6 +18,17 @@ Read `PLAN.md`, `docs/BACKOFFICE_SCOPE.md`, and `docs/PERFORMANCE_CONTRACT.md` b
 - AI may analyze, explain, recommend, and draft. Deterministic services validate and execute approved mutations. Do not give an LLM an unconstrained mutation path.
 - Keep modules separated by concern and prefer compatible additive changes over destructive rewrites.
 - Do not hardcode a single AI provider into business logic; use the provider-neutral AI runtime.
+
+## Canonical operations foundation
+
+- Use `modules/canonical_cannabis.py` to translate external/provider terminology at integration boundaries. Do not rename authoritative domain tables to mirror Metrc, BioTrack, Dutchie, a lab, or another vendor.
+- Keep `modules/material_lineage` as the canonical material-transformation graph. Inventory quantity remains authoritative in the append-only inventory transaction ledger; genealogy explains relationships rather than becoming a second balance ledger.
+- Keep `coman_audit_events` as the general operational audit ledger. New material workflow writers should use `modules/coman/audit.py` so provenance, source, correlation ID, and before/after context are structured without breaking legacy readers.
+- Reuse one correlation ID across related steps when a workflow crosses domains, such as purchase order -> manifest -> receiving -> COA/release -> inventory/accounting.
+- Traceability providers use the common contracts in `modules/traceability/provider_contract.py`, but provider capability declarations never authorize a mutation. Existing permission, mapping, write-contract, queue, readback, and reconciliation gates remain mandatory.
+- COA/lab integrations feed the existing structured inventory-quality pipeline. Label Studio resolves verified structured values from that pipeline and genealogy; do not create lab-specific label truth stores.
+- RFID/NFC/scanners and AI agents are provenance sources, not privileged mutation paths. Their reviewed actions must still pass deterministic domain services and the same authoritative ledgers as human actions.
+- Prefer a modular monolith with clean domain boundaries. Split deployment units only from measured operational need, not to imitate another ERP's microservice count.
 
 ## Performance requirements
 
