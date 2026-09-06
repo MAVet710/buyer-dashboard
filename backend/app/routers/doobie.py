@@ -342,9 +342,9 @@ def build_manifest_draft(
         facility_capability="commercial",
     )
     if not metrc.configured:
-        raise HTTPException(409, "Connect and validate the Massachusetts Metrc sandbox for this facility before building a provider-ready manifest draft.")
+        raise HTTPException(409, "Connect and validate the Massachusetts Metrc sandbox for this facility before building an outgoing transfer template.")
     if metrc.state.upper() != "MA" or metrc.environment != "sandbox":
-        raise HTTPException(409, "This first controlled manifest-write phase requires the Massachusetts Metrc sandbox.")
+        raise HTTPException(409, "Outgoing transfer-template submission requires the Massachusetts Metrc sandbox.")
     try:
         row = ManifestDraftService(engine).build_proposal(
             organization_id=context.organization_id,
@@ -377,14 +377,14 @@ def submit_manifest_draft(
         facility_capability="commercial",
     )
     if not metrc.configured or metrc.state.upper() != "MA" or metrc.environment != "sandbox":
-        raise HTTPException(409, "Manifest submission is currently enabled only through the trusted Massachusetts Metrc sandbox mapping.")
+        raise HTTPException(409, "Outgoing transfer-template submission is enabled only through the trusted Massachusetts Metrc sandbox mapping.")
 
     service = DoobieActionService(engine)
     proposal = _proposal_by_id(service, context, proposal_id)
     if proposal is None or proposal.action_type != "prepare_transfer_manifest":
-        raise HTTPException(404, "Manifest draft was not found in the active facility.")
+        raise HTTPException(404, "Outgoing transfer-template draft was not found in the active facility.")
     if proposal.status not in {"approved", "executed"}:
-        raise HTTPException(422, "An authorized employee must approve the manifest preview before submission.")
+        raise HTTPException(422, "An authorized employee must approve the outgoing transfer-template preview before submission.")
     try:
         execution = service.execute(
             organization_id=context.organization_id,
@@ -396,7 +396,7 @@ def submit_manifest_draft(
         raise HTTPException(422, str(exc)) from exc
     transaction_id = str(execution.get("transaction_id") or "")
     if not transaction_id:
-        raise HTTPException(409, "The approved manifest draft did not produce a traceability transaction.")
+        raise HTTPException(409, "The approved outgoing transfer-template draft did not produce a traceability transaction.")
 
     traceability = TraceabilityBackofficeRepository(engine)
     transaction = traceability.get_transaction(context.organization_id, context.facility_id, transaction_id)
@@ -409,9 +409,12 @@ def submit_manifest_draft(
             "environment": metrc.environment,
             "already_submitted": True,
             "external_reference": transaction.external_reference,
+            "submitted_provider_object": "outgoing_transfer_template",
+            "creates_outgoing_transfer": False,
+            "message": "The outgoing transfer template was already submitted. Metrc must separately issue a matching outgoing transfer before a manifest is available.",
         }
     if transaction.status != "queued":
-        raise HTTPException(409, f"Manifest traceability transaction is {transaction.status}; reconcile it before another submission attempt.")
+        raise HTTPException(409, f"Outgoing transfer-template traceability transaction is {transaction.status}; reconcile it before another submission attempt.")
 
     try:
         dispatch = TraceabilityDispatcher(
@@ -432,8 +435,10 @@ def submit_manifest_draft(
         "provider": "metrc",
         "jurisdiction_code": "MA",
         "environment": "sandbox",
+        "submitted_provider_object": "outgoing_transfer_template",
+        "creates_outgoing_transfer": False,
         "dispatch": dispatch,
-        "message": "The authorized employee submitted the approved outgoing transfer template to the Massachusetts Metrc sandbox. Final manifest issuance remains a separate Metrc state that DoobieLogic must verify.",
+        "message": "The authorized employee submitted the approved outgoing transfer template to the Massachusetts Metrc sandbox. This did not create an outgoing transfer or manifest; DoobieLogic will verify those only after Metrc issues a matching transfer.",
     }
 
 
