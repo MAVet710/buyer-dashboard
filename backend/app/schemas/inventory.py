@@ -79,6 +79,8 @@ class InventoryReceiptCreate(BaseModel):
     manifest_reference: str = ""
     lab_testing_state: str = ""
     coa_reference: str = ""
+    commercial_order_id: str = ""
+    commercial_order_line_id: str = ""
     expiration_at: datetime | None = None
     notes: str = ""
 
