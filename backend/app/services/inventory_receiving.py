@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from uuid import uuid4
 
 from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
 
-from modules.coman.models import AuditEvent, InventoryLot, InventoryTransaction, Product, utc_now
+from modules.coman.audit import record_audit_event
+from modules.coman.models import InventoryLot, InventoryTransaction, Product, utc_now
 from ..schemas.inventory import InventoryReceiptCreate, InventoryReceiptResult
 
 
@@ -37,6 +39,7 @@ class InventoryReceiptBatchService:
         if len(rows) > 500:
             raise ValueError("One receipt may contain at most 500 packages.")
 
+        correlation_id = f"receiving:{uuid4()}"
         prepared: list[tuple[InventoryReceiptCreate, str, str, str, str, dict]] = []
         identities: set[str] = set()
         for payload in rows:
@@ -117,16 +120,26 @@ class InventoryReceiptBatchService:
                 )
                 session.add(transaction)
                 session.flush()
-                session.add(
-                    AuditEvent(
-                        organization_id=organization_id,
-                        facility_id=facility_id,
-                        entity_type="inventory_lot",
-                        entity_id=lot.id,
-                        action=f"{operation}_inventory_received",
-                        actor=actor,
-                        changes_json=json.dumps({**metadata, "quantity": payload.quantity, "unit": unit}, sort_keys=True),
-                    )
+                record_audit_event(
+                    session,
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    entity_type="inventory_lot",
+                    entity_id=lot.id,
+                    action=f"{operation}_inventory_received",
+                    actor=actor,
+                    changes={**metadata, "quantity": payload.quantity, "unit": unit},
+                    source="user",
+                    reason="Reviewed inbound batch posted to authoritative inventory.",
+                    correlation_id=correlation_id,
+                    after={
+                        "status": status,
+                        "quantity": payload.quantity,
+                        "unit": unit,
+                        "location_code": lot.location_code,
+                        "compliance_package_id": package_id,
+                    },
+                    metadata={"inventory_transaction_id": transaction.id},
                 )
                 results.append(
                     InventoryReceiptResult(
