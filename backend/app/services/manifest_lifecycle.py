@@ -101,6 +101,8 @@ class ManifestLifecycleService:
             "transaction_id": transaction_id,
             "jurisdiction_code": state,
             "environment": environment,
+            "submitted_provider_object": "outgoing_transfer_template",
+            "creates_outgoing_transfer": False,
             "template_verified": False,
             "manifest_available": False,
             "manifest_download_available": False,
@@ -108,7 +110,7 @@ class ManifestLifecycleService:
         if not transaction_id:
             return base | {
                 "state": proposal.status,
-                "message": "Approve and submit this draft before checking Metrc lifecycle state.",
+                "message": "Approve and submit this outgoing transfer template before checking Metrc lifecycle state.",
             }
 
         transaction = self.traceability.get_transaction(organization_id, facility_id, transaction_id)
@@ -121,10 +123,10 @@ class ManifestLifecycleService:
         if transaction.status in {"rejected", "reconciliation_required", "cancelled"}:
             return base | {
                 "state": transaction.status,
-                "message": transaction.error_message or "This manifest action requires reconciliation before verification can continue.",
+                "message": transaction.error_message or "This outgoing transfer-template action requires reconciliation before verification can continue.",
             }
         if transaction.status not in {"accepted", "verified"}:
-            return base | {"state": transaction.status, "message": "The manifest action is not ready for provider readback yet."}
+            return base | {"state": transaction.status, "message": "The outgoing transfer template is not ready for provider readback yet."}
 
         request_payload = _json_dict(transaction.request_payload_json)
         template = request_payload.get("template") if isinstance(request_payload.get("template"), dict) else {}
@@ -179,7 +181,7 @@ class ManifestLifecycleService:
             )
 
         verified = base | {
-            "state": "template_verified",
+            "state": "awaiting_provider_transfer",
             "traceability_status": transaction.status,
             "external_reference": transaction.external_reference,
             "template_verified": True,
@@ -187,7 +189,7 @@ class ManifestLifecycleService:
             "template_name": template_name,
             "recipient_license": recipient_license,
             "package_labels": sorted(expected_labels),
-            "message": "The exact outgoing transfer template is visible in Metrc. Final manifest issuance remains a separate provider state.",
+            "message": "The exact outgoing transfer template is visible in Metrc. No outgoing transfer or manifest exists yet; this workflow is waiting for Metrc to issue a matching outgoing transfer.",
         }
 
         transfers_result = fetch_all_outgoing_transfers(

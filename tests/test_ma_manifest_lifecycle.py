@@ -251,10 +251,12 @@ def test_manifest_requires_exact_recipient_and_package_evidence(monkeypatch):
         actor="admin",
         **_credentials(),
     )
-    assert result["state"] == "template_verified"
+    assert result["state"] == "awaiting_provider_transfer"
     assert result["template_verified"] is True
     assert result["manifest_available"] is False
     assert result["manifest_download_available"] is False
+    assert result["submitted_provider_object"] == "outgoing_transfer_template"
+    assert result["creates_outgoing_transfer"] is False
 
 
 def test_manifest_pdf_is_only_retrieved_after_exact_manifest_match(monkeypatch):

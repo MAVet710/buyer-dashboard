@@ -95,7 +95,7 @@ export function DoobiePage() {
       {selected.status!=="executed"?<button className="secondary" disabled={decision.isPending} onClick={()=>decision.mutate("reject")}>Reject</button>:null}
       {["proposed","failed"].includes(selected.status)?<button className="primary" disabled={decision.isPending} onClick={()=>decision.mutate("approve")}>Approve preview</button>:null}
       {selected.status==="approved"&&selected.action_type==="prepare_regulatory_action"?<button className="primary" disabled={regulatorySubmit.isPending} onClick={()=>regulatorySubmit.mutate(selected.id)}>{regulatorySubmit.isPending?"Submitting…":"Submit approved regulatory action"}</button>:null}
-      {selected.status==="approved"&&selected.action_type==="prepare_transfer_manifest"?<span className="warning-text">Submit this manifest from Wholesale Ops so its provider readback lifecycle stays visible.</span>:null}
+      {selected.status==="approved"&&selected.action_type==="prepare_transfer_manifest"?<span className="warning-text">Submit this outgoing transfer template from Wholesale Ops so its provider readback lifecycle stays visible.</span>:null}
       {selected.status==="approved"&&!selected.action_type.startsWith("prepare_")?<button className="primary" disabled={decision.isPending} onClick={()=>decision.mutate("execute")}>Execute approved action</button>:null}
       {selected.status==="executed"&&selected.action_type==="prepare_regulatory_action"?<button className="primary" disabled={regulatorySubmit.isPending} onClick={()=>regulatorySubmit.mutate(selected.id)}>Check / submit regulatory transaction</button>:null}
     </div>{error?<div className="form-error">{error.message}</div>:null}</div></div>:null}

@@ -15,7 +15,7 @@ READY_ORDER_STATUSES = {"confirmed", "allocated", "partially_fulfilled"}
 
 
 class ManifestDraftService:
-    """Build a manifest-ready Metrc transfer-template draft from trusted commercial data.
+    """Build a Metrc outgoing transfer-template draft from trusted commercial data.
 
     The service only creates an internal Doobie action proposal. It never submits
     to Metrc. Customer/license/package identity comes from the durable commercial
@@ -76,7 +76,7 @@ class ManifestDraftService:
         jurisdiction = str(jurisdiction_code or "").strip().upper()
         env = str(environment or "").strip().casefold()
         if jurisdiction != "MA" or env != "sandbox":
-            raise ValueError("The first manifest write phase is restricted to the Massachusetts Metrc sandbox.")
+            raise ValueError("Outgoing transfer-template submission is restricted to the Massachusetts Metrc sandbox.")
         departure = _iso_datetime(estimated_departure, "estimated_departure")
         arrival = _iso_datetime(estimated_arrival, "estimated_arrival")
         if arrival <= departure:
@@ -84,19 +84,19 @@ class ManifestDraftService:
         route = str(planned_route or "").strip()
         transfer_type = str(transfer_type_name or "").strip()
         if not route:
-            raise ValueError("A planned route is required before Doobie can build the manifest draft.")
+            raise ValueError("A planned route is required before Doobie can build the outgoing transfer template.")
         if not transfer_type:
-            raise ValueError("A Metrc transfer type is required before Doobie can build the manifest draft.")
+            raise ValueError("A Metrc transfer type is required before Doobie can build the outgoing transfer template.")
 
         order = next((row for row in self.commercial.list_orders(organization_id, facility_id) if row.id == order_id), None)
         if order is None or str(order.order_type or "").casefold() != "sales":
             raise ValueError("The selected sales order was not found in the active facility.")
         if str(order.status or "").casefold() not in READY_ORDER_STATUSES:
-            raise ValueError("Confirm and allocate the sales order before building a manifest draft.")
+            raise ValueError("Confirm and allocate the sales order before building an outgoing transfer template.")
         partner = next((row for row in self.commercial.list_trade_partners(organization_id) if row.id == order.partner_id), None)
         recipient_license = str(getattr(partner, "license_or_registration", "") or "").strip()
         if not partner or not recipient_license:
-            raise ValueError("The wholesale customer must have a license/registration before a manifest draft can be built.")
+            raise ValueError("The wholesale customer must have a license/registration before an outgoing transfer template can be built.")
 
         lines = {row.id: row for row in self.commercial.list_order_lines(organization_id, order_id=order.id)}
         allocations = [
@@ -104,7 +104,7 @@ class ManifestDraftService:
             if str(row.status or "").casefold() in {"reserved", "partial"}
         ]
         if not allocations:
-            raise ValueError("Allocate package-backed inventory to the sales order before building a manifest draft.")
+            raise ValueError("Allocate package-backed inventory to the sales order before building an outgoing transfer template.")
         lots = self._lots(organization_id, facility_id, {row.lot_id for row in allocations})
 
         packages: list[dict[str, Any]] = []
@@ -115,7 +115,7 @@ class ManifestDraftService:
             line = lines.get(allocation.commercial_order_line_id)
             label = str(getattr(lot, "compliance_package_id", "") or "").strip()
             if not lot or not label:
-                raise ValueError("Every allocated lot must have a Metrc package label before a manifest draft can be built.")
+                raise ValueError("Every allocated lot must have a Metrc package label before an outgoing transfer template can be built.")
             if label in seen:
                 continue
             seen.add(label)
@@ -134,7 +134,7 @@ class ManifestDraftService:
                 })
             packages.append(package)
         if not packages:
-            raise ValueError("At least one Metrc package is required for a manifest draft.")
+            raise ValueError("At least one Metrc package is required for an outgoing transfer template.")
 
         destination = {
             "RecipientLicenseNumber": recipient_license,
@@ -165,7 +165,7 @@ class ManifestDraftService:
                 template[key] = text
 
         preview = {
-            "workflow": "Doobie Agent draft → employee approval → employee Metrc submission",
+            "workflow": "Doobie template draft → employee approval → Metrc template submission → exact template readback → provider-issued outgoing transfer",
             "provider_object": "outgoing transfer template",
             "jurisdiction_code": jurisdiction,
             "environment": env,
@@ -176,7 +176,8 @@ class ManifestDraftService:
             "estimated_departure": departure.isoformat(),
             "estimated_arrival": arrival.isoformat(),
             "packages": package_preview,
-            "submission_note": "Approval does not submit to Metrc. An authorized employee must explicitly submit the approved draft.",
+            "submission_note": "Approval does not submit to Metrc. Submission creates an outgoing transfer template, not an outgoing transfer or manifest.",
+            "creates_outgoing_transfer": False,
         }
         payload = {
             "provider": "metrc",
@@ -194,8 +195,8 @@ class ManifestDraftService:
             organization_id=organization_id,
             facility_id=facility_id,
             action_type="prepare_transfer_manifest",
-            title=f"Manifest draft · {order.order_number}",
-            rationale="Doobie assembled the recipient license and allocated Metrc package labels from the facility's trusted commercial records. Review logistics before approval and submission.",
+            title=f"Outgoing transfer template · {order.order_number}",
+            rationale="Doobie assembled an outgoing transfer-template request from trusted recipient, order, and package identity. Metrc must separately issue an outgoing transfer before a manifest is available.",
             payload=payload,
             preview=preview,
             actor=actor,

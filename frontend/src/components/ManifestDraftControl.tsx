@@ -66,15 +66,15 @@ export function ManifestDraftControl() {
       vehicle_make:vehicleMake.trim(),
       vehicle_model:vehicleModel.trim(),
     }),
-    onSuccess:async row=>{setSelectedId(row.id);setMessage("Doobie built the manifest-ready draft. Review the preview before approval.");await refresh()},
+    onSuccess:async row=>{setSelectedId(row.id);setMessage("Doobie built the outgoing transfer-template draft. Review the exact provider request before approval.");await refresh()},
   });
   const approve=useMutation({
     mutationFn:(id:string)=>apiPost<Proposal>(`/api/v1/doobie/actions/${id}/approve`,{}),
-    onSuccess:async row=>{setSelectedId(row.id);setMessage("Draft approved. Nothing has been sent to Metrc yet.");await refresh()},
+    onSuccess:async row=>{setSelectedId(row.id);setMessage("Template draft approved. Nothing has been sent to Metrc yet.");await refresh()},
   });
   const reject=useMutation({
     mutationFn:(id:string)=>apiPost<Proposal>(`/api/v1/doobie/actions/${id}/reject`,{}),
-    onSuccess:async()=>{setSelectedId("");setMessage("Draft rejected. No Metrc request was sent.");await refresh()},
+    onSuccess:async()=>{setSelectedId("");setMessage("Template draft rejected. No Metrc request was sent.");await refresh()},
   });
   const submit=useMutation({
     mutationFn:(id:string)=>apiPost<SubmitResult>(`/api/v1/doobie/manifest-drafts/${id}/submit`,{}),
@@ -90,8 +90,8 @@ export function ManifestDraftControl() {
 
   return <section className="inventory-panel manifest-draft-control">
     <div className="eyebrow">DOOBIE AGENT · MA METRC SANDBOX</div>
-    <div className="manifest-draft-heading"><div><h2>Manifest Drafts</h2><p className="section-note">Doobie builds the outgoing transfer-template draft from the sales order, customer license, and allocated Metrc package tags. An authorized employee reviews and approves it, separately submits it to Metrc, then verifies provider readback before treating the manifest as issued.</p></div><span className="read-only-chip">Human controlled</span></div>
-    <div className="info-banner"><strong>Pilot guardrail:</strong> provider submission and lifecycle verification are enabled only for the trusted Massachusetts Metrc sandbox. Production manifest writes remain blocked.</div>
+    <div className="manifest-draft-heading"><div><h2>Outgoing Transfer Templates</h2><p className="section-note">Doobie builds an outgoing transfer-template request from the sales order, customer license, and allocated Metrc package tags. Template submission does not create an outgoing transfer or manifest. Doobie marks a manifest available only after exact outgoing-transfer readback.</p></div><span className="read-only-chip">Human controlled</span></div>
+    <div className="info-banner"><strong>Provider boundary:</strong> submission and readback are enabled only for the trusted Massachusetts Metrc sandbox. After template verification, this workflow waits for Metrc to issue a matching outgoing transfer.</div>
 
     <div className="form-grid two">
       <label>Sales order<select value={orderId} onChange={event=>setOrderId(event.target.value)}><option value="">Choose an allocated sales order</option>{(candidates.data?.items??[]).map(row=><option value={row.order_id} key={row.order_id} disabled={!row.ready}>{row.order_number} · {row.customer||"No customer"} · {row.package_count} package{row.package_count===1?"":"s"}{row.ready?"":" · not ready"}</option>)}</select></label>
@@ -111,12 +111,12 @@ export function ManifestDraftControl() {
       <label>Vehicle make<input value={vehicleMake} onChange={event=>setVehicleMake(event.target.value)}/></label>
       <label>Vehicle model<input value={vehicleModel} onChange={event=>setVehicleModel(event.target.value)}/></label>
     </div></details>
-    <div className="audit-actions"><button className="primary" type="button" disabled={!canBuild} onClick={()=>build.mutate()}>{build.isPending?"Building…":"Build with Doobie Agent"}</button></div>
+    <div className="audit-actions"><button className="primary" type="button" disabled={!canBuild} onClick={()=>build.mutate()}>{build.isPending?"Building…":"Build transfer template"}</button></div>
 
-    {drafts.length?<div className="manifest-drafts-existing"><label>Draft to review<select value={selected?.id??""} onChange={event=>setSelectedId(event.target.value)}>{drafts.map(row=><option value={row.id} key={row.id}>{row.title} · {row.status}</option>)}</select></label></div>:null}
-    {selected?<div className="manifest-preview"><div className="manifest-preview-head"><div><div className="eyebrow">EMPLOYEE REVIEW</div><h3>{selected.title}</h3><p>{selected.rationale}</p></div><span className="status-pill">{selected.status}</span></div><pre>{JSON.stringify(selected.preview,null,2)}</pre><div className="audit-actions">{["proposed","failed"].includes(selected.status)?<><button className="secondary" disabled={reject.isPending} onClick={()=>reject.mutate(selected.id)}>Reject</button><button className="primary" disabled={approve.isPending} onClick={()=>approve.mutate(selected.id)}>Approve draft</button></>:null}{selected.status==="approved"?<button className="primary" disabled={submit.isPending} onClick={()=>submit.mutate(selected.id)}>{submit.isPending?"Submitting…":"Submit to Metrc"}</button>:null}{selected.status==="executed"?<button className="secondary" disabled={lifecycle.isFetching} onClick={()=>lifecycle.refetch()}>{lifecycle.isFetching?"Checking…":"Check Metrc status"}</button>:null}{selected.status==="executed"&&lifecycle.data?.manifest_download_available?<button className="primary" disabled={download.isPending} onClick={()=>download.mutate(selected.id)}>{download.isPending?"Downloading…":"Download Metrc manifest"}</button>:null}</div></div>:null}
+    {drafts.length?<div className="manifest-drafts-existing"><label>Template to review<select value={selected?.id??""} onChange={event=>setSelectedId(event.target.value)}>{drafts.map(row=><option value={row.id} key={row.id}>{row.title} · {row.status}</option>)}</select></label></div>:null}
+    {selected?<div className="manifest-preview"><div className="manifest-preview-head"><div><div className="eyebrow">EMPLOYEE REVIEW</div><h3>{selected.title}</h3><p>{selected.rationale}</p></div><span className="status-pill">{selected.status}</span></div><pre>{JSON.stringify(selected.preview,null,2)}</pre><div className="audit-actions">{["proposed","failed"].includes(selected.status)?<><button className="secondary" disabled={reject.isPending} onClick={()=>reject.mutate(selected.id)}>Reject</button><button className="primary" disabled={approve.isPending} onClick={()=>approve.mutate(selected.id)}>Approve template</button></>:null}{selected.status==="approved"?<button className="primary" disabled={submit.isPending} onClick={()=>submit.mutate(selected.id)}>{submit.isPending?"Submitting…":"Submit template to Metrc"}</button>:null}{selected.status==="executed"?<button className="secondary" disabled={lifecycle.isFetching} onClick={()=>lifecycle.refetch()}>{lifecycle.isFetching?"Checking…":"Check provider status"}</button>:null}{selected.status==="executed"&&lifecycle.data?.manifest_download_available?<button className="primary" disabled={download.isPending} onClick={()=>download.mutate(selected.id)}>{download.isPending?"Downloading…":"Download Metrc manifest"}</button>:null}</div></div>:null}
 
-    {selected?.status==="executed"&&lifecycle.data?<div className="manifest-lifecycle-panel"><div className="eyebrow">PROVIDER READBACK</div><div className="manifest-lifecycle-steps"><span className="done">Draft</span><span className="done">Approved</span><span className="done">Submitted</span><span className={lifecycle.data.template_verified?"done":"current"}>Template verified</span><span className={lifecycle.data.manifest_available?"done":"pending"}>Manifest available</span></div><p><strong>{lifecycle.data.state.replaceAll("_"," ")}</strong> · {lifecycle.data.message}</p>{lifecycle.data.template_id?<small>Metrc template ID: {lifecycle.data.template_id}</small>:null}{lifecycle.data.manifest_number?<small> · Manifest: {lifecycle.data.manifest_number}</small>:null}{lifecycle.data.manifest_readback_error?<div className="warning-banner">{lifecycle.data.manifest_readback_error}</div>:null}</div>:null}
+    {selected?.status==="executed"&&lifecycle.data?<div className="manifest-lifecycle-panel"><div className="eyebrow">PROVIDER READBACK</div><div className="manifest-lifecycle-steps"><span className="done">Template drafted</span><span className="done">Approved</span><span className="done">Template submitted</span><span className={lifecycle.data.template_verified?"done":"current"}>Template verified</span><span className={lifecycle.data.manifest_available?"done":"pending"}>Transfer issued</span></div><p><strong>{lifecycle.data.state.replaceAll("_"," ")}</strong> · {lifecycle.data.message}</p>{lifecycle.data.template_id?<small>Metrc template ID: {lifecycle.data.template_id}</small>:null}{lifecycle.data.manifest_number?<small> · Manifest: {lifecycle.data.manifest_number}</small>:null}{lifecycle.data.manifest_readback_error?<div className="warning-banner">{lifecycle.data.manifest_readback_error}</div>:null}</div>:null}
     {message?<div className="success-banner">{message}</div>:null}
     {error?<div className="form-error">{error.message}</div>:null}
   </section>;
