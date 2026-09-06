@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from datetime import date
 import json
 
 import pytest
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
 
 from backend.app.schemas.inventory import InventoryReceiptCreate
+from backend.app.services.inventory_receiving import InventoryReceiptBatchService
 from modules.canonical_cannabis import (
     CannabisEntityType,
     canonical_entity_type,
@@ -12,6 +16,9 @@ from modules.canonical_cannabis import (
     provider_resource_entity,
 )
 from modules.coman.audit import build_audit_payload, parse_audit_payload, record_audit_event
+from modules.coman.models import AuditEvent, Base, InventoryTransaction
+from modules.coman.repository import ComanRepository
+from modules.commercial.repository import CommercialRepository
 from modules.traceability.provider_contract import (
     ProviderExecutionResult,
     TraceabilityCapability,
@@ -42,6 +49,139 @@ def test_receipt_contract_can_link_real_purchase_order_and_line_fields_without_b
     )
     assert linked.commercial_order_id == "po-1"
     assert linked.commercial_order_line_id == "po-line-1"
+
+
+def test_purchase_order_receiving_links_inventory_and_fulfillment_atomically():
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    coman = ComanRepository(engine)
+    commercial = CommercialRepository(engine)
+    org = coman.create_organization("Canonical Receiving QA")
+    facility = coman.create_facility(org.id, "Main", "MAIN")
+    product = coman.create_product(
+        org.id,
+        sku="GMO-PR-1G",
+        name="GMO Pre-Roll 1g",
+        item_type="finished_good",
+        base_unit="unit",
+        unit_cost=4,
+        actor="dev",
+    )
+    vendor = commercial.create_trade_partner(
+        org.id,
+        name="Licensed Vendor",
+        partner_type="vendor",
+        actor="dev",
+    )
+    order = commercial.create_order(
+        organization_id=org.id,
+        facility_id=facility.id,
+        partner_id=vendor.id,
+        order_number="PO-CANONICAL-1",
+        order_type="purchase",
+        order_date=date.today(),
+        due_date=date.today(),
+        lines=[
+            {
+                "product_id": product.id,
+                "quantity": 10,
+                "unit_price": 4,
+                "unit": "unit",
+            }
+        ],
+        actor="dev",
+    )
+    commercial.confirm_order(
+        order.id,
+        organization_id=org.id,
+        facility_id=facility.id,
+        actor="dev",
+    )
+    line = commercial.list_order_lines(org.id, order_id=order.id)[0]
+    receiving = InventoryReceiptBatchService(engine)
+
+    first = receiving.post(
+        org.id,
+        facility.id,
+        operation="production",
+        actor="receiver",
+        rows=[
+            InventoryReceiptCreate(
+                product_id=product.id,
+                lot_code="GMO-IN-001",
+                package_id="1A-PACKAGE-001",
+                quantity=4,
+                unit="unit",
+                commercial_order_id=order.id,
+                commercial_order_line_id=line.id,
+                manifest_reference="MAN-001",
+            )
+        ],
+    )
+    partial_order = commercial.list_orders(org.id, facility.id)[0]
+    partial_line = commercial.list_order_lines(org.id, order_id=order.id)[0]
+    assert partial_order.status == "partially_fulfilled"
+    assert partial_line.fulfilled_quantity == pytest.approx(4)
+
+    with Session(engine) as session:
+        first_txn = session.get(InventoryTransaction, first[0].transaction_id)
+        assert first_txn is not None
+        assert first_txn.commercial_order_id == order.id
+        assert first_txn.commercial_order_line_id == line.id
+        lot_event = session.scalar(
+            select(AuditEvent).where(
+                AuditEvent.entity_type == "inventory_lot",
+                AuditEvent.entity_id == first[0].lot_id,
+                AuditEvent.action == "production_inventory_received",
+            )
+        )
+        assert lot_event is not None
+        envelope = json.loads(lot_event.changes_json)["_event"]
+        assert envelope["correlation_id"] == f"purchase_order:{order.id}"
+        assert envelope["metadata"]["inventory_transaction_id"] == first[0].transaction_id
+
+    second = receiving.post(
+        org.id,
+        facility.id,
+        operation="production",
+        actor="receiver",
+        rows=[
+            InventoryReceiptCreate(
+                product_id=product.id,
+                lot_code="GMO-IN-002",
+                package_id="1A-PACKAGE-002",
+                quantity=6,
+                unit="unit",
+                commercial_order_id=order.id,
+                commercial_order_line_id=line.id,
+                manifest_reference="MAN-002",
+            )
+        ],
+    )
+    assert second[0].status == "available"
+    fulfilled_order = commercial.list_orders(org.id, facility.id)[0]
+    fulfilled_line = commercial.list_order_lines(org.id, order_id=order.id)[0]
+    assert fulfilled_order.status == "fulfilled"
+    assert fulfilled_line.fulfilled_quantity == pytest.approx(10)
+
+    with pytest.raises(ValueError, match="exceed"):
+        receiving.post(
+            org.id,
+            facility.id,
+            operation="production",
+            actor="receiver",
+            rows=[
+                InventoryReceiptCreate(
+                    product_id=product.id,
+                    lot_code="GMO-IN-003",
+                    package_id="1A-PACKAGE-003",
+                    quantity=1,
+                    unit="unit",
+                    commercial_order_id=order.id,
+                    commercial_order_line_id=line.id,
+                )
+            ],
+        )
 
 
 def test_audit_envelope_preserves_legacy_top_level_changes():
