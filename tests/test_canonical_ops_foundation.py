@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from backend.app.schemas.inventory import InventoryReceiptCreate
 from modules.canonical_cannabis import (
     CannabisEntityType,
     canonical_entity_type,
@@ -25,6 +26,22 @@ def test_canonical_cannabis_vocabulary_normalizes_provider_terms_without_replaci
     assert canonical_entity_type("purchaseOrder") == CannabisEntityType.PURCHASE_ORDER
     assert canonical_entity_type("Future Provider Resource") == "future_provider_resource"
     assert operational_correlation_id("receiving batch", "MAN-1001") == "receiving_batch:MAN-1001"
+
+
+def test_receipt_contract_can_link_real_purchase_order_and_line_fields_without_breaking_unlinked_receipts():
+    unlinked = InventoryReceiptCreate(product_id="product-1", quantity=12, unit="unit")
+    assert unlinked.commercial_order_id == ""
+    assert unlinked.commercial_order_line_id == ""
+
+    linked = InventoryReceiptCreate(
+        product_id="product-1",
+        quantity=12,
+        unit="unit",
+        commercial_order_id="po-1",
+        commercial_order_line_id="po-line-1",
+    )
+    assert linked.commercial_order_id == "po-1"
+    assert linked.commercial_order_line_id == "po-line-1"
 
 
 def test_audit_envelope_preserves_legacy_top_level_changes():
