@@ -379,6 +379,7 @@ def facility_setup_overview(
             "license_number": metrc.license_number,
             "environment": metrc.environment,
             "employee_license_number": str(config.get("employee_license_number") or ""),
+            "provider_capabilities": metrc.provider_capabilities,
             "message": metrc.message,
         },
         "sections": sections,

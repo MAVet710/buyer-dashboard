@@ -114,6 +114,28 @@ def _license_type(record: Any) -> str:
     return ""
 
 
+def _provider_capabilities(record: Any) -> dict[str, bool]:
+    """Preserve only explicit boolean capability evidence from GET /facilities/v2.
+
+    Metrc exposes operation-level flags on the facility and its FacilityType.
+    Their exact provider names are retained so DoobieLogic can fail closed
+    without deriving permissions from a human-readable license name.
+    """
+
+    row = _source(record)
+    sources = [row]
+    for key in ("FacilityType", "facilityType"):
+        nested = row.get(key)
+        if isinstance(nested, dict):
+            sources.append(nested)
+    output: dict[str, bool] = {}
+    for source in sources:
+        for key, value in source.items():
+            if isinstance(value, bool) and (str(key).startswith("Can") or str(key).startswith("Is")):
+                output[str(key)] = value
+    return dict(sorted(output.items()))
+
+
 def _facility_capabilities(license_type: str, facility_name: str) -> dict[str, bool]:
     text = f"{license_type} {facility_name}".casefold()
     cultivation = any(token in text for token in ("cultivat", "grow", "producer", "nursery"))
@@ -141,6 +163,7 @@ class DiscoveredMetrcFacility:
     provider_facility_id: str
     license_type: str
     raw: dict[str, Any]
+    provider_capabilities: dict[str, bool] | None = None
 
     @classmethod
     def from_record(cls, record: Any) -> "DiscoveredMetrcFacility":
@@ -152,6 +175,7 @@ class DiscoveredMetrcFacility:
             license_number=license_number,
             provider_facility_id=_provider_facility_id(record),
             license_type=_license_type(record),
+            provider_capabilities=_provider_capabilities(record),
             raw=_source(record),
         )
 
@@ -161,6 +185,7 @@ class DiscoveredMetrcFacility:
             "license_number": self.license_number,
             "provider_facility_id": self.provider_facility_id,
             "license_type": self.license_type,
+            "provider_capabilities": dict(self.provider_capabilities or {}),
         }
 
 
@@ -395,7 +420,13 @@ class MetrcFacilityOnboardingService:
             provider="metrc",
             organization_id=organization_id,
             facility_id=target.id,
-            configuration={"state": state, "license_number": discovered.license_number, "environment": environment},
+            configuration={
+                "state": state,
+                "license_number": discovered.license_number,
+                "environment": environment,
+                "provider_facility_id": discovered.provider_facility_id,
+                "provider_capabilities": dict(discovered.provider_capabilities or {}),
+            },
             secret=user_secret,
             actor=actor,
         )
@@ -403,7 +434,13 @@ class MetrcFacilityOnboardingService:
             vendor_secret = self.configurations.secret(source_vendor_credential)
             vendor_public = self.configurations.public(source_vendor_credential)
             vendor_config = dict(vendor_public.get("configuration") or {})
-            vendor_config.update({"state": state, "license_number": discovered.license_number, "environment": "sandbox"})
+            vendor_config.update({
+                "state": state,
+                "license_number": discovered.license_number,
+                "environment": "sandbox",
+                "provider_facility_id": discovered.provider_facility_id,
+                "provider_capabilities": dict(discovered.provider_capabilities or {}),
+            })
             self.configurations.save(
                 scope_type="facility",
                 scope_key=f"{organization_id}:{target.id}:sandbox",
@@ -444,6 +481,7 @@ class MetrcFacilityOnboardingService:
                     "license_number": discovered.license_number,
                     "provider_facility_id": discovered.provider_facility_id,
                     "environment": environment,
+                    "provider_capabilities": dict(discovered.provider_capabilities or {}),
                     "credential_copied_automatically": True,
                 }, sort_keys=True),
             ))

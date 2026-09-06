@@ -70,7 +70,13 @@ def _record(name="Cowboy Kush Manufacturing", license_number="MP281234"):
             "Id": 81722,
             "Name": name,
             "License": {"Number": license_number},
-            "FacilityType": {"Name": "Marijuana Product Manufacturer"},
+            "FacilityType": {
+                "Name": "Marijuana Product Manufacturer",
+                "CanCreateImmaturePlantPackagesFromPlants": False,
+                "CanPackageVegetativePlants": False,
+                "CanCreatePackage": True,
+                "Description": "not capability evidence",
+            },
         }
     }
 
@@ -93,6 +99,11 @@ def test_no_candidate_creates_local_mirror_and_permanent_mapping_automatically()
     assert row["mapping_permanent"] is True
     assert row["doobielogic_facility"]["name"] == "Cowboy Kush Manufacturing"
     assert row["doobielogic_facility"]["license_number"] == "MP281234"
+    assert row["provider_capabilities"] == {
+        "CanCreateImmaturePlantPackagesFromPlants": False,
+        "CanCreatePackage": True,
+        "CanPackageVegetativePlants": False,
+    }
     with Session(engine) as session:
         facility = session.scalar(select(Facility).where(Facility.organization_id == org_id, Facility.license_number == "MP281234"))
         mapping = session.scalar(select(RegulatoryFacilityMapping).where(RegulatoryFacilityMapping.facility_id == facility.id))
@@ -101,6 +112,8 @@ def test_no_candidate_creates_local_mirror_and_permanent_mapping_automatically()
         assert mapping.provider_facility_id == "81722"
         assert mapping.environment == "sandbox"
         assert cloned is not None
+        cloned_public = IntegrationConfigurationService(engine, KEY).public(cloned)
+        assert cloned_public["configuration"]["provider_capabilities"] == row["provider_capabilities"]
 
 
 def test_exact_license_reuses_existing_facility_without_duplicate():
