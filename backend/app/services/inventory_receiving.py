@@ -122,6 +122,7 @@ class InventoryReceiptBatchService:
                     )
                 )
             } if line_ids else {}
+            incoming_by_line: dict[str, float] = {}
             for payload, *_ in prepared:
                 order_id = payload.commercial_order_id.strip()
                 line_id = payload.commercial_order_line_id.strip()
@@ -132,7 +133,10 @@ class InventoryReceiptBatchService:
                     raise ValueError("Linked purchase-order line must match the received product and purchase order.")
                 if line.unit.strip().casefold() != payload.unit.strip().casefold():
                     raise ValueError("Received unit must match the linked purchase-order line unit.")
-                if line.fulfilled_quantity + payload.quantity > line.quantity + 1e-9:
+                incoming_by_line[line_id] = incoming_by_line.get(line_id, 0.0) + payload.quantity
+            for line_id, incoming_quantity in incoming_by_line.items():
+                line = order_lines[line_id]
+                if line.fulfilled_quantity + incoming_quantity > line.quantity + 1e-9:
                     raise ValueError("Receipt would exceed the linked purchase-order line quantity.")
 
             touched_order_ids: set[str] = set()
