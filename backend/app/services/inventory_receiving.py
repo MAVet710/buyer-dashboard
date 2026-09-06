@@ -6,8 +6,16 @@ from uuid import uuid4
 from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
 
+from modules.canonical_cannabis import operational_correlation_id
 from modules.coman.audit import record_audit_event
-from modules.coman.models import InventoryLot, InventoryTransaction, Product, utc_now
+from modules.coman.models import (
+    CommercialOrder,
+    CommercialOrderLine,
+    InventoryLot,
+    InventoryTransaction,
+    Product,
+    utc_now,
+)
 from ..schemas.inventory import InventoryReceiptCreate, InventoryReceiptResult
 
 
@@ -39,7 +47,7 @@ class InventoryReceiptBatchService:
         if len(rows) > 500:
             raise ValueError("One receipt may contain at most 500 packages.")
 
-        correlation_id = f"receiving:{uuid4()}"
+        batch_correlation_id = f"receiving:{uuid4()}"
         prepared: list[tuple[InventoryReceiptCreate, str, str, str, str, dict]] = []
         identities: set[str] = set()
         for payload in rows:
@@ -50,6 +58,8 @@ class InventoryReceiptBatchService:
                 raise ValueError("Every inbound row requires a package or lot identifier.")
             if not unit:
                 raise ValueError(f"A unit of measure is required for {package_id or lot_code}.")
+            if payload.commercial_order_line_id and not payload.commercial_order_id:
+                raise ValueError("A purchase-order line cannot be received without its purchase order.")
             identity = (package_id or lot_code).casefold()
             if identity in identities:
                 raise ValueError(f"Duplicate package or lot in reviewed receipt: {package_id or lot_code}.")
@@ -60,6 +70,8 @@ class InventoryReceiptBatchService:
                 "manifest_reference": payload.manifest_reference.strip(),
                 "lab_testing_state": payload.lab_testing_state.strip(),
                 "coa_reference": payload.coa_reference.strip(),
+                "commercial_order_id": payload.commercial_order_id.strip(),
+                "commercial_order_line_id": payload.commercial_order_line_id.strip(),
                 "notes": payload.notes.strip(),
                 "receipt_mode": "reviewed_inbound_batch",
             }
@@ -76,6 +88,54 @@ class InventoryReceiptBatchService:
                 if not product or product.organization_id != organization_id or not product.active:
                     raise ValueError("Every mapped product must exist in the active organization.")
 
+            order_ids = {
+                payload.commercial_order_id.strip()
+                for payload, *_ in prepared
+                if payload.commercial_order_id.strip()
+            }
+            orders = {
+                row.id: row
+                for row in session.scalars(
+                    select(CommercialOrder).where(
+                        CommercialOrder.organization_id == organization_id,
+                        CommercialOrder.facility_id == facility_id,
+                        CommercialOrder.id.in_(order_ids),
+                    )
+                )
+            } if order_ids else {}
+            for order_id in order_ids:
+                order = orders.get(order_id)
+                if not order or order.order_type != "purchase" or order.status == "cancelled":
+                    raise ValueError("Linked purchase order must be active in this organization and facility.")
+
+            line_ids = {
+                payload.commercial_order_line_id.strip()
+                for payload, *_ in prepared
+                if payload.commercial_order_line_id.strip()
+            }
+            order_lines = {
+                row.id: row
+                for row in session.scalars(
+                    select(CommercialOrderLine).where(
+                        CommercialOrderLine.organization_id == organization_id,
+                        CommercialOrderLine.id.in_(line_ids),
+                    )
+                )
+            } if line_ids else {}
+            for payload, *_ in prepared:
+                order_id = payload.commercial_order_id.strip()
+                line_id = payload.commercial_order_line_id.strip()
+                if not line_id:
+                    continue
+                line = order_lines.get(line_id)
+                if not line or line.commercial_order_id != order_id or line.product_id != payload.product_id:
+                    raise ValueError("Linked purchase-order line must match the received product and purchase order.")
+                if line.unit.strip().casefold() != payload.unit.strip().casefold():
+                    raise ValueError("Received unit must match the linked purchase-order line unit.")
+                if line.fulfilled_quantity + payload.quantity > line.quantity + 1e-9:
+                    raise ValueError("Receipt would exceed the linked purchase-order line quantity.")
+
+            touched_order_ids: set[str] = set()
             for payload, lot_code, package_id, unit, status, metadata in prepared:
                 duplicate_conditions = [InventoryLot.lot_code == lot_code]
                 if package_id:
@@ -91,6 +151,13 @@ class InventoryReceiptBatchService:
                     raise ValueError(f"Package or lot already exists in the active facility: {package_id or lot_code}.")
 
                 product = products[payload.product_id]
+                order_id = payload.commercial_order_id.strip()
+                line_id = payload.commercial_order_line_id.strip()
+                correlation_id = (
+                    operational_correlation_id("purchase_order", order_id)
+                    if order_id
+                    else batch_correlation_id
+                )
                 lot = InventoryLot(
                     organization_id=organization_id,
                     facility_id=facility_id,
@@ -114,12 +181,20 @@ class InventoryReceiptBatchService:
                     transaction_type="receive",
                     quantity_delta=payload.quantity,
                     unit=unit,
+                    commercial_order_id=order_id or None,
+                    commercial_order_line_id=line_id or None,
                     reason=f"{operation.title()} inventory received",
                     reference=payload.manifest_reference.strip() or package_id or lot_code,
                     actor=actor,
                 )
                 session.add(transaction)
                 session.flush()
+
+                if line_id:
+                    line = order_lines[line_id]
+                    line.fulfilled_quantity += payload.quantity
+                    touched_order_ids.add(order_id)
+
                 record_audit_event(
                     session,
                     organization_id=organization_id,
@@ -139,7 +214,11 @@ class InventoryReceiptBatchService:
                         "location_code": lot.location_code,
                         "compliance_package_id": package_id,
                     },
-                    metadata={"inventory_transaction_id": transaction.id},
+                    metadata={
+                        "inventory_transaction_id": transaction.id,
+                        "commercial_order_id": order_id,
+                        "commercial_order_line_id": line_id,
+                    },
                 )
                 results.append(
                     InventoryReceiptResult(
@@ -149,4 +228,46 @@ class InventoryReceiptBatchService:
                         status=status,
                     )
                 )
+
+            if touched_order_ids:
+                all_order_lines = list(
+                    session.scalars(
+                        select(CommercialOrderLine).where(
+                            CommercialOrderLine.organization_id == organization_id,
+                            CommercialOrderLine.commercial_order_id.in_(touched_order_ids),
+                        )
+                    )
+                )
+                lines_by_order: dict[str, list[CommercialOrderLine]] = {}
+                for line in all_order_lines:
+                    lines_by_order.setdefault(line.commercial_order_id, []).append(line)
+                for order_id in touched_order_ids:
+                    order = orders[order_id]
+                    linked_lines = lines_by_order.get(order_id, [])
+                    prior_status = order.status
+                    if linked_lines and all(line.fulfilled_quantity >= line.quantity - 1e-9 for line in linked_lines):
+                        order.status = "fulfilled"
+                    elif any(line.fulfilled_quantity > 0 for line in linked_lines):
+                        order.status = "partially_fulfilled"
+                    order.updated_by = actor
+                    record_audit_event(
+                        session,
+                        organization_id=organization_id,
+                        facility_id=facility_id,
+                        entity_type="commercial_order",
+                        entity_id=order.id,
+                        action="purchase_order_receiving_posted",
+                        actor=actor,
+                        changes={
+                            "order_number": order.order_number,
+                            "order_type": "purchase",
+                            "from_status": prior_status,
+                            "to_status": order.status,
+                        },
+                        source="user",
+                        reason="Reviewed inventory receipt fulfilled linked purchase-order material.",
+                        correlation_id=operational_correlation_id("purchase_order", order.id),
+                        before={"status": prior_status},
+                        after={"status": order.status},
+                    )
         return results
