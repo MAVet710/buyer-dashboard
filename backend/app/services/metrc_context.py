@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from sqlalchemy import Engine
@@ -11,6 +12,9 @@ from modules.regulatory import RegulatoryMappingService
 from modules.regulatory.models import RegulatoryFacilityMapping
 from ..auth import RequestContext
 from ..config import Settings
+
+
+ProviderDispatch = Callable[[str], dict]
 
 
 @dataclass(frozen=True)
@@ -27,6 +31,7 @@ class MetrcContext:
     provider_capabilities: dict[str, bool] = field(default_factory=dict)
     row: IntegrationConfiguration | None = None
     mapping: RegulatoryFacilityMapping | None = None
+    provider_dispatch: ProviderDispatch | None = None
 
 
 def metrc_scope_key(context: RequestContext) -> str:
@@ -201,6 +206,29 @@ def resolve_metrc_context(
         and mapping.jurisdiction_code == state.upper()
     )
     configured = bool(user_api_key and state and license_number and integrator_api_key)
+    status = str(public.get("status") or "not_connected")
+
+    provider_dispatch: ProviderDispatch | None = None
+    if configured and trusted_mapping and status.casefold() == "connected":
+        # Bind dispatch only after the exact runtime connection has passed every
+        # context gate above. The closure carries no new authority: the dispatcher
+        # independently rechecks alpha mode, credential scope, trusted mapping and
+        # the operation-specific write contract before any network request.
+        def _dispatch(transaction_id: str) -> dict:
+            from services.traceability_dispatcher import TraceabilityDispatcher
+
+            return TraceabilityDispatcher(
+                engine,
+                encryption_key=settings.integration_encryption_key,
+                metrc_integrator_api_key=integrator_api_key,
+            ).dispatch(
+                organization_id=context.organization_id,
+                facility_id=context.facility_id,
+                transaction_id=str(transaction_id or "").strip(),
+                actor=context.user_id,
+            )
+
+        provider_dispatch = _dispatch
 
     if configured and trusted_mapping:
         message = "METRC sandbox connection and trusted facility mapping are ready."
@@ -222,11 +250,12 @@ def resolve_metrc_context(
         license_number=license_number,
         user_api_key=user_api_key,
         integrator_api_key=integrator_api_key,
-        status=str(public.get("status") or "not_connected"),
+        status=status,
         environment="sandbox",
         trusted_mapping=trusted_mapping,
         message=message,
         provider_capabilities=provider_capabilities,
         row=row,
         mapping=mapping,
+        provider_dispatch=provider_dispatch,
     )
