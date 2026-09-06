@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from sqlalchemy import Engine
@@ -11,6 +12,9 @@ from modules.regulatory import RegulatoryMappingService
 from modules.regulatory.models import RegulatoryFacilityMapping
 from ..auth import RequestContext
 from ..config import Settings
+
+
+ProviderDispatch = Callable[[str], dict]
 
 
 @dataclass(frozen=True)
@@ -27,6 +31,7 @@ class MetrcContext:
     provider_capabilities: dict[str, bool] = field(default_factory=dict)
     row: IntegrationConfiguration | None = None
     mapping: RegulatoryFacilityMapping | None = None
+    provider_dispatch: ProviderDispatch | None = None
 
 
 def metrc_scope_key(context: RequestContext) -> str:
@@ -64,9 +69,6 @@ def resolve_metrc_context(
         context.facility_id,
     )
 
-    # Alpha exposes only local operation or the provider sandbox. Production is
-    # deliberately outside this selector and requires a future explicit release
-    # path rather than being inferred from an older saved connection.
     if not str(settings.integration_encryption_key or "").strip():
         return None, MetrcContext(
             configured=False,
@@ -82,10 +84,6 @@ def resolve_metrc_context(
 
     service = IntegrationConfigurationService(engine, settings.integration_encryption_key)
     row = service.get("user", metrc_scope_key(context), "metrc")
-
-    # Compatibility with credentials created before facility-specific scope was
-    # introduced. Only reuse a legacy record when it was saved for this exact
-    # facility; never carry a retail license into production or vice versa.
     if row is None:
         legacy = service.get("user", context.user_id, "metrc")
         if legacy is not None and str(legacy.facility_id or "") == str(context.facility_id):
@@ -94,9 +92,6 @@ def resolve_metrc_context(
     sandbox_row, sandbox_config, sandbox_vendor_key = _sandbox_vendor_context(service, context)
     integrator_api_key = str(sandbox_vendor_key or settings.metrc_integrator_key or "").strip()
 
-    # The alpha operating mode is authoritative before provider credentials are
-    # decrypted or a provider call can be prepared. Keep the saved row visible
-    # to the Integrations UI, but do not expose a usable runtime key in local mode.
     if not mode.metrc_enabled:
         public = service.public(row)
         config = public.get("configuration", {}) if isinstance(public, dict) else {}
@@ -158,10 +153,6 @@ def resolve_metrc_context(
         and (not sandbox_license or sandbox_license == license_number)
     )
 
-    # Older web UI saved production as its implicit default. A verified sandbox
-    # vendor connection for the same facility safely proves that this old row is
-    # actually part of the sandbox setup. Otherwise, never reinterpret or use a
-    # production credential while the alpha Metrc Sandbox mode is selected.
     if configured_environment == "sandbox" or sandbox_matches:
         environment = "sandbox"
     else:
@@ -201,6 +192,25 @@ def resolve_metrc_context(
         and mapping.jurisdiction_code == state.upper()
     )
     configured = bool(user_api_key and state and license_number and integrator_api_key)
+    status = str(public.get("status") or "not_connected")
+
+    provider_dispatch: ProviderDispatch | None = None
+    if configured and trusted_mapping and status.casefold() == "connected":
+        def _dispatch(transaction_id: str) -> dict:
+            from services.traceability_dispatcher import TraceabilityDispatcher
+
+            return TraceabilityDispatcher(
+                engine,
+                encryption_key=settings.integration_encryption_key,
+                metrc_integrator_api_key=integrator_api_key,
+            ).dispatch(
+                organization_id=context.organization_id,
+                facility_id=context.facility_id,
+                transaction_id=str(transaction_id or "").strip(),
+                actor=context.user_id,
+            )
+
+        provider_dispatch = _dispatch
 
     if configured and trusted_mapping:
         message = "METRC sandbox connection and trusted facility mapping are ready."
@@ -222,11 +232,12 @@ def resolve_metrc_context(
         license_number=license_number,
         user_api_key=user_api_key,
         integrator_api_key=integrator_api_key,
-        status=str(public.get("status") or "not_connected"),
+        status=status,
         environment="sandbox",
         trusted_mapping=trusted_mapping,
         message=message,
         provider_capabilities=provider_capabilities,
         row=row,
         mapping=mapping,
+        provider_dispatch=provider_dispatch,
     )
