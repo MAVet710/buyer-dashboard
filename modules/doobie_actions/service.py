@@ -9,7 +9,8 @@ from typing import Any, Callable
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import sessionmaker
 
-from modules.coman.models import AuditEvent, utc_now
+from modules.coman.audit import record_audit_event
+from modules.coman.models import utc_now
 from modules.coman.repository import ComanRepository
 from modules.commercial.repository import CommercialRepository
 from modules.commercial_finance.service import CommercialFinanceService
@@ -29,6 +30,27 @@ ALLOWED_ACTIONS = {
     "prepare_transfer_manifest",
     "prepare_regulatory_action",
 }
+
+
+def _proposal_audit_source(source_type: str) -> str:
+    """Map proposal provenance onto the canonical audit source vocabulary."""
+
+    value = str(source_type or "manual").strip().casefold().replace("-", "_")
+    if value in {"doobie_agent", "ai", "ai_agent", "agent", "copilot", "model"} or "agent" in value:
+        return "ai_agent"
+    if value in {"api", "import", "system", "rfid", "scanner"}:
+        return value
+    return "user"
+
+
+def _proposal_metadata(proposal: ActionProposal, **extra: Any) -> dict[str, Any]:
+    metadata = {
+        "action_type": proposal.action_type,
+        "proposal_source_type": str(proposal.source_type or "manual"),
+        "proposal_source_id": str(proposal.source_id or ""),
+    }
+    metadata.update({key: value for key, value in extra.items() if value not in {None, ""}})
+    return metadata
 
 
 class DoobieActionService:
@@ -97,16 +119,20 @@ class DoobieActionService:
             )
             session.add(proposal)
             session.flush()
-            session.add(
-                AuditEvent(
-                    organization_id=organization_id,
-                    facility_id=facility_id,
-                    entity_type="action_proposal",
-                    entity_id=proposal.id,
-                    action="proposed",
-                    actor=str(actor or "system"),
-                    changes_json=json.dumps({"action_type": action_type, "risk_level": risk_level}, sort_keys=True),
-                )
+            record_audit_event(
+                session,
+                organization_id=organization_id,
+                facility_id=facility_id,
+                entity_type="action_proposal",
+                entity_id=proposal.id,
+                action="proposed",
+                actor=str(actor or "system"),
+                changes={"action_type": action_type, "risk_level": risk_level},
+                source=_proposal_audit_source(proposal.source_type),
+                reason=str(proposal.rationale or proposal.title or "Action proposed for review."),
+                correlation_id=f"doobie_action:{proposal.id}",
+                after={"status": "proposed", "risk_level": risk_level},
+                metadata=_proposal_metadata(proposal),
             )
             return proposal
 
@@ -142,19 +168,24 @@ class DoobieActionService:
             if proposal.expires_at and proposal.expires_at < utc_now():
                 proposal.status = "expired"
                 raise ValueError("This proposal has expired and must be regenerated.")
+            prior_status = proposal.status
             proposal.status = "approved"
             proposal.approved_by = str(actor or "system")
             proposal.approved_at = utc_now()
-            session.add(
-                AuditEvent(
-                    organization_id=organization_id,
-                    facility_id=facility_id,
-                    entity_type="action_proposal",
-                    entity_id=proposal.id,
-                    action="approved",
-                    actor=str(actor or "system"),
-                    changes_json="{}",
-                )
+            record_audit_event(
+                session,
+                organization_id=organization_id,
+                facility_id=facility_id,
+                entity_type="action_proposal",
+                entity_id=proposal.id,
+                action="approved",
+                actor=str(actor or "system"),
+                source="user",
+                reason="Human reviewer approved the governed action preview.",
+                correlation_id=f"doobie_action:{proposal.id}",
+                before={"status": prior_status},
+                after={"status": "approved"},
+                metadata=_proposal_metadata(proposal),
             )
             return proposal
 
@@ -165,17 +196,22 @@ class DoobieActionService:
                 raise ValueError("Action proposal was not found in the active facility.")
             if proposal.status == "executed":
                 raise ValueError("Executed actions cannot be rejected retroactively.")
+            prior_status = proposal.status
             proposal.status = "rejected"
-            session.add(
-                AuditEvent(
-                    organization_id=organization_id,
-                    facility_id=facility_id,
-                    entity_type="action_proposal",
-                    entity_id=proposal.id,
-                    action="rejected",
-                    actor=str(actor or "system"),
-                    changes_json="{}",
-                )
+            record_audit_event(
+                session,
+                organization_id=organization_id,
+                facility_id=facility_id,
+                entity_type="action_proposal",
+                entity_id=proposal.id,
+                action="rejected",
+                actor=str(actor or "system"),
+                source="user",
+                reason="Human reviewer rejected the governed action preview.",
+                correlation_id=f"doobie_action:{proposal.id}",
+                before={"status": prior_status},
+                after={"status": "rejected"},
+                metadata=_proposal_metadata(proposal),
             )
             return proposal
 
@@ -234,16 +270,25 @@ class DoobieActionService:
                 execution.status = "failed"
                 execution.error_message = f"{type(exc).__name__}: {str(exc)}"[:4000]
                 execution.completed_at = utc_now()
-                session.add(
-                    AuditEvent(
-                        organization_id=organization_id,
-                        facility_id=facility_id,
-                        entity_type="action_proposal",
-                        entity_id=proposal.id,
-                        action="execution_failed",
-                        actor=str(actor or "system"),
-                        changes_json=json.dumps({"error_type": type(exc).__name__}),
-                    )
+                record_audit_event(
+                    session,
+                    organization_id=organization_id,
+                    facility_id=facility_id,
+                    entity_type="action_proposal",
+                    entity_id=proposal.id,
+                    action="execution_failed",
+                    actor=str(actor or "system"),
+                    changes={"error_type": type(exc).__name__},
+                    source=_proposal_audit_source(proposal.source_type),
+                    reason="Deterministic execution failed; no success is recorded.",
+                    correlation_id=f"doobie_action:{proposal.id}",
+                    before={"status": "executing"},
+                    after={"status": "failed"},
+                    metadata=_proposal_metadata(
+                        proposal,
+                        action_execution_id=execution.id,
+                        attempt_number=attempt_number,
+                    ),
                 )
             raise
 
@@ -259,16 +304,25 @@ class DoobieActionService:
             execution.status = "succeeded"
             execution.result_json = json.dumps(result or {}, default=str, sort_keys=True)
             execution.completed_at = utc_now()
-            session.add(
-                AuditEvent(
-                    organization_id=organization_id,
-                    facility_id=facility_id,
-                    entity_type="action_proposal",
-                    entity_id=proposal.id,
-                    action="executed",
-                    actor=str(actor or "system"),
-                    changes_json=execution.result_json,
-                )
+            record_audit_event(
+                session,
+                organization_id=organization_id,
+                facility_id=facility_id,
+                entity_type="action_proposal",
+                entity_id=proposal.id,
+                action="executed",
+                actor=str(actor or "system"),
+                changes=dict(result or {}),
+                source=_proposal_audit_source(proposal.source_type),
+                reason="Approved action completed through its deterministic handler.",
+                correlation_id=f"doobie_action:{proposal.id}",
+                before={"status": "executing"},
+                after={"status": "executed"},
+                metadata=_proposal_metadata(
+                    proposal,
+                    action_execution_id=execution.id,
+                    attempt_number=attempt_number,
+                ),
             )
         return result
 
