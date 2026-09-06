@@ -97,10 +97,11 @@ def run_tracked_metrc_adjustment(
 ) -> tuple[float, str, str]:
     """Submit Metrc first, then persist the corresponding local adjustment.
 
-    New callers should supply ``provider_dispatch`` so submission goes through
-    the canonical TraceabilityDispatcher/provider-adapter path. The legacy
-    processor fallback remains temporarily for the older Streamlit work window
-    and is intentionally isolated for removal under #491.
+    Trusted web Metrc contexts expose a bound canonical dispatcher after alpha
+    mode, connection status, credential scope and facility mapping are verified.
+    Tests or other reviewed callers may also pass ``provider_dispatch`` directly.
+    The legacy processor fallback remains temporarily for the older Streamlit
+    work window and is intentionally isolated for removal under #491.
 
     Provider acceptance is not provider verification. Canonical-dispatch callers
     therefore remain in ``accepted`` after local persistence and record local
@@ -135,6 +136,10 @@ def run_tracked_metrc_adjustment(
         raise ValueError(str(exc)) from exc
 
     repository = repository or TraceabilityBackofficeRepository(create_coman_engine())
+    if provider_dispatch is None:
+        candidate = getattr(credentials, "provider_dispatch", None)
+        if callable(candidate):
+            provider_dispatch = candidate
     idempotency_key = _stable_adjustment_key(
         repository,
         organization_id=organization_id,
