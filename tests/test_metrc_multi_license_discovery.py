@@ -128,7 +128,13 @@ def test_one_metrc_user_discovers_and_scopes_every_accessible_sandbox_license_ex
 
         user_config = configs.public(user)["configuration"]
         vendor_config = configs.public(vendor)["configuration"]
-        assert user_config == {"state": "MA", "license_number": license_number, "environment": "sandbox"}
+        assert user_config == {
+            "state": "MA",
+            "license_number": license_number,
+            "environment": "sandbox",
+            "provider_facility_id": expected_provider_ids[license_number],
+            "provider_capabilities": {},
+        }
         assert vendor_config["state"] == "MA"
         assert vendor_config["license_number"] == license_number
         assert vendor_config["environment"] == "sandbox"

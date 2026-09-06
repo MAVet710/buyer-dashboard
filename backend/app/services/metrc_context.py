@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import Engine
 
@@ -24,6 +24,7 @@ class MetrcContext:
     environment: str = "production"
     trusted_mapping: bool = False
     message: str = ""
+    provider_capabilities: dict[str, bool] = field(default_factory=dict)
     row: IntegrationConfiguration | None = None
     mapping: RegulatoryFacilityMapping | None = None
 
@@ -139,6 +140,11 @@ def resolve_metrc_context(
 
     public = service.public(row)
     config = public.get("configuration", {})
+    provider_capabilities = {
+        str(key): value
+        for key, value in (config.get("provider_capabilities") or {}).items()
+        if isinstance(value, bool)
+    } if isinstance(config.get("provider_capabilities"), dict) else {}
     state = str(config.get("state") or "").strip()
     license_number = str(config.get("license_number") or "").strip()
     configured_environment = str(config.get("environment") or "production").strip().casefold()
@@ -220,6 +226,7 @@ def resolve_metrc_context(
         environment="sandbox",
         trusted_mapping=trusted_mapping,
         message=message,
+        provider_capabilities=provider_capabilities,
         row=row,
         mapping=mapping,
     )

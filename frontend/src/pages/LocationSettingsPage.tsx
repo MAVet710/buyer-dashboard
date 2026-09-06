@@ -11,7 +11,7 @@ type FacilitySetup = {
   facility_id: string;
   role: string;
   can_manage: boolean;
-  metrc: { configured: boolean; status: string; trusted_mapping: boolean; jurisdiction_code: string; license_number: string; environment: string; employee_license_number: string; message: string };
+  metrc: { configured: boolean; status: string; trusted_mapping: boolean; jurisdiction_code: string; license_number: string; environment: string; employee_license_number: string; provider_capabilities: Record<string, boolean>; message: string };
   sections: SetupSection[];
   actions: SetupAction[];
   lab_data_scope: { mode: string; included: string[]; excluded: string[] };
@@ -87,6 +87,7 @@ const numberValue = (row: Record<string, unknown>, ...keys: string[]): number =>
 
 const joined = (row: Record<string, unknown>, keys: string[]): string => keys.map(key => value(row, key)).filter(Boolean).join(" · ");
 const names = (rows: Record<string, unknown>[], ...keys: string[]): string[] => Array.from(new Set(rows.map(row => value(row, ...keys)).filter(Boolean)));
+const capabilityLabel = (name: string): string => name.replace(/^Can/, "Can ").replace(/^Is/, "Is ").replace(/([a-z])([A-Z])/g, "$1 $2");
 
 const resourcesForTab = (tab: Tab): string[] => {
   if (tab === "items") return ["items", "brands"];
@@ -263,6 +264,7 @@ export function LocationSettingsPage() {
         {validateMetrc.isError ? <div className="state error">{validateMetrc.error.message}</div> : null}
         {validateMetrc.data ? <div className={validateMetrc.data.result.ok ? "success-banner" : "state error"}>{validateMetrc.data.result.message}</div> : null}
         {setup.data.metrc.environment === "sandbox" ? <p className="source-caption">Switch sandbox facilities using the Facility selector above. Each discovered license keeps its own connection; you do not need to edit the license or re-enter keys. A placeholder or unmapped facility must be discovered and linked in Integrations first.</p> : null}
+        {Object.keys(setup.data.metrc.provider_capabilities || {}).length ? <details><summary>Provider-reported facility capabilities</summary><div className="inventory-grid">{Object.entries(setup.data.metrc.provider_capabilities).map(([name, enabled]) => <article className="inventory-panel" key={name}><strong>{capabilityLabel(name)}</strong><p className={enabled ? "success-text" : "warning-text"}>{enabled ? "Available" : "Unavailable for this license"}</p></article>)}</div></details> : null}
         {permissions.isError ? <div className="state error">{permissions.error.message}</div> : null}
         {permissions.data ? <div className="inventory-panel"><strong>{permissions.data.status === "synced" ? "Permission sync complete" : "Permission enforcement"}</strong><p>{permissions.data.message}</p>{permissions.data.permissions.length ? <p className="source-caption">{permissions.data.permissions.join(" · ")}</p> : null}</div> : null}
       </section>
