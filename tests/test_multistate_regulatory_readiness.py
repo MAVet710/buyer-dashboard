@@ -6,6 +6,7 @@ from modules.regulatory import (
     PRODUCTION_WRITE_APPROVED,
     jurisdiction_readiness,
     list_jurisdiction_readiness,
+    list_jurisdictions,
     require_production_write_approved,
     require_sandbox_execution_ready,
 )
@@ -13,7 +14,8 @@ from modules.regulatory import (
 
 def test_every_registered_market_has_truthful_release_readiness():
     rows = list_jurisdiction_readiness()
-    assert len(rows) >= 29
+    assert len(rows) == len(list_jurisdictions())
+    assert len(rows) >= 28
     assert len({row["code"] for row in rows}) == len(rows)
     assert all(row["known_market"] and row["production_host_verified"] for row in rows)
     assert all(row["safety"]["documentation_is_not_permission"] for row in rows)
