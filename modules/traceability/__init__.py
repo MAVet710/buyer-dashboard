@@ -1,4 +1,4 @@
-"""Durable traceability transaction, execution, and reconciliation foundation."""
+"""Durable traceability transaction, provider execution, and reconciliation foundation."""
 
 from .backoffice import TraceabilityBackofficeRepository
 from .models import (
@@ -6,7 +6,6 @@ from .models import (
     TraceabilityTransaction,
     TraceabilityTransactionAttempt,
 )
-from .processor import TraceabilityCredentials, process_queued, process_transaction
 from .provider_contract import (
     ProviderExecutionResult,
     TraceabilityCapability,
@@ -20,7 +19,6 @@ __all__ = [
     "ProviderExecutionResult",
     "TraceabilityBackofficeRepository",
     "TraceabilityCapability",
-    "TraceabilityCredentials",
     "TraceabilityProviderAdapter",
     "TraceabilityProviderRegistry",
     "TraceabilityRepository",
@@ -29,6 +27,4 @@ __all__ = [
     "TraceabilityTransactionAttempt",
     "VALID_TRANSITIONS",
     "normalize_provider_result",
-    "process_queued",
-    "process_transaction",
 ]
