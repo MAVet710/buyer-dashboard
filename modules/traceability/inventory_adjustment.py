@@ -17,6 +17,7 @@ from .processor import TraceabilityCredentials, process_transaction
 
 
 LocalApply = Callable[[], tuple[float, str]]
+ProviderDispatch = Callable[[str], dict[str, Any]]
 
 
 def _stable_adjustment_key(
@@ -91,12 +92,21 @@ def run_tracked_metrc_adjustment(
     reason: str,
     reason_note: str,
     local_apply: LocalApply,
+    provider_dispatch: ProviderDispatch | None = None,
+    repository: TraceabilityBackofficeRepository | None = None,
 ) -> tuple[float, str, str]:
-    """Submit Metrc first, then persist local inventory and verify the action.
+    """Submit Metrc first, then persist the corresponding local adjustment.
 
-    The legacy inventory UI remains supported, but it now inherits the same
-    jurisdiction/environment contract gate used by the controlled action engine.
-    Unknown or uncertain outcomes are never blindly repeated.
+    Trusted web Metrc contexts expose a bound canonical dispatcher after alpha
+    mode, connection status, credential scope and facility mapping are verified.
+    Tests or other reviewed callers may also pass ``provider_dispatch`` directly.
+    The legacy processor fallback remains temporarily for the older Streamlit
+    work window and is intentionally isolated for removal under #491.
+
+    Provider acceptance is not provider verification. Canonical-dispatch callers
+    therefore remain in ``accepted`` after local persistence and record local
+    reconciliation evidence for the later readback step. The legacy fallback
+    preserves its historical verified transition until that caller is migrated.
     """
 
     organization_id = str(organization_id or "").strip()
@@ -125,7 +135,11 @@ def run_tracked_metrc_adjustment(
     except ValueError as exc:
         raise ValueError(str(exc)) from exc
 
-    repository = TraceabilityBackofficeRepository(create_coman_engine())
+    repository = repository or TraceabilityBackofficeRepository(create_coman_engine())
+    if provider_dispatch is None:
+        candidate = getattr(credentials, "provider_dispatch", None)
+        if callable(candidate):
+            provider_dispatch = candidate
     idempotency_key = _stable_adjustment_key(
         repository,
         organization_id=organization_id,
@@ -138,11 +152,12 @@ def run_tracked_metrc_adjustment(
         reason=reason,
         reason_note=reason_note,
     )
+    canonical_dispatch = provider_dispatch is not None
     transaction = repository.create_transaction(
         organization_id=organization_id,
         facility_id=facility_id,
         provider="metrc",
-        operation_type="package_adjustment",
+        operation_type="package_adjust" if canonical_dispatch else "package_adjustment",
         entity_type="package",
         entity_id=package_id,
         idempotency_key=idempotency_key,
@@ -150,12 +165,13 @@ def run_tracked_metrc_adjustment(
         license_number=str(getattr(credentials, "license_number", "") or ""),
         reason=str(reason or "").strip(),
         request_payload={
-            "package_label": package_id,
-            "adjustment_type": str(adjustment_type or "").strip(),
-            "quantity": float(quantity),
+            "quantity_delta": float(quantity),
             "unit": str(unit or "").strip(),
             "reason": str(reason or "").strip(),
             "reason_note": str(reason_note or "").strip(),
+            "package_label": package_id,
+            "adjustment_type": str(adjustment_type or "").strip(),
+            "quantity": float(quantity),
             "environment": environment,
             "jurisdiction_code": state,
         },
@@ -186,21 +202,25 @@ def run_tracked_metrc_adjustment(
         source="inventory",
     )
 
-    transaction = process_transaction(
-        repository,
-        organization_id=organization_id,
-        facility_id=facility_id,
-        transaction_id=transaction.id,
-        credentials=TraceabilityCredentials(
-            provider="metrc",
-            state=state,
-            user_api_key=str(getattr(credentials, "user_api_key", "") or ""),
-            integrator_api_key=str(getattr(credentials, "integrator_api_key", "") or ""),
-            license_number=str(getattr(credentials, "license_number", "") or ""),
-            environment=environment,
-        ),
-        actor="traceability-worker",
-    )
+    if provider_dispatch is not None:
+        provider_dispatch(transaction.id)
+        transaction = repository.get_transaction(organization_id, facility_id, transaction.id)
+    else:
+        transaction = process_transaction(
+            repository,
+            organization_id=organization_id,
+            facility_id=facility_id,
+            transaction_id=transaction.id,
+            credentials=TraceabilityCredentials(
+                provider="metrc",
+                state=state,
+                user_api_key=str(getattr(credentials, "user_api_key", "") or ""),
+                integrator_api_key=str(getattr(credentials, "integrator_api_key", "") or ""),
+                license_number=str(getattr(credentials, "license_number", "") or ""),
+                environment=environment,
+            ),
+            actor="traceability-worker",
+        )
     if transaction.status != "accepted":
         message = transaction.error_message or (
             "Metrc outcome requires reconciliation."
@@ -225,13 +245,34 @@ def run_tracked_metrc_adjustment(
         )
         raise
 
-    repository.transition_logged(
-        organization_id=organization_id,
-        facility_id=facility_id,
-        transaction_id=transaction.id,
-        new_status="verified",
-        actor=actor,
-        reason="Metrc accepted the adjustment and DoobieLogic local inventory persistence completed.",
-        source="inventory",
-    )
+    if canonical_dispatch:
+        repository.record_reconciliation(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            transaction_id=transaction.id,
+            actor=actor,
+            local_state={
+                "package_id": package_id,
+                "inventory_write_applied": True,
+                "quantity_delta": float(local_delta),
+                "unit": str(local_unit),
+            },
+            readback_result={"status": "pending"},
+            evidence={
+                "provider_acceptance_recorded": True,
+                "local_persistence_completed": True,
+                "verification_pending": True,
+            },
+            retry_eligible=False,
+        )
+    else:
+        repository.transition_logged(
+            organization_id=organization_id,
+            facility_id=facility_id,
+            transaction_id=transaction.id,
+            new_status="verified",
+            actor=actor,
+            reason="Metrc accepted the adjustment and DoobieLogic local inventory persistence completed.",
+            source="inventory",
+        )
     return local_delta, local_unit, transaction.id
