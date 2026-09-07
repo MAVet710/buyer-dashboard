@@ -285,6 +285,51 @@ def _persist_run_enhancements(engine: Engine, context: RequestContext, run_id: s
         return run
 
 
+def _apply_stage_enhancement_payload(run: ExtractionRun, payload: StageEvent) -> str:
+    workflow = get_extraction_workflow(run.workflow_key)
+    stage_definition = workflow.stage(payload.stage_key)
+    if stage_definition is None:
+        raise ValueError("Stage is not valid for this extraction workflow.")
+
+    output_field = payload.stage_output_field.strip()
+    allowed_fields = set(stage_definition.output_fields)
+    if output_field and output_field not in allowed_fields:
+        raise ValueError("Stage output field is not valid for this workflow stage.")
+
+    values = payload.model_dump(
+        include={
+            "intermediate_product_type",
+            "final_product_type",
+            "formulation_used",
+            "formulation_base_g",
+            "terpene_handling_mode",
+            "terpene_type",
+            "terpene_source",
+            "terpene_percentage",
+            "terpene_weight_g",
+        },
+        exclude_none=True,
+    )
+    if payload.stage_key == "formulation" and "formulation_used" not in values:
+        values["formulation_used"] = True
+    if output_field and payload.output_weight_g is not None:
+        values[output_field] = payload.output_weight_g
+
+    _apply_formulation_fields(run, values)
+    return output_field
+
+
+def _validate_stage_enhancements(engine: Engine, context: RequestContext, run_id: str, payload: StageEvent) -> None:
+    """Fail before the generic stage-event transaction if enhancement data is invalid."""
+    with Session(engine) as session:
+        run = session.get(ExtractionRun, run_id)
+        if not run or run.organization_id != context.organization_id or run.facility_id != context.facility_id:
+            raise ValueError("Extraction run was not found in the active facility.")
+        _apply_stage_enhancement_payload(run, payload)
+        # Intentionally no flush/commit. This session is a read-only validation
+        # boundary; any temporary ORM mutations are discarded when it closes.
+
+
 def _persist_stage_enhancements(engine: Engine, context: RequestContext, run_id: str, event_id: str, payload: StageEvent) -> None:
     with Session(engine) as session:
         run = session.get(ExtractionRun, run_id)
@@ -294,40 +339,10 @@ def _persist_stage_enhancements(engine: Engine, context: RequestContext, run_id:
         if not event or event.run_id != run.id:
             raise ValueError("Extraction stage event was not found.")
 
-        workflow = get_extraction_workflow(run.workflow_key)
-        stage_definition = workflow.stage(payload.stage_key)
-        if stage_definition is None:
-            raise ValueError("Stage is not valid for this extraction workflow.")
-
-        output_field = payload.stage_output_field.strip()
-        allowed_fields = set(stage_definition.output_fields)
-        if output_field and output_field not in allowed_fields:
-            raise ValueError("Stage output field is not valid for this workflow stage.")
-
+        output_field = _apply_stage_enhancement_payload(run, payload)
         event.stage_output_field = output_field
         event.metrc_stage_input_id = payload.metrc_stage_input_id.strip()
         event.metrc_stage_output_id = payload.metrc_stage_output_id.strip()
-
-        values = payload.model_dump(
-            include={
-                "intermediate_product_type",
-                "final_product_type",
-                "formulation_used",
-                "formulation_base_g",
-                "terpene_handling_mode",
-                "terpene_type",
-                "terpene_source",
-                "terpene_percentage",
-                "terpene_weight_g",
-            },
-            exclude_none=True,
-        )
-        if payload.stage_key == "formulation" and "formulation_used" not in values:
-            values["formulation_used"] = True
-        if output_field and payload.output_weight_g is not None:
-            values[output_field] = payload.output_weight_g
-
-        _apply_formulation_fields(run, values)
         session.flush()
 
         # Preserve the latest measured output at every real process stage. This
@@ -542,6 +557,7 @@ def stage(run_id: str, payload: StageEvent, context: RequestContext = Depends(ge
         }
     )
     try:
+        _validate_stage_enhancements(engine, context, run_id, payload)
         row = _repo(engine).record_stage_event(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
