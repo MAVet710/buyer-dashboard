@@ -9,10 +9,12 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
+from modules.inventory_quality.coa import MAX_COA_BYTES
+from modules.supplier_portal.coa import SupplierCoaService
 from modules.supplier_portal.service import DEFAULT_SUPPLIER_PERMISSIONS, SupplierPortalService
 
 from ..auth import RequestContext, get_request_context
@@ -27,6 +29,15 @@ BUYER_ROLES = {"dev", "admin", "buyer"}
 def _require_buyer(context: RequestContext) -> None:
     if context.role.casefold() not in BUYER_ROLES:
         raise HTTPException(403, "Your role does not allow supplier offer review or portal access management.")
+
+
+async def _coa_bytes(file: UploadFile) -> bytes:
+    payload = await file.read(MAX_COA_BYTES + 1)
+    if not payload:
+        raise HTTPException(422, "The uploaded COA is empty.")
+    if len(payload) > MAX_COA_BYTES:
+        raise HTTPException(413, "The COA exceeds the 15 MB upload limit.")
+    return payload
 
 
 class SupplierAccessPayload(BaseModel):
@@ -137,6 +148,15 @@ def _supplier_access(service: SupplierPortalService, token: str, permission: str
         raise HTTPException(404, str(exc)) from exc
 
 
+def _validate_coa_references(engine: Engine, organization_id: str, facility_id: str, lines: list[SupplierOfferLinePayload]) -> None:
+    validator = SupplierCoaService(engine)
+    try:
+        for line in lines:
+            validator.validate_reference(organization_id, facility_id, line.coa_reference)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.post("/access", status_code=201)
 def issue_supplier_access(
     payload: SupplierAccessPayload,
@@ -212,6 +232,25 @@ def review_supplier_offer(
         raise HTTPException(422, str(exc)) from exc
 
 
+@public_router.post("/{token}/coas", status_code=201)
+async def upload_supplier_coa(
+    token: str,
+    file: UploadFile = File(...),
+    engine: Engine = Depends(get_engine),
+):
+    service = SupplierPortalService(engine)
+    access, _grant = _supplier_access(service, token, "offer:submit")
+    try:
+        return SupplierCoaService(engine).ingest(
+            access=access,
+            payload=await _coa_bytes(file),
+            filename=str(file.filename or "supplier-coa.pdf"),
+            content_type=str(file.content_type or "application/pdf"),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @public_router.get("/{token}/offers")
 def supplier_offer_history(
     token: str,
@@ -239,6 +278,7 @@ def submit_supplier_offer(
 ):
     service = SupplierPortalService(engine)
     access, _grant = _supplier_access(service, token, "offer:submit")
+    _validate_coa_references(engine, access.organization_id, access.facility_id, payload.lines)
     try:
         row = service.submit_offer(
             access=access,
@@ -264,6 +304,7 @@ def revise_supplier_offer(
 ):
     service = SupplierPortalService(engine)
     access, _grant = _supplier_access(service, token, "offer:revise")
+    _validate_coa_references(engine, access.organization_id, access.facility_id, payload.lines)
     try:
         row = service.revise_offer(
             access=access,
