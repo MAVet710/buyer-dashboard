@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
@@ -65,6 +65,20 @@ class RunCreate(BaseModel):
     metrc_distillate_package_id: str = ""
     metrc_formulation_package_id: str = ""
     metrc_final_package_id: str = ""
+
+    @model_validator(mode="after")
+    def validate_formulation_before_persistence(self):
+        mode = str(self.terpene_handling_mode or "Native / No Add-Back").strip()
+        if mode not in TERPENE_HANDLING_MODES:
+            raise ValueError("Unsupported terpene handling mode.")
+        validate_terpene_percentage(self.terpene_percentage)
+        if mode != "Native / No Add-Back" and self.terpene_weight_g is not None:
+            calculate_terpene_weight_g(
+                self.formulation_base_g,
+                self.terpene_percentage,
+                self.terpene_weight_g,
+            )
+        return self
 
 
 class ReserveInput(BaseModel):
