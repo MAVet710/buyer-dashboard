@@ -58,7 +58,6 @@ jobs:
           if image is None:
               raise SystemExit('No valid DoobieLogic branding image was available.')
 
-          # Pad to a square canvas without distorting the artwork.
           side = max(image.width, image.height)
           square = Image.new('RGBA', (side, side), (0, 0, 0, 0))
           square.alpha_composite(image, ((side - image.width)//2, (side - image.height)//2))
@@ -91,7 +90,7 @@ jobs:
           $env:GOOS='windows'
           $env:GOARCH='amd64'
           $env:CGO_ENABLED='0'
-          go build -trimpath -ldflags '-s -w' -o DoobieLogic_Local_AI_Launcher_v3.exe main.go
+          go build -trimpath -ldflags '-s -w' -o DoobieLogic_Local_AI_Launcher_v3.exe .
           if (-not (Test-Path DoobieLogic_Local_AI_Launcher_v3.exe)) { throw 'Launcher EXE was not produced.' }
           Get-FileHash DoobieLogic_Local_AI_Launcher_v3.exe -Algorithm SHA256 | Format-List | Out-File SHA256.txt
 
