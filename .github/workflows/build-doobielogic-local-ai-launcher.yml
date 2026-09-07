@@ -1,0 +1,109 @@
+name: Build DoobieLogic Local AI Launcher
+
+on:
+  push:
+    branches:
+      - tooling/doobielogic-launcher-v3
+    paths:
+      - tools/local-ai-launcher/**
+      - frontend/public/doobielogic-logo.webp
+      - IMG_7158.PNG
+      - .github/workflows/build-doobielogic-local-ai-launcher.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-launcher:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Pillow
+        run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Build Windows icon from DoobieLogic branding
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          from PIL import Image
+
+          candidates = [
+              Path('frontend/public/doobielogic-logo.webp'),
+              Path('IMG_7158.PNG'),
+          ]
+
+          chosen = None
+          image = None
+          for candidate in candidates:
+              try:
+                  if not candidate.exists():
+                      continue
+                  probe = Image.open(candidate)
+                  probe.load()
+                  image = probe.convert('RGBA')
+                  chosen = candidate
+                  break
+              except Exception as exc:
+                  print(f'Cannot use {candidate}: {exc}')
+
+          if image is None:
+              raise SystemExit('No valid DoobieLogic branding image was available.')
+
+          # Pad to a square canvas without distorting the artwork.
+          side = max(image.width, image.height)
+          square = Image.new('RGBA', (side, side), (0, 0, 0, 0))
+          square.alpha_composite(image, ((side - image.width)//2, (side - image.height)//2))
+          square.save(
+              'tools/local-ai-launcher/doobielogic.ico',
+              format='ICO',
+              sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)],
+          )
+          print(f'ICON_SOURCE={chosen}')
+          Path('tools/local-ai-launcher/icon-source.txt').write_text(str(chosen), encoding='utf-8')
+          '@ | Set-Content -Encoding UTF8 tools/local-ai-launcher/make_icon.py
+          python tools/local-ai-launcher/make_icon.py
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+
+      - name: Install Windows resource compiler
+        shell: pwsh
+        run: |
+          go install github.com/akavel/rsrc@v0.10.2
+          "$env:USERPROFILE\go\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Embed icon and build launcher
+        shell: pwsh
+        working-directory: tools/local-ai-launcher
+        run: |
+          & "$env:USERPROFILE\go\bin\rsrc.exe" -ico doobielogic.ico -o rsrc_windows_amd64.syso
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          $env:CGO_ENABLED='0'
+          go build -trimpath -ldflags '-s -w' -o DoobieLogic_Local_AI_Launcher_v3.exe main.go
+          if (-not (Test-Path DoobieLogic_Local_AI_Launcher_v3.exe)) { throw 'Launcher EXE was not produced.' }
+          Get-FileHash DoobieLogic_Local_AI_Launcher_v3.exe -Algorithm SHA256 | Format-List | Out-File SHA256.txt
+
+      - name: Upload branded launcher
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoobieLogic-Local-AI-Launcher-v3
+          path: |
+            tools/local-ai-launcher/DoobieLogic_Local_AI_Launcher_v3.exe
+            tools/local-ai-launcher/doobielogic.ico
+            tools/local-ai-launcher/icon-source.txt
+            tools/local-ai-launcher/SHA256.txt
+            tools/local-ai-launcher/main.go
+          if-no-files-found: error
+          retention-days: 14
