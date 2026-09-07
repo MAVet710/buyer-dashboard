@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ChevronDown, Filter, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DateTableFilter, NumberTableFilter, TableFilter, TableSortDirection } from "../lib/tableFilters";
 
@@ -21,6 +21,7 @@ export function TableHeaderFilter({ column, kind, options = [], filter, sortDire
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<Position>({ top: 0, left: 0, maxHeight: 440 });
   const [optionSearch, setOptionSearch] = useState("");
+  const [textMode, setTextMode] = useState<"contains" | "equals">("contains");
   const [numberMode, setNumberMode] = useState<NumberTableFilter["mode"]>("gt");
   const [numberValue, setNumberValue] = useState("0");
   const [numberMax, setNumberMax] = useState("");
@@ -31,7 +32,7 @@ export function TableHeaderFilter({ column, kind, options = [], filter, sortDire
   const menuRef = useRef<HTMLDivElement>(null);
   const active = Boolean(filter) || Boolean(sortDirection);
 
-  const updatePosition = () => {
+  const updatePosition = useCallback(() => {
     const trigger = triggerRef.current;
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
@@ -41,7 +42,7 @@ export function TableHeaderFilter({ column, kind, options = [], filter, sortDire
     const belowTop = rect.bottom + 6;
     const top = belowTop + anticipatedHeight <= window.innerHeight ? belowTop : Math.max(12, rect.top - anticipatedHeight - 6);
     setPosition({ top, left, maxHeight: Math.max(180, window.innerHeight - top - 12) });
-  };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -65,9 +66,10 @@ export function TableHeaderFilter({ column, kind, options = [], filter, sortDire
       window.removeEventListener("resize", reposition);
       window.removeEventListener("scroll", reposition, true);
     };
-  }, [open]);
+  }, [open, updatePosition]);
 
   useEffect(() => {
+    if (filter?.type === "text") setTextMode(filter.mode);
     if (filter?.type === "number") {
       setNumberMode(filter.mode);
       setNumberValue(String(filter.value));
@@ -89,24 +91,25 @@ export function TableHeaderFilter({ column, kind, options = [], filter, sortDire
   const selectedSet = useMemo(() => new Set(selectedValues.map(value => value.toLocaleLowerCase())), [selectedValues]);
 
   const toggleValue = (value: string) => {
-    const next = new Map(options.map(option => [option.toLocaleLowerCase(), option]));
+    const optionMap = new Map<string, string>(options.map(option => [option.toLocaleLowerCase(), option] as const));
     const selected = new Set(selectedValues.map(option => option.toLocaleLowerCase()));
     const key = value.toLocaleLowerCase();
     if (selected.has(key)) selected.delete(key); else selected.add(key);
-    const values = [...selected].map(item => next.get(item)).filter((item): item is string => Boolean(item));
+    const values = [...selected].map(item => optionMap.get(item)).filter((item): item is string => Boolean(item));
     onFilterChange(values.length === options.length ? null : { type: "values", values });
   };
 
   const applyNumber = () => {
     const value = Number(numberValue);
     if (!Number.isFinite(value)) return;
+    if (numberMode === "between" && !numberMax.trim()) return;
     const max = Number(numberMax);
     onFilterChange({ type: "number", mode: numberMode, value, ...(numberMode === "between" && Number.isFinite(max) ? { max } : {}) });
   };
 
   const applyDate = () => {
-    if (!dateValue) return;
-    onFilterChange({ type: "date", mode: dateMode, value: dateValue, ...(dateMode === "between" && dateMax ? { max: dateMax } : {}) });
+    if (!dateValue || dateMode === "between" && !dateMax) return;
+    onFilterChange({ type: "date", mode: dateMode, value: dateValue, ...(dateMode === "between" ? { max: dateMax } : {}) });
   };
 
   return <>
@@ -155,15 +158,14 @@ export function TableHeaderFilter({ column, kind, options = [], filter, sortDire
 
         {kind === "text" ? <div className="table-filter-section">
           <span className="table-filter-section-label">Text filter</span>
-          <select aria-label={`${column} text filter mode`} value={filter?.type === "text" ? filter.mode : "contains"} onChange={event => {
+          <select aria-label={`${column} text filter mode`} value={textMode} onChange={event => {
             const mode = event.target.value as "contains" | "equals";
-            const value = filter?.type === "text" ? filter.value : "";
-            onFilterChange(value ? { type: "text", mode, value } : null);
+            setTextMode(mode);
+            if (filter?.type === "text" && filter.value) onFilterChange({ type: "text", mode, value: filter.value });
           }}><option value="contains">Contains</option><option value="equals">Equals</option></select>
           <input className="table-filter-search" value={filter?.type === "text" ? filter.value : ""} onChange={event => {
             const value = event.target.value;
-            const mode = filter?.type === "text" ? filter.mode : "contains";
-            onFilterChange(value ? { type: "text", mode, value } : null);
+            onFilterChange(value ? { type: "text", mode: textMode, value } : null);
           }} placeholder="Type to filter…" aria-label={`${column} filter value`}/>
         </div> : null}
 
@@ -179,7 +181,7 @@ export function TableHeaderFilter({ column, kind, options = [], filter, sortDire
         {kind === "date" ? <div className="table-filter-section">
           <span className="table-filter-section-label">Date filter</span>
           <select aria-label={`${column} date filter mode`} value={dateMode} onChange={event => setDateMode(event.target.value as DateTableFilter["mode"])}><option value="on">On</option><option value="before">Before</option><option value="after">After</option><option value="between">Between</option></select>
-          <div className="table-filter-number-inputs"><input type="date" value={dateValue} onChange={event => setDateValue(event.target.value)}/>{dateMode === "between" ? <input type="date" value={dateMax} onChange={event => setDateMax(event.target.value)}/> : null}</div>
+          <div className="table-filter-number-inputs"><input type="date" aria-label={`${column} date value`} value={dateValue} onChange={event => setDateValue(event.target.value)}/>{dateMode === "between" ? <input type="date" aria-label={`${column} maximum date value`} value={dateMax} onChange={event => setDateMax(event.target.value)}/> : null}</div>
           <button type="button" className="table-filter-apply" onClick={applyDate}>Apply date filter</button>
         </div> : null}
 
