@@ -47,7 +47,7 @@ def _line(price: float = 700.0):
     }
 
 
-def test_supplier_access_reuses_partner_portal_token_and_stages_offer_only():
+def test_supplier_access_reuses_partner_portal_identity_but_not_retailer_token_namespace():
     engine = _engine()
     service = SupplierPortalService(engine)
 
@@ -61,6 +61,15 @@ def test_supplier_access_reuses_partner_portal_token_and_stages_offer_only():
     assert resolved.id == access.id
     assert resolved_grant.id == grant.id
     assert resolved.partner_id == "vendor-1"
+
+    # The same raw token must fail on the pre-existing retailer portal resolver;
+    # supplier endpoints add the private supplier scope before resolving it.
+    try:
+        OperationalMoatService(engine).resolve_partner_portal(token)
+    except ValueError as exc:
+        assert "invalid or expired" in str(exc)
+    else:
+        raise AssertionError("Supplier credentials must not resolve on retailer portal routes.")
 
     offer = service.submit_offer(
         access=resolved,
@@ -98,7 +107,7 @@ def test_existing_retailer_portal_token_does_not_gain_supplier_permissions():
     try:
         service.resolve_supplier_access(retail_token, permission="offer:read")
     except ValueError as exc:
-        assert "does not have supplier access" in str(exc)
+        assert "invalid or expired" in str(exc) or "does not have supplier access" in str(exc)
     else:
         raise AssertionError("Retailer portal access must not inherit supplier permissions.")
 
