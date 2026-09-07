@@ -102,7 +102,7 @@ class ComanRepository:
         external_product_id: str = "",
         actor: str,
     ) -> Product:
-        if item_type not in {"cannabis", "packaging", "wip", "finished_good"}:
+        if item_type not in {"cannabis", "ingredient", "packaging", "wip", "finished_good"}:
             raise ValueError("Unsupported product item_type.")
         if float(unit_cost) < 0:
             raise ValueError("unit_cost cannot be negative.")
