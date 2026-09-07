@@ -18,6 +18,7 @@ from .models import SupplierOffer, SupplierOfferLine, SupplierPortalGrant
 
 DEFAULT_SUPPLIER_PERMISSIONS = frozenset({"offer:read", "offer:submit", "offer:revise", "offer:withdraw"})
 BUYER_REVIEW_STATUSES = frozenset({"under_review", "accepted", "rejected"})
+SUPPLIER_TOKEN_SCOPE = "supplier"
 
 
 def _permissions(raw: str) -> frozenset[str]:
@@ -31,6 +32,10 @@ def _permissions(raw: str) -> frozenset[str]:
 def _permissions_json(values: Iterable[str]) -> str:
     normalized = sorted({str(value).strip().casefold() for value in values if str(value).strip()})
     return json.dumps(normalized, separators=(",", ":"))
+
+
+def _scoped_supplier_token(token: str) -> str:
+    return f"{SUPPLIER_TOKEN_SCOPE}:{str(token or '').strip()}"
 
 
 class SupplierPortalService:
@@ -51,7 +56,13 @@ class SupplierPortalService:
         expires_days: int = 90,
         permissions: Iterable[str] | None = None,
     ) -> tuple[PartnerPortalAccess, SupplierPortalGrant, str]:
-        """Issue the existing partner-portal token plus a supplier-only policy row."""
+        """Issue the existing partner-portal token plus a supplier-only policy row.
+
+        The raw supplier token is deliberately namespaced before hashing. Existing
+        retailer portal routes resolve the raw token and therefore cannot consume
+        supplier credentials; supplier endpoints resolve the scoped value through
+        the same PartnerPortalAccess/OperationalMoatService token machinery.
+        """
 
         requested_permissions = frozenset(permissions or DEFAULT_SUPPLIER_PERMISSIONS)
         if not requested_permissions or not requested_permissions.issubset(DEFAULT_SUPPLIER_PERMISSIONS):
@@ -65,7 +76,7 @@ class SupplierPortalService:
                 organization_id=organization_id,
                 facility_id=facility_id,
                 partner_id=partner_id,
-                token_hash=_hash_token(token),
+                token_hash=_hash_token(_scoped_supplier_token(token)),
                 label=str(label or "Supplier Portal").strip() or "Supplier Portal",
                 created_by=str(actor or "").strip() or "system",
                 expires_at=utc_now() + timedelta(days=max(1, min(int(expires_days), 365))),
@@ -90,9 +101,9 @@ class SupplierPortalService:
         *,
         permission: str = "offer:read",
     ) -> tuple[PartnerPortalAccess, SupplierPortalGrant]:
-        """Resolve the existing partner token and require its supplier policy."""
+        """Resolve the existing partner token in the supplier-only namespace."""
 
-        access = OperationalMoatService(self.engine).resolve_partner_portal(token)
+        access = OperationalMoatService(self.engine).resolve_partner_portal(_scoped_supplier_token(token))
         with self._sessions() as session:
             grant = session.scalar(
                 select(SupplierPortalGrant).where(SupplierPortalGrant.portal_access_id == access.id)
@@ -268,8 +279,6 @@ class SupplierPortalService:
             if offer.status in {"withdrawn", "superseded", "expired"}:
                 raise ValueError("This supplier offer revision is no longer reviewable.")
             offer.status = target
-            # Keep the human reviewer in the audit-facing notes without creating
-            # purchase or inventory side effects in this staging service.
             reviewer_note = f"reviewed_by={str(actor or '').strip() or 'system'}"
             if reviewer_note not in offer.notes:
                 offer.notes = (offer.notes + "\n" + reviewer_note).strip()
