@@ -7,6 +7,7 @@ import { registerDoobieLogicServiceWorker } from "./lib/pwa";
 import { configureSeo } from "./lib/seo";
 import { isMarketingHost } from "./lib/siteMode";
 import "./styles.css";
+import "./table-filters.css";
 import "./parity.css";
 import "./parity-workspaces.css";
 import "./streamlit-exact.css";
