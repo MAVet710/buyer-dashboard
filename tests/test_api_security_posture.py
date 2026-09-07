@@ -15,6 +15,7 @@ PERMITTED_PUBLIC_API_ROUTES = {
     ("POST", f"{settings.api_prefix}/account/username-login"),
     ("GET", f"{settings.api_prefix}/commerce-portal/{{token}}"),
     ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/orders"),
+    ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/coas"),
     ("GET", f"{settings.api_prefix}/commerce-portal/{{token}}/offers"),
     ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/offers"),
     ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/offers/{{offer_id}}/revisions"),
@@ -77,6 +78,7 @@ def test_public_api_allowlist_is_explicit_and_bounded():
     assert ("POST", f"{settings.api_prefix}/trial/activate") in security
     assert ("POST", f"{settings.api_prefix}/beta/apply") in security
     assert ("POST", f"{settings.api_prefix}/account/username-login") in security
+    assert ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/coas") in security
     assert ("GET", f"{settings.api_prefix}/commerce-portal/{{token}}/offers") in security
     assert ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/offers") in security
     assert ("POST", f"{settings.api_prefix}/commerce-portal/{{token}}/offers/{{offer_id}}/revisions") in security
