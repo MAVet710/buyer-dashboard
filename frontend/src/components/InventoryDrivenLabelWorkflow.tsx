@@ -47,9 +47,15 @@ function resultValue(row:CoaResult){
   if(units==="%"||units.toLowerCase()==="percent")return raw.includes("%")?raw:`${raw}%`;
   return raw.toLowerCase().includes(units.toLowerCase())?raw:`${raw} ${units}`;
 }
+function analyteNumber(row:CoaResult){
+  if(row.value!=null&&Number.isFinite(Number(row.value)))return Number(row.value);
+  const parsed=Number.parseFloat(String(row.value_text??"").replace(/[^0-9.+-]/g,""));
+  return Number.isFinite(parsed)?parsed:Number.NEGATIVE_INFINITY;
+}
 function analytes(source:SourceSnapshot|undefined,kind:"cannabinoids"|"terpenes",limit:number){
-  const rows=source?.coa?.results??[];
-  return rows.filter(row=>String(row.analysis??"").toLowerCase().includes(kind.slice(0,-1))).filter(row=>Boolean(resultValue(row))).slice(0,limit);
+  const rows=(source?.coa?.results??[]).filter(row=>String(row.analysis??"").toLowerCase().includes(kind.slice(0,-1))).filter(row=>Boolean(resultValue(row)));
+  if(kind==="terpenes")return [...rows].sort((left,right)=>analyteNumber(right)-analyteNumber(left)).slice(0,Math.min(3,limit));
+  return rows.slice(0,limit);
 }
 function sourceReady(source:InventorySource|undefined){
   return Boolean(source?.coa.available&&["pass","passed"].includes(String(source.coa.overall_status??"").toLowerCase())&&source.coa.date_tested&&!source.coa.needs_confirmation);
