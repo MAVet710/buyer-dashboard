@@ -111,7 +111,7 @@ export function ProductMasterPage({ initialOperation = "retail" }: { initialOper
       <div>
         <div className="eyebrow">{operation} ops · canonical catalog</div>
         <h1>Product Master</h1>
-        <p>{operation === "retail" ? "Govern finished sellable products, merchandising, UPCs, packaging label defaults, vendors and retail pricing." : "Govern bulk materials, work in process, production inputs and outputs, package semantics, compliance mappings and cost history."}</p>
+        <p>{operation === "retail" ? "Govern finished sellable products, merchandising, UPCs, packaging label defaults, vendors and retail pricing." : "Govern bulk materials, ingredients, work in process, production inputs and outputs, package semantics, compliance mappings and cost history."}</p>
       </div>
       <button className="primary" onClick={() => {
         setCreateForm({ ...blank, item_type: operation === "retail" ? "finished_good" : "cannabis", base_unit: operation === "retail" ? "unit" : "g", retail_enabled: operation === "retail", production_enabled: operation === "production" });
@@ -131,7 +131,7 @@ export function ProductMasterPage({ initialOperation = "retail" }: { initialOper
         <div className="filters">
           <label className="search"><input placeholder="Search name, SKU, UPC or external ID" value={search} onChange={event => setSearch(event.target.value)}/></label>
           <select value={status} onChange={event => setStatus(event.target.value)}><option value="active">Active</option><option value="archived">Archived</option><option value="all">All</option></select>
-          <select value={itemType} onChange={event => setItemType(event.target.value)}><option value="">All item types</option><option value="cannabis">Cannabis material</option><option value="packaging">Packaging</option><option value="wip">Work in process</option><option value="finished_good">Finished good</option></select>
+          <select value={itemType} onChange={event => setItemType(event.target.value)}><option value="">All item types</option><option value="cannabis">Cannabis material</option><option value="ingredient">Ingredient</option><option value="packaging">Packaging</option><option value="wip">Work in process</option><option value="finished_good">Finished good</option></select>
         </div>
         <div className="table-wrap"><table><thead><tr><th>Product</th><th>SKU</th><th>Classification</th><th>Unit</th><th>Price / cost</th><th>Status</th></tr></thead><tbody>
           {products.data?.map(row => <tr key={row.id} className={selected === row.id ? "selected-row" : ""} onClick={() => setSelected(row.id)}>
@@ -198,7 +198,7 @@ export function ProductMasterPage({ initialOperation = "retail" }: { initialOper
       <div className="form-grid">
         <label>Product name<input value={createForm.name} onChange={event => setCreateForm({ ...createForm, name: event.target.value })}/></label>
         <label>SKU<input value={createForm.sku} onChange={event => setCreateForm({ ...createForm, sku: event.target.value })}/></label>
-        <label>Item type<select value={createForm.item_type} onChange={event => setCreateForm({ ...createForm, item_type: event.target.value })}><option value="finished_good">Finished good</option><option value="cannabis">Cannabis material</option><option value="wip">Work in process</option><option value="packaging">Packaging</option></select></label>
+        <label>Item type<select value={createForm.item_type} onChange={event => setCreateForm({ ...createForm, item_type: event.target.value })}><option value="finished_good">Finished good</option><option value="cannabis">Cannabis material</option><option value="ingredient">Ingredient</option><option value="wip">Work in process</option><option value="packaging">Packaging</option></select></label>
         <label>Base unit<input value={createForm.base_unit} onChange={event => setCreateForm({ ...createForm, base_unit: event.target.value })}/></label>
         <label>UPC<input value={createForm.upc} onChange={event => setCreateForm({ ...createForm, upc: event.target.value })}/></label>
         <label>External product ID<input value={createForm.external_product_id} onChange={event => setCreateForm({ ...createForm, external_product_id: event.target.value })}/></label>
