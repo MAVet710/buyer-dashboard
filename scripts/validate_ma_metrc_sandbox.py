@@ -30,6 +30,22 @@ REQUIRED_ENV = (
 )
 
 
+def _facility_license_number(facility: Any) -> str:
+    if not isinstance(facility, dict):
+        return ""
+    for key in ("LicenseNumber", "licenseNumber", "Number", "number"):
+        value = facility.get(key)
+        if value:
+            return str(value).strip()
+    nested = facility.get("License") or facility.get("license")
+    if isinstance(nested, dict):
+        for key in ("Number", "number", "LicenseNumber", "licenseNumber"):
+            value = nested.get(key)
+            if value:
+                return str(value).strip()
+    return ""
+
+
 def readiness(environ: dict[str, str] | None = None) -> dict[str, Any]:
     values = environ if environ is not None else os.environ
     missing = [name for name in REQUIRED_ENV if not str(values.get(name) or "").strip()]
@@ -44,10 +60,11 @@ def readiness(environ: dict[str, str] | None = None) -> dict[str, Any]:
         "api_base": BASE_URL,
         "missing": missing,
         "license_configured": bool(license_number),
+        "license_mapping_verified": False,
         "credentials_echoed": False,
         "write_performed": False,
         "next_gate": (
-            "Run --live-read, then execute one employee-approved manifest workflow inside DoobieLogic."
+            "Run --live-read to verify authentication and exact facility/license mapping."
             if not missing
             else "Obtain Massachusetts Metrc sandbox credentials before provider validation."
         ),
@@ -95,15 +112,36 @@ def live_read(environ: dict[str, str] | None = None, *, timeout_seconds: int = 1
     except ValueError:
         payload = None
     rows = payload.get("Data") if isinstance(payload, dict) else payload
-    facility_count = len(rows) if isinstance(rows, list) else 0
+    facilities = rows if isinstance(rows, list) else []
+    facility_count = len(facilities)
+    configured_license = str(values["METRC_MA_SANDBOX_LICENSE_NUMBER"]).strip().casefold()
+    matched_facility_count = sum(
+        1
+        for facility in facilities
+        if _facility_license_number(facility).casefold() == configured_license
+    )
+    if matched_facility_count < 1:
+        return report | {
+            "ready": False,
+            "status": "license_mapping_not_found",
+            "network_request_sent": True,
+            "http_status": response.status_code,
+            "facility_count": facility_count,
+            "matched_facility_count": 0,
+            "license_mapping_verified": False,
+            "write_performed": False,
+            "next_gate": "Set METRC_MA_SANDBOX_LICENSE_NUMBER to a license returned by the authenticated Facilities response before loading live Facility Setup data.",
+        }
     return report | {
         "ready": True,
         "status": "authenticated_read_verified",
         "network_request_sent": True,
         "http_status": response.status_code,
         "facility_count": facility_count,
+        "matched_facility_count": matched_facility_count,
+        "license_mapping_verified": True,
         "write_performed": False,
-        "next_gate": "Use DoobieLogic to build, approve, submit, read back, and download one MA sandbox manifest. Do not bypass the application action ledger.",
+        "next_gate": "Facility/license mapping is verified. Use DoobieLogic's bounded MA evaluation workflow for the next workbook operation; do not bypass the application action ledger for regulated mutations.",
     }
 
 
