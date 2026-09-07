@@ -27,6 +27,10 @@ export function tableValueText(value: unknown): string {
   return text || "—";
 }
 
+function isBlank(value: unknown): boolean {
+  return value === null || value === undefined || tableValueText(value) === "—";
+}
+
 function numberValue(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (value === null || value === undefined || value === "") return null;
@@ -79,12 +83,7 @@ function matchesFilter(value: unknown, filter: TableFilter): boolean {
   return current >= Math.min(start, end) && current <= Math.max(start, end);
 }
 
-function compareValues(left: unknown, right: unknown): number {
-  const leftBlank = left === null || left === undefined || tableValueText(left) === "—";
-  const rightBlank = right === null || right === undefined || tableValueText(right) === "—";
-  if (leftBlank && rightBlank) return 0;
-  if (leftBlank) return 1;
-  if (rightBlank) return -1;
+function compareNonBlankValues(left: unknown, right: unknown): number {
   const leftNumber = numberValue(left);
   const rightNumber = numberValue(right);
   if (leftNumber !== null && rightNumber !== null) return leftNumber - rightNumber;
@@ -105,7 +104,15 @@ export function applyTableFiltersAndSort<Row>(
   return filtered
     .map((row, index) => ({ row, index }))
     .sort((a, b) => {
-      const compared = compareValues(getter(a.row, sort.column), getter(b.row, sort.column));
+      const left = getter(a.row, sort.column);
+      const right = getter(b.row, sort.column);
+      const leftBlank = isBlank(left);
+      const rightBlank = isBlank(right);
+      if (leftBlank || rightBlank) {
+        if (leftBlank && rightBlank) return a.index - b.index;
+        return leftBlank ? 1 : -1;
+      }
+      const compared = compareNonBlankValues(left, right);
       if (compared === 0) return a.index - b.index;
       return sort.direction === "asc" ? compared : -compared;
     })
