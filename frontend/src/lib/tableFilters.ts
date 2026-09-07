@@ -46,7 +46,7 @@ function dateValue(value: unknown): number | null {
 function matchesFilter(value: unknown, filter: TableFilter): boolean {
   if (filter.type === "values") {
     if (!filter.values.length) return false;
-    const expected = new Set(filter.values.map(item => item.casefold?.() ?? item.toLocaleLowerCase()));
+    const expected = new Set(filter.values.map(item => item.toLocaleLowerCase()));
     return expected.has(tableValueText(value).toLocaleLowerCase());
   }
   if (filter.type === "text") {
