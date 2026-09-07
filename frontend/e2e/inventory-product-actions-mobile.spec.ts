@@ -135,3 +135,38 @@ for (const width of [390, 430]) {
     await assertNoOverflow(page);
   });
 }
+
+test("inventory column headers filter together and clear cleanly on mobile", async ({ page }) => {
+  await openInventory(page, 390);
+  await expect(page.getByRole("checkbox", { name: "Select Copper Kush Whole Flower 3.5g" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Select Night Shift Pre-Roll 1g" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Filter and sort Available" }).click();
+  const availableMenu = page.getByRole("dialog", { name: "Available filter and sort" });
+  await expect(availableMenu).toBeVisible();
+  await availableMenu.getByLabel("Available numeric value").fill("20");
+  await availableMenu.getByRole("button", { name: "Apply", exact: true }).click();
+  await availableMenu.getByRole("button", { name: "Close filter menu" }).click();
+  await expect(page.getByRole("checkbox", { name: "Select Copper Kush Whole Flower 3.5g" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Select Night Shift Pre-Roll 1g" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Filter and sort Material Type" }).click();
+  const materialMenu = page.getByRole("dialog", { name: "Material Type filter and sort" });
+  await expect(materialMenu).toBeVisible();
+  await materialMenu.getByRole("checkbox", { name: "Flower" }).uncheck();
+  await materialMenu.getByRole("button", { name: "Close filter menu" }).click();
+  await expect(page.getByText("2 column filters active", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Select Night Shift Pre-Roll 1g" })).toBeVisible();
+  await assertNoOverflow(page);
+
+  await page.getByRole("button", { name: "Filter and sort Material Type" }).click();
+  await page.getByRole("dialog", { name: "Material Type filter and sort" }).getByRole("button", { name: "Clear Material Type filter" }).click();
+  await page.getByRole("dialog", { name: "Material Type filter and sort" }).getByRole("button", { name: "Close filter menu" }).click();
+  await expect(page.getByText("1 column filter active", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(page.getByText(/column filter.*active/)).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Select Copper Kush Whole Flower 3.5g" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Select Night Shift Pre-Roll 1g" })).toBeVisible();
+  await assertNoOverflow(page);
+});

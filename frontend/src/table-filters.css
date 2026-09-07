@@ -1,0 +1,38 @@
+.table-filter-th { padding: 0; }
+.table-filter-trigger { display: flex; width: 100%; min-height: 36px; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 13px; border: 0; color: #817b74; background: #121212; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-align: left; text-transform: uppercase; white-space: nowrap; }
+.table-filter-trigger:hover, .table-filter-trigger:focus-visible { color: #d7d2cb; background: #191817; outline: none; }
+.table-filter-trigger.active { color: #f0b071; background: #1b1714; box-shadow: inset 0 -2px #f49a43; }
+.table-filter-indicators { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 3px; }
+.table-filter-menu { position: fixed; z-index: 80; width: min(320px, calc(100vw - 24px)); overflow: auto; border: 1px solid #3b3631; border-radius: 12px; color: #ded9d2; background: #111; box-shadow: 0 20px 60px rgba(0,0,0,.62); text-transform: none; letter-spacing: normal; }
+.table-filter-menu-heading { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 13px; border-bottom: 1px solid #292724; background: #111; }
+.table-filter-menu-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.table-filter-close { display: grid; flex: 0 0 auto; width: 30px; height: 30px; place-items: center; padding: 0; border: 1px solid #332f2b; border-radius: 7px; color: #a9a39c; background: #171615; }
+.table-filter-section { display: grid; gap: 8px; padding: 12px 13px; border-bottom: 1px solid #292724; }
+.table-filter-section-label { color: #857f78; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.table-filter-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.table-filter-actions button, .table-filter-value-actions button, .table-filter-apply, .table-filter-footer button { min-height: 36px; border: 1px solid #38332e; border-radius: 7px; color: #d7d2cb; background: #171615; }
+.table-filter-actions button { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.table-filter-actions button:hover, .table-filter-actions button.active, .table-filter-value-actions button:hover, .table-filter-apply:hover { border-color: #76502e; color: #fff; background: #211b16; }
+.table-filter-link { width: max-content; padding: 2px 0; border: 0; color: #d99b63; background: transparent; font-size: 11px; }
+.table-filter-search, .table-filter-number-inputs input, .table-filter-section select { width: 100%; min-height: 38px; padding: 9px 10px; border: 1px solid #38332e; border-radius: 7px; outline: 0; color: #eee; background: #171717; }
+.table-filter-search:focus, .table-filter-number-inputs input:focus, .table-filter-section select:focus { border-color: #76502e; box-shadow: 0 0 0 2px rgba(244,154,67,.12); }
+.table-filter-value-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.table-filter-value-actions button { flex: 1 1 auto; padding: 7px 9px; font-size: 11px; }
+.table-filter-options { display: grid; max-height: 210px; overflow: auto; border: 1px solid #2c2926; border-radius: 8px; background: #0d0d0d; }
+.table-filter-option { display: flex; min-height: 38px; align-items: center; gap: 9px; padding: 7px 10px; border-bottom: 1px solid #211f1d; color: #c8c3bc; font-size: 12px; cursor: pointer; }
+.table-filter-option:last-child { border-bottom: 0; }
+.table-filter-option:hover { background: #171513; }
+.table-filter-option input { flex: 0 0 auto; }
+.table-filter-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-filter-empty { padding: 16px 10px; color: #857f78; font-size: 12px; text-align: center; }
+.table-filter-number-inputs { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
+.table-filter-number-inputs input:only-child { grid-column: 1 / -1; }
+.table-filter-footer { padding: 10px 13px; }
+.table-filter-footer button { width: 100%; color: #f2b078; }
+.table-filter-count { display: inline-flex; align-items: center; gap: 5px; color: #b3ada5; font-size: 11px; }
+@media (max-width: 600px) {
+  .table-filter-menu { width: calc(100vw - 24px); }
+  .table-filter-actions { grid-template-columns: 1fr; }
+  .table-filter-actions button, .table-filter-value-actions button, .table-filter-close { min-height: 40px; }
+  .table-filter-option { min-height: 42px; }
+}
