@@ -32,7 +32,30 @@ const source = {
     expiration_date: "2027-08-30",
     package_id: sourceTag,
   },
-  coa: { available: true, needs_confirmation: false, document_id: "coa-gmo", filename: "gmo.pdf", lab_name: "Test Lab", lab_license_number: "IL281234", date_tested: "2026-08-30", overall_status: "pass", total_thc: 29.4, total_cbd: 0.1, total_cannabinoids: 31.1, total_terpenes: 3.2, results: [{ analysis: "cannabinoids", key: "thca", name: "THCA", value: 29.4, value_text: "29.4", units: "%" }, { analysis: "terpenes", key: "myrcene", name: "B-Myrcene", value: 1.2, value_text: "1.2", units: "%" }] },
+  coa: {
+    available: true,
+    needs_confirmation: false,
+    document_id: "coa-gmo",
+    filename: "gmo.pdf",
+    lab_name: "Test Lab",
+    lab_license_number: "IL281234",
+    date_tested: "2026-08-30",
+    overall_status: "pass",
+    total_thc: 29.4,
+    total_cbd: 0.1,
+    total_cannabinoids: 31.1,
+    total_terpenes: 3.2,
+    // Intentionally not potency-sorted. Printed labels must select the top three
+    // terpenes by numeric value rather than trusting the source row order.
+    results: [
+      { analysis: "cannabinoids", key: "thca", name: "THCA", value: 29.4, value_text: "29.4", units: "%" },
+      { analysis: "terpenes", key: "linalool", name: "Linalool", value: 0.3, value_text: "0.30", units: "%" },
+      { analysis: "terpenes", key: "limonene", name: "Limonene", value: 1.2, value_text: "1.20", units: "%" },
+      { analysis: "terpenes", key: "alpha_humulene", name: "Alpha-Humulene", value: 0.1, value_text: "0.10", units: "%" },
+      { analysis: "terpenes", key: "beta_caryophyllene", name: "Beta-Caryophyllene", value: 0.9, value_text: "0.90", units: "%" },
+      { analysis: "terpenes", key: "beta_myrcene", name: "Beta-Myrcene", value: 0.7, value_text: "0.70", units: "%" },
+    ],
+  },
   source_summary: { facility: "Cowboy Kush Manufacturing", license_number: "MP281234", license_type: "Manufacturing", qa_source: "coa", coa_source: "coa_library", coa_verification: "matched" },
 };
 const finishedProduct = { id: "product-gmo-28", sku: "GMO-PR-28", name: "GMO 28-Count Pre-Roll Multipack", item_type: "finished_good", base_unit: "unit", active: true, brand: "Cowboy Kush", category: "Pre-Rolls", product_format: "Pre-Rolls" };
@@ -117,5 +140,20 @@ test("operator builds 24 retail labels under one finished METRC package tag", as
   await expect(page.getByAltText(`Code 128 barcode for finished METRC package ${finishedTag}`)).toBeVisible();
   await expect(page.getByRole("button", { name: "6. Finalize & print 24 labels" })).toBeVisible();
   await expect(page.locator('[data-layout="compact_single"]')).toHaveCount(24);
-  await expect(page.getByText("#1 / 24", { exact: true })).toBeVisible();
+
+  const printed = page.locator('[data-layout="compact_single"]').first();
+  await expect(printed.getByText("NET WT. .98767 OZ", { exact: true })).toBeVisible();
+  await expect(printed.getByText("28 x 1g Pre-Rolls", { exact: true })).toBeVisible();
+  await expect(printed.getByText("Expires: 08/30/2027", { exact: true })).toBeVisible();
+  await expect(printed.getByText("Limonene", { exact: true })).toBeVisible();
+  await expect(printed.getByText("1.20%", { exact: true })).toBeVisible();
+  await expect(printed.getByText("Beta-Caryophyllene", { exact: true })).toBeVisible();
+  await expect(printed.getByText("0.90%", { exact: true })).toBeVisible();
+  await expect(printed.getByText("Beta-Myrcene", { exact: true })).toBeVisible();
+  await expect(printed.getByText("0.70%", { exact: true })).toBeVisible();
+  await expect(printed.getByText("Linalool", { exact: true })).toHaveCount(0);
+  await expect(printed.getByText("Alpha-Humulene", { exact: true })).toHaveCount(0);
+  await expect(printed.getByText("Total Terpenes", { exact: true })).toBeVisible();
+  await expect(printed.getByText("3.2%", { exact: true })).toBeVisible();
+  await expect(printed.getByText("#1 / 24", { exact: true })).toBeVisible();
 });
