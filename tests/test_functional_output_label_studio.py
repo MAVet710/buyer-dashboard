@@ -237,7 +237,7 @@ def test_label_studio_real_services_produce_exact_finished_label_facts_and_trace
     assert run["snapshot"]["label"]["total_cbd"] == "0.1%"
     assert run["snapshot"]["label"]["total_cannabinoids"] == "31.1%"
     assert run["snapshot"]["label"]["total_terpenes"] == "3.2%"
-    assert run["snapshot"]["label"]["expiration_date"] == "2027-08-30"
+    assert run["snapshot"]["source"]["label"]["expiration_date"] == "2027-08-30"
     assert run["snapshot"]["source"]["package_id"] == SOURCE_TAG
     assert run["snapshot"]["source"]["coa"]["document_id"] == source["coa"]["document_id"]
     assert run["snapshot"]["print_layout"] == {
