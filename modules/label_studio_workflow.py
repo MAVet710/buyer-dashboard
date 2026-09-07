@@ -57,6 +57,7 @@ _SOURCE_INHERITED_LABEL_FIELDS = (
     "lab_license_number",
     "test_date",
     "coa_reference",
+    "expiration_date",
     "facility_name",
     "license_number",
     "batch_number",
@@ -100,8 +101,8 @@ class LabelProductionRun(TimestampMixin, Base):
 class LabelProductionSource(Base):
     __tablename__ = "label_production_sources"
     __table_args__ = (
-        UniqueConstraint("run_id", "source_lot_id", name="uq_label_production_run_source"),
-        CheckConstraint("planned_quantity >= 0", name="ck_label_production_source_nonnegative"),
+        UniqueConstraint("run_id", "source_lot_id", name="uq_label_production_run_source_lot"),
+        Index("ix_label_production_source_lot", "source_lot_id", "run_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -130,50 +131,46 @@ class LabelProductionEvent(Base):
 
 
 def _text(value: Any) -> str:
-    return "" if value is None else str(value).strip()
+    return str(value or "").strip()
 
 
-def _number_text(value: float) -> str:
-    return f"{float(value):g}"
+def _numeric(value: Any) -> Decimal:
+    try:
+        return Decimal(str(value or 0))
+    except (ValueError, TypeError):
+        return Decimal("0")
 
 
-def _format_ounces(grams: float) -> str:
-    ounces = Decimal(str(grams)) / _GRAMS_PER_OUNCE
-    text = f"{ounces.quantize(_OUNCE_QUANTUM, rounding=ROUND_DOWN):.5f}"
-    return text[1:] if text.startswith("0.") else text
+def _format_decimal(value: Decimal, places: int = 5) -> str:
+    quant = Decimal(1).scaleb(-places)
+    return format(value.quantize(quant, rounding=ROUND_DOWN).normalize(), "f")
 
 
-def _product_unit_label(profile: ProductMasterProfile | None) -> str:
-    kind = _text(profile.product_format if profile else "").casefold().replace("_", " ")
-    if "pre-roll" in kind or "pre roll" in kind or "preroll" in kind:
-        return "Pre-Rolls"
-    if "capsule" in kind:
-        return "Capsules"
-    if "gumm" in kind or "edible" in kind:
-        return "Pieces"
-    if "vape" in kind or "cartridge" in kind:
-        return "Units"
-    return "Units"
+def _net_weight_ounces(grams: Decimal) -> str:
+    ounces = (grams / _GRAMS_PER_OUNCE).quantize(_OUNCE_QUANTUM, rounding=ROUND_DOWN)
+    text = f"{ounces:.5f}"
+    if ounces < 1:
+        text = text.lstrip("0")
+    return f"NET WT. {text} OZ"
 
 
 def _package_fields(packaging: ProductPackagingProfile, profile: ProductMasterProfile | None) -> tuple[str, str, str]:
-    value = float(packaging.net_content or 0)
-    unit = _text(packaging.net_content_unit).casefold()
-    package_size = f"{_number_text(value)} {unit}".strip()
-    if unit in {"g", "gram", "grams"}:
-        net_contents = f"NET WT. {_format_ounces(value)} OZ"
-    else:
-        net_contents = package_size
-    count = float(packaging.units_per_package or 0)
+    net = _numeric(packaging.net_content)
+    units = max(1, int(_numeric(packaging.units_per_package)))
+    unit = _text(packaging.net_content_unit)
+    package_size = f"{_format_decimal(net)} {unit}".strip()
+    net_contents = _net_weight_ounces(net) if unit.casefold() in {"g", "gram", "grams"} else f"NET CONTENTS {_format_decimal(net)} {unit}".strip()
     composition = ""
-    if count > 1 and value > 0:
-        each = value / count
-        each_text = f"{_number_text(each)}{unit}" if unit else _number_text(each)
-        composition = f"{_number_text(count)} x {each_text} {_product_unit_label(profile)}"
+    if units > 1:
+        per_unit = net / Decimal(units)
+        format_name = _text(profile.product_format if profile else "") or "Units"
+        if format_name.casefold() in {"pre-roll", "pre-rolls", "preroll", "prerolls"}:
+            format_name = "Pre-Rolls"
+        composition = f"{units} x {_format_decimal(per_unit)}{unit} {format_name}".strip()
     return package_size, net_contents, composition
 
 
-def _qr_svg(value: str, pixels: int = 180) -> str:
+def _qr_svg(value: str, pixels: int = 110) -> str:
     if not value:
         return ""
     widget = QrCodeWidget(value)
@@ -518,43 +515,19 @@ class LabelProductionWorkflowService:
                     unit=_text(source.get("inventory_unit")),
                 ))
             created_details: dict[str, Any] = {
+                "source_lot_ids": [lot_id for lot_id, _source, _coa, _issues in source_records],
+                "source_package_ids": [_text(source.get("package_id")) for _lot_id, source, _coa, _issues in source_records],
+                "finished_product_id": product_id,
                 "quantity": quantity,
-                "source_lot_ids": [item[0] for item in source_records],
-                "product_id": product_id,
-                "label_layout": layout,
+                "print_layout": print_layout,
+                "sandbox_test_pass": sandbox_test_pass,
+                "bypassed_checks": bypassed_checks,
             }
-            if sandbox_test_pass:
-                created_details.update(dev_sandbox_test_pass_audit())
-                created_details["bypassed_checks"] = bypassed_checks
-            self._event(
-                session,
-                run,
-                "created",
-                actor,
-                to_status="draft",
-                details=created_details,
-            )
+            self._event(session, run, "created", actor, from_status="", to_status="draft", details=created_details)
             run.status = "validated"
             run.validated_at = now
-            validated_details: dict[str, Any] = {
-                "coa_document_ids": [_text(item[2].get("document_id")) for item in source_records],
-                "coa_test_dates": [_text(item[2].get("date_tested")) for item in source_records],
-                "source_count": source_count,
-            }
-            if sandbox_test_pass:
-                validated_details.update(dev_sandbox_test_pass_audit())
-                validated_details["bypassed_checks"] = bypassed_checks
-            self._event(
-                session,
-                run,
-                "validated",
-                actor,
-                from_status="draft",
-                to_status="validated",
-                details=validated_details,
-            )
+            self._event(session, run, "validated", actor, from_status="draft", to_status="validated", details={"guard": "passing_coa_and_product_master" if not sandbox_test_pass else "dev_sandbox_test_pass"})
             session.commit()
-            session.refresh(run)
             return self._serialize(session, run)
 
     def assign_tag(
@@ -562,104 +535,112 @@ class LabelProductionWorkflowService:
         organization_id: str,
         facility_id: str,
         run_id: str,
-        tag: str,
+        metrc_package_tag: str,
         actor: str,
         *,
-        metrc_environment: str = "",
         role: str = "",
+        metrc_environment: str = "",
     ) -> dict[str, Any]:
-        clean = _text(tag)
-        if len(clean) < 4 or len(clean) > 128 or any(ch.isspace() for ch in clean):
-            raise ValueError("Scan a package tag between 4 and 128 characters with no spaces.")
+        tag = _text(metrc_package_tag)
+        if len(tag) < 4 or len(tag) > 128:
+            raise ValueError("Enter or scan a valid finished-package METRC tag.")
         with Session(self.engine) as session:
             run = self._scoped_run(session, organization_id, facility_id, run_id)
             if run.status != "validated":
-                raise ValueError("A METRC package tag can only be assigned after the label run has validated.")
-            duplicate = session.scalar(select(LabelProductionRun.id).where(LabelProductionRun.organization_id == organization_id, LabelProductionRun.metrc_package_tag == clean, LabelProductionRun.id != run.id))
-            if duplicate:
-                raise ValueError("That METRC package tag is already assigned to another finished package in this organization.")
+                raise ValueError("The label run must be validated before assigning a METRC tag.")
+            if run.metrc_package_tag:
+                raise ValueError("This label run already has a METRC tag assigned.")
+            existing = session.scalar(select(LabelProductionRun.id).where(
+                LabelProductionRun.organization_id == organization_id,
+                LabelProductionRun.metrc_package_tag == tag,
+            ).limit(1))
+            if existing:
+                raise ValueError("That METRC package tag is already assigned to another label run in this organization.")
             sandbox_test_pass = dev_sandbox_test_pass_active(session, organization_id, facility_id, role)
-            environment = _text(metrc_environment).casefold()
-            if sandbox_test_pass and environment == "production":
-                raise ValueError("DEV Sandbox test pass refused because this sandbox is mapped to a production METRC environment.")
-            validation_mode = (
-                "dev_sandbox_test_pass"
-                if sandbox_test_pass
-                else self._validate_synced_package_tag(session, organization_id, facility_id, clean, metrc_environment)
-            )
-            before = run.status
-            run.metrc_package_tag = clean
+            metrc_validation = "dev_sandbox_test_pass" if sandbox_test_pass else self._validate_synced_package_tag(session, organization_id, facility_id, tag, metrc_environment)
+            run.metrc_package_tag = tag
             run.status = "tagged"
             run.tag_assigned_at = utc_now()
             snapshot = self._snapshot(run)
-            label = dict(snapshot.get("label") or {})
-            label["package_id"] = clean
-            snapshot["label"] = label
-            snapshot["finished_package"] = {
-                "metrc_package_tag": clean,
-                "tag_validation": validation_mode,
-                "metrc_environment": environment,
-                "sandbox_test_pass": sandbox_test_pass,
-            }
-            run.label_snapshot_json = json.dumps(snapshot, sort_keys=True)
-            tag_details: dict[str, Any] = {"metrc_package_tag": clean, "tag_validation": validation_mode}
+            snapshot.setdefault("label", {})["package_id"] = tag
             if sandbox_test_pass:
-                tag_details.update(dev_sandbox_test_pass_audit())
-                tag_details["bypassed_checks"] = ["synced_metrc_package_tag_availability"]
-            self._event(session, run, "tag_assigned", actor, from_status=before, to_status="tagged", details=tag_details)
+                snapshot.setdefault("sandbox", {}).update(dev_sandbox_test_pass_audit())
+                snapshot["sandbox"]["metrc_tag_validation"] = metrc_validation
+            run.label_snapshot_json = json.dumps(snapshot, sort_keys=True)
+            self._event(session, run, "tag_assigned", actor, from_status="validated", to_status="tagged", details={"metrc_package_tag": tag, "metrc_validation": metrc_validation})
             try:
                 session.commit()
             except IntegrityError as exc:
                 session.rollback()
-                raise ValueError("That METRC package tag is already assigned to another finished package in this organization.") from exc
-            session.refresh(run)
+                raise ValueError("That METRC package tag is already assigned to another label run in this organization.") from exc
             return self._serialize(session, run)
 
-    def record_print(self, organization_id: str, facility_id: str, run_id: str, *, actor: str, copies: int | None = None, reason: str = "") -> dict[str, Any]:
+    def record_print(
+        self,
+        organization_id: str,
+        facility_id: str,
+        run_id: str,
+        actor: str,
+        *,
+        copies: int | None = None,
+        reason: str = "",
+    ) -> dict[str, Any]:
         with Session(self.engine) as session:
             run = self._scoped_run(session, organization_id, facility_id, run_id)
+            if run.status not in {"tagged", "printed", "applied", "released", "fulfilled"}:
+                raise ValueError("Assign a validated METRC package tag before printing labels.")
             requested = int(copies or run.quantity)
-            if requested <= 0 or requested > 500:
-                raise ValueError("Print copies must be between 1 and 500.")
-            if run.status == "tagged":
+            if requested != run.quantity:
+                raise ValueError(f"Print exactly {run.quantity} labels for this run so the audit count matches the finished quantity.")
+            reprint = run.printed_at is not None
+            note = _text(reason)
+            if reprint and not note:
+                raise ValueError("A reason is required when reprinting finished labels.")
+            now = utc_now()
+            from_status = run.status
+            if not reprint:
                 run.status = "printed"
-                run.printed_at = utc_now()
+                run.printed_at = now
                 run.printed_by = actor
-                self._event(session, run, "printed", actor, from_status="tagged", to_status="printed", details={"copies": requested})
-            elif run.status in {"printed", "applied", "released", "fulfilled"}:
-                clean_reason = _text(reason)
-                if not clean_reason:
-                    raise ValueError("A reprint reason is required after the first print.")
-                self._event(session, run, "reprinted", actor, from_status=run.status, to_status=run.status, details={"copies": requested, "reason": clean_reason})
-            else:
-                raise ValueError("Assign the finished METRC package tag before printing labels.")
+            self._event(session, run, "reprinted" if reprint else "printed", actor, from_status=from_status, to_status=run.status, details={"copies": requested, **({"reason": note} if reprint else {})})
             session.commit()
-            session.refresh(run)
             return self._serialize(session, run)
 
-    def transition(self, organization_id: str, facility_id: str, run_id: str, *, status: str, actor: str, note: str = "") -> dict[str, Any]:
-        wanted = _text(status).casefold()
+    def transition(
+        self,
+        organization_id: str,
+        facility_id: str,
+        run_id: str,
+        *,
+        status: str,
+        actor: str,
+        note: str = "",
+    ) -> dict[str, Any]:
+        target = _text(status).casefold()
         with Session(self.engine) as session:
             run = self._scoped_run(session, organization_id, facility_id, run_id)
-            if wanted not in _ALLOWED_TRANSITIONS.get(run.status, set()):
-                raise ValueError(f"Label run cannot move from {run.status} to {wanted}.")
-            before = run.status
-            run.status = wanted
+            allowed = _ALLOWED_TRANSITIONS.get(run.status, set())
+            if target not in allowed:
+                raise ValueError(f"Label run cannot move from {run.status} to {target}.")
+            prior = run.status
+            run.status = target
             now = utc_now()
-            if wanted == "applied": run.applied_at = now
-            elif wanted == "released": run.released_at = now
-            elif wanted == "fulfilled": run.fulfilled_at = now
-            elif wanted == "archived": run.archived_at = now
-            self._event(session, run, wanted, actor, from_status=before, to_status=wanted, details={"note": _text(note)})
+            if target == "applied":
+                run.applied_at = now
+            elif target == "released":
+                run.released_at = now
+            elif target == "fulfilled":
+                run.fulfilled_at = now
+            elif target == "archived":
+                run.archived_at = now
+            self._event(session, run, target, actor, from_status=prior, to_status=target, details={"note": _text(note)})
             session.commit()
-            session.refresh(run)
             return self._serialize(session, run)
 
-    def get_run(self, organization_id: str, facility_id: str, run_id: str) -> dict[str, Any]:
+    def list_runs(self, organization_id: str, facility_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
         with Session(self.engine) as session:
-            return self._serialize(session, self._scoped_run(session, organization_id, facility_id, run_id))
-
-    def list_runs(self, organization_id: str, facility_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
-        with Session(self.engine) as session:
-            rows = session.scalars(select(LabelProductionRun).where(LabelProductionRun.organization_id == organization_id, LabelProductionRun.facility_id == facility_id).order_by(LabelProductionRun.created_at.desc()).limit(limit)).all()
+            rows = session.scalars(select(LabelProductionRun).where(
+                LabelProductionRun.organization_id == organization_id,
+                LabelProductionRun.facility_id == facility_id,
+            ).order_by(LabelProductionRun.created_at.desc()).limit(max(1, min(limit, 250)))).all()
             return [self._serialize(session, row) for row in rows]
