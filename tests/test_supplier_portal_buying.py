@@ -38,6 +38,7 @@ def _setup():
         base_unit="lb",
         unit_cost=0,
         retail_price=0,
+        actor="buyer-1",
     )
     vendor = CommercialRepository(engine).create_trade_partner(
         organization.id,
