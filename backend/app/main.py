@@ -82,6 +82,7 @@ from .routers.executive_reports import router as executive_reports_router
 from .routers.coman_parity import router as coman_parity_router
 from .routers.analytics import router as analytics_router
 from .routers.control_tower import router as control_tower_router, public_router as commerce_portal_router
+from .routers.supplier_portal import router as supplier_portal_router, public_router as supplier_commerce_portal_router
 from .routers.storefronts import router as storefront_router, public_router as public_storefront_router
 from .routers.storefront_units import router as storefront_units_router
 from .routers.external_api import router as external_api_router
@@ -297,6 +298,8 @@ app.include_router(legal_router, prefix=settings.api_prefix)
 app.include_router(legacy_webhooks_router, prefix=settings.api_prefix)
 app.include_router(control_tower_router, prefix=settings.api_prefix)
 app.include_router(commerce_portal_router, prefix=settings.api_prefix)
+app.include_router(supplier_portal_router, prefix=settings.api_prefix)
+app.include_router(supplier_commerce_portal_router, prefix=settings.api_prefix)
 app.include_router(storefront_router, prefix=settings.api_prefix)
 app.include_router(storefront_units_router, prefix=settings.api_prefix)
 app.include_router(public_storefront_router, prefix=settings.api_prefix)
