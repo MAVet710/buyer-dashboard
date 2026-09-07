@@ -1,0 +1,204 @@
+name: MA Metrc Sandbox Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Bounded evaluation operation. Default is the read-only Facilities authentication check."
+        required: true
+        default: facilities
+        type: string
+      payload_json:
+        description: "Optional non-secret JSON payload for the selected bounded operation. Never paste API keys here."
+        required: false
+        default: "{}"
+        type: string
+      confirm_sandbox_write:
+        description: "For mutation-family operations only, enter I_APPROVE_MA_SANDBOX_WRITE exactly."
+        required: false
+        default: ""
+        type: string
+      upload_full_evidence:
+        description: "Upload detailed provider evidence as a short-lived artifact. May contain facility/package identifiers."
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ma-metrc-sandbox-validation-${{ github.actor }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate MA Metrc sandbox
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      METRC_INTEGRATOR_API_KEY: ${{ secrets.METRC_INTEGRATOR_API_KEY }}
+      METRC_MA_SANDBOX_USER_API_KEY: ${{ secrets.METRC_MA_SANDBOX_USER_API_KEY }}
+      METRC_MA_SANDBOX_LICENSE_NUMBER: ${{ secrets.METRC_MA_SANDBOX_LICENSE_NUMBER }}
+      # The bounded evaluation runner uses generic names; keep a single sandbox secret source.
+      METRC_USER_API_KEY: ${{ secrets.METRC_MA_SANDBOX_USER_API_KEY }}
+      METRC_LICENSE_NUMBER: ${{ secrets.METRC_MA_SANDBOX_LICENSE_NUMBER }}
+
+    steps:
+      - name: Check out exact requested ref
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install application dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r backend/requirements.txt
+
+      - name: Authorize bounded operation before any network request
+        env:
+          SELECTED_OPERATION: ${{ inputs.operation }}
+          WRITE_CONFIRMATION: ${{ inputs.confirm_sandbox_write }}
+        run: |
+          set -euo pipefail
+          python scripts/metrc_workflow_policy.py \
+            --operation "$SELECTED_OPERATION" \
+            --github-ref "$GITHUB_REF" \
+            --confirmation "$WRITE_CONFIRMATION" \
+            --github-env "$GITHUB_ENV"
+
+      - name: Verify required sandbox secrets are configured
+        if: ${{ inputs.operation != 'workbook_plan' }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          required = (
+              "METRC_INTEGRATOR_API_KEY",
+              "METRC_MA_SANDBOX_USER_API_KEY",
+              "METRC_MA_SANDBOX_LICENSE_NUMBER",
+          )
+          missing = [name for name in required if not str(os.environ.get(name) or "").strip()]
+          if missing:
+              raise SystemExit("Missing required GitHub Actions secrets: " + ", ".join(missing))
+          print("Required MA Metrc sandbox secrets are configured; secret values were not printed.")
+          PY
+
+      - name: Perform authenticated read-only Facilities gate
+        if: ${{ inputs.operation != 'workbook_plan' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/metrc-evaluation
+          python scripts/validate_ma_metrc_sandbox.py --live-read \
+            > artifacts/metrc-evaluation/authenticated-facilities-read.json
+
+      - name: Prepare bounded evaluation payload
+        if: ${{ inputs.operation != 'facilities' && inputs.operation != 'workbook_plan' }}
+        env:
+          PAYLOAD_JSON: ${{ inputs.payload_json }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          raw = json.loads(os.environ.get("PAYLOAD_JSON") or "{}")
+          if not isinstance(raw, dict):
+              raise SystemExit("payload_json must be one JSON object.")
+          target = Path(os.environ["RUNNER_TEMP"]) / "metrc-evaluation-payload.json"
+          target.write_text(json.dumps(raw), encoding="utf-8")
+          print("Evaluation payload validated and staged without printing its contents.")
+          PY
+
+      - name: Execute bounded workbook operation
+        if: ${{ inputs.operation != 'facilities' }}
+        env:
+          SELECTED_OPERATION: ${{ inputs.operation }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/metrc-evaluation
+          if [ "$SELECTED_OPERATION" = "workbook_plan" ]; then
+            python scripts/run_ma_metrc_evaluation.py \
+              --operation workbook_plan \
+              --output artifacts/metrc-evaluation/workbook_plan.json
+          else
+            python scripts/run_ma_metrc_evaluation.py \
+              --operation "$SELECTED_OPERATION" \
+              --payload-file "$RUNNER_TEMP/metrc-evaluation-payload.json" \
+              --output "artifacts/metrc-evaluation/${SELECTED_OPERATION}.json"
+          fi
+
+      - name: Build redacted evidence summary
+        if: ${{ always() }}
+        env:
+          SELECTED_OPERATION: ${{ inputs.operation }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/metrc-evaluation-safe
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          source = Path("artifacts/metrc-evaluation")
+          safe_dir = Path("artifacts/metrc-evaluation-safe")
+          safe_dir.mkdir(parents=True, exist_ok=True)
+          allowed = {
+              "passed", "ready", "status", "stage", "operation_type", "state",
+              "jurisdiction_code", "environment", "http_status", "facility_count",
+              "network_request_sent", "write_performed", "message", "next_gate",
+              "sheet_count", "applicable_task_count",
+          }
+          summaries = []
+          for path in sorted(source.glob("*.json")) if source.exists() else []:
+              try:
+                  payload = json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  continue
+              if not isinstance(payload, dict):
+                  continue
+              item = {key: payload[key] for key in allowed if key in payload}
+              request = payload.get("request")
+              if isinstance(request, dict):
+                  item["request"] = {
+                      key: request[key]
+                      for key in ("method", "path")
+                      if key in request
+                  }
+              item["evidence_file"] = path.name
+              summaries.append(item)
+          summary = {
+              "operation": os.environ.get("SELECTED_OPERATION", ""),
+              "classification": os.environ.get("METRC_OPERATION_CLASSIFICATION", "unknown"),
+              "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+              "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+              "commit_sha": os.environ.get("GITHUB_SHA", ""),
+              "evidence": summaries,
+              "secrets_included": False,
+          }
+          target = safe_dir / "summary.json"
+          target.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+          print(f"Redacted evidence summary written with {len(summaries)} evidence record(s).")
+          PY
+
+      - name: Upload redacted sandbox evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ma-metrc-sandbox-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/metrc-evaluation-safe/summary.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload full sandbox evidence when explicitly requested
+        if: ${{ always() && inputs.upload_full_evidence }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ma-metrc-sandbox-full-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/metrc-evaluation/*.json
+          if-no-files-found: warn
+          retention-days: 7
