@@ -91,12 +91,12 @@ class Customer(TimestampMixin, Base):
 
 
 class Product(TimestampMixin, Base):
-    """Organization product master for cannabis, packaging, WIP, and finished goods."""
+    """Organization product master for cannabis, ingredients, packaging, WIP, and finished goods."""
 
     __tablename__ = "coman_products"
     __table_args__ = (
         UniqueConstraint("organization_id", "sku", name="uq_coman_product_org_sku"),
-        CheckConstraint("item_type in ('cannabis', 'packaging', 'wip', 'finished_good')", name="ck_coman_product_type"),
+        CheckConstraint("item_type in ('cannabis', 'ingredient', 'packaging', 'wip', 'finished_good')", name="ck_coman_product_type"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -500,7 +500,6 @@ class FacilityMachine(TimestampMixin, Base):
         UniqueConstraint("facility_id", "asset_code", name="uq_coman_facility_machine_asset"),
         CheckConstraint("effective_rate >= 0", name="ck_coman_facility_machine_rate_nonnegative"),
     )
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True
