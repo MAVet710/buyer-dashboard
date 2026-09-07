@@ -14,6 +14,21 @@ logger = logging.getLogger("buyer_dash.api")
 SLOW_REQUEST_MS = 1_000.0
 
 
+def _serializable_validation_errors(exc: RequestValidationError) -> list[dict]:
+    """Preserve validation detail without leaking non-JSON Python exception objects."""
+    rows: list[dict] = []
+    for error in exc.errors():
+        safe = dict(error)
+        context = safe.get("ctx")
+        if isinstance(context, dict):
+            safe["ctx"] = {
+                key: value if value is None or isinstance(value, (str, int, float, bool)) else str(value)
+                for key, value in context.items()
+            }
+        rows.append(safe)
+    return rows
+
+
 def install_observability(app: FastAPI) -> None:
     # Most operator workspaces are JSON-heavy. Compress responses large enough
     # to benefit while leaving small health and mutation payloads untouched.
@@ -60,4 +75,4 @@ def install_observability(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
         request_id = getattr(request.state, "request_id", str(uuid4()))
-        return JSONResponse(status_code=422, content={"detail": exc.errors(), "error": {"code": "validation_error", "message": "One or more request fields are invalid.", "request_id": request_id}})
+        return JSONResponse(status_code=422, content={"detail": _serializable_validation_errors(exc), "error": {"code": "validation_error", "message": "One or more request fields are invalid.", "request_id": request_id}})
