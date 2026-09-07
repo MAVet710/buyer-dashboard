@@ -15,7 +15,7 @@ from ..database import get_engine
 
 router = APIRouter(prefix="/product-master", tags=["product-master"])
 WRITE_ROLES = {"dev", "admin", "supervisor", "operator"}
-ITEM_TYPES = {"cannabis", "packaging", "wip", "finished_good"}
+ITEM_TYPES = {"cannabis", "ingredient", "packaging", "wip", "finished_good"}
 
 
 class ProductCreate(BaseModel):
