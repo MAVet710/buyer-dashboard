@@ -34,7 +34,7 @@ def _setup():
         organization.id,
         sku="GMO-BULK",
         name="GMO Bulk Flower",
-        item_type="raw_material",
+        item_type="cannabis",
         base_unit="lb",
         unit_cost=0,
         retail_price=0,
