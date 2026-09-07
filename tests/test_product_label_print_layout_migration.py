@@ -7,8 +7,14 @@ from sqlalchemy import create_engine, inspect
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LATEST_REVISION = "0074_supplier_portal_offers"
+LATEST_REVISION = "0075_product_ingredients"
 SUPPLIER_TABLES = {"supplier_portal_grants", "supplier_offers", "supplier_offer_lines"}
+
+
+def _product_type_check(engine) -> str:
+    constraints = inspect(engine).get_check_constraints("coman_products")
+    row = next(item for item in constraints if item.get("name") == "ck_coman_product_type")
+    return str(row.get("sqltext") or "")
 
 
 def test_product_label_print_layout_migration_round_trip(tmp_path, monkeypatch):
@@ -22,6 +28,7 @@ def test_product_label_print_layout_migration_round_trip(tmp_path, monkeypatch):
         assert MigrationContext.configure(connection).get_current_revision() == LATEST_REVISION
     columns = {column["name"] for column in inspect(engine).get_columns("product_packaging_profiles")}
     assert {"label_layout", "label_width_in", "label_height_in", "label_source_count"} <= columns
+    assert "ingredient" in _product_type_check(engine)
     tables = set(inspect(engine).get_table_names())
     assert "alpha_operating_modes" in tables
     assert "integration_provider_snapshots" in tables
@@ -34,6 +41,7 @@ def test_product_label_print_layout_migration_round_trip(tmp_path, monkeypatch):
     columns = {column["name"] for column in inspect(engine).get_columns("product_packaging_profiles")}
     assert "label_layout" not in columns
     assert "label_source_count" not in columns
+    assert "ingredient" not in _product_type_check(engine)
     tables = set(inspect(engine).get_table_names())
     assert "alpha_operating_modes" not in tables
     assert "integration_provider_snapshots" not in tables
@@ -43,6 +51,7 @@ def test_product_label_print_layout_migration_round_trip(tmp_path, monkeypatch):
     command.upgrade(config, "head")
     with engine.connect() as connection:
         assert MigrationContext.configure(connection).get_current_revision() == LATEST_REVISION
+    assert "ingredient" in _product_type_check(engine)
     tables = set(inspect(engine).get_table_names())
     assert "integration_provider_snapshots" in tables
     assert "integration_hydration_page_checkpoints" in tables
