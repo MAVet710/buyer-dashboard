@@ -7,6 +7,7 @@ inventory, receiving, purchase-order, or traceability mutation services.
 from __future__ import annotations
 
 from datetime import date
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -14,6 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine
 
 from modules.inventory_quality.coa import MAX_COA_BYTES
+from modules.supplier_portal.buying import SupplierBuyingService
 from modules.supplier_portal.coa import SupplierCoaService
 from modules.supplier_portal.service import DEFAULT_SUPPLIER_PERMISSIONS, SupplierPortalService
 
@@ -82,6 +84,18 @@ class SupplierReviewPayload(BaseModel):
     status: str = Field(pattern="^(under_review|accepted|rejected)$")
 
 
+class SupplierLineSelection(BaseModel):
+    line_id: str = Field(min_length=1, max_length=36)
+    quantity: float = Field(gt=0)
+
+
+class SupplierPurchaseOrderProposal(BaseModel):
+    selections: list[SupplierLineSelection] = Field(min_length=1, max_length=500)
+    due_date: date | None = None
+    order_number: str = Field(default="", max_length=80)
+    stale_after_days: int = Field(default=14, ge=1, le=90)
+
+
 def _line_payload(row: Any) -> dict[str, Any]:
     return {
         field: getattr(row, field)
@@ -139,6 +153,24 @@ def _offer_payload(service: SupplierPortalService, row: Any) -> dict[str, Any]:
     }
     payload["lines"] = [_line_payload(line) for line in service.list_offer_lines(row.organization_id, row.id)]
     return payload
+
+
+def _proposal_payload(row: Any) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "action_type": row.action_type,
+        "title": row.title,
+        "rationale": row.rationale,
+        "financial_impact_usd": row.financial_impact_usd,
+        "risk_level": row.risk_level,
+        "status": row.status,
+        "source_type": row.source_type,
+        "source_id": row.source_id,
+        "created_by": row.created_by,
+        "created_at": row.created_at,
+        "payload": json.loads(row.payload_json or "{}"),
+        "preview": json.loads(row.preview_json or "{}"),
+    }
 
 
 def _supplier_access(service: SupplierPortalService, token: str, permission: str):
@@ -228,6 +260,51 @@ def review_supplier_offer(
             actor=context.user_id,
         )
         return _offer_payload(service, row)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/offers/{offer_id}/comparison")
+def compare_supplier_offer(
+    offer_id: str,
+    lookback_days: int = Query(default=60, ge=14, le=120),
+    stale_after_days: int = Query(default=14, ge=1, le=90),
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_buyer(context)
+    try:
+        return SupplierBuyingService(engine).compare_offer(
+            context.organization_id,
+            context.facility_id,
+            offer_id,
+            lookback_days=lookback_days,
+            stale_after_days=stale_after_days,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/offers/{offer_id}/purchase-order-proposal", status_code=201)
+def create_supplier_purchase_order_proposal(
+    offer_id: str,
+    payload: SupplierPurchaseOrderProposal,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_buyer(context)
+    try:
+        proposal = SupplierBuyingService(engine).propose_purchase_order(
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            offer_id=offer_id,
+            selections=[row.model_dump() for row in payload.selections],
+            actor=context.user_id,
+            due_date=payload.due_date,
+            order_number=payload.order_number,
+            stale_after_days=payload.stale_after_days,
+        )
+        return _proposal_payload(proposal)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
