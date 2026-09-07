@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from modules.coman.audit import record_audit_event
 from modules.coman.models import InventoryLot, Product
 from modules.commercial.repository import CommercialRepository
+from modules.hardware_capture_provenance import IdentifierCaptureProvenance
 from modules.inventory_availability.service import InventoryAvailabilityService
 from ..auth import RequestContext, get_commercial_context, get_request_context
 from ..database import get_engine
@@ -23,6 +26,10 @@ class PickAction(BaseModel):
     scan_code: str = Field(min_length=1, max_length=512)
     action: str = "reserve"
     reference: str = ""
+    capture_source: str = "manual"
+    capture_device_id: str = Field(default="", max_length=255)
+    capture_symbology: str = Field(default="", max_length=64)
+    capture_at: str = Field(default="", max_length=80)
 
 
 def _sortable_time(value: datetime | None) -> datetime:
@@ -96,6 +103,16 @@ def pick_action(payload: PickAction, context: RequestContext = Depends(get_reque
     action = payload.action.strip().casefold()
     if action not in {"reserve", "ship"}:
         raise HTTPException(422, "Warehouse action must be reserve or ship.")
+    try:
+        capture = IdentifierCaptureProvenance.build(
+            source=payload.capture_source,
+            device_id=payload.capture_device_id,
+            symbology=payload.capture_symbology,
+            captured_at=payload.capture_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, f"{exc} Nothing was posted.") from exc
+
     repo = CommercialRepository(engine)
     order_line = next((row for row in repo.list_order_lines(context.organization_id) if row.id == payload.order_line_id), None)
     if not order_line:
@@ -103,6 +120,8 @@ def pick_action(payload: PickAction, context: RequestContext = Depends(get_reque
     order = next((row for row in repo.list_orders(context.organization_id, context.facility_id) if row.id == order_line.commercial_order_id), None)
     if not order or order.order_type != "sales":
         raise HTTPException(404, "Sales order was not found in the active facility.")
+
+    matched_identifier_type = ""
     with Session(engine) as session:
         lot = session.get(InventoryLot, payload.lot_id)
         if not lot or lot.organization_id != context.organization_id or lot.facility_id != context.facility_id:
@@ -110,9 +129,50 @@ def pick_action(payload: PickAction, context: RequestContext = Depends(get_reque
         if lot.product_id != order_line.product_id:
             raise HTTPException(422, "Scanned lot does not match the order-line product.")
         normalized = payload.scan_code.strip().casefold()
-        valid_codes = {str(value or "").strip().casefold() for value in (lot.id, lot.lot_code, lot.compliance_package_id, lot.barcode_value) if str(value or "").strip()}
-        if normalized not in valid_codes:
+        valid_codes = (
+            ("internal_lot_id", lot.id),
+            ("lot_code", lot.lot_code),
+            ("compliance_package_id", lot.compliance_package_id),
+            ("barcode", lot.barcode_value),
+        )
+        matched_identifier_type = next(
+            (
+                kind
+                for kind, value in valid_codes
+                if str(value or "").strip() and str(value).strip().casefold() == normalized
+            ),
+            "",
+        )
+        if not matched_identifier_type:
             raise HTTPException(422, "Scanned code does not match the selected lot. Nothing was posted.")
+
+    correlation_id = f"warehouse_pick:{uuid4()}"
+    device = capture.device_metadata()
+    with Session(engine) as session:
+        record_audit_event(
+            session,
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            entity_type="inventory_lot",
+            entity_id=payload.lot_id,
+            action="warehouse_capture_verified",
+            actor=context.user_id,
+            changes={
+                "order_id": order.id,
+                "order_line_id": order_line.id,
+                "intended_action": action,
+                "quantity": float(payload.quantity),
+                "matched_identifier_type": matched_identifier_type,
+            },
+            source=capture.audit_source,
+            reason="Captured identifier matched the selected facility lot before warehouse mutation.",
+            correlation_id=correlation_id,
+            after={"identity_verified": True},
+            device=device,
+            metadata={"capture_is_authorization": False},
+        )
+        session.commit()
+
     try:
         if action == "reserve":
             row = repo.allocate_lot(
@@ -123,16 +183,54 @@ def pick_action(payload: PickAction, context: RequestContext = Depends(get_reque
                 quantity=payload.quantity,
                 actor=context.user_id,
             )
-            return {"action": "reserved", "allocation_id": row.id, "status": row.status, "quantity": row.quantity}
-        row = repo.post_fulfillment(
-            organization_id=context.organization_id,
-            facility_id=context.facility_id,
-            order_line_id=payload.order_line_id,
-            lot_id=payload.lot_id,
-            quantity=payload.quantity,
-            reference=payload.reference or order.order_number,
-            actor=context.user_id,
-        )
-        return {"action": "shipped", "transaction_id": row.id, "quantity_delta": row.quantity_delta, "unit": row.unit, "occurred_at": row.occurred_at}
+            result_id = row.id
+            result_action = "warehouse_lot_reserved"
+            response = {"action": "reserved", "allocation_id": row.id, "status": row.status, "quantity": row.quantity}
+            result_metadata = {"allocation_id": row.id, "capture_source": capture.source}
+            result_after = {"allocation_status": row.status, "quantity": float(row.quantity)}
+        else:
+            row = repo.post_fulfillment(
+                organization_id=context.organization_id,
+                facility_id=context.facility_id,
+                order_line_id=payload.order_line_id,
+                lot_id=payload.lot_id,
+                quantity=payload.quantity,
+                reference=payload.reference or order.order_number,
+                actor=context.user_id,
+            )
+            result_id = row.id
+            result_action = "warehouse_shipment_posted"
+            response = {"action": "shipped", "transaction_id": row.id, "quantity_delta": row.quantity_delta, "unit": row.unit, "occurred_at": row.occurred_at}
+            result_metadata = {"inventory_transaction_id": row.id, "capture_source": capture.source}
+            result_after = {"quantity_delta": float(row.quantity_delta), "unit": row.unit}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+    with Session(engine) as session:
+        record_audit_event(
+            session,
+            organization_id=context.organization_id,
+            facility_id=context.facility_id,
+            entity_type="sales_order",
+            entity_id=order.id,
+            action=result_action,
+            actor=context.user_id,
+            changes={
+                "order_line_id": order_line.id,
+                "lot_id": payload.lot_id,
+                "quantity": float(payload.quantity),
+                "result_id": result_id,
+            },
+            source="user",
+            reason="Warehouse mutation completed through the existing deterministic commercial service after identity verification.",
+            correlation_id=correlation_id,
+            after=result_after,
+            device=device,
+            metadata={
+                **result_metadata,
+                "capture_evidence_source": capture.audit_source,
+                "matched_identifier_type": matched_identifier_type,
+            },
+        )
+        session.commit()
+    return response
