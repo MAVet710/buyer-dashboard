@@ -1,0 +1,93 @@
+name: P0-P2 Admin Refetch Guard
+
+on:
+  push:
+    branches: [hardening/p0-p2-production-readiness]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p0-p2-admin-refetch-guard
+  cancel-in-progress: false
+
+jobs:
+  apply-and-prove:
+    if: ${{ !contains(github.event.head_commit.message, '[admin-refetch-guard]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/p0-p2-production-readiness
+
+      - name: Preserve unsaved admin edits across background refetches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("frontend/src/pages/AdminToolsPage.tsx")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  '  const [form,setForm]=useState<FacilityForm|null>(null);\n  useEffect(()=>{\n    if(!selected)return;\n    if(!selectedId)setSelectedId(selected.id);\n    setForm(facilityForm(selected));\n  },[selected,selectedId]);',
+                  '  const [form,setForm]=useState<FacilityForm|null>(null);\n  const [formSourceId,setFormSourceId]=useState("");\n  useEffect(()=>{\n    if(!selected)return;\n    if(!selectedId)setSelectedId(selected.id);\n    if(formSourceId===selected.id)return;\n    setForm(facilityForm(selected));\n    setFormSourceId(selected.id);\n  },[selected,selectedId,formSourceId]);',
+              ),
+              (
+                  '  const [organizationId,setOrganizationId]=useState("");\n  const [facilityId,setFacilityId]=useState("");\n  const [clearCatalog,setClearCatalog]=useState(false);\n  useEffect(()=>{\n    if(!selected)return;\n    if(!selectedId)setSelectedId(selected.id);\n    setOrganizationId(selected.organization_id);\n    setFacilityId(selected.facility_id);\n    setClearCatalog(false);\n  },[selected,selectedId]);',
+                  '  const [organizationId,setOrganizationId]=useState("");\n  const [facilityId,setFacilityId]=useState("");\n  const [clearCatalog,setClearCatalog]=useState(false);\n  const [selectionSourceId,setSelectionSourceId]=useState("");\n  useEffect(()=>{\n    if(!selected)return;\n    if(!selectedId)setSelectedId(selected.id);\n    if(selectionSourceId===selected.id)return;\n    setOrganizationId(selected.organization_id);\n    setFacilityId(selected.facility_id);\n    setClearCatalog(false);\n    setSelectionSourceId(selected.id);\n  },[selected,selectedId,selectionSourceId]);',
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one reviewed source block; found {count}")
+              text = text.replace(old, new)
+
+          path.write_text(text, encoding="utf-8")
+          print("Admin edit forms now ignore same-record object identity churn while still synchronizing real selection changes.")
+          PY
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Require zero-warning lint
+        working-directory: frontend
+        run: pnpm exec eslint . --max-warnings=0
+
+      - name: Run frontend unit tests
+        working-directory: frontend
+        run: pnpm test
+
+      - name: Build production frontend
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Reject whitespace errors
+        run: git diff --check
+
+      - name: Commit reviewed refetch guard and remove this one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "DoobieLogic CI"
+          git config user.email "actions@users.noreply.github.com"
+          git rm .github/workflows/p0-p2-admin-refetch-guard.yml
+          git add frontend/src/pages/AdminToolsPage.tsx
+          git commit -m "[admin-refetch-guard] Preserve unsaved admin edits across refetches"
+          git push origin HEAD:hardening/p0-p2-production-readiness
