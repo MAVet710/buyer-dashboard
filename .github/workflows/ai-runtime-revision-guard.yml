@@ -6,57 +6,72 @@ on:
     types: [completed]
   workflow_dispatch:
 
-concurrency:
-  group: doobielogic-production
-  cancel-in-progress: false
+permissions:
+  contents: read
 
-env:
-  API_SERVICE: buyer-dash-api
-  REGION: us-east1
+concurrency:
+  group: doobielogic-ai-runtime-audit
+  cancel-in-progress: true
 
 jobs:
   audit-local-ai:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
     steps:
-      - uses: google-github-actions/auth@v2
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          python-version: "3.12"
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - name: Enforce zero-cost hosting contract
+        run: python scripts/verify_zero_cost_deployment.py
 
-      - name: Verify active revision matches declared Local AI state
+      - name: Verify hosted API cannot use paid cloud AI fallback
+        shell: bash
         run: |
           set -euo pipefail
-          state="${{ vars.LOCAL_AI_RUNTIME_STATE }}"
-          case "$state" in enabled|disabled) ;; *) echo "Local AI state is missing or invalid: $state"; exit 1 ;; esac
+          python - <<'PY'
+          from pathlib import Path
 
-          PROJECT="${{ secrets.GCP_PROJECT_ID }}"
-          SERVICE_JSON="$(gcloud run services describe "$API_SERVICE" --project "$PROJECT" --region "$REGION" --format=json)"
-          ACTIVE_REVISION="$(printf '%s' "$SERVICE_JSON" | jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName][0] // ""')"
-          test -n "$ACTIVE_REVISION"
-          gcloud run revisions describe "$ACTIVE_REVISION" --project "$PROJECT" --region "$REGION" --format=json > /tmp/active-ai-revision.json
+          source = Path("render.yaml").read_text(encoding="utf-8")
+          required = (
+              "- key: AI_PROVIDER_MODE\n        value: disabled",
+              "- key: AI_PROVIDER_ORDER\n        value: none",
+              "- key: AI_ALLOW_CLOUD_FALLBACK\n        value: \"false\"",
+          )
+          missing = [value for value in required if value not in source]
+          if missing:
+              raise SystemExit("Hosted Render API AI policy is incomplete or no longer fail-closed.")
+          forbidden = ("GEMINI_API_KEY", "OPENAI_API_KEY")
+          leaked = [name for name in forbidden if name in source]
+          if leaked:
+              raise SystemExit("Hosted free configuration unexpectedly declares cloud AI credentials: " + ", ".join(leaked))
+          print("Hosted API AI policy verified: disabled by default, no paid cloud fallback or cloud API credential wiring.")
+          PY
 
-          actual_mode="$(jq -r '[.spec.containers[0].env[]? | select(.name == "AI_PROVIDER_MODE") | .value][0] // ""' /tmp/active-ai-revision.json)"
-          if [ "$state" = "disabled" ]; then
-            [ "$actual_mode" = "disabled" ] || { echo "Local AI is intentionally disabled, but the active revision is not declared disabled."; exit 1; }
-            echo "Local AI is intentionally disabled and production matches that state."
-            exit 0
-          fi
-
-          expected_base="${{ vars.LOCAL_LLM_BASE_URL }}"
-          expected_model="${{ vars.LOCAL_LLM_MODEL }}"
-          [ -n "$expected_base" ] && [ -n "$expected_model" ] || { echo "Enabled Local AI declaration is incomplete."; exit 1; }
-          actual_base="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_BASE_URL") | .value][0] // ""' /tmp/active-ai-revision.json)"
-          actual_model="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_MODEL") | .value][0] // ""' /tmp/active-ai-revision.json)"
-          auth_refs="$(jq -r '[.spec.containers[0].env[]? | select(.name == "LOCAL_LLM_ACCESS_CLIENT_ID" or .name == "LOCAL_LLM_ACCESS_CLIENT_SECRET") | select(.valueFrom.secretKeyRef.name != null)] | length' /tmp/active-ai-revision.json)"
-
-          [ "$actual_mode" = "local_only" ] || { echo "Local AI is enabled but active mode is invalid or missing."; exit 1; }
-          [ "$actual_base" = "$expected_base" ] || { echo "Active Local AI URL differs from the durable declaration."; exit 1; }
-          [ "$actual_model" = "$expected_model" ] || { echo "Active Local AI model differs from the durable declaration."; exit 1; }
-          [ "$auth_refs" = "2" ] || { echo "Active Local AI Access credentials are not backed by the expected Secret Manager refs."; exit 1; }
-          echo "Active production revision $ACTIVE_REVISION matches the durable Local AI declaration."
+      - name: Report optional workstation Local AI declaration
+        shell: bash
+        env:
+          LOCAL_AI_RUNTIME_STATE: ${{ vars.LOCAL_AI_RUNTIME_STATE }}
+          LOCAL_LLM_BASE_URL: ${{ vars.LOCAL_LLM_BASE_URL }}
+          LOCAL_LLM_MODEL: ${{ vars.LOCAL_LLM_MODEL }}
+        run: |
+          set -euo pipefail
+          state="${LOCAL_AI_RUNTIME_STATE:-disabled}"
+          case "$state" in
+            disabled|"")
+              echo "Workstation Local AI is not declared active. Hosted API remains AI-disabled."
+              ;;
+            enabled)
+              test -n "${LOCAL_LLM_BASE_URL:-}" || { echo "LOCAL_AI_RUNTIME_STATE=enabled but LOCAL_LLM_BASE_URL is empty."; exit 1; }
+              test -n "${LOCAL_LLM_MODEL:-}" || { echo "LOCAL_AI_RUNTIME_STATE=enabled but LOCAL_LLM_MODEL is empty."; exit 1; }
+              case "$LOCAL_LLM_BASE_URL" in https://*) ;; *) echo "LOCAL_LLM_BASE_URL must use HTTPS."; exit 1 ;; esac
+              echo "Workstation Local AI declaration is structurally valid; hosted Render API remains decoupled and cannot fall back to paid cloud AI."
+              ;;
+            *)
+              echo "LOCAL_AI_RUNTIME_STATE must be enabled or disabled; got '$state'."
+              exit 1
+              ;;
+          esac
