@@ -92,15 +92,13 @@ export function PasswordGate({ children }: PropsWithChildren) {
     if (password.length < 12) return setMessage("Your new password must contain at least 12 characters.");
     if (password !== confirm) return setMessage("The passwords do not match.");
     setSaving(true);
-    const result = await supabase!.auth.updateUser({ password });
-    if (result.error) { setSaving(false); return setMessage(result.error.message); }
     try {
-      await apiPost("/api/v1/account/password-changed", {});
+      await apiPost("/api/v1/account/password", { password });
       await client.invalidateQueries();
       await context.refetch();
       setPassword(""); setConfirm("");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Password changed, but DoobieLogic could not finish the account update.");
+      setMessage(error instanceof Error ? error.message : "DoobieLogic could not finish the password change.");
     } finally { setSaving(false); }
   }}>
     <div className="brand"><span>DL</span><strong>DoobieLogic</strong></div>
