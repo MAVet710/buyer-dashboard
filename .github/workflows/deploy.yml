@@ -12,10 +12,13 @@ concurrency:
   group: doobielogic-production-release-gate
   cancel-in-progress: false
 
+env:
+  RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
 jobs:
-  zero-cost-release-gate:
+  parity-release-gate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -28,6 +31,13 @@ jobs:
 
       - name: Block incomplete Streamlit parity from release
         run: python scripts/verify_streamlit_parity.py --mode release
+
+  zero-cost-release-gate:
+    needs: parity-release-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Build API release image locally
         run: docker build -f Dockerfile.api -t doobielogic-api-release-check .
@@ -60,15 +70,26 @@ jobs:
             -e AI_ALLOW_CLOUD_FALLBACK=false \
             doobielogic-api-release-check python -c "import backend.app.main; assert backend.app.main.app"
 
+      - name: Verify Render handoff is exact-source and check-gated
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'autoDeployTrigger: checksPass' render.yaml
+          grep -q 'RENDER_GIT_COMMIT' render.yaml
+          grep -q 'release.json' render.yaml
+          echo "Release identity: $RELEASE_ID"
+
       - name: Record zero-cost release handoff
         shell: bash
         run: |
           {
             echo '## DoobieLogic zero-cost release gate'
             echo
+            echo "- Release identity: \`$RELEASE_ID\`"
             echo '- Frontend host: Render Static Site / CDN'
             echo '- API host: Render Free web service'
-            echo '- Database/auth: existing Supabase configuration'
+            echo '- Database/auth: existing Supabase Free project'
+            echo '- Render deployment handoff: checksPass only'
             echo '- Paid Google deployment path: disabled'
             echo '- Cloud AI fallback: disabled'
             echo
