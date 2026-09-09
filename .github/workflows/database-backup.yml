@@ -39,7 +39,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.DATABASE_BACKUP_ENCRYPTION_PASSPHRASE }}
-      BACKUP_DB_HOST: aws-0-us-east-2.pooler.supabase.com
+      BACKUP_DB_HOST: aws-1-us-east-2.pooler.supabase.com
       BACKUP_DB_PORT: "5432"
       BACKUP_DB_NAME: postgres
       BACKUP_DB_USER: doobielogic_backup_runtime.fovxtygwcxubjzjgovva
