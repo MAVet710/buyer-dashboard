@@ -1,38 +1,41 @@
 name: Release Candidate Preview
 
 on:
-  push:
-    branches: [fix/exact-streamlit-parity-v2]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: doobielogic-rc-preview-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  REGISTRY: us-east1-docker.pkg.dev
-  REGION: us-east1
-  API_SERVICE: buyer-dash-api-rc
-  WEB_SERVICE: buyer-dash-web-rc
   RC_ORGANIZATION_ID: rc-preview-org
   RC_FACILITY_ID: rc-preview-facility
 
-concurrency:
-  group: doobielogic-rc-preview
-  cancel-in-progress: true
-
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
+  local-release-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Enforce zero-cost deployment contract
+        run: python scripts/verify_zero_cost_deployment.py
+
       - name: Verify strict Streamlit parity contract
         run: python scripts/verify_streamlit_parity.py --mode contract
+
       - name: Build API release-candidate image locally
         run: docker build -f Dockerfile.api -t buyer-dash-api:rc .
+
       - name: Verify production API startup
         run: |
           docker run --rm \
@@ -43,153 +46,121 @@ jobs:
             -e SUPABASE_SERVICE_ROLE_KEY=test \
             -e INTEGRATION_ENCRYPTION_KEY=test \
             -e CORS_ORIGINS=https://preview.invalid \
-            -e ALLOWED_HOSTS=*.run.app \
-            buyer-dash-api:rc python -c "import backend.app.main"
-      - name: Verify synthetic RC seed startup
+            -e ALLOWED_HOSTS=preview.invalid \
+            -e AI_PROVIDER_MODE=disabled \
+            -e AI_PROVIDER_ORDER=none \
+            -e AI_ALLOW_CLOUD_FALLBACK=false \
+            buyer-dash-api:rc python -c "import backend.app.main; assert backend.app.main.app"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend release candidate
+        working-directory: frontend
+        env:
+          VITE_API_URL: http://127.0.0.1:18080
+          VITE_SUPABASE_URL: ""
+          VITE_SUPABASE_PUBLISHABLE_KEY: ""
+          VITE_ORGANIZATION_ID: ${{ env.RC_ORGANIZATION_ID }}
+          VITE_FACILITY_ID: ${{ env.RC_FACILITY_ID }}
+        run: pnpm build
+
+      - name: Smoke test local synthetic API and static frontend pair
+        shell: bash
         run: |
-          docker run --rm \
+          set -euo pipefail
+          cleanup() {
+            docker rm -f doobielogic-rc-api >/dev/null 2>&1 || true
+            if [ -n "${WEB_PID:-}" ]; then kill "$WEB_PID" >/dev/null 2>&1 || true; fi
+          }
+          trap cleanup EXIT
+
+          docker run --name doobielogic-rc-api --rm -d \
+            -p 18080:8080 \
             -e APP_ENV=development \
             -e RC_PREVIEW=1 \
             -e DATABASE_URL=sqlite+pysqlite:////tmp/doobielogic-rc.db \
-            -e CORS_ORIGINS='*' \
-            -e ALLOWED_HOSTS=localhost,testserver,*.run.app \
-            buyer-dash-api:rc python -c "import backend.app.rc_preview; assert backend.app.rc_preview.app"
+            -e CORS_ORIGINS=http://127.0.0.1:14173 \
+            -e ALLOWED_HOSTS=127.0.0.1,localhost \
+            buyer-dash-api:rc
 
-  deploy:
-    needs: verify
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@v2
-      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
-
-      - name: Build and push isolated API preview
-        run: |
-          set -euo pipefail
-          IMAGE="${REGISTRY}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${API_SERVICE}:${GITHUB_SHA}"
-          docker build -f Dockerfile.api -t "$IMAGE" .
-          docker push "$IMAGE"
-          echo "API_IMAGE=$IMAGE" >> "$GITHUB_ENV"
-
-      - name: Deploy isolated synthetic API preview
-        run: |
-          set -euo pipefail
-          gcloud run deploy "$API_SERVICE" \
-            --project "${{ secrets.GCP_PROJECT_ID }}" \
-            --image "$API_IMAGE" \
-            --region "$REGION" \
-            --platform managed \
-            --service-account "buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
-            --allow-unauthenticated \
-            --port 8080 \
-            --min-instances 1 \
-            --max-instances 1 \
-            --concurrency 20 \
-            --cpu 1 \
-            --memory 1Gi \
-            --set-env-vars "APP_ENV=development,RC_PREVIEW=1,DATABASE_URL=sqlite+pysqlite:////tmp/doobielogic-rc.db,CORS_ORIGINS=*,ALLOWED_HOSTS=*.run.app" \
-            --quiet
-          API_URL="$(gcloud run services describe "$API_SERVICE" --project "${{ secrets.GCP_PROJECT_ID }}" --region "$REGION" --format='value(status.url)')"
-          test -n "$API_URL"
-          echo "API_URL=$API_URL" >> "$GITHUB_ENV"
-
-      - name: Verify synthetic API preview
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 20); do
-            health_code=$(curl -sS -o /tmp/rc-health.json -w '%{http_code}' "$API_URL/health" || true)
-            context_code=$(curl -sS -o /tmp/rc-context.json -w '%{http_code}' \
-              -H "X-Organization-Id: $RC_ORGANIZATION_ID" \
-              -H "X-Facility-Id: $RC_FACILITY_ID" \
-              -H "X-User-Id: web-local-developer" \
-              -H "X-User-Role: admin" \
-              "$API_URL/api/v1/account/context" || true)
-            if [ "$health_code" = "200" ] && [ "$context_code" = "200" ]; then
-              cat /tmp/rc-health.json
-              cat /tmp/rc-context.json
-              exit 0
-            fi
-            sleep 3
-          done
-          cat /tmp/rc-health.json || true
-          cat /tmp/rc-context.json || true
-          exit 1
-
-      - name: Build and push isolated web preview
-        run: |
-          set -euo pipefail
-          IMAGE="${REGISTRY}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/${WEB_SERVICE}:${GITHUB_SHA}"
-          docker build -f frontend/Dockerfile \
-            --build-arg VITE_API_URL="$API_URL" \
-            --build-arg VITE_SUPABASE_URL="" \
-            --build-arg VITE_SUPABASE_PUBLISHABLE_KEY="" \
-            --build-arg VITE_ORGANIZATION_ID="$RC_ORGANIZATION_ID" \
-            --build-arg VITE_FACILITY_ID="$RC_FACILITY_ID" \
-            -t "$IMAGE" frontend
-          docker push "$IMAGE"
-          echo "WEB_IMAGE=$IMAGE" >> "$GITHUB_ENV"
-
-      - name: Deploy isolated web preview
-        run: |
-          set -euo pipefail
-          gcloud run deploy "$WEB_SERVICE" \
-            --project "${{ secrets.GCP_PROJECT_ID }}" \
-            --image "$WEB_IMAGE" \
-            --region "$REGION" \
-            --platform managed \
-            --service-account="${{ secrets.GCP_SERVICE_ACCOUNT }}" \
-            --allow-unauthenticated \
-            --port 8080 \
-            --min-instances 1 \
-            --max-instances 1 \
-            --quiet
-          WEB_URL="$(gcloud run services describe "$WEB_SERVICE" --project "${{ secrets.GCP_PROJECT_ID }}" --region "$REGION" --format='value(status.url)')"
-          test -n "$WEB_URL"
-          echo "WEB_URL=$WEB_URL" >> "$GITHUB_ENV"
-
-      - name: Smoke test release-candidate pair
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 20); do
-            web_code=$(curl -sS -o /tmp/rc-web.html -w '%{http_code}' "$WEB_URL" || true)
-            health_code=$(curl -sS -o /tmp/rc-health-final.json -w '%{http_code}' "$API_URL/health" || true)
-            inventory_code=$(curl -sS -o /tmp/rc-inventory.json -w '%{http_code}' \
-              -H "X-Organization-Id: $RC_ORGANIZATION_ID" \
-              -H "X-Facility-Id: $RC_FACILITY_ID" \
-              -H "X-User-Id: web-local-developer" \
-              -H "X-User-Role: admin" \
-              "$API_URL/api/v1/inventory/retail/packages" || true)
-            if [ "$web_code" = "200" ] && [ "$health_code" = "200" ] && [ "$inventory_code" = "200" ]; then
+          api_ready=0
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:18080/health >/tmp/rc-health.json; then
+              api_ready=1
               break
             fi
-            sleep 3
+            sleep 1
           done
-          test "$web_code" = "200"
-          test "$health_code" = "200"
+          test "$api_ready" = "1"
+
+          corepack enable
+          cd frontend
+          pnpm exec vite preview --host 127.0.0.1 --port 14173 > /tmp/rc-vite.log 2>&1 &
+          WEB_PID=$!
+          cd ..
+
+          web_ready=0
+          for attempt in $(seq 1 20); do
+            if curl --silent --fail http://127.0.0.1:14173/ >/tmp/rc-web.html; then
+              web_ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$web_ready" = "1"
+
+          context_code="$(curl --silent --output /tmp/rc-context.json --write-out '%{http_code}' \
+            -H "X-Organization-Id: $RC_ORGANIZATION_ID" \
+            -H "X-Facility-Id: $RC_FACILITY_ID" \
+            -H "X-User-Id: web-local-developer" \
+            -H "X-User-Role: admin" \
+            http://127.0.0.1:18080/api/v1/account/context)"
+          inventory_code="$(curl --silent --output /tmp/rc-inventory.json --write-out '%{http_code}' \
+            -H "X-Organization-Id: $RC_ORGANIZATION_ID" \
+            -H "X-Facility-Id: $RC_FACILITY_ID" \
+            -H "X-User-Id: web-local-developer" \
+            -H "X-User-Role: admin" \
+            http://127.0.0.1:18080/api/v1/inventory/retail/packages)"
+
+          test "$context_code" = "200"
           test "$inventory_code" = "200"
           grep -qi '<div id="root"' /tmp/rc-web.html
           grep -q 'RC-LOT-001' /tmp/rc-inventory.json
-          printf 'WEB_URL=%s\nAPI_URL=%s\nCOMMIT=%s\nMODE=synthetic-development-rc\n' "$WEB_URL" "$API_URL" "$GITHUB_SHA" | tee rc-preview-urls.txt
+
           {
-            echo '## DoobieLogic release-candidate preview'
+            echo "COMMIT=$GITHUB_SHA"
+            echo "MODE=local-synthetic-rc"
+            echo "API_HEALTH=pass"
+            echo "WEB_STATIC=pass"
+            echo "ACCOUNT_CONTEXT=pass"
+            echo "INVENTORY_SEED=pass"
+            echo "BILLABLE_CLOUD_RESOURCES=none"
+          } | tee rc-local-evidence.txt
+
+          {
+            echo '## DoobieLogic local release candidate'
             echo
-            echo "- Web: $WEB_URL"
-            echo "- API: $API_URL"
-            echo "- Commit: $GITHUB_SHA"
-            echo '- Mode: synthetic development RC; no production secrets/data'
-            echo '- Production traffic/DNS: unchanged'
+            echo '- API container: passed'
+            echo '- Static frontend: passed'
+            echo '- Account context: passed'
+            echo '- Seeded inventory: passed'
+            echo '- External cloud preview resources: none'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: rc-preview-urls
-          path: rc-preview-urls.txt
+          name: rc-local-evidence
+          path: rc-local-evidence.txt
           retention-days: 7
