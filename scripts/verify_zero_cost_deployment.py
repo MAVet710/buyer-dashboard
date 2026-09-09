@@ -52,6 +52,8 @@ def _verify_render() -> None:
     _require("RENDER_GIT_COMMIT" in static and "release.json" in static, "Render static frontend must publish exact commit identity.")
     _require("path: /release.json" in static and "no-store, no-cache, must-revalidate" in static, "Static release identity must never be served from cache.")
     _require("AI_ALLOW_CLOUD_FALLBACK" in source and 'value: "false"' in source, "Cloud AI fallback must stay disabled.")
+    _require("RESEND_API_KEY" in api, "Render API must use HTTPS transactional mail instead of blocked SMTP egress.")
+    _require("SPACEMAIL_SMTP_PASSWORD" not in api, "Render Free API must not depend on SMTP credentials.")
 
     for key in (
         "DATABASE_URL",
@@ -60,6 +62,7 @@ def _verify_render() -> None:
         "SUPABASE_JWKS_URL",
         "SUPABASE_PUBLISHABLE_KEY",
         "INTEGRATION_ENCRYPTION_KEY",
+        "RESEND_API_KEY",
         "VITE_SUPABASE_URL",
         "VITE_SUPABASE_PUBLISHABLE_KEY",
     ):
@@ -135,7 +138,7 @@ def main() -> None:
     _verify_storefront_alias_workflow_is_validation_only()
     print(
         "Zero-cost deployment contract verified: Render static frontend + Render free API + Supabase; "
-        "sealed database credentials, no web-runtime DDL, no Google control-plane/registry wiring, and explicitly gated data mutations."
+        "sealed database credentials, HTTPS transactional email, no web-runtime DDL, no Google control-plane/registry wiring, and explicitly gated data mutations."
     )
 
 
