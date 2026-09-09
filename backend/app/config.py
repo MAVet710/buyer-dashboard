@@ -12,8 +12,6 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     cors_origins: str = "http://localhost:5173"
     database_url: str = Field(default="", validation_alias=AliasChoices("COMAN_DATABASE_URL", "DATABASE_URL"))
-    sealed_database_url_path: str = ""
-    database_seal_private_key: str = ""
     supabase_jwt_secret: str = ""
     supabase_jwks_url: str = ""
     supabase_jwt_audience: str = "authenticated"
@@ -127,20 +125,13 @@ class Settings(BaseSettings):
 
     @property
     def database_is_configured(self) -> bool:
-        """Accept either a direct URL or the Render sealed-secret handoff."""
-        return bool(
-            self.database_url.strip()
-            or (
-                self.sealed_database_url_path.strip()
-                and self.database_seal_private_key.strip()
-            )
-        )
+        return bool(self.database_url.strip())
 
     def validate_production(self) -> None:
         if self.is_development:
             return
         missing = []
-        if not self.database_is_configured: missing.append("DATABASE_URL or sealed database credential")
+        if not self.database_is_configured: missing.append("DATABASE_URL")
         if not (self.supabase_jwt_secret or self.supabase_jwks_url): missing.append("SUPABASE_JWKS_URL or SUPABASE_JWT_SECRET")
         if not self.supabase_url: missing.append("SUPABASE_URL")
         if not self.supabase_auth_api_key: missing.append("SUPABASE_PUBLISHABLE_KEY or SUPABASE_SERVICE_ROLE_KEY")
