@@ -51,7 +51,7 @@ jobs:
             -e DATABASE_URL=sqlite+pysqlite:///:memory: \
             -e SUPABASE_URL=https://example.supabase.co \
             -e SUPABASE_JWKS_URL=https://example.supabase.co/auth/v1/.well-known/jwks.json \
-            -e SUPABASE_SERVICE_ROLE_KEY=test \
+            -e SUPABASE_PUBLISHABLE_KEY=test-publishable \
             -e INTEGRATION_ENCRYPTION_KEY=test \
             -e CORS_ORIGINS=https://doobielogic.io,https://ops.doobielogic.io \
             -e ALLOWED_HOSTS=api.doobielogic.io,doobielogic-api.onrender.com \
@@ -66,11 +66,11 @@ jobs:
           {
             echo '## DoobieLogic zero-cost release gate'
             echo
-            echo '- Frontend host: Netlify Free (Git-based deploy; hard usage limit)'
-            echo '- API host: Render Free (Git-based deploy; free compute instance)'
+            echo '- Frontend host: Render Static Site / CDN'
+            echo '- API host: Render Free web service'
             echo '- Database/auth: existing Supabase configuration'
             echo '- Paid Google deployment path: disabled'
             echo '- Cloud AI fallback: disabled'
             echo
-            echo 'After this gate and the repository checks are green, the connected Netlify and Render Git integrations own deployment from main.'
+            echo 'After this gate and repository checks are green, the Render services defined in render.yaml are the canonical production deployment targets.'
           } >> "$GITHUB_STEP_SUMMARY"
