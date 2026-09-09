@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
@@ -71,7 +71,17 @@ def _decode_token(token: str, settings: Settings) -> dict:
     raise HTTPException(status_code=503, detail="API authentication is not configured.")
 
 
+def _password_change_path_allowed(path: str, settings: Settings) -> bool:
+    """Keep first-login sessions restricted to the minimum password setup surface."""
+    normalized_prefix = settings.api_prefix.rstrip("/")
+    return path in {
+        f"{normalized_prefix}/account/context",
+        f"{normalized_prefix}/account/password",
+    }
+
+
 def get_request_context(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     settings: Settings = Depends(get_settings),
     organization_id: str = Header(default="", alias="X-Organization-Id"),
@@ -83,8 +93,6 @@ def get_request_context(
     engine: Engine | None = Depends(get_authorization_engine),
 ) -> RequestContext:
     normalized_data_mode = "Dutchie Live" if "dutchie" in str(data_mode or "").casefold() else "Uploads"
-    # Streamlit supported a 24-hour trial key. The web stack preserves that
-    # experience with a signed, non-persistent token restricted to DEV Sandbox.
     if trial_token and not credentials:
         signing_secret = settings.integration_encryption_key or ("buyer-dash-development-trial" if settings.is_development else "")
         payload = verify_trial_token(trial_token, secret=signing_secret) if signing_secret else None
@@ -119,10 +127,7 @@ def get_request_context(
     organization_id = organization_id or str(app_metadata.get("organization_id") or "")
     facility_id = facility_id or str(app_metadata.get("facility_id") or "")
     if not organization_id or not facility_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Organization and facility context are required.",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Organization and facility context are required.")
     if credentials:
         email = str(claims.get("email") or "").strip().casefold()
         app_user_id = str(app_metadata.get("app_user_id") or user_id)
@@ -141,36 +146,20 @@ def get_request_context(
                 if user.role == "admin":
                     role = "admin"
                 else:
-                    assignment = session.scalar(
-                        select(AppUserFacilityRole).where(
-                            AppUserFacilityRole.user_id == user.id,
-                            AppUserFacilityRole.organization_id == organization_id,
-                            AppUserFacilityRole.facility_id == facility_id,
-                        )
-                    )
+                    assignment = session.scalar(select(AppUserFacilityRole).where(AppUserFacilityRole.user_id == user.id, AppUserFacilityRole.organization_id == organization_id, AppUserFacilityRole.facility_id == facility_id))
                     if not assignment:
                         raise HTTPException(status_code=403, detail="This account is not assigned to the selected facility.")
                     role = assignment.role
+            if user.must_change_password and not _password_change_path_allowed(request.url.path, settings):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Password change required before using the operations API.")
             user_id = user.id
     return RequestContext(user_id, organization_id, facility_id, role, normalized_data_mode)
 
 
-_CAPABILITY_FIELDS = {
-    "retail": "retail_enabled",
-    "production": "production_enabled",
-    "cultivation": "cultivation_enabled",
-    "commercial": "commercial_enabled",
-}
+_CAPABILITY_FIELDS = {"retail": "retail_enabled", "production": "production_enabled", "cultivation": "cultivation_enabled", "commercial": "commercial_enabled"}
 
 
 def require_any_facility_capability(context: RequestContext, engine: Engine, capabilities: tuple[str, ...]) -> None:
-    """Require at least one legal operating capability for the active facility.
-
-    Shared Production Ops inventory is intentionally available to either a
-    manufacturing/production license or a cultivation license. Manufacturing-
-    specific endpoints continue to call ``require_facility_capability(...,
-    "production")`` directly and therefore remain manufacturing-only.
-    """
     if not capabilities:
         raise RuntimeError("At least one facility capability is required.")
     unknown = [capability for capability in capabilities if capability not in _CAPABILITY_FIELDS]
@@ -178,11 +167,7 @@ def require_any_facility_capability(context: RequestContext, engine: Engine, cap
         raise RuntimeError(f"Unknown facility capability: {unknown[0]}")
     with Session(engine) as session:
         facility = session.get(Facility, context.facility_id)
-        enabled = bool(
-            facility
-            and facility.organization_id == context.organization_id
-            and any(bool(getattr(facility, _CAPABILITY_FIELDS[capability])) for capability in capabilities)
-        )
+        enabled = bool(facility and facility.organization_id == context.organization_id and any(bool(getattr(facility, _CAPABILITY_FIELDS[capability])) for capability in capabilities))
     if not enabled:
         readable = " or ".join(capabilities)
         raise HTTPException(status_code=403, detail=f"The selected facility does not enable {readable} operations.")
@@ -193,7 +178,6 @@ def require_facility_capability(context: RequestContext, engine: Engine, capabil
 
 
 def require_inventory_operation_capability(context: RequestContext, engine: Engine, operation: str) -> None:
-    """Authorize shared retail vs production/cultivation inventory surfaces."""
     normalized = str(operation or "").strip().casefold()
     if normalized == "retail":
         require_facility_capability(context, engine, "retail")
@@ -210,8 +194,6 @@ def get_retail_context(context: RequestContext = Depends(get_request_context), e
 
 
 def get_production_context(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_database_engine)) -> RequestContext:
-    # Deliberately manufacturing-only. Extraction/Co-Man production should not
-    # become available merely because a facility holds a cultivation license.
     require_facility_capability(context, engine, "production")
     return context
 
