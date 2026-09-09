@@ -60,6 +60,11 @@ class FakeIMAP:
         return "BYE", [b"logout"]
 
 
+class FakeResponse:
+    def __init__(self, status_code=200):
+        self.status_code = status_code
+
+
 def _settings(**overrides):
     values = {
         "spacemail_smtp_password": "server-only-mailbox-password",
@@ -108,6 +113,65 @@ def test_welcome_email_authenticates_primary_mailbox_sends_alias_and_archives_se
     assert imap.append_args[1] == r"(\Seen)"
     assert b"Welcome to DoobieLogic" in imap.append_args[3]
     assert imap.logged_out is True
+
+
+def test_render_compatible_resend_https_transport_does_not_require_smtp(monkeypatch):
+    calls = []
+
+    def fake_post(url, *, headers, json, timeout):
+        calls.append((url, headers, json, timeout))
+        return FakeResponse(200)
+
+    monkeypatch.setattr(spacemail.requests, "post", fake_post)
+    settings = _settings(
+        resend_api_key="server-only-resend-key",
+        spacemail_smtp_password="",
+    )
+
+    delivery = spacemail.send_welcome_email(
+        settings,
+        recipient="new.user@example.com",
+        display_name="New User",
+        username="new.user",
+        temporary_password="Temporary!234",
+    )
+
+    assert delivery.sent is True
+    assert delivery.sent_copy_saved is False
+    assert delivery.recipient == "new.user@example.com"
+    assert len(calls) == 1
+    url, headers, payload, timeout = calls[0]
+    assert url == "https://api.resend.com/emails"
+    assert headers["Authorization"] == "Bearer server-only-resend-key"
+    assert payload["from"] == "DoobieLogic Support <support@doobielogic.io>"
+    assert payload["to"] == ["new.user@example.com"]
+    assert payload["reply_to"] == ["support@doobielogic.io"]
+    assert "Welcome to DoobieLogic" in payload["subject"]
+    assert "Temporary!234" in payload["text"]
+    assert "Temporary!234" in payload["html"]
+    assert timeout == 12.0
+
+
+def test_resend_provider_failure_is_generic_and_does_not_echo_provider_body(monkeypatch):
+    def fake_post(*args, **kwargs):
+        return FakeResponse(403)
+
+    monkeypatch.setattr(spacemail.requests, "post", fake_post)
+    settings = _settings(resend_api_key="server-only-resend-key", spacemail_smtp_password="")
+
+    try:
+        spacemail.send_welcome_email(
+            settings,
+            recipient="new.user@example.com",
+            display_name="New User",
+            username="new.user",
+            temporary_password="Temporary!234",
+        )
+    except spacemail.SpacemailError as exc:
+        assert str(exc) == "Transactional email provider rejected the message."
+        assert "server-only-resend-key" not in str(exc)
+    else:
+        raise AssertionError("provider rejection must fail closed")
 
 
 def test_welcome_email_delivery_survives_sent_copy_archive_failure(monkeypatch):
@@ -166,8 +230,8 @@ def test_welcome_email_escapes_html_credentials_and_names():
     assert "Temp&lt;Pass&gt;&amp;123" in html
 
 
-def test_welcome_email_fails_closed_without_server_password():
-    settings = _settings(spacemail_smtp_password="")
+def test_welcome_email_fails_closed_without_any_server_transport():
+    settings = _settings(spacemail_smtp_password="", resend_api_key="")
     try:
         spacemail.send_welcome_email(
             settings,
@@ -179,4 +243,4 @@ def test_welcome_email_fails_closed_without_server_password():
     except spacemail.SpacemailError as exc:
         assert "not configured" in str(exc)
     else:
-        raise AssertionError("welcome email must fail closed when SMTP is not configured")
+        raise AssertionError("welcome email must fail closed when no server mail transport is configured")
