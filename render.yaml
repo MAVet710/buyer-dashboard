@@ -22,7 +22,7 @@ services:
       - key: APP_ENV
         value: production
       - key: CORS_ORIGINS
-        value: https://doobielogic.io,https://ops.doobielogic.io
+        value: https://doobielogic.io,https://ops.doobielogic.io,https://cowboykush.doobielogic.io
       - key: DATABASE_POOL_SIZE
         value: "1"
       - key: DATABASE_MAX_OVERFLOW
@@ -63,6 +63,7 @@ services:
     domains:
       - doobielogic.io
       - ops.doobielogic.io
+      - cowboykush.doobielogic.io
     routes:
       - type: rewrite
         source: /*
