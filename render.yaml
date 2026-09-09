@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: doobielogic-api
+    runtime: docker
+    plan: free
+    branch: main
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./Dockerfile.api
+    dockerContext: .
+    dockerCommand: >-
+      sh -c 'alembic upgrade head &&
+      export RELEASE_SHA="${RENDER_GIT_COMMIT:-render}" &&
+      exec uvicorn backend.app.main:app --host 0.0.0.0 --port "${PORT:-10000}" --proxy-headers --forwarded-allow-ips="*"'
+    healthCheckPath: /health/ready
+    domains:
+      - api.doobielogic.io
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: CORS_ORIGINS
+        value: https://doobielogic.io,https://ops.doobielogic.io
+      - key: ALLOWED_HOSTS
+        value: api.doobielogic.io,doobielogic-api.onrender.com
+      - key: DATABASE_POOL_SIZE
+        value: "1"
+      - key: DATABASE_MAX_OVERFLOW
+        value: "0"
+      - key: DATABASE_POOL_TIMEOUT
+        value: "30"
+      - key: AI_PROVIDER_MODE
+        value: disabled
+      - key: AI_PROVIDER_ORDER
+        value: none
+      - key: AI_ALLOW_CLOUD_FALLBACK
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_JWKS_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: INTEGRATION_ENCRYPTION_KEY
+        sync: false
