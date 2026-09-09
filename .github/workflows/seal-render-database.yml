@@ -17,6 +17,7 @@ jobs:
   seal:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    environment: production-demo-data
     env:
       DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}
       RENDER_DB_SEAL_PUBLIC_KEY: XWdyCnLSxHjUb4BWIQ-3SyCYrpoArafInFfTSxn9iRA=
@@ -37,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${DL_PROD_DB_URL:-}" || {
-            echo "DL_PROD_DB_URL is not configured."
+            echo "DL_PROD_DB_URL is not configured in the production-demo-data environment."
             exit 1
           }
           python - <<'PY'
@@ -117,7 +118,7 @@ jobs:
           {
             echo '## Render database sealed-secret handoff'
             echo
-            echo '- Source credential: existing GitHub DL_PROD_DB_URL secret'
+            echo '- Source credential: existing production-demo-data / DL_PROD_DB_URL secret'
             echo '- Plaintext database URL printed: no'
             echo '- Repository material: ciphertext only'
             echo '- Decryption key stored in repository: no'
