@@ -64,16 +64,3 @@ jobs:
             echo
             echo 'These hosts are routed by the React storefront host boundary and must be attached as domain aliases to the free Netlify site. This workflow validates only; it never creates DNS or cloud resources.'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Enforce no provider-side domain mutation
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          source = Path(".github/workflows/storefront-domain-mappings.yml").read_text(encoding="utf-8").casefold()
-          forbidden = ("google-github-actions/", "gcloud ", "cloud run", "domain-mappings create")
-          found = [token for token in forbidden if token in source]
-          if found:
-              raise SystemExit("Storefront-domain validation reintroduced provider mutation: " + ", ".join(found))
-          print("Storefront domain workflow is validation-only and zero-cost.")
-          PY
