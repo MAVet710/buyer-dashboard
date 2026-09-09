@@ -35,6 +35,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_BACKUP_URL: ${{ secrets.DATABASE_BACKUP_URL }}
+      DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}
       DATABASE_BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.DATABASE_BACKUP_ENCRYPTION_PASSPHRASE }}
       RESTORE_DATABASE_URL: postgresql://postgres:restore-test-only@127.0.0.1:5432/buyer_dash_restore
     steps:
@@ -42,8 +43,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$DATABASE_BACKUP_URL" || -z "$DATABASE_BACKUP_ENCRYPTION_PASSPHRASE" ]]; then
-            echo "DATABASE_BACKUP_URL and DATABASE_BACKUP_ENCRYPTION_PASSPHRASE must be configured as repository secrets."
+          if [[ -z "$DATABASE_BACKUP_URL" && -z "$DL_PROD_DB_URL" ]]; then
+            echo "At least one of DATABASE_BACKUP_URL or DL_PROD_DB_URL must be configured as a repository secret."
+            exit 1
+          fi
+          if [[ -z "$DATABASE_BACKUP_ENCRYPTION_PASSPHRASE" ]]; then
+            echo "DATABASE_BACKUP_ENCRYPTION_PASSPHRASE must be configured as a repository secret."
             exit 1
           fi
           if [[ ${#DATABASE_BACKUP_ENCRYPTION_PASSPHRASE} -lt 32 ]]; then
@@ -54,34 +59,58 @@ jobs:
           import os
           from urllib.parse import urlparse
 
-          raw = os.environ.get("DATABASE_BACKUP_URL", "").strip()
-          parsed = urlparse(raw)
-          if parsed.scheme not in {"postgres", "postgresql"}:
-              raise SystemExit("DATABASE_BACKUP_URL must use a PostgreSQL URI.")
-          if not parsed.hostname or not parsed.username or not parsed.path.strip("/"):
-              raise SystemExit("DATABASE_BACKUP_URL is missing host, user, or database name.")
-          if parsed.password is None:
-              raise SystemExit("DATABASE_BACKUP_URL does not contain database authentication material.")
-          print("Backup database URI structure validated without exposing credentials.")
+          candidates = {
+              "DATABASE_BACKUP_URL": os.environ.get("DATABASE_BACKUP_URL", "").strip(),
+              "DL_PROD_DB_URL": os.environ.get("DL_PROD_DB_URL", "").strip(),
+          }
+          for name, raw in candidates.items():
+              if not raw:
+                  continue
+              normalized = raw.replace("postgresql+psycopg://", "postgresql://", 1)
+              parsed = urlparse(normalized)
+              if parsed.scheme not in {"postgres", "postgresql"}:
+                  raise SystemExit(f"{name} must use a PostgreSQL URI.")
+              if not parsed.hostname or not parsed.username or not parsed.path.strip("/"):
+                  raise SystemExit(f"{name} is missing host, user, or database name.")
+              if parsed.password is None:
+                  raise SystemExit(f"{name} does not contain database authentication material.")
+          print("Backup database URI candidates validated without exposing credentials.")
           PY
 
       - name: Prove production backup credentials before dumping
         shell: bash
         run: |
           set -euo pipefail
-          if ! docker run --rm \
-            --env PGCONNECT_TIMEOUT=15 \
-            postgres:17 \
-            psql "$DATABASE_BACKUP_URL" \
-            --no-psqlrc \
-            --set=ON_ERROR_STOP=1 \
-            --tuples-only \
-            --no-align \
-            --command 'select 1' >/dev/null 2>&1; then
-            echo "::error::Production backup credentials were rejected or the database was unreachable. Rotate DATABASE_BACKUP_URL to the same current PostgreSQL/Supabase connection used by production before retrying. No backup artifact was created."
+          probe() {
+            local candidate="$1"
+            [[ -n "$candidate" ]] || return 1
+            docker run --rm \
+              --env PGCONNECT_TIMEOUT=15 \
+              postgres:17 \
+              psql "$candidate" \
+              --no-psqlrc \
+              --set=ON_ERROR_STOP=1 \
+              --tuples-only \
+              --no-align \
+              --command 'select 1' >/dev/null 2>&1
+          }
+
+          chosen=""
+          source_name=""
+          if probe "$DATABASE_BACKUP_URL"; then
+            chosen="$DATABASE_BACKUP_URL"
+            source_name="DATABASE_BACKUP_URL"
+          elif probe "$DL_PROD_DB_URL"; then
+            chosen="$DL_PROD_DB_URL"
+            source_name="DL_PROD_DB_URL"
+          else
+            echo "::error::Neither configured production database credential authenticated successfully. No backup artifact was created."
             exit 1
           fi
-          echo "Production backup database authentication succeeded."
+
+          echo "::add-mask::$chosen"
+          printf 'DATABASE_BACKUP_URL=%s\n' "$chosen" >> "$GITHUB_ENV"
+          echo "Production backup database authentication succeeded using $source_name."
 
       - name: Install encryption client
         shell: bash
