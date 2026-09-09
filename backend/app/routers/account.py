@@ -20,6 +20,10 @@ class UsernameLogin(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
+class PasswordChangePayload(BaseModel):
+    password: str = Field(min_length=12, max_length=1024)
+
+
 def _invalid_credentials() -> HTTPException:
     # Keep the response intentionally generic so an unauthenticated caller cannot
     # distinguish a missing username from a bad password or disabled account.
@@ -61,6 +65,42 @@ def _supabase_password_session(settings: Settings, email: str, password: str) ->
         "refresh_token": refresh_token,
         "auth_user_id": auth_user_id,
     }
+
+
+def _supabase_set_password(settings: Settings, user_id: str, password: str) -> None:
+    """Change only the authenticated DoobieLogic user's Supabase password.
+
+    The durable first-login flag is cleared only after Supabase confirms this
+    server-side update. This prevents clients from clearing the gate by calling a
+    bookkeeping endpoint without actually replacing the temporary credential.
+    """
+    url = settings.supabase_url.strip()
+    key = settings.supabase_service_role_key.strip()
+    if not url or not key:
+        raise HTTPException(status_code=503, detail="Authentication service is unavailable.")
+
+    request = UrlRequest(
+        f"{url.rstrip('/')}/auth/v1/admin/users/{user_id}",
+        data=json.dumps({"password": password}).encode("utf-8"),
+        headers={
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+        },
+        method="PUT",
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            if int(getattr(response, "status", 200)) >= 300:
+                raise HTTPException(status_code=502, detail="Authentication service rejected the password change.")
+    except HTTPError as exc:
+        if exc.code == 429:
+            raise HTTPException(status_code=429, detail="Too many password-change attempts. Try again shortly.") from exc
+        if 400 <= exc.code < 500:
+            raise HTTPException(status_code=422, detail="The new password does not meet authentication requirements.") from exc
+        raise HTTPException(status_code=502, detail="Authentication service rejected the password change.") from exc
+    except (URLError, TimeoutError) as exc:
+        raise HTTPException(status_code=502, detail="Authentication service is unavailable.") from exc
 
 
 def _facility_payload(row: Facility) -> dict:
@@ -196,26 +236,44 @@ def access_options(context: RequestContext = Depends(get_request_context), engin
         return {"organizations": payload, "organization_id": context.organization_id, "facility_id": context.facility_id}
 
 
-@router.post("/password-changed")
-def password_changed(context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
-    """Clear the durable first-login password-change requirement after Supabase succeeds."""
+@router.post("/password")
+def change_password(
+    payload: PasswordChangePayload,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+    settings: Settings = Depends(get_settings),
+):
+    """Replace a temporary Supabase password, then clear the durable first-login gate."""
     if context.role == "trial":
-        return {"ok": True}
+        raise HTTPException(status_code=403, detail="Trial sessions do not have a durable password.")
+
+    with Session(engine) as session:
+        user = session.get(AppUser, context.user_id)
+        if not user or not user.active:
+            raise HTTPException(status_code=403, detail="This account is not active in Buyer Dash.")
+        must_change = bool(user.must_change_password)
+
+    if not must_change:
+        raise HTTPException(status_code=409, detail="This account does not require a first-login password change.")
+
+    _supabase_set_password(settings, context.user_id, payload.password)
+
     with Session(engine) as session, session.begin():
         user = session.get(AppUser, context.user_id)
-        if user:
-            user.must_change_password = False
-            user.password_changed_at = utc_now()
-            user.updated_by = context.user_id
-            session.add(
-                AuditEvent(
-                    organization_id=context.organization_id,
-                    facility_id=context.facility_id,
-                    entity_type="app_user",
-                    entity_id=context.user_id,
-                    action="password_changed",
-                    actor=context.user_id,
-                    changes_json='{"must_change_password": false}',
-                )
+        if not user or not user.active:
+            raise HTTPException(status_code=403, detail="This account is not active in Buyer Dash.")
+        user.must_change_password = False
+        user.password_changed_at = utc_now()
+        user.updated_by = context.user_id
+        session.add(
+            AuditEvent(
+                organization_id=context.organization_id,
+                facility_id=context.facility_id,
+                entity_type="app_user",
+                entity_id=context.user_id,
+                action="password_changed",
+                actor=context.user_id,
+                changes_json='{"must_change_password": false}',
             )
+        )
     return {"ok": True}
