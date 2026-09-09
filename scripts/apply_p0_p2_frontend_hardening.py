@@ -70,6 +70,18 @@ replace(
     f'  const defaults = {spacemail_defaults};',
     '  const defaults = SPACEMAIL_DEFAULTS;',
 )
+# Keep the local alias explicit in the effect contract; this leaves future default-set
+# changes visible to exhaustive-deps without duplicating six scalar dependencies.
+integrations = Path("frontend/src/pages/IntegrationsPage.tsx")
+text = integrations.read_text(encoding="utf-8")
+start = text.index("function SpacemailCard")
+end = text.index("function AIRuntimeCard", start)
+block = text[start:end]
+needle = '})), [value]);'
+if block.count(needle) != 1:
+    raise SystemExit(f"IntegrationsPage.tsx: expected one Spacemail [value] effect, found {block.count(needle)}")
+block = block.replace(needle, '})), [value, defaults]);', 1)
+integrations.write_text(text[:start] + block + text[end:], encoding="utf-8")
 
 # Location Settings: the selected provider object is the source of truth read by each
 # synchronization effect; depending on it prevents stale forms without dependency hacks.
