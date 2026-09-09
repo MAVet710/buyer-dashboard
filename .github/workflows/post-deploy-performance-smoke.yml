@@ -1,0 +1,132 @@
+name: Post-Deploy Performance Smoke
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Deploy to DoobieLogic"]
+    types: [completed]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: post-deploy-performance-smoke
+  cancel-in-progress: true
+
+env:
+  REGION: us-east1
+  API_SERVICE: buyer-dash-api
+  PRODUCTION_API_URL: https://api.doobielogic.io
+  AUTHENTICATED_P95_LIMIT_SECONDS: "3.0"
+  PUBLIC_P95_LIMIT_SECONDS: "3.5"
+
+jobs:
+  production-latency:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve exact Cloud Run service URL and identity token
+        shell: bash
+        run: |
+          set -euo pipefail
+          service_url="$(gcloud run services describe "$API_SERVICE" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "$REGION" \
+            --format='value(status.url)')"
+          test -n "$service_url"
+          identity_token="$(gcloud auth print-identity-token --audiences="$service_url")"
+          test -n "$identity_token"
+          echo "::add-mask::$identity_token"
+          echo "CLOUD_RUN_SERVICE_URL=$service_url" >> "$GITHUB_ENV"
+          echo "CLOUD_RUN_IDENTITY_TOKEN=$identity_token" >> "$GITHUB_ENV"
+
+      - name: Measure authenticated Cloud Run and Supabase readiness path
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/authenticated-latencies.txt
+          for attempt in $(seq 1 7); do
+            result="$(curl --silent --show-error \
+              --output "/tmp/auth-ready-$attempt.json" \
+              --write-out '%{http_code} %{time_total}' \
+              --header "X-Serverless-Authorization: Bearer $CLOUD_RUN_IDENTITY_TOKEN" \
+              "$CLOUD_RUN_SERVICE_URL/health/ready")"
+            code="${result%% *}"
+            seconds="${result##* }"
+            if [ "$code" != "200" ]; then
+              echo "Authenticated Cloud Run readiness returned HTTP $code on attempt $attempt."
+              cat "/tmp/auth-ready-$attempt.json" || true
+              exit 1
+            fi
+            jq -e '.schema_matches == true and (.schema_revision | length > 0)' "/tmp/auth-ready-$attempt.json" >/dev/null
+            printf '%s\n' "$seconds" >> /tmp/authenticated-latencies.txt
+          done
+
+          python - <<'PY'
+          import math
+          import os
+          from pathlib import Path
+
+          values = sorted(float(line) for line in Path('/tmp/authenticated-latencies.txt').read_text().splitlines() if line.strip())
+          if len(values) != 7:
+              raise SystemExit(f'Expected 7 authenticated samples, got {len(values)}')
+          p95 = values[min(len(values) - 1, math.ceil(len(values) * 0.95) - 1)]
+          median = values[len(values) // 2]
+          limit = float(os.environ['AUTHENTICATED_P95_LIMIT_SECONDS'])
+          print(f'Authenticated readiness median={median:.3f}s p95={p95:.3f}s limit={limit:.3f}s')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write('## Post-deploy performance smoke\n\n')
+              summary.write(f'- Authenticated Cloud Run + database median: **{median:.3f}s**\n')
+              summary.write(f'- Authenticated Cloud Run + database p95: **{p95:.3f}s** (limit {limit:.3f}s)\n')
+          if p95 > limit:
+              raise SystemExit(f'Authenticated readiness p95 {p95:.3f}s exceeded {limit:.3f}s')
+          PY
+
+      - name: Measure public custom-domain production path
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/public-latencies.txt
+          for attempt in $(seq 1 5); do
+            result="$(curl --silent --show-error \
+              --output "/tmp/public-ready-$attempt.json" \
+              --write-out '%{http_code} %{time_total}' \
+              "$PRODUCTION_API_URL/health/ready")"
+            code="${result%% *}"
+            seconds="${result##* }"
+            if [ "$code" != "200" ]; then
+              echo "Public production readiness returned HTTP $code on attempt $attempt."
+              cat "/tmp/public-ready-$attempt.json" || true
+              exit 1
+            fi
+            jq -e '.schema_matches == true and (.release_sha | length > 0)' "/tmp/public-ready-$attempt.json" >/dev/null
+            printf '%s\n' "$seconds" >> /tmp/public-latencies.txt
+          done
+
+          python - <<'PY'
+          import math
+          import os
+          from pathlib import Path
+
+          values = sorted(float(line) for line in Path('/tmp/public-latencies.txt').read_text().splitlines() if line.strip())
+          p95 = values[min(len(values) - 1, math.ceil(len(values) * 0.95) - 1)]
+          median = values[len(values) // 2]
+          limit = float(os.environ['PUBLIC_P95_LIMIT_SECONDS'])
+          print(f'Public readiness median={median:.3f}s p95={p95:.3f}s limit={limit:.3f}s')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write(f'- Public custom-domain median: **{median:.3f}s**\n')
+              summary.write(f'- Public custom-domain p95: **{p95:.3f}s** (limit {limit:.3f}s)\n')
+          if p95 > limit:
+              raise SystemExit(f'Public readiness p95 {p95:.3f}s exceeded {limit:.3f}s')
+          PY
