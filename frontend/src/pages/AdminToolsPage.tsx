@@ -110,11 +110,14 @@ function FacilityContextEditor() {
   const [selectedId,setSelectedId]=useState("");
   const selected=useMemo(()=>facilities.find(row=>row.id===selectedId)??facilities[0],[facilities,selectedId]);
   const [form,setForm]=useState<FacilityForm|null>(null);
+  const [formSourceId,setFormSourceId]=useState("");
   useEffect(()=>{
     if(!selected)return;
     if(!selectedId)setSelectedId(selected.id);
+    if(formSourceId===selected.id)return;
     setForm(facilityForm(selected));
-  },[selected,selectedId]);
+    setFormSourceId(selected.id);
+  },[selected,selectedId,formSourceId]);
   const save=useMutation({
     mutationFn:()=>apiPost<FacilityAdminRow>(`/api/v1/admin/facilities/${encodeURIComponent(selected!.id)}/update`,form!),
     onSuccess:async()=>{
@@ -179,13 +182,16 @@ function StorefrontOwnershipEditor() {
   const [organizationId,setOrganizationId]=useState("");
   const [facilityId,setFacilityId]=useState("");
   const [clearCatalog,setClearCatalog]=useState(false);
+  const [selectionSourceId,setSelectionSourceId]=useState("");
   useEffect(()=>{
     if(!selected)return;
     if(!selectedId)setSelectedId(selected.id);
+    if(selectionSourceId===selected.id)return;
     setOrganizationId(selected.organization_id);
     setFacilityId(selected.facility_id);
     setClearCatalog(false);
-  },[selected,selectedId]);
+    setSelectionSourceId(selected.id);
+  },[selected,selectedId,selectionSourceId]);
   const targetOrganization=organizations.data?.find(org=>org.id===organizationId);
   const targetFacilities=useMemo(()=>(targetOrganization?.facilities??[]).filter(facility=>facility.active!==false&&facility.commercial_enabled),[targetOrganization]);
   useEffect(()=>{
