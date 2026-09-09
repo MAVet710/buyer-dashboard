@@ -33,8 +33,6 @@ jobs:
         run: pnpm exec eslint . --max-warnings=0
       - run: pnpm test
       - run: pnpm build
-      - name: Install browser parity runner
-        run: pnpm add --save-dev @playwright/test@1.55.0 --lockfile=false
       - name: Restore Playwright Chromium cache
         uses: actions/cache@v4
         with:
@@ -83,9 +81,6 @@ jobs:
       - name: Install frontend alpha dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
-      - name: Install operator browser runner
-        working-directory: frontend
-        run: pnpm add --save-dev @playwright/test@1.55.0 --lockfile=false
       - name: Restore Playwright Chromium cache
         uses: actions/cache@v4
         with:
