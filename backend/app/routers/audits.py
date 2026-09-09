@@ -17,6 +17,7 @@ from ..services.audits import AuditService
 
 router = APIRouter(prefix="/inventory/{operation}/audits", tags=["inventory-audits"])
 WRITE_ROLES = {"dev", "admin", "buyer", "supervisor", "operator", "qa", "trial"}
+MAX_RETAIL_SNAPSHOT_BYTES = 10 * 1024 * 1024
 
 
 def _validate(operation: str, context: RequestContext, engine: Engine, write: bool = False):
@@ -195,7 +196,9 @@ async def preview_retail_snapshot(operation: str, file: UploadFile = File(...), 
     suffix = Path(file.filename or "").suffix.casefold()
     if suffix not in {".csv", ".xlsx", ".xls"}:
         raise HTTPException(422, "Dutchie inventory file must be CSV, XLSX, or XLS.")
-    raw = await file.read()
+    raw = await file.read(MAX_RETAIL_SNAPSHOT_BYTES + 1)
+    if len(raw) > MAX_RETAIL_SNAPSHOT_BYTES:
+        raise HTTPException(413, "Dutchie inventory files must be 10 MB or smaller.")
     try:
         frame = pd.read_csv(BytesIO(raw)) if suffix == ".csv" else pd.read_excel(BytesIO(raw))
     except Exception as exc:
