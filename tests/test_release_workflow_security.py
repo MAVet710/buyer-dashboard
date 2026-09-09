@@ -15,6 +15,7 @@ def test_post_release_workflow_run_consumers_are_bound_to_main():
         "database-backup.yml",
         "ma-metrc-sandbox-readonly.yml",
         "post-deploy-performance-smoke.yml",
+        "ai-runtime-revision-guard.yml",
     ):
         source = _workflow(name)
         assert 'workflows: ["Deploy to DoobieLogic"]' in source, name
@@ -44,21 +45,19 @@ def test_backup_proves_auth_and_restore_before_retaining_encrypted_artifact():
     assert "AES256" in source
 
 
-def test_release_and_rc_paths_do_not_depend_on_billable_google_infrastructure():
+def test_all_action_workflows_are_free_of_google_control_plane_wiring():
     forbidden = (
         "google-github-actions/",
         "gcloud ",
         "GCP_PROJECT_ID",
         "GCP_SERVICE_ACCOUNT",
         "GCP_WORKLOAD_IDENTITY_PROVIDER",
-        "us-east1-docker.pkg.dev",
-        "Cloud Run",
-        "Artifact Registry",
+        "docker.pkg.dev",
     )
-    for name in ("deploy.yml", "rc-preview.yml", "post-deploy-performance-smoke.yml"):
-        source = _workflow(name)
+    for path in sorted((*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml"))):
+        source = path.read_text(encoding="utf-8")
         for token in forbidden:
-            assert token.casefold() not in source.casefold(), (name, token)
+            assert token.casefold() not in source.casefold(), (path.name, token)
 
 
 def test_render_blueprint_is_free_only_and_waits_for_checks():
@@ -71,7 +70,11 @@ def test_render_blueprint_is_free_only_and_waits_for_checks():
     assert "api.doobielogic.io" in source
     assert "preDeployCommand" not in source
     assert "alembic upgrade head" in source
+    assert "RENDER_EXTERNAL_HOSTNAME" in source
     assert "AI_ALLOW_CLOUD_FALLBACK" in source
+    assert '- key: AI_PROVIDER_MODE\n        value: disabled' in source
+    assert '- key: AI_PROVIDER_ORDER\n        value: none' in source
+    assert '- key: AI_ALLOW_CLOUD_FALLBACK\n        value: "false"' in source
     for key in (
         "DATABASE_URL",
         "SUPABASE_URL",
@@ -99,8 +102,6 @@ def test_netlify_frontend_is_static_and_lockfile_reproducible():
 
 def test_post_deploy_latency_gate_is_public_only_and_free_tier_aware():
     source = _workflow("post-deploy-performance-smoke.yml")
-    assert "google-github-actions/" not in source
-    assert "gcloud " not in source
     assert "/health/ready" in source
     assert "github.event.workflow_run.head_sha" in source
     assert "FREE_COLD_START_LIMIT_SECONDS" in source
@@ -110,10 +111,60 @@ def test_post_deploy_latency_gate_is_public_only_and_free_tier_aware():
     assert "password" not in source.casefold()
 
 
+def test_hosted_ai_audit_is_provider_neutral_and_fail_closed():
+    source = _workflow("ai-runtime-revision-guard.yml")
+    assert "python scripts/verify_zero_cost_deployment.py" in source
+    assert "AI_PROVIDER_MODE" in source
+    assert "AI_ALLOW_CLOUD_FALLBACK" in source
+    assert "GEMINI_API_KEY" in source
+    assert "OPENAI_API_KEY" in source
+    assert "Hosted Render API remains decoupled" in source
+
+
+def test_database_mutation_workflows_are_manual_and_exactly_confirmed():
+    contracts = (
+        (
+            "seed-cowboy-kush-demo.yml",
+            "I_APPROVE_COWBOY_KUSH_DEMO_SEED",
+            "python -m scripts.seed_cowboy_kush_ma_coa_demo --apply",
+        ),
+        (
+            "reset-dev-sandbox-vertical-inventory.yml",
+            "I_APPROVE_DEV_SANDBOX_RESET",
+            "python -m modules.coman.dev_sandbox_reset_job --apply",
+        ),
+    )
+    for name, approval, mutation in contracts:
+        source = _workflow(name)
+        assert "workflow_dispatch:" in source
+        assert approval in source
+        assert "github.event_name == 'workflow_dispatch'" in source
+        assert "inputs.confirmation ==" in source
+        assert mutation in source
+        assert "DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}" in source
+        assert "Automatic main-push behavior: validation only; no database write" in source
+
+
+def test_storefront_domain_workflow_is_validation_only():
+    source = _workflow("storefront-domain-mappings.yml")
+    assert "validate_storefront_domains.py" in source
+    assert "50-alias free-host operating limit" in source
+    assert "domain aliases to the free Netlify site" in source
+    assert "never creates DNS or cloud resources" in source
+
+
 def test_zero_cost_contract_verifier_runs_in_release_and_rc():
     command = "python scripts/verify_zero_cost_deployment.py"
     assert command in _workflow("deploy.yml")
     assert command in _workflow("rc-preview.yml")
+
+
+def test_rc_proves_render_free_resource_envelope_without_external_preview():
+    source = _workflow("rc-preview.yml")
+    assert "--memory=512m" in source
+    assert "--cpus=0.10" in source
+    assert "BILLABLE_CLOUD_RESOURCES=none" in source
+    assert "Smoke test local synthetic API and static frontend pair" in source
 
 
 def test_browser_ci_uses_locked_playwright_dependency():
