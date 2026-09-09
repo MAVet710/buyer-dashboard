@@ -54,9 +54,9 @@ def test_storefront_domain_workflow_is_validation_only_and_main_scoped():
     assert "--to-latest" not in WORKFLOW
 
 
-def test_canonical_static_service_owns_platform_domains_without_wildcards():
+def test_canonical_static_service_owns_free_root_and_wildcard_domains():
     static = BLUEPRINT.split("name: doobielogic-ops", 1)[1]
     assert "runtime: static" in static
-    assert "doobielogic.io" in static
-    assert "ops.doobielogic.io" in static
-    assert "*.doobielogic.io" not in static
+    assert "- doobielogic.io" in static
+    assert '- "*.doobielogic.io"' in static
+    assert "ops.doobielogic.io" not in static
