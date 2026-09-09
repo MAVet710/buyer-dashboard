@@ -29,6 +29,8 @@ services:
         value: "0"
       - key: DATABASE_POOL_TIMEOUT
         value: "30"
+      - key: SEALED_DATABASE_URL_PATH
+        value: deploy/sealed/render_database_url.json
       - key: AI_PROVIDER_MODE
         value: disabled
       - key: AI_PROVIDER_ORDER
@@ -36,6 +38,8 @@ services:
       - key: AI_ALLOW_CLOUD_FALLBACK
         value: "false"
       - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SEAL_PRIVATE_KEY
         sync: false
       - key: SUPABASE_URL
         sync: false
