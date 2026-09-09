@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
 
 
@@ -23,53 +22,44 @@ def _verify_render() -> None:
     lowered = source.casefold()
 
     _require("name: doobielogic-api" in source, "Render API service is missing.")
-    _require("runtime: docker" in source, "Render API must use the reviewed Docker runtime.")
+    _require("name: doobielogic-ops" in source, "Render static frontend is missing.")
+    _require("runtime: python" in source, "Render API must use the lean native Python runtime.")
+    _require("runtime: static" in source, "Render frontend must be a static site.")
     plans = re.findall(r"^\s*plan:\s*([^#\n]+)", source, flags=re.MULTILINE)
-    _require(plans == ["free"], f"Render must define exactly one free plan, found: {plans}")
-    _require("autoDeployTrigger: checksPass" in source, "Render deploys must wait for GitHub checks.")
+    _require(plans == ["free"], f"Render compute must define exactly one free plan, found: {plans}")
+    _require(source.count("autoDeployTrigger: checksPass") == 2, "Both Render services must wait for GitHub checks.")
     _require("api.doobielogic.io" in source, "Render API custom domain is missing.")
-    _require("healthCheckPath: /health/ready" in source, "Render must use database-backed readiness.")
+    _require("ops.doobielogic.io" in source and "doobielogic.io" in source, "Render frontend custom domains are incomplete.")
+    _require("healthCheckPath: /health/ready" in source, "Render API must use database-backed readiness.")
     _require("predeploycommand" not in lowered, "Render free services cannot depend on paid pre-deploy commands.")
     _require("alembic upgrade head" in source, "Free Render startup must apply idempotent Alembic migrations.")
     _require("RENDER_EXTERNAL_HOSTNAME" in source, "Render startup must trust the provider-assigned hostname without hardcoding it.")
+    _require("backend/requirements.txt" in source, "Render API must not install the oversized Streamlit root environment.")
+    _require("pnpm install --frozen-lockfile" in source and "pnpm build" in source, "Render static frontend must use the locked production build.")
+    _require("staticPublishPath: ./frontend/dist" in source, "Render must publish the Vite dist directory.")
+    _require("source: /*" in source and "destination: /index.html" in source, "Render SPA fallback rewrite is missing.")
     _require("AI_ALLOW_CLOUD_FALLBACK" in source and 'value: "false"' in source, "Cloud AI fallback must stay disabled.")
 
     for key in (
         "DATABASE_URL",
         "SUPABASE_URL",
         "SUPABASE_JWKS_URL",
-        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_PUBLISHABLE_KEY",
         "INTEGRATION_ENCRYPTION_KEY",
+        "VITE_SUPABASE_URL",
+        "VITE_SUPABASE_PUBLISHABLE_KEY",
     ):
         pattern = rf"- key: {re.escape(key)}\n\s+sync: false"
-        _require(re.search(pattern, source) is not None, f"{key} must be supplied out-of-band as a Render secret.")
+        _require(re.search(pattern, source) is not None, f"{key} must be supplied out-of-band to Render.")
 
-
-def _verify_netlify() -> None:
-    raw = (ROOT / "netlify.toml").read_bytes()
-    config = tomllib.loads(raw.decode("utf-8"))
-    build = config.get("build", {})
-    environment = build.get("environment", {})
-
-    _require(build.get("base") == "frontend", "Netlify build base must be frontend.")
-    _require(build.get("publish") == "dist", "Netlify must publish the Vite dist directory.")
-    command = str(build.get("command") or "")
-    _require("pnpm install --frozen-lockfile" in command, "Netlify dependency installation must be lockfile-reproducible.")
-    _require("pnpm build" in command, "Netlify must run the production frontend build.")
-    _require(environment.get("VITE_API_URL") == "https://api.doobielogic.io", "Frontend API origin must use the production custom domain.")
-
-    redirects = config.get("redirects", [])
-    _require(
-        any(rule.get("from") == "/*" and rule.get("to") == "/index.html" and rule.get("status") == 200 for rule in redirects),
-        "Netlify SPA fallback rewrite is missing.",
-    )
-    _require("functions" not in config, "Static frontend must not introduce metered Netlify Functions.")
+    _require("SUPABASE_SERVICE_ROLE_KEY" not in source, "The baseline hosted runtime must not require a privileged Supabase service-role key.")
+    _require(not (ROOT / "netlify.toml").exists(), "Netlify config must not coexist with the canonical Render deployment contract.")
 
 
 def _verify_no_billable_google_workflows() -> None:
     # These tokens identify executable Google control-plane / registry wiring. The
-    # zero-cost contract intentionally rejects them anywhere under Actions so a
-    # side workflow cannot quietly reintroduce a billable path later.
+    # zero-cost contract rejects them anywhere under Actions so a side workflow
+    # cannot quietly reintroduce a billable deployment path later.
     forbidden = (
         "google-github-actions/",
         "gcloud ",
@@ -114,18 +104,18 @@ def _verify_manual_database_mutations_are_gated() -> None:
 def _verify_storefront_alias_workflow_is_validation_only() -> None:
     source = (WORKFLOWS / "storefront-domain-mappings.yml").read_text(encoding="utf-8")
     _require("validate_storefront_domains.py" in source, "Storefront alias workflow must validate the approved domain file.")
-    _require("domain aliases to the free Netlify site" in source, "Storefront alias workflow must describe the free-host handoff.")
+    _require("domain aliases to the free Render static site" in source, "Storefront alias workflow must describe the free-host handoff.")
     _require("50-alias free-host operating limit" in source, "Storefront alias workflow must bound the approved alias set.")
+    _require("never creates DNS or cloud resources" in source, "Storefront domain validation must remain non-mutating.")
 
 
 def main() -> None:
     _verify_render()
-    _verify_netlify()
     _verify_no_billable_google_workflows()
     _verify_manual_database_mutations_are_gated()
     _verify_storefront_alias_workflow_is_validation_only()
     print(
-        "Zero-cost deployment contract verified: Netlify static frontend + Render free API; "
+        "Zero-cost deployment contract verified: Render static frontend + Render free API + Supabase; "
         "all GitHub workflows are free of Google control-plane/registry wiring and data mutations are explicitly gated."
     )
 
