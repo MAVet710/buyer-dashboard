@@ -87,6 +87,8 @@ export function MetrcRoomLinkDialog({room,onClose,onLinked}:{room:{id:string;roo
   </section>;
 }
 
+// Shared query hook is intentionally colocated with its Metrc control surface.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useMetrcCultivationIdentities(enabled=true){
   return useQuery({queryKey:["metrc-cultivation-identities"],queryFn:({signal})=>apiGet<CultivationIdentityResponse>("/api/v1/metrc-cultivation/identities",signal),enabled,retry:false});
 }
