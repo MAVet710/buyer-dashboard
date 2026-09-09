@@ -24,9 +24,15 @@ class Settings(BaseSettings):
     metrc_integrator_key: str = ""
     allowed_hosts: str = "localhost,127.0.0.1,testserver"
 
-    # Spacemail SMTP/IMAP. The primary mailbox authenticates while the support
-    # alias is used as the visible sender. Keep the mailbox password in a
-    # server-side secret only; it must never be exposed to the browser.
+    # HTTPS transactional email. Render Free blocks outbound SMTP ports, so the
+    # hosted runtime prefers Resend's HTTPS API. Keep the API key server-side.
+    resend_api_key: str = ""
+    resend_api_url: str = "https://api.resend.com"
+    resend_timeout_seconds: float = 12.0
+
+    # Spacemail SMTP/IMAP remains available for local/legacy runtimes. The
+    # primary mailbox authenticates while aliases are used as visible senders.
+    # Keep the mailbox password in a server-side secret only.
     spacemail_smtp_host: str = "mail.spacemail.com"
     spacemail_smtp_port: int = 465
     spacemail_smtp_username: str = "nelson@doobielogic.io"
@@ -97,13 +103,24 @@ class Settings(BaseSettings):
         return values or ["local"]
 
     @property
+    def resend_is_configured(self) -> bool:
+        return bool(self.resend_api_key.strip() and self.resend_api_url.strip())
+
+    @property
     def spacemail_is_configured(self) -> bool:
         return bool(
-            self.spacemail_welcome_email_enabled
-            and self.spacemail_smtp_host.strip()
+            self.spacemail_smtp_host.strip()
             and self.spacemail_smtp_username.strip()
             and self.spacemail_smtp_password
             and self.spacemail_from_email.strip()
+        )
+
+    @property
+    def transactional_email_is_configured(self) -> bool:
+        return bool(
+            self.spacemail_welcome_email_enabled
+            and self.spacemail_from_email.strip()
+            and (self.resend_is_configured or self.spacemail_is_configured)
         )
 
     def validate_production(self) -> None:
