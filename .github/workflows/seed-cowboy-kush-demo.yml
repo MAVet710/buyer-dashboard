@@ -7,88 +7,87 @@ on:
       - scripts/seed_cowboy_kush_ma_coa_demo.py
       - .github/workflows/seed-cowboy-kush-demo.yml
   workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type I_APPROVE_COWBOY_KUSH_DEMO_SEED to write demo data"
+        required: false
+        type: string
+
+permissions:
+  contents: read
 
 concurrency:
   group: cowboy-kush-demo-seed
   cancel-in-progress: false
 
-env:
-  REGISTRY: us-east1-docker.pkg.dev
-  REGION: us-east1
-  SEED_JOB: cowboy-kush-demo-seed
-
 jobs:
-  seed:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
 
-      - uses: google-github-actions/auth@v2
+      - uses: actions/setup-python@v5
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          python-version: "3.12"
+          cache: pip
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - name: Install seed dependencies
+        run: python -m pip install -r backend/requirements.txt
 
-      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+      - name: Validate Cowboy Kush seed definition without database access
+        run: |
+          python - <<'PY'
+          from scripts.seed_cowboy_kush_ma_coa_demo import BATCHES
 
-      - name: Build immutable seed image
+          assert len(BATCHES) >= 10
+          assert any(batch.bulk for batch in BATCHES)
+          assert all(batch.coa_url.startswith("https://opencoa.org/") for batch in BATCHES)
+          print(f"Validated {len(BATCHES)} Cowboy Kush demo batches without contacting production.")
+          PY
+
+  apply:
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirmation == 'I_APPROVE_COWBOY_KUSH_DEMO_SEED' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production-demo-data
+    env:
+      DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Require explicit write credential
+        shell: bash
         run: |
           set -euo pipefail
-          BASE_IMAGE="cowboy-kush-demo-seed-base:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
-          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/cowboy-kush-demo-seed:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
-          docker build -f Dockerfile.api -t "$BASE_IMAGE" .
-          cat > /tmp/Dockerfile.cowboy-seed <<'EOF'
-          ARG BASE_IMAGE
-          FROM ${BASE_IMAGE}
-          USER root
-          COPY --chown=buyer:buyer scripts /app/scripts
-          USER buyer
-          EOF
-          docker build --build-arg BASE_IMAGE="$BASE_IMAGE" -f /tmp/Dockerfile.cowboy-seed -t "$IMAGE" .
-          docker run --rm --entrypoint python "$IMAGE" -c "from scripts.seed_cowboy_kush_ma_coa_demo import BATCHES; assert len(BATCHES) >= 10; print('Cowboy Kush seed image verified')"
-          docker push "$IMAGE"
-          echo "SEED_IMAGE=$IMAGE" >> "$GITHUB_ENV"
-
-      - name: Apply Cowboy Kush OpenCOA demo inventory and storefront listings
-        run: |
-          set -euo pipefail
-          gcloud run jobs deploy "${{ env.SEED_JOB }}" \
-            --project "${{ secrets.GCP_PROJECT_ID }}" \
-            --image "$SEED_IMAGE" \
-            --region "${{ env.REGION }}" \
-            --service-account "buyer-dash-migrate@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
-            --command python \
-            --args=-m,scripts.seed_cowboy_kush_ma_coa_demo,--apply \
-            --max-retries 0 \
-            --task-timeout 15m \
-            --set-env-vars APP_ENV=production \
-            --set-secrets DL_PROD_DB_URL=buyer-dash-database-url:latest \
-            --quiet
-          if ! gcloud run jobs execute "${{ env.SEED_JOB }}" \
-            --project "${{ secrets.GCP_PROJECT_ID }}" \
-            --region "${{ env.REGION }}" \
-            --wait; then
-            EXECUTION="$(gcloud run jobs executions list \
-              --job "${{ env.SEED_JOB }}" \
-              --project "${{ secrets.GCP_PROJECT_ID }}" \
-              --region "${{ env.REGION }}" \
-              --limit 1 \
-              --format='value(metadata.name)')"
-            if [ -n "$EXECUTION" ]; then
-              gcloud run jobs executions describe "$EXECUTION" \
-                --project "${{ secrets.GCP_PROJECT_ID }}" \
-                --region "${{ env.REGION }}" \
-                --format='yaml(metadata.name,status.conditions,status.failedCount,status.succeededCount)' || true
-              gcloud logging read \
-                "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${{ env.SEED_JOB }}\"" \
-                --project "${{ secrets.GCP_PROJECT_ID }}" \
-                --limit 100 \
-                --order=desc \
-                --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
-            fi
+          test -n "$DL_PROD_DB_URL" || {
+            echo "DL_PROD_DB_URL must be configured as a GitHub Actions secret before manual demo seeding."
             exit 1
-          fi
+          }
+          echo "Manual Cowboy Kush demo seed is explicitly approved; credential value was not printed."
+
+      - name: Install application dependencies
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Dry-run Cowboy Kush demo seed first
+        run: python -m scripts.seed_cowboy_kush_ma_coa_demo
+
+      - name: Apply Cowboy Kush demo seed
+        run: python -m scripts.seed_cowboy_kush_ma_coa_demo --apply
+
+      - name: Record mutation boundary
+        run: |
+          {
+            echo '## Cowboy Kush demo seed'
+            echo
+            echo '- Trigger: manual workflow dispatch only'
+            echo '- Confirmation: exact approval phrase required'
+            echo '- Automatic main-push behavior: validation only; no database write'
+            echo '- Google Cloud resources: none'
+          } >> "$GITHUB_STEP_SUMMARY"
