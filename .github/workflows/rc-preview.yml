@@ -36,9 +36,11 @@ jobs:
       - name: Build API release-candidate image locally
         run: docker build -f Dockerfile.api -t buyer-dash-api:rc .
 
-      - name: Verify production API startup
+      - name: Verify production API startup inside Render Free resource envelope
         run: |
           docker run --rm \
+            --memory=512m \
+            --cpus=0.10 \
             -e APP_ENV=production \
             -e DATABASE_URL=sqlite+pysqlite:///:memory: \
             -e SUPABASE_URL=https://example.supabase.co \
@@ -87,6 +89,7 @@ jobs:
           trap cleanup EXIT
 
           docker run --name doobielogic-rc-api --rm -d \
+            --memory=512m \
             -p 18080:8080 \
             -e APP_ENV=development \
             -e RC_PREVIEW=1 \
@@ -146,6 +149,8 @@ jobs:
             echo "WEB_STATIC=pass"
             echo "ACCOUNT_CONTEXT=pass"
             echo "INVENTORY_SEED=pass"
+            echo "RENDER_FREE_MEMORY_ENVELOPE=512m"
+            echo "RENDER_FREE_CPU_ENVELOPE=0.10"
             echo "BILLABLE_CLOUD_RESOURCES=none"
           } | tee rc-local-evidence.txt
 
@@ -156,6 +161,7 @@ jobs:
             echo '- Static frontend: passed'
             echo '- Account context: passed'
             echo '- Seeded inventory: passed'
+            echo '- Render Free startup envelope: 512 MB / 0.1 CPU passed'
             echo '- External cloud preview resources: none'
           } >> "$GITHUB_STEP_SUMMARY"
 
