@@ -1,0 +1,124 @@
+name: Seal Render Database Credential
+
+on:
+  push:
+    branches: [hardening/p0-p2-production-readiness]
+    paths:
+      - .github/workflows/seal-render-database.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: seal-render-database
+  cancel-in-progress: false
+
+jobs:
+  seal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}
+      RENDER_DB_SEAL_PUBLIC_KEY: XWdyCnLSxHjUb4BWIQ-3SyCYrpoArafInFfTSxn9iRA=
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/p0-p2-production-readiness
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install sealing dependencies
+        run: python -m pip install "psycopg[binary]>=3.1" "cryptography>=50,<51"
+
+      - name: Validate and seal existing production database credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DL_PROD_DB_URL:-}" || {
+            echo "DL_PROD_DB_URL is not configured."
+            exit 1
+          }
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import secrets
+          from pathlib import Path
+
+          import psycopg
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+          from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+          aad = b"doobielogic-render-db-v1"
+          database_url = os.environ["DL_PROD_DB_URL"].strip()
+          connect_url = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+          if not connect_url.startswith(("postgres://", "postgresql://")):
+              raise SystemExit("DL_PROD_DB_URL is not a PostgreSQL URL.")
+
+          with psycopg.connect(connect_url, connect_timeout=10) as connection:
+              with connection.cursor() as cursor:
+                  cursor.execute("select 1")
+                  if cursor.fetchone() != (1,):
+                      raise SystemExit("Production database preflight did not return select 1.")
+                  cursor.execute("select version_num from alembic_version")
+                  rows = cursor.fetchall()
+          if len(rows) != 1 or not rows[0][0]:
+              raise SystemExit("Production database must contain exactly one Alembic revision.")
+          schema_revision = str(rows[0][0])
+
+          public_key = X25519PublicKey.from_public_bytes(
+              base64.urlsafe_b64decode(os.environ["RENDER_DB_SEAL_PUBLIC_KEY"].encode("ascii"))
+          )
+          ephemeral_private = X25519PrivateKey.generate()
+          ephemeral_public = ephemeral_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+          shared_secret = ephemeral_private.exchange(public_key)
+          key = HKDF(
+              algorithm=hashes.SHA256(),
+              length=32,
+              salt=None,
+              info=aad,
+          ).derive(shared_secret)
+          nonce = secrets.token_bytes(12)
+          ciphertext = AESGCM(key).encrypt(nonce, database_url.encode("utf-8"), aad)
+
+          encode = lambda value: base64.urlsafe_b64encode(value).decode("ascii")
+          payload = {
+              "version": 1,
+              "algorithm": "X25519-HKDF-SHA256-AES256GCM",
+              "ephemeral_public_key": encode(ephemeral_public),
+              "nonce": encode(nonce),
+              "ciphertext": encode(ciphertext),
+              "schema_revision": schema_revision,
+          }
+          path = Path("deploy/sealed/render_database_url.json")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(f"Validated production database and sealed credential at Alembic revision {schema_revision}.")
+          PY
+
+      - name: Commit ciphertext only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/sealed/render_database_url.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Seal production database credential for Render"
+          git push origin HEAD:hardening/p0-p2-production-readiness
+
+      - name: Record safe handoff
+        run: |
+          {
+            echo '## Render database sealed-secret handoff'
+            echo
+            echo '- Source credential: existing GitHub DL_PROD_DB_URL secret'
+            echo '- Plaintext database URL printed: no'
+            echo '- Repository material: ciphertext only'
+            echo '- Decryption key stored in repository: no'
+          } >> "$GITHUB_STEP_SUMMARY"
