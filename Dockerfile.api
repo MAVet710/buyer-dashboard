@@ -23,4 +23,7 @@ COPY alembic.ini ./
 COPY compliance_engine.py doobielogic_client.py delivery_impact.py ./
 USER buyer
 EXPOSE 8080
-CMD ["sh", "-c", "MODULE=backend.app.main:app; if [ \"${RC_PREVIEW:-0}\" = \"1\" ]; then MODULE=backend.app.rc_preview:app; fi; exec uvicorn \"${MODULE}\" --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips='*'"]
+# Application request logging uses route templates and explicitly redacts portal
+# token segments. Disable Uvicorn's raw access log so bearer-like tokens carried
+# in legacy commerce-portal URL paths never get copied into Cloud Run logs.
+CMD ["sh", "-c", "MODULE=backend.app.main:app; if [ \"${RC_PREVIEW:-0}\" = \"1\" ]; then MODULE=backend.app.rc_preview:app; fi; exec uvicorn \"${MODULE}\" --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips='*' --no-access-log"]
