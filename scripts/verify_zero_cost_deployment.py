@@ -31,6 +31,7 @@ def _verify_render() -> None:
     _require("healthCheckPath: /health/ready" in source, "Render must use database-backed readiness.")
     _require("predeploycommand" not in lowered, "Render free services cannot depend on paid pre-deploy commands.")
     _require("alembic upgrade head" in source, "Free Render startup must apply idempotent Alembic migrations.")
+    _require("RENDER_EXTERNAL_HOSTNAME" in source, "Render startup must trust the provider-assigned hostname without hardcoding it.")
     _require("AI_ALLOW_CLOUD_FALLBACK" in source and 'value: "false"' in source, "Cloud AI fallback must stay disabled.")
 
     for key in (
@@ -65,29 +66,68 @@ def _verify_netlify() -> None:
     _require("functions" not in config, "Static frontend must not introduce metered Netlify Functions.")
 
 
-def _verify_no_billable_google_release_path() -> None:
+def _verify_no_billable_google_workflows() -> None:
+    # These tokens identify executable Google control-plane / registry wiring. The
+    # zero-cost contract intentionally rejects them anywhere under Actions so a
+    # side workflow cannot quietly reintroduce a billable path later.
     forbidden = (
         "google-github-actions/",
         "gcloud ",
         "GCP_PROJECT_ID",
         "GCP_SERVICE_ACCOUNT",
         "GCP_WORKLOAD_IDENTITY_PROVIDER",
-        "us-east1-docker.pkg.dev",
-        "cloud run",
-        "artifact registry",
+        "docker.pkg.dev",
     )
-    for name in ("deploy.yml", "rc-preview.yml", "post-deploy-performance-smoke.yml"):
-        source = (WORKFLOWS / name).read_text(encoding="utf-8")
+    violations: list[str] = []
+    for path in sorted((*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml"))):
+        source = path.read_text(encoding="utf-8")
         lowered = source.casefold()
         for token in forbidden:
-            _require(token.casefold() not in lowered, f"{name} still contains paid-Google release dependency: {token}")
+            if token.casefold() in lowered:
+                violations.append(f"{path.name}: {token}")
+    _require(not violations, "Billable Google workflow dependency detected: " + "; ".join(violations))
+
+
+def _verify_manual_database_mutations_are_gated() -> None:
+    contracts = (
+        (
+            "seed-cowboy-kush-demo.yml",
+            "I_APPROVE_COWBOY_KUSH_DEMO_SEED",
+            "python -m scripts.seed_cowboy_kush_ma_coa_demo --apply",
+        ),
+        (
+            "reset-dev-sandbox-vertical-inventory.yml",
+            "I_APPROVE_DEV_SANDBOX_RESET",
+            "python -m modules.coman.dev_sandbox_reset_job --apply",
+        ),
+    )
+    for name, approval, mutation_command in contracts:
+        source = (WORKFLOWS / name).read_text(encoding="utf-8")
+        _require("workflow_dispatch:" in source, f"{name} must retain an explicit manual trigger.")
+        _require(approval in source, f"{name} is missing its exact approval phrase.")
+        _require("github.event_name == 'workflow_dispatch'" in source, f"{name} mutation job is not manual-only.")
+        _require("inputs.confirmation ==" in source, f"{name} mutation job does not bind the confirmation input.")
+        _require(mutation_command in source, f"{name} reviewed mutation command changed unexpectedly.")
+        _require("DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}" in source, f"{name} must receive its write credential only from GitHub secrets.")
+
+
+def _verify_storefront_alias_workflow_is_validation_only() -> None:
+    source = (WORKFLOWS / "storefront-domain-mappings.yml").read_text(encoding="utf-8")
+    _require("validate_storefront_domains.py" in source, "Storefront alias workflow must validate the approved domain file.")
+    _require("domain aliases to the free Netlify site" in source, "Storefront alias workflow must describe the free-host handoff.")
+    _require("50-alias free-host operating limit" in source, "Storefront alias workflow must bound the approved alias set.")
 
 
 def main() -> None:
     _verify_render()
     _verify_netlify()
-    _verify_no_billable_google_release_path()
-    print("Zero-cost deployment contract verified: Netlify static frontend + Render free API, no paid-Google release path.")
+    _verify_no_billable_google_workflows()
+    _verify_manual_database_mutations_are_gated()
+    _verify_storefront_alias_workflow_is_validation_only()
+    print(
+        "Zero-cost deployment contract verified: Netlify static frontend + Render free API; "
+        "all GitHub workflows are free of Google control-plane/registry wiring and data mutations are explicitly gated."
+    )
 
 
 if __name__ == "__main__":
