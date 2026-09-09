@@ -74,6 +74,7 @@ def test_render_blueprint_is_free_only_and_waits_for_checks():
     assert "preDeployCommand" not in source
     assert "alembic upgrade head" in source
     assert "RENDER_EXTERNAL_HOSTNAME" in source
+    assert "RENDER_GIT_COMMIT" in source
     assert "backend/requirements.txt" in source
     assert "staticPublishPath: ./frontend/dist" in source
     assert "pnpm install --frozen-lockfile" in source
@@ -95,7 +96,7 @@ def test_render_blueprint_is_free_only_and_waits_for_checks():
     assert "SUPABASE_SERVICE_ROLE_KEY" not in source
 
 
-def test_render_frontend_is_static_lockfile_reproducible_and_spa_safe():
+def test_render_frontend_is_static_lockfile_reproducible_spa_safe_and_exactly_identified():
     source = (ROOT / "render.yaml").read_text(encoding="utf-8")
     static = source[source.index("name: doobielogic-ops") :]
     assert "runtime: static" in static
@@ -105,6 +106,10 @@ def test_render_frontend_is_static_lockfile_reproducible_and_spa_safe():
     assert "value: https://api.doobielogic.io" in static
     assert "source: /*" in static
     assert "destination: /index.html" in static
+    assert "RENDER_GIT_COMMIT" in static
+    assert "release.json" in static
+    assert "path: /release.json" in static
+    assert "no-store, no-cache, must-revalidate" in static
     assert "Cache-Control" in static
     assert not (ROOT / "netlify.toml").exists()
 
@@ -127,7 +132,7 @@ def test_hosted_ai_audit_is_provider_neutral_and_fail_closed():
     assert "AI_ALLOW_CLOUD_FALLBACK" in source
     assert "GEMINI_API_KEY" in source
     assert "OPENAI_API_KEY" in source
-    assert "Hosted Render API remains decoupled" in source
+    assert "hosted render api remains decoupled" in source.casefold()
 
 
 def test_database_mutation_workflows_are_manual_and_exactly_confirmed():
