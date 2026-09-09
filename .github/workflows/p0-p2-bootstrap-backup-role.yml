@@ -1,0 +1,69 @@
+name: P0-P2 Bootstrap Backup Role
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/p0-p2-bootstrap-backup-role.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p0-p2-bootstrap-backup-role
+  cancel-in-progress: false
+
+jobs:
+  derive-once:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'hardening/p0-p2-production-readiness' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      DATABASE_BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.DATABASE_BACKUP_ENCRYPTION_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/p0-p2-production-readiness
+
+      - name: Derive one-time SCRAM verifier without exposing backup password
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ${#DATABASE_BACKUP_ENCRYPTION_PASSPHRASE} -ge 32 || {
+            echo "::error::DATABASE_BACKUP_ENCRYPTION_PASSPHRASE is unavailable or shorter than 32 characters."
+            exit 1
+          }
+          python - <<'PY'
+          import base64
+          import hashlib
+          import hmac
+          import os
+          from pathlib import Path
+
+          source = os.environ["DATABASE_BACKUP_ENCRYPTION_PASSPHRASE"].encode("utf-8")
+          password_bytes = hmac.new(source, b"doobielogic-backup-db-v1", hashlib.sha256).digest()
+          password = base64.urlsafe_b64encode(password_bytes).decode("ascii").rstrip("=")
+          salt = os.urandom(16)
+          iterations = 4096
+          salted = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+          client_key = hmac.new(salted, b"Client Key", hashlib.sha256).digest()
+          stored_key = hashlib.sha256(client_key).digest()
+          server_key = hmac.new(salted, b"Server Key", hashlib.sha256).digest()
+          b64 = lambda value: base64.b64encode(value).decode("ascii")
+          verifier = f"SCRAM-SHA-256${iterations}:{b64(salt)}${b64(stored_key)}:{b64(server_key)}"
+          path = Path("deploy/bootstrap/backup_role_scram.txt")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(verifier + "\n", encoding="utf-8")
+          print("Derived backup-role SCRAM verifier; plaintext derived password was not written or printed.")
+          PY
+
+      - name: Commit verifier and remove bootstrap workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/bootstrap/backup_role_scram.txt
+          git rm .github/workflows/p0-p2-bootstrap-backup-role.yml
+          git commit -m "Bootstrap dedicated production backup role"
+          git push origin HEAD:hardening/p0-p2-production-readiness
