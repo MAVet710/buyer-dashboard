@@ -56,7 +56,8 @@ services:
       corepack enable &&
       cd frontend &&
       pnpm install --frozen-lockfile &&
-      pnpm build
+      pnpm build &&
+      printf '{"release_sha":"%s"}\n' "${RENDER_GIT_COMMIT:-unknown}" > dist/release.json
     staticPublishPath: ./frontend/dist
     domains:
       - doobielogic.io
@@ -75,6 +76,9 @@ services:
       - path: /*
         name: X-Frame-Options
         value: DENY
+      - path: /release.json
+        name: Cache-Control
+        value: no-store, no-cache, must-revalidate
       - path: /assets/*
         name: Cache-Control
         value: public, max-age=31536000, immutable
