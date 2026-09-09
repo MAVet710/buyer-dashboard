@@ -10,6 +10,7 @@ services:
     dockerCommand: >-
       sh -c 'alembic upgrade head &&
       export RELEASE_SHA="${RENDER_GIT_COMMIT:-render}" &&
+      export ALLOWED_HOSTS="api.doobielogic.io,${RENDER_EXTERNAL_HOSTNAME}" &&
       exec uvicorn backend.app.main:app --host 0.0.0.0 --port "${PORT:-10000}" --proxy-headers --forwarded-allow-ips="*"'
     healthCheckPath: /health/ready
     domains:
@@ -19,8 +20,6 @@ services:
         value: production
       - key: CORS_ORIGINS
         value: https://doobielogic.io,https://ops.doobielogic.io
-      - key: ALLOWED_HOSTS
-        value: api.doobielogic.io,doobielogic-api.onrender.com
       - key: DATABASE_POOL_SIZE
         value: "1"
       - key: DATABASE_MAX_OVERFLOW
