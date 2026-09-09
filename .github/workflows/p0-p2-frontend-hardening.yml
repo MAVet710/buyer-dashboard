@@ -1,0 +1,75 @@
+name: P0-P2 Frontend Hardening
+
+on:
+  push:
+    branches: [hardening/p0-p2-production-readiness]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p0-p2-frontend-hardening
+  cancel-in-progress: false
+
+jobs:
+  apply-and-prove:
+    if: ${{ !contains(github.event.head_commit.message, '[p0-p2-autofix]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/p0-p2-production-readiness
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Apply deterministic reactive-state fixes
+        run: python scripts/apply_p0_p2_frontend_hardening.py
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Require warning-free frontend lint
+        working-directory: frontend
+        run: pnpm exec eslint . --max-warnings=0
+
+      - name: Run frontend unit tests
+        working-directory: frontend
+        run: pnpm test
+
+      - name: Build production frontend
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Reject whitespace errors
+        run: git diff --check
+
+      - name: Commit proven hardening changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Hardening migration produced no changes."
+            exit 0
+          fi
+          git config user.name "DoobieLogic CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add frontend/src/pages/ExtractionPage.tsx \
+                  frontend/src/pages/AdminToolsPage.tsx \
+                  frontend/src/pages/IntegrationsPage.tsx \
+                  frontend/src/pages/LocationSettingsPage.tsx
+          git commit -m "[p0-p2-autofix] Finish frontend reactive hardening"
+          git push origin HEAD:hardening/p0-p2-production-readiness
