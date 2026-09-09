@@ -42,6 +42,13 @@ def test_backup_proves_auth_and_restore_before_retaining_encrypted_artifact():
     assert "PGCONNECT_TIMEOUT=15" in source
     assert "select count(*) from alembic_version" in source
     assert "AES256" in source
+    assert "doobielogic_backup_runtime.fovxtygwcxubjzjgovva" in source
+    assert "doobielogic-backup-db-v1" in source
+    assert "aws-1-us-east-2.pooler.supabase.com" in source
+    assert "--schema=public" in source
+    assert "DATABASE_BACKUP_URL" not in source
+    assert "DL_PROD_DB_URL" not in source
+    assert "pull_request:" not in source
 
 
 def test_all_action_workflows_are_free_of_google_control_plane_wiring():
