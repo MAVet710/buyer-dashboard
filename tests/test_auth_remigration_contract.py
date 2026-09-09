@@ -47,10 +47,13 @@ def test_username_login_uses_durable_username_instead_of_fabricated_email_alias(
     assert 'AppUser.normalized_username == normalized_username' in account
     assert '/auth/v1/token?grant_type=password' in account
     assert 'auth_session["auth_user_id"] != app_user_id' in account
+    assert 'settings.supabase_auth_api_key' in account
 
 
-def test_password_gate_keeps_first_login_change_requirement_with_doobielogic_branding():
+def test_password_gate_is_enforced_and_verified_server_side_without_service_role():
     password = source("frontend/src/components/PasswordGate.tsx")
+    account = source("backend/app/routers/account.py")
+    auth = source("backend/app/auth.py")
     for marker in (
         "DoobieLogic",
         "First login security",
@@ -59,10 +62,25 @@ def test_password_gate_keeps_first_login_change_requirement_with_doobielogic_bra
         "at least 12 characters",
         "Confirm new password",
         "Set password & continue",
-        "/api/v1/account/password-changed",
+        "/api/v1/account/password",
     ):
         assert marker in password
+    assert "supabase!.auth.updateUser" not in password
     assert "<strong>Buyer Dash</strong>" not in password
+
+    assert '@router.post("/password")' in account
+    assert '/auth/v1/user' in account
+    assert '"Authorization": f"Bearer {token}"' in account
+    assert '@router.post("/password-changed")' not in account
+    assert 'user.must_change_password = False' in account
+    assert '_supabase_set_password(settings, credentials.credentials, payload.password)' in account
+    assert 'supabase_service_role_key' not in account
+    assert 'settings.supabase_auth_api_key' in account
+
+    assert 'user.must_change_password and not _password_change_path_allowed' in auth
+    assert 'Password change required before using the operations API.' in auth
+    assert 'f"{normalized_prefix}/account/context"' in auth
+    assert 'f"{normalized_prefix}/account/password"' in auth
 
 
 def test_legal_gate_and_trial_sandbox_boundary_remain_mandatory():
