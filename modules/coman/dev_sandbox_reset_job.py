@@ -254,7 +254,7 @@ def run(database_url: str, *, apply: bool, generation: str | None = None) -> dic
         organization_id,
         facility_id,
         generation=generation_code,
-        actor="cloud-run:dev-vertical-inventory-reset",
+        actor="automation:dev-vertical-inventory-reset",
     )
     validation = _validate(engine, organization_id, facility_id, result)
     return {
