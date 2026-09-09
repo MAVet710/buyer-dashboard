@@ -96,7 +96,7 @@ def test_api_surfaces_field_level_validation_errors():
     api = (ROOT / "frontend" / "src" / "lib" / "api.ts").read_text(encoding="utf-8")
     assert "validationDetails" in api
     assert "const fieldErrors = validationDetails(payload.detail)" in api
-    assert "if (fieldErrors) return fieldErrors"
+    assert "if (fieldErrors) return fieldErrors" in api
     assert "One or more request fields are invalid" in api
 
 
