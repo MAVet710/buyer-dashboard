@@ -1,8 +1,7 @@
 """Database configuration for the Co-Man workspace.
 
 Co-Man data must never silently fall back to an ephemeral database in a hosted
-deployment. Callers must provide COMAN_DATABASE_URL or DATABASE_URL. Tests and
-local tools can pass an explicit SQLite URL.
+deployment. Callers must provide a durable PostgreSQL URL explicitly.
 """
 
 from __future__ import annotations
@@ -24,8 +23,8 @@ def resolve_database_url(explicit_url: str | None = None) -> str:
         or ""
     ).strip()
     if not database_url:
-        # Root-level Streamlit secrets are the safest free-hosting option and
-        # keep the Supabase password out of source control.
+        # Root-level Streamlit secrets remain supported for local/community
+        # hosting, but production FastAPI never silently falls back to SQLite.
         try:
             import streamlit as st
 
@@ -38,7 +37,7 @@ def resolve_database_url(explicit_url: str | None = None) -> str:
             database_url = ""
     if not database_url:
         raise ComanDatabaseConfigurationError(
-            "Co-Man database is not configured. Set COMAN_DATABASE_URL."
+            "Co-Man database is not configured. Set DATABASE_URL."
         )
     if database_url.startswith("postgres://"):
         database_url = "postgresql+psycopg://" + database_url[len("postgres://") :]
@@ -64,8 +63,8 @@ def create_coman_engine(database_url: str | None = None) -> Engine:
         options["connect_args"] = {"check_same_thread": False}
     else:
         # Supabase session-mode pooling has a finite server-side connection
-        # budget. Keep every process on a small, bounded pool so normal traffic
-        # plus a rolling Cloud Run revision can stay below the session ceiling.
+        # budget. Keep every process on a small, bounded pool so the Render Free
+        # service cannot exhaust the database session ceiling.
         options["pool_size"] = _int_setting("DATABASE_POOL_SIZE", 2, minimum=1)
         options["max_overflow"] = _int_setting("DATABASE_MAX_OVERFLOW", 0, minimum=0)
         options["pool_timeout"] = _int_setting("DATABASE_POOL_TIMEOUT", 30, minimum=1)

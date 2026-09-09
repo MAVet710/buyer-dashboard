@@ -6,32 +6,18 @@ from backend.app.config import Settings
 from backend.app.routers import beta
 
 
-class _FakeSMTP:
-    sent_message = None
+def test_beta_application_routes_from_info_to_nelson_through_shared_transport(monkeypatch):
+    captured = {}
 
-    def __init__(self, *args, **kwargs):
-        pass
+    def fake_send(settings, message):
+        captured["settings"] = settings
+        captured["message"] = message
+        return "resend"
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def login(self, username, password):
-        assert username == "nelson@doobielogic.io"
-        assert password == "secret"
-
-    def send_message(self, message):
-        _FakeSMTP.sent_message = message
-        return {}
-
-
-def test_beta_application_routes_from_info_to_nelson(monkeypatch):
-    monkeypatch.setattr(beta.smtplib, "SMTP_SSL", _FakeSMTP)
+    monkeypatch.setattr(beta, "send_transactional_message", fake_send)
     settings = Settings(
-        spacemail_smtp_username="nelson@doobielogic.io",
-        spacemail_smtp_password="secret",
+        resend_api_key="server-only-resend-key",
+        spacemail_smtp_password="",
         spacemail_from_email="support@doobielogic.io",
         spacemail_info_email="info@doobielogic.io",
     )
@@ -55,10 +41,11 @@ def test_beta_application_routes_from_info_to_nelson(monkeypatch):
         settings=settings,
     )
 
-    message = _FakeSMTP.sent_message
+    message = captured["message"]
     assert result == {"accepted": True}
-    assert message is not None
+    assert captured["settings"].resend_api_key == "server-only-resend-key"
     assert message["From"] == "DoobieLogic Beta <info@doobielogic.io>"
     assert message["To"] == "nelson@doobielogic.io"
     assert message["Reply-To"] == "operator@example.com"
     assert "Test Cannabis Co" in message["Subject"]
+    assert "We need better operational visibility" in message.get_content()

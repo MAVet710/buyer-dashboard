@@ -452,7 +452,7 @@ function LocationUpdateForm({ data, canPrepare, pending, onPrepare }: { data?: R
     if (!selected) return;
     setName(value(selected, "Name", "name"));
     setLocationType(value(selected, "LocationTypeName", "locationTypeName"));
-  }, [selectedId, data]);
+  }, [selected]);
 
   if (!data?.locations.length) return null;
   return <details className="inventory-panel">
@@ -473,7 +473,7 @@ function StrainUpdateForm({ data, canPrepare, pending, onPrepare }: { data?: Str
 
   useEffect(() => {
     if (selected) setName(value(selected, "Name", "name"));
-  }, [selectedId, data]);
+  }, [selected]);
 
   if (!data?.strains.length) return null;
   const review = () => {
@@ -591,7 +591,7 @@ function ItemUpdateForm({ data, canPrepare, pending, onPrepare }: { data?: Items
     setBrand(value(selected, "ItemBrand", "BrandName"));
     setStrain(value(selected, "Strain", "StrainName"));
     setDescription(value(selected, "Description"));
-  }, [selectedId, data]);
+  }, [selected]);
 
   if (!data?.items.length) return null;
   const review = () => {

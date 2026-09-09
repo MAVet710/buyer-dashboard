@@ -3,6 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from backend.app.config import Settings
 from backend.app.database import get_engine
 from backend.app.main import app
 from backend.app.routers import account as account_router
@@ -38,6 +39,39 @@ def _engine(*, include_user: bool = True, active: bool = True):
                 )
             )
     return engine
+
+
+def test_password_exchange_prefers_publishable_key_over_service_role(monkeypatch):
+    observed = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return (
+                b'{"access_token":"access","refresh_token":"refresh",'
+                b'"user":{"id":"11111111-1111-1111-1111-111111111111"}}'
+            )
+
+    def fake_urlopen(request, timeout):
+        observed["api_key"] = request.get_header("Apikey")
+        observed["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(account_router, "urlopen", fake_urlopen)
+    settings = Settings(
+        supabase_url="https://project.supabase.co",
+        supabase_publishable_key="publishable-key",
+        supabase_service_role_key="privileged-key",
+    )
+    session = account_router._supabase_password_session(settings, "linked-user@example.com", "password")
+
+    assert observed == {"api_key": "publishable-key", "timeout": 10}
+    assert session["auth_user_id"] == USER_ID
 
 
 def test_username_login_resolves_case_insensitively_and_issues_linked_supabase_session(monkeypatch):

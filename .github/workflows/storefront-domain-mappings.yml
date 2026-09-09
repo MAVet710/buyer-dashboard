@@ -9,21 +9,20 @@ on:
       - ".github/workflows/storefront-domain-mappings.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: doobielogic-storefront-domains
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
-  REGION: us-east1
-  WEB_SERVICE: buyer-dash-web
   DOMAIN_CONFIG: deploy/storefront-domains.txt
 
 jobs:
-  ensure-domain-mappings:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+  validate-domain-aliases:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
 
@@ -34,66 +33,34 @@ jobs:
       - name: Validate approved storefront domains
         run: python scripts/validate_storefront_domains.py "$DOMAIN_CONFIG"
 
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Install Cloud Run beta commands non-interactively
-        run: gcloud components install beta --quiet
-
-      - name: Ensure exact Cloud Run storefront mappings
+      - name: Verify aliases fit the free static-host model
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t DOMAINS < <(python scripts/validate_storefront_domains.py "$DOMAIN_CONFIG" --print)
+          mapfile -t domains < <(python scripts/validate_storefront_domains.py "$DOMAIN_CONFIG" --print)
+          count="${#domains[@]}"
+          if [ "$count" -gt 50 ]; then
+            echo "Approved storefront aliases ($count) exceed the conservative 50-alias free-host operating limit."
+            exit 1
+          fi
 
-          for DOMAIN in "${DOMAINS[@]}"; do
-            echo "=== $DOMAIN ==="
-            MAPPING_JSON=""
-            if MAPPING_JSON="$(gcloud beta run domain-mappings describe \
-              --domain "$DOMAIN" \
-              --region "${{ env.REGION }}" \
-              --project "${{ secrets.GCP_PROJECT_ID }}" \
-              --format=json 2>/dev/null)"; then
-              ROUTE_NAME="$(printf '%s' "$MAPPING_JSON" | jq -r '.spec.routeName // ""')"
-              if [ "$ROUTE_NAME" != "${{ env.WEB_SERVICE }}" ]; then
-                echo "Refusing to reuse $DOMAIN because it maps to '$ROUTE_NAME', not '${{ env.WEB_SERVICE }}'."
+          for domain in "${domains[@]}"; do
+            case "$domain" in
+              api.doobielogic.io|ops.doobielogic.io|www.doobielogic.io)
+                echo "Reserved platform domain unexpectedly entered storefront list: $domain"
                 exit 1
-              fi
-              echo "Existing mapping already targets $ROUTE_NAME."
-            else
-              echo "Creating mapping for $DOMAIN -> ${{ env.WEB_SERVICE }}"
-              gcloud beta run domain-mappings create \
-                --service "${{ env.WEB_SERVICE }}" \
-                --domain "$DOMAIN" \
-                --region "${{ env.REGION }}" \
-                --project "${{ secrets.GCP_PROJECT_ID }}" \
-                --platform managed \
-                --quiet
-            fi
-
-            MAPPING_JSON="$(gcloud beta run domain-mappings describe \
-              --domain "$DOMAIN" \
-              --region "${{ env.REGION }}" \
-              --project "${{ secrets.GCP_PROJECT_ID }}" \
-              --format=json)"
-            ROUTE_NAME="$(printf '%s' "$MAPPING_JSON" | jq -r '.spec.routeName // ""')"
-            [ "$ROUTE_NAME" = "${{ env.WEB_SERVICE }}" ] || {
-              echo "Mapping target verification failed for $DOMAIN: '$ROUTE_NAME'"
-              exit 1
-            }
-
-            echo "### $DOMAIN" >> "$GITHUB_STEP_SUMMARY"
-            echo "Cloud Run service: \`$ROUTE_NAME\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "Required DNS records:" >> "$GITHUB_STEP_SUMMARY"
-            echo '```text' >> "$GITHUB_STEP_SUMMARY"
-            printf '%s' "$MAPPING_JSON" | jq -r '.status.resourceRecords[]? | "\(.type) \(.name) \(.rrdata)"' | tee -a "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            READY="$(printf '%s' "$MAPPING_JSON" | jq -r '[.status.conditions[]? | select(.type == "Ready") | .status][0] // "Pending"')"
-            echo "Mapping readiness: \`$READY\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
+                ;;
+            esac
           done
+
+          {
+            echo '## Approved DoobieCommerce storefront aliases'
+            echo
+            echo "Validated **$count** exact storefront hostname(s)."
+            echo
+            for domain in "${domains[@]}"; do
+              echo "- \`$domain\`"
+            done
+            echo
+            echo 'These hosts are routed by the React storefront host boundary and must be attached as domain aliases to the free Render static site. This workflow validates only; it never creates DNS or cloud resources.'
+          } >> "$GITHUB_STEP_SUMMARY"

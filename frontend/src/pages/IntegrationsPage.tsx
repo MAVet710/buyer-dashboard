@@ -138,10 +138,12 @@ function QuickBooksCard({ value, onSaved }: { value: Integration; onSaved: () =>
   </IntegrationCard>;
 }
 
+const SPACEMAIL_DEFAULTS = { smtp_username: "nelson@doobielogic.io", from_email: "support@doobielogic.io", from_name: "DoobieLogic Support", support_email: "support@doobielogic.io", help_email: "help@doobielogic.io", info_email: "info@doobielogic.io", welcome_email_enabled: true, mailbox_password: "" };
+
 function SpacemailCard({ value, onSaved }: { value: Integration; onSaved: () => void }) {
-  const defaults = { smtp_username: "nelson@doobielogic.io", from_email: "support@doobielogic.io", from_name: "DoobieLogic Support", support_email: "support@doobielogic.io", help_email: "help@doobielogic.io", info_email: "info@doobielogic.io", welcome_email_enabled: true, mailbox_password: "" };
+  const defaults = SPACEMAIL_DEFAULTS;
   const [form, setForm] = useState(defaults);
-  useEffect(() => setForm(current => ({ ...current, smtp_username: String(value.configuration.smtp_username ?? defaults.smtp_username), from_email: String(value.configuration.from_email ?? defaults.from_email), from_name: String(value.configuration.from_name ?? defaults.from_name), support_email: String(value.configuration.support_email ?? defaults.support_email), help_email: String(value.configuration.help_email ?? defaults.help_email), info_email: String(value.configuration.info_email ?? defaults.info_email), welcome_email_enabled: value.configuration.welcome_email_enabled === undefined ? true : Boolean(value.configuration.welcome_email_enabled) })), [value]);
+  useEffect(() => setForm(current => ({ ...current, smtp_username: String(value.configuration.smtp_username ?? defaults.smtp_username), from_email: String(value.configuration.from_email ?? defaults.from_email), from_name: String(value.configuration.from_name ?? defaults.from_name), support_email: String(value.configuration.support_email ?? defaults.support_email), help_email: String(value.configuration.help_email ?? defaults.help_email), info_email: String(value.configuration.info_email ?? defaults.info_email), welcome_email_enabled: value.configuration.welcome_email_enabled === undefined ? true : Boolean(value.configuration.welcome_email_enabled) })), [value, defaults]);
   const save = useMutation({ mutationFn: () => apiPost("/api/v1/integrations/spacemail", { ...form, mailbox_password: form.mailbox_password || null }), onSuccess: () => { setForm(current => ({ ...current, mailbox_password: "" })); onSaved(); } });
   const test = useMutation({ mutationFn: () => apiPost<Integration & { result: { ok: boolean; message: string } }>("/api/v1/integrations/spacemail/test", {}), onSuccess: onSaved });
   const clear = useMutation({ mutationFn: () => apiPost("/api/v1/integrations/spacemail/clear", {}), onSuccess: () => { setForm(defaults); onSaved(); } });

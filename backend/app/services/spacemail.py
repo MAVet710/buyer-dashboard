@@ -9,6 +9,7 @@ import re
 import smtplib
 import ssl
 
+import requests
 from sqlalchemy import Engine
 
 from modules.integrations import IntegrationConfigurationService
@@ -28,12 +29,12 @@ class WelcomeEmailDelivery:
 
 
 def resolve_spacemail_settings(engine: Engine, settings: Settings) -> Settings:
-    """Resolve platform Spacemail settings without exposing the mailbox password.
+    """Resolve platform mail settings without exposing the mailbox password.
 
     A deployment-level secret takes precedence. If no environment secret is
     present, Level DEV can store the mailbox password in DoobieLogic's encrypted
-    integration credential store and the runtime decrypts it only for the SMTP
-    connection.
+    integration credential store and the runtime decrypts it only for SMTP/IMAP.
+    Resend credentials are deployment-only and are never loaded from this store.
     """
 
     if settings.spacemail_smtp_password:
@@ -241,12 +242,7 @@ def _sent_mailbox(imap) -> str:
 
 
 def _save_sent_copy(settings: Settings, message: EmailMessage) -> bool:
-    """Best-effort IMAP append so app-generated mail appears in webmail Sent.
-
-    SMTP delivery has already succeeded by the time this runs. Failure to append
-    a bookkeeping copy must never roll back a successfully created user or cause
-    a duplicate transactional email on retry.
-    """
+    """Best-effort IMAP append so SMTP-generated mail appears in webmail Sent."""
 
     imap = None
     try:
@@ -269,7 +265,71 @@ def _save_sent_copy(settings: Settings, message: EmailMessage) -> bool:
                 pass
 
 
+def _resend_payload(message: EmailMessage) -> dict[str, object]:
+    plain_part = message.get_body(preferencelist=("plain",))
+    html_part = message.get_body(preferencelist=("html",))
+    payload: dict[str, object] = {
+        "from": str(message.get("From") or "").strip(),
+        "to": [str(message.get("To") or "").strip()],
+        "subject": str(message.get("Subject") or "").strip(),
+        "text": plain_part.get_content() if plain_part is not None else "",
+    }
+    if html_part is not None:
+        payload["html"] = html_part.get_content()
+    reply_to = str(message.get("Reply-To") or "").strip()
+    if reply_to:
+        payload["reply_to"] = [reply_to]
+    return payload
+
+
+def _send_with_resend(settings: Settings, message: EmailMessage) -> None:
+    try:
+        response = requests.post(
+            f"{settings.resend_api_url.rstrip('/')}/emails",
+            headers={
+                "Authorization": f"Bearer {settings.resend_api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "DoobieLogic/transactional-email",
+            },
+            json=_resend_payload(message),
+            timeout=settings.resend_timeout_seconds,
+        )
+        if response.status_code < 200 or response.status_code >= 300:
+            raise SpacemailError("Transactional email provider rejected the message.")
+    except SpacemailError:
+        raise
+    except requests.RequestException as exc:
+        raise SpacemailError("Transactional email provider is temporarily unavailable.") from exc
+
+
+def send_transactional_message(settings: Settings, message: EmailMessage) -> str:
+    """Send one message through the safest available server-side transport.
+
+    HTTPS/Resend is preferred because Render Free blocks standard SMTP egress.
+    SMTP remains a local/legacy fallback when Resend is not configured.
+    """
+
+    if settings.resend_is_configured:
+        _send_with_resend(settings, message)
+        return "resend"
+    if settings.spacemail_is_configured:
+        try:
+            with _smtp_login(settings) as smtp:
+                smtp.login(settings.spacemail_smtp_username, settings.spacemail_smtp_password)
+                refused = smtp.send_message(message)
+                if refused:
+                    raise SpacemailError("Spacemail rejected the email recipient.")
+        except SpacemailError:
+            raise
+        except (smtplib.SMTPException, OSError, TimeoutError) as exc:
+            raise SpacemailError("Spacemail could not deliver the DoobieLogic email.") from exc
+        return "smtp"
+    raise SpacemailError("Transactional email delivery is not configured on the server.")
+
+
 def test_spacemail_connection(settings: Settings) -> dict[str, object]:
+    """Test only the optional legacy Spacemail SMTP integration."""
+
     if not settings.spacemail_is_configured:
         return {"ok": False, "message": "Spacemail SMTP credentials are not configured."}
     try:
@@ -295,8 +355,8 @@ def send_welcome_email(
         raise SpacemailError("A delivery email address is required for the welcome message.")
     if not settings.spacemail_welcome_email_enabled:
         raise SpacemailError("DoobieLogic welcome email delivery is disabled.")
-    if not settings.spacemail_is_configured:
-        raise SpacemailError("Spacemail welcome email delivery is not configured on the server.")
+    if not settings.transactional_email_is_configured:
+        raise SpacemailError("DoobieLogic welcome email delivery is not configured on the server.")
 
     message = build_welcome_message(
         settings,
@@ -305,18 +365,8 @@ def send_welcome_email(
         username=username,
         temporary_password=temporary_password,
     )
-    try:
-        with _smtp_login(settings) as smtp:
-            smtp.login(settings.spacemail_smtp_username, settings.spacemail_smtp_password)
-            refused = smtp.send_message(message)
-            if refused:
-                raise SpacemailError("Spacemail rejected the welcome email recipient.")
-    except SpacemailError:
-        raise
-    except (smtplib.SMTPException, OSError, TimeoutError) as exc:
-        raise SpacemailError("Spacemail could not deliver the DoobieLogic welcome email.") from exc
-
-    sent_copy_saved = _save_sent_copy(settings, message)
+    transport = send_transactional_message(settings, message)
+    sent_copy_saved = _save_sent_copy(settings, message) if transport == "smtp" else False
     return WelcomeEmailDelivery(
         sent=True,
         recipient=recipient,
