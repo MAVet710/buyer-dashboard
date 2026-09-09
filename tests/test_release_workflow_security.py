@@ -59,8 +59,9 @@ def test_all_action_workflows_are_free_of_google_control_plane_wiring():
             assert token.casefold() not in source.casefold(), (path.name, token)
 
 
-def test_render_blueprint_is_free_only_and_waits_for_checks():
+def test_render_blueprint_is_free_only_check_gated_and_non_ddl():
     source = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    api = source.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
     assert "name: doobielogic-api" in source
     assert "name: doobielogic-ops" in source
     assert "runtime: python" in source
@@ -72,9 +73,9 @@ def test_render_blueprint_is_free_only_and_waits_for_checks():
     assert "ops.doobielogic.io" in source
     assert "doobielogic.io" in source
     assert "preDeployCommand" not in source
-    assert "alembic upgrade head" in source
-    assert "RENDER_EXTERNAL_HOSTNAME" in source
-    assert "RENDER_GIT_COMMIT" in source
+    assert "alembic upgrade head" not in api
+    assert "RENDER_EXTERNAL_HOSTNAME" in api
+    assert "RENDER_GIT_COMMIT" in api
     assert "backend/requirements.txt" in source
     assert "staticPublishPath: ./frontend/dist" in source
     assert "pnpm install --frozen-lockfile" in source
@@ -83,16 +84,20 @@ def test_render_blueprint_is_free_only_and_waits_for_checks():
     assert '- key: AI_PROVIDER_MODE\n        value: disabled' in source
     assert '- key: AI_PROVIDER_ORDER\n        value: none' in source
     assert '- key: AI_ALLOW_CLOUD_FALLBACK\n        value: "false"' in source
+    assert "RESEND_API_KEY" in api
+    assert "SPACEMAIL_SMTP_PASSWORD" not in api
     for key in (
         "DATABASE_URL",
         "SUPABASE_URL",
         "SUPABASE_JWKS_URL",
         "SUPABASE_PUBLISHABLE_KEY",
         "INTEGRATION_ENCRYPTION_KEY",
+        "RESEND_API_KEY",
         "VITE_SUPABASE_URL",
         "VITE_SUPABASE_PUBLISHABLE_KEY",
     ):
         assert f"- key: {key}\n        sync: false" in source
+    assert "DATABASE_SEAL_PRIVATE_KEY" not in source
     assert "SUPABASE_SERVICE_ROLE_KEY" not in source
 
 
