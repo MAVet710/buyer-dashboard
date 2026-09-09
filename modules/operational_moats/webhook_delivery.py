@@ -19,6 +19,7 @@ from sqlalchemy.orm import sessionmaker
 from modules.coman.models import utc_now
 from .models import WebhookDelivery, WebhookSubscription
 from .service import OperationalMoatService
+from .webhook_security import UnsafeWebhookTarget, validate_webhook_target
 
 
 class WebhookDeliveryError(RuntimeError):
@@ -55,6 +56,10 @@ class WebhookDeliveryService:
         event_types: list[str],
         actor: str,
     ) -> tuple[WebhookSubscription, str]:
+        try:
+            target_url = validate_webhook_target(target_url, resolve_dns=False)
+        except UnsafeWebhookTarget as exc:
+            raise WebhookDeliveryError(str(exc)) from exc
         row, secret = OperationalMoatService(self.engine).create_webhook(
             organization_id=organization_id,
             facility_id=facility_id,
@@ -184,10 +189,24 @@ class WebhookDeliveryService:
             }
 
         try:
-            response = requests.post(target_url, data=body.encode(), headers=headers, timeout=timeout_seconds)
+            target_url = validate_webhook_target(target_url, resolve_dns=True)
+            # Never follow redirects. A public target must not be able to bounce
+            # the delivery worker into loopback, link-local or private networks.
+            response = requests.post(
+                target_url,
+                data=body.encode(),
+                headers=headers,
+                timeout=timeout_seconds,
+                allow_redirects=False,
+            )
             success = 200 <= response.status_code < 300
             retryable = response.status_code == 429 or response.status_code >= 500
             error = "" if success else f"Webhook target returned HTTP {response.status_code}."
+        except UnsafeWebhookTarget as exc:
+            response = None
+            success = False
+            retryable = False
+            error = f"Webhook target blocked by network policy: {exc}"
         except requests.RequestException as exc:
             response = None
             success = False
