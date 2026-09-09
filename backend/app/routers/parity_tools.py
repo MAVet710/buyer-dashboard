@@ -27,6 +27,7 @@ from ..auth import RequestContext, get_request_context, get_retail_context
 from ..database import get_engine
 
 router = APIRouter(prefix="/parity-tools", tags=["parity-tools"], dependencies=[Depends(get_retail_context)])
+MAX_NOMENCLATURE_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 class EquivalencyRequest(BaseModel):
@@ -79,6 +80,13 @@ def _catalog_records(frame: pd.DataFrame, *, limit: int | None = None) -> list[d
             }
         )
     return rows
+
+
+async def _bounded_nomenclature_upload(file: UploadFile, label: str) -> bytes:
+    payload = await file.read(MAX_NOMENCLATURE_UPLOAD_BYTES + 1)
+    if len(payload) > MAX_NOMENCLATURE_UPLOAD_BYTES:
+        raise HTTPException(413, f"{label} files must be 10 MB or smaller.")
+    return payload
 
 
 @router.post("/ma-flower-equivalency")
@@ -137,9 +145,7 @@ def nomenclature_status(context: RequestContext = Depends(get_request_context), 
 
 @router.post("/nomenclature/catalog/preview")
 async def nomenclature_catalog_preview(file: UploadFile = File(...)):
-    payload = await file.read()
-    if len(payload) > 10 * 1024 * 1024:
-        raise HTTPException(413, "Catalog files must be 10 MB or smaller.")
+    payload = await _bounded_nomenclature_upload(file, "Catalog")
     try:
         frame = prepare_catalog(payload, file.filename or "catalog.csv")
     except ValueError as exc:
@@ -156,9 +162,7 @@ async def nomenclature_catalog(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
-    payload = await file.read()
-    if len(payload) > 10 * 1024 * 1024:
-        raise HTTPException(413, "Catalog files must be 10 MB or smaller.")
+    payload = await _bounded_nomenclature_upload(file, "Catalog")
     try:
         frame = prepare_catalog(payload, file.filename or "catalog.csv")
         saved = _store(engine).replace_catalog(context.organization_id, frame.to_dict("records"), context.user_id)
@@ -190,9 +194,7 @@ async def nomenclature_manifest(
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
 ):
-    raw = await file.read()
-    if len(raw) > 10 * 1024 * 1024:
-        raise HTTPException(413, "Manifest files must be 10 MB or smaller.")
+    raw = await _bounded_nomenclature_upload(file, "Manifest")
     store = _store(engine)
     records = store.list_catalog(context.organization_id)
     if not records:
