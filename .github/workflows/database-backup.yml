@@ -7,10 +7,6 @@ on:
   workflow_run:
     workflows: ["Deploy to DoobieLogic"]
     types: [completed]
-  pull_request:
-    branches: [main]
-    paths:
-      - .github/workflows/database-backup.yml
 
 permissions:
   contents: read
@@ -21,7 +17,7 @@ concurrency:
 
 jobs:
   backup-and-restore-test:
-    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'hardening/p0-p2-production-readiness') || (github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'))) }}
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
