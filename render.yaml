@@ -11,18 +11,16 @@ services:
       python -m pip install -r backend/requirements.txt
     startCommand: >-
       sh -c 'export RELEASE_SHA="${RENDER_GIT_COMMIT:-render}" &&
-      export ALLOWED_HOSTS="api.doobielogic.io,${RENDER_EXTERNAL_HOSTNAME}" &&
+      export ALLOWED_HOSTS="${RENDER_EXTERNAL_HOSTNAME}" &&
       exec uvicorn backend.app.main:app --host 0.0.0.0 --port "${PORT:-10000}" --proxy-headers --forwarded-allow-ips="*"'
     healthCheckPath: /health/ready
-    domains:
-      - api.doobielogic.io
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.11
       - key: APP_ENV
         value: production
       - key: CORS_ORIGINS
-        value: https://doobielogic.io,https://ops.doobielogic.io
+        value: https://doobielogic.io,https://ops.doobielogic.io,https://cowboykush.doobielogic.io
       - key: DATABASE_POOL_SIZE
         value: "1"
       - key: DATABASE_MAX_OVERFLOW
@@ -54,15 +52,17 @@ services:
     branch: main
     autoDeployTrigger: checksPass
     buildCommand: >-
-      corepack enable &&
       cd frontend &&
       pnpm install --frozen-lockfile &&
       pnpm build &&
       printf '{"release_sha":"%s"}\n' "${RENDER_GIT_COMMIT:-unknown}" > dist/release.json
     staticPublishPath: ./frontend/dist
+    # Render Hobby includes two custom domains. Root + wildcard keeps the
+    # application, ops surface, Cowboy Kush, and future storefront aliases on
+    # the free plan. The browser calls the API through its free Render hostname.
     domains:
       - doobielogic.io
-      - ops.doobielogic.io
+      - "*.doobielogic.io"
     routes:
       - type: rewrite
         source: /*
@@ -87,7 +87,7 @@ services:
       - key: NODE_VERSION
         value: "22"
       - key: VITE_API_URL
-        value: https://api.doobielogic.io
+        value: https://doobielogic-api.onrender.com
       - key: VITE_SUPABASE_URL
         sync: false
       - key: VITE_SUPABASE_PUBLISHABLE_KEY
