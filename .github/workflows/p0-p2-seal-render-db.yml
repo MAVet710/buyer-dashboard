@@ -1,0 +1,108 @@
+name: P0-P2 Seal Render Database
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/p0-p2-seal-render-db.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p0-p2-seal-render-db
+  cancel-in-progress: false
+
+jobs:
+  seal-once:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'hardening/p0-p2-production-readiness' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}
+      RENDER_DB_SEAL_PUBLIC_KEY: XWdyCnLSxHjUb4BWIQ-3SyCYrpoArafInFfTSxn9iRA=
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/p0-p2-production-readiness
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install seal dependencies
+        run: python -m pip install "psycopg[binary]>=3.1" "cryptography>=50,<51"
+
+      - name: Validate live database and produce authenticated ciphertext
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${DL_PROD_DB_URL:-}" || {
+            echo "::error::DL_PROD_DB_URL is not available to the bootstrap workflow."
+            exit 1
+          }
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import secrets
+          from pathlib import Path
+
+          import psycopg
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+          from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+          aad = b"doobielogic-render-db-v1"
+          database_url = str(os.environ.get("DL_PROD_DB_URL") or "").strip()
+          connect_url = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+          if not connect_url.startswith(("postgres://", "postgresql://")):
+              raise SystemExit("Production DB secret is not a PostgreSQL URL.")
+
+          with psycopg.connect(connect_url, connect_timeout=10) as connection:
+              with connection.cursor() as cursor:
+                  cursor.execute("select 1")
+                  if cursor.fetchone() != (1,):
+                      raise SystemExit("Production DB preflight failed.")
+                  cursor.execute("select version_num from alembic_version")
+                  rows = cursor.fetchall()
+          if len(rows) != 1 or not rows[0][0]:
+              raise SystemExit("Production DB must contain exactly one Alembic revision.")
+          schema_revision = str(rows[0][0])
+
+          public_key = X25519PublicKey.from_public_bytes(
+              base64.urlsafe_b64decode(os.environ["RENDER_DB_SEAL_PUBLIC_KEY"].encode("ascii"))
+          )
+          ephemeral_private = X25519PrivateKey.generate()
+          ephemeral_public = ephemeral_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+          shared_secret = ephemeral_private.exchange(public_key)
+          key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=aad).derive(shared_secret)
+          nonce = secrets.token_bytes(12)
+          ciphertext = AESGCM(key).encrypt(nonce, database_url.encode("utf-8"), aad)
+          enc = lambda value: base64.urlsafe_b64encode(value).decode("ascii")
+          payload = {
+              "version": 1,
+              "algorithm": "X25519-HKDF-SHA256-AES256GCM",
+              "ephemeral_public_key": enc(ephemeral_public),
+              "nonce": enc(nonce),
+              "ciphertext": enc(ciphertext),
+              "schema_revision": schema_revision,
+          }
+          path = Path("deploy/sealed/render_database_url.json")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(f"Database connectivity and schema revision {schema_revision} verified; ciphertext generated.")
+          PY
+
+      - name: Commit ciphertext and remove bootstrap workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/sealed/render_database_url.json
+          git rm .github/workflows/p0-p2-seal-render-db.yml
+          git commit -m "Seal production database credential for Render"
+          git push origin HEAD:hardening/p0-p2-production-readiness
