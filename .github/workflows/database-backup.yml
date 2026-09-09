@@ -34,19 +34,17 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_BACKUP_URL: ${{ secrets.DATABASE_BACKUP_URL }}
-      DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}
       DATABASE_BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.DATABASE_BACKUP_ENCRYPTION_PASSPHRASE }}
+      BACKUP_DB_HOST: aws-0-us-east-2.pooler.supabase.com
+      BACKUP_DB_PORT: "5432"
+      BACKUP_DB_NAME: postgres
+      BACKUP_DB_USER: doobielogic_backup_runtime.fovxtygwcxubjzjgovva
       RESTORE_DATABASE_URL: postgresql://postgres:restore-test-only@127.0.0.1:5432/buyer_dash_restore
     steps:
       - name: Validate backup configuration
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$DATABASE_BACKUP_URL" && -z "$DL_PROD_DB_URL" ]]; then
-            echo "At least one of DATABASE_BACKUP_URL or DL_PROD_DB_URL must be configured as a repository secret."
-            exit 1
-          fi
           if [[ -z "$DATABASE_BACKUP_ENCRYPTION_PASSPHRASE" ]]; then
             echo "DATABASE_BACKUP_ENCRYPTION_PASSPHRASE must be configured as a repository secret."
             exit 1
@@ -55,62 +53,55 @@ jobs:
             echo "The backup encryption passphrase must contain at least 32 characters."
             exit 1
           fi
-          python - <<'PY'
-          import os
-          from urllib.parse import urlparse
-
-          candidates = {
-              "DATABASE_BACKUP_URL": os.environ.get("DATABASE_BACKUP_URL", "").strip(),
-              "DL_PROD_DB_URL": os.environ.get("DL_PROD_DB_URL", "").strip(),
+          [[ "$BACKUP_DB_USER" == doobielogic_backup_runtime.* ]] || {
+            echo "Backup database user must remain the dedicated read-only runtime role."
+            exit 1
           }
-          for name, raw in candidates.items():
-              if not raw:
-                  continue
-              normalized = raw.replace("postgresql+psycopg://", "postgresql://", 1)
-              parsed = urlparse(normalized)
-              if parsed.scheme not in {"postgres", "postgresql"}:
-                  raise SystemExit(f"{name} must use a PostgreSQL URI.")
-              if not parsed.hostname or not parsed.username or not parsed.path.strip("/"):
-                  raise SystemExit(f"{name} is missing host, user, or database name.")
-              if parsed.password is None:
-                  raise SystemExit(f"{name} does not contain database authentication material.")
-          print("Backup database URI candidates validated without exposing credentials.")
+          echo "Backup configuration validated without requiring a stored database URL or database password."
+
+      - name: Derive dedicated backup-role password in memory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import hashlib
+          import hmac
+          import os
+
+          source = os.environ["DATABASE_BACKUP_ENCRYPTION_PASSPHRASE"].encode("utf-8")
+          password_bytes = hmac.new(source, b"doobielogic-backup-db-v1", hashlib.sha256).digest()
+          password = base64.urlsafe_b64encode(password_bytes).decode("ascii").rstrip("=")
+          if len(password) < 32:
+              raise SystemExit("Derived backup-role password is unexpectedly short.")
+          print(f"::add-mask::{password}")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(f"PGPASSWORD={password}\n")
+          print("Dedicated backup-role password derived without printing or persisting plaintext in source.")
           PY
 
       - name: Prove production backup credentials before dumping
         shell: bash
         run: |
           set -euo pipefail
-          probe() {
-            local candidate="$1"
-            [[ -n "$candidate" ]] || return 1
-            docker run --rm \
-              --env PGCONNECT_TIMEOUT=15 \
-              postgres:17 \
-              psql "$candidate" \
-              --no-psqlrc \
-              --set=ON_ERROR_STOP=1 \
-              --tuples-only \
-              --no-align \
-              --command 'select 1' >/dev/null 2>&1
-          }
-
-          chosen=""
-          source_name=""
-          if probe "$DATABASE_BACKUP_URL"; then
-            chosen="$DATABASE_BACKUP_URL"
-            source_name="DATABASE_BACKUP_URL"
-          elif probe "$DL_PROD_DB_URL"; then
-            chosen="$DL_PROD_DB_URL"
-            source_name="DL_PROD_DB_URL"
-          else
-            echo "::error::Neither configured production database credential authenticated successfully. No backup artifact was created."
+          if ! docker run --rm \
+            --env PGPASSWORD \
+            --env PGCONNECT_TIMEOUT=15 \
+            postgres:17 \
+            psql \
+            --host="$BACKUP_DB_HOST" \
+            --port="$BACKUP_DB_PORT" \
+            --username="$BACKUP_DB_USER" \
+            --dbname="$BACKUP_DB_NAME" \
+            --no-psqlrc \
+            --set=ON_ERROR_STOP=1 \
+            --tuples-only \
+            --no-align \
+            --command 'select 1' >/dev/null 2>&1; then
+            echo "::error::Dedicated production backup role was rejected or the database was unreachable. No backup artifact was created."
             exit 1
           fi
-
-          echo "::add-mask::$chosen"
-          printf 'DATABASE_BACKUP_URL=%s\n' "$chosen" >> "$GITHUB_ENV"
-          echo "Production backup database authentication succeeded using $source_name."
+          echo "Dedicated production backup role authenticated successfully."
 
       - name: Install encryption client
         shell: bash
@@ -126,11 +117,16 @@ jobs:
           echo "BACKUP_FILE=$backup_file" >> "$GITHUB_ENV"
           docker run --rm \
             --user "$(id -u):$(id -g)" \
-            --env DATABASE_BACKUP_URL \
+            --env PGPASSWORD \
             --env PGCONNECT_TIMEOUT=15 \
             --volume "$RUNNER_TEMP:/backup" \
             postgres:17 \
-            pg_dump "$DATABASE_BACKUP_URL" \
+            pg_dump \
+            --host="$BACKUP_DB_HOST" \
+            --port="$BACKUP_DB_PORT" \
+            --username="$BACKUP_DB_USER" \
+            --dbname="$BACKUP_DB_NAME" \
+            --schema=public \
             --format=custom \
             --compress=9 \
             --no-owner \
@@ -199,6 +195,7 @@ jobs:
         shell: bash
         run: |
           set +e
+          unset PGPASSWORD
           if [[ -n "${BACKUP_FILE:-}" && -f "$BACKUP_FILE" ]]; then shred --remove "$BACKUP_FILE"; fi
           if [[ -n "${ENCRYPTED_BACKUP_FILE:-}" && -f "$ENCRYPTED_BACKUP_FILE" ]]; then shred --remove "$ENCRYPTED_BACKUP_FILE"; fi
           if [[ -n "${ENCRYPTED_BACKUP_FILE:-}" && -f "$ENCRYPTED_BACKUP_FILE.sha256" ]]; then shred --remove "$ENCRYPTED_BACKUP_FILE.sha256"; fi
