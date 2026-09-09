@@ -10,6 +10,7 @@ from scripts.validate_storefront_domains import load_domains
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "deploy" / "storefront-domains.txt"
 WORKFLOW = (ROOT / ".github" / "workflows" / "storefront-domain-mappings.yml").read_text(encoding="utf-8")
+BLUEPRINT = (ROOT / "render.yaml").read_text(encoding="utf-8")
 
 
 def test_cowboy_kush_is_an_explicit_approved_storefront_domain():
@@ -35,32 +36,27 @@ def test_storefront_domain_validator_rejects_wildcards_reserved_and_noncanonical
         load_domains(path)
 
 
-def test_storefront_mapping_workflow_installs_beta_noninteractively_before_mapping():
-    install = WORKFLOW.index("gcloud components install beta --quiet")
-    describe = WORKFLOW.index("gcloud beta run domain-mappings describe")
-    assert install < describe
+def test_storefront_domain_workflow_validates_before_render_alias_handoff():
+    assert 'python scripts/validate_storefront_domains.py "$DOMAIN_CONFIG"' in WORKFLOW
+    assert "50-alias free-host operating limit" in WORKFLOW
+    assert "domain aliases to the free Render static site" in WORKFLOW
+    assert "never creates DNS or cloud resources" in WORKFLOW
+    assert "gcloud " not in WORKFLOW
 
 
-def test_storefront_mapping_workflow_is_idempotent_and_service_scoped():
-    assert "gcloud beta run domain-mappings describe" in WORKFLOW
-    assert "gcloud beta run domain-mappings create" in WORKFLOW
-    assert '--service "${{ env.WEB_SERVICE }}"' in WORKFLOW
-    assert 'ROUTE_NAME" != "${{ env.WEB_SERVICE }}"' in WORKFLOW
-    assert '--project "${{ secrets.GCP_PROJECT_ID }}"' in WORKFLOW
-    assert '--region "${{ env.REGION }}"' in WORKFLOW
+def test_storefront_domain_workflow_is_validation_only_and_main_scoped():
+    assert "branches: [main]" in WORKFLOW
+    assert "workflow_dispatch:" in WORKFLOW
+    assert "pull_request:" not in WORKFLOW
+    assert "cancel-in-progress: true" in WORKFLOW
+    assert "domain-mappings create" not in WORKFLOW
     assert "--force" not in WORKFLOW
     assert "--to-latest" not in WORKFLOW
 
 
-def test_storefront_mapping_workflow_reports_dns_without_blocking_on_certificate_readiness():
-    assert ".status.resourceRecords[]?" in WORKFLOW
-    assert 'select(.type == "Ready")' in WORKFLOW
-    assert "Mapping readiness:" in WORKFLOW
-    assert '[ "$READY" = "True" ]' not in WORKFLOW
-
-
-def test_storefront_domain_workflow_only_mutates_after_main_merge_or_manual_dispatch():
-    assert "branches: [main]" in WORKFLOW
-    assert "workflow_dispatch:" in WORKFLOW
-    assert "pull_request:" not in WORKFLOW
-    assert "cancel-in-progress: false" in WORKFLOW
+def test_canonical_static_service_owns_platform_domains_without_wildcards():
+    static = BLUEPRINT.split("name: doobielogic-ops", 1)[1]
+    assert "runtime: static" in static
+    assert "doobielogic.io" in static
+    assert "ops.doobielogic.io" in static
+    assert "*.doobielogic.io" not in static
