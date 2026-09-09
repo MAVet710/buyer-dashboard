@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import Engine, or_, select
 from sqlalchemy.orm import Session
@@ -71,7 +71,17 @@ def _decode_token(token: str, settings: Settings) -> dict:
     raise HTTPException(status_code=503, detail="API authentication is not configured.")
 
 
+def _password_change_path_allowed(path: str, settings: Settings) -> bool:
+    """Keep first-login sessions restricted to the minimum password setup surface."""
+    normalized_prefix = settings.api_prefix.rstrip("/")
+    return path in {
+        f"{normalized_prefix}/account/context",
+        f"{normalized_prefix}/account/password",
+    }
+
+
 def get_request_context(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     settings: Settings = Depends(get_settings),
     organization_id: str = Header(default="", alias="X-Organization-Id"),
@@ -151,6 +161,11 @@ def get_request_context(
                     if not assignment:
                         raise HTTPException(status_code=403, detail="This account is not assigned to the selected facility.")
                     role = assignment.role
+            if user.must_change_password and not _password_change_path_allowed(request.url.path, settings):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Password change required before using the operations API.",
+                )
             user_id = user.id
     return RequestContext(user_id, organization_id, facility_id, role, normalized_data_mode)
 
