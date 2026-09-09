@@ -20,6 +20,8 @@ def _require(condition: bool, message: str) -> None:
 def _verify_render() -> None:
     source = _read("render.yaml")
     lowered = source.casefold()
+    api = source.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0] if "name: doobielogic-api" in source and "name: doobielogic-ops" in source else ""
+    static = source.split("name: doobielogic-ops", 1)[1] if "name: doobielogic-ops" in source else ""
 
     _require("name: doobielogic-api" in source, "Render API service is missing.")
     _require("name: doobielogic-ops" in source, "Render static frontend is missing.")
@@ -33,11 +35,17 @@ def _verify_render() -> None:
     _require("healthCheckPath: /health/ready" in source, "Render API must use database-backed readiness.")
     _require("predeploycommand" not in lowered, "Render free services cannot depend on paid pre-deploy commands.")
     _require("alembic upgrade head" in source, "Free Render startup must apply idempotent Alembic migrations.")
-    _require("RENDER_EXTERNAL_HOSTNAME" in source, "Render startup must trust the provider-assigned hostname without hardcoding it.")
+    _require("RENDER_EXTERNAL_HOSTNAME" in api, "Render startup must trust the provider-assigned hostname without hardcoding it.")
+    _require("RENDER_GIT_COMMIT" in api, "Render API must expose the exact deployed commit as release identity.")
     _require("backend/requirements.txt" in source, "Render API must not install the oversized Streamlit root environment.")
+    _require('- key: DATABASE_POOL_SIZE\n        value: "1"' in api, "Render Free API must reserve Supabase headroom with a one-connection pool.")
+    _require('- key: DATABASE_MAX_OVERFLOW\n        value: "0"' in api, "Render Free API must not overflow the Supabase connection pool.")
+    _require("--workers" not in api, "Render Free API must not multiply database connections with extra Uvicorn workers.")
     _require("pnpm install --frozen-lockfile" in source and "pnpm build" in source, "Render static frontend must use the locked production build.")
     _require("staticPublishPath: ./frontend/dist" in source, "Render must publish the Vite dist directory.")
     _require("source: /*" in source and "destination: /index.html" in source, "Render SPA fallback rewrite is missing.")
+    _require("RENDER_GIT_COMMIT" in static and "release.json" in static, "Render static frontend must publish exact commit identity.")
+    _require("path: /release.json" in static and "no-store, no-cache, must-revalidate" in static, "Static release identity must never be served from cache.")
     _require("AI_ALLOW_CLOUD_FALLBACK" in source and 'value: "false"' in source, "Cloud AI fallback must stay disabled.")
 
     for key in (
