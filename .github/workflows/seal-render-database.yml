@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: seal-render-database
@@ -17,14 +18,19 @@ jobs:
   seal:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: production-demo-data
     env:
-      DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}
       RENDER_DB_SEAL_PUBLIC_KEY: XWdyCnLSxHjUb4BWIQ-3SyCYrpoArafInFfTSxn9iRA=
     steps:
       - uses: actions/checkout@v4
         with:
           ref: hardening/p0-p2-production-readiness
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
 
       - uses: actions/setup-python@v5
         with:
@@ -33,14 +39,17 @@ jobs:
       - name: Install sealing dependencies
         run: python -m pip install "psycopg[binary]>=3.1" "cryptography>=50,<51"
 
-      - name: Validate and seal existing production database credential
+      - name: Validate and seal production database credential without printing it
         shell: bash
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          test -n "${DL_PROD_DB_URL:-}" || {
-            echo "DL_PROD_DB_URL is not configured in the production-demo-data environment."
-            exit 1
-          }
+          umask 077
+          gcloud secrets versions access latest \
+            --secret buyer-dash-database-url \
+            --project "$GCP_PROJECT_ID" > /tmp/doobielogic-db-url
+          test -s /tmp/doobielogic-db-url || { echo "Production database secret could not be retrieved."; exit 1; }
           python - <<'PY'
           import base64
           import json
@@ -56,10 +65,10 @@ jobs:
           from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
           aad = b"doobielogic-render-db-v1"
-          database_url = os.environ["DL_PROD_DB_URL"].strip()
+          database_url = Path("/tmp/doobielogic-db-url").read_text(encoding="utf-8").strip()
           connect_url = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
           if not connect_url.startswith(("postgres://", "postgresql://")):
-              raise SystemExit("DL_PROD_DB_URL is not a PostgreSQL URL.")
+              raise SystemExit("Production database secret is not a PostgreSQL URL.")
 
           with psycopg.connect(connect_url, connect_timeout=10) as connection:
               with connection.cursor() as cursor:
@@ -78,12 +87,7 @@ jobs:
           ephemeral_private = X25519PrivateKey.generate()
           ephemeral_public = ephemeral_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
           shared_secret = ephemeral_private.exchange(public_key)
-          key = HKDF(
-              algorithm=hashes.SHA256(),
-              length=32,
-              salt=None,
-              info=aad,
-          ).derive(shared_secret)
+          key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=aad).derive(shared_secret)
           nonce = secrets.token_bytes(12)
           ciphertext = AESGCM(key).encrypt(nonce, database_url.encode("utf-8"), aad)
 
@@ -101,6 +105,7 @@ jobs:
           path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           print(f"Validated production database and sealed credential at Alembic revision {schema_revision}.")
           PY
+          shred -u /tmp/doobielogic-db-url || rm -f /tmp/doobielogic-db-url
 
       - name: Commit ciphertext only
         shell: bash
@@ -118,8 +123,10 @@ jobs:
           {
             echo '## Render database sealed-secret handoff'
             echo
-            echo '- Source credential: existing production-demo-data / DL_PROD_DB_URL secret'
+            echo '- Source credential: GCP Secret Manager / buyer-dash-database-url'
             echo '- Plaintext database URL printed: no'
+            echo '- Plaintext temporary file shredded: yes'
             echo '- Repository material: ciphertext only'
             echo '- Decryption key stored in repository: no'
+            echo '- This bootstrap workflow must be deleted after success.'
           } >> "$GITHUB_STEP_SUMMARY"
