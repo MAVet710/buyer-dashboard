@@ -48,15 +48,16 @@ export function PostHarvestBoard({canWrite,onOpenHarvest}:Props = {}) {
     mutationFn:()=>apiPost<{items:PostHarvestBatch[]}>("/api/v1/inventory/production/plants/post-harvest/sync",{}),
     onSuccess:data=>client.setQueryData(["post-harvest"],data),
   });
+  const syncMutate=sync.mutate;
   useEffect(()=>{
     if(!effectiveCanWrite||harvests.isLoading||lastSyncKey.current===syncKey)return;
     lastSyncKey.current=syncKey;
-    sync.mutate();
-  },[effectiveCanWrite,harvests.isLoading,syncKey]);
+    syncMutate();
+  },[effectiveCanWrite,harvests.isLoading,syncKey,syncMutate]);
   const [filter,setFilter]=useState("all");
   const [weightBatchId,setWeightBatchId]=useState("");
   const [advanceBatchId,setAdvanceBatchId]=useState("");
-  const items=query.data?.items??[];
+  const items=useMemo(()=>query.data?.items??[],[query.data?.items]);
   const visible=useMemo(()=>items.filter(row=>filter==="all"?true:filter==="attention"?row.needs_attention:row.stage===filter),[items,filter]);
   const count=(stage:string)=>stage==="attention"?items.filter(row=>row.needs_attention).length:items.filter(row=>row.stage===stage).length;
 
