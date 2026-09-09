@@ -59,32 +59,35 @@ def test_all_action_workflows_are_free_of_google_control_plane_wiring():
             assert token.casefold() not in source.casefold(), (path.name, token)
 
 
-def test_render_blueprint_is_free_only_check_gated_non_ddl_and_sealed():
+def test_render_blueprint_is_free_only_check_gated_and_non_ddl():
     source = (ROOT / "render.yaml").read_text(encoding="utf-8")
     api = source.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
+    assert "name: doobielogic-api" in source
+    assert "name: doobielogic-ops" in source
     assert "runtime: python" in source
     assert "runtime: static" in source
     assert source.count("plan: free") == 1
     assert source.count("autoDeployTrigger: checksPass") == 2
     assert "healthCheckPath: /health/ready" in source
+    assert "api.doobielogic.io" in source
+    assert "ops.doobielogic.io" in source
+    assert "doobielogic.io" in source
+    assert "preDeployCommand" not in source
     assert "alembic upgrade head" not in api
     assert "RENDER_EXTERNAL_HOSTNAME" in api
     assert "RENDER_GIT_COMMIT" in api
     assert "backend/requirements.txt" in source
-    assert '- key: DATABASE_POOL_SIZE\n        value: "1"' in api
-    assert '- key: DATABASE_MAX_OVERFLOW\n        value: "0"' in api
-    assert "--workers" not in api
-    assert "SEALED_DATABASE_URL_PATH" in api
-    assert "deploy/sealed/render_database_url.json" in api
-    assert "DATABASE_SEAL_PRIVATE_KEY" in api
-    assert "RESEND_API_KEY" in api
-    assert "SPACEMAIL_SMTP_PASSWORD" not in api
+    assert "staticPublishPath: ./frontend/dist" in source
+    assert "pnpm install --frozen-lockfile" in source
+    assert "source: /*" in source and "destination: /index.html" in source
+    assert "AI_ALLOW_CLOUD_FALLBACK" in source
     assert '- key: AI_PROVIDER_MODE\n        value: disabled' in source
     assert '- key: AI_PROVIDER_ORDER\n        value: none' in source
     assert '- key: AI_ALLOW_CLOUD_FALLBACK\n        value: "false"' in source
+    assert "RESEND_API_KEY" in api
+    assert "SPACEMAIL_SMTP_PASSWORD" not in api
     for key in (
         "DATABASE_URL",
-        "DATABASE_SEAL_PRIVATE_KEY",
         "SUPABASE_URL",
         "SUPABASE_JWKS_URL",
         "SUPABASE_PUBLISHABLE_KEY",
@@ -94,19 +97,8 @@ def test_render_blueprint_is_free_only_check_gated_non_ddl_and_sealed():
         "VITE_SUPABASE_PUBLISHABLE_KEY",
     ):
         assert f"- key: {key}\n        sync: false" in source
+    assert "DATABASE_SEAL_PRIVATE_KEY" not in source
     assert "SUPABASE_SERVICE_ROLE_KEY" not in source
-
-
-def test_sealed_database_loader_uses_authenticated_encryption_and_direct_url_override():
-    source = (ROOT / "modules" / "coman" / "db.py").read_text(encoding="utf-8")
-    assert "X25519PrivateKey" in source
-    assert "HKDF" in source
-    assert "AESGCM" in source
-    assert 'b"doobielogic-render-db-v1"' in source
-    direct = source.index('os.environ.get("DATABASE_URL")')
-    sealed = source.index("_sealed_database_url()")
-    assert direct < sealed
-    assert "Sealed database credential could not be decrypted." in source
 
 
 def test_render_frontend_is_static_lockfile_reproducible_spa_safe_and_exactly_identified():
@@ -123,6 +115,7 @@ def test_render_frontend_is_static_lockfile_reproducible_spa_safe_and_exactly_id
     assert "release.json" in static
     assert "path: /release.json" in static
     assert "no-store, no-cache, must-revalidate" in static
+    assert "Cache-Control" in static
     assert not (ROOT / "netlify.toml").exists()
 
 
