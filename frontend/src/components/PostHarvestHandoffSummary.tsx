@@ -20,12 +20,13 @@ export function PostHarvestHandoffSummary({ onOpen }: { onOpen: () => void }) {
     mutationFn: () => apiPost<{ items: Batch[] }>("/api/v1/inventory/production/plants/post-harvest/sync", {}),
     onSuccess: data => client.setQueryData(["post-harvest"], data),
   });
+  const syncMutate = sync.mutate;
 
   useEffect(() => {
     if (!canWrite || harvests.isLoading || lastSyncKey.current === syncKey) return;
     lastSyncKey.current = syncKey;
-    sync.mutate();
-  }, [canWrite, harvests.isLoading, syncKey]);
+    syncMutate();
+  }, [canWrite, harvests.isLoading, syncKey, syncMutate]);
 
   const items = postHarvest.data?.items ?? [];
   const count = (stage: string) => items.filter(row => row.stage === stage).length;

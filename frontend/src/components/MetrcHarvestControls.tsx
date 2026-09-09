@@ -23,6 +23,8 @@ type Request = {
   measurement_basis?:"wet"|"dry";all_waste_reported?:boolean;reason:string;
 };
 
+// Shared query hook is intentionally colocated with its regulated harvest controls.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useMetrcHarvestStatus(){
   return useQuery({queryKey:["metrc-harvest-status"],queryFn:({signal})=>apiGet<Status>("/api/v1/metrc-harvest/status",signal),retry:false,staleTime:30_000});
 }

@@ -15,47 +15,54 @@ def test_ci_uses_strict_contract_mode_not_obsolete_tracker_gate():
     assert "retained as history only" in verifier
 
 
-def test_production_deploy_is_blocked_until_strict_and_legacy_evidence_are_complete():
+def test_production_release_is_blocked_until_strict_and_legacy_evidence_are_complete():
     workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
 
     assert "parity-release-gate:" in workflow
     assert "python scripts/verify_streamlit_parity.py --mode release" in workflow
-    assert "deploy-api:\n    needs: parity-release-gate" in workflow
+    assert "zero-cost-release-gate:\n    needs: parity-release-gate" in workflow
 
 
-def test_api_deploy_preserves_dedicated_runtime_identity():
-    workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+def test_render_api_preserves_provider_runtime_identity_without_cloud_service_account():
+    blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    api = blueprint.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
 
-    api_deploy = workflow.split("- name: Deploy API candidate without traffic", 1)[1].split("- name: Verify exact API candidate revision and HTTP health", 1)[0]
-    assert "buyer-dash-api@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" in api_deploy
-    assert "${{ secrets.GCP_SERVICE_ACCOUNT }}" not in api_deploy
+    assert "RENDER_EXTERNAL_HOSTNAME" in api
+    assert "RENDER_GIT_COMMIT" in api
+    assert "GCP_SERVICE_ACCOUNT" not in api
+    assert "google-github-actions" not in api
 
 
-def test_api_deploy_preserves_existing_runtime_environment_and_secrets():
-    workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+def test_render_api_preserves_secrets_as_out_of_band_configuration():
+    blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    api = blueprint.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
 
-    api_deploy = workflow.split("- name: Deploy API candidate without traffic", 1)[1].split("- name: Verify exact API candidate revision and HTTP health", 1)[0]
-    assert "--update-env-vars" in api_deploy
-    assert "--update-secrets" in api_deploy
-    assert "--set-env-vars" not in api_deploy
-    assert "--set-secrets" not in api_deploy
+    for key in (
+        "DATABASE_URL",
+        "SUPABASE_URL",
+        "SUPABASE_JWKS_URL",
+        "SUPABASE_PUBLISHABLE_KEY",
+        "INTEGRATION_ENCRYPTION_KEY",
+    ):
+        assert f"- key: {key}\n        sync: false" in api
+    assert "SUPABASE_SERVICE_ROLE_KEY" not in api
+    assert "autoDeployTrigger: checksPass" in api
 
 
 def test_local_ai_runtime_uses_durable_declared_configuration():
-    deploy = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github" / "workflows" / "ai-runtime-revision-guard.yml").read_text(encoding="utf-8")
 
-    assert 'workflows: ["Deploy to DoobieLogic"]' in workflow
-    assert "LOCAL_AI_RUNTIME_STATE" in deploy
+    assert '- key: AI_PROVIDER_MODE\n        value: disabled' in blueprint
+    assert '- key: AI_PROVIDER_ORDER\n        value: none' in blueprint
+    assert '- key: AI_ALLOW_CLOUD_FALLBACK\n        value: "false"' in blueprint
     assert "LOCAL_AI_RUNTIME_STATE" in workflow
     assert "LOCAL_LLM_BASE_URL" in workflow
     assert "LOCAL_LLM_MODEL" in workflow
-    assert "LOCAL_LLM_ACCESS_CLIENT_ID" in workflow
-    assert "LOCAL_LLM_ACCESS_CLIENT_SECRET" in workflow
     assert "gcloud run revisions list" not in workflow
     assert "historical revision" not in workflow.lower()
     assert "--to-revisions" not in workflow
-    assert "Candidate Local AI URL differs from declared configuration." in deploy
+    assert "hosted Render API remains decoupled" in workflow
 
 
 def test_eight_phase_execution_control_exists():

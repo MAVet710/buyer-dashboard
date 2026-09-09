@@ -17,9 +17,10 @@ export function UserPermissionManager(){
   const registry=useQuery({queryKey:["permission-registry"],queryFn:({signal})=>apiGet<Permission[]>("/api/v1/admin/permission-registry",signal)});
   const isDev=context.data?.user.role==="dev";
   const organizations=useQuery({queryKey:["admin-organizations"],queryFn:({signal})=>apiGet<Organization[]>("/api/v1/admin/organizations",signal),enabled:isDev});
-  const manageable=(users.data??[]).filter(user=>user.active&&user.role!=="dev");
+  const manageable=useMemo(()=>(users.data??[]).filter(user=>user.active&&user.role!=="dev"),[users.data]);
   const [userId,setUserId]=useState("");
-  const selected=manageable.find(user=>user.id===userId)??manageable[0];
+  const selected=useMemo(()=>manageable.find(user=>user.id===userId)??manageable[0],[manageable,userId]);
+  const selectedId=selected?.id??"";
   const facilities=useMemo(()=>{
     if(!selected)return [] as Facility[];
     if(isDev){
@@ -29,12 +30,12 @@ export function UserPermissionManager(){
     return (context.data?.facilities??[]).filter(row=>row.active!==false&&(selected.role==="admin"||selected.facility_ids.includes(row.id)));
   },[selected,isDev,organizations.data,context.data?.facilities]);
   const [facilityId,setFacilityId]=useState("");
-  useEffect(()=>{if(selected&&!userId)setUserId(selected.id);},[selected?.id,userId]);
-  useEffect(()=>{if(!facilities.some(row=>row.id===facilityId))setFacilityId(facilities[0]?.id??"");},[selected?.id,facilities.map(row=>row.id).join("|")]);
+  useEffect(()=>{if(selectedId&&!userId)setUserId(selectedId);},[selectedId,userId]);
+  useEffect(()=>{if(!facilities.some(row=>row.id===facilityId))setFacilityId(facilities[0]?.id??"");},[facilities,facilityId]);
   const snapshot=useQuery({
-    queryKey:["user-permissions",selected?.id,facilityId],
-    queryFn:({signal})=>apiGet<PermissionSnapshot>(`/api/v1/admin/users/${encodeURIComponent(selected!.id)}/permissions?facility_id=${encodeURIComponent(facilityId)}`,signal),
-    enabled:Boolean(selected&&facilityId),
+    queryKey:["user-permissions",selectedId,facilityId],
+    queryFn:({signal})=>apiGet<PermissionSnapshot>(`/api/v1/admin/users/${encodeURIComponent(selectedId)}/permissions?facility_id=${encodeURIComponent(facilityId)}`,signal),
+    enabled:Boolean(selectedId&&facilityId),
   });
   const [overrides,setOverrides]=useState<Record<string,OverrideValue>>({});
   useEffect(()=>{
@@ -44,9 +45,9 @@ export function UserPermissionManager(){
     setOverrides(next);
   },[snapshot.data,registry.data]);
   const save=useMutation({
-    mutationFn:()=>apiPost<PermissionSnapshot>(`/api/v1/admin/users/${encodeURIComponent(selected!.id)}/permissions`,{facility_id:facilityId,overrides}),
+    mutationFn:()=>apiPost<PermissionSnapshot>(`/api/v1/admin/users/${encodeURIComponent(selectedId)}/permissions`,{facility_id:facilityId,overrides}),
     onSuccess:async data=>{
-      await client.invalidateQueries({queryKey:["user-permissions",selected?.id,facilityId]});
+      await client.invalidateQueries({queryKey:["user-permissions",selectedId,facilityId]});
       setOverrides(Object.fromEntries((registry.data??[]).map(permission=>[permission.key,data.overrides[permission.key]??"inherit"])) as Record<string,OverrideValue>);
     },
   });
@@ -58,7 +59,7 @@ export function UserPermissionManager(){
       <p>Roles provide safe defaults. Use facility-specific overrides only for exceptions. An explicit deny overrides the role default; inherit returns the user to their role default.</p>
       {!manageable.length?<div className="info-banner">No non-DEV users are available for permission overrides.</div>:<>
         <div className="form-grid two">
-          <label>User<select value={selected?.id??""} onChange={event=>setUserId(event.target.value)}>{manageable.map(user=><option key={user.id} value={user.id}>{user.display_name||user.username} · {user.role}</option>)}</select></label>
+          <label>User<select value={selectedId} onChange={event=>setUserId(event.target.value)}>{manageable.map(user=><option key={user.id} value={user.id}>{user.display_name||user.username} · {user.role}</option>)}</select></label>
           <label>Facility<select value={facilityId} onChange={event=>setFacilityId(event.target.value)}>{facilities.map(facility=><option key={facility.id} value={facility.id}>{facility.name} · {facility.code}</option>)}</select></label>
         </div>
         {!facilities.length?<div className="warning-banner">This user has no facility assignment available for permission overrides.</div>:null}
@@ -68,7 +69,7 @@ export function UserPermissionManager(){
           const effective=Boolean(snapshot.data?.effective[permission.key]);
           return <tr key={permission.key}><td><strong>{permission.label}</strong><br/><small>{permission.description}</small></td><td>{snapshot.data?.role_defaults[permission.key]?"Allowed":"Denied"}</td><td><select aria-label={`${permission.label} override`} value={overrides[permission.key]??"inherit"} onChange={event=>setOverrides(current=>({...current,[permission.key]:event.target.value as OverrideValue}))}><option value="inherit">Inherit role</option><option value="allow">Allow</option><option value="deny">Deny</option></select></td><td><span className={`badge ${effective?"production-ready":"blocked"}`}>{effective?"Allowed":"Denied"}</span><br/><small>{snapshot.data?.source[permission.key]??"role"}</small></td></tr>;
         })}</tbody></table></div>:null}
-        <button type="button" className="primary" disabled={!selected||!facilityId||save.isPending} onClick={()=>save.mutate()}>{save.isPending?"Saving permissions…":"Save user permissions"}</button>
+        <button type="button" className="primary" disabled={!selectedId||!facilityId||save.isPending} onClick={()=>save.mutate()}>{save.isPending?"Saving permissions…":"Save user permissions"}</button>
         {save.isSuccess?<div className="success-banner">Permission overrides saved and audited for this facility.</div>:null}
         {save.isError?<div className="form-error">Unable to save permissions: {save.error.message}</div>:null}
       </>}

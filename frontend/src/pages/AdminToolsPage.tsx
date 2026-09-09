@@ -108,13 +108,16 @@ function FacilityContextEditor() {
   });
   const facilities=useMemo(()=>organizations.data?.flatMap(org=>org.facilities.map(facility=>({...facility,organization_id:org.id,organization_name:org.name})))??[],[organizations.data]);
   const [selectedId,setSelectedId]=useState("");
-  const selected=facilities.find(row=>row.id===selectedId)??facilities[0];
+  const selected=useMemo(()=>facilities.find(row=>row.id===selectedId)??facilities[0],[facilities,selectedId]);
   const [form,setForm]=useState<FacilityForm|null>(null);
+  const [formSourceId,setFormSourceId]=useState("");
   useEffect(()=>{
     if(!selected)return;
     if(!selectedId)setSelectedId(selected.id);
+    if(formSourceId===selected.id)return;
     setForm(facilityForm(selected));
-  },[selected?.id]);
+    setFormSourceId(selected.id);
+  },[selected,selectedId,formSourceId]);
   const save=useMutation({
     mutationFn:()=>apiPost<FacilityAdminRow>(`/api/v1/admin/facilities/${encodeURIComponent(selected!.id)}/update`,form!),
     onSuccess:async()=>{
@@ -173,25 +176,28 @@ function StorefrontOwnershipEditor() {
     queryFn:({signal})=>apiGet<StorefrontAdminRow[]>("/api/v1/admin/storefronts",signal),
     enabled:isDev,
   });
-  const rows=storefronts.data??[];
+  const rows=useMemo(()=>storefronts.data??[],[storefronts.data]);
   const [selectedId,setSelectedId]=useState("");
-  const selected=rows.find(row=>row.id===selectedId)??rows[0];
+  const selected=useMemo(()=>rows.find(row=>row.id===selectedId)??rows[0],[rows,selectedId]);
   const [organizationId,setOrganizationId]=useState("");
   const [facilityId,setFacilityId]=useState("");
   const [clearCatalog,setClearCatalog]=useState(false);
+  const [selectionSourceId,setSelectionSourceId]=useState("");
   useEffect(()=>{
     if(!selected)return;
     if(!selectedId)setSelectedId(selected.id);
+    if(selectionSourceId===selected.id)return;
     setOrganizationId(selected.organization_id);
     setFacilityId(selected.facility_id);
     setClearCatalog(false);
-  },[selected?.id]);
+    setSelectionSourceId(selected.id);
+  },[selected,selectedId,selectionSourceId]);
   const targetOrganization=organizations.data?.find(org=>org.id===organizationId);
-  const targetFacilities=(targetOrganization?.facilities??[]).filter(facility=>facility.active!==false&&facility.commercial_enabled);
+  const targetFacilities=useMemo(()=>(targetOrganization?.facilities??[]).filter(facility=>facility.active!==false&&facility.commercial_enabled),[targetOrganization]);
   useEffect(()=>{
     if(!organizationId)return;
     if(!targetFacilities.some(facility=>facility.id===facilityId))setFacilityId(targetFacilities[0]?.id??"");
-  },[organizationId,targetFacilities.map(row=>row.id).join("|")]);
+  },[organizationId,targetFacilities,facilityId]);
   const organizationChanged=Boolean(selected&&organizationId&&organizationId!==selected.organization_id);
   const blockedByHistory=Boolean(organizationChanged&&selected&&selected.request_count>0);
   const requiresCatalogClear=Boolean(organizationChanged&&selected&&selected.listing_count>0);
@@ -245,7 +251,7 @@ function StorefrontOwnershipEditor() {
 function AdminUploads() {
   const client = useQueryClient();
   const uploads = useQuery({ queryKey:["admin-uploads"], queryFn:({signal})=>apiGet<UploadsResponse>("/api/v1/admin/uploads",signal) });
-  const rows = uploads.data?.uploads ?? [];
+  const rows = useMemo(() => uploads.data?.uploads ?? [], [uploads.data]);
   const [selected,setSelected] = useState("");
   const selectedRow = useMemo(()=>rows.find(row=>row.upload_id===selected) ?? rows[0], [rows,selected]);
   const clear = useMutation({ mutationFn:()=>apiPost<{cleared:boolean}>("/api/v1/admin/uploads/clear",{}), onSuccess:()=>client.invalidateQueries({queryKey:["admin-uploads"]}) });

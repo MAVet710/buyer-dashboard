@@ -100,14 +100,17 @@ def test_api_surfaces_field_level_validation_errors():
     assert "One or more request fields are invalid" in api
 
 
-def test_web_deploy_explicitly_promotes_new_revision():
+def test_web_release_publishes_exact_render_commit_identity():
+    blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    static = blueprint.split("name: doobielogic-ops", 1)[1]
     workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
-    web_section = workflow.split("  deploy-web:", 1)[1]
-    assert "Deploy frontend candidate without traffic" in web_section
-    assert "--no-traffic" in web_section
-    assert "Verify exact frontend candidate revision and HTTP identity" in web_section
-    assert "Promote exact validated frontend revision to 100 percent" in web_section
-    assert '--to-revisions "$CREATED_WEB_REVISION=100"' in web_section
-    assert "https://ops.doobielogic.io" in web_section
-    assert "https://doobielogic.io" in web_section
-    assert "Both production web domains and Cloud Run traffic confirm the exact current commit." in web_section
+
+    assert "runtime: static" in static
+    assert "autoDeployTrigger: checksPass" in static
+    assert "RENDER_GIT_COMMIT" in static
+    assert "release.json" in static
+    assert "path: /release.json" in static
+    assert "no-store, no-cache, must-revalidate" in static
+    assert "doobielogic.io" in static
+    assert "ops.doobielogic.io" in static
+    assert "Verify Render handoff is exact-source and check-gated" in workflow

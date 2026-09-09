@@ -3,8 +3,6 @@ from __future__ import annotations
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 import re
-import smtplib
-import ssl
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
@@ -12,7 +10,7 @@ from sqlalchemy import Engine
 
 from ..config import Settings, get_settings
 from ..database import get_engine
-from ..services.spacemail import resolve_spacemail_settings
+from ..services.spacemail import SpacemailError, resolve_spacemail_settings, send_transactional_message
 
 router = APIRouter(prefix="/beta", tags=["beta"])
 
@@ -63,7 +61,7 @@ def submit_beta_application(
         raise HTTPException(status_code=422, detail="Beta participation consent is required.")
 
     mail_settings = resolve_spacemail_settings(engine, settings)
-    if not mail_settings.spacemail_is_configured:
+    if not mail_settings.transactional_email_is_configured:
         raise HTTPException(status_code=503, detail="Beta applications are temporarily unavailable. Please try again shortly.")
 
     sender = str(mail_settings.spacemail_info_email or "").strip().casefold()
@@ -103,19 +101,9 @@ def submit_beta_application(
         )
     )
 
-    context = ssl.create_default_context()
     try:
-        with smtplib.SMTP_SSL(
-            mail_settings.spacemail_smtp_host,
-            mail_settings.spacemail_smtp_port,
-            timeout=mail_settings.spacemail_smtp_timeout_seconds,
-            context=context,
-        ) as smtp:
-            smtp.login(mail_settings.spacemail_smtp_username, mail_settings.spacemail_smtp_password)
-            refused = smtp.send_message(message)
-            if refused:
-                raise RuntimeError("recipient rejected")
-    except (smtplib.SMTPException, OSError, TimeoutError, RuntimeError) as exc:
+        send_transactional_message(mail_settings, message)
+    except SpacemailError as exc:
         raise HTTPException(
             status_code=503,
             detail="We could not deliver the beta application right now. Please try again shortly.",

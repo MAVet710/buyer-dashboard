@@ -21,12 +21,17 @@ def test_authorization_reuses_shared_database_engine(monkeypatch):
     assert "create_coman_engine" not in source
 
 
-def test_production_deploy_reserves_supabase_session_headroom():
-    workflow = Path(".github/workflows/deploy.yml").read_text(encoding="utf-8")
-    assert "API_MAX_INSTANCES: 3" in workflow
-    assert "DATABASE_POOL_SIZE: 2" in workflow
-    assert "SUPABASE_SESSION_LIMIT: 15" in workflow
-    assert "SUPABASE_SESSION_HEADROOM: 3" in workflow
-    assert "Verify Supabase session budget" in workflow
-    assert "--max-instances \"${{ env.API_MAX_INSTANCES }}\"" in workflow
-    assert "DATABASE_POOL_SIZE=${{ env.DATABASE_POOL_SIZE }}" in workflow
+def test_render_free_api_reserves_supabase_session_headroom():
+    blueprint = Path("render.yaml").read_text(encoding="utf-8")
+    api = blueprint.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
+
+    # The free API runs one Uvicorn worker and may open only one pooled database
+    # connection. No overflow means a traffic spike queues instead of exhausting
+    # the Supabase Free session budget.
+    assert "plan: free" in api
+    assert '- key: DATABASE_POOL_SIZE\n        value: "1"' in api
+    assert '- key: DATABASE_MAX_OVERFLOW\n        value: "0"' in api
+    assert '- key: DATABASE_POOL_TIMEOUT\n        value: "30"' in api
+    assert "exec uvicorn backend.app.main:app" in api
+    assert "--workers" not in api
+    assert "autoDeployTrigger: checksPass" in api

@@ -1,0 +1,104 @@
+name: MA Metrc Sandbox Read-Only Gate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 11 * * 1-5"
+  workflow_run:
+    workflows: ["Deploy to DoobieLogic"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ma-metrc-sandbox-readonly
+  cancel-in-progress: true
+
+jobs:
+  authenticated-facilities-read:
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      METRC_INTEGRATOR_API_KEY: ${{ secrets.METRC_INTEGRATOR_API_KEY }}
+      METRC_MA_SANDBOX_USER_API_KEY: ${{ secrets.METRC_MA_SANDBOX_USER_API_KEY }}
+      METRC_MA_SANDBOX_LICENSE_NUMBER: ${{ secrets.METRC_MA_SANDBOX_LICENSE_NUMBER }}
+      METRC_USER_API_KEY: ${{ secrets.METRC_MA_SANDBOX_USER_API_KEY }}
+      METRC_LICENSE_NUMBER: ${{ secrets.METRC_MA_SANDBOX_LICENSE_NUMBER }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Verify required MA sandbox credentials are configured
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          required = (
+              "METRC_INTEGRATOR_API_KEY",
+              "METRC_MA_SANDBOX_USER_API_KEY",
+              "METRC_MA_SANDBOX_LICENSE_NUMBER",
+          )
+          missing = [name for name in required if not str(os.environ.get(name) or "").strip()]
+          if missing:
+              raise SystemExit("Missing required MA Metrc sandbox secrets: " + ", ".join(missing))
+          print("Required MA Metrc sandbox credentials are configured; secret values were not printed.")
+          PY
+
+      - name: Install application dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r backend/requirements.txt
+
+      - name: Perform authenticated read-only Facilities request
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/metrc-readonly
+          python scripts/validate_ma_metrc_sandbox.py --live-read \
+            > artifacts/metrc-readonly/provider-evidence.json
+
+      - name: Build redacted evidence summary
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/metrc-readonly-safe
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          source = Path("artifacts/metrc-readonly/provider-evidence.json")
+          target = Path("artifacts/metrc-readonly-safe/summary.json")
+          allowed = {
+              "passed", "ready", "status", "stage", "state", "operation_type",
+              "jurisdiction_code", "environment", "http_status", "facility_count",
+              "network_request_sent", "write_performed", "message", "next_gate",
+          }
+          payload = {}
+          if source.exists():
+              try:
+                  raw = json.loads(source.read_text(encoding="utf-8"))
+              except Exception:
+                  raw = {}
+              if isinstance(raw, dict):
+                  payload = {key: raw[key] for key in allowed if key in raw}
+                  request = raw.get("request")
+                  if isinstance(request, dict):
+                      payload["request"] = {key: request[key] for key in ("method", "path") if key in request}
+          payload["secrets_included"] = False
+          target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+          print("Redacted MA Metrc read-only evidence prepared.")
+          PY
+
+      - name: Upload redacted MA sandbox evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ma-metrc-readonly-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/metrc-readonly-safe/summary.json
+          if-no-files-found: error
+          retention-days: 30

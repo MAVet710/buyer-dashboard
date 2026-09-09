@@ -16,14 +16,23 @@ class Settings(BaseSettings):
     supabase_jwks_url: str = ""
     supabase_jwt_audience: str = "authenticated"
     supabase_url: str = ""
+    supabase_publishable_key: str = ""
+    # Optional privileged key. Normal sign-in must not require it; routes that
+    # perform Supabase admin operations check this value explicitly and fail closed.
     supabase_service_role_key: str = ""
     integration_encryption_key: str = ""
     metrc_integrator_key: str = ""
     allowed_hosts: str = "localhost,127.0.0.1,testserver"
 
-    # Spacemail SMTP/IMAP. The primary mailbox authenticates while the support
-    # alias is used as the visible sender. Keep the mailbox password in a
-    # server-side secret only; it must never be exposed to the browser.
+    # HTTPS transactional email. Render Free blocks outbound SMTP ports, so the
+    # hosted runtime prefers Resend's HTTPS API. Keep the API key server-side.
+    resend_api_key: str = ""
+    resend_api_url: str = "https://api.resend.com"
+    resend_timeout_seconds: float = 12.0
+
+    # Spacemail SMTP/IMAP remains available for local/legacy runtimes. The
+    # primary mailbox authenticates while aliases are used as visible senders.
+    # Keep the mailbox password in a server-side secret only.
     spacemail_smtp_host: str = "mail.spacemail.com"
     spacemail_smtp_port: int = 465
     spacemail_smtp_username: str = "nelson@doobielogic.io"
@@ -82,6 +91,11 @@ class Settings(BaseSettings):
         return [value.strip() for value in self.allowed_hosts.split(",") if value.strip()]
 
     @property
+    def supabase_auth_api_key(self) -> str:
+        """Least-privilege API key used for normal Supabase Auth requests."""
+        return self.supabase_publishable_key.strip() or self.supabase_service_role_key.strip()
+
+    @property
     def provider_order(self) -> list[str]:
         values = [value.strip().casefold() for value in self.ai_provider_order.split(",") if value.strip()]
         if self.ai_provider_mode.casefold() == "local_only":
@@ -89,23 +103,38 @@ class Settings(BaseSettings):
         return values or ["local"]
 
     @property
+    def resend_is_configured(self) -> bool:
+        return bool(self.resend_api_key.strip() and self.resend_api_url.strip())
+
+    @property
     def spacemail_is_configured(self) -> bool:
         return bool(
-            self.spacemail_welcome_email_enabled
-            and self.spacemail_smtp_host.strip()
+            self.spacemail_smtp_host.strip()
             and self.spacemail_smtp_username.strip()
             and self.spacemail_smtp_password
             and self.spacemail_from_email.strip()
         )
 
+    @property
+    def transactional_email_is_configured(self) -> bool:
+        return bool(
+            self.spacemail_welcome_email_enabled
+            and self.spacemail_from_email.strip()
+            and (self.resend_is_configured or self.spacemail_is_configured)
+        )
+
+    @property
+    def database_is_configured(self) -> bool:
+        return bool(self.database_url.strip())
+
     def validate_production(self) -> None:
         if self.is_development:
             return
         missing = []
-        if not self.database_url: missing.append("DATABASE_URL")
+        if not self.database_is_configured: missing.append("DATABASE_URL")
         if not (self.supabase_jwt_secret or self.supabase_jwks_url): missing.append("SUPABASE_JWKS_URL or SUPABASE_JWT_SECRET")
         if not self.supabase_url: missing.append("SUPABASE_URL")
-        if not self.supabase_service_role_key: missing.append("SUPABASE_SERVICE_ROLE_KEY")
+        if not self.supabase_auth_api_key: missing.append("SUPABASE_PUBLISHABLE_KEY or SUPABASE_SERVICE_ROLE_KEY")
         if not self.integration_encryption_key: missing.append("INTEGRATION_ENCRYPTION_KEY")
         if not self.allowed_origins: missing.append("CORS_ORIGINS")
         if missing: raise RuntimeError(f"Production configuration is incomplete: {', '.join(missing)}")

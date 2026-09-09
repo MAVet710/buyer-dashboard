@@ -17,4 +17,10 @@ export default tseslint.config(
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
     },
   },
+  {
+    // The application entrypoint intentionally owns bootstrap-only components.
+    // Fast Refresh boundaries apply to reusable component modules, not main.tsx.
+    files: ["src/main.tsx"],
+    rules: { "react-refresh/only-export-components": "off" },
+  },
 );
