@@ -11,80 +11,106 @@ on:
       - scripts/reset_dev_sandbox_vertical_inventory.py
       - .github/workflows/reset-dev-sandbox-vertical-inventory.yml
   workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type I_APPROVE_DEV_SANDBOX_RESET to replace DEV Sandbox inventory"
+        required: false
+        type: string
+
+permissions:
+  contents: read
 
 concurrency:
   group: dev-sandbox-vertical-inventory-reset
   cancel-in-progress: false
 
-env:
-  REGISTRY: us-east1-docker.pkg.dev
-  REGION: us-east1
-  RESET_JOB: dev-sandbox-vertical-inventory-reset
-
 jobs:
-  reset:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
 
-      - uses: google-github-actions/auth@v2
+      - uses: actions/setup-python@v5
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          python-version: "3.12"
+          cache: pip
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - name: Install reset dependencies
+        run: python -m pip install -r backend/requirements.txt
 
-      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+      - name: Validate scaled DEV reset definition without database access
+        run: |
+          python - <<'PY'
+          from modules.coman.vertical_demo_inventory import DEV_ORGANIZATION_SLUG, DEV_FACILITY_CODE
+          from modules.coman.vertical_demo_inventory_release import (
+              EXPECTED_ACTIVE_PLANTS,
+              EXPECTED_TOTAL_PLANTS,
+              EXPECTED_FLOWER_SKUS,
+              EXPECTED_EXTRACT_SKUS,
+              EXPECTED_FINISHED_SKUS,
+              EXPECTED_MOCK_FINISHED_COAS,
+          )
+          from modules.coman.dev_sandbox_reset_job import run
 
-      - name: Build immutable DEV reset image
+          assert callable(run)
+          assert DEV_ORGANIZATION_SLUG == "dev-sandbox"
+          assert DEV_FACILITY_CODE == "SANDBOX"
+          assert EXPECTED_ACTIVE_PLANTS == 80
+          assert EXPECTED_TOTAL_PLANTS == 120
+          assert EXPECTED_FLOWER_SKUS == 350
+          assert EXPECTED_EXTRACT_SKUS == 150
+          assert EXPECTED_FINISHED_SKUS == 500
+          assert EXPECTED_MOCK_FINISHED_COAS == 50
+          print("Scaled DEV vertical reset definition validated without contacting production.")
+          PY
+
+  apply:
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirmation == 'I_APPROVE_DEV_SANDBOX_RESET' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: dev-sandbox-data
+    env:
+      DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Require explicit write credential
+        shell: bash
         run: |
           set -euo pipefail
-          IMAGE="${{ env.REGISTRY }}/${{ secrets.GCP_PROJECT_ID }}/buyer-dash/dev-sandbox-vertical-reset:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
-          docker build -f Dockerfile.api -t "$IMAGE" .
-          docker run --rm --entrypoint python "$IMAGE" -c "from modules.coman.vertical_demo_inventory import DEV_ORGANIZATION_SLUG, DEV_FACILITY_CODE; from modules.coman.vertical_demo_inventory_release import EXPECTED_ACTIVE_PLANTS, EXPECTED_TOTAL_PLANTS, EXPECTED_FLOWER_SKUS, EXPECTED_EXTRACT_SKUS, EXPECTED_FINISHED_SKUS, EXPECTED_MOCK_FINISHED_COAS; from modules.coman.dev_sandbox_reset_job import run; assert callable(run); assert DEV_ORGANIZATION_SLUG == 'dev-sandbox'; assert DEV_FACILITY_CODE == 'SANDBOX'; assert EXPECTED_ACTIVE_PLANTS == 80; assert EXPECTED_TOTAL_PLANTS == 120; assert EXPECTED_FLOWER_SKUS == 350; assert EXPECTED_EXTRACT_SKUS == 150; assert EXPECTED_FINISHED_SKUS == 500; assert EXPECTED_MOCK_FINISHED_COAS == 50; print('Scaled DEV vertical reset image and runner verified')"
-          docker push "$IMAGE"
-          echo "RESET_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          test -n "$DL_PROD_DB_URL" || {
+            echo "DL_PROD_DB_URL must be configured as a GitHub Actions secret before a manual DEV Sandbox reset."
+            exit 1
+          }
+          echo "DEV Sandbox destructive reset is explicitly approved; credential value was not printed."
+
+      - name: Install application dependencies
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Dry-run DEV Sandbox reset first
+        run: python -m modules.coman.dev_sandbox_reset_job
 
       - name: Apply and validate DEV Sandbox vertical inventory replacement
+        shell: bash
         run: |
           set -euo pipefail
-          GENERATION="${GITHUB_SHA:0:12}"
-          gcloud run jobs deploy "${{ env.RESET_JOB }}" \
-            --project "${{ secrets.GCP_PROJECT_ID }}" \
-            --image "$RESET_IMAGE" \
-            --region "${{ env.REGION }}" \
-            --service-account "buyer-dash-migrate@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
-            --command python \
-            --args=-m,modules.coman.dev_sandbox_reset_job,--apply,--generation,"$GENERATION" \
-            --max-retries 0 \
-            --task-timeout 45m \
-            --set-env-vars APP_ENV=production \
-            --set-secrets DL_PROD_DB_URL=buyer-dash-database-url:latest \
-            --quiet
-          if ! gcloud run jobs execute "${{ env.RESET_JOB }}" \
-            --project "${{ secrets.GCP_PROJECT_ID }}" \
-            --region "${{ env.REGION }}" \
-            --wait; then
-            EXECUTION="$(gcloud run jobs executions list \
-              --job "${{ env.RESET_JOB }}" \
-              --project "${{ secrets.GCP_PROJECT_ID }}" \
-              --region "${{ env.REGION }}" \
-              --limit 1 \
-              --format='value(metadata.name)')"
-            if [ -n "$EXECUTION" ]; then
-              gcloud run jobs executions describe "$EXECUTION" \
-                --project "${{ secrets.GCP_PROJECT_ID }}" \
-                --region "${{ env.REGION }}" \
-                --format='yaml(metadata.name,status.conditions,status.failedCount,status.succeededCount)' || true
-              gcloud logging read \
-                "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${{ env.RESET_JOB }}\"" \
-                --project "${{ secrets.GCP_PROJECT_ID }}" \
-                --limit 160 \
-                --order=desc \
-                --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
-            fi
-            exit 1
-          fi
+          generation="${GITHUB_SHA:0:12}"
+          python -m modules.coman.dev_sandbox_reset_job --apply --generation "$generation"
+
+      - name: Record mutation boundary
+        run: |
+          {
+            echo '## DEV Sandbox inventory reset'
+            echo
+            echo '- Trigger: manual workflow dispatch only'
+            echo '- Confirmation: exact approval phrase required'
+            echo '- Automatic main-push behavior: validation only; no database write'
+            echo '- Google Cloud resources: none'
+          } >> "$GITHUB_STEP_SUMMARY"
