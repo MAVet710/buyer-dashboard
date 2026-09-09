@@ -69,6 +69,7 @@ def test_all_action_workflows_are_free_of_google_control_plane_wiring():
 def test_render_blueprint_is_free_only_check_gated_and_non_ddl():
     source = (ROOT / "render.yaml").read_text(encoding="utf-8")
     api = source.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
+    static = source.split("name: doobielogic-ops", 1)[1]
     assert "name: doobielogic-api" in source
     assert "name: doobielogic-ops" in source
     assert "runtime: python" in source
@@ -76,9 +77,11 @@ def test_render_blueprint_is_free_only_check_gated_and_non_ddl():
     assert source.count("plan: free") == 1
     assert source.count("autoDeployTrigger: checksPass") == 2
     assert "healthCheckPath: /health/ready" in source
-    assert "api.doobielogic.io" in source
-    assert "ops.doobielogic.io" in source
-    assert "doobielogic.io" in source
+    assert "api.doobielogic.io" not in api
+    assert "- doobielogic.io" in static
+    assert '- "*.doobielogic.io"' in static
+    assert "ops.doobielogic.io" not in static
+    assert "https://cowboykush.doobielogic.io" in api
     assert "preDeployCommand" not in source
     assert "alembic upgrade head" not in api
     assert "RENDER_EXTERNAL_HOSTNAME" in api
@@ -114,8 +117,9 @@ def test_render_frontend_is_static_lockfile_reproducible_spa_safe_and_exactly_id
     assert "runtime: static" in static
     assert "pnpm install --frozen-lockfile" in static
     assert "pnpm build" in static
+    assert "corepack enable" not in static
     assert "staticPublishPath: ./frontend/dist" in static
-    assert "value: https://api.doobielogic.io" in static
+    assert "value: https://doobielogic-api.onrender.com" in static
     assert "source: /*" in static
     assert "destination: /index.html" in static
     assert "RENDER_GIT_COMMIT" in static

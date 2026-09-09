@@ -30,8 +30,10 @@ def _verify_render() -> None:
     plans = re.findall(r"^\s*plan:\s*([^#\n]+)", source, flags=re.MULTILINE)
     _require(plans == ["free"], f"Render compute must define exactly one free plan, found: {plans}")
     _require(source.count("autoDeployTrigger: checksPass") == 2, "Both Render services must wait for GitHub checks.")
-    _require("api.doobielogic.io" in source, "Render API custom domain is missing.")
-    _require("ops.doobielogic.io" in source and "doobielogic.io" in source, "Render frontend custom domains are incomplete.")
+    _require("api.doobielogic.io" not in api, "Render API must not consume a third Hobby custom-domain slot.")
+    _require("doobielogic.io" in static and '"*.doobielogic.io"' in static, "Render frontend must use the free root + wildcard domain pair.")
+    _require("ops.doobielogic.io" not in static, "Ops must be covered by the wildcard instead of a third custom-domain entry.")
+    _require("https://cowboykush.doobielogic.io" in api, "Cowboy Kush must remain an allowed browser origin.")
     _require("healthCheckPath: /health/ready" in source, "Render API must use database-backed readiness.")
     _require("predeploycommand" not in lowered, "Render free services cannot depend on paid pre-deploy commands.")
     _require("alembic upgrade head" not in api, "The public Render web runtime must not receive schema-DDL authority.")
@@ -42,10 +44,12 @@ def _verify_render() -> None:
     _require('- key: DATABASE_MAX_OVERFLOW\n        value: "0"' in api, "Render Free API must not overflow the Supabase connection pool.")
     _require("--workers" not in api, "Render Free API must not multiply database connections with extra Uvicorn workers.")
     _require("pnpm install --frozen-lockfile" in source and "pnpm build" in source, "Render static frontend must use the locked production build.")
+    _require("corepack enable" not in static, "Render static build must use the provider-installed pnpm instead of mutating the read-only Corepack shim.")
     _require("staticPublishPath: ./frontend/dist" in source, "Render must publish the Vite dist directory.")
     _require("source: /*" in source and "destination: /index.html" in source, "Render SPA fallback rewrite is missing.")
     _require("RENDER_GIT_COMMIT" in static and "release.json" in static, "Render static frontend must publish exact commit identity.")
     _require("path: /release.json" in static and "no-store, no-cache, must-revalidate" in static, "Static release identity must never be served from cache.")
+    _require("value: https://doobielogic-api.onrender.com" in static, "Static frontend must use the free Render API hostname rather than a third custom domain.")
     _require("AI_ALLOW_CLOUD_FALLBACK" in source and 'value: "false"' in source, "Cloud AI fallback must stay disabled.")
     _require("RESEND_API_KEY" in api, "Render API must use HTTPS transactional mail instead of blocked SMTP egress.")
     _require("SPACEMAIL_SMTP_PASSWORD" not in api, "Render Free API must not depend on SMTP credentials.")
@@ -117,7 +121,8 @@ def main() -> None:
     _verify_storefront_alias_workflow_is_validation_only()
     print(
         "Zero-cost deployment contract verified: Render static frontend + Render free API + Supabase; "
-        "protected direct database configuration, HTTPS transactional email, no web-runtime DDL, no Google control-plane/registry wiring, and explicitly gated data mutations."
+        "protected direct database configuration, root + wildcard custom domains, HTTPS transactional email, "
+        "no web-runtime DDL, no Google control-plane/registry wiring, and explicitly gated data mutations."
     )
 
 
