@@ -29,7 +29,7 @@ def _invalid_credentials() -> HTTPException:
 def _supabase_password_session(settings: Settings, email: str, password: str) -> dict:
     """Exchange a linked account email/password for a normal Supabase session."""
     url = settings.supabase_url.strip()
-    key = settings.supabase_service_role_key.strip()
+    key = settings.supabase_auth_api_key
     if not url or not key:
         raise HTTPException(status_code=503, detail="Authentication service is unavailable.")
 
