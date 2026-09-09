@@ -1,13 +1,15 @@
 services:
   - type: web
     name: doobielogic-api
-    runtime: docker
+    runtime: python
     plan: free
+    region: ohio
     branch: main
     autoDeployTrigger: checksPass
-    dockerfilePath: ./Dockerfile.api
-    dockerContext: .
-    dockerCommand: >-
+    buildCommand: >-
+      python -m pip install --upgrade pip &&
+      python -m pip install -r backend/requirements.txt
+    startCommand: >-
       sh -c 'alembic upgrade head &&
       export RELEASE_SHA="${RENDER_GIT_COMMIT:-render}" &&
       export ALLOWED_HOSTS="api.doobielogic.io,${RENDER_EXTERNAL_HOSTNAME}" &&
@@ -16,6 +18,8 @@ services:
     domains:
       - api.doobielogic.io
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.11
       - key: APP_ENV
         value: production
       - key: CORS_ORIGINS
@@ -38,7 +42,48 @@ services:
         sync: false
       - key: SUPABASE_JWKS_URL
         sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
+      - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
       - key: INTEGRATION_ENCRYPTION_KEY
+        sync: false
+
+  - type: web
+    name: doobielogic-ops
+    runtime: static
+    branch: main
+    autoDeployTrigger: checksPass
+    buildCommand: >-
+      corepack enable &&
+      cd frontend &&
+      pnpm install --frozen-lockfile &&
+      pnpm build
+    staticPublishPath: ./frontend/dist
+    domains:
+      - doobielogic.io
+      - ops.doobielogic.io
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_API_URL
+        value: https://api.doobielogic.io
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
         sync: false
