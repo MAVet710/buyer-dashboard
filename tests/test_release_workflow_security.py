@@ -1,5 +1,4 @@
 from pathlib import Path
-import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,14 +62,22 @@ def test_all_action_workflows_are_free_of_google_control_plane_wiring():
 def test_render_blueprint_is_free_only_and_waits_for_checks():
     source = (ROOT / "render.yaml").read_text(encoding="utf-8")
     assert "name: doobielogic-api" in source
-    assert "runtime: docker" in source
+    assert "name: doobielogic-ops" in source
+    assert "runtime: python" in source
+    assert "runtime: static" in source
     assert source.count("plan: free") == 1
-    assert "autoDeployTrigger: checksPass" in source
+    assert source.count("autoDeployTrigger: checksPass") == 2
     assert "healthCheckPath: /health/ready" in source
     assert "api.doobielogic.io" in source
+    assert "ops.doobielogic.io" in source
+    assert "doobielogic.io" in source
     assert "preDeployCommand" not in source
     assert "alembic upgrade head" in source
     assert "RENDER_EXTERNAL_HOSTNAME" in source
+    assert "backend/requirements.txt" in source
+    assert "staticPublishPath: ./frontend/dist" in source
+    assert "pnpm install --frozen-lockfile" in source
+    assert "source: /*" in source and "destination: /index.html" in source
     assert "AI_ALLOW_CLOUD_FALLBACK" in source
     assert '- key: AI_PROVIDER_MODE\n        value: disabled' in source
     assert '- key: AI_PROVIDER_ORDER\n        value: none' in source
@@ -79,25 +86,27 @@ def test_render_blueprint_is_free_only_and_waits_for_checks():
         "DATABASE_URL",
         "SUPABASE_URL",
         "SUPABASE_JWKS_URL",
-        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_PUBLISHABLE_KEY",
         "INTEGRATION_ENCRYPTION_KEY",
+        "VITE_SUPABASE_URL",
+        "VITE_SUPABASE_PUBLISHABLE_KEY",
     ):
         assert f"- key: {key}\n        sync: false" in source
+    assert "SUPABASE_SERVICE_ROLE_KEY" not in source
 
 
-def test_netlify_frontend_is_static_and_lockfile_reproducible():
-    config = tomllib.loads((ROOT / "netlify.toml").read_text(encoding="utf-8"))
-    build = config["build"]
-    assert build["base"] == "frontend"
-    assert build["publish"] == "dist"
-    assert "pnpm install --frozen-lockfile" in build["command"]
-    assert "pnpm build" in build["command"]
-    assert build["environment"]["VITE_API_URL"] == "https://api.doobielogic.io"
-    assert "functions" not in config
-    assert any(
-        rule.get("from") == "/*" and rule.get("to") == "/index.html" and rule.get("status") == 200
-        for rule in config.get("redirects", [])
-    )
+def test_render_frontend_is_static_lockfile_reproducible_and_spa_safe():
+    source = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    static = source[source.index("name: doobielogic-ops") :]
+    assert "runtime: static" in static
+    assert "pnpm install --frozen-lockfile" in static
+    assert "pnpm build" in static
+    assert "staticPublishPath: ./frontend/dist" in static
+    assert "value: https://api.doobielogic.io" in static
+    assert "source: /*" in static
+    assert "destination: /index.html" in static
+    assert "Cache-Control" in static
+    assert not (ROOT / "netlify.toml").exists()
 
 
 def test_post_deploy_latency_gate_is_public_only_and_free_tier_aware():
@@ -149,7 +158,7 @@ def test_storefront_domain_workflow_is_validation_only():
     source = _workflow("storefront-domain-mappings.yml")
     assert "validate_storefront_domains.py" in source
     assert "50-alias free-host operating limit" in source
-    assert "domain aliases to the free Netlify site" in source
+    assert "domain aliases to the free Render static site" in source
     assert "never creates DNS or cloud resources" in source
 
 
@@ -157,6 +166,13 @@ def test_zero_cost_contract_verifier_runs_in_release_and_rc():
     command = "python scripts/verify_zero_cost_deployment.py"
     assert command in _workflow("deploy.yml")
     assert command in _workflow("rc-preview.yml")
+
+
+def test_release_and_rc_use_publishable_supabase_auth_not_service_role():
+    for name in ("deploy.yml", "rc-preview.yml"):
+        source = _workflow(name)
+        assert "SUPABASE_PUBLISHABLE_KEY" in source
+        assert "SUPABASE_SERVICE_ROLE_KEY" not in source
 
 
 def test_rc_proves_render_free_resource_envelope_without_external_preview():
