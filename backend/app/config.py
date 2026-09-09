@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     supabase_jwks_url: str = ""
     supabase_jwt_audience: str = "authenticated"
     supabase_url: str = ""
+    supabase_publishable_key: str = ""
+    # Optional privileged key. Normal sign-in must not require it; routes that
+    # perform Supabase admin operations check this value explicitly and fail closed.
     supabase_service_role_key: str = ""
     integration_encryption_key: str = ""
     metrc_integrator_key: str = ""
@@ -82,6 +85,11 @@ class Settings(BaseSettings):
         return [value.strip() for value in self.allowed_hosts.split(",") if value.strip()]
 
     @property
+    def supabase_auth_api_key(self) -> str:
+        """Least-privilege API key used for normal Supabase Auth requests."""
+        return self.supabase_publishable_key.strip() or self.supabase_service_role_key.strip()
+
+    @property
     def provider_order(self) -> list[str]:
         values = [value.strip().casefold() for value in self.ai_provider_order.split(",") if value.strip()]
         if self.ai_provider_mode.casefold() == "local_only":
@@ -105,7 +113,7 @@ class Settings(BaseSettings):
         if not self.database_url: missing.append("DATABASE_URL")
         if not (self.supabase_jwt_secret or self.supabase_jwks_url): missing.append("SUPABASE_JWKS_URL or SUPABASE_JWT_SECRET")
         if not self.supabase_url: missing.append("SUPABASE_URL")
-        if not self.supabase_service_role_key: missing.append("SUPABASE_SERVICE_ROLE_KEY")
+        if not self.supabase_auth_api_key: missing.append("SUPABASE_PUBLISHABLE_KEY or SUPABASE_SERVICE_ROLE_KEY")
         if not self.integration_encryption_key: missing.append("INTEGRATION_ENCRYPTION_KEY")
         if not self.allowed_origins: missing.append("CORS_ORIGINS")
         if missing: raise RuntimeError(f"Production configuration is incomplete: {', '.join(missing)}")
