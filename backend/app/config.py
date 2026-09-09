@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     cors_origins: str = "http://localhost:5173"
     database_url: str = Field(default="", validation_alias=AliasChoices("COMAN_DATABASE_URL", "DATABASE_URL"))
+    sealed_database_url_path: str = ""
+    database_seal_private_key: str = ""
     supabase_jwt_secret: str = ""
     supabase_jwks_url: str = ""
     supabase_jwt_audience: str = "authenticated"
@@ -32,7 +34,6 @@ class Settings(BaseSettings):
 
     # Spacemail SMTP/IMAP remains available for local/legacy runtimes. The
     # primary mailbox authenticates while aliases are used as visible senders.
-    # Keep the mailbox password in a server-side secret only.
     spacemail_smtp_host: str = "mail.spacemail.com"
     spacemail_smtp_port: int = 465
     spacemail_smtp_username: str = "nelson@doobielogic.io"
@@ -48,7 +49,6 @@ class Settings(BaseSettings):
     spacemail_login_url: str = "https://ops.doobielogic.io/"
     spacemail_welcome_email_enabled: bool = True
 
-    # DoobieLogic AI Runtime. Inference services remain external to the API image.
     ai_provider_mode: str = "local_only"
     ai_provider_order: str = "local"
     ai_allow_cloud_fallback: bool = False
@@ -57,9 +57,6 @@ class Settings(BaseSettings):
     local_llm_access_client_id: str = ""
     local_llm_access_client_secret: str = ""
     local_llm_model: str = ""
-    # Workstation-hosted models can legitimately take longer than SaaS APIs,
-    # especially through a secured tunnel and during model warm-up. Keep this
-    # below Cloudflare's 125-second default proxy read timeout.
     local_llm_timeout_seconds: float = 120.0
     local_llm_max_tokens: int = 1400
     local_llm_temperature: float = 0.2
@@ -92,7 +89,6 @@ class Settings(BaseSettings):
 
     @property
     def supabase_auth_api_key(self) -> str:
-        """Least-privilege API key used for normal Supabase Auth requests."""
         return self.supabase_publishable_key.strip() or self.supabase_service_role_key.strip()
 
     @property
@@ -125,13 +121,16 @@ class Settings(BaseSettings):
 
     @property
     def database_is_configured(self) -> bool:
-        return bool(self.database_url.strip())
+        return bool(
+            self.database_url.strip()
+            or (self.sealed_database_url_path.strip() and self.database_seal_private_key.strip())
+        )
 
     def validate_production(self) -> None:
         if self.is_development:
             return
         missing = []
-        if not self.database_is_configured: missing.append("DATABASE_URL")
+        if not self.database_is_configured: missing.append("DATABASE_URL or sealed database credential")
         if not (self.supabase_jwt_secret or self.supabase_jwks_url): missing.append("SUPABASE_JWKS_URL or SUPABASE_JWT_SECRET")
         if not self.supabase_url: missing.append("SUPABASE_URL")
         if not self.supabase_auth_api_key: missing.append("SUPABASE_PUBLISHABLE_KEY or SUPABASE_SERVICE_ROLE_KEY")
