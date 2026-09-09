@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 concurrency:
   group: seal-render-database
@@ -25,13 +24,6 @@ jobs:
         with:
           ref: hardening/p0-p2-production-readiness
 
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -42,14 +34,13 @@ jobs:
       - name: Validate and seal production database credential without printing it
         shell: bash
         env:
-          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          DL_PROD_DB_URL: ${{ secrets.DL_PROD_DB_URL }}
         run: |
           set -euo pipefail
-          umask 077
-          gcloud secrets versions access latest \
-            --secret buyer-dash-database-url \
-            --project "$GCP_PROJECT_ID" > /tmp/doobielogic-db-url
-          test -s /tmp/doobielogic-db-url || { echo "Production database secret could not be retrieved."; exit 1; }
+          test -n "${DL_PROD_DB_URL:-}" || {
+            echo "DL_PROD_DB_URL must be configured as a GitHub Actions secret."
+            exit 1
+          }
           python - <<'PY'
           import base64
           import json
@@ -65,7 +56,7 @@ jobs:
           from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
           aad = b"doobielogic-render-db-v1"
-          database_url = Path("/tmp/doobielogic-db-url").read_text(encoding="utf-8").strip()
+          database_url = str(os.environ.get("DL_PROD_DB_URL") or "").strip()
           connect_url = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
           if not connect_url.startswith(("postgres://", "postgresql://")):
               raise SystemExit("Production database secret is not a PostgreSQL URL.")
@@ -105,7 +96,6 @@ jobs:
           path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           print(f"Validated production database and sealed credential at Alembic revision {schema_revision}.")
           PY
-          shred -u /tmp/doobielogic-db-url || rm -f /tmp/doobielogic-db-url
 
       - name: Commit ciphertext only
         shell: bash
@@ -123,10 +113,11 @@ jobs:
           {
             echo '## Render database sealed-secret handoff'
             echo
-            echo '- Source credential: GCP Secret Manager / buyer-dash-database-url'
+            echo '- Source credential: GitHub Actions secret DL_PROD_DB_URL'
             echo '- Plaintext database URL printed: no'
-            echo '- Plaintext temporary file shredded: yes'
+            echo '- Plaintext database URL written to disk: no'
             echo '- Repository material: ciphertext only'
             echo '- Decryption key stored in repository: no'
+            echo '- Google control-plane dependency: none'
             echo '- This bootstrap workflow must be deleted after success.'
           } >> "$GITHUB_STEP_SUMMARY"
