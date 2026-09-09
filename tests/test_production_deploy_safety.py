@@ -26,7 +26,10 @@ def test_api_release_is_verified_before_render_check_gated_handoff():
     assert "autoDeployTrigger: checksPass" in api
     assert "healthCheckPath: /health/ready" in api
     assert "RENDER_GIT_COMMIT" in api
-    assert "alembic upgrade head" in api
+    # Migrations are proven before handoff; the public web runtime must not have
+    # schema-DDL authority. This keeps the Render database login least-privilege.
+    assert "alembic upgrade head" not in api
+    assert "preDeployCommand" not in api
 
 
 def test_web_release_identity_is_built_from_exact_render_commit_and_not_cached():
