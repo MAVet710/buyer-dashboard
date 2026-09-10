@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { abortable } from "./workspaceRecovery";
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 const PUBLIC_POST_TIMEOUT_MS = 30_000;
 
@@ -54,8 +55,8 @@ export function buyerDataMode(): "Uploads" | "Dutchie Live" {
   return localStorage.getItem("buyer-dash-data-mode") === "Dutchie Live" ? "Dutchie Live" : "Uploads";
 }
 
-async function requestHeaders(json = false): Promise<Record<string, string>> {
-  const session = (await supabase?.auth.getSession())?.data.session;
+async function requestHeaders(json = false, signal?: AbortSignal): Promise<Record<string, string>> {
+  const session = (await abortable(async () => supabase?.auth.getSession(), signal))?.data.session;
   const token = session?.access_token;
   const trial = !token ? trialToken() : "";
   const metadata = session?.user.app_metadata ?? {};
@@ -70,12 +71,30 @@ async function requestHeaders(json = false): Promise<Record<string, string>> {
   };
 }
 
-async function authorizedFetch(path: string, makeInit: (headers: Record<string, string>) => RequestInit): Promise<Response> {
-  let response = await fetch(`${API_URL}${path}`, makeInit(await requestHeaders()));
+type RefreshResult = Awaited<ReturnType<NonNullable<typeof supabase>["auth"]["refreshSession"]>>;
+let refreshInFlight: Promise<RefreshResult> | null = null;
+
+export async function refreshApiSession(signal?: AbortSignal): Promise<RefreshResult | null> {
+  if (!supabase) return null;
+  signal?.throwIfAborted();
+  // Concurrent 401s share one token rotation instead of queuing many refreshes.
+  if (!refreshInFlight) {
+    refreshInFlight = supabase.auth.refreshSession().finally(() => { refreshInFlight = null; });
+  }
+  const pending = refreshInFlight;
+  return abortable(() => pending, signal);
+}
+
+async function authorizedFetch(path: string, makeInit: (headers: Record<string, string>) => RequestInit, signal?: AbortSignal): Promise<Response> {
+  let headers = await requestHeaders(false, signal);
+  signal?.throwIfAborted();
+  let response = await fetch(`${API_URL}${path}`, makeInit(headers));
   if (response.status === 401 && supabase) {
-    const refreshed = await supabase.auth.refreshSession();
-    if (!refreshed.error && refreshed.data.session) {
-      response = await fetch(`${API_URL}${path}`, makeInit(await requestHeaders()));
+    const refreshed = await refreshApiSession(signal);
+    if (refreshed && !refreshed.error && refreshed.data.session) {
+      headers = await requestHeaders(false, signal);
+      signal?.throwIfAborted();
+      response = await fetch(`${API_URL}${path}`, makeInit(headers));
     }
   }
   return response;
@@ -97,7 +116,7 @@ export function isApiNetworkError(error: unknown): boolean {
 }
 
 export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await authorizedFetch(readPath(path), headers => ({ signal, headers }));
+  const response = await authorizedFetch(readPath(path), headers => ({ signal, headers }), signal);
   if (!response.ok) return throwResponseError(response);
   return response.json() as Promise<T>;
 }
