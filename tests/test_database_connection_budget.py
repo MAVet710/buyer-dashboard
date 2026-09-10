@@ -23,7 +23,7 @@ def test_authorization_reuses_shared_database_engine(monkeypatch):
 
 def test_render_free_api_reserves_supabase_session_headroom():
     blueprint = Path("render.yaml").read_text(encoding="utf-8")
-    api = blueprint.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
+    api = blueprint.split("name: doobielogic-api-rc", 1)[1].split("name: doobielogic-web-prod", 1)[0]
 
     # The free API runs one Uvicorn worker and may open only one pooled database
     # connection. No overflow means a traffic spike queues instead of exhausting
