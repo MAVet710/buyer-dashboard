@@ -18,6 +18,13 @@ from ..schemas.inventory_transfers import (
     InventoryTransferReceiveLine,
 )
 from ..services.metrc_context import resolve_metrc_context
+from ..services.metrc_ma_current_lifecycle import (
+    GovernedMetrcMaCurrentLifecycleService,
+    MA_CURRENT_LIFECYCLE_ACTIONS,
+    MetrcMaCurrentLifecycleError,
+    TRANSFER_CURRENT_LIFECYCLE_ACTIONS,
+    lifecycle_confirmation_token,
+)
 from ..services.metrc_transfer_actions import (
     GovernedMetrcTransferActionService,
     MetrcTransferActionError,
@@ -27,7 +34,7 @@ from ..services.metrc_transfer_actions import (
 
 router = APIRouter(prefix="/inventory/transfers", tags=["inventory-transfers"])
 TRANSFER_WRITE_ROLES = {"dev", "admin", "buyer", "planner", "supervisor", "operator", "qa"}
-TransferOperation = Literal["transfer_template_create", "transfer_template_update"]
+TransferOperation = Literal["transfer_template_create", "transfer_template_update", "transfer_template_delete"]
 
 
 class TransferRegulatoryActionRequest(BaseModel):
@@ -108,13 +115,14 @@ def transfer_regulatory_action_status(
         and jurisdiction == "MA"
         and environment == "sandbox"
     )
+    promoted = sorted(PROMOTED_TRANSFER_ACTIONS | TRANSFER_CURRENT_LIFECYCLE_ACTIONS) if ready else []
     return {
         "ready": ready,
         "provider": "metrc",
         "jurisdiction_code": jurisdiction,
         "environment": environment,
         "license_number": str(metrc.license_number or "").strip(),
-        "promoted_actions": sorted(PROMOTED_TRANSFER_ACTIONS) if ready else [],
+        "promoted_actions": promoted,
         "documentation_source": "https://api-ma.metrc.com/Documentation",
         "execution_host": "sandbox-api-ma.metrc.com" if ready else "",
         "message": (
@@ -123,7 +131,7 @@ def transfer_regulatory_action_status(
             else str(metrc.message or "This facility remains on the existing state-system-confirmed transfer workflow.")
         ),
         "provider_boundary": (
-            "The current MA v2 API exposes outgoing transfer-template writes. A verified template is not itself proof of an outgoing regulatory manifest."
+            "The current MA v2 API exposes outgoing transfer-template writes. A verified or archived template is not itself proof of an outgoing regulatory manifest or manifest cancellation."
         ),
     }
 
@@ -137,41 +145,73 @@ def preview_transfer_regulatory_action(
 ):
     _require_transfer_write(context)
     metrc = _metrc_transfer_context(context, engine, settings)
-    service = GovernedMetrcTransferActionService(engine)
+    operation = str(payload.operation_type)
     try:
-        prepared = service.prepare(
-            operation_type=payload.operation_type,
-            payload=payload.payload,
-            state=metrc.state,
-            environment=metrc.environment,
-            license_number=metrc.license_number,
-        )
-        confirmation_id = str(uuid4())
-        token = transfer_confirmation_token(
-            prepared=prepared,
-            state=metrc.state,
-            environment=metrc.environment,
-            license_number=metrc.license_number,
-            confirmation_id=confirmation_id,
-        )
-        spec = TRANSFER_WRITE_EVALUATION_ACTIONS[prepared["operation_type"]]
-        return {
-            "ready": True,
-            "operation_type": prepared["operation_type"],
-            "summary": prepared["summary"],
-            "confirmation_id": confirmation_id,
-            "confirmation_token": token,
-            "compliance_evidence": {
+        if operation in TRANSFER_CURRENT_LIFECYCLE_ACTIONS:
+            service = GovernedMetrcMaCurrentLifecycleService(engine)
+            prepared = service.prepare(
+                operation_type=operation,
+                payload=payload.payload,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+                integrator_api_key=metrc.integrator_api_key,
+                user_api_key=metrc.user_api_key,
+            )
+            confirmation_id = str(uuid4())
+            token = lifecycle_confirmation_token(
+                prepared=prepared,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+                confirmation_id=confirmation_id,
+            )
+            spec = MA_CURRENT_LIFECYCLE_ACTIONS[operation]
+            compliance = {
+                "method": spec["method"],
+                "path": spec["path"],
+                "license_number": metrc.license_number,
+                "environment": metrc.environment,
+                "provider_request_body": prepared["provider_request_body"],
+                "provider_prestate": prepared["provider_prestate"],
+                "documentation_source": "https://api-ma.metrc.com/Documentation",
+            }
+        else:
+            service = GovernedMetrcTransferActionService(engine)
+            prepared = service.prepare(
+                operation_type=operation,
+                payload=payload.payload,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+            )
+            confirmation_id = str(uuid4())
+            token = transfer_confirmation_token(
+                prepared=prepared,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+                confirmation_id=confirmation_id,
+            )
+            spec = TRANSFER_WRITE_EVALUATION_ACTIONS[prepared["operation_type"]]
+            compliance = {
                 "method": spec["method"],
                 "path": spec["path"],
                 "license_number": metrc.license_number,
                 "environment": metrc.environment,
                 "provider_request_body": prepared["provider_request_body"],
                 "documentation_source": "https://api-ma.metrc.com/Documentation",
-            },
-            "message": "Review the transfer-template values before confirming. This does not claim the regulatory manifest has been created.",
+            }
+        return {
+            "ready": True,
+            "operation_type": prepared["operation_type"],
+            "summary": prepared["summary"],
+            "confirmation_id": confirmation_id,
+            "confirmation_token": token,
+            "compliance_evidence": compliance,
+            "message": "Review the transfer-template values and fresh provider state before confirming. This does not claim a regulatory manifest was created or cancelled.",
         }
-    except MetrcTransferActionError as exc:
+    except (MetrcTransferActionError, MetrcMaCurrentLifecycleError) as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
@@ -184,12 +224,29 @@ def execute_transfer_regulatory_action(
 ):
     _require_transfer_write(context)
     metrc = _metrc_transfer_context(context, engine, settings)
+    operation = str(payload.operation_type)
     try:
+        if operation in TRANSFER_CURRENT_LIFECYCLE_ACTIONS:
+            return GovernedMetrcMaCurrentLifecycleService(engine).execute(
+                organization_id=context.organization_id,
+                facility_id=context.facility_id,
+                actor=context.user_id,
+                operation_type=operation,
+                payload=payload.payload,
+                confirmation_id=payload.confirmation_id,
+                confirmation_token=payload.confirmation_token,
+                reason=payload.reason,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+                integrator_api_key=metrc.integrator_api_key,
+                user_api_key=metrc.user_api_key,
+            )
         return GovernedMetrcTransferActionService(engine).execute(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             actor=context.user_id,
-            operation_type=payload.operation_type,
+            operation_type=operation,
             payload=payload.payload,
             confirmation_id=payload.confirmation_id,
             confirmation_token=payload.confirmation_token,
@@ -200,7 +257,7 @@ def execute_transfer_regulatory_action(
             integrator_api_key=metrc.integrator_api_key,
             user_api_key=metrc.user_api_key,
         )
-    except MetrcTransferActionError as exc:
+    except (MetrcTransferActionError, MetrcMaCurrentLifecycleError) as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
