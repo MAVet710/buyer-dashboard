@@ -1,5 +1,6 @@
 import type { Session } from "@supabase/supabase-js";
 import { useEffect, useState, type PropsWithChildren } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { authConfigured, supabase } from "../lib/supabase";
 import { apiPost, apiPublicPost, clearTrialSession, trialToken } from "../lib/api";
 import { LegalGate } from "./LegalGate";
@@ -15,6 +16,7 @@ function validStoredTrial(): boolean {
 }
 
 export function AuthGate({ children }: PropsWithChildren) {
+  const client = useQueryClient();
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(!authConfigured);
   const [login, setLogin] = useState(""); const [password, setPassword] = useState(""); const [message, setMessage] = useState(""); const [signingIn, setSigningIn] = useState(false);
@@ -23,10 +25,25 @@ export function AuthGate({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => { if (data.session) { clearTrialSession(); setTrialActive(false); } setSession(data.session); setReady(true); });
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => { if (next) { clearTrialSession(); setTrialActive(false); } setSession(next); });
-    return () => data.subscription.unsubscribe();
-  }, []);
+    let mounted = true;
+    let subject: string | null | undefined;
+    const acceptSession = (next: Session | null) => {
+      if (!mounted) return;
+      const nextSubject = next?.user.id ?? null;
+      // Never carry an earlier user's query data across login identities.
+      // Token refresh for the same user must not tear down the workspace.
+      if (subject !== undefined && subject !== nextSubject) client.clear();
+      subject = nextSubject;
+      if (next) { clearTrialSession(); setTrialActive(false); }
+      setSession(next);
+      setReady(true);
+    };
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => acceptSession(next));
+    supabase.auth.getSession().then(({ data }) => { if (subject === undefined) acceptSession(data.session); }).catch(() => {
+      if (mounted && subject === undefined) { setMessage("Could not restore your session. Please sign in again."); setReady(true); }
+    });
+    return () => { mounted = false; data.subscription.unsubscribe(); };
+  }, [client]);
 
   useEffect(() => {
     if (!session) return;
@@ -80,5 +97,5 @@ export function AuthGate({ children }: PropsWithChildren) {
   const sessionFacilityId = String(metadata.facility_id ?? "").trim();
   if (sessionRole !== "dev" && !sessionFacilityId) return <div className="auth-screen"><div className="auth-card"><div className="brand"><span>DL</span><strong>DoobieLogic</strong></div><div className="eyebrow">Access context</div><h2>No facility workspace access</h2><p>Your account is active, but no facility is assigned to it. An organization administrator can assign one or more facilities from User Management.</p><p className="source-caption">This does not grant or guess a facility automatically. Once access is assigned, refresh your secure session here.</p><button className="primary" type="button" disabled={refreshingAccess} onClick={async () => { setAccessMessage(""); setRefreshingAccess(true); const { data, error } = await supabase!.auth.refreshSession(); if (error) setAccessMessage(error.message); else setSession(data.session); setRefreshingAccess(false); }}>{refreshingAccess ? "Refreshing access…" : "Refresh access"}</button><button className="secondary" type="button" onClick={async () => { localStorage.removeItem("buyer-dash-organization"); localStorage.removeItem("buyer-dash-facility"); await supabase!.auth.signOut(); }}>Sign out</button>{accessMessage ? <div className="form-error">{accessMessage}</div> : null}</div></div>;
 
-  return <PasswordGate><LegalGate>{children}</LegalGate></PasswordGate>;
+  return <PasswordGate key={session.user.id} userId={session.user.id}><LegalGate>{children}</LegalGate></PasswordGate>;
 }

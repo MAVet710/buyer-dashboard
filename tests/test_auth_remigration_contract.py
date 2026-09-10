@@ -30,7 +30,7 @@ def test_login_restores_streamlit_story_form_trial_and_help_copy():
         assert marker in auth
     assert '/api/v1/trial/activate' in auth
     assert 'buyer-dash-trial-token' in auth
-    assert 'PasswordGate><LegalGate>' in auth
+    assert 'userId={session.user.id}><LegalGate>' in auth
 
 
 def test_username_login_uses_durable_username_instead_of_fabricated_email_alias():
