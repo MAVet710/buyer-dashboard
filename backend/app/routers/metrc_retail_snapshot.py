@@ -13,6 +13,13 @@ from services.metrc_workspace_snapshot import MetrcWorkspaceSnapshotService
 from ..auth import RequestContext, get_request_context, require_facility_capability
 from ..config import Settings, get_settings
 from ..database import get_engine
+from ..services.metrc_ma_current_lifecycle import (
+    GovernedMetrcMaCurrentLifecycleService,
+    MA_CURRENT_LIFECYCLE_ACTIONS,
+    MetrcMaCurrentLifecycleError,
+    SALES_CURRENT_LIFECYCLE_ACTIONS,
+    lifecycle_confirmation_token,
+)
 from ..services.metrc_sales_actions import (
     GovernedMetrcSalesActionService,
     MetrcSalesActionError,
@@ -29,9 +36,12 @@ SalesOperation = Literal[
     "sales_receipt_create",
     "sales_receipt_update",
     "sales_receipt_delete",
+    "sales_receipt_finalize",
+    "sales_receipt_unfinalize",
     "sales_delivery_create",
     "sales_delivery_update",
     "sales_delivery_complete",
+    "sales_delivery_delete",
 ]
 
 
@@ -200,13 +210,14 @@ def retail_regulatory_action_status(
     jurisdiction = str(metrc.state or "").strip().upper()
     environment = str(metrc.environment or "").strip().casefold()
     ready = bool(metrc.configured and metrc.trusted_mapping and jurisdiction == "MA" and environment == "sandbox")
+    promoted = sorted(PROMOTED_SALES_ACTIONS | SALES_CURRENT_LIFECYCLE_ACTIONS) if ready else []
     return {
         "ready": ready,
         "provider": "metrc",
         "jurisdiction_code": jurisdiction,
         "environment": environment,
         "license_number": str(metrc.license_number or "").strip(),
-        "promoted_actions": sorted(PROMOTED_SALES_ACTIONS) if ready else [],
+        "promoted_actions": promoted,
         "documentation_source": "https://api-ma.metrc.com/Documentation",
         "execution_host": "sandbox-api-ma.metrc.com" if ready else "",
         "message": (
@@ -215,7 +226,7 @@ def retail_regulatory_action_status(
             else str(metrc.message or "This facility remains on its current local sales workflow.")
         ),
         "execution_boundary": (
-            "Every provider write is exact-license scoped, human confirmed, idempotent in the global ledger, and requires fresh exact Metrc readback before verification."
+            "Every provider write is exact-license scoped, human confirmed, idempotent in the global ledger, and requires fresh semantic Metrc readback before verification."
             if ready
             else "Local sales workflows remain available; provider writes stay disabled."
         ),
@@ -231,41 +242,73 @@ def preview_retail_regulatory_action(
 ):
     _write(context)
     metrc = _action_metrc(context, engine, settings)
-    service = GovernedMetrcSalesActionService(engine)
+    operation = str(payload.operation_type)
     try:
-        prepared = service.prepare(
-            operation_type=payload.operation_type,
-            payload=payload.payload,
-            state=metrc.state,
-            environment=metrc.environment,
-            license_number=metrc.license_number,
-        )
-        confirmation_id = str(uuid4())
-        token = sales_confirmation_token(
-            prepared=prepared,
-            state=metrc.state,
-            environment=metrc.environment,
-            license_number=metrc.license_number,
-            confirmation_id=confirmation_id,
-        )
-        spec = SALES_EVALUATION_ACTIONS[prepared["operation_type"]]
-        return {
-            "ready": True,
-            "operation_type": prepared["operation_type"],
-            "summary": prepared["summary"],
-            "confirmation_id": confirmation_id,
-            "confirmation_token": token,
-            "compliance_evidence": {
+        if operation in SALES_CURRENT_LIFECYCLE_ACTIONS:
+            service = GovernedMetrcMaCurrentLifecycleService(engine)
+            prepared = service.prepare(
+                operation_type=operation,
+                payload=payload.payload,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+                integrator_api_key=metrc.integrator_api_key,
+                user_api_key=metrc.user_api_key,
+            )
+            confirmation_id = str(uuid4())
+            token = lifecycle_confirmation_token(
+                prepared=prepared,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+                confirmation_id=confirmation_id,
+            )
+            spec = MA_CURRENT_LIFECYCLE_ACTIONS[operation]
+            compliance = {
+                "method": spec["method"],
+                "path": spec["path"],
+                "license_number": metrc.license_number,
+                "environment": metrc.environment,
+                "provider_request_body": prepared["provider_request_body"],
+                "provider_prestate": prepared["provider_prestate"],
+                "documentation_source": "https://api-ma.metrc.com/Documentation",
+            }
+        else:
+            service = GovernedMetrcSalesActionService(engine)
+            prepared = service.prepare(
+                operation_type=operation,
+                payload=payload.payload,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+            )
+            confirmation_id = str(uuid4())
+            token = sales_confirmation_token(
+                prepared=prepared,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+                confirmation_id=confirmation_id,
+            )
+            spec = SALES_EVALUATION_ACTIONS[prepared["operation_type"]]
+            compliance = {
                 "method": spec.method,
                 "path": spec.path,
                 "license_number": metrc.license_number,
                 "environment": metrc.environment,
                 "provider_request_body": prepared["provider_request_body"],
                 "documentation_source": "https://api-ma.metrc.com/Documentation",
-            },
-            "message": "Review the business values before confirming. Any payload or facility-context change invalidates this confirmation.",
+            }
+        return {
+            "ready": True,
+            "operation_type": prepared["operation_type"],
+            "summary": prepared["summary"],
+            "confirmation_id": confirmation_id,
+            "confirmation_token": token,
+            "compliance_evidence": compliance,
+            "message": "Review the business values and fresh provider state before confirming. Any payload, provider-state, or facility-context change invalidates this confirmation.",
         }
-    except MetrcSalesActionError as exc:
+    except (MetrcSalesActionError, MetrcMaCurrentLifecycleError) as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
@@ -278,12 +321,29 @@ def execute_retail_regulatory_action(
 ):
     _write(context)
     metrc = _action_metrc(context, engine, settings)
+    operation = str(payload.operation_type)
     try:
+        if operation in SALES_CURRENT_LIFECYCLE_ACTIONS:
+            return GovernedMetrcMaCurrentLifecycleService(engine).execute(
+                organization_id=context.organization_id,
+                facility_id=context.facility_id,
+                actor=context.user_id,
+                operation_type=operation,
+                payload=payload.payload,
+                confirmation_id=payload.confirmation_id,
+                confirmation_token=payload.confirmation_token,
+                reason=payload.reason,
+                state=metrc.state,
+                environment=metrc.environment,
+                license_number=metrc.license_number,
+                integrator_api_key=metrc.integrator_api_key,
+                user_api_key=metrc.user_api_key,
+            )
         return GovernedMetrcSalesActionService(engine).execute(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
             actor=context.user_id,
-            operation_type=payload.operation_type,
+            operation_type=operation,
             payload=payload.payload,
             confirmation_id=payload.confirmation_id,
             confirmation_token=payload.confirmation_token,
@@ -294,5 +354,5 @@ def execute_retail_regulatory_action(
             integrator_api_key=metrc.integrator_api_key,
             user_api_key=metrc.user_api_key,
         )
-    except MetrcSalesActionError as exc:
+    except (MetrcSalesActionError, MetrcMaCurrentLifecycleError) as exc:
         raise HTTPException(422, str(exc)) from exc
