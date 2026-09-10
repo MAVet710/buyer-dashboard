@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -9,9 +9,11 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import CrewAvailability, Facility, FacilityMachine, Organization, ProductionActual, ProductionOrder
+from modules.cultivation.service import CultivationService
 from modules.extraction.repository import ExtractionRepository
 from reports.buyer_report import _build_buyer_executive_report_pdf
 from reports.coman_report import _build_coman_executive_report_pdf
+from reports.cultivation_report import _build_cultivation_executive_report_pdf
 from reports.executive_system import combine_report_pdfs
 from reports.extraction_report import _build_extraction_executive_report_pdf
 from reports.white_label_report import _build_white_label_repack_report_pdf
@@ -32,6 +34,13 @@ DEFAULT_BUYER_CONTROLS = {
     "velocity_adjustment": 0.5,
     "sales_days": 60,
     "sku_window": 56,
+}
+
+CULTIVATION_REPORTS = {
+    "cultivation": ("overview", "Cultivation_Operations_Executive_Report.pdf", "Cultivation Operations Executive Report"),
+    "cultivation-plants": ("plants", "Cultivation_Plant_Inventory_Report.pdf", "Cultivation Plant Inventory Report"),
+    "cultivation-harvests": ("harvests", "Cultivation_Harvest_Yield_Cost_Report.pdf", "Cultivation Harvest Yield & Cost Report"),
+    "cultivation-rooms": ("rooms", "Cultivation_Room_Capacity_Report.pdf", "Cultivation Room Capacity Report"),
 }
 
 
@@ -138,6 +147,77 @@ def _extraction_report(context: RequestContext, engine: Engine) -> tuple[bytes, 
     return _build_extraction_executive_report_pdf(payload), bool(runs)
 
 
+def _cultivation_payload(context: RequestContext, engine: Engine) -> tuple[dict, bool]:
+    organization, facility = _context_names(context, engine)
+    service = CultivationService(engine)
+    plants = service.list_plants(context.organization_id, context.facility_id)
+    rooms = service.list_rooms(context.organization_id, context.facility_id)
+    harvests = service.list_harvests(context.organization_id, context.facility_id)
+
+    plant_rows = [
+        {
+            "plant_tag": row.plant_tag,
+            "strain_name": row.strain_name,
+            "phase": row.phase,
+            "room_code": row.room_code,
+            "mother_plant_tag": row.mother_plant_tag,
+            "planted_at": row.planted_at.isoformat() if row.planted_at else None,
+            "estimated_harvest_date": row.estimated_harvest_date.isoformat() if row.estimated_harvest_date else None,
+        }
+        for row in plants
+    ]
+    active_phases = {"clone", "seedling", "vegetative", "flowering"}
+    active_plants = [row for row in plants if row.phase in active_phases]
+    today = date.today()
+    horizon = today + timedelta(days=14)
+    harvest_due_14_days = sum(1 for row in active_plants if row.estimated_harvest_date and today <= row.estimated_harvest_date <= horizon)
+    harvest_overdue = sum(1 for row in active_plants if row.estimated_harvest_date and row.estimated_harvest_date < today)
+    active_rooms = [row for row in rooms if row.get("active")]
+    open_harvests = [row for row in harvests if row.get("status") in {"planned", "active", "drying"}]
+    completed_harvests = [row for row in harvests if row.get("status") == "completed"]
+    total_wet = sum(float(row.get("wet_weight") or 0) for row in harvests)
+    total_dry = sum(float(row.get("dry_weight") or 0) for row in harvests)
+    total_waste = sum(float(row.get("waste_weight") or 0) for row in harvests)
+    total_cogs = sum(float(row.get("total_cogs_usd") or 0) for row in harvests)
+    weighted_yield = total_dry / total_wet * 100 if total_wet > 0 else 0.0
+
+    payload = {
+        "summary": {
+            "organization": organization,
+            "facility": facility,
+            "reporting_period": "Current cultivation inventory, rooms, harvests, and recorded costs",
+        },
+        "plants": pd.DataFrame(plant_rows),
+        "rooms": pd.DataFrame(rooms),
+        "harvests": pd.DataFrame(harvests),
+        "kpis": {
+            "active_plants": len(active_plants),
+            "flowering_plants": sum(1 for row in active_plants if row.phase == "flowering"),
+            "harvest_due_14_days": harvest_due_14_days,
+            "harvest_overdue": harvest_overdue,
+            "strain_count": len({row.strain_name for row in active_plants if row.strain_name}),
+            "active_rooms": len(active_rooms),
+            "room_capacity": sum(int(row.get("plant_capacity") or 0) for row in active_rooms),
+            "over_capacity_rooms": sum(1 for row in active_rooms if row.get("over_capacity")),
+            "phase_mismatch_count": sum(int(row.get("phase_mismatch_count") or 0) for row in active_rooms),
+            "open_harvests": len(open_harvests),
+            "completed_harvests": len(completed_harvests),
+            "total_wet_weight_g": total_wet,
+            "total_dry_weight_g": total_dry,
+            "total_waste_weight_g": total_waste,
+            "avg_dry_yield_pct": weighted_yield,
+            "total_cogs_usd": total_cogs,
+            "cost_per_dry_g": total_cogs / total_dry if total_dry > 0 else 0.0,
+        },
+    }
+    return payload, bool(plants or rooms or harvests)
+
+
+def _cultivation_report(context: RequestContext, engine: Engine, view: str = "overview") -> tuple[bytes, bool]:
+    payload, has_data = _cultivation_payload(context, engine)
+    return _build_cultivation_executive_report_pdf(payload, view=view), has_data
+
+
 def _white_label_report(payload: dict, context: RequestContext, engine: Engine) -> bytes:
     organization, facility = _context_names(context, engine)
     report_payload = dict(payload)
@@ -182,6 +262,22 @@ def _production_pack_parts(context: RequestContext, engine: Engine) -> list[tupl
     return parts
 
 
+def _cultivation_pack_parts(context: RequestContext, engine: Engine) -> list[tuple[str, bytes]]:
+    payload, has_data = _cultivation_payload(context, engine)
+    if not has_data:
+        return []
+    parts: list[tuple[str, bytes]] = []
+    for view, label in (
+        ("overview", "Cultivation Operations"),
+        ("plants", "Plant Inventory"),
+        ("harvests", "Harvest Yield & Cost"),
+        ("rooms", "Room Capacity"),
+    ):
+        report_name = f"Cultivation {label} Report"
+        parts.append((label, _validated_pdf(_build_cultivation_executive_report_pdf(payload, view=view), report_name)))
+    return parts
+
+
 @router.get("/catalog")
 def catalog(context: RequestContext = Depends(get_request_context)):
     del context
@@ -190,6 +286,10 @@ def catalog(context: RequestContext = Depends(get_request_context)):
             {"key": "buyer", "label": "Buyer Operations Executive Report", "capability": "retail"},
             {"key": "production", "label": "Production Planning Executive Report", "capability": "production"},
             {"key": "extraction", "label": "Extraction Operations Executive Report", "capability": "production"},
+            {"key": "cultivation", "label": "Cultivation Operations Executive Report", "capability": "cultivation"},
+            {"key": "cultivation-plants", "label": "Cultivation Plant Inventory Report", "capability": "cultivation"},
+            {"key": "cultivation-harvests", "label": "Cultivation Harvest Yield & Cost Report", "capability": "cultivation"},
+            {"key": "cultivation-rooms", "label": "Cultivation Room Capacity Report", "capability": "cultivation"},
         ]
     }
 
@@ -224,13 +324,29 @@ def production_pack_pdf(payload: dict | None = Body(default=None), context: Requ
     return _pdf_response(pdf, f"production_ops_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf", "Production Ops Executive Pack")
 
 
+@router.post("/packs/cultivation.pdf")
+def cultivation_pack_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    del payload
+    parts = _cultivation_pack_parts(context, engine)
+    if not parts:
+        raise HTTPException(422, "No Cultivation Ops reports are available for the current facility.")
+    pdf = combine_report_pdfs([report for _, report in parts], title="DoobieLogic Cultivation Ops Report Pack", division="Cultivation Ops")
+    return _pdf_response(pdf, f"cultivation_ops_report_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf", "Cultivation Ops Report Pack")
+
+
 @router.post("/packs/company.pdf")
 def company_pack_pdf(payload: dict | None = Body(default=None), context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
     retail = _retail_pack_parts(payload, context, engine)
     production = _production_pack_parts(context, engine)
-    if not retail or not production:
-        raise HTTPException(422, "The Company Executive Pack requires at least one available Retail Ops report and one available Production Ops report.")
-    pdf = combine_report_pdfs([report for _, report in retail + production], title="DoobieLogic Company Executive Pack", division="All Operations")
+    cultivation_payload, cultivation_has_data = _cultivation_payload(context, engine)
+    cultivation = []
+    if cultivation_has_data:
+        cultivation_pdf = _build_cultivation_executive_report_pdf(cultivation_payload, view="overview")
+        cultivation.append(("Cultivation Operations", _validated_pdf(cultivation_pdf, "Cultivation Operations Executive Report")))
+    parts = retail + production + cultivation
+    if not parts:
+        raise HTTPException(422, "No executive reports are available for the current organization and facility.")
+    pdf = combine_report_pdfs([report for _, report in parts], title="DoobieLogic Company Executive Pack", division="All Operations")
     return _pdf_response(pdf, f"company_executive_pack_{datetime.now().strftime('%Y-%m-%d')}.pdf", "Company Executive Pack")
 
 
@@ -248,6 +364,9 @@ def report_pdf(report_key: str, context: RequestContext = Depends(get_request_co
         pdf, _has_data = _extraction_report(context, engine)
         filename = "Extraction_Operations_Executive_Report.pdf"
         report_name = "Extraction Operations Executive Report"
+    elif report_key in CULTIVATION_REPORTS:
+        view, filename, report_name = CULTIVATION_REPORTS[report_key]
+        pdf, _has_data = _cultivation_report(context, engine, view=view)
     else:
         raise HTTPException(404, "Unknown executive report.")
     return _pdf_response(pdf, filename, report_name)

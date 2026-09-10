@@ -174,6 +174,25 @@ export async function apiDownload(path: string, body?: unknown): Promise<Blob> {
   return response.blob();
 }
 
+export async function validatePdfBlob(blob: Blob): Promise<Blob> {
+  if (!(blob instanceof Blob) || blob.size < 512) {
+    throw new ApiError("The report server did not return a complete PDF document.", 502);
+  }
+  const signature = new TextDecoder().decode(await blob.slice(0, 4).arrayBuffer());
+  if (signature !== "%PDF") {
+    throw new ApiError("The report server returned a non-PDF response. No file was downloaded.", 502);
+  }
+  const mediaType = blob.type.split(";", 1)[0].trim().toLowerCase();
+  if (mediaType && mediaType !== "application/pdf" && mediaType !== "application/octet-stream") {
+    throw new ApiError(`The report server returned ${mediaType} instead of application/pdf.`, 502);
+  }
+  return blob;
+}
+
+export async function apiDownloadPdf(path: string, body?: unknown): Promise<Blob> {
+  return validatePdfBlob(await apiDownload(path, body));
+}
+
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
