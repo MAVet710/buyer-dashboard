@@ -29,6 +29,7 @@ class TraceabilityBackofficeRepository(TraceabilityRepository):
         provider: str = "",
         entity_type: str = "",
         entity_id: str = "",
+        environment: str = "",
         limit: int = 250,
     ) -> list[TraceabilityTransaction]:
         safe_limit = max(1, min(int(limit or 250), 1000))
@@ -45,6 +46,9 @@ class TraceabilityBackofficeRepository(TraceabilityRepository):
             normalized_provider = _clean(provider).casefold()
             if normalized_provider:
                 statement = statement.where(TraceabilityTransaction.provider == normalized_provider)
+            normalized_environment = _clean(environment).casefold()
+            if normalized_environment:
+                statement = statement.where(TraceabilityTransaction.environment == normalized_environment)
             normalized_entity_type = _clean(entity_type)
             normalized_entity_id = _clean(entity_id)
             if normalized_entity_type:
@@ -54,10 +58,11 @@ class TraceabilityBackofficeRepository(TraceabilityRepository):
             statement = statement.order_by(TraceabilityTransaction.requested_at.desc()).limit(safe_limit)
             return list(session.scalars(statement))
 
-    def summary(self, organization_id: str, facility_id: str) -> dict[str, int]:
+    def summary(self, organization_id: str, facility_id: str, *, environment: str = "") -> dict[str, int]:
         transactions = self.list_transactions(
             organization_id,
             facility_id,
+            environment=environment,
             limit=1000,
         )
         counts = Counter(transaction.status for transaction in transactions)

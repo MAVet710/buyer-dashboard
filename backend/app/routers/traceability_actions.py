@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from modules.coman.models import AuditEvent, InventoryLot
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
+from modules.traceability.global_ledger import GlobalTraceabilityLedger, machine_status
 from services.traceability_dispatcher import TraceabilityDispatcher, TraceabilityDispatchError
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
@@ -70,6 +72,10 @@ class InventoryHoldIntent(BaseModel):
     reason: str = Field(default="Operational hold", min_length=3, max_length=255)
 
 
+class ExceptionResolutionIntent(BaseModel):
+    note: str = Field(min_length=3, max_length=1000)
+
+
 def _catalog_row(name: str, spec: dict[str, Any]) -> dict[str, Any]:
     return {
         "operation_type": name,
@@ -115,13 +121,25 @@ def _transaction_view(row) -> dict[str, Any]:
         "operation": row.operation_type,
         "direction": row.direction,
         "provider_reference": row.external_reference,
+        "provider_tag": row.external_tag,
+        "correlation_id": row.correlation_id,
+        "source": row.source,
         "status": row.status,
+        "machine_status": machine_status(row),
         "operator_status": _operator_status(row.status),
         "attempt_count": row.attempt_count,
         "last_attempt_at": row.last_attempt_at,
         "next_attempt_at": row.next_attempt_at,
         "retry_eligible": row.retry_eligible,
         "latest_error": row.error_message or row.error_code,
+        "error_classification": row.error_classification,
+        "reconciliation_state": row.reconciliation_state,
+        "resolution_state": row.resolution_state,
+        "resolution_note": row.resolution_note,
+        "resolved_by": row.resolved_by,
+        "resolved_at": row.resolved_at,
+        "parent_entity": {"type": row.parent_entity_type, "id": row.parent_entity_id} if row.parent_entity_id else None,
+        "related_entities": _json_value(row.related_entities_json),
         "local_state": _json_value(row.local_state_json),
         "provider_state": _json_value(row.provider_state_json),
         "readback_result": _json_value(row.readback_result_json),
@@ -291,6 +309,13 @@ def queue_action(payload: TraceabilityIntent, context: RequestContext = Depends(
     if missing:
         raise HTTPException(422, f"Traceability payload is missing required field(s): {', '.join(missing)}")
     repository = TraceabilityBackofficeRepository(engine)
+    related_entities = [
+        {"type": field.removesuffix("_ids").removesuffix("_id"), "id": str(value)}
+        for field, values in payload.payload.items()
+        if field.endswith(("_id", "_ids"))
+        for value in (values if isinstance(values, list) else [values])
+        if value not in (None, "")
+    ]
     try:
         row = repository.create_transaction(
             organization_id=context.organization_id,
@@ -307,6 +332,10 @@ def queue_action(payload: TraceabilityIntent, context: RequestContext = Depends(
             direction=payload.direction,
             request_payload=payload.payload,
             reason=payload.reason,
+            correlation_id=payload.idempotency_key,
+            source="typed_action_api",
+            external_tag=str(payload.payload.get("tag") or payload.payload.get("package_tag") or ""),
+            related_entities=related_entities,
         )
         if row.status == "requested":
             row = repository.transition_logged(
@@ -348,6 +377,7 @@ def traceability_ledger(
     provider: str = Query(default="", max_length=24),
     entity_type: str = Query(default="", max_length=64),
     entity_id: str = Query(default="", max_length=255),
+    environment: str = "",
     limit: int = Query(default=250, ge=1, le=1000),
     context: RequestContext = Depends(get_request_context),
     engine: Engine = Depends(get_engine),
@@ -360,12 +390,99 @@ def traceability_ledger(
         provider=provider,
         entity_type=entity_type,
         entity_id=entity_id,
+        environment=environment,
         limit=limit,
     )
     return {
-        "summary": repository.summary(context.organization_id, context.facility_id),
+        "summary": repository.summary(context.organization_id, context.facility_id, environment=environment),
         "transactions": [_transaction_view(row) for row in rows],
     }
+
+
+@router.get("/ledger/exceptions")
+def traceability_exceptions(
+    environment: str = Query(default="", max_length=24),
+    entity_type: str = Query(default="", max_length=64),
+    before: datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    repository = GlobalTraceabilityLedger(engine)
+    rows = repository.list_exceptions(
+        context.organization_id, context.facility_id,
+        environment=environment, entity_type=entity_type, before=before, limit=limit,
+    )
+    return {
+        "healthy": not rows,
+        "count": len(rows),
+        "exceptions": [_transaction_view(row) for row in rows],
+        "next_before": rows[-1].requested_at if len(rows) == limit else None,
+    }
+
+
+@router.get("/entities/{entity_type}/{entity_id}/history")
+def traceability_entity_history(
+    entity_type: str,
+    entity_id: str,
+    environment: str = Query(default="", max_length=24),
+    limit: int = Query(default=50, ge=1, le=200),
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    repository = GlobalTraceabilityLedger(engine)
+    rows = repository.entity_history(
+        context.organization_id, context.facility_id, entity_type, entity_id,
+        environment=environment, limit=limit,
+    )
+    inbound = next((row for row in rows if row.direction == "inbound" and machine_status(row) == "succeeded"), None)
+    outbound = next((row for row in rows if row.direction == "outbound" and machine_status(row) == "succeeded"), None)
+    return {
+        "entity": {"type": entity_type, "id": entity_id},
+        "current_state": machine_status(rows[0]) if rows else "not_linked",
+        "unresolved_exception_count": sum(machine_status(row) in {"conflict", "failed_retryable", "failed_permanent"} for row in rows),
+        "last_successful_inbound": inbound.completed_at if inbound else None,
+        "last_successful_outbound": outbound.completed_at if outbound else None,
+        "events": [_transaction_view(row) for row in rows],
+    }
+
+
+@router.post("/ledger/{transaction_id}/retry")
+def retry_traceability_exception(
+    transaction_id: str,
+    intent: ExceptionResolutionIntent,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    if context.role.casefold() not in DISPATCH_ROLES:
+        raise HTTPException(403, "Supervisor, QA, Admin, or DEV approval is required to retry a regulatory action.")
+    try:
+        row = GlobalTraceabilityLedger(engine).prepare_retry(
+            context.organization_id, context.facility_id, transaction_id,
+            actor=context.user_id, reason=intent.note,
+        )
+        return _transaction_view(row)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/ledger/{transaction_id}/resolve")
+def resolve_traceability_exception(
+    transaction_id: str,
+    intent: ExceptionResolutionIntent,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    if context.role.casefold() not in DISPATCH_ROLES:
+        raise HTTPException(403, "Supervisor, QA, Admin, or DEV approval is required to resolve a regulatory exception.")
+    try:
+        row = GlobalTraceabilityLedger(engine).resolve_exception(
+            context.organization_id, context.facility_id, transaction_id,
+            actor=context.user_id, note=intent.note,
+        )
+        return _transaction_view(row)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.get("/ledger/{transaction_id}")

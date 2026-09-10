@@ -10,6 +10,7 @@ from sqlalchemy import Engine, select
 
 from modules.integrations.models import IntegrationSyncState
 from modules.integrations.provider_snapshot import IntegrationProviderSnapshotRepository
+from modules.traceability.global_ledger import GlobalTraceabilityLedger
 from services import metrc_facility_bootstrap as base_bootstrap
 from services.metrc_facility_bootstrap import MAX_INITIAL_PAGES, PAGE_SIZE, _total_pages
 from services.metrc_workspace_hydration import MetrcWorkspaceHydrationService
@@ -77,6 +78,7 @@ class MetrcIncrementalSyncService:
     def __init__(self, engine: Engine):
         self.engine = engine
         self.snapshots = IntegrationProviderSnapshotRepository(engine)
+        self.ledger = GlobalTraceabilityLedger(engine)
 
     def sync(
         self,
@@ -90,6 +92,7 @@ class MetrcIncrementalSyncService:
         user_api_key: str,
         actor: str,
     ) -> dict[str, Any]:
+        correlation_id = str(uuid.uuid4())
         baselines = self._baselines(
             organization_id=organization_id,
             facility_id=facility_id,
@@ -167,6 +170,13 @@ class MetrcIncrementalSyncService:
         for local, _provider, baseline in to_read:
             result = results.get(local)
             if isinstance(result, Exception):
+                self.ledger.record_inbound_failure(
+                    organization_id=organization_id, facility_id=facility_id,
+                    environment=environment, license_number=license_number,
+                    resource=local, correlation_id=correlation_id, actor=actor,
+                    http_status=None, error_code=type(result).__name__,
+                    message="Incremental provider read failed.",
+                )
                 resources.append({
                     "resource": local,
                     "provider_resource": by_name[local],
@@ -186,6 +196,14 @@ class MetrcIncrementalSyncService:
                     outcome = "full_sync_required"
                 else:
                     outcome = "failed"
+                if outcome == "failed":
+                    self.ledger.record_inbound_failure(
+                        organization_id=organization_id, facility_id=facility_id,
+                        environment=environment, license_number=license_number,
+                        resource=local, correlation_id=correlation_id, actor=actor,
+                        http_status=http_status or None, error_code=status,
+                        message=str(result.get("message") or "Incremental Metrc read failed."),
+                    )
                 resources.append({
                     "resource": local,
                     "provider_resource": by_name[local],
@@ -238,6 +256,23 @@ class MetrcIncrementalSyncService:
                 records=records,
             )
             deltas[local] = records
+            self.ledger.record_inbound_sync(
+                organization_id=organization_id,
+                facility_id=facility_id,
+                environment=environment,
+                license_number=license_number,
+                resource=local,
+                correlation_id=correlation_id,
+                actor=actor,
+                record_count=len(records),
+                provider_summary={
+                    "resource": local,
+                    "record_count": len(records),
+                    "page_count": int(result.get("page_count") or 1),
+                    "last_modified_start": result.get("last_modified_start"),
+                    "persisted": True,
+                },
+            )
             resources.append({
                 "resource": local,
                 "provider_resource": by_name[local],
@@ -303,6 +338,7 @@ class MetrcIncrementalSyncService:
             "environment": environment,
             "license_number": license_number,
             "mode": "last_modified_delta",
+            "correlation_id": correlation_id,
             "overlap_minutes": 5,
             "destructive_membership_replacement": False,
             "periodic_full_snapshot_required_for_absence": True,

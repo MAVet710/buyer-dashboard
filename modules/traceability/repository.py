@@ -108,6 +108,12 @@ class TraceabilityRepository:
         request_payload: Mapping[str, Any] | None = None,
         local_state: Mapping[str, Any] | None = None,
         reason: str = "",
+        correlation_id: str = "",
+        source: str = "application",
+        external_tag: str = "",
+        parent_entity_type: str = "",
+        parent_entity_id: str = "",
+        related_entities: list[Mapping[str, Any]] | None = None,
     ) -> TraceabilityTransaction:
         normalized_provider = _clean(provider).casefold()
         if normalized_provider not in TRACEABILITY_PROVIDERS:
@@ -155,6 +161,12 @@ class TraceabilityRepository:
                     entity_type=clean_entity_type,
                     entity_id=clean_entity_id,
                     idempotency_key=clean_idempotency,
+                    correlation_id=_clean(correlation_id) or clean_idempotency,
+                    source=_clean(source) or "application",
+                    external_tag=_clean(external_tag),
+                    parent_entity_type=_clean(parent_entity_type),
+                    parent_entity_id=_clean(parent_entity_id),
+                    related_entities_json=json.dumps(_sanitize_payload(related_entities or []), sort_keys=True, separators=(",", ":")),
                     request_payload_json=_payload_json(request_payload),
                     local_state_json=_payload_json(local_state),
                     reason=_clean(reason),
