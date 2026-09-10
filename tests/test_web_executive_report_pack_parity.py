@@ -29,21 +29,46 @@ def test_web_restores_streamlit_executive_report_pack_controls():
         assert filename in web
 
 
-def test_report_pack_api_reuses_retained_streamlit_pdf_builders():
+def test_report_pack_api_reuses_retained_streamlit_pdf_builders_and_adds_cultivation():
     backend = read("backend/app/routers/executive_reports.py")
+    cultivation = read("reports/cultivation_report.py")
 
     assert "from reports.executive_system import combine_report_pdfs" in backend
     assert "_build_buyer_executive_report_pdf" in backend
     assert "_build_white_label_repack_report_pdf" in backend
     assert "_build_coman_executive_report_pdf" in backend
     assert "_build_extraction_executive_report_pdf" in backend
+    assert "_build_cultivation_executive_report_pdf" in backend
+    assert "Cultivation Plant Inventory Report" in cultivation
+    assert "Cultivation Harvest Yield & Cost Report" in cultivation
+    assert "Cultivation Room Capacity Report" in cultivation
     assert '@router.post("/packs/retail.pdf")' in backend
     assert '@router.post("/packs/production.pdf")' in backend
+    assert '@router.post("/packs/cultivation.pdf")' in backend
     assert '@router.post("/packs/company.pdf")' in backend
     assert 'title="DoobieLogic Retail Ops Executive Pack"' in backend
     assert 'division="Retail Ops"' in backend
+    assert 'title="DoobieLogic Cultivation Ops Report Pack"' in backend
+    assert 'division="Cultivation Ops"' in backend
     assert 'title="DoobieLogic Company Executive Pack"' in backend
     assert 'division="All Operations"' in backend
+
+
+def test_reports_page_exposes_cultivation_pdfs_and_validates_downloads():
+    api = read("frontend/src/lib/api.ts")
+    web = read("frontend/src/pages/ExecutiveReportsPage.tsx")
+    backend = read("backend/app/routers/executive_reports.py")
+
+    assert "apiDownloadPdf" in web
+    assert "validatePdfBlob" in api
+    assert 'signature !== "%PDF"' in api
+    assert 'mediaType !== "application/pdf"' in api
+    assert '"cultivation" | "company"' in web
+    assert "Download Cultivation Ops Pack" in web
+    assert "Cultivation Operations Executive Report" in backend
+    assert "Cultivation Plant Inventory Report" in backend
+    assert "Cultivation Harvest Yield & Cost Report" in backend
+    assert "Cultivation Room Capacity Report" in backend
 
 
 def test_white_label_report_payload_is_session_scoped_for_pack_reuse():
