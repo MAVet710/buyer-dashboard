@@ -118,6 +118,12 @@ def test_label_studio_workspace_integrates_simple_and_advanced_workflows():
     assert 'Expected material' not in workflow
     assert 'does not reserve, consume, or validate a production quantity' in workflow
     assert 'aria-label="Printable retail labels"' in workflow
+    assert "Customize size & layout" in workflow
+    assert "<LabelLayoutEditor" in workflow
+    assert "<LabelDesignCanvas" in workflow
+    assert "/design" in workflow
+    assert 'run.metrc_package_tag.slice(-5)' in workflow
+    assert '#{index+1} / {run.quantity}' not in workflow
     assert 'Reason required for reprint' in workflow
     assert '/api/v1/label-printing/inventory-sources?summary=true' in workflow
     assert '/api/v1/product-master?operation=production&search=&status=active&item_type=finished_good' in workflow

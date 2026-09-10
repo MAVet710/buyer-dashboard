@@ -6,6 +6,7 @@ from modules.cultivation.post_harvest import PostHarvestService
 from modules.cultivation.service import CultivationService
 from modules.regulatory.metrc_guide_v11 import MetrcGuideV11Service
 from modules.regulatory.metrc_process_compliance import MetrcProcessComplianceService
+from modules.traceability.action_registry import get_traceability_action
 from services.metrc_client import fetch_metrc_resource
 from services.metrc_evaluation_lifecycle import (
     LIFECYCLE_EVALUATION_ACTIONS,
@@ -87,6 +88,9 @@ class GovernedMetrcHarvestActionService(MetrcHarvestActionService):
             )
 
         operation = prepared["operation_type"]
+        registered = get_traceability_action(operation)
+        if registered is None or registered.execution_path != "specialized_verified":
+            raise MetrcHarvestActionError("This harvest action is not enabled in the canonical traceability action registry.")
         evaluator_operation = prepared["evaluator_operation"]
         spec = LIFECYCLE_EVALUATION_ACTIONS[evaluator_operation]
         idempotency_key = f"metrc-harvest:{facility_id}:{confirmation_id}:{expected_token}"
@@ -115,6 +119,13 @@ class GovernedMetrcHarvestActionService(MetrcHarvestActionService):
             },
             local_state=prepared["fingerprint_context"],
             reason=str(reason or f"Authorized operator confirmed {prepared['summary']['title'].lower()}.").strip(),
+            correlation_id=confirmation_id,
+            source="harvest_workflow",
+            external_tag=str(prepared.get("provider_payload", {}).get("tag") or ""),
+            related_entities=[
+                {"type": "plant", "id": str(plant_id)}
+                for plant_id in prepared.get("fingerprint_context", {}).get("plant_ids", [])
+            ],
         )
         transaction, claimed = self.traceability.claim_transition_logged(
             organization_id=organization_id,

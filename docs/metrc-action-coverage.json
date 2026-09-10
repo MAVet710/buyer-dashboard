@@ -1,0 +1,22 @@
+{
+  "evidence": "Official Massachusetts Metrc v2 documentation plus sandbox-verified adapters",
+  "updated": "2026-09-10",
+  "legend": {
+    "specialized_verified": "human preview, exact payload, write, exact readback, ledger",
+    "shared_dispatch": "typed queue, authorization, idempotency, provider submission, reconciliation",
+    "read_only": "normalized inbound synchronization",
+    "locked": "documented capability; write disabled until payload/readback proof"
+  },
+  "domains": {
+    "facility": {"read": ["facilities", "permissions"], "write": [], "status": "read_only"},
+    "master_data": {"read": ["locations", "strains", "items"], "write": ["location_create", "location_update", "strain_create", "strain_update", "item_create", "item_update"], "status": "specialized_verified"},
+    "tags": {"read": ["plant_tags_available", "package_tags_available", "staged_tags"], "write": [], "status": "read_only"},
+    "cultivation": {"read": ["plant_batches", "plants", "harvests"], "write": ["plant_batch_create", "plant_batch_vegetative", "plant_move", "plant_harvest", "harvest_waste", "harvest_finish", "harvest_unfinish"], "status": "specialized_verified"},
+    "packages": {"read": ["active", "inactive", "on_hold", "lab_samples", "adjustments", "source_harvests"], "write": ["package_create", "package_item_update", "package_adjust", "package_finish", "package_unfinish"], "status": "specialized_verified"},
+    "lab_testing": {"read": ["results", "states", "types", "documents"], "write": ["record", "release", "document"], "status": "locked"},
+    "transfers": {"read": ["incoming", "outgoing", "rejected", "deliveries", "packages", "drivers", "vehicles"], "write": ["transfer_template_create"], "status": "shared_dispatch"},
+    "processing": {"read": ["jobs", "job_types", "adjustment_reasons"], "write": ["package_create"], "status": "specialized_verified"},
+    "sales": {"read": ["receipts", "deliveries"], "write": [], "status": "locked"}
+  },
+  "all_outbound": {"ledger": true, "idempotency": true, "preview": true, "reconciliation": true, "blind_retry": false, "revalidate_on_execute": true}
+}
