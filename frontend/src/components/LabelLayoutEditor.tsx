@@ -42,7 +42,7 @@ export function LabelLayoutEditor({design,contents,disabled,busy,onChange,onSave
   return <section className="label-layout-editor" aria-label="Customize label layout">
     <h3>Customize label</h3><p>Drag blocks, pull a corner to resize, or use exact measurements. Arrow keys move a focused block. Source values stay linked to this run.</p>
     <fieldset disabled={disabled||busy}><div className="label-design-controls">
-      <label>Units<select value={units} onChange={e=>setUnits(e.target.value)}><option value="in">Inches</option><option value="mm">Millimeters</option></select></label>
+      <label>Units<select aria-label="Units" value={units} onChange={e=>setUnits(e.target.value)}><option value="in">Inches</option><option value="mm">Millimeters</option></select></label>
       <label>Stock preset<select defaultValue="" onChange={e=>{if(!e.target.value)return;const [w,h]=e.target.value.split("x").map(Number);onChange(resizeStock(design,w,h));e.target.value="";}}><option value="">Custom size</option>{["2x1","2x2","3x2","3.5x2.1","4x2","4x6","6x4"].map(size=><option key={size} value={size}>{size} in</option>)}</select></label>
       {(["width_in","height_in"] as const).map(key=><label key={key}>{key==="width_in"?"Stock width":"Stock height"}<input type="number" min={.1*factor} max={200*factor} step="any" value={amount(design[key])} onChange={e=>{const n=Number(e.target.value)/factor;if(Number.isFinite(n)&&n>=.1&&n<=200)onChange(resizeStock(design,key==="width_in"?n:design.width_in,key==="height_in"?n:design.height_in));}}/></label>)}
       <button type="button" className="secondary" onClick={()=>onChange(resizeStock(design,design.height_in,design.width_in))}>Swap orientation</button>
