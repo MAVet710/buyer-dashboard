@@ -5,6 +5,11 @@ operator. A COA identifies the material that was actually tested. Package Studio
 may create a new child package/tag without changing the tested material, so
 Label Studio must be able to resolve the ancestor COA through durable QA lineage
 without rewriting the COA to pretend the child package was lab-tested directly.
+
+DEV Sandbox also carries explicit real Massachusetts COA reference fixtures for
+hands-on testing. Those documents are usable as read-only tested-material
+evidence only inside the exact DEV tenant/facility and never become the current
+regulatory package identity.
 """
 
 from __future__ import annotations
@@ -12,12 +17,18 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from modules.coman.models import Facility, Organization
+
 from .coa import CoaDocumentService
 from .models import CoaAnalyteResult, CoaDocument, LotQualityEvidence
 from .service import LotQualityService
 
 
 _ALLOWED_VERIFICATION = {"matched", "tag_extracted", "operator_confirmed"}
+_DEV_EXTERNAL_EVIDENCE = {
+    "coa:dev_ma_external_reference",
+    "inherited:dev_ma_external_reference",
+}
 _ORIGINAL_RESOLVE_FOR_LOT = CoaDocumentService.resolve_for_lot
 _REGISTERED = False
 
@@ -32,8 +43,40 @@ def _results(session: Session, document_id: str) -> list[CoaAnalyteResult]:
     )
 
 
+def _dev_external_reference_allowed(
+    session: Session,
+    lot,
+    evidence: LotQualityEvidence,
+    document: CoaDocument,
+) -> bool:
+    """Permit real MA reference COAs only in the exact isolated DEV sandbox.
+
+    This is deliberately narrower than the normal verification-state allowlist.
+    It never changes a lot's compliance package/tag and never makes an external
+    source tag eligible for provider writes; it only makes explicitly attached
+    DEV reference evidence readable by QA/Label Studio projections.
+    """
+
+    if document.verification_state != "external_reference":
+        return False
+    if evidence.evidence_source not in _DEV_EXTERNAL_EVIDENCE:
+        return False
+    if not str(document.metrc_source_id or "").strip():
+        return False
+
+    organization = session.get(Organization, lot.organization_id)
+    facility = session.get(Facility, lot.facility_id)
+    return bool(
+        organization is not None
+        and organization.slug == "dev-sandbox"
+        and facility is not None
+        and facility.organization_id == lot.organization_id
+        and facility.code == "SANDBOX"
+    )
+
+
 def _lineage_document(session: Session, lot) -> CoaDocument | None:
-    """Find the verified COA explicitly carried through the lot's QA lineage."""
+    """Find usable COA evidence explicitly carried through the lot's QA lineage."""
 
     seen: set[str] = set()
     current_lot_id = str(lot.id)
@@ -56,7 +99,10 @@ def _lineage_document(session: Session, lot) -> CoaDocument | None:
                 and document.organization_id == lot.organization_id
                 and document.facility_id == lot.facility_id
                 and document.status == "parsed"
-                and document.verification_state in _ALLOWED_VERIFICATION
+                and (
+                    document.verification_state in _ALLOWED_VERIFICATION
+                    or _dev_external_reference_allowed(session, lot, evidence, document)
+                )
             ):
                 return document
         current_lot_id = str(evidence.inherited_from_lot_id or "")
@@ -73,8 +119,9 @@ def _resolve_for_lot_with_lineage(
     if document is not None:
         return document, results
 
-    # A split/repackaged child can legitimately retain the parent's tested COA,
-    # but inherited evidence never crosses the active organization/facility boundary.
+    # A split/repackaged child can legitimately retain the parent's tested COA.
+    # Exact DEV external references are also readable here, but only through the
+    # explicit tenant/facility/evidence guard above.
     document = _lineage_document(session, lot)
     if document is None:
         return None, []
