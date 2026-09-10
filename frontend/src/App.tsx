@@ -137,7 +137,7 @@ export default function App() {
     : page === "MA Flower Equivalency" ? <MAFlowerEquivalencyPage />
     : page === "Nomenclature Mapper" || page === "Product Name Mapper" ? <NomenclatureMapperPage />
     : page === "Executive Reports" ? <ExecutiveReportsPage />
-    : page === "Operations Control Tower" ? <OperationsControlTowerPage />
+    : page === "Operations Control Tower" ? <OperationsControlTowerPage onNavigate={navigate} />
     : page === "Enterprise Control Tower" ? <EnterpriseControlPage onNavigate={navigate} />
     : page === "Doobie" ? <DoobiePage />
     : page === "Integrations" || page === "AI & METRC Integrations" || page === "METRC Integrations" ? <><IntegrationsPage /><DeveloperConnectionsPanel /></>
