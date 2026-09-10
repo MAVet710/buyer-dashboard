@@ -71,7 +71,7 @@ def _metrc_transfer_context(context: RequestContext, engine: Engine, settings: S
     return metrc
 
 
-@router.get("")
+@router.get("", response_model=list[InventoryTransferItem])
 def list_inventory_transfers(
     direction: str = Query(default="both", pattern="^(inbound|outbound|both)$"),
     context: RequestContext = Depends(get_request_context),
