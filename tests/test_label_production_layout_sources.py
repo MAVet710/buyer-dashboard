@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
+import pytest
 
 from backend.app.services.label_studio_fast import FastLabelInventoryService
 from modules.coman.models import Base, Facility, InventoryLot, Organization, Product
@@ -129,3 +130,38 @@ def test_duo_label_snapshots_two_verified_sources(monkeypatch):
         rows = list(session.scalars(select(LabelProductionSource).where(LabelProductionSource.run_id == run["id"])))
     assert len(rows) == 2
     assert all(row.planned_quantity == 0 for row in rows)
+
+
+def test_custom_design_is_scoped_audited_and_immutable_after_print(monkeypatch):
+    from modules.label_design import BLOCKS
+
+    engine = _engine()
+    org, facility, product, lot, _ = _seed(engine, source_count=1)
+    source = _source(lot, "Flower Source", "PKG-A", "GMO")
+    monkeypatch.setattr(FastLabelInventoryService, "get_source", lambda self, org, facility, lot_id: source)
+    service = LabelProductionWorkflowService(engine)
+    run = service.create_run(org, facility, source_lot_id=lot, product_id=product, quantity=24, actor="operator")
+    design = {"version": 1, "width_in": 4, "height_in": 6, "blocks": [
+        {"id": key, "x": .1, "y": index * .5, "width": 3.8, "height": .4,
+         "font_size": 8, "bold": False, "align": "left"}
+        for index, key in enumerate(sorted(BLOCKS))
+    ]}
+    with pytest.raises(ValueError, match="not found"):
+        service.save_design(org, "another-facility", run["id"], actor="operator", design=design, expected_revision=0)
+    with pytest.raises(ValueError, match="not found"):
+        service.save_design("another-org", facility, run["id"], actor="operator", design=design, expected_revision=0)
+    saved = service.save_design(org, facility, run["id"], actor="operator", design=design, expected_revision=0)
+    assert saved["snapshot"]["label"] == run["snapshot"]["label"]
+    assert saved["snapshot"]["sources"] == run["snapshot"]["sources"]
+    assert saved["snapshot"]["design_revision"] == 1
+    assert any(event["event_type"] == "design_saved" and event["actor"] == "operator" for event in saved["events"])
+    assert service.get_run(org, facility, run["id"])["snapshot"]["custom_design"] == design
+    with pytest.raises(ValueError, match="another session"):
+        service.save_design(org, facility, run["id"], actor="operator", design=design, expected_revision=0)
+    service.assign_tag(org, facility, run["id"], "1A4000000000000000007999", "operator")
+    printed = service.record_print(org, facility, run["id"], actor="operator")
+    assert printed["snapshot"]["custom_design"] == design
+    with pytest.raises(ValueError, match="locked"):
+        service.save_design(org, facility, run["id"], actor="operator", design=design, expected_revision=1)
+    reprinted = service.record_print(org, facility, run["id"], actor="operator", reason="Printer jam")
+    assert reprinted["snapshot"]["custom_design"] == design

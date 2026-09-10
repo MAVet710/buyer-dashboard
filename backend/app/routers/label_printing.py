@@ -65,6 +65,11 @@ class LabelProductionPrintPayload(BaseModel):
     reason: str = Field(default="", max_length=512)
 
 
+class LabelProductionDesignPayload(BaseModel):
+    design: dict[str, Any]
+    expected_revision: int = Field(default=0, ge=0)
+
+
 class LabelProductionTransitionPayload(BaseModel):
     status: str = Field(min_length=1, max_length=24)
     note: str = Field(default="", max_length=1000)
@@ -293,6 +298,23 @@ def assign_label_production_tag(
             context.user_id,
             metrc_environment=metrc_environment,
             role=context.role,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/production-runs/{run_id}/design")
+def save_label_production_design(
+    run_id: str,
+    payload: LabelProductionDesignPayload,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    _require_label_workflow_write(context)
+    try:
+        return LabelProductionWorkflowService(engine).save_design(
+            context.organization_id, context.facility_id, run_id,
+            actor=context.user_id, design=payload.design, expected_revision=payload.expected_revision,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc

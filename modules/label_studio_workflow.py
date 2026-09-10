@@ -573,6 +573,7 @@ class LabelProductionWorkflowService:
             raise ValueError("Scan a package tag between 4 and 128 characters with no spaces.")
         with Session(self.engine) as session:
             run = self._scoped_run(session, organization_id, facility_id, run_id)
+            session.refresh(run, with_for_update=True)
             if run.status != "validated":
                 raise ValueError("A METRC package tag can only be assigned after the label run has validated.")
             duplicate = session.scalar(select(LabelProductionRun.id).where(LabelProductionRun.organization_id == organization_id, LabelProductionRun.metrc_package_tag == clean, LabelProductionRun.id != run.id))
@@ -615,9 +616,33 @@ class LabelProductionWorkflowService:
             session.refresh(run)
             return self._serialize(session, run)
 
+    def save_design(self, organization_id: str, facility_id: str, run_id: str, *, actor: str, design: dict, expected_revision: int) -> dict[str, Any]:
+        from modules.label_design import validate_design
+
+        clean = validate_design(design)
+        with Session(self.engine) as session:
+            run = self._scoped_run(session, organization_id, facility_id, run_id)
+            session.refresh(run, with_for_update=True)
+            if run.status not in {"validated", "tagged"}:
+                raise ValueError("Printed label designs are locked. Create a new run to change the design.")
+            snapshot = self._snapshot(run)
+            revision = int(snapshot.get("design_revision", 0))
+            if revision != expected_revision:
+                raise ValueError("This design changed in another session. Reload the run before saving.")
+            before = snapshot.get("custom_design")
+            snapshot["custom_design"] = clean
+            snapshot["design_revision"] = revision + 1
+            run.label_snapshot_json = json.dumps(snapshot, sort_keys=True)
+            self._event(session, run, "design_saved", actor, from_status=run.status, to_status=run.status,
+                        details={"before": before, "after": clean, "revision": revision + 1})
+            session.commit()
+            session.refresh(run)
+            return self._serialize(session, run)
+
     def record_print(self, organization_id: str, facility_id: str, run_id: str, *, actor: str, copies: int | None = None, reason: str = "") -> dict[str, Any]:
         with Session(self.engine) as session:
             run = self._scoped_run(session, organization_id, facility_id, run_id)
+            session.refresh(run, with_for_update=True)
             requested = int(copies or run.quantity)
             if requested <= 0 or requested > 500:
                 raise ValueError("Print copies must be between 1 and 500.")

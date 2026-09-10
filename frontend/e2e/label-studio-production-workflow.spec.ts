@@ -1,7 +1,68 @@
 import { expect, test } from "@playwright/test";
+import type { LabelDesign } from "../src/components/labelDesign";
 
 const sourceTag = "1A4000000000000000007001";
 const finishedTag = "1A4000000000000000007999";
+
+test("generated labels support drag placement, custom stock, and saved print geometry", async ({page})=>{
+  let savedDesign:LabelDesign|undefined;
+  await page.route("**/api/v1/**",async route=>{
+    const request=route.request(),url=new URL(request.url()),path=url.pathname;
+    let body:unknown={};
+    if(path==="/api/v1/account/context")body=account;
+    else if(path==="/api/v1/account/access-options")body=accessOptions;
+    else if(path==="/api/v1/label-printing/inventory-sources")body=[summary];
+    else if(path.endsWith("/inventory-sources/lot-gmo"))body=source;
+    else if(path==="/api/v1/product-master")body=[finishedProduct];
+    else if(path.endsWith("/product-master/product-gmo-28"))body=productDetail;
+    else if(path.endsWith("/production-runs")&&request.method()==="POST")body=run("validated");
+    else if(path.endsWith("/run-gmo-24/design")){
+      const payload=request.postDataJSON() as {design:LabelDesign;expected_revision:number};
+      expect(payload.expected_revision).toBe(0);savedDesign=payload.design;
+      const value=run("validated");body={...value,snapshot:{...value.snapshot,custom_design:savedDesign,design_revision:1}};
+    }else if(path.endsWith("/run-gmo-24/tag")){
+      const value=run("tagged");body={...value,snapshot:{...value.snapshot,custom_design:savedDesign,design_revision:1}};
+    }else if(path.endsWith("/label-templates"))body=[];
+    else if(path==="/api/v1/search")body={results:[]};
+    await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body)});
+  });
+  await page.addInitScript(()=>{
+    localStorage.setItem("buyer-dash-organization","org-label-run");
+    localStorage.setItem("buyer-dash-facility","facility-label-run");
+    localStorage.setItem("buyer-dash-operation","Production Ops");
+    localStorage.setItem("buyer-dash-data-mode","Uploads");
+    sessionStorage.setItem("buyer-dash-pending-page","Label Studio");
+  });
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  await page.getByRole("combobox",{name:"Search source batches"}).fill("GMO");
+  await page.getByRole("option",{name:/GMO Bulk Flower/}).click();
+  await page.getByRole("combobox",{name:"Search finished products"}).fill("GMO 28");
+  await page.getByRole("option",{name:/GMO 28-Count Pre-Roll Multipack/}).click();
+  await page.getByLabel("Finished quantity").fill("24");
+  await page.getByRole("button",{name:"4. Build & validate label preview"}).click();
+  await page.getByRole("button",{name:"Customize size & layout"}).click();
+  await page.getByLabel("Stock preset").selectOption("6x4");
+  await page.getByLabel("Stock width",{exact:true}).fill("6.25");
+  await page.getByLabel("Font size (pt)").fill("9");
+  const header=page.getByRole("button",{name:"Move Product and net contents"});
+  await header.scrollIntoViewIfNeeded();
+  const before=(await header.boundingBox())!;
+  await page.mouse.move(before.x+20,before.y+10);
+  await page.mouse.down();await page.mouse.move(before.x+25,before.y+10,{steps:4});await page.mouse.up();
+  expect((await header.boundingBox())!.x).toBeGreaterThan(before.x+3);
+  await page.getByLabel("Units",{exact:true}).selectOption("mm");
+  await expect(page.getByLabel("Stock width",{exact:true})).toHaveValue("158.75");
+  await page.getByRole("button",{name:"Save layout to run"}).click();
+  await expect(page.getByRole("region",{name:"Customize label layout"})).toHaveCount(0);
+  expect(savedDesign?.width_in).toBe(6.25);
+  await page.getByLabel("METRC finished package tag").fill(finishedTag);
+  await page.getByRole("button",{name:"Assign tag",exact:true}).click();
+  const copy=page.locator(".production-label-copy").first();
+  await expect(copy).toHaveAttribute("data-label-width","6.25");
+  await expect(copy.locator(".label-design-canvas")).toHaveCSS("width","600px");
+  await page.emulateMedia({media:"print"});
+  await expect(copy.locator(".label-design-canvas")).toHaveCSS("width","600px");
+});
 
 const account = {
   user: { display_name: "Packaging Operator", email: "operator@example.test", role: "operator", must_change_password: false },
