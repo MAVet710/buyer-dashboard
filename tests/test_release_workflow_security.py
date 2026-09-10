@@ -68,9 +68,10 @@ def test_all_action_workflows_are_free_of_google_control_plane_wiring():
 
 def test_render_blueprint_is_free_only_check_gated_and_non_ddl():
     source = (ROOT / "render.yaml").read_text(encoding="utf-8")
-    api = source.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
-    assert "name: doobielogic-api" in source
-    assert "name: doobielogic-ops" in source
+    assert "    domains:" not in source
+    api = source.split("name: doobielogic-api-rc", 1)[1].split("name: doobielogic-web-prod", 1)[0]
+    assert "name: doobielogic-api-rc" in source
+    assert "name: doobielogic-web-prod" in source
     assert "runtime: python" in source
     assert "runtime: static" in source
     assert source.count("plan: free") == 1
@@ -110,7 +111,7 @@ def test_render_blueprint_is_free_only_check_gated_and_non_ddl():
 
 def test_render_frontend_is_static_lockfile_reproducible_spa_safe_and_exactly_identified():
     source = (ROOT / "render.yaml").read_text(encoding="utf-8")
-    static = source[source.index("name: doobielogic-ops") :]
+    static = source[source.index("name: doobielogic-web-prod") :]
     assert "runtime: static" in static
     assert "pnpm install --frozen-lockfile" in static
     assert "pnpm build" in static
@@ -167,7 +168,7 @@ def test_storefront_domain_workflow_is_validation_only():
     source = _workflow("storefront-domain-mappings.yml")
     assert "validate_storefront_domains.py" in source
     assert "50-alias free-host operating limit" in source
-    assert "domain aliases to the free Render static site" in source
+    assert "Cloudflare Worker routes to the free Render static site" in source
     assert "never creates DNS or cloud resources" in source
 
 

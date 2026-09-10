@@ -20,18 +20,19 @@ def _require(condition: bool, message: str) -> None:
 def _verify_render() -> None:
     source = _read("render.yaml")
     lowered = source.casefold()
-    api = source.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0] if "name: doobielogic-api" in source and "name: doobielogic-ops" in source else ""
-    static = source.split("name: doobielogic-ops", 1)[1] if "name: doobielogic-ops" in source else ""
+    api = source.split("name: doobielogic-api-rc", 1)[1].split("name: doobielogic-web-prod", 1)[0] if "name: doobielogic-api-rc" in source and "name: doobielogic-web-prod" in source else ""
+    static = source.split("name: doobielogic-web-prod", 1)[1] if "name: doobielogic-web-prod" in source else ""
 
-    _require("name: doobielogic-api" in source, "Render API service is missing.")
-    _require("name: doobielogic-ops" in source, "Render static frontend is missing.")
+    _require("name: doobielogic-api-rc" in source, "Render API service is missing.")
+    _require("name: doobielogic-web-prod" in source, "Render static frontend is missing.")
     _require("runtime: python" in source, "Render API must use the lean native Python runtime.")
     _require("runtime: static" in source, "Render frontend must be a static site.")
     plans = re.findall(r"^\s*plan:\s*([^#\n]+)", source, flags=re.MULTILINE)
     _require(plans == ["free"], f"Render compute must define exactly one free plan, found: {plans}")
     _require(source.count("autoDeployTrigger: checksPass") == 2, "Both Render services must wait for GitHub checks.")
-    _require("api.doobielogic.io" in source, "Render API custom domain is missing.")
-    _require("ops.doobielogic.io" in source and "doobielogic.io" in source, "Render frontend custom domains are incomplete.")
+    _require(not re.search(r"^\s*domains:", source, re.MULTILINE), "Public domains must use Cloudflare, not billable Render custom-domain attachments.")
+    _require("api.doobielogic.io" in source, "Public API hostname is missing.")
+    _require("ops.doobielogic.io" in source and "cowboykush.doobielogic.io" in source, "Production browser CORS origins are incomplete.")
     _require("healthCheckPath: /health/ready" in source, "Render API must use database-backed readiness.")
     _require("predeploycommand" not in lowered, "Render free services cannot depend on paid pre-deploy commands.")
     _require("alembic upgrade head" not in api, "The public Render web runtime must not receive schema-DDL authority.")
@@ -105,7 +106,7 @@ def _verify_manual_database_mutations_are_gated() -> None:
 def _verify_storefront_alias_workflow_is_validation_only() -> None:
     source = (WORKFLOWS / "storefront-domain-mappings.yml").read_text(encoding="utf-8")
     _require("validate_storefront_domains.py" in source, "Storefront alias workflow must validate the approved domain file.")
-    _require("domain aliases to the free Render static site" in source, "Storefront alias workflow must describe the free-host handoff.")
+    _require("Cloudflare Worker routes to the free Render static site" in source, "Storefront alias workflow must describe the free-host handoff.")
     _require("50-alias free-host operating limit" in source, "Storefront alias workflow must bound the approved alias set.")
     _require("never creates DNS or cloud resources" in source, "Storefront domain validation must remain non-mutating.")
 
