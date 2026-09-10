@@ -216,5 +216,5 @@ test("operator builds 24 retail labels under one finished METRC package tag", as
   await expect(printed.getByText("Alpha-Humulene", { exact: true })).toHaveCount(0);
   await expect(printed.getByText("Total Terpenes", { exact: true })).toBeVisible();
   await expect(printed.getByText("3.2%", { exact: true })).toBeVisible();
-  await expect(printed.getByText("#1 / 24", { exact: true })).toBeVisible();
+  await expect(printed.getByText(finishedTag.slice(-5), { exact: true })).toBeVisible();
 });

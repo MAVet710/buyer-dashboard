@@ -8,6 +8,7 @@ from sqlalchemy import Engine
 
 from modules.regulatory.facility_setup_contracts import build_facility_setup_payload
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
+from modules.traceability.action_registry import get_traceability_action
 from services.metrc_evaluation_master_data import (
     MASTER_DATA_EVALUATION_ACTIONS,
     MetrcEvaluationError,
@@ -130,6 +131,9 @@ class MetrcMasterDataActionService:
             )
         if operation not in PROMOTED_MASTER_DATA_ACTIONS:
             raise MetrcMasterDataActionError("This Facility Setup action has not passed the current master-data promotion gate.")
+        registered = get_traceability_action(operation)
+        if registered is None or registered.execution_path != "specialized_verified":
+            raise MetrcMasterDataActionError("This Facility Setup action is not enabled in the canonical traceability action registry.")
 
         expected_token = master_data_confirmation_token(
             operation_type=operation,
@@ -171,6 +175,8 @@ class MetrcMasterDataActionService:
                 "confirmation_id": confirmation_id,
             },
             reason=f"Authorized operator confirmed {summary['label'].lower()} from Facility Setup.",
+            correlation_id=confirmation_id,
+            source="facility_setup_workflow",
         )
 
         # A confirmation is an execution lease, not only an idempotency label.
