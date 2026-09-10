@@ -42,6 +42,9 @@ class TraceabilityTransaction(TimestampMixin, Base):
         CheckConstraint("attempt_count >= 0", name="ck_traceability_tx_attempt_count"),
         Index("ix_traceability_tx_facility_status", "facility_id", "status", "requested_at"),
         Index("ix_traceability_tx_entity", "organization_id", "entity_type", "entity_id", "requested_at"),
+        Index("ix_traceability_tx_correlation", "organization_id", "facility_id", "correlation_id"),
+        Index("ix_traceability_tx_exception", "organization_id", "facility_id", "environment", "resolution_state", "requested_at"),
+        Index("ix_traceability_tx_external", "organization_id", "facility_id", "provider", "environment", "external_reference"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     organization_id: Mapped[str] = mapped_column(ForeignKey("coman_organizations.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -55,16 +58,25 @@ class TraceabilityTransaction(TimestampMixin, Base):
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_id: Mapped[str] = mapped_column(String(255), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="application")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="requested")
     request_payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     response_payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     external_reference: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    external_tag: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     error_code: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retry_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    error_classification: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    reconciliation_state: Mapped[str] = mapped_column(String(64), nullable=False, default="pending")
+    resolution_state: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    parent_entity_type: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    parent_entity_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    related_entities_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     local_state_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     provider_state_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     readback_result_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
@@ -76,6 +88,9 @@ class TraceabilityTransaction(TimestampMixin, Base):
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
 class TraceabilityTransactionAttempt(Base):

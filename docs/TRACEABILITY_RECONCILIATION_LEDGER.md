@@ -22,11 +22,13 @@ Operator labels are:
 
 ## Recorded scope and evidence
 
-Each transaction is bound server-side to organization and facility and records provider, jurisdiction, environment, license, direction, entity, operation, provider reference, attempts, retry eligibility, local state, provider state, readback result, mismatch reason, reconciliation evidence, actor, and timestamps.
+Each transaction is bound server-side to organization, facility, and provider environment. It records correlation and idempotency keys, direction, source, entity and parent/related entities, external ID/tag, attempts, classified error and retryability, reconciliation and resolution state, safe request/response summaries, actor, and timestamps.
 
 Payloads are sanitized recursively before persistence. Credential-like keys such as API keys, authorization headers, tokens, passwords, and client secrets are replaced with `[REDACTED]`.
 
-The React API exposes facility-scoped ledger list and detail resources under `/api/v1/traceability-actions/ledger`. Package 360 surfaces the latest operator status, provider scope, attempts, retry state, and mismatch/error without requiring the operator to leave the package context.
+The React API exposes paginated exception queries under `/api/v1/traceability-actions/ledger/exceptions` and bounded Entity 360 history under `/api/v1/traceability-actions/entities/{type}/{id}/history`. Package, Product, Plant, Harvest, and Production Run 360 show current sync state, recent events, unresolved exceptions, and latest successful inbound/outbound evidence.
+
+Incremental Metrc reads write one correlated inbound ledger event per resource only after the provider delta and local snapshot persistence complete. Transport and provider failures create classified exceptions. Safe retries retain the original idempotency key, use bounded backoff, and only prepare the existing action for separately authorized dispatch.
 
 ## Safety boundaries
 
