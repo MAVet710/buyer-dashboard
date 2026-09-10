@@ -92,8 +92,8 @@ def _install_scalar_memoizers() -> None:
 
 
 def _install_parser_cache(module: Any) -> None:
-    current = module.read_tabular_bytes
-    if getattr(current, "_doobielogic_parse_cache", False):
+    current = getattr(module, "read_tabular_bytes", None)
+    if current is None or getattr(current, "_doobielogic_parse_cache", False):
         return
 
     @wraps(current)
