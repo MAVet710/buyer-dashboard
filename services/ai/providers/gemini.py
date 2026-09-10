@@ -2,16 +2,30 @@ from __future__ import annotations
 
 import json
 import time
+from importlib.util import find_spec
+from typing import Any
 
 from ..provider import ProviderProtocolError, ProviderUnavailable
 from ..schemas import AIRequest, AIResponse, ProviderHealth
 
-try:
-    from google import genai
-    from google.genai import types
-except Exception:  # pragma: no cover - optional dependency at import time
-    genai = None
-    types = None
+
+def _sdk_available() -> bool:
+    try:
+        return find_spec("google.genai") is not None
+    except (ImportError, AttributeError, ValueError):
+        return False
+
+
+def _load_sdk() -> tuple[Any, Any]:
+    # google-genai is intentionally imported only when Gemini is actually used.
+    # Loading a cloud AI SDK on every FastAPI cold start is expensive on the
+    # 0.1 CPU free runtime and normal app navigation does not need it.
+    try:
+        from google import genai
+        from google.genai import types
+    except Exception as exc:  # pragma: no cover - production dependency contract
+        raise ProviderUnavailable("Gemini SDK is unavailable.") from exc
+    return genai, types
 
 
 class GeminiProvider:
@@ -31,12 +45,13 @@ class GeminiProvider:
         return True
 
     def health(self) -> ProviderHealth:
-        configured = bool(self.api_key and self.model and genai is not None and types is not None)
+        configured = bool(self.api_key and self.model and _sdk_available())
         return ProviderHealth(self.name, configured, configured, self.model, False, False, True, "configured" if configured else "not configured")
 
     def generate(self, request: AIRequest) -> AIResponse:
         if not self.health().configured:
             raise ProviderUnavailable("Gemini is not configured.")
+        genai, types = _load_sdk()
         transcript = "\n\n".join(f"{item.get('role', 'user')}: {item.get('content', '')}" for item in request.messages)
         prompt = f"{request.system_prompt}\n\n{transcript}".strip()
         config_kwargs = {
