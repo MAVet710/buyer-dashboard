@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import gzip
 import json
+from collections import OrderedDict
 from dataclasses import dataclass
+from threading import RLock
+from time import monotonic
 from typing import Any, Mapping, MutableMapping
 
 from sqlalchemy import Engine, delete, select, update
@@ -15,6 +18,8 @@ from modules.coman.models import DataHubImport, Facility, utc_now
 
 MAX_DURABLE_UPLOAD_BYTES = 10 * 1024 * 1024
 DEFAULT_VERSION_RETENTION = 3
+ACTIVE_SOURCE_CACHE_TTL_SECONDS = 20.0
+ACTIVE_SOURCE_CACHE_MAX_SCOPES = 8
 
 
 @dataclass(frozen=True)
@@ -37,7 +42,13 @@ class PublishedSource:
 class DataHubRepository:
     """Persist file versions while enforcing organization/facility ownership."""
 
+    _active_cache_lock = RLock()
+    _active_cache: OrderedDict[
+        tuple[int, str, str], tuple[float, tuple[PublishedSource, ...]]
+    ] = OrderedDict()
+
     def __init__(self, engine: Engine):
+        self._engine_cache_key = id(engine)
         self._session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
     @staticmethod
@@ -47,6 +58,14 @@ class DataHubRepository:
         if not organization_id or not facility_id:
             raise ValueError("Select an organization and facility before publishing data.")
         return organization_id, facility_id
+
+    def _scope_cache_key(self, organization_id: str, facility_id: str) -> tuple[int, str, str]:
+        return self._engine_cache_key, organization_id, facility_id
+
+    def _invalidate_active_cache(self, organization_id: str, facility_id: str) -> None:
+        key = self._scope_cache_key(organization_id, facility_id)
+        with self._active_cache_lock:
+            self._active_cache.pop(key, None)
 
     def publish_source(
         self,
@@ -141,25 +160,53 @@ class DataHubRepository:
             stale_ids = version_ids[keep:]
             if stale_ids:
                 session.execute(delete(DataHubImport).where(DataHubImport.id.in_(stale_ids)))
+        self._invalidate_active_cache(organization_id, facility_id)
         return existing
 
     def list_active_sources(
-        self, organization_id: str, facility_id: str
+        self,
+        organization_id: str,
+        facility_id: str,
+        *,
+        dataset_keys: tuple[str, ...] | None = None,
     ) -> list[PublishedSource]:
         organization_id, facility_id = self._validate_scope(organization_id, facility_id)
-        with self._session_factory() as session:
-            records = list(
-                session.scalars(
-                    select(DataHubImport)
-                    .where(
-                        DataHubImport.organization_id == organization_id,
-                        DataHubImport.facility_id == facility_id,
-                        DataHubImport.status == "active",
+        cache_key = self._scope_cache_key(organization_id, facility_id)
+        now = monotonic()
+        with self._active_cache_lock:
+            cached = self._active_cache.get(cache_key)
+            if cached is not None and now - cached[0] <= ACTIVE_SOURCE_CACHE_TTL_SECONDS:
+                self._active_cache.move_to_end(cache_key)
+                sources = cached[1]
+            else:
+                if cached is not None:
+                    self._active_cache.pop(cache_key, None)
+                sources = None
+
+        if sources is None:
+            with self._session_factory() as session:
+                records = list(
+                    session.scalars(
+                        select(DataHubImport)
+                        .where(
+                            DataHubImport.organization_id == organization_id,
+                            DataHubImport.facility_id == facility_id,
+                            DataHubImport.status == "active",
+                        )
+                        .order_by(DataHubImport.dataset_label)
                     )
-                    .order_by(DataHubImport.dataset_label)
                 )
-            )
-            return [self._published(record) for record in records]
+                sources = tuple(self._published(record) for record in records)
+            with self._active_cache_lock:
+                self._active_cache[cache_key] = (monotonic(), sources)
+                self._active_cache.move_to_end(cache_key)
+                while len(self._active_cache) > ACTIVE_SOURCE_CACHE_MAX_SCOPES:
+                    self._active_cache.popitem(last=False)
+
+        if not dataset_keys:
+            return list(sources)
+        wanted = {str(key) for key in dataset_keys}
+        return [source for source in sources if source.dataset_key in wanted]
 
     def list_history(
         self, organization_id: str, facility_id: str, *, limit: int = 100
@@ -190,7 +237,9 @@ class DataHubRepository:
                 )
                 .values(status="archived", updated_at=utc_now())
             )
-            return int(result.rowcount or 0)
+            changed = int(result.rowcount or 0)
+        self._invalidate_active_cache(organization_id, facility_id)
+        return changed
 
     @staticmethod
     def _published(record: DataHubImport) -> PublishedSource:
