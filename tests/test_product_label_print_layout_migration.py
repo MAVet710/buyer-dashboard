@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, inspect
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LATEST_REVISION = "0076_global_traceability_ledger"
+LATEST_REVISION = "0077_dev_reference_metrc_tags"
 SUPPLIER_TABLES = {"supplier_portal_grants", "supplier_offers", "supplier_offer_lines"}
 
 
