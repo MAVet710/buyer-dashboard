@@ -4,14 +4,6 @@ from io import BytesIO
 import hashlib
 import re
 
-from bs4 import BeautifulSoup
-from pypdf import PdfReader
-
-try:
-    from docx import Document
-except Exception:  # pragma: no cover
-    Document = None
-
 from .embeddings import LocalEmbeddingProvider
 from .store import KnowledgeScope, KnowledgeStore
 
@@ -21,6 +13,11 @@ SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".markdown", ".html", ".
 def extract_sections(filename: str, payload: bytes) -> list[tuple[str, str]]:
     lower = str(filename or "").casefold()
     if lower.endswith(".pdf"):
+        # These document libraries are substantial relative to a 0.1 CPU cold
+        # start. Knowledge ingestion is an admin action, so load them only when
+        # an operator actually uploads that file type.
+        from pypdf import PdfReader
+
         reader = PdfReader(BytesIO(payload))
         sections: list[tuple[str, str]] = []
         for index, page in enumerate(reader.pages, start=1):
@@ -29,13 +26,17 @@ def extract_sections(filename: str, payload: bytes) -> list[tuple[str, str]]:
                 sections.append((f"page {index}", text))
         return sections
     if lower.endswith(".docx"):
-        if Document is None:
-            raise ValueError("DOCX support is unavailable in this deployment.")
+        try:
+            from docx import Document
+        except Exception as exc:  # pragma: no cover - production dependency contract
+            raise ValueError("DOCX support is unavailable in this deployment.") from exc
         document = Document(BytesIO(payload))
         text = "\n".join(paragraph.text for paragraph in document.paragraphs if paragraph.text.strip())
         return [("document", text)] if text.strip() else []
     text = payload.decode("utf-8", errors="replace")
     if lower.endswith((".html", ".htm")):
+        from bs4 import BeautifulSoup
+
         soup = BeautifulSoup(text, "html.parser")
         for tag in soup.find_all(["script", "style", "nav", "footer", "header", "form", "noscript"]):
             tag.decompose()
