@@ -46,19 +46,19 @@ def metrc_sandbox_scope_key(context: RequestContext) -> str:
     return f"{context.organization_id}:{context.facility_id}:sandbox"
 
 
-def _sandbox_vendor_context(
+def _sandbox_vendor_public_context(
     service: IntegrationConfigurationService,
     context: RequestContext,
-) -> tuple[IntegrationConfiguration | None, dict, str]:
-    """Return the encrypted Metrc sandbox vendor/integrator credential, if saved."""
+) -> tuple[IntegrationConfiguration | None, dict]:
+    """Return sandbox vendor metadata without decrypting its stored credential."""
 
     row = service.get("facility", metrc_sandbox_scope_key(context), "metrc_sandbox")
     if row is None:
-        return None, {}, ""
+        return None, {}
     public = service.public(row)
     configuration = public.get("configuration")
     config = dict(configuration) if isinstance(configuration, dict) else {}
-    return row, config, service.secret(row)
+    return row, config
 
 
 def resolve_metrc_context(
@@ -89,8 +89,9 @@ def resolve_metrc_context(
         if legacy is not None and str(legacy.facility_id or "") == str(context.facility_id):
             row = legacy
 
-    sandbox_row, sandbox_config, sandbox_vendor_key = _sandbox_vendor_context(service, context)
-    integrator_api_key = str(sandbox_vendor_key or settings.metrc_integrator_key or "").strip()
+    # Read only public integration metadata first. DoobieLogic Sandbox must never
+    # decrypt, validate, or otherwise depend on a saved provider credential.
+    sandbox_row, sandbox_config = _sandbox_vendor_public_context(service, context)
 
     if not mode.metrc_enabled:
         public = service.public(row)
@@ -109,6 +110,11 @@ def resolve_metrc_context(
             ),
             row=row,
         )
+
+    # Only an explicitly METRC-enabled operating mode may decrypt provider secrets.
+    # This keeps stale/migrated credentials from breaking local DEV Sandbox flows.
+    sandbox_vendor_key = service.secret(sandbox_row) if sandbox_row is not None else ""
+    integrator_api_key = str(sandbox_vendor_key or settings.metrc_integrator_key or "").strip()
 
     if row is None:
         sandbox_state = str(sandbox_config.get("state") or "").strip()
