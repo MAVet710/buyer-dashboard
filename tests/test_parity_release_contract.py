@@ -25,7 +25,7 @@ def test_production_release_is_blocked_until_strict_and_legacy_evidence_are_comp
 
 def test_render_api_preserves_provider_runtime_identity_without_cloud_service_account():
     blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
-    api = blueprint.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
+    api = blueprint.split("name: doobielogic-api-rc", 1)[1].split("name: doobielogic-web-prod", 1)[0]
 
     assert "RENDER_EXTERNAL_HOSTNAME" in api
     assert "RENDER_GIT_COMMIT" in api
@@ -35,7 +35,7 @@ def test_render_api_preserves_provider_runtime_identity_without_cloud_service_ac
 
 def test_render_api_preserves_secrets_as_out_of_band_configuration():
     blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
-    api = blueprint.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
+    api = blueprint.split("name: doobielogic-api-rc", 1)[1].split("name: doobielogic-web-prod", 1)[0]
 
     for key in (
         "DATABASE_URL",

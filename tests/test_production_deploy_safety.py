@@ -22,7 +22,7 @@ def test_api_release_is_verified_before_render_check_gated_handoff():
     assert "Verify production API startup contract" in WORKFLOW
     assert "Verify Render handoff is exact-source and check-gated" in WORKFLOW
 
-    api = BLUEPRINT.split("name: doobielogic-api", 1)[1].split("name: doobielogic-ops", 1)[0]
+    api = BLUEPRINT.split("name: doobielogic-api-rc", 1)[1].split("name: doobielogic-web-prod", 1)[0]
     assert "autoDeployTrigger: checksPass" in api
     assert "healthCheckPath: /health/ready" in api
     assert "RENDER_GIT_COMMIT" in api
@@ -33,15 +33,15 @@ def test_api_release_is_verified_before_render_check_gated_handoff():
 
 
 def test_web_release_identity_is_built_from_exact_render_commit_and_not_cached():
-    static = BLUEPRINT.split("name: doobielogic-ops", 1)[1]
+    static = BLUEPRINT.split("name: doobielogic-web-prod", 1)[1]
     assert "runtime: static" in static
     assert "autoDeployTrigger: checksPass" in static
     assert "RENDER_GIT_COMMIT" in static
     assert "release.json" in static
     assert "path: /release.json" in static
     assert "no-store, no-cache, must-revalidate" in static
-    assert "doobielogic.io" in static
-    assert "ops.doobielogic.io" in static
+    assert "domains:" not in static
+    assert "deploy/cloudflare/wrangler.jsonc" in static
 
 
 def test_production_release_has_no_billable_google_control_plane_dependency():
@@ -59,5 +59,6 @@ def test_production_release_has_no_billable_google_control_plane_dependency():
             assert token.casefold() not in source.casefold(), (path.name, token)
 
     assert "plan: free" in BLUEPRINT
-    assert "name: doobielogic-api" in BLUEPRINT
-    assert "name: doobielogic-ops" in BLUEPRINT
+    assert "name: doobielogic-api-rc" in BLUEPRINT
+    assert "name: doobielogic-web-prod" in BLUEPRINT
+    assert "    domains:" not in BLUEPRINT

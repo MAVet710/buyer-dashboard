@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "deploy" / "storefront-domains.txt"
 WORKFLOW = (ROOT / ".github" / "workflows" / "storefront-domain-mappings.yml").read_text(encoding="utf-8")
 BLUEPRINT = (ROOT / "render.yaml").read_text(encoding="utf-8")
+CLOUDFLARE = (ROOT / "deploy" / "cloudflare" / "wrangler.jsonc").read_text(encoding="utf-8")
 
 
 def test_cowboy_kush_is_an_explicit_approved_storefront_domain():
@@ -36,10 +37,10 @@ def test_storefront_domain_validator_rejects_wildcards_reserved_and_noncanonical
         load_domains(path)
 
 
-def test_storefront_domain_workflow_validates_before_render_alias_handoff():
+def test_storefront_domain_workflow_validates_before_cloudflare_route_handoff():
     assert 'python scripts/validate_storefront_domains.py "$DOMAIN_CONFIG"' in WORKFLOW
     assert "50-alias free-host operating limit" in WORKFLOW
-    assert "domain aliases to the free Render static site" in WORKFLOW
+    assert "Cloudflare Worker routes to the free Render static site" in WORKFLOW
     assert "never creates DNS or cloud resources" in WORKFLOW
     assert "gcloud " not in WORKFLOW
 
@@ -54,9 +55,10 @@ def test_storefront_domain_workflow_is_validation_only_and_main_scoped():
     assert "--to-latest" not in WORKFLOW
 
 
-def test_canonical_static_service_owns_platform_domains_without_wildcards():
-    static = BLUEPRINT.split("name: doobielogic-ops", 1)[1]
+def test_cloudflare_owns_platform_domains_without_render_custom_domains_or_wildcards():
+    static = BLUEPRINT.split("name: doobielogic-web-prod", 1)[1]
     assert "runtime: static" in static
-    assert "doobielogic.io" in static
-    assert "ops.doobielogic.io" in static
-    assert "*.doobielogic.io" not in static
+    assert "domains:" not in static
+    for host in ("doobielogic.io", "ops.doobielogic.io", "cowboykush.doobielogic.io", "api.doobielogic.io"):
+        assert f'"pattern": "{host}/*"' in CLOUDFLARE
+    assert '"*.doobielogic.io/*"' not in CLOUDFLARE

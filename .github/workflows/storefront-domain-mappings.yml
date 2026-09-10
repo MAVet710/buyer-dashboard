@@ -62,5 +62,5 @@ jobs:
               echo "- \`$domain\`"
             done
             echo
-            echo 'These hosts are routed by the React storefront host boundary and must be attached as domain aliases to the free Render static site. This workflow validates only; it never creates DNS or cloud resources.'
+            echo 'These hosts are routed by the React storefront host boundary and must be attached as Cloudflare Worker routes to the free Render static site. This workflow validates only; it never creates DNS or cloud resources.'
           } >> "$GITHUB_STEP_SUMMARY"

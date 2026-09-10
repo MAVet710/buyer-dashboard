@@ -102,7 +102,7 @@ def test_api_surfaces_field_level_validation_errors():
 
 def test_web_release_publishes_exact_render_commit_identity():
     blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
-    static = blueprint.split("name: doobielogic-ops", 1)[1]
+    static = blueprint.split("name: doobielogic-web-prod", 1)[1]
     workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
 
     assert "runtime: static" in static
@@ -111,6 +111,6 @@ def test_web_release_publishes_exact_render_commit_identity():
     assert "release.json" in static
     assert "path: /release.json" in static
     assert "no-store, no-cache, must-revalidate" in static
-    assert "doobielogic.io" in static
-    assert "ops.doobielogic.io" in static
+    assert "domains:" not in static
+    assert "deploy/cloudflare/wrangler.jsonc" in static
     assert "Verify Render handoff is exact-source and check-gated" in workflow

@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: doobielogic-api
+    name: doobielogic-api-rc
     runtime: python
     plan: free
     region: ohio
@@ -14,8 +14,7 @@ services:
       export ALLOWED_HOSTS="api.doobielogic.io,${RENDER_EXTERNAL_HOSTNAME}" &&
       exec uvicorn backend.app.main:app --host 0.0.0.0 --port "${PORT:-10000}" --proxy-headers --forwarded-allow-ips="*"'
     healthCheckPath: /health/ready
-    domains:
-      - api.doobielogic.io
+    # Public domains terminate on Cloudflare; no Render custom-domain charges.
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.11
@@ -49,7 +48,7 @@ services:
         sync: false
 
   - type: web
-    name: doobielogic-ops
+    name: doobielogic-web-prod
     runtime: static
     branch: main
     autoDeployTrigger: checksPass
@@ -60,10 +59,7 @@ services:
       pnpm build &&
       printf '{"release_sha":"%s"}\n' "${RENDER_GIT_COMMIT:-unknown}" > dist/release.json
     staticPublishPath: ./frontend/dist
-    domains:
-      - doobielogic.io
-      - ops.doobielogic.io
-      - cowboykush.doobielogic.io
+    # See deploy/cloudflare/wrangler.jsonc for all public hostname routes.
     routes:
       - type: rewrite
         source: /*

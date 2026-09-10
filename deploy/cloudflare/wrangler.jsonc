@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "doobielogic-production-edge",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "doobielogic.io/*", "zone_name": "doobielogic.io" },
+    { "pattern": "ops.doobielogic.io/*", "zone_name": "doobielogic.io" },
+    { "pattern": "cowboykush.doobielogic.io/*", "zone_name": "doobielogic.io" },
+    { "pattern": "api.doobielogic.io/*", "zone_name": "doobielogic.io" }
+  ]
+}
