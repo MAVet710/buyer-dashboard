@@ -7,7 +7,7 @@ from modules.alpha_mode import AlphaOperatingModeService
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
-from ..services.metrc_context import resolve_metrc_context
+from ..services.metrc_context import MetrcContext, resolve_metrc_context
 from .integrations import integrations as legacy_integrations
 
 
@@ -27,7 +27,19 @@ def alpha_aware_integrations(
         context.organization_id,
         context.facility_id,
     )
-    _, metrc = resolve_metrc_context(engine, settings, context)
+    try:
+        _, metrc = resolve_metrc_context(engine, settings, context)
+    except RuntimeError:
+        metrc = MetrcContext(
+            configured=False,
+            status="credential_unreadable",
+            environment="sandbox",
+            trusted_mapping=False,
+            message=(
+                "The saved METRC credential for this facility cannot be read in this deployment. "
+                "Reconnect METRC or restore the original integration encryption key."
+            ),
+        )
     result["alpha_operating_mode"] = mode.public()
     result["metrc"] = {
         **result["metrc"],
