@@ -1,16 +1,17 @@
-"""Small bounded cache for the CPU-heavy Buyer forecast model.
+"""Bounded performance caches for the CPU-heavy Buyer analytics path.
 
-The free API runtime has only a fraction of a CPU. Buyer Dashboard, overview,
-market intelligence, and exports often request the same normalized forecast at
-nearly the same time. Rebuilding it for each endpoint multiplies latency. This
-module shares that work by source fingerprint and request controls while keeping
-cache entries tenant/facility scoped and bounded in memory.
+Render Free provides 0.1 CPU. Buyer Dashboard, overview, market intelligence,
+and exports can otherwise parse the same files and rebuild the same pandas
+forecast at nearly the same time. These caches share that immutable derived work
+by tenant/facility, source fingerprint, and controls without changing business
+logic or persistence semantics.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections import OrderedDict
-from functools import wraps
+from functools import lru_cache, wraps
 from threading import RLock
 from time import monotonic
 from typing import Any, Callable
@@ -26,8 +27,10 @@ _SALES_KEYS = ("product_sales", "sandbox_buyer_sales", "sandbox_delivery_sales")
 _SOURCE_KEYS = tuple(dict.fromkeys((*_INVENTORY_KEYS, *_SALES_KEYS)))
 _CACHE_TTL_SECONDS = 300.0
 _CACHE_MAX_ENTRIES = 4
+_PARSE_CACHE_MAX_ENTRIES = 4
 _LOCK = RLock()
 _CACHE: OrderedDict[tuple[Any, ...], tuple[float, Any]] = OrderedDict()
+_PARSE_CACHE: OrderedDict[tuple[bytes, str], tuple[float, Any]] = OrderedDict()
 
 
 def _pick_fingerprint(sources: dict[str, Any], keys: tuple[str, ...]) -> str:
@@ -64,8 +67,65 @@ def _cache_key(
     )
 
 
+def _install_scalar_memoizers() -> None:
+    """Memoize pure row classifiers used thousands of times per sales file."""
+
+    import services.web_buyer_parity as parity_service
+
+    for name in ("_normalize_category", "_extract_size", "_extract_strain_type"):
+        current = getattr(parity_service, name)
+        if getattr(current, "_doobielogic_scalar_cache", False):
+            continue
+        memoized = lru_cache(maxsize=4096)(current)
+
+        @wraps(current)
+        def safe_cached(*args, __memoized=memoized, __current=current, **kwargs):
+            try:
+                return __memoized(*args, **kwargs)
+            except TypeError:
+                # Unhashable spreadsheet cell values are unusual, but preserving
+                # the original classifier is safer than making caching a contract.
+                return __current(*args, **kwargs)
+
+        safe_cached._doobielogic_scalar_cache = True  # type: ignore[attr-defined]
+        setattr(parity_service, name, safe_cached)
+
+
+def _install_parser_cache(module: Any) -> None:
+    current = module.read_tabular_bytes
+    if getattr(current, "_doobielogic_parse_cache", False):
+        return
+
+    @wraps(current)
+    def cached_parser(payload: bytes, filename: str):
+        digest = hashlib.sha256(payload).digest()
+        key = (digest, str(filename or "source.csv").casefold())
+        now = monotonic()
+        with _LOCK:
+            cached = _PARSE_CACHE.get(key)
+            if cached is not None and now - cached[0] <= _CACHE_TTL_SECONDS:
+                _PARSE_CACHE.move_to_end(key)
+                return cached[1].copy(deep=True)
+            if cached is not None:
+                _PARSE_CACHE.pop(key, None)
+
+        frame = current(payload, filename)
+        with _LOCK:
+            _PARSE_CACHE[key] = (monotonic(), frame.copy(deep=True))
+            _PARSE_CACHE.move_to_end(key)
+            while len(_PARSE_CACHE) > _PARSE_CACHE_MAX_ENTRIES:
+                _PARSE_CACHE.popitem(last=False)
+        return frame
+
+    cached_parser._doobielogic_parse_cache = True  # type: ignore[attr-defined]
+    module.read_tabular_bytes = cached_parser
+
+
 def install_buyer_model_cache(module: Any) -> Callable[..., Any]:
-    """Wrap ``buyer_parity._model`` once and return the installed callable."""
+    """Install Buyer hotpath caches once and return the shared model callable."""
+
+    _install_scalar_memoizers()
+    _install_parser_cache(module)
 
     current = module._model
     if getattr(current, "_doobielogic_cached_model", False):
@@ -92,10 +152,9 @@ def install_buyer_model_cache(module: Any) -> Callable[..., Any]:
             if cached is not None:
                 _CACHE.pop(key, None)
 
-            # Keep the miss computation under the lock. On the 0.1 CPU free
-            # runtime, parallel copies of the same pandas pipeline only compete
-            # for the same CPU and make every request slower. The next endpoint
-            # receives the completed shared result instead of rebuilding it.
+            # Keep an identical miss under the lock. Parallel pandas copies on
+            # 0.1 CPU only contend with one another; the waiting endpoint is
+            # faster receiving the completed shared model than rebuilding it.
             result = current(context, engine, target_doh, velocity_adjustment, sales_days)
             _CACHE[key] = (monotonic(), result)
             _CACHE.move_to_end(key)
