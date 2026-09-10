@@ -46,6 +46,12 @@ const client = new QueryClient({
     },
   },
 });
+// Organization/facility identity changes only through explicit context-switch flows,
+// which invalidate the query cache. Avoid re-querying this stable shell metadata on
+// every workspace hop while operational datasets keep their shorter freshness window.
+client.setQueryDefaults(["account-context"], { staleTime: 5 * 60_000, gcTime: 30 * 60_000, retry: 1, refetchOnWindowFocus: false });
+client.setQueryDefaults(["access-options"], { staleTime: 5 * 60_000, gcTime: 30 * 60_000, retry: 1, refetchOnWindowFocus: false });
+
 const hostname = window.location.hostname.trim().toLowerCase().replace(/\.$/, "");
 const marketing = isMarketingHost(window.location.hostname);
 configureSeo(marketing);
