@@ -276,7 +276,13 @@ def assign_label_production_tag(
     settings: Settings = Depends(get_settings),
 ):
     _require_label_workflow_write(context)
-    _, metrc = resolve_metrc_context(engine, settings, context)
+    try:
+        _, metrc = resolve_metrc_context(engine, settings, context)
+    except RuntimeError as exc:
+        raise HTTPException(
+            503,
+            "The saved METRC credential for this facility cannot be read in this deployment. Reconnect METRC or restore the original integration encryption key before using METRC-backed actions.",
+        ) from exc
     metrc_environment = metrc.environment if metrc.configured and metrc.trusted_mapping else ""
     try:
         return LabelProductionWorkflowService(engine).assign_tag(

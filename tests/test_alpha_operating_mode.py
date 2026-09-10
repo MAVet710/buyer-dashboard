@@ -8,6 +8,7 @@ from backend.app.config import Settings
 from backend.app.services.metrc_context import resolve_metrc_context
 from modules.alpha_mode import AlphaOperatingMode, AlphaOperatingModeService
 from modules.coman.models import AuditEvent, Base, Facility, Organization, utc_now
+from modules.integrations import IntegrationConfigurationService
 from modules.regulatory.models import RegulatoryFacilityMapping
 
 
@@ -158,6 +159,63 @@ def test_doobielogic_sandbox_disables_metrc_context_before_credentials():
     assert metrc.environment == "sandbox"
     assert metrc.status == "disabled_by_alpha_mode"
     assert "DoobieLogic Sandbox is active" in metrc.message
+
+
+def test_doobielogic_sandbox_does_not_decrypt_stale_metrc_credentials():
+    engine = _engine()
+    organization_id, facility_id = _scope(engine)
+    AlphaOperatingModeService(engine).set_mode(
+        organization_id,
+        facility_id,
+        mode="doobielogic_sandbox",
+        actor="admin-user",
+    )
+    context = RequestContext(
+        user_id="operator",
+        organization_id=organization_id,
+        facility_id=facility_id,
+        role="admin",
+    )
+
+    old_service = IntegrationConfigurationService(engine, "google-era-key")
+    old_service.save(
+        scope_type="facility",
+        scope_key=f"{organization_id}:{facility_id}:sandbox",
+        provider="metrc_sandbox",
+        organization_id=organization_id,
+        facility_id=facility_id,
+        configuration={"state": "MA", "license_number": "LIC-ALPHA"},
+        secret="legacy-vendor-key",
+        actor="admin-user",
+    )
+    old_service.save(
+        scope_type="user",
+        scope_key=f"{context.user_id}|{facility_id}",
+        provider="metrc",
+        organization_id=organization_id,
+        facility_id=facility_id,
+        configuration={
+            "state": "MA",
+            "license_number": "LIC-ALPHA",
+            "environment": "sandbox",
+        },
+        secret="legacy-user-key",
+        actor="admin-user",
+    )
+
+    _, metrc = resolve_metrc_context(
+        engine,
+        Settings(integration_encryption_key="render-era-key"),
+        context,
+    )
+
+    assert metrc.configured is False
+    assert metrc.environment == "sandbox"
+    assert metrc.status == "disabled_by_alpha_mode"
+    assert metrc.state == "MA"
+    assert metrc.license_number == "LIC-ALPHA"
+    assert metrc.user_api_key == ""
+    assert metrc.integrator_api_key == ""
 
 
 def test_mode_is_tenant_and_facility_scoped():
