@@ -101,7 +101,9 @@ export function WorkspaceAgent({ activePage, operation, onNavigate }: Props) {
   const directory = useQuery({
     queryKey: ["workspace-ai-agents", operation, activePage],
     queryFn: ({ signal }) => apiGet<AgentDirectory>(`/api/v1/ai-agents?${params}`, signal),
-    staleTime: 60_000,
+    enabled: open,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
   const agents = directory.data?.agents ?? [];
   const activeAgentKey = directory.data?.active_agent?.key ?? "";
