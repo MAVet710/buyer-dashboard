@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiGet, apiPost } from "../lib/api";
+import { LabelLayoutEditor, LabelDesignCanvas } from "./LabelLayoutEditor";
+import { initialDesign, designIssues, type LabelDesign, type LabelContents } from "./labelDesign";
 
 type InventorySummary = { lot_id:string;product_id:string;package_id:string;lot_code:string;product_name:string;sku:string;location:string;status:string;on_hand:number;inventory_unit:string };
 type CoaResult = { analysis:string;key?:string;name:string;value:number|null;value_text:string;units:string };
@@ -15,7 +17,7 @@ type SourceSnapshot = { lot_id:string;package_id:string;lot_code:string;product_
 type PrintLayout = { layout:"compact_single"|"compact_split"|"bulk_barcode";width_in:number;height_in:number;source_count:number };
 type LabelRun = {
   id:string;product_id:string;quantity:number;expected_material_quantity:number;expected_material_unit:string;status:string;metrc_package_tag:string;created_by:string;printed_by:string;
-  created_at:string;printed_at:string|null;snapshot:{source:SourceSnapshot;sources?:SourceSnapshot[];product:Record<string,unknown>;label:Record<string,string>;quantity:number;print_layout?:PrintLayout;expected_material_quantity:number;expected_material_unit:string;sandbox?:{sandbox_test_pass?:boolean;bypassed_checks?:string[]}};
+  created_at:string;printed_at:string|null;snapshot:{source:SourceSnapshot;sources?:SourceSnapshot[];product:Record<string,unknown>;label:Record<string,string>;quantity:number;print_layout?:PrintLayout;custom_design?:LabelDesign;design_revision?:number;expected_material_quantity:number;expected_material_unit:string;sandbox?:{sandbox_test_pass?:boolean;bypassed_checks?:string[]}};
   traceability:{value:string;qr:Graphic;barcode:Graphic};events:LabelEvent[];
 };
 type SearchOption = { value:string;label:string;searchText:string };
@@ -152,6 +154,34 @@ function BulkBarcodeLabel({run,index,sources}:{run:LabelRun;index:number;sources
   </div>;
 }
 
+function customContents(run:LabelRun,index=0):LabelContents {
+  const label=run.snapshot.label??{};
+  const sources=run.snapshot.sources?.length?run.snapshot.sources:[run.snapshot.source];
+  const source=sources[0];
+  const testing=sources.map((item,i)=>[
+    sources.length>1?`Source ${i+1}: ${item.product_name}`:item.product_name,
+    `Batch: ${item.label.batch_number||item.lot_code}`,
+    `Harvest: ${displayDate(item.label.harvest_date)} · Tested: ${displayDate(item.label.test_date||item.coa.date_tested)}`,
+    ...["potency","total_thc","total_cbd"].filter(key=>item.label[key]).map(key=>`${fieldLabel(key)}: ${item.label[key]}`),
+    ...analytes(item,"cannabinoids",50).map(row=>`${row.name}: ${resultValue(row)}`),
+    item.coa.total_cannabinoids!=null?`Total cannabinoids: ${fmt(item.coa.total_cannabinoids)}%`:"",
+    ...analytes(item,"terpenes",3).map(row=>`${row.name}: ${resultValue(row)}`),
+    item.coa.total_terpenes!=null?`Total terpenes: ${fmt(item.coa.total_terpenes)}%`:"",
+    [item.coa.lab_name,item.coa.lab_license_number].filter(Boolean).join(" · "),
+  ].filter(Boolean).join("\n")).join("\n\n");
+  return {
+    header:[label.product_name,label.net_contents||label.package_size,label.package_composition].filter(Boolean).join("\n"),
+    dates:`Packaged: ${displayDate(run.created_at)} · Expires: ${displayDate(source?.label.expiration_date)}`,
+    sources:testing,
+    parties:[...sources.map(item=>`Cultivated by ${item.label.cultivated_by||"—"} ${item.label.cultivator_license||""}`),`Manufactured by ${label.manufacturer||label.facility_name||"—"} ${label.license_number||""}`].join("\n"),
+    warning:label.warning_text||"",
+    qr:run.metrc_package_tag?<img src={graphicDataUri(run.traceability.qr)} alt="METRC QR"/>:"QR after tag assignment",
+    barcode:run.metrc_package_tag?<img src={graphicDataUri(run.traceability.barcode)} alt="METRC barcode"/>:"Barcode after tag assignment",
+    tag:run.metrc_package_tag||"Tag after assignment",
+    unit:`${index+1} / ${run.quantity}`,
+  };
+}
+
 export function InventoryDrivenLabelWorkflow({sandboxTestPass=false}:{sandboxTestPass?:boolean}){
   const inventory=useQuery({queryKey:["label-studio-inventory-summaries"],queryFn:({signal})=>apiGet<unknown>("/api/v1/label-printing/inventory-sources?summary=true",signal)});
   const products=useQuery({queryKey:["label-studio-finished-products"],queryFn:({signal})=>apiGet<unknown>("/api/v1/product-master?operation=production&search=&status=active&item_type=finished_good",signal)});
@@ -166,6 +196,10 @@ export function InventoryDrivenLabelWorkflow({sandboxTestPass=false}:{sandboxTes
   const [tag,setTag]=useState("");
   const [run,setRun]=useState<LabelRun|null>(null);
   const [reprintReason,setReprintReason]=useState("");
+  const [draftDesign,setDraftDesign]=useState<LabelDesign|null>(null);
+  const [overflow,setOverflow]=useState<string[]>([]);
+  const saveDesign=useMutation({mutationFn:()=>apiPost<LabelRun>(`/api/v1/label-printing/production-runs/${run?.id}/design`,{design:draftDesign,expected_revision:run?.snapshot.design_revision??0}),onSuccess:value=>{setRun(value);setDraftDesign(null);setOverflow([]);}});
+
   const source=useQuery({queryKey:["label-studio-production-source",sourceLotId],queryFn:({signal})=>apiGet<InventorySource>(`/api/v1/label-printing/inventory-sources/${encodeURIComponent(sourceLotId)}`,signal),enabled:Boolean(sourceLotId)});
   const secondarySource=useQuery({queryKey:["label-studio-production-source",secondarySourceLotId],queryFn:({signal})=>apiGet<InventorySource>(`/api/v1/label-printing/inventory-sources/${encodeURIComponent(secondarySourceLotId)}`,signal),enabled:Boolean(secondarySourceLotId)});
   const product=useQuery({queryKey:["label-studio-production-product",productId],queryFn:({signal})=>apiGet<ProductDetail>(`/api/v1/product-master/${encodeURIComponent(productId)}`,signal),enabled:Boolean(productId)});
@@ -176,8 +210,8 @@ export function InventoryDrivenLabelWorkflow({sandboxTestPass=false}:{sandboxTes
   const assign=useMutation({mutationFn:()=>apiPost<LabelRun>(`/api/v1/label-printing/production-runs/${run?.id}/tag`,{metrc_package_tag:tag.trim()}),onSuccess:value=>setRun(value)});
   const print=useMutation({mutationFn:()=>apiPost<LabelRun>(`/api/v1/label-printing/production-runs/${run?.id}/print`,{copies:run?.quantity,reason:run?.status==="tagged"?"":reprintReason.trim()}),onSuccess:value=>{setRun(value);setReprintReason("");window.setTimeout(()=>window.print(),50)}});
   const transition=useMutation({mutationFn:(status:string)=>apiPost<LabelRun>(`/api/v1/label-printing/production-runs/${run?.id}/transition`,{status,note:""}),onSuccess:value=>setRun(value)});
-  const reset=()=>{setSourceLotId("");setSecondarySourceLotId("");setProductId("");setQuantity(1);setTag("");setRun(null);setReprintReason("");create.reset();assign.reset();print.reset();transition.reset()};
-  const error=create.error||assign.error||print.error||transition.error||source.error||secondarySource.error||product.error;
+  const reset=()=>{setSourceLotId("");setSecondarySourceLotId("");setProductId("");setQuantity(1);setTag("");setRun(null);setReprintReason("");setDraftDesign(null);setOverflow([]);saveDesign.reset();create.reset();assign.reset();print.reset();transition.reset()};
+  const error=saveDesign.error||create.error||assign.error||print.error||transition.error||source.error||secondarySource.error||product.error;
   const primaryVerified=sourceReady(source.data);
   const secondaryVerified=sourceReady(secondarySource.data);
   const primaryReady=sandboxTestPass||primaryVerified;
@@ -185,7 +219,12 @@ export function InventoryDrivenLabelWorkflow({sandboxTestPass=false}:{sandboxTes
   const sources=run?.snapshot.sources?.length?run.snapshot.sources:[run?.snapshot.source].filter(Boolean) as SourceSnapshot[];
   const label=run?.snapshot?.label??{};
   const copies=run?Array.from({length:Math.max(1,Math.min(run.quantity,500))},(_,index)=>index):[];
-  const printLayout:PrintLayout=run?.snapshot.print_layout??{layout:packaging?.label_layout??"compact_single",width_in:Number(packaging?.label_width_in??3.5),height_in:Number(packaging?.label_height_in??2.1),source_count:Number(packaging?.label_source_count??1)};
+  const savedPrintLayout:PrintLayout=run?.snapshot.print_layout??{layout:packaging?.label_layout??"compact_single",width_in:Number(packaging?.label_width_in??3.5),height_in:Number(packaging?.label_height_in??2.1),source_count:Number(packaging?.label_source_count??1)};
+  const customDesign=run?.snapshot.custom_design;
+  const printLayout:PrintLayout=customDesign?{...savedPrintLayout,width_in:customDesign.width_in,height_in:customDesign.height_in}:savedPrintLayout;
+  const contents=useMemo(()=>run?customContents(run):null,[run]);
+  const layoutProblems=draftDesign?designIssues(draftDesign):customDesign?designIssues(customDesign):[];
+  const printBlocked=Boolean(draftDesign)||Boolean(customDesign&&(overflow.length||layoutProblems.length));
   const nextStatus=run?.status==="printed"?"applied":run?.status==="applied"?"released":run?.status==="released"?"fulfilled":run?.status==="fulfilled"?"archived":"";
   const nextAction=nextStatus==="applied"?"Mark labels applied":nextStatus==="released"?"Release finished package":nextStatus==="fulfilled"?"Mark fulfilled":nextStatus==="archived"?"Archive run":"";
   const sourceConflict=needsSecondSource&&Boolean(sourceLotId)&&sourceLotId===secondarySourceLotId;
@@ -216,13 +255,19 @@ export function InventoryDrivenLabelWorkflow({sandboxTestPass=false}:{sandboxTes
     {!run?<div style={{marginTop:16}}><button className="primary" disabled={!sourceLotId||!productId||!primaryReady||!secondReady||sourceConflict||!packaging||create.isPending} onClick={()=>create.mutate()}>{create.isPending?"Building preview…":"4. Build & validate label preview"}</button><p className="section-note">Label Studio snapshots the selected source testing and Product Master print preset. It does not reserve, consume, or validate a production quantity of source material.{sandboxTestPass?" DEV Sandbox test-pass use is written into the run audit trail.":""}</p></div>:null}
 
     {run?<div className="production-label-preview"><div className="eyebrow">4. GENERATED LABEL PREVIEW · {run.status.toUpperCase()}</div><h3>{label.product_name||"Finished product"}</h3>{run.snapshot.sandbox?.sandbox_test_pass?<div className="sandbox-test-pass"><strong>Sandbox test-pass recorded on this run</strong><small>{run.snapshot.sandbox.bypassed_checks?.length?`Bypassed: ${run.snapshot.sandbox.bypassed_checks.join(", ")}`:"No source-readiness checks needed bypassing."}</small></div>:null}<div className="production-label-preview-grid"><div><span>Print layout</span><strong>{layoutName(printLayout.layout)}</strong></div><div><span>Label stock</span><strong>{printLayout.width_in} × {printLayout.height_in} in</strong></div><div><span>Tested sources</span><strong>{sources.length}</strong></div>{DISPLAY_FIELDS.filter(field=>String(label[field]??"").trim()).map(field=><div key={field}><span>{fieldLabel(field)}</span><strong>{label[field]}</strong></div>)}{sources.map((item,index)=><div key={item.lot_id}><span>{sources.length>1?`Source ${index+1}`:"Source package"}</span><strong>{item.package_id||item.lot_code}</strong></div>)}<div><span>Finished quantity</span><strong>{run.quantity} labels</strong></div></div>
-      {run.status==="validated"?<div className="production-traceability"><div><strong>5. Scan METRC package tag</strong><p className="section-note">{sandboxTestPass?"DEV Sandbox accepts a test package tag without requiring it to be available in synchronized sandbox METRC inventory. Tag format and local uniqueness are still enforced, and a production METRC mapping will refuse the pass.":"One physical finished-package tag for this label run. Every printed retail label inherits the same traceability identity."}</p></div><div className="inline-form"><input autoFocus aria-label="METRC finished package tag" placeholder={sandboxTestPass?"Scan or enter sandbox test package tag":"Scan physical METRC package tag"} value={tag} onChange={event=>setTag(event.target.value)}/><button className="primary" disabled={tag.trim().length<4||assign.isPending} onClick={()=>assign.mutate()}>{assign.isPending?"Validating…":"Assign tag"}</button></div></div>:null}
-      {run.metrc_package_tag?<div className="production-traceability"><img src={graphicDataUri(run.traceability.qr)} alt={`QR code for finished METRC package ${run.metrc_package_tag}`}/><div><strong>{run.metrc_package_tag}</strong><img src={graphicDataUri(run.traceability.barcode)} alt={`Code 128 barcode for finished METRC package ${run.metrc_package_tag}`}/><p className="section-note">The saved Product Master stock size and layout will be used when the browser print dialog opens.</p></div></div>:null}
-      {run.status==="tagged"?<div style={{marginTop:16}}><button className="primary" disabled={print.isPending} onClick={()=>print.mutate()}>{print.isPending?"Recording print…":`6. Finalize & print ${run.quantity} labels`}</button></div>:null}
-      {["printed","applied","released","fulfilled"].includes(run.status)?<div style={{marginTop:16}}><div className="inline-form"><input aria-label="Reprint reason" placeholder="Reason required for reprint" value={reprintReason} onChange={event=>setReprintReason(event.target.value)}/><button className="secondary" disabled={!reprintReason.trim()||print.isPending} onClick={()=>print.mutate()}>Reprint {run.quantity}</button>{nextStatus?<button className="primary" disabled={transition.isPending} onClick={()=>transition.mutate(nextStatus)}>{nextAction}</button>:null}</div></div>:null}
+      {contents?<div style={{marginTop:16}}>
+        {!draftDesign&&["validated","tagged"].includes(run.status)?<button className="secondary" disabled={assign.isPending||print.isPending} onClick={()=>{setOverflow([]);setDraftDesign(customDesign??initialDesign(printLayout.width_in,printLayout.height_in));}}>Customize size & layout</button>:null}
+        {draftDesign?<LabelLayoutEditor design={draftDesign} contents={contents} disabled={!["validated","tagged"].includes(run.status)} busy={saveDesign.isPending} onChange={setDraftDesign} onSave={()=>saveDesign.mutate()} onCancel={()=>{setDraftDesign(null);setOverflow([]);saveDesign.reset();}} onOverflow={setOverflow}/>:customDesign?<div className="label-design-readonly"><LabelDesignCanvas design={customDesign} contents={contents} onOverflow={setOverflow}/></div>:null}
+        {layoutProblems.length||overflow.length?<div className="label-layout-issues" role="alert">{layoutProblems.map(message=><p key={message}>{message}</p>)}{overflow.length?<p>Content does not fit: {overflow.join(", ")}. Enlarge these blocks, reduce the font size, or choose larger stock before printing.</p>:null}</div>:null}
+        {draftDesign?<p className="section-note">Save your layout or close the editor before printing.</p>:null}
+      </div>:null}
+      {run.status==="validated"?<div className="production-traceability"><div><strong>5. Scan METRC package tag</strong><p className="section-note">{sandboxTestPass?"DEV Sandbox accepts a test package tag without requiring it to be available in synchronized sandbox METRC inventory. Tag format and local uniqueness are still enforced, and a production METRC mapping will refuse the pass.":"One physical finished-package tag for this label run. Every printed retail label inherits the same traceability identity."}</p></div><div className="inline-form"><input autoFocus aria-label="METRC finished package tag" placeholder={sandboxTestPass?"Scan or enter sandbox test package tag":"Scan physical METRC package tag"} value={tag} onChange={event=>setTag(event.target.value)}/><button className="primary" disabled={tag.trim().length<4||assign.isPending||Boolean(draftDesign)||saveDesign.isPending} onClick={()=>assign.mutate()}>{assign.isPending?"Validating…":"Assign tag"}</button></div></div>:null}
+      {run.metrc_package_tag?<div className="production-traceability"><img src={graphicDataUri(run.traceability.qr)} alt={`QR code for finished METRC package ${run.metrc_package_tag}`}/><div><strong>{run.metrc_package_tag}</strong><img src={graphicDataUri(run.traceability.barcode)} alt={`Code 128 barcode for finished METRC package ${run.metrc_package_tag}`}/><p className="section-note">The saved run layout and stock size will be used when the browser print dialog opens.</p></div></div>:null}
+      {run.status==="tagged"?<div style={{marginTop:16}}><button className="primary" disabled={print.isPending||saveDesign.isPending||printBlocked} onClick={()=>print.mutate()}>{print.isPending?"Recording print…":`6. Finalize & print ${run.quantity} labels`}</button></div>:null}
+      {["printed","applied","released","fulfilled"].includes(run.status)?<div style={{marginTop:16}}><div className="inline-form"><input aria-label="Reprint reason" placeholder="Reason required for reprint" value={reprintReason} onChange={event=>setReprintReason(event.target.value)}/><button className="secondary" disabled={!reprintReason.trim()||print.isPending||printBlocked} onClick={()=>print.mutate()}>Reprint {run.quantity}</button>{nextStatus?<button className="primary" disabled={transition.isPending} onClick={()=>transition.mutate(nextStatus)}>{nextAction}</button>:null}</div></div>:null}
     </div>:null}
 
-    {run?.metrc_package_tag?<div className="production-label-print-batch" aria-label="Printable retail labels">{copies.map(index=><div className={`production-label-copy layout-${printLayout.layout}`} key={index} data-layout={printLayout.layout} data-label-width={printLayout.width_in} data-label-height={printLayout.height_in}>{printLayout.layout==="compact_split"?<CompactSplitLabel run={run} index={index} sources={sources}/>:printLayout.layout==="bulk_barcode"?<BulkBarcodeLabel run={run} index={index} sources={sources}/>:<CompactSingleLabel run={run} index={index} sources={sources}/>}</div>)}</div>:null}
+    {run?.metrc_package_tag?<div className="production-label-print-batch" aria-label="Printable retail labels">{copies.map(index=><div className={`production-label-copy layout-${printLayout.layout}${customDesign?" has-custom-design":""}`} key={index} data-layout={printLayout.layout} data-label-width={printLayout.width_in} data-label-height={printLayout.height_in}>{customDesign?<LabelDesignCanvas design={customDesign} contents={customContents(run,index)}/>:printLayout.layout==="compact_split"?<CompactSplitLabel run={run} index={index} sources={sources}/>:printLayout.layout==="bulk_barcode"?<BulkBarcodeLabel run={run} index={index} sources={sources}/>:<CompactSingleLabel run={run} index={index} sources={sources}/>}</div>)}</div>:null}
 
     {run?<div style={{marginTop:18}}><h3>Audit trail</h3>{run.events.map(event=><div className="label-audit-row" key={event.id}><strong>{eventLabel(event.event_type)}</strong><span>{event.from_status&&event.to_status?`${event.from_status} → ${event.to_status}`:event.to_status||event.from_status}</span><small>{event.actor} · {new Date(event.occurred_at).toLocaleString()}</small></div>)}</div>:null}
     {error?<div className="form-error">{error.message}</div>:null}
