@@ -15,6 +15,22 @@ from .database import get_engine as get_database_engine
 from modules.coman.db import ComanDatabaseConfigurationError
 
 
+_CAPABILITY_FIELDS = {
+    "retail": "retail_enabled",
+    "production": "production_enabled",
+    "cultivation": "cultivation_enabled",
+    "commercial": "commercial_enabled",
+}
+
+
+def _facility_capabilities(facility: Facility) -> frozenset[str]:
+    return frozenset(
+        capability
+        for capability, field_name in _CAPABILITY_FIELDS.items()
+        if bool(getattr(facility, field_name))
+    )
+
+
 def get_authorization_engine() -> Engine | None:
     """Reuse the application's single cached SQLAlchemy engine.
 
@@ -36,6 +52,12 @@ class RequestContext:
     facility_id: str
     role: str = "user"
     data_mode: str = "Uploads"
+    # Auth already loads and validates the selected facility. Carry its immutable
+    # capability snapshot through the same request so retail/production/commercial
+    # dependencies do not immediately issue a second identical facility query.
+    # Manually-constructed/development contexts keep the empty default and fall
+    # back to the database check below, preserving existing behavior.
+    capabilities: frozenset[str] = frozenset()
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -108,7 +130,8 @@ def get_request_context(
             facility = session.get(Facility, trial_facility)
             if not facility or not facility.active or facility.organization_id != trial_org:
                 raise HTTPException(status_code=403, detail="Trial workspace is unavailable.")
-        return RequestContext(str(payload.get("sub")), trial_org, trial_facility, "trial", normalized_data_mode)
+            capabilities = _facility_capabilities(facility)
+        return RequestContext(str(payload.get("sub")), trial_org, trial_facility, "trial", normalized_data_mode, capabilities)
 
     claims: dict = {}
     if credentials:
@@ -125,6 +148,7 @@ def get_request_context(
 
     user_id = str(claims.get("sub") or development_user or "local-developer")
     role = str(development_role or "user") if settings.is_development and not credentials else "user"
+    capabilities = frozenset()
     app_metadata = claims.get("app_metadata") if isinstance(claims.get("app_metadata"), dict) else {}
     organization_id = organization_id or str(app_metadata.get("organization_id") or "")
     facility_id = facility_id or str(app_metadata.get("facility_id") or "")
@@ -143,6 +167,7 @@ def get_request_context(
             facility = session.get(Facility, facility_id)
             if not facility or not facility.active or facility.organization_id != organization_id:
                 raise HTTPException(status_code=403, detail="The selected facility is not available in this organization.")
+            capabilities = _facility_capabilities(facility)
             if user.role == "dev":
                 role = "dev"
             else:
@@ -167,15 +192,7 @@ def get_request_context(
                     detail="Password change required before using the operations API.",
                 )
             user_id = user.id
-    return RequestContext(user_id, organization_id, facility_id, role, normalized_data_mode)
-
-
-_CAPABILITY_FIELDS = {
-    "retail": "retail_enabled",
-    "production": "production_enabled",
-    "cultivation": "cultivation_enabled",
-    "commercial": "commercial_enabled",
-}
+    return RequestContext(user_id, organization_id, facility_id, role, normalized_data_mode, capabilities)
 
 
 def require_any_facility_capability(context: RequestContext, engine: Engine, capabilities: tuple[str, ...]) -> None:
@@ -191,6 +208,17 @@ def require_any_facility_capability(context: RequestContext, engine: Engine, cap
     unknown = [capability for capability in capabilities if capability not in _CAPABILITY_FIELDS]
     if unknown:
         raise RuntimeError(f"Unknown facility capability: {unknown[0]}")
+
+    # Authenticated and trial requests already validated this exact facility and
+    # captured its capabilities in get_request_context. Reusing that same-request
+    # snapshot removes a redundant Supabase round trip from every guarded API call
+    # without introducing a cross-request authorization cache or stale-access TTL.
+    if context.capabilities:
+        if any(capability in context.capabilities for capability in capabilities):
+            return
+        readable = " or ".join(capabilities)
+        raise HTTPException(status_code=403, detail=f"The selected facility does not enable {readable} operations.")
+
     with Session(engine) as session:
         facility = session.get(Facility, context.facility_id)
         enabled = bool(
