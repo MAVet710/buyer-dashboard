@@ -8,7 +8,8 @@ services:
     autoDeployTrigger: checksPass
     buildCommand: >-
       python -m pip install --upgrade pip &&
-      python -m pip install -r backend/requirements.txt
+      python -m pip install -r backend/requirements.txt &&
+      python -m compileall -q backend modules services reports migrations compliance_engine.py doobielogic_client.py delivery_impact.py
     startCommand: >-
       sh -c 'export RELEASE_SHA="${RENDER_GIT_COMMIT:-render}" &&
       export ALLOWED_HOSTS="api.doobielogic.io,${RENDER_EXTERNAL_HOSTNAME}" &&
