@@ -21,6 +21,12 @@ COPY reports reports
 COPY migrations migrations
 COPY alembic.ini ./
 COPY compliance_engine.py doobielogic_client.py delivery_impact.py ./
+# Render Free gives the running process only 0.1 CPU. Compile application source
+# while the image is being built so every cold start can load bytecode instead of
+# spending scarce runtime CPU parsing and compiling hundreds of Python modules.
+# PYTHONDONTWRITEBYTECODE is intentionally unset for this one build step only.
+RUN env -u PYTHONDONTWRITEBYTECODE python -m compileall -q backend modules services reports migrations \
+    compliance_engine.py doobielogic_client.py delivery_impact.py
 USER buyer
 EXPOSE 8080
 CMD ["sh", "-c", "MODULE=backend.app.main:app; if [ \"${RC_PREVIEW:-0}\" = \"1\" ]; then MODULE=backend.app.rc_preview:app; fi; exec uvicorn \"${MODULE}\" --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips='*'"]

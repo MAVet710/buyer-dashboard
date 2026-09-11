@@ -3,28 +3,58 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from functools import lru_cache
 from typing import Any
 
 from sqlalchemy import Engine, text
 
 from modules.integrations import IntegrationConfigurationService
-from services.ai import AgentRuntime
-from services.ai.context import system_prompt
-from services.ai.provider import ProviderUnavailable
-from services.ai.retrieval import KnowledgeRetriever, KnowledgeScope, KnowledgeStore, LocalEmbeddingProvider
-from services.ai.router import ProviderRouter
-from services.ai.schemas import AIRequest
-from services.ai.telemetry import AITelemetry
-from services.ai.validation import parse_structured
-from services.ai.providers import GeminiProvider, LocalOpenAIProvider, OpenAIProvider
 
 from ..auth import RequestContext
 from ..config import Settings
-from .ai_dataset_extensions import GovernedKnowledgeRetriever, register_governed_agent_datasets
-from .ai_datasets import build_dataset_registry, facility_access
 
 
 _NATIVE_PROVIDERS = {"local", "gemini", "openai"}
+
+
+@lru_cache(maxsize=1)
+def _runtime_dependencies() -> tuple[Any, ...]:
+    """Load the AI/data-science graph only when an AI feature is actually used.
+
+    The FastAPI app imports the agent router during every Render cold start.  The
+    old module-level imports pulled pandas/numpy, retrieval, dataset builders and
+    provider SDK wrappers into *every* startup even when AI is disabled and the
+    operator is opening a normal inventory page.  Render Free only has 0.1 CPU,
+    so that eager graph was a disproportionate part of boot time.
+
+    Imports remain process-global after first use through Python's module cache;
+    this only moves their cost off the ordinary API startup path.
+    """
+    from services.ai import AgentRuntime
+    from services.ai.retrieval import KnowledgeRetriever, KnowledgeScope, KnowledgeStore, LocalEmbeddingProvider
+    from services.ai.router import ProviderRouter
+    from services.ai.telemetry import AITelemetry
+    from services.ai.providers import GeminiProvider, LocalOpenAIProvider, OpenAIProvider
+
+    from .ai_dataset_extensions import GovernedKnowledgeRetriever, register_governed_agent_datasets
+    from .ai_datasets import build_dataset_registry, facility_access
+
+    return (
+        AgentRuntime,
+        KnowledgeRetriever,
+        KnowledgeScope,
+        KnowledgeStore,
+        LocalEmbeddingProvider,
+        ProviderRouter,
+        AITelemetry,
+        GeminiProvider,
+        LocalOpenAIProvider,
+        OpenAIProvider,
+        GovernedKnowledgeRetriever,
+        register_governed_agent_datasets,
+        build_dataset_registry,
+        facility_access,
+    )
 
 
 def _integration_service(engine: Engine, settings: Settings) -> IntegrationConfigurationService | None:
@@ -119,7 +149,24 @@ def _native_provider_order(config: dict[str, Any], settings: Settings) -> tuple[
     return order, mode, allow_fallback
 
 
-def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext, operation_type: str) -> tuple[AgentRuntime, Any, str, str, dict[str, Any]]:
+def build_runtime(*, engine: Engine, settings: Settings, context: RequestContext, operation_type: str) -> tuple[Any, Any, str, str, dict[str, Any]]:
+    (
+        AgentRuntime,
+        KnowledgeRetriever,
+        KnowledgeScope,
+        KnowledgeStore,
+        LocalEmbeddingProvider,
+        ProviderRouter,
+        AITelemetry,
+        GeminiProvider,
+        LocalOpenAIProvider,
+        OpenAIProvider,
+        GovernedKnowledgeRetriever,
+        register_governed_agent_datasets,
+        build_dataset_registry,
+        facility_access,
+    ) = _runtime_dependencies()
+
     config = runtime_configuration(engine, settings)
     local = LocalOpenAIProvider(
         base_url=str(config.get("local_llm_base_url") or ""),
@@ -200,6 +247,11 @@ def run_bounded_ai(
     This is for application workflows that already computed the exact data slice
     they want interpreted. It deliberately does not call the legacy Doobie API.
     """
+    from services.ai.context import system_prompt
+    from services.ai.provider import ProviderUnavailable
+    from services.ai.schemas import AIRequest
+    from services.ai.validation import parse_structured
+
     runtime, _access, organization_name, facility_name, _status = build_runtime(
         engine=engine,
         settings=settings,
