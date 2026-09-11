@@ -2,6 +2,26 @@ import { supabase } from "./supabase";
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 const PUBLIC_POST_TIMEOUT_MS = 30_000;
 
+// A workspace can launch several React Query reads at once. Supabase getSession()
+// is safe but each call still crosses the auth client's storage/locking path.
+// Share only the in-flight lookup so a request burst pays that cost once, while
+// deliberately avoiding a time-based token cache that could outlive login,
+// logout, refresh, or context changes.
+let sessionLookup: ReturnType<NonNullable<typeof supabase>["auth"]["getSession"]> | null = null;
+
+async function currentSession() {
+  if (!supabase) return null;
+  if (!sessionLookup) {
+    sessionLookup = supabase.auth.getSession();
+    void sessionLookup.finally(() => {
+      // Keep the settled promise available through the current microtask wave so
+      // simultaneously-started API calls continue to share it.
+      queueMicrotask(() => { sessionLookup = null; });
+    });
+  }
+  return (await sessionLookup).data.session;
+}
+
 export function apiUrl(path: string): string { return `${API_URL}${path}`; }
 
 export class ApiError extends Error {
@@ -55,7 +75,7 @@ export function buyerDataMode(): "Uploads" | "Dutchie Live" {
 }
 
 async function requestHeaders(json = false): Promise<Record<string, string>> {
-  const session = (await supabase?.auth.getSession())?.data.session;
+  const session = await currentSession();
   const token = session?.access_token;
   const trial = !token ? trialToken() : "";
   const metadata = session?.user.app_metadata ?? {};
