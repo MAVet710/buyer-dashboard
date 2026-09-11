@@ -52,7 +52,7 @@ jobs:
             -e AI_PROVIDER_MODE=disabled \
             -e AI_PROVIDER_ORDER=none \
             -e AI_ALLOW_CLOUD_FALLBACK=false \
-            buyer-dash-api:rc python -c "import backend.app.main; assert backend.app.main.app"
+            buyer-dash-api:rc python -c 'import time; started=time.perf_counter(); import backend.app.main as main; elapsed=time.perf_counter()-started; assert main.app; print(f"API_IMPORT_SECONDS={elapsed:.3f}")'
 
       - uses: pnpm/action-setup@v4
         with:
