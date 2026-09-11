@@ -89,8 +89,6 @@ from .routers.storefront_units import router as storefront_units_router
 from .routers.external_api import router as external_api_router
 from .database import get_engine
 from .observability import install_observability
-from .services.sandbox_extraction import ensure_rich_extraction_sandbox
-from .services.sandbox_sales import sync_sandbox_retail_sales
 from .metrc_runtime_composition import compose_metrc_runtime
 
 # Cross-router METRC behavior is attached only after every router module above has
@@ -132,12 +130,12 @@ if not settings.is_development and DECLARED_SCHEMA_HEAD and DECLARED_SCHEMA_HEAD
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    engine = get_engine()
-    sync_sandbox_retail_sales(engine)
-    try:
-        ensure_rich_extraction_sandbox(engine)
-    except Exception:
-        logger.exception("DEV Sandbox extraction realism seed failed")
+    # DEV fixture enrichment is persistent data preparation, not a web-server
+    # readiness requirement. Running it here made every Render Free wake pay for
+    # CSV normalization and extraction fixture reconciliation before it could
+    # answer the operator's first request. Fixture builders remain available to
+    # explicit seed/migration/test flows; the production API now becomes ready as
+    # soon as its import graph and database dependencies are ready.
     yield
 
 
