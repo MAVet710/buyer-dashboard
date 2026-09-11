@@ -101,6 +101,33 @@ def test_active_sources_are_tenant_and_facility_isolated(repository):
     assert state["_cache_inv"]["bytes"] == b"tenant-b"
 
 
+def test_active_source_cache_invalidates_after_publish_and_supports_dataset_filter(repository):
+    _publish(repository, payload=b"inventory-v1")
+    assert [row.dataset_key for row in repository.list_active_sources("org-a", "facility-a")] == ["inventory"]
+
+    sales_payload = b"Product,Units Sold\nBlue Dream,4\n"
+    repository.publish_source(
+        organization_id="org-a",
+        facility_id="facility-a",
+        dataset_key="product_sales",
+        dataset_label="Product Sales",
+        cache_key="_cache_sales",
+        filename="sales.csv",
+        fingerprint=hashlib.sha256(sales_payload).hexdigest(),
+        payload=sales_payload,
+    )
+
+    all_keys = {row.dataset_key for row in repository.list_active_sources("org-a", "facility-a")}
+    assert all_keys == {"inventory", "product_sales"}
+    filtered = repository.list_active_sources(
+        "org-a",
+        "facility-a",
+        dataset_keys=("product_sales",),
+    )
+    assert [row.dataset_key for row in filtered] == ["product_sales"]
+    assert filtered[0].payload == sales_payload
+
+
 def test_republishing_is_idempotent_and_new_version_archives_previous(repository):
     first = _publish(repository, payload=b"first")
     duplicate = _publish(repository, payload=b"first")

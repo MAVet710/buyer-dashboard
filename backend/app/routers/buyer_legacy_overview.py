@@ -8,7 +8,10 @@ from sqlalchemy import Engine
 from services.web_buyer_parity import records, sku_inventory_view
 from ..auth import RequestContext, get_request_context, get_retail_context
 from ..database import get_engine
-from .buyer_parity import _model
+from ..services.buyer_model_cache import install_buyer_model_cache
+from . import buyer_parity as buyer_parity_module
+
+_model = install_buyer_model_cache(buyer_parity_module)
 
 router = APIRouter(
     prefix="/buyer-parity",
