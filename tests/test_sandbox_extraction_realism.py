@@ -220,7 +220,7 @@ def test_rich_extraction_sandbox_never_writes_to_non_sandbox_tenant():
     assert real_lots == 0
 
 
-def test_api_startup_installs_extraction_sandbox_realism_seed():
+def test_api_startup_does_not_install_extraction_sandbox_realism_seed():
     source = __import__("pathlib").Path("backend/app/main.py").read_text(encoding="utf-8")
-    assert "from .services.sandbox_extraction import ensure_rich_extraction_sandbox" in source
-    assert "ensure_rich_extraction_sandbox(engine)" in source
+    assert "from .services.sandbox_extraction import ensure_rich_extraction_sandbox" not in source
+    assert "ensure_rich_extraction_sandbox(engine)" not in source
