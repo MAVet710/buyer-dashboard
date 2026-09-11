@@ -24,7 +24,8 @@ COPY compliance_engine.py doobielogic_client.py delivery_impact.py ./
 # Render Free gives the running process only 0.1 CPU. Compile application source
 # while the image is being built so every cold start can load bytecode instead of
 # spending scarce runtime CPU parsing and compiling hundreds of Python modules.
-RUN python -m compileall -q backend modules services reports migrations \
+# PYTHONDONTWRITEBYTECODE is intentionally unset for this one build step only.
+RUN env -u PYTHONDONTWRITEBYTECODE python -m compileall -q backend modules services reports migrations \
     compliance_engine.py doobielogic_client.py delivery_impact.py
 USER buyer
 EXPOSE 8080
