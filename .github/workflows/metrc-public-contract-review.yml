@@ -46,27 +46,23 @@ jobs:
               ('PUT','/packages/v2/item'),
               ('POST','/plants/v2/plantbatch/packages'),
           }
+          def join(value, separator):
+              return separator.join(value) if isinstance(value, list) else str(value or '')
+          def api_path(address):
+              if isinstance(address, dict):
+                  combined = address.get('raw') or (join(address.get('host'), '.') + '/' + join(address.get('path'), '/'))
+              else:
+                  combined = str(address)
+              match = re.search(r'/(?:sandbox|packages|plants|sales)/v2(?:/[^?\s#]*)?', combined)
+              return match.group(0).rstrip('/') if match else ''
+          assert api_path({'host':['{{Metrc.api.server}}/packages/v2'], 'path':['active']}) == '/packages/v2/active'
           found = set()
-          inspected = 0
           def walk(items, inherited_auth):
-              global inspected
               for item in items:
                   request = item.get('request') or {}
                   auth = request.get('auth') or inherited_auth or {}
                   address = request.get('url') or {}
-                  path_parts = address.get('path') if isinstance(address, dict) else None
-                  if isinstance(path_parts, list) and path_parts:
-                      path = '/' + '/'.join(path_parts)
-                  elif path_parts:
-                      path = str(path_parts)
-                  else:
-                      raw_url = address.get('raw', '') if isinstance(address, dict) else str(address)
-                      match = re.search(r'/(?:sandbox|packages|plants|sales)/v2(?:/[^?\s#]*)?', raw_url)
-                      path = match.group(0) if match else ''
-                  identity = (request.get('method'), path.rstrip('/'))
-                  if request and inspected < 2:
-                      print('PUBLIC_REQUEST_SHAPE', json.dumps({'name': item.get('name'), 'url': address, 'method': request.get('method')}))
-                      inspected += 1
+                  identity = (request.get('method'), api_path(address))
                   if identity in selected:
                       found.add(identity)
                       print(json.dumps({
