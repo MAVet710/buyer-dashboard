@@ -1,9 +1,10 @@
 """DoobieLogic HTTP API package.
 
-One-shot Massachusetts Metrc resume diagnostics can be enabled explicitly at
-runtime. Both hooks are absent unless their environment run ID is set, perform
-GET-only provider discovery through the application's existing encrypted
-credential path, and are idempotent by run ID.
+One-shot Massachusetts Metrc resume helpers are explicitly runtime-gated. The
+resume diagnostics are GET-only. The package-evaluation hook may perform the
+reviewed MA sandbox prerequisite tag generation plus workbook tasks 25-26 only;
+it is absent unless ``METRC_PACKAGE_EVAL_RUN_ID`` is deliberately set and its
+service remains fail-closed/idempotent by run ID.
 """
 
 from __future__ import annotations
@@ -67,5 +68,32 @@ def _start_metrc_resume_detail_if_requested() -> None:
     threading.Thread(target=worker, name="metrc-resume-detail", daemon=True).start()
 
 
+def _start_metrc_package_eval_if_requested() -> None:
+    run_id = str(os.environ.get("METRC_PACKAGE_EVAL_RUN_ID") or "").strip()
+    if not run_id:
+        return
+
+    def worker() -> None:
+        time.sleep(8)
+        try:
+            from .config import get_settings
+            from .database import get_engine
+            from .services.metrc_package_eval_resume import run_package_tasks_25_26
+
+            result = run_package_tasks_25_26(get_engine(), get_settings(), run_id)
+            logger.info(
+                "METRC_PACKAGE_EVAL_COMPLETE run_id=%s status=%s task25=%s task26=%s",
+                run_id,
+                result.get("status", "unknown"),
+                bool((result.get("task25") or {}).get("passed")),
+                bool((result.get("task26") or {}).get("passed")),
+            )
+        except Exception:
+            logger.exception("METRC_PACKAGE_EVAL_FAILED run_id=%s", run_id)
+
+    threading.Thread(target=worker, name="metrc-package-eval", daemon=True).start()
+
+
 _start_metrc_resume_diagnostic_if_requested()
 _start_metrc_resume_detail_if_requested()
+_start_metrc_package_eval_if_requested()
