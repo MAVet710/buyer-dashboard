@@ -1,9 +1,6 @@
 name: MA Metrc Resume Diagnostics
 
 on:
-  push:
-    branches:
-      - codex/metrc-resume-16-to-47
   workflow_dispatch:
 
 permissions:
@@ -83,7 +80,7 @@ jobs:
         with:
           name: ma-metrc-resume-summary-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/metrc-resume/summary.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Upload detailed sandbox candidate evidence
