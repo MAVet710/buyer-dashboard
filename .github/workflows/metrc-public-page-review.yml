@@ -11,20 +11,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Read public documentation HTML only
+      - name: Read public method documentation only
         shell: bash
         run: |
           python3 - <<'PY'
-          import re
+          import hashlib
           import urllib.request
-          from html import unescape
-          url = 'https://sandbox-api-ma.metrc.com/Documentation/'
-          with urllib.request.urlopen(url, timeout=30) as response:
-              page = response.read(8000000).decode('utf-8')
-          print('PUBLIC_SCRIPT_REFERENCES', re.findall(r'<script[^>]+src=[\"\x27]([^\"\x27]+)',page))
-          for needle in ['post_sandbox_v2_facility_tags', 'get_sandbox_v2_tagtypes', 'RequiredLabTestBatches']:
-              matches = list(re.finditer(re.escape(needle), page, re.I))
-              print('PUBLIC_SECTION', needle, 'MATCH_COUNT', len(matches))
-              for match in matches[-2:]:
-                  print(unescape(page[max(0,match.start()-300):match.start()+4000]))
+          from html.parser import HTMLParser
+          from urllib.parse import urlencode
+          class Text(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.parts = []
+              def handle_data(self, data):
+                  if data.strip(): self.parts.append(data.strip())
+          keys = [
+              'Sandbox.post_sandbox_v2_facility_tags.POST',
+              'Sandbox.get_sandbox_v2_tagtypes.GET',
+              'Sandbox.post_sandbox_v2_packages_create.POST',
+              'Packages.post_packages_v2_.POST',
+              'Sales.get_sales_v2_customertypes.GET',
+          ]
+          for key in keys:
+              url = 'https://sandbox-api-ma.metrc.com/Documentation/Method?' + urlencode({'key': key})
+              with urllib.request.urlopen(url, timeout=30) as response:
+                  raw = response.read(1000001)
+              if len(raw) > 1000000: raise RuntimeError('Documentation size exceeded')
+              text = Text()
+              text.feed(raw.decode('utf-8'))
+              print('PUBLIC_METHOD', key, 'SHA256', hashlib.sha256(raw).hexdigest())
+              print('\n'.join(text.parts))
           PY
