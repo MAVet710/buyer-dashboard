@@ -57,7 +57,11 @@ export function ProductPreviewDialog({
         event.preventDefault();
         onClose();
       }}
-      onClose={onClose}
+      onClose={(event) => {
+        // StrictMode can reopen the element before its cleanup's queued close
+        // event arrives. That stale event must not dismiss the reopened viewer.
+        if (!event.currentTarget.open) onClose();
+      }}
       onClick={(event) => {
         if (event.target !== event.currentTarget) return;
         const bounds = event.currentTarget.getBoundingClientRect();
