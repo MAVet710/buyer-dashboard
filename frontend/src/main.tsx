@@ -26,6 +26,12 @@ import "./cowboy-storefront.css";
 import "./commerce-launcher.css";
 import "./offline.css";
 
+declare global {
+  interface Window {
+    doobielogicScannerReady?: Promise<void>;
+  }
+}
+
 const App = lazy(() => import("./App"));
 const AuthGate = lazy(() => import("./components/AuthGate").then(module => ({ default: module.AuthGate })));
 const CommerceStorefrontLauncher = lazy(() => import("./components/CommerceStorefrontLauncher").then(module => ({ default: module.CommerceStorefrontLauncher })));
@@ -71,7 +77,7 @@ function ModeBoundary({ children }: { children: ReactNode }) {
 function SiteMode() {
   if (portalToken) return <CommercePortalPage token={portalToken} />;
   if (storefrontSlug) return <PublicStorefrontAgeGate><StorefrontPage slug={storefrontSlug} /></PublicStorefrontAgeGate>;
-  if (marketing) return <>{betaPage ? <BetaPartnerPage /> : <MarketingHome />}<MarketingContactChannels /></>;
+  if (marketing) return betaPage ? <><BetaPartnerPage /><MarketingContactChannels /></> : <MarketingHome />;
   return <AuthGate>
     <BrowserRouter>
       <>
@@ -84,12 +90,19 @@ function SiteMode() {
   </AuthGate>;
 }
 
-createRoot(document.getElementById("root")!).render(
+async function mountSite() {
+  // Only the public homepage/beta skip scanner setup. Preserve initialization
+  // before mounting operator, storefront, and portal surfaces.
+  await window.doobielogicScannerReady;
+  createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={client}>
       <ModeBoundary><SiteMode /></ModeBoundary>
     </QueryClientProvider>
   </StrictMode>,
 );
+}
+
+void mountSite();
 
 void registerDoobieLogicServiceWorker();

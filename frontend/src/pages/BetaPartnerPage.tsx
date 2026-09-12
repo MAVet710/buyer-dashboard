@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { apiPublicPost } from "../lib/api";
 import { BRAND_IMAGE_URL } from "../lib/brand";
+import { trackMarketingEvent } from "../lib/marketingAnalytics";
 
 const pillars = [
   {
@@ -105,6 +106,7 @@ export function BetaPartnerPage() {
       });
       form.reset();
       setSubmitted(true);
+      trackMarketingEvent("beta_apply", { placement: "beta" });
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "We could not submit your application. Please try again.");
     } finally {
