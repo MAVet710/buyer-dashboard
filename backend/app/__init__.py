@@ -78,7 +78,7 @@ def _start_metrc_package_eval_if_requested() -> None:
         try:
             from .config import get_settings
             from .database import get_engine
-            from .services.metrc_package_eval_resume import run_package_tasks_25_26
+            from .services.metrc_package_eval_lockfix import run_package_tasks_25_26
 
             result = run_package_tasks_25_26(get_engine(), get_settings(), run_id)
             logger.info(
