@@ -13,7 +13,7 @@ export function seoPage(marketing: boolean, pathname: string) {
   return {
     publicPage,
     title: publicPage ? (beta ? "Apply for the DoobieLogic Beta | Cannabis Operations Software" : MARKETING_TITLE) : "DoobieLogic Ops",
-    description: publicPage ? MARKETING_DESCRIPTION : "Private DoobieLogic operations workspace.",
+    description: publicPage ? (beta ? "Apply to the DoobieLogic beta partner program. Evaluate cannabis operations workflows, share feedback, and help shape the product during your approved beta period." : MARKETING_DESCRIPTION) : "Private DoobieLogic operations workspace.",
     canonical: publicPage ? `${MARKETING_ORIGIN}/${beta ? "beta" : ""}` : null,
     robots: publicPage ? PUBLIC_ROBOTS : PRIVATE_ROBOTS,
     homepage: publicPage && !beta,
