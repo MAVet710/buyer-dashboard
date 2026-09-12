@@ -8,6 +8,7 @@ test.beforeEach(async ({ context, page, baseURL }) => {
   if (!["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname)) {
     throw new Error("Marketing browser tests require a loopback preview server.");
   }
+  await context.routeWebSocket("**/*", (socket) => socket.close());
   await context.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -21,6 +22,7 @@ test.beforeEach(async ({ context, page, baseURL }) => {
     }
     const response = await route.fetch({
       url: origin.origin + url.pathname + url.search,
+      maxRedirects: 0,
     });
     await route.fulfill({ response });
   });
@@ -43,6 +45,9 @@ for (const width of [390, 430, 768, 1024, 1440]) {
       await expect(dialog).toBeVisible();
       await expect(dialog).toContainText("not a live workspace.");
       await expect(dialog.getByRole("button", { name: "Close product preview" })).toBeFocused();
+      // A queued cleanup close event must not dismiss an already reopened modal.
+      await dialog.evaluate((node) => node.dispatchEvent(new Event("close")));
+      await expect(dialog).toBeVisible();
       await expect.poll(() => page.evaluate(() => document.documentElement.style.overflow)).toBe("hidden");
 
       // Native modal containment must hold across a complete keyboard cycle.
@@ -116,6 +121,9 @@ test("backdrop dismisses the viewer without leaving page scrolling locked", asyn
 
 test("a failed full-size image leaves an accessible way to close the viewer", async ({ page }) => {
   await page.route("**/marketing/buyer-workspace.webp", (route) => route.abort());
+  // Install the failure before loading the document so decoded image reuse
+  // cannot make this test pass or fail depending on the browser cache.
+  await page.reload({ waitUntil: "networkidle" });
   await page.getByRole("link", { name: "View full size", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("status")).toContainText("This screenshot could not load.");
