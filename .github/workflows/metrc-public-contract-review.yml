@@ -17,9 +17,9 @@ jobs:
           python3 - <<'PY'
           import hashlib
           import json
+          import re
           import urllib.request
           from datetime import datetime, timezone
-          from urllib.parse import urlsplit
 
           url = 'https://sandbox-api-ma.metrc.com/Documentation/postman-json'
           class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -47,24 +47,32 @@ jobs:
               ('POST','/plants/v2/plantbatch/packages'),
           }
           found = set()
+          inspected = 0
           def walk(items, inherited_auth):
+              global inspected
               for item in items:
                   request = item.get('request') or {}
                   auth = request.get('auth') or inherited_auth or {}
                   address = request.get('url') or {}
-                  if isinstance(address, dict):
-                      path = '/' + '/'.join(address.get('path') or [])
-                      query = address.get('query') or []
+                  path_parts = address.get('path') if isinstance(address, dict) else None
+                  if isinstance(path_parts, list) and path_parts:
+                      path = '/' + '/'.join(path_parts)
+                  elif path_parts:
+                      path = str(path_parts)
                   else:
-                      path = urlsplit(str(address)).path
-                      query = []
+                      raw_url = address.get('raw', '') if isinstance(address, dict) else str(address)
+                      match = re.search(r'/(?:sandbox|packages|plants|sales)/v2(?:/[^?\s#]*)?', raw_url)
+                      path = match.group(0) if match else ''
                   identity = (request.get('method'), path.rstrip('/'))
+                  if request and inspected < 2:
+                      print('PUBLIC_REQUEST_SHAPE', json.dumps({'name': item.get('name'), 'url': address, 'method': request.get('method')}))
+                      inspected += 1
                   if identity in selected:
                       found.add(identity)
                       print(json.dumps({
                           'method': identity[0], 'path': identity[1],
                           'auth_type': auth.get('type'),
-                          'query': query,
+                          'query': address.get('query', []) if isinstance(address, dict) else [],
                           'body': request.get('body'),
                           'description': request.get('description'),
                           'examples': [{'code': r.get('code'), 'body': r.get('body')} for r in item.get('response', [])[:1]],
