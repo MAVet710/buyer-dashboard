@@ -1,0 +1,30 @@
+name: MA Metrc Public Page Review
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/metrc-public-page-review.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-page:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read public documentation HTML only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          import urllib.request
+          from html import unescape
+          url = 'https://sandbox-api-ma.metrc.com/Documentation/'
+          with urllib.request.urlopen(url, timeout=30) as response:
+              page = response.read(8000000).decode('utf-8')
+          print('PUBLIC_SCRIPT_REFERENCES', re.findall(r'<script[^>]+src=[\"\x27]([^\"\x27]+)',page))
+          for needle in ['post_sandbox_v2_facility_tags', 'get_sandbox_v2_tagtypes', 'RequiredLabTestBatches']:
+              matches = list(re.finditer(re.escape(needle), page, re.I))
+              print('PUBLIC_SECTION', needle, 'MATCH_COUNT', len(matches))
+              for match in matches[-2:]:
+                  print(unescape(page[max(0,match.start()-300):match.start()+4000]))
+          PY
