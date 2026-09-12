@@ -1,10 +1,8 @@
 """DoobieLogic HTTP API package.
 
 One-shot Massachusetts Metrc resume helpers are explicitly runtime-gated. The
-resume diagnostics are GET-only. The package-evaluation hook may perform the
-reviewed MA sandbox prerequisite tag generation plus workbook tasks 25-26 only;
-it is absent unless ``METRC_PACKAGE_EVAL_RUN_ID`` is deliberately set and its
-service remains fail-closed/idempotent by run ID.
+resume diagnostics are GET-only. Package-evaluation preparation and execution
+are absent unless their exact environment run IDs are deliberately set.
 """
 
 from __future__ import annotations
@@ -68,6 +66,36 @@ def _start_metrc_resume_detail_if_requested() -> None:
     threading.Thread(target=worker, name="metrc-resume-detail", daemon=True).start()
 
 
+def _start_metrc_package_alt_item_if_requested() -> None:
+    run_id = str(os.environ.get("METRC_PACKAGE_ALT_ITEM_RUN_ID") or "").strip()
+    if not run_id:
+        return
+    logger.warning("METRC_PACKAGE_ALT_ITEM_SCHEDULED run_id=%s", run_id)
+
+    def worker() -> None:
+        time.sleep(8)
+        logger.warning("METRC_PACKAGE_ALT_ITEM_STARTED run_id=%s", run_id)
+        try:
+            from .config import get_settings
+            from .database import get_engine
+            from .services.metrc_package_alt_item_prepare import run_prepare_alternate_item
+
+            result = run_prepare_alternate_item(get_engine(), get_settings(), run_id)
+            logger.warning(
+                "METRC_PACKAGE_ALT_ITEM_COMPLETE run_id=%s status=%s passed=%s http_status=%s provider_id=%s reason=%s",
+                run_id,
+                result.get("status", "unknown"),
+                bool(result.get("passed")),
+                int(result.get("http_status") or 0),
+                str(result.get("provider_id") or ""),
+                str(result.get("message") or ""),
+            )
+        except Exception:
+            logger.exception("METRC_PACKAGE_ALT_ITEM_FAILED run_id=%s", run_id)
+
+    threading.Thread(target=worker, name="metrc-package-alt-item", daemon=True).start()
+
+
 def _start_metrc_package_eval_if_requested() -> None:
     run_id = str(os.environ.get("METRC_PACKAGE_EVAL_RUN_ID") or "").strip()
     if not run_id:
@@ -101,4 +129,5 @@ def _start_metrc_package_eval_if_requested() -> None:
 
 _start_metrc_resume_diagnostic_if_requested()
 _start_metrc_resume_detail_if_requested()
+_start_metrc_package_alt_item_if_requested()
 _start_metrc_package_eval_if_requested()
