@@ -18,6 +18,10 @@ from modules.coman.models import AuditEvent
 from modules.integrations.models import IntegrationConfiguration
 from modules.regulatory.registry import resolve_metrc_base_url
 from services.metrc_evaluation_lifecycle import execute_lifecycle_evaluation_action
+from services.metrc_existing_package_tag import (
+    ExistingPackageTagError, load_existing_tag_allocation,
+    verify_allocation_resume, verify_existing_tag_available,
+)
 from services.metrc_resume_response import (
     ResumeResponseError, collection_values, numeric, object_rows, package_record,
     reference_names, total_pages, validate_sandbox_url, verify_package,
@@ -60,6 +64,7 @@ def _configuration(run_id: str) -> dict[str, str]:
         raise MetrcPackageResumeError("Package evaluation mode must be preflight or execute.")
     if config["mode"] == "execute" and os.environ.get("METRC_PACKAGE_EVAL_APPROVAL") != run_id:
         raise MetrcPackageResumeError("Execution requires approval bound to this exact run ID.")
+    config["existing_tag_allocation"] = str(os.environ.get("METRC_PACKAGE_EVAL_TAG_ALLOCATION") or "").strip()
     return config
 
 
@@ -106,6 +111,32 @@ def _record(engine: Engine, run_id: str, org: str, facility: str,
     value = _sanitize({**payload, "run_id": run_id, "evaluation_run_id": EVALUATION_BASE_RUN,
                        "state": "MA", "environment": "sandbox"}, secrets)
     with Session(engine) as session, session.begin():
+        if action in {"tag_allocation", "tag_generation_started", "task25_started", "task26_started"}:
+            if engine.dialect.name != "postgresql":
+                raise MetrcPackageResumeError("Live mutation claims require PostgreSQL.")
+            token = f"metrc-eval-claim:{org}:{facility}:{EVALUATION_BASE_RUN}"
+            key = int.from_bytes(hashlib.sha256(token.encode()).digest()[:8], "big", signed=True)
+            locked = session.execute(text("select pg_try_advisory_xact_lock(:key)"), {"key": key}).scalar_one()
+            if not locked:
+                raise MetrcPackageResumeError("Another worker is reserving this evaluation resource.")
+            prior = list(session.scalars(select(AuditEvent).where(
+                AuditEvent.entity_type == ENTITY_TYPE, AuditEvent.organization_id == org,
+                AuditEvent.facility_id == facility,
+                AuditEvent.action.in_(["tag_allocation", "tag_generation_started", "tag_generation_result",
+                                      "task25_started", "task25_result", "task26_started", "task26_result"]),
+            )))
+            for row in prior:
+                data = json.loads(row.changes_json)
+                if row.entity_id != run_id:
+                    # This resume is tied to a single source. A different run must
+                    # be reconciled explicitly, not used to bypass intent markers.
+                    raise MetrcPackageResumeError("Another package run already reserved or used this facility checkpoint.")
+                if action == "tag_allocation" and row.action == "tag_allocation":
+                    if data.get("allocation_sha256") != value.get("allocation_sha256"):
+                        raise MetrcPackageResumeError("The durable destination-tag allocation cannot be changed.")
+                    return
+                if action.endswith("_started") and row.action in {action, action.replace("_started", "_result")}:
+                    raise MetrcPackageResumeError("This mutation was already claimed; reconcile rather than retry.")
         session.add(AuditEvent(
             organization_id=org, facility_id=facility, entity_type=ENTITY_TYPE,
             entity_id=run_id, action=action, actor="system:approved-metrc-package-evaluation",
@@ -305,6 +336,14 @@ def run_package_tasks_25_26(engine: Engine, settings: Settings, run_id: str) -> 
         record = lambda action, data: _record(engine, run_id, org, facility, action, data, secrets)
         provider = _Provider(metrc)
         try:
+            allocation = None
+            if config["existing_tag_allocation"]:
+                allocation = load_existing_tag_allocation(
+                    config["existing_tag_allocation"], run_id=run_id, evaluation_run_id=EVALUATION_BASE_RUN,
+                    license_number=metrc.license_number, source_id=config["source_id"],
+                    source_label=config["source_label"],
+                )
+                verify_allocation_resume(allocation, events)
             # Fresh explicit facility discovery must precede every remaining operation.
             facilities, facility_read = provider.get("facilities/v2/", scoped=False)
             selected = [row for row in object_rows(facilities)
@@ -321,17 +360,29 @@ def run_package_tasks_25_26(engine: Engine, settings: Settings, run_id: str) -> 
                 raise MetrcPackageResumeError("Source is not the expected current-run immature package.")
             items, _ = provider.pages("items/v2/active")
             alternate = _alternate_item(items, source)
-            customer_payload, _ = provider.get("sales/v2/customertypes", scoped=False)
-            customers = reference_names(customer_payload)
-            type_payload, type_read = provider.get("sandbox/v2/tagtypes")
-            types = [row for row in object_rows(type_payload) if row.get("TagInventoryType") == "Package"]
-            if len(types) != 1 or not types[0].get("Name"):
-                raise MetrcPackageResumeError("An unambiguous package tag type is required.")
-            available, _ = provider.pages("tags/v2/package/available")
+            types, type_read, customers = [], None, []
+            if allocation is None:
+                customer_payload, _ = provider.get("sales/v2/customertypes", scoped=False)
+                customers = reference_names(customer_payload)
+                type_payload, type_read = provider.get("sandbox/v2/tagtypes")
+                types = [row for row in object_rows(type_payload) if row.get("TagInventoryType") == "Package"]
+                if len(types) != 1 or not types[0].get("Name"):
+                    raise MetrcPackageResumeError("An unambiguous package tag type is required.")
+            available, available_reads = provider.pages("tags/v2/package/available")
             before = {str(row.get("Label") or "") for row in available}
             if any(not TAG_PATTERN.fullmatch(label) for label in before):
                 raise MetrcPackageResumeError("Available tag response contains an unrecognized label.")
+            if allocation:
+                if e25 is None:
+                    verify_existing_tag_available(allocation, available, provider_facility_id=selected[0].get("Id"))
+                else:
+                    current, _ = provider.package(allocation["destination_label"])
+                    final_item = alternate["Name"] if events.get("task26_result") else SOURCE_ITEM
+                    verify_package(current, label=allocation["destination_label"], item_name=final_item,
+                                   quantity=1, unit="Each", provider_id=e25["provider_id"])
             record("preflight", {"read_only": True, "mutations_sent": 0,
+                "tag_strategy": "existing_available" if allocation else "sandbox_generation",
+                "tag_allocation": allocation, "available_tag_readbacks": available_reads,
                 "source_readback": source_read, "source_id": config["source_id"],
                 "alternate_item": alternate, "tag_type_readback": type_read,
                 "available_tag_count": len(before), "sales_customer_types": customers,
@@ -341,11 +392,23 @@ def run_package_tasks_25_26(engine: Engine, settings: Settings, run_id: str) -> 
                 "dependency_basis": "Packages Step 1 explicitly permits an existing package; tasks 17-24 remain outstanding."})
             if config["mode"] != "execute":
                 return {"status": "preflight_complete", "mutations_sent": 0}
-            tag = _once("tag_generation", events, record,
-                        lambda: _generate_tag(provider, types[0]["Name"], before, record))
-            if tag.get("passed") is not True:
-                return {"status": "tag_generation_blocked", "prerequisite": tag}
-            new_label = tag["tag"]
+            if allocation:
+                # Audit/claim commits before provider mutation; a crash or deploy
+                # cannot silently allocate a new tag or submit the same create twice.
+                record("tag_allocation", allocation)
+                events["tag_allocation"] = allocation
+                new_label = allocation["destination_label"]
+                if e25 is None:
+                    latest, latest_reads = provider.pages("tags/v2/package/available")
+                    verify_existing_tag_available(allocation, latest, provider_facility_id=selected[0].get("Id"))
+                    record("tag_availability_confirmed", {"allocation_sha256": allocation["allocation_sha256"],
+                           "readbacks": latest_reads})
+            else:
+                tag = _once("tag_generation", events, record,
+                            lambda: _generate_tag(provider, types[0]["Name"], before, record))
+                if tag.get("passed") is not True:
+                    return {"status": "tag_generation_blocked", "prerequisite": tag}
+                new_label = tag["tag"]
             location = source.get("LocationName") or (source.get("Location") or {}).get("Name")
             payload = {"tag": new_label, "item": SOURCE_ITEM, "quantity": 1, "unit_of_measure": "Each",
                 "actual_date": datetime.now(ZoneInfo("America/New_York")).date().isoformat(),
@@ -356,7 +419,8 @@ def run_package_tasks_25_26(engine: Engine, settings: Settings, run_id: str) -> 
             if e25.get("passed") is not True:
                 return {"status": "task25_failed_or_uncertain", "task25": e25}
             target, _ = provider.package(new_label)
-            verify_package(target, label=new_label, item_name=SOURCE_ITEM, quantity=1,
+            expected_item = alternate["Name"] if events.get("task26_result", {}).get("passed") is True else SOURCE_ITEM
+            verify_package(target, label=new_label, item_name=expected_item, quantity=1,
                            unit="Each", provider_id=e25["provider_id"])
             e26 = _once("task26", events, record, lambda: _task(provider, 26,
                 {"package_id": int(e25["provider_id"]), "label": new_label, "item": alternate["Name"]},
@@ -367,7 +431,7 @@ def run_package_tasks_25_26(engine: Engine, settings: Settings, run_id: str) -> 
                 record("completed", result)
             return result
         except Exception as exc:
-            message = str(exc) if isinstance(exc, (MetrcPackageResumeError, ResumeResponseError)) else type(exc).__name__
+            message = str(exc) if isinstance(exc, (MetrcPackageResumeError, ResumeResponseError, ExistingPackageTagError)) else type(exc).__name__
             result = {"status": "blocked", "error_type": type(exc).__name__, "message": message}
             record("blocked", result)
             return result
