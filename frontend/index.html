@@ -7,25 +7,39 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="description" content="DoobieLogic connects cannabis buying, inventory, receiving, audits, production, extraction, compliance, reporting, and facility operations in one workspace." />
+    <meta name="description" content="Cannabis ERP in beta for cultivation, production, retail, and vertically integrated teams. Explore the DoobieLogic operational workspaces and apply for beta access." />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/webp" href="/doobielogic-logo.webp" />
     <link rel="apple-touch-icon" href="/doobielogic-logo.webp" />
+    <script id="doobielogic-marketing-preload">
+      (() => {
+        const hostname = location.hostname.toLowerCase().replace(/\.$/, "");
+        if (!["doobielogic.io", "www.doobielogic.io"].includes(hostname) || /^\/(beta|portal|store)(\/|$)/.test(location.pathname)) return;
+        const image = document.createElement("link");
+        image.rel = "preload";
+        image.as = "image";
+        image.href = "/marketing/buyer-workspace.webp";
+        image.setAttribute("imagesrcset", "/marketing/buyer-workspace-480.webp 480w, /marketing/buyer-workspace-960.webp 960w, /marketing/buyer-workspace.webp 1440w");
+        image.setAttribute("imagesizes", "(max-width: 600px) calc(100vw - 36px), (max-width: 900px) calc(100vw - 48px), (min-width: 1500px) 1360px, (max-width: 1320px) calc(100vw - 80px), 1240px");
+        image.setAttribute("fetchpriority", "high");
+        document.head.appendChild(image);
+      })();
+    </script>
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="DoobieLogic" />
-    <meta property="og:title" content="DoobieLogic | Cannabis Operations Intelligence" />
-    <meta property="og:description" content="Buying, inventory, production, extraction, compliance, reporting, and facility operations in one connected cannabis workspace." />
+    <meta property="og:title" content="DoobieLogic | Cannabis ERP &amp; Operations Software" />
+    <meta property="og:description" content="Cannabis ERP in beta for cultivation, production, retail, and vertically integrated teams. Explore the DoobieLogic operational workspaces and apply for beta access." />
     <meta property="og:url" content="https://doobielogic.io/" />
-    <meta property="og:image" content="https://doobielogic.io/doobielogic-logo.webp" />
-    <meta property="og:image:type" content="image/webp" />
-    <meta property="og:image:width" content="1254" />
-    <meta property="og:image:height" content="1254" />
+    <meta property="og:image" content="https://doobielogic.io/marketing/doobielogic-brand.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="500" />
+    <meta property="og:image:height" content="500" />
     <meta property="og:image:alt" content="DoobieLogic" />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="DoobieLogic | Cannabis Operations Intelligence" />
-    <meta name="twitter:description" content="One connected cannabis operations workspace for buying, inventory, production, extraction, compliance, and reporting." />
-    <meta name="twitter:image" content="https://doobielogic.io/doobielogic-logo.webp" />
-    <title>DoobieLogic | Cannabis Operations Intelligence</title>
+    <meta name="twitter:title" content="DoobieLogic | Cannabis ERP &amp; Operations Software" />
+    <meta name="twitter:description" content="Cannabis ERP in beta for cultivation, production, retail, and vertically integrated teams. Explore the DoobieLogic operational workspaces and apply for beta access." />
+    <meta name="twitter:image" content="https://doobielogic.io/marketing/doobielogic-brand.png" />
+    <title>DoobieLogic | Cannabis ERP &amp; Operations Software</title>
   </head>
   <body>
     <div id="root"></div>
@@ -33,10 +47,29 @@
     <!-- Cross-browser camera decoding fallback. Inventory label QR rendering and
          Buyer KPI behavior are owned by React components; no DOM mutation shims
          are allowed to implement operator features here. -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" integrity="sha512-r6rDA7W6ZeQhvl8S7yRVQUKVHdexq+GAlNkNNqVC7YyIV+NwqCTJe2hDWCiffTyRNOeGEzRRJ9ifvRm/HCzGYg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script>
-      (() => {
+    <script id="doobielogic-scanner-bootstrap">
+      window.doobielogicScannerReady = (async () => {
+        const hostname = window.location.hostname.toLowerCase().replace(/\.$/, "");
+        if ((hostname === "doobielogic.io" || hostname === "www.doobielogic.io") && !/^\/(portal|store)(\/|$)/.test(window.location.pathname)) return;
+
+        // Keep operator dependency order and finish setup before mounting React.
+        // A failed optional CDN dependency must not prevent the app from opening.
+        async function loadScannerScript(src, integrity) {
+          await new Promise(resolve => {
+            const script = document.createElement("script");
+            script.src = src;
+            script.async = false;
+            if (integrity) script.integrity = integrity;
+            script.crossOrigin = "anonymous";
+            script.referrerPolicy = "no-referrer";
+            script.onload = resolve;
+            script.onerror = resolve;
+            document.head.appendChild(script);
+          });
+        }
+        await loadScannerScript("https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js", "sha512-r6rDA7W6ZeQhvl8S7yRVQUKVHdexq+GAlNkNNqVC7YyIV+NwqCTJe2hDWCiffTyRNOeGEzRRJ9ifvRm/HCzGYg==");
+        await loadScannerScript("https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js");
+
         const NativeBarcodeDetector = window.BarcodeDetector;
         const requestedFormats = ["qr_code", "code_128", "code_39", "ean_13", "upc_a"];
         const readerId = "doobielogic-audit-decoder";
@@ -120,7 +153,7 @@
         if (typeof NativeBarcodeDetector === "function" || reader) {
           window.BarcodeDetector = StreamlitScannerBarcodeDetector;
         }
-      })();
+      })().catch(() => undefined);
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

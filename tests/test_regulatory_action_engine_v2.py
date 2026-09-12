@@ -283,11 +283,19 @@ def test_marketing_surfaces_current_product_pillars():
     from pathlib import Path
 
     marketing = Path("frontend/src/pages/MarketingHome.tsx").read_text(encoding="utf-8")
+    marketing_content = Path("frontend/src/components/marketing/content.ts").read_text(encoding="utf-8")
     beta = Path("frontend/src/pages/BetaPartnerPage.tsx").read_text(encoding="utf-8")
     home = Path("frontend/src/pages/HomePage.tsx").read_text(encoding="utf-8")
     for content in (marketing, beta, home):
         assert "Doobie Agent" in content
         assert "Wholesale" in content
-    assert "Customer Portal" in marketing
+    # The public homepage is organized by operation. Customer Portal remains a
+    # protected application/beta pillar rather than an unqualified public claim.
+    assert "<Solutions />" in marketing
+    assert "marketingFaqs" in marketing
+    for operation in ("Cultivation", "Production / Manufacturing", "Retail Operations", "Vertically Integrated"):
+        assert operation in marketing_content
+    assert "Metrc integration is in validation." in marketing_content
+    assert "AI runtime tools are read-only; governed actions use separate controls." in marketing_content
     assert "Customer Portal" in beta
     assert "Customer Portal" in home
