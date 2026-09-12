@@ -72,24 +72,28 @@ def _start_metrc_package_eval_if_requested() -> None:
     run_id = str(os.environ.get("METRC_PACKAGE_EVAL_RUN_ID") or "").strip()
     if not run_id:
         return
+    mode = str(os.environ.get("METRC_PACKAGE_EVAL_MODE") or "preflight").strip()
+    logger.warning("METRC_PACKAGE_EVAL_SCHEDULED run_id=%s mode=%s", run_id, mode)
 
     def worker() -> None:
         time.sleep(8)
+        logger.warning("METRC_PACKAGE_EVAL_STARTED run_id=%s mode=%s", run_id, mode)
         try:
             from .config import get_settings
             from .database import get_engine
             from .services.metrc_package_eval_lockfix import run_package_tasks_25_26
 
             result = run_package_tasks_25_26(get_engine(), get_settings(), run_id)
-            logger.info(
-                "METRC_PACKAGE_EVAL_COMPLETE run_id=%s status=%s task25=%s task26=%s",
+            logger.warning(
+                "METRC_PACKAGE_EVAL_COMPLETE run_id=%s mode=%s status=%s task25=%s task26=%s",
                 run_id,
+                mode,
                 result.get("status", "unknown"),
                 bool((result.get("task25") or {}).get("passed")),
                 bool((result.get("task26") or {}).get("passed")),
             )
         except Exception:
-            logger.exception("METRC_PACKAGE_EVAL_FAILED run_id=%s", run_id)
+            logger.exception("METRC_PACKAGE_EVAL_FAILED run_id=%s mode=%s", run_id, mode)
 
     threading.Thread(target=worker, name="metrc-package-eval", daemon=True).start()
 
