@@ -85,12 +85,13 @@ def _start_metrc_package_eval_if_requested() -> None:
 
             result = run_package_tasks_25_26(get_engine(), get_settings(), run_id)
             logger.warning(
-                "METRC_PACKAGE_EVAL_COMPLETE run_id=%s mode=%s status=%s task25=%s task26=%s",
+                "METRC_PACKAGE_EVAL_COMPLETE run_id=%s mode=%s status=%s task25=%s task26=%s reason=%s",
                 run_id,
                 mode,
                 result.get("status", "unknown"),
                 bool((result.get("task25") or {}).get("passed")),
                 bool((result.get("task26") or {}).get("passed")),
+                str(result.get("message") or ""),
             )
         except Exception:
             logger.exception("METRC_PACKAGE_EVAL_FAILED run_id=%s mode=%s", run_id, mode)
