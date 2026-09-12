@@ -420,7 +420,7 @@ def _build_package_create(p: dict[str, Any]) -> list[dict[str, Any]]:
         "IsTradeSample": _boolean(p, "is_trade_sample"),
         "IsDonation": _boolean(p, "is_donation"),
         "ProductRequiresRemediation": _boolean(p, "product_requires_remediation"),
-        "RequiredLabTestBatches": _boolean(p, "required_lab_test_batches"),
+        "RequiredLabTestBatches": None if p.get("required_lab_test_batches") is None else _boolean(p, "required_lab_test_batches"),
         "UseSameItem": _boolean(p, "use_same_item"),
     }
     for source, target in (("location", "Location"), ("sublocation", "Sublocation"), ("note", "Note"), ("patient_license_number", "PatientLicenseNumber"), ("production_batch_number", "ProductionBatchNumber")):
