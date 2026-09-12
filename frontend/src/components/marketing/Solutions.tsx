@@ -8,6 +8,7 @@ import {
   Store,
 } from "lucide-react";
 import { solutions } from "./content";
+import { replaceSolutionHash } from "./solutionNavigation";
 import { trackMarketingEvent } from "../../lib/marketingAnalytics";
 const icons = [Sprout, Factory, Store, Layers3];
 
@@ -22,7 +23,11 @@ export function Solutions() {
     };
     selectFromHash();
     window.addEventListener("hashchange", selectFromHash);
-    return () => window.removeEventListener("hashchange", selectFromHash);
+    window.addEventListener("popstate", selectFromHash);
+    return () => {
+      window.removeEventListener("hashchange", selectFromHash);
+      window.removeEventListener("popstate", selectFromHash);
+    };
   }, []);
   const solution = solutions[active];
   const Icon = icons[active];
@@ -57,7 +62,7 @@ export function Solutions() {
               key={item.id}
               onClick={() => {
                 setActive(index);
-                window.history.replaceState(null, "", `#solution-${item.id}`);
+                replaceSolutionHash(item.id, window.history);
                 trackMarketingEvent(`solution_${item.id}`, {
                   placement: "solutions",
                 });
