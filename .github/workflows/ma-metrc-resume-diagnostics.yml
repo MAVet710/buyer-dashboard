@@ -1,0 +1,96 @@
+name: MA Metrc Resume Diagnostics
+
+on:
+  push:
+    branches:
+      - codex/metrc-resume-16-to-47
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ma-metrc-resume-diagnostics
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    name: Read-only blocker diagnostics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      METRC_INTEGRATOR_API_KEY: ${{ secrets.METRC_INTEGRATOR_API_KEY }}
+      METRC_MA_SANDBOX_USER_API_KEY: ${{ secrets.METRC_MA_SANDBOX_USER_API_KEY }}
+      METRC_USER_API_KEY: ${{ secrets.METRC_MA_SANDBOX_USER_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Verify MA sandbox secrets are configured
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          required = ("METRC_INTEGRATOR_API_KEY", "METRC_MA_SANDBOX_USER_API_KEY")
+          missing = [name for name in required if not str(os.environ.get(name) or "").strip()]
+          if missing:
+              raise SystemExit("Missing required MA Metrc sandbox secrets: " + ", ".join(missing))
+          if os.environ["METRC_INTEGRATOR_API_KEY"] == os.environ["METRC_MA_SANDBOX_USER_API_KEY"]:
+              raise SystemExit("Integrator and sandbox user credentials must be distinct.")
+          print("Required credentials are configured; values were not printed.")
+          PY
+
+      - name: Install minimal application dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install requests
+
+      - name: Compile diagnostic before provider access
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/diagnose_ma_metrc_resume_blockers.py
+
+      - name: Run read-only blocker diagnostics
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/metrc-resume
+          python scripts/diagnose_ma_metrc_resume_blockers.py \
+            --output artifacts/metrc-resume/full.local.json \
+            --summary-output artifacts/metrc-resume/summary.json
+
+      - name: Verify diagnostic remained read-only
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path("artifacts/metrc-resume/summary.json").read_text(encoding="utf-8"))
+          assert summary.get("read_only") is True
+          assert summary.get("mutations_sent") == 0
+          assert summary.get("secrets_included") is False
+          print("Read-only guard verified.")
+          PY
+
+      - name: Upload redacted summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ma-metrc-resume-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/metrc-resume/summary.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload detailed sandbox candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ma-metrc-resume-full-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/metrc-resume/full.local.json
+          if-no-files-found: warn
+          retention-days: 7
