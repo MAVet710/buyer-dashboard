@@ -62,6 +62,38 @@ export function ProductPreviewDialog({
         // event arrives. That stale event must not dismiss the reopened viewer.
         if (!event.currentTarget.open) onClose();
       }}
+      onKeyDown={(event) => {
+        if (
+          event.key !== "Tab" ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey
+        ) return;
+
+        // Native modality makes the background inert, but some browsers move
+        // focus to browser chrome after the last control. Wrap the two ends
+        // explicitly, leaving Escape and browser shortcuts untouched.
+        const controls = Array.from(
+          event.currentTarget.querySelectorAll<HTMLElement>(
+            "button, a[href], [tabindex]",
+          ),
+        ).filter((node) =>
+          node.tabIndex >= 0 &&
+          !node.matches(":disabled") &&
+          node.getClientRects().length > 0,
+        );
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (!first || !last) return;
+        const active = document.activeElement;
+        if (event.shiftKey && active === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }}
       onClick={(event) => {
         if (event.target !== event.currentTarget) return;
         const bounds = event.currentTarget.getBoundingClientRect();
