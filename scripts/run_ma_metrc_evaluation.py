@@ -39,6 +39,7 @@ from services.metrc_evaluation_transfers import (
 )
 from services.metrc_evaluation_verification import verify_transfer_workbook_read
 from services.metrc_evaluation_workbook import ma_workbook_plan
+from services.metrc_task17_preflight import TASK17_OPERATION, execute_task17_evaluation_action
 
 
 def _write_evidence(path: str, evidence: dict[str, Any]) -> None:
@@ -151,7 +152,10 @@ def main() -> None:
         elif args.operation in READ_EVALUATION_ACTIONS:
             evidence = execute_evaluation_read(**common)
         elif args.operation in LIFECYCLE_EVALUATION_ACTIONS:
-            evidence = execute_lifecycle_evaluation_action(**common)
+            if args.operation == TASK17_OPERATION:
+                evidence = execute_task17_evaluation_action(**common)
+            else:
+                evidence = execute_lifecycle_evaluation_action(**common)
         elif args.operation in LAB_EVALUATION_ACTIONS:
             evidence = execute_lab_evaluation_action(**common)
         elif args.operation in SALES_EVALUATION_ACTIONS:
