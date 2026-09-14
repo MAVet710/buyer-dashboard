@@ -88,7 +88,7 @@ def test_failed_facility_read_blocks_without_write_and_uses_one_attempt() -> Non
 
     def read(**kwargs):
         captured.update(kwargs)
-        return {"ok": False, "http_status": 401, "message": "Metrc rejected the saved API keys."}
+        return {"ok": False, "http_status": 401, "message": "Metrc rejected the scoped request."}
 
     evidence = execute_task17_evaluation_action(
         **_kwargs(),
@@ -147,3 +147,15 @@ def test_runner_routes_task17_through_guarded_executor() -> None:
     assert "execute_task17_evaluation_action" in source
     assert "TASK17_OPERATION" in source
     assert "if args.operation == TASK17_OPERATION" in source
+
+
+def test_evaluation_runner_is_postman_equivalent_and_never_bootstraps_user_key() -> None:
+    source = (ROOT / "scripts/run_ma_metrc_evaluation.py").read_text(encoding="utf-8")
+    lowered = source.casefold()
+
+    assert "setup_ma_sandbox_integrator" not in source
+    assert "integrator/setup" not in lowered
+    assert "provision-user" not in lowered
+    assert "resolve_ma_sandbox_evaluation_credentials" in source
+    assert 'integrator_key = credentials.integrator_api_key' in source
+    assert 'user_key = credentials.user_api_key' in source
