@@ -33,6 +33,7 @@ PAGED_RESOURCES: tuple[tuple[str, str], ...] = (
 REFERENCE_RESOURCES: tuple[tuple[str, str], ...] = (
     ("package_tags_available", "tags/v2/package/available"),
     ("plant_tags_available", "tags/v2/plant/available"),
+    ("transfer_types", "transfers/v2/types"),
 )
 
 

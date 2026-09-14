@@ -26,7 +26,12 @@ def test_rebaseline_covers_remaining_evaluation_prerequisite_reads() -> None:
         "transfer_templates",
         "package_tags_available",
         "plant_tags_available",
+        "transfer_types",
     } <= resources
+
+
+def test_transfer_type_reference_uses_current_v2_path() -> None:
+    assert ("transfer_types", "transfers/v2/types") in REFERENCE_RESOURCES
 
 
 def test_rebaseline_source_is_get_only_and_does_not_materialize_inventory() -> None:
