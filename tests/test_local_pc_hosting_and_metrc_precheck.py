@@ -30,11 +30,16 @@ def test_metrc_local_precheck_is_independent_from_doobielogic_login() -> None:
     assert 'doobielogic_login_checked": False' in source
     assert 'doobielogic_login_required_for_precheck": False' in source
     assert 'run_server_evaluation_rebaseline' in source
+    assert 'run_server_resume_diagnostic' in source
     assert 'diagnose_local_username_login' in source  # documentation-only reference
     assert 'from scripts.diagnose_local_username_login import' not in source
     assert 'provider_mutations_sent": 0' in source
     assert 'metrc_credentials_changed": False' in source
     assert 'integrator_setup_called": False' in source
+    assert '"transfer_types": True' in source
+    assert '"outgoing_transfer_templates": True' in source
+    assert '"incoming_outgoing_rejected_transfers": True' in source
+    assert '"active_and_lab_packages": True' in source
 
 
 def test_project_invariants_keep_god_and_metrc_strictly_separate() -> None:
