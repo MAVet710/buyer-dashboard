@@ -1,23 +1,19 @@
 #!/usr/bin/env python3
 """Run bounded Massachusetts Metrc proficiency-evaluation evidence.
 
-The runner covers every Massachusetts-applicable task family in the 10.2025
-Generic Evaluation workbook. It never accepts an arbitrary provider method/path.
-Writes are sandbox-only reviewed adapters; list reads walk every provider page.
-Secrets are read from environment variables and never written to evidence files.
+The Generic Evaluation workbook and current MA v2 contracts are the source of
+truth.  The runner reuses the existing vendor/user API key pair, discovers the
+facilities visible to that pair, chooses one exact facility for the selected
+workbook action (or validates an explicit override), sends only a reviewed
+method/path/body, and requires provider readback before claiming a pass.
 
-The regulator workbook contains 46 explicit action rows. DoobieLogic retains one
-additional internal prerequisite entry for GET /facilities/v2 so historical
-evidence numbering remains stable. Evaluation reruns consume the existing saved
-vendor/user key pair only; provisioning and user-key generation are separate,
-explicit admin actions and are never invoked by this runner.
+The runner never provisions, rotates, or replaces a Metrc user API key.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -48,10 +44,10 @@ from services.metrc_evaluation_verification import verify_transfer_workbook_read
 from services.metrc_evaluation_workbook import ma_workbook_plan
 from services.metrc_evaluation_workbook_contract import (
     MetrcWorkbookContractError,
-    PERMISSION_FAMILIES,
+    WORKBOOK_OPTIONAL_DEPENDENCIES,
+    WORKBOOK_PERMISSION_DEPENDENCIES,
     execute_two_plant_harvest_evaluation_action,
-    resolve_permission_family,
-    validate_facility_family,
+    select_facility_for_operation,
     validate_workbook_payload,
     verify_workbook_evidence,
 )
@@ -98,7 +94,7 @@ def _facilities(integrator_key: str, user_key: str) -> dict[str, Any]:
         "response": result.get("payload"),
         "records": records,
         "message": (
-            "Metrc facilities returned HTTP 200 with verifiable facility/permission records."
+            "Metrc facilities returned HTTP 200 with verifiable facility records."
             if passed
             else str(result.get("message") or "The facilities prerequisite requires at least one verifiable facility record.")
         ),
@@ -121,31 +117,34 @@ def _annotate_workbook_plan(plan: dict[str, Any]) -> dict[str, Any]:
     plan["internal_prerequisite_count"] = INTERNAL_PREREQUISITE_COUNT
     plan["internal_check_count"] = int(plan.get("applicable_task_count") or 0)
     plan["counting_note"] = (
-        "Generic Evaluation 10.2025 contains 46 explicit regulator action rows. "
-        "DoobieLogic retains GET /facilities/v2 as one mandatory internal prerequisite, "
-        "so historical evidence uses 47 internal checks without claiming that the regulator workbook has 47 action rows."
+        "Generic Evaluation 10.2025 contains 46 explicit action rows. DoobieLogic retains "
+        "GET /facilities/v2 as one mandatory internal prerequisite so historical evidence numbering remains stable."
     )
     plan["ma_open_loop_context"] = {
         "closed_loop_environment_sheet_required_as_context": True,
         "closed_loop_states_plantbatches_task_sheet_applicable": False,
         "note": (
-            "Massachusetts is marked Open Loop=YES and the States sheet directs evaluators "
-            "to the Closed Loop Environment sheet for starting-inventory guidance."
+            "Massachusetts is marked Open Loop=YES and the States worksheet directs evaluators "
+            "to the Closed Loop Environment worksheet for beginning-inventory guidance."
         ),
     }
     plan["credential_policy"] = {
         "reuse_existing_user_api_key": True,
         "generate_user_api_key": False,
         "call_integrator_setup": False,
+    }
+    plan["permission_dependencies"] = {
+        "required": {key: list(value) for key, value in WORKBOOK_PERMISSION_DEPENDENCIES.items()},
+        "optional": {key: list(value) for key, value in WORKBOOK_OPTIONAL_DEPENDENCIES.items()},
         "note": (
-            "This runner is Postman-equivalent: it consumes the existing vendor key, existing user key, "
-            "exact licenseNumber, reviewed endpoint, and reviewed payload. It never provisions or rotates credentials."
+            "These are access-request dependencies from the Permissions worksheet. They do not multiply "
+            "the workbook's 46 action rows into duplicate task rows."
         ),
     }
     return plan
 
 
-def _contract_failure(operation: str, license_number: str, message: str, permission_family: str = "") -> dict[str, Any]:
+def _contract_failure(operation: str, message: str, license_number: str = "") -> dict[str, Any]:
     return {
         "passed": False,
         "stage": "workbook_contract",
@@ -153,7 +152,6 @@ def _contract_failure(operation: str, license_number: str, message: str, permiss
         "state": "MA",
         "environment": "sandbox",
         "license_number": license_number,
-        "permission_family": permission_family,
         "http_status": 0,
         "request_sent": False,
         "message": message,
@@ -177,12 +175,11 @@ def main() -> None:
     parser.add_argument("--payload-file", default="", help="JSON object for the selected bounded evaluation operation.")
     parser.add_argument("--output", default="artifacts/metrc-evaluation/latest.json")
     parser.add_argument(
-        "--permission-family",
-        default=os.getenv("METRC_EVALUATION_PERMISSION_FAMILY", ""),
-        choices=("", *PERMISSION_FAMILIES),
+        "--license-number",
+        default="",
         help=(
-            "Workbook permission family for this facility: grow, processor, labs, or sales. "
-            "Required when a section is shared across more than one facility family."
+            "Optional explicit sandbox facility license for this action. If omitted, the runner selects the "
+            "dedicated facility for the action from the authenticated GET /facilities/v2 response."
         ),
     )
     args = parser.parse_args()
@@ -197,50 +194,44 @@ def main() -> None:
         return
 
     try:
-        credentials = resolve_ma_sandbox_evaluation_credentials(
-            require_license=args.operation != "facilities"
-        )
+        credentials = resolve_ma_sandbox_evaluation_credentials(require_license=False)
     except MetrcEvaluationCredentialError as exc:
         raise SystemExit(str(exc)) from exc
 
     integrator_key = credentials.integrator_api_key
     user_key = credentials.user_api_key
+    facilities = _facilities(integrator_key, user_key)
 
     if args.operation == "facilities":
-        evidence = _facilities(integrator_key, user_key)
+        evidence = facilities
     else:
-        license_number = credentials.license_number
+        if not facilities.get("passed"):
+            evidence = _contract_failure(
+                args.operation,
+                "GET /facilities/v2 must return HTTP 200 before an evaluation action is sent.",
+            )
+            evidence["facilities_preflight"] = {
+                "http_status": facilities.get("http_status"),
+                "message": facilities.get("message"),
+            }
+            _write_evidence(args.output, evidence)
+            raise SystemExit(2)
+
         payload_optional = args.operation in {"transfer_rejected"}
         raw = _load_payload(args.payload_file, required=not payload_optional)
-        family = ""
         try:
-            family = resolve_permission_family(args.operation, args.permission_family)
             validate_workbook_payload(args.operation, raw)
-            facilities = _facilities(integrator_key, user_key)
-            if not facilities.get("passed"):
-                evidence = _contract_failure(
-                    args.operation,
-                    license_number,
-                    "GET /facilities/v2 must return HTTP 200 before an evaluation action is sent.",
-                    family,
-                )
-                evidence["facilities_preflight"] = {
-                    "http_status": facilities.get("http_status"),
-                    "message": facilities.get("message"),
-                }
-                _write_evidence(args.output, evidence)
-                raise SystemExit(2)
-            facility_preflight = validate_facility_family(
+            facility = select_facility_for_operation(
                 operation_type=args.operation,
-                permission_family=family,
-                license_number=license_number,
                 facility_records=list(facilities.get("records") or []),
+                explicit_license=args.license_number,
             )
         except MetrcWorkbookContractError as exc:
-            evidence = _contract_failure(args.operation, license_number, str(exc), family)
+            evidence = _contract_failure(args.operation, str(exc), args.license_number)
             _write_evidence(args.output, evidence)
             raise SystemExit(2) from exc
 
+        license_number = str(facility["license_number"])
         common = {
             "operation_type": args.operation,
             "payload": raw,
@@ -256,7 +247,15 @@ def main() -> None:
             evidence = execute_evaluation_read(**common)
         elif args.operation in LIFECYCLE_EVALUATION_ACTIONS:
             if args.operation == TASK17_OPERATION:
-                evidence = execute_task17_evaluation_action(**common)
+                cached_facilities = {
+                    "ok": True,
+                    "http_status": 200,
+                    "records": list(facilities.get("records") or []),
+                }
+                evidence = execute_task17_evaluation_action(
+                    **common,
+                    facilities_read_fn=lambda **_: cached_facilities,
+                )
             elif args.operation == "plant_harvest":
                 evidence = execute_two_plant_harvest_evaluation_action(
                     payload=raw,
@@ -284,13 +283,11 @@ def main() -> None:
             raise SystemExit("Selected operation is not wired to a bounded evaluation executor.")
 
         evidence = verify_workbook_evidence(args.operation, raw, evidence)
-        evidence["permission_family"] = family
-        evidence["facility_preflight"] = facility_preflight
+        evidence["facility_preflight"] = facility
         evidence["credential_policy"] = {
             "existing_user_key_reused": True,
             "user_key_generated": False,
             "integrator_setup_called": False,
-            "request_model": "postman_equivalent",
         }
 
     _write_evidence(args.output, evidence)
