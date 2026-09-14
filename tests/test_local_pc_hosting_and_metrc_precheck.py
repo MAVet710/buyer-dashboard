@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from scripts.run_local_metrc_execution_precheck import _healthy
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,6 +42,12 @@ def test_metrc_local_precheck_is_independent_from_doobielogic_login() -> None:
     assert '"outgoing_transfer_templates": True' in source
     assert '"incoming_outgoing_rejected_transfers": True' in source
     assert '"active_and_lab_packages": True' in source
+
+
+def test_metrc_precheck_requires_fresh_facility_evidence() -> None:
+    assert _healthy({"read_only": True, "mutations_sent": 0, "facility_count": 1}) is True
+    assert _healthy({"read_only": True, "mutations_sent": 0, "facility_count": 0}) is False
+    assert _healthy({"read_only": True, "mutations_sent": 0, "status": "already_completed"}) is False
 
 
 def test_project_invariants_keep_god_and_metrc_strictly_separate() -> None:
