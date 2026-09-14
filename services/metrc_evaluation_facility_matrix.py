@@ -1,17 +1,21 @@
-"""Workbook-driven Massachusetts Metrc facility execution matrix.
+"""Workbook-driven Massachusetts Metrc facility permission/routing matrix.
 
-The Generic Evaluation 10.2025 Permissions worksheet is explicit that every
-section marked ``D`` must be completed per applicable facility family.  This
-module turns that instruction into executable routing policy so a shared section
-such as Packages or Transfers cannot be silently credited only to a Grow
-facility.
+The Generic Evaluation 10.2025 Permissions worksheet identifies which access
+sections are required (D) or optional (O) for Grow, Processor, Labs, and Sales
+facility contexts. The workbook still contains 46 explicit regulator action rows;
+this matrix must not manufacture extra scored actions or repeated mutations.
+
+The matrix is used to prevent the old one-global-license mistake: when an action
+belongs to one facility family it can be selected automatically, and when a
+shared section is valid in several families the caller must make the intended
+permission/facility context explicit before a provider request is sent.
 
 This module never provisions credentials and never performs provider writes.
 """
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any
 
 from services.metrc_facility_capabilities import (
     provider_boolean_capabilities,
@@ -20,14 +24,13 @@ from services.metrc_facility_capabilities import (
 
 
 class MetrcFacilityMatrixError(RuntimeError):
-    """Raised when a workbook action cannot be mapped to one exact facility family."""
+    """Raised when a workbook action cannot be mapped to one exact facility context."""
 
 
 FACILITY_FAMILIES = ("grow", "processor", "labs", "sales")
 
-# Transcribed from the actual Permissions worksheet.  ``D`` entries are required
-# per facility family.  The prose below the grid confirms Sales Deliveries as a
-# required Sales dependency even though its individual grid row is visually blank.
+# Transcribed from the actual Permissions worksheet. These values describe
+# permission/access context. They do not alter the 46-row regulator action count.
 FAMILY_REQUIRED_SECTIONS: dict[str, tuple[str, ...]] = {
     "grow": (
         "Locations",
@@ -59,9 +62,6 @@ FAMILY_REQUIRED_SECTIONS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-# ``O`` entries from the same worksheet.  Optional sections do not contribute to
-# the D-required execution count unless that optional access is explicitly being
-# requested for the facility family.
 FAMILY_OPTIONAL_SECTIONS: dict[str, tuple[str, ...]] = {
     "grow": ("Transfer Template / External Incoming",),
     "processor": ("Transfer Template / External Incoming",),
@@ -70,19 +70,15 @@ FAMILY_OPTIONAL_SECTIONS: dict[str, tuple[str, ...]] = {
 }
 
 OPERATION_SECTION: dict[str, str] = {
-    # Locations
     "location_create": "Locations",
     "location_update": "Locations",
     "location_get": "Locations",
-    # Strains
     "strain_create": "Strains",
     "strain_update": "Strains",
     "strain_get": "Strains",
-    # Items
     "item_create": "Items",
     "item_update": "Items",
     "item_get": "Items",
-    # Plant Batches / Plants
     "plant_batch_plantings": "Plant Batches / Plants",
     "plant_batch_packages": "Plant Batches / Plants",
     "plant_batch_growthphase": "Plant Batches / Plants",
@@ -93,35 +89,28 @@ OPERATION_SECTION: dict[str, str] = {
     "plant_delete": "Plant Batches / Plants",
     "plant_manicure": "Plant Batches / Plants",
     "plant_harvest": "Plant Batches / Plants",
-    # Harvest
     "harvest_packages": "Harvests",
     "harvest_waste": "Harvests",
     "harvest_finish": "Harvests",
     "harvest_unfinish": "Harvests",
-    # Packages
     "package_create": "Packages",
     "package_item": "Packages",
     "package_adjust": "Packages",
     "package_finish": "Packages",
     "package_unfinish": "Packages",
-    # Labs
     "lab_test_record": "Labs",
-    # Sales
     "sales_receipt_create": "Sales",
     "sales_receipt_update": "Sales",
     "sales_receipt_delete": "Sales",
-    # Sales deliveries
     "sales_delivery_create": "Sales Deliveries",
     "sales_delivery_update": "Sales Deliveries",
     "sales_delivery_complete": "Sales Deliveries",
-    # Transfers / wholesale
     "transfer_incoming": "GET Transfers / Wholesale",
     "transfer_outgoing": "GET Transfers / Wholesale",
     "transfer_rejected": "GET Transfers / Wholesale",
     "transfer_deliveries": "GET Transfers / Wholesale",
     "transfer_delivery_packages": "GET Transfers / Wholesale",
     "transfer_delivery_packages_wholesale": "GET Transfers / Wholesale",
-    # Transfer templates are optional access for every facility family.
     "transfer_template_create": "Transfer Template / External Incoming",
     "transfer_template_list": "Transfer Template / External Incoming",
     "transfer_template_deliveries": "Transfer Template / External Incoming",
@@ -175,17 +164,13 @@ def section_for_operation(operation_type: str) -> str:
 
 def required_families_for_section(section: str) -> tuple[str, ...]:
     return tuple(
-        family
-        for family in FACILITY_FAMILIES
-        if section in FAMILY_REQUIRED_SECTIONS[family]
+        family for family in FACILITY_FAMILIES if section in FAMILY_REQUIRED_SECTIONS[family]
     )
 
 
 def optional_families_for_section(section: str) -> tuple[str, ...]:
     return tuple(
-        family
-        for family in FACILITY_FAMILIES
-        if section in FAMILY_OPTIONAL_SECTIONS[family]
+        family for family in FACILITY_FAMILIES if section in FAMILY_OPTIONAL_SECTIONS[family]
     )
 
 
@@ -272,7 +257,7 @@ def resolve_facility_family(
     *,
     allow_optional: bool = True,
 ) -> str:
-    """Resolve a family automatically only when the workbook leaves no ambiguity."""
+    """Resolve automatically only when one permission family is unambiguous."""
 
     operation = str(operation_type or "").strip().casefold()
     supplied = str(facility_family or "").strip().casefold()
@@ -290,8 +275,8 @@ def resolve_facility_family(
 
     section = section_for_operation(operation)
     raise MetrcFacilityMatrixError(
-        f"{section} applies to multiple facility families ({', '.join(candidates)}). "
-        "Pass an explicit facility family so one facility cannot be credited for another family's D requirement."
+        f"{section} is valid in multiple permission contexts ({', '.join(candidates)}). "
+        "Pass an explicit facility family for this single workbook action; the D/O grid does not create extra action rows."
     )
 
 
@@ -303,7 +288,7 @@ def select_facility_for_operation(
     explicit_license: str = "",
     allow_optional: bool = True,
 ) -> dict[str, Any]:
-    """Choose one exact authenticated facility for one workbook/family instance."""
+    """Choose one exact authenticated facility for one regulator action row."""
 
     operation = str(operation_type or "").strip().casefold()
     family = resolve_facility_family(operation, facility_family, allow_optional=allow_optional)
@@ -351,8 +336,6 @@ def select_facility_for_operation(
                 "capabilities": provider_boolean_capabilities(row),
             }
 
-    # A dedicated-name record is preferred, but an explicitly compatible live
-    # facility is safer than hard-failing merely because Metrc renamed a fixture.
     compatible = [
         row
         for row in facility_records
@@ -375,49 +358,5 @@ def select_facility_for_operation(
 
     raise MetrcFacilityMatrixError(
         f"Could not select one unambiguous {family} facility for {operation}. "
-        "Use the authenticated Facilities response to choose an explicit license for this facility-family instance."
+        "Use the authenticated Facilities response to choose an explicit license for this action."
     )
-
-
-def required_execution_instances(tasks: Iterable[Any]) -> list[dict[str, Any]]:
-    """Expand 46 regulator action rows into the D-required facility instances."""
-
-    rows: list[dict[str, Any]] = []
-    for task in tasks:
-        operation = str(getattr(task, "operation_type", "") or "").strip().casefold()
-        if operation == "facilities":
-            continue
-        section = OPERATION_SECTION.get(operation)
-        if not section:
-            continue
-        for family in required_families_for_section(section):
-            rows.append({
-                "task_number": int(getattr(task, "number", 0) or 0),
-                "operation_type": operation,
-                "sheet": str(getattr(task, "sheet", "") or ""),
-                "section": section,
-                "facility_family": family,
-                "requirement": "D",
-            })
-    return rows
-
-
-def optional_execution_instances(tasks: Iterable[Any]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for task in tasks:
-        operation = str(getattr(task, "operation_type", "") or "").strip().casefold()
-        if operation == "facilities":
-            continue
-        section = OPERATION_SECTION.get(operation)
-        if not section:
-            continue
-        for family in optional_families_for_section(section):
-            rows.append({
-                "task_number": int(getattr(task, "number", 0) or 0),
-                "operation_type": operation,
-                "sheet": str(getattr(task, "sheet", "") or ""),
-                "section": section,
-                "facility_family": family,
-                "requirement": "O",
-            })
-    return rows
