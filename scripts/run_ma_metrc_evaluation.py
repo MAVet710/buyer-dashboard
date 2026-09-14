@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,15 @@ from services.metrc_evaluation_transfers import (
 )
 from services.metrc_evaluation_verification import verify_transfer_workbook_read
 from services.metrc_evaluation_workbook import ma_workbook_plan
+from services.metrc_evaluation_workbook_contract import (
+    MetrcWorkbookContractError,
+    PERMISSION_FAMILIES,
+    execute_two_plant_harvest_evaluation_action,
+    resolve_permission_family,
+    validate_facility_family,
+    validate_workbook_payload,
+    verify_workbook_evidence,
+)
 from services.metrc_task17_preflight import TASK17_OPERATION, execute_task17_evaluation_action
 
 
@@ -73,6 +83,7 @@ def _facilities(integrator_key: str, user_key: str) -> dict[str, Any]:
         resource="facilities",
         environment="sandbox",
         timeout_seconds=30,
+        max_attempts=1,
     )
     records = list(result.get("records") or [])
     passed = bool(result.get("ok") and int(result.get("http_status") or 0) == 200 and records)
@@ -134,6 +145,21 @@ def _annotate_workbook_plan(plan: dict[str, Any]) -> dict[str, Any]:
     return plan
 
 
+def _contract_failure(operation: str, license_number: str, message: str, permission_family: str = "") -> dict[str, Any]:
+    return {
+        "passed": False,
+        "stage": "workbook_contract",
+        "operation_type": operation,
+        "state": "MA",
+        "environment": "sandbox",
+        "license_number": license_number,
+        "permission_family": permission_family,
+        "http_status": 0,
+        "request_sent": False,
+        "message": message,
+    }
+
+
 def main() -> None:
     choices = [
         "workbook_plan",
@@ -150,6 +176,15 @@ def main() -> None:
     parser.add_argument("--operation", default="workbook_plan", choices=choices)
     parser.add_argument("--payload-file", default="", help="JSON object for the selected bounded evaluation operation.")
     parser.add_argument("--output", default="artifacts/metrc-evaluation/latest.json")
+    parser.add_argument(
+        "--permission-family",
+        default=os.getenv("METRC_EVALUATION_PERMISSION_FAMILY", ""),
+        choices=("", *PERMISSION_FAMILIES),
+        help=(
+            "Workbook permission family for this facility: grow, processor, labs, or sales. "
+            "Required when a section is shared across more than one facility family."
+        ),
+    )
     args = parser.parse_args()
 
     if args.operation == "workbook_plan":
@@ -177,6 +212,34 @@ def main() -> None:
         license_number = credentials.license_number
         payload_optional = args.operation in {"transfer_rejected"}
         raw = _load_payload(args.payload_file, required=not payload_optional)
+        family = ""
+        try:
+            family = resolve_permission_family(args.operation, args.permission_family)
+            validate_workbook_payload(args.operation, raw)
+            facilities = _facilities(integrator_key, user_key)
+            if not facilities.get("passed"):
+                evidence = _contract_failure(
+                    args.operation,
+                    license_number,
+                    "GET /facilities/v2 must return HTTP 200 before an evaluation action is sent.",
+                    family,
+                )
+                evidence["facilities_preflight"] = {
+                    "http_status": facilities.get("http_status"),
+                    "message": facilities.get("message"),
+                }
+                _write_evidence(args.output, evidence)
+                raise SystemExit(2)
+            facility_preflight = validate_facility_family(
+                operation_type=args.operation,
+                permission_family=family,
+                license_number=license_number,
+                facility_records=list(facilities.get("records") or []),
+            )
+        except MetrcWorkbookContractError as exc:
+            evidence = _contract_failure(args.operation, license_number, str(exc), family)
+            _write_evidence(args.output, evidence)
+            raise SystemExit(2) from exc
 
         common = {
             "operation_type": args.operation,
@@ -194,6 +257,15 @@ def main() -> None:
         elif args.operation in LIFECYCLE_EVALUATION_ACTIONS:
             if args.operation == TASK17_OPERATION:
                 evidence = execute_task17_evaluation_action(**common)
+            elif args.operation == "plant_harvest":
+                evidence = execute_two_plant_harvest_evaluation_action(
+                    payload=raw,
+                    license_number=license_number,
+                    integrator_api_key=integrator_key,
+                    user_api_key=user_key,
+                    state="MA",
+                    environment="sandbox",
+                )
             else:
                 evidence = execute_lifecycle_evaluation_action(**common)
         elif args.operation in LAB_EVALUATION_ACTIONS:
@@ -210,6 +282,16 @@ def main() -> None:
             evidence = execute_transfer_template_write(**common)
         else:
             raise SystemExit("Selected operation is not wired to a bounded evaluation executor.")
+
+        evidence = verify_workbook_evidence(args.operation, raw, evidence)
+        evidence["permission_family"] = family
+        evidence["facility_preflight"] = facility_preflight
+        evidence["credential_policy"] = {
+            "existing_user_key_reused": True,
+            "user_key_generated": False,
+            "integrator_setup_called": False,
+            "request_model": "postman_equivalent",
+        }
 
     _write_evidence(args.output, evidence)
     raise SystemExit(0 if evidence.get("passed") else 2)
