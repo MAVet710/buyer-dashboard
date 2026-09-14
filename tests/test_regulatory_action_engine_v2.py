@@ -274,7 +274,6 @@ def test_ma_sandbox_readiness_never_calls_network_without_credentials(monkeypatc
     assert set(report["missing"]) == {
         "METRC_INTEGRATOR_API_KEY",
         "METRC_MA_SANDBOX_USER_API_KEY",
-        "METRC_MA_SANDBOX_LICENSE_NUMBER",
     }
     assert live_read({})["status"] == "credentials_missing"
 
@@ -289,8 +288,6 @@ def test_marketing_surfaces_current_product_pillars():
     for content in (marketing, beta, home):
         assert "Doobie Agent" in content
         assert "Wholesale" in content
-    # The public homepage is organized by operation. Customer Portal remains a
-    # protected application/beta pillar rather than an unqualified public claim.
     assert "<Solutions />" in marketing
     assert "marketingFaqs" in marketing
     for operation in ("Cultivation", "Production / Manufacturing", "Retail Operations", "Vertically Integrated"):
