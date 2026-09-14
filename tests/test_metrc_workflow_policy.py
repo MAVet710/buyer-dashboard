@@ -69,17 +69,19 @@ def test_cli_writes_classification_without_echoing_confirmation(tmp_path, capsys
     assert "METRC_OPERATION_CLASSIFICATION=write" in env_text
 
 
-def test_manual_workflow_defaults_to_safe_read_and_bounds_full_evidence():
+def test_manual_workflow_defaults_to_safe_read_reuses_keys_and_does_not_force_global_license():
     workflow = Path(".github/workflows/ma-metrc-sandbox-validation.yml").read_text(encoding="utf-8")
 
     assert "workflow_dispatch:" in workflow
     assert "default: facilities" in workflow
+    assert "license_number:" in workflow
     assert "scripts/metrc_workflow_policy.py" in workflow
     assert "scripts/validate_ma_metrc_sandbox.py --live-read" in workflow
     assert "I_APPROVE_MA_SANDBOX_WRITE" in workflow
     assert "METRC_INTEGRATOR_API_KEY: ${{ secrets.METRC_INTEGRATOR_API_KEY }}" in workflow
     assert "METRC_MA_SANDBOX_USER_API_KEY: ${{ secrets.METRC_MA_SANDBOX_USER_API_KEY }}" in workflow
-    assert "METRC_MA_SANDBOX_LICENSE_NUMBER: ${{ secrets.METRC_MA_SANDBOX_LICENSE_NUMBER }}" in workflow
+    assert "METRC_MA_SANDBOX_LICENSE_NUMBER: ${{ secrets.METRC_MA_SANDBOX_LICENSE_NUMBER }}" not in workflow
+    assert "--license-number" in workflow
     assert "default: false" in workflow
     assert "retention-days: 7" in workflow
     assert "Redacted evidence summary" in workflow

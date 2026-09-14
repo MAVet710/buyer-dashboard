@@ -1,0 +1,1 @@
+Evaluation reruns use the existing active Metrc Vendor Key and API User Key only. Do not invoke sandbox integrator setup or generate/rotate/replace the user key as part of an evaluation rerun. Provisioning is a separate explicit admin action.

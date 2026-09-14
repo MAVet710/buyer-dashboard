@@ -16,7 +16,14 @@ class Settings(BaseSettings):
     supabase_jwks_url: str = ""
     supabase_jwt_audience: str = "authenticated"
     supabase_url: str = ""
-    supabase_publishable_key: str = ""
+    # Prefer the current publishable-key name, but accept the legacy anon-key
+    # alias used by older local DoobieLogic workspaces. Both are normal
+    # least-privilege client Auth keys; normal sign-in must never require a
+    # service-role credential.
+    supabase_publishable_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY"),
+    )
     # Optional privileged key. Normal sign-in must not require it; routes that
     # perform Supabase admin operations check this value explicitly and fail closed.
     supabase_service_role_key: str = ""
@@ -134,7 +141,7 @@ class Settings(BaseSettings):
         if not self.database_is_configured: missing.append("DATABASE_URL")
         if not (self.supabase_jwt_secret or self.supabase_jwks_url): missing.append("SUPABASE_JWKS_URL or SUPABASE_JWT_SECRET")
         if not self.supabase_url: missing.append("SUPABASE_URL")
-        if not self.supabase_auth_api_key: missing.append("SUPABASE_PUBLISHABLE_KEY or SUPABASE_SERVICE_ROLE_KEY")
+        if not self.supabase_auth_api_key: missing.append("SUPABASE_PUBLISHABLE_KEY or SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY")
         if not self.integration_encryption_key: missing.append("INTEGRATION_ENCRYPTION_KEY")
         if not self.allowed_origins: missing.append("CORS_ORIGINS")
         if missing: raise RuntimeError(f"Production configuration is incomplete: {', '.join(missing)}")

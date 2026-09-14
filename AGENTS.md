@@ -8,6 +8,8 @@ DoobieLogic spans retail inventory and purchasing, cultivation, production/manuf
 
 Read `PLAN.md`, `docs/BACKOFFICE_SCOPE.md`, `docs/PERFORMANCE_CONTRACT.md`, and `docs/CANONICAL_OPERATIONS_FOUNDATION.md` before broad architectural changes.
 
+**Also read `docs/PROJECT_INVARIANTS.md` before changing authentication, local execution, Metrc evaluation logic, facility routing, credentials, evaluation scoring, or workbook submission behavior. Those invariants are standing project contract and must not be overridden by stale deployment assumptions or prior chat context.**
+
 ## Core engineering rules
 
 - Do not remove, downgrade, or silently hide existing functionality unless explicitly instructed.
