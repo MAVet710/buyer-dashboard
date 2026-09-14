@@ -65,3 +65,12 @@ def test_task17_is_guarded_but_not_removed_or_marked_na() -> None:
     assert '"plant_plantbatch_packages"' in workbook
     assert "Do not mark it N/A" in policy
     assert "Do not blindly retry it" in policy
+
+
+def test_automatic_metrc_read_gate_does_not_fail_main_when_ci_secret_copies_are_absent() -> None:
+    workflow = _read(".github/workflows/ma-metrc-sandbox-readonly.yml")
+    assert "METRC_READONLY_CONFIGURED" in workflow
+    assert "skipped_ci_credentials_not_configured" in workflow
+    assert "The active evaluation remains local-first" in workflow
+    assert "raise SystemExit(\"Missing required MA Metrc sandbox secrets" not in workflow
+    assert "METRC_MA_SANDBOX_LICENSE_NUMBER" not in workflow
