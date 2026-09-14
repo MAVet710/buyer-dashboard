@@ -2,10 +2,11 @@
 """Run bounded Massachusetts Metrc proficiency-evaluation evidence.
 
 The Generic Evaluation workbook and current MA v2 contracts are the source of
-truth.  The runner reuses the existing vendor/user API key pair, discovers the
+truth. The runner reuses the existing vendor/user API key pair, discovers the
 facilities visible to that pair, chooses one exact facility for the selected
-workbook action (or validates an explicit override), sends only a reviewed
-method/path/body, and requires provider readback before claiming a pass.
+workbook action (or validates an explicit override), verifies any literal source
+state required by the workbook, sends only a reviewed method/path/body, and
+requires provider readback before claiming a pass.
 
 The runner never provisions, rotates, or replaces a Metrc user API key.
 """
@@ -33,6 +34,7 @@ from services.metrc_evaluation_master_data import (
 )
 from services.metrc_evaluation_reads import READ_EVALUATION_ACTIONS, execute_evaluation_read
 from services.metrc_evaluation_sales import SALES_EVALUATION_ACTIONS, execute_sales_evaluation_action
+from services.metrc_evaluation_source_preflight import preflight_workbook_source_state
 from services.metrc_evaluation_submission import ma_submission_context
 from services.metrc_evaluation_transfers import (
     TRANSFER_READ_EVALUATION_ACTIONS,
@@ -144,10 +146,10 @@ def _annotate_workbook_plan(plan: dict[str, Any]) -> dict[str, Any]:
     return plan
 
 
-def _contract_failure(operation: str, message: str, license_number: str = "") -> dict[str, Any]:
+def _contract_failure(operation: str, message: str, license_number: str = "", stage: str = "workbook_contract") -> dict[str, Any]:
     return {
         "passed": False,
-        "stage": "workbook_contract",
+        "stage": stage,
         "operation_type": operation,
         "state": "MA",
         "environment": "sandbox",
@@ -178,7 +180,7 @@ def main() -> None:
         "--license-number",
         default="",
         help=(
-            "Optional explicit sandbox facility license for this action. If omitted, the runner selects the "
+            "Optional exact sandbox facility license for this action. If omitted, the runner selects the "
             "dedicated facility for the action from the authenticated GET /facilities/v2 response."
         ),
     )
@@ -232,6 +234,20 @@ def main() -> None:
             raise SystemExit(2) from exc
 
         license_number = str(facility["license_number"])
+        try:
+            source_preflight = preflight_workbook_source_state(
+                operation_type=args.operation,
+                payload=raw,
+                license_number=license_number,
+                integrator_api_key=integrator_key,
+                user_api_key=user_key,
+            )
+        except MetrcWorkbookContractError as exc:
+            evidence = _contract_failure(args.operation, str(exc), license_number, stage="source_preflight")
+            evidence["facility_preflight"] = facility
+            _write_evidence(args.output, evidence)
+            raise SystemExit(2) from exc
+
         common = {
             "operation_type": args.operation,
             "payload": raw,
@@ -284,6 +300,7 @@ def main() -> None:
 
         evidence = verify_workbook_evidence(args.operation, raw, evidence)
         evidence["facility_preflight"] = facility
+        evidence["source_preflight"] = source_preflight
         evidence["credential_policy"] = {
             "existing_user_key_reused": True,
             "user_key_generated": False,
