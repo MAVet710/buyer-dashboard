@@ -1,4 +1,4 @@
-"""Canonical parsing of boolean capability flags from Metrc facility records."""
+"""Canonical parsing of capability and identity fields from Metrc facility records."""
 
 from __future__ import annotations
 
@@ -10,6 +10,25 @@ def _source(record: Any) -> dict[str, Any]:
         return {}
     nested = record.get("source")
     return dict(nested) if isinstance(nested, dict) else dict(record)
+
+
+def provider_facility_license(record: Any) -> str:
+    """Return the exact provider facility license across known Metrc v2 shapes."""
+
+    row = _source(record)
+    for key in ("LicenseNumber", "licenseNumber", "Number", "number"):
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    for key in ("License", "license"):
+        nested = row.get(key)
+        if not isinstance(nested, dict):
+            continue
+        for nested_key in ("Number", "number", "LicenseNumber", "licenseNumber"):
+            value = nested.get(nested_key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+    return ""
 
 
 def provider_boolean_capabilities(record: Any) -> dict[str, bool]:
