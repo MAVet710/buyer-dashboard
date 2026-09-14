@@ -37,17 +37,17 @@ def test_metrc_evaluation_runner_can_never_provision_user_key() -> None:
     assert "setup_ma_sandbox_integrator" not in runner
     assert "integrator/setup" not in runner
     assert "provision-user" not in runner
-    # The policy may describe forbidden rotation in comments/docstrings; what is
-    # forbidden is wiring any provisioning helper or setup endpoint into the runner.
     assert "metrc_sandbox_bootstrap" not in runner
 
 
-def test_metrc_contract_keeps_regulator_and_internal_counts_distinct() -> None:
+def test_metrc_contract_keeps_regulator_and_internal_counts_distinct_without_expanding_rows() -> None:
     runner = _read("scripts/run_ma_metrc_evaluation.py")
+    policy = _read("docs/PROJECT_INVARIANTS.md")
     assert "REGULATOR_ACTION_ROW_COUNT = 46" in runner
     assert "INTERNAL_PREREQUISITE_COUNT = 1" in runner
     assert 'plan["internal_check_count"]' in runner
-    assert 'plan["required_d_execution_instance_count"]' in runner
+    assert "required_d_execution_instance_count" not in runner
+    assert "Do not multiply the 46 action rows into duplicate runs" in policy
 
 
 def test_ma_closed_loop_environment_remains_context_not_closed_loop_task_requirement() -> None:
