@@ -2,8 +2,11 @@
 
 The source workbook contains 22 worksheets. The States sheet is the applicability
 gate: Massachusetts requires the open-loop cultivation, labs, sales, sales
-deliveries, transfer/wholesale and transfer-template sections; CA-only,
-patient-lookup, closed-loop and external-incoming task sheets are N/A.
+deliveries, transfer/wholesale and transfer-template sections. The States row
+marks MA as Open Loop=YES and explicitly directs evaluators to the Closed Loop
+Environment sheet for beginning-inventory guidance, so that sheet is context
+for MA even though the separate Closed Loop States PlantBatches task sheet is
+not applicable.
 """
 
 from __future__ import annotations
@@ -51,9 +54,14 @@ WORKBOOK_SHEETS = (
     "Transfer External Incoming",
 )
 
-MA_CONTEXT_SHEETS = ("CompanyInformation", "Permissions", "States")
-MA_NA_SHEETS = (
+MA_CONTEXT_SHEETS = (
+    "CompanyInformation",
+    "Instructions",
+    "Permissions",
+    "States",
     "Closed Loop Environment",
+)
+MA_NA_SHEETS = (
     "Closed Loop States PlantBatches",
     "CA ONLY Labs",
     "Sales with Patient Look Up",
@@ -61,7 +69,6 @@ MA_NA_SHEETS = (
     "Transfer External Incoming",
 )
 MA_APPLICABLE_TASK_SHEETS = (
-    "Instructions",
     "Locations",
     "Strains",
     "Items",
@@ -106,38 +113,38 @@ MA_WORKBOOK_TASKS = (
     _task(12, "PlantBatches", "Step 2", "Create a package from three clones in the batch.", "POST /plantbatches/v2/packages", "POST /plantbatches/v2/packages", "plant_batch_packages", "lifecycle_write"),
     _task(13, "PlantBatches", "Step 3", "Move two plants to growth phase using individual tags.", "POST /plantbatches/v2/growthphase", "POST /plantbatches/v2/growthphase", "plant_batch_growthphase", "lifecycle_write"),
     _task(14, "PlantBatches", "Step 4", "Destroy/delete one plant from the created batch.", "DELETE /plantbatches/v2/", "DELETE /plantbatches/v2/", "plant_batch_delete", "lifecycle_write"),
-    _task(15, "Plants", "Step 1", "Move one plant to another location.", "PUT /plants/v2/location", "PUT /plants/v2/location", "plant_location", "lifecycle_write"),
+    _task(15, "Plants", "Step 1", "Move one flowering plant to a different location.", "PUT /plants/v2/location", "PUT /plants/v2/location", "plant_location", "lifecycle_write"),
     _task(16, "Plants", "Step 2", "Create an immature batch from a plant.", "POST /plants/v2/plantings", "POST /plants/v2/plantings", "plant_plantings", "lifecycle_write"),
     _task(17, "Plants", "Step 3", "Create a plant-batch package from a plant.", "POST /plants/v2/plantbatch/packages", "POST /plants/v2/plantbatch/packages", "plant_plantbatch_packages", "lifecycle_write"),
-    _task(18, "Plants", "Step 4", "Destroy/delete one plant created for evaluation.", "DELETE /plants/v2/", "DELETE /plants/v2/", "plant_delete", "lifecycle_write"),
-    _task(19, "Plants", "Step 5", "Record a manicure from a plant.", "POST /plants/v2/manicure", "POST /plants/v2/manicure", "plant_manicure", "lifecycle_write"),
-    _task(20, "Plants", "Step 6", "Harvest the remaining evaluation plants.", "PUT /plants/v2/harvest", "PUT /plants/v2/harvest", "plant_harvest", "lifecycle_write"),
-    _task(21, "Harvest", "Step 1", "Create a package from the harvest.", "POST /harvests/v2/packages", "POST /harvests/v2/packages", "harvest_packages", "lifecycle_write"),
-    _task(22, "Harvest", "Step 2", "Record harvest waste.", "POST /harvests/v2/waste", "POST /harvests/v2/waste", "harvest_waste", "lifecycle_write"),
-    _task(23, "Harvest", "Step 3", "Finish the evaluation harvest.", "PUT /harvests/v2/finish", "PUT /harvests/v2/finish", "harvest_finish", "lifecycle_write"),
-    _task(24, "Harvest", "Step 4", "Unfinish the evaluation harvest.", "PUT /harvests/v2/unfinish", "PUT /harvests/v2/unfinish", "harvest_unfinish", "lifecycle_write"),
-    _task(25, "Packages", "Step 1", "Create a package.", "POST /packages/v2/", "POST /packages/v2/", "package_create", "lifecycle_write"),
-    _task(26, "Packages", "Step 2", "Change the package item.", "PUT /packages/v2/item", "PUT /packages/v2/item", "package_item", "lifecycle_write"),
-    _task(27, "Packages", "Step 3", "Adjust package quantity as directed by the workbook.", "PUT /packages/v2/adjust", "PUT /packages/v2/adjust", "package_adjust", "lifecycle_write", "Do not reduce a package needed by later sales tasks until those sales tasks are complete."),
-    _task(28, "Packages", "Step 4", "Finish the evaluation package.", "PUT /packages/v2/finish", "PUT /packages/v2/finish", "package_finish", "lifecycle_write"),
-    _task(29, "Packages", "Step 5", "Unfinish the evaluation package.", "PUT /packages/v2/unfinish", "PUT /packages/v2/unfinish", "package_unfinish", "lifecycle_write"),
-    _task(30, "LabResults", "Step 1", "Record lab-test results against an existing lab package.", "POST /labtests/v2/record", "POST /labtests/v2/record", "lab_test_record", "lab_write"),
+    _task(18, "Plants", "Step 4", "Destroy/delete one evaluation plant.", "DELETE /plants/v2/", "DELETE /plants/v2/", "plant_delete", "lifecycle_write"),
+    _task(19, "Plants", "Step 5", "Record a manicure from an evaluation plant.", "POST /plants/v2/manicure", "POST /plants/v2/manicure", "plant_manicure", "lifecycle_write"),
+    _task(20, "Plants", "Step 6", "Use the two remaining evaluation plants to create one harvest.", "PUT /plants/v2/harvest", "PUT /plants/v2/harvest", "plant_harvest", "lifecycle_write", "Both plants must use the exact harvest name on the same calendar day to join one harvest."),
+    _task(21, "Harvest", "Step 1", "Create a package from the harvest created in Plants Step 6.", "POST /harvests/v2/packages", "POST /harvests/v2/packages", "harvest_packages", "lifecycle_write"),
+    _task(22, "Harvest", "Step 2", "Remove the remaining harvest weight as waste; moisture loss is not waste.", "POST /harvests/v2/waste", "POST /harvests/v2/waste", "harvest_waste", "lifecycle_write"),
+    _task(23, "Harvest", "Step 3", "Finish the evaluation harvest from Step 2.", "PUT /harvests/v2/finish", "PUT /harvests/v2/finish", "harvest_finish", "lifecycle_write"),
+    _task(24, "Harvest", "Step 4", "Unfinish the evaluation harvest finished in Step 3.", "PUT /harvests/v2/unfinish", "PUT /harvests/v2/unfinish", "harvest_unfinish", "lifecycle_write"),
+    _task(25, "Packages", "Step 1", "Create a package from the Harvest Step 1 package or from an existing package.", "POST /packages/v2/", "POST /packages/v2/", "package_create", "lifecycle_write"),
+    _task(26, "Packages", "Step 2", "Change the item of the package created in Packages Step 1.", "PUT /packages/v2/item", "PUT /packages/v2/item", "package_item", "lifecycle_write"),
+    _task(27, "Packages", "Step 3", "Adjust the Packages Step 2 package quantity to zero.", "PUT /packages/v2/adjust", "PUT /packages/v2/adjust", "package_adjust", "lifecycle_write", "If the package will be used by later sales tasks, wait to finish it until those sales are posted."),
+    _task(28, "Packages", "Step 4", "Finish the package adjusted to zero in Step 3.", "PUT /packages/v2/finish", "PUT /packages/v2/finish", "package_finish", "lifecycle_write"),
+    _task(29, "Packages", "Step 5", "Unfinish the package created in Packages Step 1.", "PUT /packages/v2/unfinish", "PUT /packages/v2/unfinish", "package_unfinish", "lifecycle_write"),
+    _task(30, "LabResults", "Step 1", "Record lab-test results against an existing package in the Lab.", "POST /labtests/v2/record", "POST /labtests/v2/record", "lab_test_record", "lab_write"),
     _task(31, "Sales", "Step 1", "Create a sales receipt.", "POST /sales/v2/receipts", "POST /sales/v2/receipts", "sales_receipt_create", "sales_write"),
-    _task(32, "Sales", "Step 2", "Update the created sales receipt.", "PUT /sales/v2/receipts", "PUT /sales/v2/receipts", "sales_receipt_update", "sales_write"),
-    _task(33, "Sales", "Step 3", "Delete the created sales receipt.", "DELETE /sales/v2/receipts/{id}", "DELETE /sales/v2/receipts/{id}", "sales_receipt_delete", "sales_write"),
-    _task(34, "Sales Deliveries (NOT CA)", "Step 1", "Create a home delivery with three transactions.", "POST /sales/v2/deliveries", "POST /sales/v2/deliveries", "sales_delivery_create", "sales_write"),
-    _task(35, "Sales Deliveries (NOT CA)", "Step 2", "Update the delivery to remove one transaction.", "PUT /sales/v2/deliveries/complete", "PUT /sales/v2/deliveries", "sales_delivery_update", "sales_write", "The workbook task line says /complete, but its Metrc Use Only row identifies the update endpoint as PUT /sales/v2/deliveries."),
-    _task(36, "Sales Deliveries (NOT CA)", "Step 3", "Complete the delivery with accepted and returned package evidence.", "PUT /sales/v2/deliveries/complete", "PUT /sales/v2/deliveries/complete", "sales_delivery_complete", "sales_write"),
-    _task(37, "GET Transfers and Wholesale", "Step 1", "Find incoming transfers in the requested LastModified window.", "GET /transfers/v2/incoming", "GET /transfers/v2/incoming", "transfer_incoming", "transfer_read"),
-    _task(38, "GET Transfers and Wholesale", "Step 2", "Find outgoing transfers in the requested LastModified window.", "GET /transfers/v2/outgoing", "GET /transfers/v2/outgoing", "transfer_outgoing", "transfer_read"),
-    _task(39, "GET Transfers and Wholesale", "Step 3", "Find rejected transfers.", "GET /transfers/v2/rejected", "GET /transfers/v2/rejected", "transfer_rejected", "transfer_read"),
+    _task(32, "Sales", "Step 2", "Update the sales receipt created in Step 1.", "PUT /sales/v2/receipts", "PUT /sales/v2/receipts", "sales_receipt_update", "sales_write"),
+    _task(33, "Sales", "Step 3", "Void the sales receipt created in Step 1.", "DELETE /sales/v2/receipts/{id}", "DELETE /sales/v2/receipts/{id}", "sales_receipt_delete", "sales_write"),
+    _task(34, "Sales Deliveries (NOT CA)", "Step 1", "Create a home delivery with Patient or Consumer customer type and three transactions.", "POST /sales/v2/deliveries", "POST /sales/v2/deliveries", "sales_delivery_create", "sales_write"),
+    _task(35, "Sales Deliveries (NOT CA)", "Step 2", "Using the Step 1 delivery, remove one of its three transactions.", "PUT /sales/v2/deliveries/complete", "PUT /sales/v2/deliveries", "sales_delivery_update", "sales_write", "Workbook task line says /complete, but its Metrc Use Only row identifies the update endpoint as PUT /sales/v2/deliveries."),
+    _task(36, "Sales Deliveries (NOT CA)", "Step 3", "Complete the Step 1 delivery with one accepted and one returned package.", "PUT /sales/v2/deliveries/complete", "PUT /sales/v2/deliveries/complete", "sales_delivery_complete", "sales_write"),
+    _task(37, "GET Transfers and Wholesale", "Step 1", "Find an incoming transfer in the requested LastModified window.", "GET /transfers/v2/incoming", "GET /transfers/v2/incoming", "transfer_incoming", "transfer_read"),
+    _task(38, "GET Transfers and Wholesale", "Step 2", "Find an outgoing transfer in the requested LastModified window.", "GET /transfers/v2/outgoing", "GET /transfers/v2/outgoing", "transfer_outgoing", "transfer_read"),
+    _task(39, "GET Transfers and Wholesale", "Step 3", "Find a rejected transfer.", "GET /transfers/v2/rejected", "GET /transfers/v2/rejected", "transfer_rejected", "transfer_read"),
     _task(40, "GET Transfers and Wholesale", "Step 4", "Find transfer deliveries by manifest/transfer ID.", "GET /transfers/v2/{id}/deliveries", "GET /transfers/v2/{id}/deliveries", "transfer_deliveries", "transfer_read"),
     _task(41, "GET Transfers and Wholesale", "Step 5", "Find packages by delivery ID.", "GET /transfers/v2/delivery/{id}/packages", "GET /transfers/v2/deliveries/{id}/packages", "transfer_delivery_packages", "transfer_read", "Workbook uses legacy singular delivery; current reviewed v2 path uses /deliveries/{id}/packages."),
     _task(42, "GET Transfers and Wholesale", "Step 6", "Find wholesale package pricing by delivery ID.", "GET /transfers/v2/delivery/{id}/packages/wholesale", "GET /transfers/v2/deliveries/{id}/packages/wholesale", "transfer_delivery_packages_wholesale", "transfer_read", "Workbook uses legacy singular delivery; current reviewed v2 path uses /deliveries/{id}/packages/wholesale."),
     _task(43, "Transfer Templates", "Step 1a", "Create outgoing Template A.", "POST /transfers/v2/templates/outgoing", "POST /transfers/v2/templates/outgoing", "transfer_template_create", "transfer_template_write"),
     _task(44, "Transfer Templates", "Step 1b", "Create outgoing Template B.", "POST /transfers/v2/templates/outgoing", "POST /transfers/v2/templates/outgoing", "transfer_template_create", "transfer_template_write"),
-    _task(45, "Transfer Templates", "Step 2", "Find both created templates using a date search.", "GET /transfers/v2/templates", "GET /transfers/v2/templates/outgoing", "transfer_template_list", "transfer_read", "Workbook contains an incomplete 'GE' task line and a legacy Metrc Use Only path; current reviewed v2 list endpoint is /templates/outgoing."),
-    _task(46, "Transfer Templates", "Step 3", "Find a template's deliveries by template ID.", "GET /transfers/v2/templates/{id}/deliveries", "GET /transfers/v2/templates/outgoing/{id}/deliveries", "transfer_template_deliveries", "transfer_read", "Current reviewed v2 path includes /outgoing before the template ID."),
+    _task(45, "Transfer Templates", "Step 2", "Find both templates created in Steps 1a and 1b using the date search.", "GET /transfers/v2/templates", "GET /transfers/v2/templates/outgoing", "transfer_template_list", "transfer_read", "Workbook contains a truncated 'GE' task line and a legacy Metrc Use Only path; current reviewed v2 list endpoint is /templates/outgoing."),
+    _task(46, "Transfer Templates", "Step 3", "Find a Step 1 template's deliveries by template ID.", "GET /transfers/v2/templates/{id}/deliveries", "GET /transfers/v2/templates/outgoing/{id}/deliveries", "transfer_template_deliveries", "transfer_read", "Current reviewed v2 path includes /outgoing before the template ID."),
     _task(47, "Transfer Templates", "Step 4", "Update one of the templates created in Step 1.", "PUT /transfers/v2/templates/outgoing", "PUT /transfers/v2/templates/outgoing", "transfer_template_update", "transfer_template_write"),
 )
 
@@ -160,9 +167,12 @@ def ma_workbook_plan() -> dict[str, object]:
         "state": "MA",
         "sheet_count": len(WORKBOOK_SHEETS),
         "applicable_task_count": len(MA_WORKBOOK_TASKS),
+        "regulator_action_row_count": 46,
+        "internal_prerequisite_count": 1,
         "applicable_task_sheets": list(MA_APPLICABLE_TASK_SHEETS),
+        "context_sheets": list(MA_CONTEXT_SHEETS),
         "not_applicable_sheets": list(MA_NA_SHEETS),
         "sheets": sheet_status,
         "tasks": [asdict(task) for task in MA_WORKBOOK_TASKS],
-        "pass_rule": "Every applicable action must return HTTP 200 and be verifiable from exact provider evidence/readback.",
+        "pass_rule": "Every applicable workbook action must return HTTP 200 and be verifiable from exact provider evidence/readback; GET /facilities/v2 is the mandatory internal prerequisite.",
     }
