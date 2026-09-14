@@ -40,3 +40,7 @@ def test_traceability_actions_accept_inventory_prefill():
     assert "setReason(prefill.reason)" in page
     assert "setFields(prefill.fields)" in page
     assert "sessionStorage.removeItem(PREFILL_KEY)" in page
+    assert '/api/v1/traceability-actions/preview' in page
+    assert "Review action" in page
+    assert "Confirm & queue" in page
+    assert "preview_token" in page

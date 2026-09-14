@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from hashlib import sha256
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from modules.coman.models import AuditEvent, InventoryLot
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
+from modules.traceability.action_registry import get_traceability_action, list_traceability_actions
 from modules.traceability.global_ledger import GlobalTraceabilityLedger, machine_status
 from services.traceability_dispatcher import TraceabilityDispatcher, TraceabilityDispatchError
 from ..auth import RequestContext, get_request_context
@@ -25,25 +27,13 @@ INVENTORY_ACTION_ROLES = {"dev", "admin", "supervisor", "operator", "qa"}
 # Being present here does not imply that automatic Metrc dispatch is enabled. Provider
 # writes still require a separate reviewed write contract and exact tenant/facility scope.
 ACTION_CATALOG: dict[str, dict[str, Any]] = {
-    "package_create": {"entity_type": "package", "required": ("source_ids", "quantity", "unit"), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
-    "package_move": {"entity_type": "package", "required": ("destination_location",), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
-    "package_finish": {"entity_type": "package", "required": (), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
-    "package_unfinish": {"entity_type": "package", "required": (), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
-    "package_adjust": {"entity_type": "package", "required": ("quantity_delta", "unit", "reason"), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
-    "package_item_update": {"entity_type": "package", "required": ("item",), "roles": {"dev", "admin", "supervisor", "qa"}, "class": "compliance"},
-    "package_note_update": {"entity_type": "package", "required": ("note",), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
-    "package_split": {"entity_type": "package", "required": ("quantity", "unit"), "roles": {"dev", "admin", "supervisor", "operator"}, "class": "hybrid"},
-    "package_merge": {"entity_type": "package", "required": ("source_ids",), "roles": {"dev", "admin", "supervisor"}, "class": "hybrid"},
-    "transfer_create": {"entity_type": "transfer", "required": ("destination_license", "package_ids"), "roles": {"dev", "admin", "supervisor"}, "class": "hybrid"},
-    "manifest_update": {"entity_type": "transfer", "required": ("manifest_reference",), "roles": {"dev", "admin", "supervisor"}, "class": "compliance"},
-    "production_transform": {"entity_type": "production_order", "required": ("input_package_ids", "output_package_ids"), "roles": {"dev", "admin", "planner", "supervisor", "qa"}, "class": "hybrid"},
-    "sales_report": {"entity_type": "sales_period", "required": ("period_start", "period_end"), "roles": {"dev", "admin", "supervisor"}, "class": "compliance"},
-    "lab_test_update": {"entity_type": "package", "required": ("lab_status",), "roles": {"dev", "admin", "supervisor", "qa"}, "class": "compliance"},
-    "plant_move": {"entity_type": "plant", "required": ("destination_location",), "roles": {"dev", "admin", "supervisor", "operator"}, "class": "hybrid"},
-    "plant_batch_move": {"entity_type": "plant_batch", "required": ("destination_location",), "roles": {"dev", "admin", "supervisor", "operator"}, "class": "hybrid"},
-    "harvest_move": {"entity_type": "harvest", "required": ("destination_location",), "roles": {"dev", "admin", "supervisor", "operator"}, "class": "hybrid"},
-    "plant_harvest": {"entity_type": "harvest", "required": ("plant_ids", "harvest_name"), "roles": {"dev", "admin", "supervisor", "operator"}, "class": "hybrid"},
-    "waste_record": {"entity_type": "waste", "required": ("quantity", "unit", "reason"), "roles": {"dev", "admin", "supervisor", "operator", "qa"}, "class": "hybrid"},
+    action.name: {
+        "entity_type": action.entity_type,
+        "required": action.required_fields,
+        "roles": set(action.roles),
+        "class": action.action_class,
+    }
+    for action in list_traceability_actions()
 }
 
 
@@ -58,6 +48,10 @@ class TraceabilityIntent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     reason: str = Field(min_length=3, max_length=255)
     idempotency_key: str = Field(min_length=3, max_length=255)
+    workflow_id: str = Field(default="", max_length=255)
+    client_action_id: str = Field(default="", max_length=255)
+    queue_source: str = Field(default="web", pattern="^(web|mobile|offline_replay|workflow|agent)$")
+    preview_token: str = Field(default="", max_length=64)
 
 
 class InventoryMoveIntent(BaseModel):
@@ -76,13 +70,64 @@ class ExceptionResolutionIntent(BaseModel):
     note: str = Field(min_length=3, max_length=1000)
 
 
-def _catalog_row(name: str, spec: dict[str, Any]) -> dict[str, Any]:
+def _catalog_row(name: str, *, jurisdiction: str = "", environment: str = "") -> dict[str, Any]:
+    action = get_traceability_action(name)
+    if action is None:
+        raise ValueError(f"Unknown traceability action {name!r}.")
+    return action.public(jurisdiction=jurisdiction, environment=environment)
+
+
+def _preview_token(payload: TraceabilityIntent) -> str:
+    document = payload.model_dump(exclude={"preview_token"})
+    return sha256(json.dumps(document, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+
+
+def _preflight(payload: TraceabilityIntent, context: RequestContext, engine: Engine) -> dict[str, Any]:
+    action = get_traceability_action(payload.operation_type)
+    if action is None:
+        raise HTTPException(422, "Unsupported traceability operation type.")
+    if context.role.casefold() not in action.roles:
+        raise HTTPException(403, "Your role cannot perform this traceability action.")
+    provider = payload.provider.strip().casefold()
+    blockers: list[dict[str, str]] = []
+    if provider not in {"metrc", "biotrack", "other"}:
+        blockers.append({"code": "provider_invalid", "message": "Choose a supported traceability provider."})
+    environment = payload.environment.strip().casefold()
+    if provider in {"metrc", "biotrack"}:
+        if not payload.jurisdiction.strip() or not environment or not payload.license_number.strip():
+            blockers.append({"code": "facility_mapping_incomplete", "message": "Jurisdiction, environment, and license must be known before this action can run."})
+        if environment not in {"sandbox", "production"}:
+            blockers.append({"code": "environment_not_verified", "message": "Choose the exact sandbox or production provider environment."})
+    missing = [field for field in action.required_fields if payload.payload.get(field) in (None, "", [], {})]
+    if missing:
+        blockers.append({"code": "input_missing", "message": f"Complete {', '.join(missing)} before confirming."})
+    pending = TraceabilityBackofficeRepository(engine).list_transactions(
+        context.organization_id,
+        context.facility_id,
+        statuses=("validated", "queued", "submitted", "accepted", "reconciliation_required"),
+        provider=provider,
+        entity_type=action.entity_type,
+        entity_id=payload.entity_id,
+        environment=environment,
+        limit=10,
+    )
+    conflicting = [row for row in pending if row.idempotency_key != payload.idempotency_key]
+    if conflicting:
+        blockers.append({"code": "conflicting_pending_action", "message": "This object already has a provider action awaiting execution or reconciliation. Resolve it before creating another write."})
     return {
-        "operation_type": name,
-        "entity_type": spec["entity_type"],
-        "required_fields": list(spec["required"]),
-        "roles": sorted(spec["roles"]),
-        "action_class": str(spec.get("class") or "compliance"),
+        "ready": not blockers,
+        "preview_token": _preview_token(payload),
+        "action": action.public(jurisdiction=payload.jurisdiction, environment=environment),
+        "summary": {
+            "title": action.label,
+            "entity": {"type": action.entity_type, "id": payload.entity_id},
+            "affected_count": max(1, len(payload.payload.get("entity_ids") or payload.payload.get("plant_ids") or payload.payload.get("package_ids") or [])),
+            "environment": environment,
+            "license_number": payload.license_number,
+            "verification": action.verification_resource,
+        },
+        "blockers": blockers,
+        "revalidate_on_execute": True,
     }
 
 
@@ -177,11 +222,23 @@ def _audit_inventory_action(session: Session, context: RequestContext, lot: Inve
 
 
 @router.get("/catalog")
-def action_catalog(context: RequestContext = Depends(get_request_context)):
+def action_catalog(
+    jurisdiction: str = Query(default="", max_length=16),
+    environment: str = Query(default="", max_length=24),
+    context: RequestContext = Depends(get_request_context),
+):
     role = context.role.casefold()
     return {
-        "actions": [_catalog_row(name, spec) for name, spec in ACTION_CATALOG.items() if role in spec["roles"]],
-        "automatic_dispatch_operations": ["package_finish", "package_adjust"],
+        "actions": [
+            _catalog_row(action.name, jurisdiction=jurisdiction, environment=environment)
+            for action in list_traceability_actions()
+            if role in action.roles and action.catalog_visible
+        ],
+        "automatic_dispatch_operations": [
+            action.name
+            for action in list_traceability_actions()
+            if action.public(jurisdiction=jurisdiction, environment=environment)["dispatch_enabled"]
+        ],
         "dispatch_roles": sorted(DISPATCH_ROLES),
         "move_semantics": {
             "move": "Change location within the same licensed facility.",
@@ -189,6 +246,16 @@ def action_catalog(context: RequestContext = Depends(get_request_context)):
         },
         "execution_boundary": "Validated intents enter the durable provider-neutral queue. A separately authorized provider dispatch is required; accepted still does not mean reconciled/verified.",
     }
+
+
+@router.post("/preview")
+def preview_action(
+    payload: TraceabilityIntent,
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    """Return an operator summary and deterministic blockers without a provider write."""
+    return _preflight(payload, context, engine)
 
 
 @router.post("/inventory/move")
@@ -291,6 +358,13 @@ def release_inventory_hold(
 
 @router.post("/queue", status_code=201)
 def queue_action(payload: TraceabilityIntent, context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine)):
+    preview = _preflight(payload, context, engine)
+    if preview["blockers"]:
+        first = preview["blockers"][0]
+        status_code = 409 if first["code"] == "conflicting_pending_action" else 422
+        raise HTTPException(status_code, first["message"])
+    if payload.preview_token and payload.preview_token != preview["preview_token"]:
+        raise HTTPException(409, "This action changed after preview. Review the current action again before confirming it.")
     operation = payload.operation_type.strip().casefold()
     spec = ACTION_CATALOG.get(operation)
     if not spec:
@@ -332,8 +406,8 @@ def queue_action(payload: TraceabilityIntent, context: RequestContext = Depends(
             direction=payload.direction,
             request_payload=payload.payload,
             reason=payload.reason,
-            correlation_id=payload.idempotency_key,
-            source="typed_action_api",
+            correlation_id=payload.workflow_id.strip() or payload.client_action_id.strip() or payload.idempotency_key,
+            source=f"typed_action_{payload.queue_source}",
             external_tag=str(payload.payload.get("tag") or payload.payload.get("package_tag") or ""),
             related_entities=related_entities,
         )
