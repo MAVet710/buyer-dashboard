@@ -10,6 +10,7 @@ from services.metrc_evaluation_transfers import (
     execute_transfer_template_write,
 )
 from services.metrc_evaluation_workbook import (
+    MA_CONTEXT_SHEETS,
     MA_NA_SHEETS,
     MA_WORKBOOK_TASKS,
     WORKBOOK_SHEETS,
@@ -22,16 +23,18 @@ INTEGRATOR = "integrator-key"
 USER = "user-key"
 
 
-def test_ma_workbook_map_covers_all_22_sheets_and_47_applicable_task_rows():
+def test_ma_workbook_map_covers_all_22_sheets_and_preserves_internal_47_check_numbering():
     plan = ma_workbook_plan()
     assert plan["sheet_count"] == 22
     assert len(WORKBOOK_SHEETS) == 22
     assert plan["applicable_task_count"] == 47
+    assert plan["regulator_action_row_count"] == 46
+    assert plan["internal_prerequisite_count"] == 1
     assert len(MA_WORKBOOK_TASKS) == 47
     assert [task.number for task in MA_WORKBOOK_TASKS] == list(range(1, 48))
     assert all(task.operation_type and task.current_endpoint and task.execution_kind for task in MA_WORKBOOK_TASKS)
+    assert "Closed Loop Environment" in MA_CONTEXT_SHEETS
     assert set(MA_NA_SHEETS) == {
-        "Closed Loop Environment",
         "Closed Loop States PlantBatches",
         "CA ONLY Labs",
         "Sales with Patient Look Up",
