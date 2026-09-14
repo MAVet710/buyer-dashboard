@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from modules.coman.models import AuditEvent
 from modules.integrations.models import IntegrationConfiguration
 from modules.regulatory.registry import resolve_metrc_base_url
-from services.metrc_facility_capabilities import provider_capability
+from services.metrc_facility_capabilities import provider_capability, provider_facility_license
 from ..auth import RequestContext
 from ..config import Settings
 from .metrc_context import resolve_metrc_context
@@ -216,7 +216,7 @@ def run_server_resume_diagnostic(engine: Engine, settings: Settings, run_id: str
         facility = next(
             (
                 item for item in facility_records
-                if str(item.get("LicenseNumber") or item.get("licenseNumber") or "").strip() == metrc.license_number
+                if provider_facility_license(item) == metrc.license_number
             ),
             {},
         )
