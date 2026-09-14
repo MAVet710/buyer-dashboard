@@ -4,9 +4,11 @@
 The Generic Evaluation workbook and current MA v2 contracts are the source of
 truth. The runner reuses the existing vendor/user API key pair, discovers the
 facilities visible to that pair, chooses one exact facility for the selected
-workbook/facility-family action, verifies literal source state, sends only a
-reviewed method/path/body, and requires provider readback before claiming a pass.
+workbook action, verifies literal source state, sends only a reviewed
+method/path/body, and requires provider readback before claiming a pass.
 
+The Permissions worksheet informs valid Grow/Processor/Labs/Sales access context;
+it does not create additional regulator action rows or automatic duplicate writes.
 The runner never provisions, rotates, or replaces a Metrc user API key.
 """
 
@@ -25,8 +27,6 @@ from services.metrc_evaluation_credentials import (
 from services.metrc_evaluation_facility_matrix import (
     FACILITY_FAMILIES,
     MetrcFacilityMatrixError,
-    optional_execution_instances,
-    required_execution_instances,
     select_facility_for_operation,
 )
 from services.metrc_evaluation_lab import LAB_EVALUATION_ACTIONS, execute_lab_evaluation_action
@@ -49,7 +49,7 @@ from services.metrc_evaluation_transfers import (
     execute_transfer_template_write,
 )
 from services.metrc_evaluation_verification import verify_transfer_workbook_read
-from services.metrc_evaluation_workbook import MA_WORKBOOK_TASKS, ma_workbook_plan
+from services.metrc_evaluation_workbook import ma_workbook_plan
 from services.metrc_evaluation_workbook_contract import (
     MetrcWorkbookContractError,
     WORKBOOK_OPTIONAL_DEPENDENCIES,
@@ -120,20 +120,14 @@ def _load_payload(path: str, *, required: bool) -> dict[str, Any]:
 
 
 def _annotate_workbook_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    required_instances = required_execution_instances(MA_WORKBOOK_TASKS)
-    optional_instances = optional_execution_instances(MA_WORKBOOK_TASKS)
     plan["regulator_action_row_count"] = REGULATOR_ACTION_ROW_COUNT
     plan["internal_prerequisite_count"] = INTERNAL_PREREQUISITE_COUNT
     plan["internal_check_count"] = int(plan.get("applicable_task_count") or 0)
-    plan["required_d_execution_instance_count"] = len(required_instances)
-    plan["optional_o_execution_instance_count"] = len(optional_instances)
-    plan["required_d_execution_instances"] = required_instances
-    plan["optional_o_execution_instances"] = optional_instances
     plan["counting_note"] = (
-        "Generic Evaluation 10.2025 contains 46 explicit action rows. DoobieLogic retains "
+        "Generic Evaluation 10.2025 contains 46 explicit regulator action rows. DoobieLogic retains "
         "GET /facilities/v2 as one mandatory internal prerequisite so historical evidence numbering remains stable. "
-        "The Permissions worksheet separately requires every D section to be completed per applicable facility family, "
-        "so one action row may require multiple provider execution instances."
+        "The Permissions worksheet D/O grid constrains permission/facility context but does not manufacture extra "
+        "action rows or automatic repeated mutations."
     )
     plan["ma_open_loop_context"] = {
         "closed_loop_environment_sheet_required_as_context": True,
@@ -153,8 +147,8 @@ def _annotate_workbook_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "optional": {key: list(value) for key, value in WORKBOOK_OPTIONAL_DEPENDENCIES.items()},
         "facility_families": list(FACILITY_FAMILIES),
         "note": (
-            "The D/O grid is enforced as facility-family execution scope. Shared D sections must be evidenced separately "
-            "for each applicable family rather than credited from one global license."
+            "The D/O grid is retained as access/facility-selection context. Shared sections may require an explicit "
+            "facility family to avoid guessing, but the workbook remains 46 regulator action rows."
         ),
     }
     return plan
@@ -195,15 +189,15 @@ def main() -> None:
         default="",
         choices=("", *FACILITY_FAMILIES),
         help=(
-            "Workbook Permissions family for this execution instance: grow, processor, labs, or sales. "
-            "Required for shared D/O sections so one facility cannot be credited for another family's requirement."
+            "Permission/facility context for this one workbook action: grow, processor, labs, or sales. "
+            "Required only when a shared D/O section is valid in multiple contexts and automatic selection would guess."
         ),
     )
     parser.add_argument(
         "--license-number",
         default="",
         help=(
-            "Optional exact sandbox facility license for this facility-family action. If omitted, the runner selects "
+            "Optional exact sandbox facility license for this action. If omitted, the runner selects "
             "a compatible dedicated facility from the authenticated GET /facilities/v2 response."
         ),
     )
@@ -216,7 +210,6 @@ def main() -> None:
         print(f"Workbook sheets: {plan['sheet_count']}")
         print(f"Regulator action rows: {plan['regulator_action_row_count']}")
         print(f"Internal prerequisite checks: {plan['internal_prerequisite_count']}")
-        print(f"Required D facility-family execution instances: {plan['required_d_execution_instance_count']}")
         return
 
     try:
