@@ -14,8 +14,7 @@ def test_project_invariants_document_exists_and_preserves_local_first_contract()
     policy = _read("docs/PROJECT_INVARIANTS.md")
     assert "local stack" in policy
     assert "Do not assume Render" in policy
-    assert "current owner/developer account" in policy
-    assert "`God`" in policy
+    assert "`God` is Nelson's DoobieLogic application username" in policy
 
 
 def test_username_login_contract_remains_username_first_and_case_insensitive() -> None:
