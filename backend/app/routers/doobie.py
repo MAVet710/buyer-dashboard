@@ -298,7 +298,7 @@ def submit_regulatory_action(
         dispatch = TraceabilityDispatcher(
             engine,
             encryption_key=settings.integration_encryption_key,
-            metrc_integrator_api_key=settings.metrc_integrator_key,
+            metrc_integrator_api_key=metrc.integrator_api_key,
         ).dispatch(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
@@ -420,7 +420,7 @@ def submit_manifest_draft(
         dispatch = TraceabilityDispatcher(
             engine,
             encryption_key=settings.integration_encryption_key,
-            metrc_integrator_api_key=settings.metrc_integrator_key,
+            metrc_integrator_api_key=metrc.integrator_api_key,
         ).dispatch(
             organization_id=context.organization_id,
             facility_id=context.facility_id,

@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 from services.metrc_client import fetch_metrc_resource
+from services.metrc_evaluation_credentials import (
+    MetrcEvaluationCredentialError,
+    resolve_ma_sandbox_evaluation_credentials,
+)
 from services.metrc_evaluation_lab import LAB_EVALUATION_ACTIONS, execute_lab_evaluation_action
 from services.metrc_evaluation_lifecycle import (
     LIFECYCLE_EVALUATION_ACTIONS,
@@ -36,13 +39,6 @@ from services.metrc_evaluation_transfers import (
 )
 from services.metrc_evaluation_verification import verify_transfer_workbook_read
 from services.metrc_evaluation_workbook import ma_workbook_plan
-
-
-def _secret(name: str) -> str:
-    value = str(os.environ.get(name) or "").strip()
-    if not value:
-        raise SystemExit(f"Missing required environment variable: {name}")
-    return value
 
 
 def _write_evidence(path: str, evidence: dict[str, Any]) -> None:
@@ -124,13 +120,20 @@ def main() -> None:
         print(f"MA applicable task rows: {plan['applicable_task_count']}")
         return
 
-    integrator_key = _secret("METRC_INTEGRATOR_API_KEY")
-    user_key = _secret("METRC_USER_API_KEY")
+    try:
+        credentials = resolve_ma_sandbox_evaluation_credentials(
+            require_license=args.operation != "facilities"
+        )
+    except MetrcEvaluationCredentialError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    integrator_key = credentials.integrator_api_key
+    user_key = credentials.user_api_key
 
     if args.operation == "facilities":
         evidence = _facilities(integrator_key, user_key)
     else:
-        license_number = _secret("METRC_LICENSE_NUMBER")
+        license_number = credentials.license_number
         payload_optional = args.operation in {"transfer_rejected"}
         raw = _load_payload(args.payload_file, required=not payload_optional)
 
