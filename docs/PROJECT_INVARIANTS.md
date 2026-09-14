@@ -6,11 +6,13 @@ These are standing project rules. Treat them as contract, not suggestions. Any c
 
 - The **local stack** is the active DoobieLogic development/evaluation environment unless Nelson explicitly says otherwise; on Nelson's workstation this means the local Windows stack.
 - The active DoobieLogic application is hosted from Nelson's Windows PC and exposed publicly through Cloudflare/Cloudflare Tunnel unless Nelson explicitly changes that architecture.
+- The verified PC-hosted request chain is: browser -> Cloudflare HTTPS/Tunnel -> Windows Caddy on loopback `8080` -> built React assets and `/api/*` reverse proxy -> FastAPI on loopback `8010`. Required local Supabase Auth traffic is proxied to the local Auth gateway on `54321`.
+- Caddy `8080` is the local web/reverse-proxy edge. It is **not** the FastAPI listener. FastAPI is `127.0.0.1:8010`.
+- The separate loopback Vite preview uses `4173`; Vite development on `5173` should proxy `/api` and `/health` directly to FastAPI `8010` unless explicitly overridden.
+- Port `8000` is not part of the active DoobieLogic PC-hosting contract and must not be assumed to be FastAPI.
 - Do not assume Render, Cloud Run, or another hosted environment is the execution target for local debugging, the live operator app, or the Metrc evaluation unless Nelson explicitly says the hosting architecture changed.
 - Hosted deployment context may be inspected only when the task is actually about that hosted environment or when hosted evidence is explicitly needed for comparison.
-- A local failure must be traced through the local frontend/backend/configuration path before making deployment changes.
-- Local React development uses Vite on port `5173`; `/api` and `/health` proxy to the local FastAPI backend on `127.0.0.1:8080` unless an explicit local override is configured.
-- Port `8000` is not part of the active DoobieLogic application-hosting contract on Nelson's workstation and must not be assumed to be FastAPI.
+- A local failure must be traced through the PC-hosted frontend/Caddy/FastAPI/Auth/configuration path before making deployment changes.
 
 ## DoobieLogic username login
 
@@ -24,8 +26,8 @@ These are standing project rules. Treat them as contract, not suggestions. Any c
 - Do not silently switch a user from username login to email login.
 - Do not create a replacement DoobieLogic user simply because username login fails.
 - Never commit, log, or expose the password for `God` or any other user.
-- A local `God` login regression must be traced end to end: Vite `/api` request -> local FastAPI `/api/v1/account/username-login` -> local backend Supabase configuration -> linked Supabase Auth identity/session.
-- Do not assume a healthy durable user record proves local login is healthy. Verify that the local frontend reaches the intended local FastAPI process and that the local FastAPI process points to the intended Supabase project.
+- A live `God` login regression must be traced end to end: browser -> Cloudflare Tunnel -> Caddy `8080` -> FastAPI `8010` `/api/v1/account/username-login` -> local Supabase Auth gateway `54321` -> linked auth identity/session.
+- Do not assume a healthy durable user record proves login is healthy. Verify the browser reaches the intended PC-hosted FastAPI process and that FastAPI points to the intended local Auth/database stack.
 
 ## Metrc evaluation credentials
 
