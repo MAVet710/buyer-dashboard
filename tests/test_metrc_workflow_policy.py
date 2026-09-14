@@ -75,11 +75,21 @@ def test_manual_workflow_defaults_to_safe_read_and_bounds_full_evidence():
     assert "workflow_dispatch:" in workflow
     assert "default: facilities" in workflow
     assert "scripts/metrc_workflow_policy.py" in workflow
-    assert "scripts/validate_ma_metrc_sandbox.py --live-read" in workflow
+    assert "Perform authenticated read-only Facilities prerequisite" in workflow
+    assert "--operation facilities" in workflow
     assert "I_APPROVE_MA_SANDBOX_WRITE" in workflow
     assert "METRC_INTEGRATOR_API_KEY: ${{ secrets.METRC_INTEGRATOR_API_KEY }}" in workflow
     assert "METRC_MA_SANDBOX_USER_API_KEY: ${{ secrets.METRC_MA_SANDBOX_USER_API_KEY }}" in workflow
-    assert "METRC_MA_SANDBOX_LICENSE_NUMBER: ${{ secrets.METRC_MA_SANDBOX_LICENSE_NUMBER }}" in workflow
+    # The corrected rerun requires an explicit facility license per action and
+    # deliberately does not import the historical one-global-license secret.
+    assert "license_number:" in workflow
+    assert '--license-number "$SELECTED_LICENSE"' in workflow
+    assert "METRC_MA_SANDBOX_LICENSE_NUMBER: ${{ secrets.METRC_MA_SANDBOX_LICENSE_NUMBER }}" not in workflow
+    # Comments may name the forbidden bootstrap endpoint to document policy.
+    # What must never exist is executable bootstrap/provision behavior.
+    assert "setup_ma_sandbox_integrator" not in workflow
+    assert "--operation integrator_setup" not in workflow
+    assert "provision-user" not in workflow
     assert "default: false" in workflow
     assert "retention-days: 7" in workflow
     assert "Redacted evidence summary" in workflow

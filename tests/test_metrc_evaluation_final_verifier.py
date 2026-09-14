@@ -66,6 +66,24 @@ def _manifest() -> dict:
     }
 
 
+def _results_manifest() -> dict:
+    return {
+        "schema_version": 1,
+        "sheet_count": 22,
+        "sheet_names": list(WORKBOOK_SHEETS),
+        "regulator_action_rows_filled": 46,
+        "expected_regulator_action_rows": 46,
+        "task_result_cells_modified": True,
+        "task_result_cells_modified_count": 46 * 7,
+        "permissions_table_modified": True,
+        "permissions_table_cells_modified_count": 22,
+        "metrc_use_only_cells_modified": False,
+        "secret_values_recorded": False,
+        "result_edits": [],
+        "permission_edits": [],
+    }
+
+
 def _node() -> str:
     executable = shutil.which("node")
     if not executable:
@@ -73,14 +91,16 @@ def _node() -> str:
     return executable
 
 
-def test_verify_final_accepts_ready_redacted_report_and_manifest(tmp_path):
+def test_verify_final_accepts_ready_redacted_report_and_both_manifests(tmp_path):
     report_path = tmp_path / "final_report.json"
     manifest_path = tmp_path / "submission.manifest.json"
+    results_manifest_path = tmp_path / "submission.results.manifest.json"
     report_path.write_text(json.dumps(_report(tmp_path)), encoding="utf-8")
     manifest_path.write_text(json.dumps(_manifest()), encoding="utf-8")
+    results_manifest_path.write_text(json.dumps(_results_manifest()), encoding="utf-8")
 
     result = subprocess.run(
-        [_node(), str(VERIFIER), str(report_path), str(manifest_path)],
+        [_node(), str(VERIFIER), str(report_path), str(manifest_path), str(results_manifest_path)],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -89,6 +109,7 @@ def test_verify_final_accepts_ready_redacted_report_and_manifest(tmp_path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "FINAL VERIFIED" in result.stdout
+    assert "46 regulator action rows" in result.stdout
     assert "No regulator approval is claimed" in result.stdout
 
 
@@ -97,11 +118,13 @@ def test_verify_final_rejects_credential_like_report_fields(tmp_path):
     report["user_api_key"] = "must-never-be-here"
     report_path = tmp_path / "final_report.json"
     manifest_path = tmp_path / "submission.manifest.json"
+    results_manifest_path = tmp_path / "submission.results.manifest.json"
     report_path.write_text(json.dumps(report), encoding="utf-8")
     manifest_path.write_text(json.dumps(_manifest()), encoding="utf-8")
+    results_manifest_path.write_text(json.dumps(_results_manifest()), encoding="utf-8")
 
     result = subprocess.run(
-        [_node(), str(VERIFIER), str(report_path), str(manifest_path)],
+        [_node(), str(VERIFIER), str(report_path), str(manifest_path), str(results_manifest_path)],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -110,3 +133,24 @@ def test_verify_final_rejects_credential_like_report_fields(tmp_path):
     )
     assert result.returncode == 2
     assert "Credential-like fields leaked" in result.stderr
+
+
+def test_verify_final_rejects_blank_task_results_manifest(tmp_path):
+    report_path = tmp_path / "final_report.json"
+    manifest_path = tmp_path / "submission.manifest.json"
+    results_manifest_path = tmp_path / "submission.results.manifest.json"
+    report_path.write_text(json.dumps(_report(tmp_path)), encoding="utf-8")
+    manifest_path.write_text(json.dumps(_manifest()), encoding="utf-8")
+    bad = _results_manifest() | {"task_result_cells_modified": False, "regulator_action_rows_filled": 0}
+    results_manifest_path.write_text(json.dumps(bad), encoding="utf-8")
+
+    result = subprocess.run(
+        [_node(), str(VERIFIER), str(report_path), str(manifest_path), str(results_manifest_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "did not populate all 46" in result.stderr

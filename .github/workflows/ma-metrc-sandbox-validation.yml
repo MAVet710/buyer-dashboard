@@ -8,6 +8,11 @@ on:
         required: true
         default: facilities
         type: string
+      license_number:
+        description: "Exact MA sandbox facility license for this action. Required except for facilities/workbook_plan. Use the facility/profile appropriate to the workbook task."
+        required: false
+        default: ""
+        type: string
       payload_json:
         description: "Optional non-secret JSON payload for the selected bounded operation. Never paste API keys here."
         required: false
@@ -37,11 +42,10 @@ jobs:
       contents: read
     env:
       METRC_INTEGRATOR_API_KEY: ${{ secrets.METRC_INTEGRATOR_API_KEY }}
+      # Reuse the already-active user key. No workflow step provisions, rotates,
+      # replaces, or calls /sandbox/v2/integrator/setup.
       METRC_MA_SANDBOX_USER_API_KEY: ${{ secrets.METRC_MA_SANDBOX_USER_API_KEY }}
-      METRC_MA_SANDBOX_LICENSE_NUMBER: ${{ secrets.METRC_MA_SANDBOX_LICENSE_NUMBER }}
-      # The bounded evaluation runner uses generic names; keep a single sandbox secret source.
       METRC_USER_API_KEY: ${{ secrets.METRC_MA_SANDBOX_USER_API_KEY }}
-      METRC_LICENSE_NUMBER: ${{ secrets.METRC_MA_SANDBOX_LICENSE_NUMBER }}
 
     steps:
       - name: Check out exact requested ref
@@ -71,7 +75,7 @@ jobs:
             --confirmation "$WRITE_CONFIRMATION" \
             --github-env "$GITHUB_ENV"
 
-      - name: Verify required sandbox secrets are configured
+      - name: Verify existing sandbox key pair is configured
         if: ${{ inputs.operation != 'workbook_plan' }}
         run: |
           set -euo pipefail
@@ -80,21 +84,38 @@ jobs:
           required = (
               "METRC_INTEGRATOR_API_KEY",
               "METRC_MA_SANDBOX_USER_API_KEY",
-              "METRC_MA_SANDBOX_LICENSE_NUMBER",
           )
           missing = [name for name in required if not str(os.environ.get(name) or "").strip()]
           if missing:
               raise SystemExit("Missing required GitHub Actions secrets: " + ", ".join(missing))
-          print("Required MA Metrc sandbox secrets are configured; secret values were not printed.")
+          print("Existing MA Metrc sandbox vendor/user key pair is configured; secret values were not printed or changed.")
           PY
 
-      - name: Perform authenticated read-only Facilities gate
+      - name: Require explicit per-action facility license
+        if: ${{ inputs.operation != 'facilities' && inputs.operation != 'workbook_plan' }}
+        env:
+          SELECTED_LICENSE: ${{ inputs.license_number }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          license_number = str(os.environ.get("SELECTED_LICENSE") or "").strip()
+          if not license_number:
+              raise SystemExit(
+                  "license_number is required for this evaluation action. "
+                  "Do not use one global facility license across Grow, Lab, Sales, and Transfer permission profiles."
+              )
+          print("Explicit MA sandbox facility license selected for this operation.")
+          PY
+
+      - name: Perform authenticated read-only Facilities prerequisite
         if: ${{ inputs.operation != 'workbook_plan' }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/metrc-evaluation
-          python scripts/validate_ma_metrc_sandbox.py --live-read \
-            > artifacts/metrc-evaluation/authenticated-facilities-read.json
+          python scripts/run_ma_metrc_evaluation.py \
+            --operation facilities \
+            --output artifacts/metrc-evaluation/authenticated-facilities-read.json
 
       - name: Prepare bounded evaluation payload
         if: ${{ inputs.operation != 'facilities' && inputs.operation != 'workbook_plan' }}
@@ -118,6 +139,7 @@ jobs:
         if: ${{ inputs.operation != 'facilities' }}
         env:
           SELECTED_OPERATION: ${{ inputs.operation }}
+          SELECTED_LICENSE: ${{ inputs.license_number }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/metrc-evaluation
@@ -128,6 +150,7 @@ jobs:
           else
             python scripts/run_ma_metrc_evaluation.py \
               --operation "$SELECTED_OPERATION" \
+              --license-number "$SELECTED_LICENSE" \
               --payload-file "$RUNNER_TEMP/metrc-evaluation-payload.json" \
               --output "artifacts/metrc-evaluation/${SELECTED_OPERATION}.json"
           fi
@@ -148,10 +171,13 @@ jobs:
           safe_dir = Path("artifacts/metrc-evaluation-safe")
           safe_dir.mkdir(parents=True, exist_ok=True)
           allowed = {
-              "passed", "ready", "status", "stage", "operation_type", "state",
-              "jurisdiction_code", "environment", "http_status", "facility_count",
-              "network_request_sent", "write_performed", "message", "next_gate",
-              "sheet_count", "applicable_task_count",
+              "passed", "ready", "status", "stage", "operation_type", "requested_operation",
+              "facility_profile", "state", "jurisdiction_code", "environment", "http_status",
+              "facility_count", "selected_license_match_count", "required_capabilities",
+              "observed_capabilities", "network_request_sent", "network_write_sent",
+              "write_performed", "message", "next_gate", "sheet_count",
+              "applicable_task_count", "regulator_action_count", "prerequisite_check_count",
+              "internal_check_count",
           }
           summaries = []
           for path in sorted(source.glob("*.json")) if source.exists() else []:

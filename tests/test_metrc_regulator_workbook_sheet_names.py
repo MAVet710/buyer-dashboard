@@ -39,5 +39,10 @@ def test_ma_plan_classifies_exact_template_titles_by_logical_sheet_name():
     plan = ma_workbook_plan()
     statuses = {row["sheet"]: row["status"] for row in plan["sheets"]}
 
-    assert statuses["Instructions "] == "applicable"
-    assert statuses["Closed Loop Environment "] == "not_applicable_ma"
+    # The direct regulator workbook audit established both as MA context/setup:
+    # Instructions contains the mandatory facilities prerequisite and the MA
+    # States row sends Open Loop evaluators to Closed Loop Environment for
+    # beginning-inventory directions. Neither is a scored action sheet.
+    assert statuses["Instructions "] == "context"
+    assert statuses["Closed Loop Environment "] == "context"
+    assert statuses["Closed Loop States PlantBatches"] == "not_applicable_ma"

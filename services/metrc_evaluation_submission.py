@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from services.metrc_evaluation_instruction_contract import (
+    MA_PERMISSION_DEPENDENCIES,
+    USER_KEY_POLICY,
+    ma_instruction_contract,
+)
+
 
 COMPANY_INFORMATION_REQUIRED_FIELDS = (
     "Integrator Company Name",
@@ -25,10 +31,9 @@ COMPANY_INFORMATION_OPTIONAL_FIELDS = (
     "Secondary Contact Telephone Number",
 )
 
-# The workbook's Permissions page asks which access families are being sought.
-# DoobieLogic's full vertical MA evaluation requires the supported families below;
-# actual state/facility grants are still proven by GET /facilities/v2 and never
-# inferred from these requested labels.
+# Keep the full list for submission form compatibility, but do not interpret it
+# as meaning every family is dependent/required on every facility. The workbook's
+# D/O matrix in MA_PERMISSION_DEPENDENCIES is authoritative for that distinction.
 MA_FULL_PERMISSION_REQUEST = (
     "Locations",
     "Strains",
@@ -47,6 +52,7 @@ SECRET_WORKBOOK_FIELDS = ("Vendor Key Used", "User Key Used")
 
 
 def ma_submission_context() -> dict[str, object]:
+    instruction_contract = ma_instruction_contract()
     return {
         "company_information": {
             "required_fields": list(COMPANY_INFORMATION_REQUIRED_FIELDS),
@@ -58,6 +64,18 @@ def ma_submission_context() -> dict[str, object]:
         },
         "permissions": {
             "requested_families_for_full_ma_evaluation": list(MA_FULL_PERMISSION_REQUEST),
-            "verification": "GET /facilities/v2 is authoritative for the actual facility and user permissions returned by Metrc.",
+            "dependencies_by_profile": {
+                profile: {
+                    "required": list(values["required"]),
+                    "optional": list(values["optional"]),
+                }
+                for profile, values in MA_PERMISSION_DEPENDENCIES.items()
+            },
+            "verification": (
+                "GET /facilities/v2 is authoritative for the actual facility and API User Key permissions returned by Metrc. "
+                "A workbook D means dependent/required for that requested facility/profile; O means optional."
+            ),
+            "user_key_policy": dict(USER_KEY_POLICY),
         },
+        "instruction_contract": instruction_contract,
     }
