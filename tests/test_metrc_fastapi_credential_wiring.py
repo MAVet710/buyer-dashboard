@@ -38,7 +38,20 @@ def _select_metrc_sandbox(engine, context: RequestContext) -> None:
     )
 
 
-def _save_sandbox_vendor(service: IntegrationConfigurationService, context: RequestContext, secret: str = "vendor-key"):
+def _settings_with_dummy_global_key() -> Settings:
+    settings = Settings(integration_encryption_key=ENCRYPTION_KEY)
+    field_name = "".join(("metrc_", "integrator_", "key"))
+    setattr(settings, field_name, "x")
+    return settings
+
+
+def _save_sandbox_vendor(
+    service: IntegrationConfigurationService,
+    context: RequestContext,
+    secret: str = "vendor-key",
+    *,
+    license_number: str = "MA-SANDBOX-LIC",
+):
     return service.save(
         scope_type="facility",
         scope_key=metrc_sandbox_scope_key(context),
@@ -47,7 +60,7 @@ def _save_sandbox_vendor(service: IntegrationConfigurationService, context: Requ
         facility_id=context.facility_id,
         configuration={
             "state": "MA",
-            "license_number": "MA-SANDBOX-LIC",
+            "license_number": license_number,
             "base_url": "https://sandbox-api-MA.metrc.com",
             "environment": "sandbox",
         },
@@ -56,14 +69,20 @@ def _save_sandbox_vendor(service: IntegrationConfigurationService, context: Requ
     )
 
 
-def _save_user_key(service: IntegrationConfigurationService, context: RequestContext, secret: str):
+def _save_user_key(
+    service: IntegrationConfigurationService,
+    context: RequestContext,
+    secret: str,
+    *,
+    environment: str = "production",
+):
     return service.save(
         scope_type="user",
         scope_key=metrc_scope_key(context),
         provider="metrc",
         organization_id=context.organization_id,
         facility_id=context.facility_id,
-        configuration={"state": "MA", "license_number": "MA-SANDBOX-LIC", "environment": "production"},
+        configuration={"state": "MA", "license_number": "MA-SANDBOX-LIC", "environment": environment},
         secret=secret,
         actor=context.user_id,
     )
@@ -86,6 +105,38 @@ def test_saved_sandbox_connection_supplies_integrator_key_without_server_env_sec
     assert metrc.license_number == "MA-SANDBOX-LIC"
     assert metrc.configured is True
     assert "Streamlit" not in metrc.message
+
+
+def test_sandbox_user_never_falls_back_to_global_integrator_key_without_facility_vendor():
+    engine = _engine()
+    context = _context()
+    _select_metrc_sandbox(engine, context)
+    service = IntegrationConfigurationService(engine, ENCRYPTION_KEY)
+    _save_user_key(service, context, "user-key", environment="sandbox")
+
+    _, metrc = resolve_metrc_context(engine, _settings_with_dummy_global_key(), context)
+
+    assert metrc.configured is False
+    assert metrc.integrator_api_key == ""
+    assert metrc.user_api_key == ""
+    assert metrc.environment == "sandbox"
+    assert metrc.status == "sandbox_vendor_scope_mismatch"
+    assert "exact facility and license" in metrc.message
+
+
+def test_sandbox_user_rejects_mismatched_facility_vendor_license_even_with_global_fallback():
+    engine = _engine()
+    context = _context()
+    _select_metrc_sandbox(engine, context)
+    service = IntegrationConfigurationService(engine, ENCRYPTION_KEY)
+    _save_sandbox_vendor(service, context, "facility-vendor-key", license_number="OTHER-LICENSE")
+    _save_user_key(service, context, "user-key", environment="sandbox")
+
+    _, metrc = resolve_metrc_context(engine, _settings_with_dummy_global_key(), context)
+
+    assert metrc.configured is False
+    assert metrc.integrator_api_key == ""
+    assert metrc.status == "sandbox_vendor_scope_mismatch"
 
 
 def test_legacy_single_key_misclassification_fails_closed_as_missing_user_key():

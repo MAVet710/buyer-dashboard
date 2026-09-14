@@ -114,7 +114,8 @@ def resolve_metrc_context(
     # Only an explicitly METRC-enabled operating mode may decrypt provider secrets.
     # This keeps stale/migrated credentials from breaking local DEV Sandbox flows.
     sandbox_vendor_key = service.secret(sandbox_row) if sandbox_row is not None else ""
-    integrator_api_key = str(sandbox_vendor_key or settings.metrc_integrator_key or "").strip()
+    fallback_integrator_api_key = str(settings.metrc_integrator_key or "").strip()
+    integrator_api_key = str(sandbox_vendor_key or fallback_integrator_api_key).strip()
 
     if row is None:
         sandbox_state = str(sandbox_config.get("state") or "").strip()
@@ -159,9 +160,11 @@ def resolve_metrc_context(
         and (not sandbox_license or sandbox_license == license_number)
     )
 
-    if configured_environment == "sandbox" or sandbox_matches:
-        environment = "sandbox"
-    else:
+    # Preserve the legacy migration path where a user credential may still carry
+    # old production metadata, but only when an exact facility-scoped sandbox vendor
+    # row proves the intended MA sandbox pairing. Metadata alone never authorizes a
+    # global integrator-key fallback.
+    if configured_environment != "sandbox" and not sandbox_matches:
         return service, MetrcContext(
             configured=False,
             state=state,
@@ -171,14 +174,35 @@ def resolve_metrc_context(
             environment="sandbox",
             trusted_mapping=False,
             message=(
-                "Metrc Sandbox is selected, but the saved Metrc user credential is marked production. "
-                "Alpha will not use or reinterpret a production credential. Save or discover the sandbox credential for this facility."
+                "Metrc Sandbox is selected, but the saved Metrc user credential is marked production and has no "
+                "matching facility-scoped sandbox vendor connection. Save or discover the sandbox credential for this facility."
             ),
             row=row,
         )
 
-    if sandbox_matches:
-        integrator_api_key = str(sandbox_vendor_key or integrator_api_key).strip()
+    # A sandbox user credential is valid only with the vendor/integrator key that
+    # was copied into the same facility scope during authenticated facility
+    # discovery. Falling back to a process-global integrator key here can silently
+    # pair a valid user key with the wrong vendor key and produce provider HTTP 401.
+    if not sandbox_matches or not str(sandbox_vendor_key or "").strip():
+        return service, MetrcContext(
+            configured=False,
+            state=state,
+            license_number=license_number,
+            integrator_api_key="",
+            status="sandbox_vendor_scope_mismatch",
+            environment="sandbox",
+            trusted_mapping=False,
+            message=(
+                "The saved Metrc sandbox user credential is not paired with an encrypted vendor/integrator key "
+                "for this exact facility and license. Re-run authenticated facility discovery or repair the "
+                "facility-scoped Metrc sandbox connection before provider calls."
+            ),
+            provider_capabilities=provider_capabilities,
+            row=row,
+        )
+
+    integrator_api_key = str(sandbox_vendor_key).strip()
 
     secret = service.secret(row)
     user_api_key = str(secret or "").strip()

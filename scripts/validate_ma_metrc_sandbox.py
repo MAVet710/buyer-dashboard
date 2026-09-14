@@ -19,6 +19,10 @@ from typing import Any
 import requests
 
 from modules.regulatory.registry import resolve_metrc_base_url
+from services.metrc_evaluation_credentials import (
+    MetrcEvaluationCredentialError,
+    resolve_ma_sandbox_evaluation_credentials,
+)
 
 
 ENVIRONMENT = "sandbox"
@@ -28,6 +32,10 @@ REQUIRED_ENV = (
     "METRC_MA_SANDBOX_USER_API_KEY",
     "METRC_MA_SANDBOX_LICENSE_NUMBER",
 )
+
+
+def _value(values: dict[str, str] | os._Environ[str], name: str) -> str:
+    return str(values.get(name) or "").strip()
 
 
 def _facility_license_number(facility: Any) -> str:
@@ -48,24 +56,51 @@ def _facility_license_number(facility: Any) -> str:
 
 def readiness(environ: dict[str, str] | None = None) -> dict[str, Any]:
     values = environ if environ is not None else os.environ
-    missing = [name for name in REQUIRED_ENV if not str(values.get(name) or "").strip()]
+    missing: list[str] = []
+    if not _value(values, "METRC_INTEGRATOR_API_KEY"):
+        missing.append("METRC_INTEGRATOR_API_KEY")
+    if not (_value(values, "METRC_MA_SANDBOX_USER_API_KEY") or _value(values, "METRC_USER_API_KEY")):
+        missing.append("METRC_MA_SANDBOX_USER_API_KEY")
+    if not (_value(values, "METRC_MA_SANDBOX_LICENSE_NUMBER") or _value(values, "METRC_LICENSE_NUMBER")):
+        missing.append("METRC_MA_SANDBOX_LICENSE_NUMBER")
     if not BASE_URL:
-        missing = [*missing, "METRC_MA_SANDBOX_BASE_URL_VERIFICATION"]
-    license_number = str(values.get("METRC_MA_SANDBOX_LICENSE_NUMBER") or "").strip()
+        missing.append("METRC_MA_SANDBOX_BASE_URL_VERIFICATION")
+
+    credential_error = ""
+    credentials = None
+    if not missing:
+        try:
+            credentials = resolve_ma_sandbox_evaluation_credentials(values)
+        except MetrcEvaluationCredentialError as exc:
+            credential_error = str(exc)
+
+    ready = not missing and not credential_error
+    license_number = credentials.license_number if credentials else ""
     return {
-        "ready": not missing,
-        "status": "ready_for_authenticated_read" if not missing else "credentials_missing",
+        "ready": ready,
+        "status": (
+            "ready_for_authenticated_read"
+            if ready
+            else "credential_conflict"
+            if credential_error
+            else "credentials_missing"
+        ),
         "jurisdiction_code": "MA",
         "environment": ENVIRONMENT,
         "api_base": BASE_URL,
         "missing": missing,
+        "credential_error": credential_error,
+        "user_key_source": credentials.user_key_source if credentials else "",
+        "license_source": credentials.license_source if credentials else "",
         "license_configured": bool(license_number),
         "license_mapping_verified": False,
         "credentials_echoed": False,
         "write_performed": False,
         "next_gate": (
             "Run --live-read to verify authentication and exact facility/license mapping."
-            if not missing
+            if ready
+            else "Clear conflicting MA sandbox credential aliases before any provider request."
+            if credential_error
             else "Obtain Massachusetts Metrc sandbox credentials before provider validation."
         ),
     }
@@ -77,12 +112,18 @@ def live_read(environ: dict[str, str] | None = None, *, timeout_seconds: int = 1
     if not report["ready"]:
         return report
     try:
+        credentials = resolve_ma_sandbox_evaluation_credentials(values)
+    except MetrcEvaluationCredentialError as exc:
+        return report | {
+            "ready": False,
+            "status": "credential_conflict",
+            "credential_error": str(exc),
+            "network_request_sent": False,
+        }
+    try:
         response = requests.get(
             f"{BASE_URL}/facilities/v2/",
-            auth=(
-                str(values["METRC_INTEGRATOR_API_KEY"]).strip(),
-                str(values["METRC_MA_SANDBOX_USER_API_KEY"]).strip(),
-            ),
+            auth=(credentials.integrator_api_key, credentials.user_api_key),
             headers={"Accept": "application/json"},
             timeout=max(1, min(int(timeout_seconds), 60)),
         )
@@ -114,7 +155,7 @@ def live_read(environ: dict[str, str] | None = None, *, timeout_seconds: int = 1
     rows = payload.get("Data") if isinstance(payload, dict) else payload
     facilities = rows if isinstance(rows, list) else []
     facility_count = len(facilities)
-    configured_license = str(values["METRC_MA_SANDBOX_LICENSE_NUMBER"]).strip().casefold()
+    configured_license = credentials.license_number.casefold()
     matched_facility_count = sum(
         1
         for facility in facilities
@@ -130,7 +171,7 @@ def live_read(environ: dict[str, str] | None = None, *, timeout_seconds: int = 1
             "matched_facility_count": 0,
             "license_mapping_verified": False,
             "write_performed": False,
-            "next_gate": "Set METRC_MA_SANDBOX_LICENSE_NUMBER to a license returned by the authenticated Facilities response before loading live Facility Setup data.",
+            "next_gate": "Set the MA sandbox license environment variable to a license returned by the authenticated Facilities response before loading live Facility Setup data.",
         }
     return report | {
         "ready": True,
@@ -156,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     report = live_read(timeout_seconds=args.timeout) if args.live_read else readiness()
     print(json.dumps(report, indent=2, sort_keys=True))
-    if report.get("status") == "credentials_missing":
+    if report.get("status") in {"credentials_missing", "credential_conflict"}:
         return 2
     return 0 if report.get("ready") else 1
 

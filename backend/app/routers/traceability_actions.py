@@ -16,6 +16,7 @@ from services.traceability_dispatcher import TraceabilityDispatcher, Traceabilit
 from ..auth import RequestContext, get_request_context
 from ..config import Settings, get_settings
 from ..database import get_engine
+from ..services.metrc_context import resolve_metrc_context
 
 router = APIRouter(prefix="/traceability-actions", tags=["traceability-actions"])
 DISPATCH_ROLES = {"dev", "admin", "supervisor", "qa"}
@@ -535,10 +536,16 @@ def dispatch_action(
     if not str(settings.integration_encryption_key or "").strip():
         raise HTTPException(503, "Integration credential encryption is not configured.")
     try:
+        _, metrc = resolve_metrc_context(engine, settings, context)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    if not metrc.configured or not metrc.trusted_mapping or metrc.status.casefold() != "connected":
+        raise HTTPException(409, metrc.message or "A connected and trusted Metrc sandbox mapping is required before dispatch.")
+    try:
         return TraceabilityDispatcher(
             engine,
             encryption_key=settings.integration_encryption_key,
-            metrc_integrator_api_key=settings.metrc_integrator_key,
+            metrc_integrator_api_key=metrc.integrator_api_key,
         ).dispatch(
             organization_id=context.organization_id,
             facility_id=context.facility_id,
