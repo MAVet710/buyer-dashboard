@@ -6,71 +6,80 @@ import pytest
 
 from services.metrc_evaluation_workbook_contract import (
     MetrcWorkbookContractError,
+    WORKBOOK_OPTIONAL_DEPENDENCIES,
+    WORKBOOK_PERMISSION_DEPENDENCIES,
     execute_two_plant_harvest_evaluation_action,
-    facility_supports_family,
-    required_families,
-    resolve_permission_family,
-    validate_facility_family,
+    select_facility_for_operation,
     validate_workbook_payload,
     verify_workbook_evidence,
 )
 
 
-def _facility(license_number: str, **capabilities):
+def _facility(name: str, license_number: str, **capabilities):
     return {
         "provider_id": license_number,
         "source": {
+            "Name": name,
             "LicenseNumber": license_number,
             "FacilityType": capabilities,
         },
     }
 
 
-def test_permission_families_follow_workbook_required_dependency_prose() -> None:
-    assert set(required_families("strain_create")) == {"grow", "processor", "labs", "sales"}
-    assert set(required_families("item_update")) == {"grow", "processor", "sales"}
-    assert set(required_families("package_create")) == {"grow", "processor", "labs", "sales"}
-    assert required_families("lab_test_record") == ("labs",)
-    assert required_families("sales_delivery_create") == ("sales",)
-    assert required_families("plant_harvest") == ("grow",)
-    assert required_families("transfer_template_create") == ()
+def _facilities():
+    return [
+        _facility(
+            "Sandbox Marijuana Cultivator",
+            "GROW",
+            CanGrowPlants=True,
+            CanTrackVegetativePlants=True,
+            CanCreateDerivedPackages=True,
+        ),
+        _facility(
+            "Sandbox Independent Testing Laboratory",
+            "LAB",
+            CanTestPackages=True,
+            CanCreateDerivedPackages=True,
+        ),
+        _facility(
+            "Sandbox Marijuana Retailer",
+            "SALE",
+            IsRetail=True,
+            CanSellToConsumers=True,
+            CanDeliverSalesToConsumers=True,
+            CanCreateDerivedPackages=True,
+        ),
+    ]
 
 
-def test_shared_permission_sections_require_explicit_family() -> None:
-    with pytest.raises(MetrcWorkbookContractError, match="multiple facility families"):
-        resolve_permission_family("package_create")
-    assert resolve_permission_family("package_create", "labs") == "labs"
-    assert resolve_permission_family("sales_delivery_create") == "sales"
-    with pytest.raises(MetrcWorkbookContractError, match="optional Transfer Template"):
-        resolve_permission_family("transfer_template_create")
+def test_permission_dependency_table_is_informational_not_extra_task_count() -> None:
+    assert "Strains" in WORKBOOK_PERMISSION_DEPENDENCIES["grow"]
+    assert "Strains" in WORKBOOK_PERMISSION_DEPENDENCIES["labs"]
+    assert "Sales Deliveries" in WORKBOOK_PERMISSION_DEPENDENCIES["sales"]
+    assert WORKBOOK_OPTIONAL_DEPENDENCIES["labs"] == ("Items", "Transfer Templates")
 
 
-def test_facility_family_matching_is_explicit_not_license_number_guessing() -> None:
-    grow = _facility("GROW", CanGrowPlants=True, CanTrackVegetativePlants=True)
-    processor = _facility("PROC", CanInfuseProducts=True)
-    lab = _facility("LAB", CanTestPackages=True)
-    sales = _facility("SALE", CanSellToConsumers=True, CanDeliverSalesToConsumers=True)
-    assert facility_supports_family(grow, "grow") is True
-    assert facility_supports_family(processor, "processor") is True
-    assert facility_supports_family(lab, "labs") is True
-    assert facility_supports_family(sales, "sales") is True
-    assert facility_supports_family(grow, "sales") is False
+def test_runner_selects_dedicated_facility_per_operation_instead_of_one_global_license() -> None:
+    rows = _facilities()
+    assert select_facility_for_operation(operation_type="plant_batch_plantings", facility_records=rows)["license_number"] == "GROW"
+    assert select_facility_for_operation(operation_type="lab_test_record", facility_records=rows)["license_number"] == "LAB"
+    assert select_facility_for_operation(operation_type="sales_delivery_create", facility_records=rows)["license_number"] == "SALE"
 
-    verified = validate_facility_family(
+
+def test_explicit_license_is_validated_against_operation_capability() -> None:
+    rows = _facilities()
+    selected = select_facility_for_operation(
         operation_type="lab_test_record",
-        permission_family="labs",
-        license_number="LAB",
-        facility_records=[grow, processor, lab, sales],
+        facility_records=rows,
+        explicit_license="LAB",
     )
-    assert verified["permission_family"] == "labs"
-    assert verified["license_number"] == "LAB"
+    assert selected["selection"] == "explicit"
 
-    with pytest.raises(MetrcWorkbookContractError, match="does not expose"):
-        validate_facility_family(
+    with pytest.raises(MetrcWorkbookContractError, match="capability profile"):
+        select_facility_for_operation(
             operation_type="lab_test_record",
-            permission_family="labs",
-            license_number="GROW",
-            facility_records=[grow, lab],
+            facility_records=rows,
+            explicit_license="GROW",
         )
 
 
@@ -102,11 +111,11 @@ def _two_plants():
     }
 
 
-def test_task20_requires_exactly_two_distinct_plants_and_shared_harvest_context() -> None:
+def test_task20_requires_two_distinct_plants_and_shared_harvest_context() -> None:
     validate_workbook_payload("plant_harvest", _two_plants())
     one = _two_plants()
     one["plants"] = one["plants"][:1]
-    with pytest.raises(MetrcWorkbookContractError, match="exactly the 2 remaining plants"):
+    with pytest.raises(MetrcWorkbookContractError, match="2 remaining plants"):
         validate_workbook_payload("plant_harvest", one)
 
 
