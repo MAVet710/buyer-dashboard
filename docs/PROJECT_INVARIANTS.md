@@ -5,10 +5,12 @@ These are standing project rules. Treat them as contract, not suggestions. Any c
 ## Local-first execution
 
 - The **local stack** is the active DoobieLogic development/evaluation environment unless Nelson explicitly says otherwise; on Nelson's workstation this means the local Windows stack.
-- Do not assume Render, Cloud Run, or another hosted environment is the execution target for local debugging or the Metrc evaluation.
-- Hosted deployment context may be inspected only when the task is actually about hosted deployment or when hosted evidence is explicitly needed for comparison.
+- The active DoobieLogic application is hosted from Nelson's Windows PC and exposed publicly through Cloudflare/Cloudflare Tunnel unless Nelson explicitly changes that architecture.
+- Do not assume Render, Cloud Run, or another hosted environment is the execution target for local debugging, the live operator app, or the Metrc evaluation unless Nelson explicitly says the hosting architecture changed.
+- Hosted deployment context may be inspected only when the task is actually about that hosted environment or when hosted evidence is explicitly needed for comparison.
 - A local failure must be traced through the local frontend/backend/configuration path before making deployment changes.
-- Local React development uses Vite on port `5173`; `/api` and `/health` proxy to the local FastAPI backend on `127.0.0.1:8000` unless an explicit local override is configured.
+- Local React development uses Vite on port `5173`; `/api` and `/health` proxy to the local FastAPI backend on `127.0.0.1:8080` unless an explicit local override is configured.
+- Port `8000` is not part of the active DoobieLogic application-hosting contract on Nelson's workstation and must not be assumed to be FastAPI.
 
 ## DoobieLogic username login
 

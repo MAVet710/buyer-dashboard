@@ -16,6 +16,7 @@ def test_rebaseline_covers_remaining_evaluation_prerequisite_reads() -> None:
     resources = {name for name, _path in (*PAGED_RESOURCES, *REFERENCE_RESOURCES)}
     assert {
         "locations",
+        "strains",
         "items",
         "plant_batches",
         "plants_vegetative",
@@ -28,6 +29,10 @@ def test_rebaseline_covers_remaining_evaluation_prerequisite_reads() -> None:
         "plant_tags_available",
         "transfer_types",
     } <= resources
+
+
+def test_strain_read_uses_current_v2_active_path() -> None:
+    assert ("strains", "strains/v2/active") in PAGED_RESOURCES
 
 
 def test_transfer_type_reference_uses_current_v2_path() -> None:
