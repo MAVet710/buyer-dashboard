@@ -8,8 +8,13 @@ on:
         required: true
         default: facilities
         type: string
+      facility_family:
+        description: "Permissions family for this execution instance: grow, processor, labs, or sales. Required for shared D/O sections."
+        required: false
+        default: ""
+        type: string
       license_number:
-        description: "Optional exact sandbox facility license for this operation. Leave blank to select the dedicated facility from GET /facilities/v2."
+        description: "Optional exact sandbox facility license for this facility-family operation. Leave blank for live matrix selection."
         required: false
         default: ""
         type: string
@@ -118,6 +123,7 @@ jobs:
         if: ${{ inputs.operation != 'facilities' }}
         env:
           SELECTED_OPERATION: ${{ inputs.operation }}
+          SELECTED_FACILITY_FAMILY: ${{ inputs.facility_family }}
           SELECTED_LICENSE: ${{ inputs.license_number }}
         run: |
           set -euo pipefail
@@ -133,6 +139,9 @@ jobs:
               --payload-file "$RUNNER_TEMP/metrc-evaluation-payload.json"
               --output "artifacts/metrc-evaluation/${SELECTED_OPERATION}.json"
             )
+            if [ -n "$SELECTED_FACILITY_FAMILY" ]; then
+              args+=(--facility-family "$SELECTED_FACILITY_FAMILY")
+            fi
             if [ -n "$SELECTED_LICENSE" ]; then
               args+=(--license-number "$SELECTED_LICENSE")
             fi
@@ -143,6 +152,7 @@ jobs:
         if: ${{ always() }}
         env:
           SELECTED_OPERATION: ${{ inputs.operation }}
+          SELECTED_FACILITY_FAMILY: ${{ inputs.facility_family }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/metrc-evaluation-safe
@@ -157,8 +167,10 @@ jobs:
           allowed = {
               "passed", "ready", "status", "stage", "operation_type", "state",
               "jurisdiction_code", "environment", "http_status", "facility_count",
-              "license_count", "network_request_sent", "write_performed", "message", "next_gate",
-              "sheet_count", "applicable_task_count", "regulator_action_row_count",
+              "license_count", "facility_family", "network_request_sent", "write_performed",
+              "message", "next_gate", "sheet_count", "applicable_task_count",
+              "regulator_action_row_count", "required_d_execution_instance_count",
+              "optional_o_execution_instance_count",
           }
           summaries = []
           for path in sorted(source.glob("*.json")) if source.exists() else []:
@@ -176,6 +188,7 @@ jobs:
               summaries.append(item)
           summary = {
               "operation": os.environ.get("SELECTED_OPERATION", ""),
+              "facility_family": os.environ.get("SELECTED_FACILITY_FAMILY", ""),
               "classification": os.environ.get("METRC_OPERATION_CLASSIFICATION", "unknown"),
               "run_id": os.environ.get("GITHUB_RUN_ID", ""),
               "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
