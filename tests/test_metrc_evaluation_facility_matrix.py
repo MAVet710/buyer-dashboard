@@ -88,6 +88,7 @@ def test_workbook_expands_to_86_required_d_execution_instances() -> None:
     optional = optional_execution_instances(MA_WORKBOOK_TASKS)
     assert len(required) == 86
     assert len(optional) == 26
+    assert sum(row["facility_family"] == "grow" for row in required) == 34
     assert sum(row["facility_family"] == "processor" for row in required) == 17
     assert sum(row["facility_family"] == "labs" for row in required) == 12
-    assert sum(row["facility_family"] == "sales" for row in required) == 20
+    assert sum(row["facility_family"] == "sales" for row in required) == 23
