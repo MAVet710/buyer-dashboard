@@ -4,7 +4,7 @@ These are standing project rules. Treat them as contract, not suggestions. Any c
 
 ## Local-first execution
 
-- The active DoobieLogic development/evaluation environment is Nelson's local Windows stack unless Nelson explicitly says otherwise.
+- The **local stack** is the active DoobieLogic development/evaluation environment unless Nelson explicitly says otherwise; on Nelson's workstation this means the local Windows stack.
 - Do not assume Render, Cloud Run, or another hosted environment is the execution target for local debugging or the Metrc evaluation.
 - Hosted deployment context may be inspected only when the task is actually about hosted deployment or when hosted evidence is explicitly needed for comparison.
 - A local failure must be traced through the local frontend/backend/configuration path before making deployment changes.
@@ -60,6 +60,7 @@ These are standing project rules. Treat them as contract, not suggestions. Any c
 - Discover the facilities visible to the authenticated key pair and select/validate the exact facility appropriate to the specific workbook action.
 - The workbook Permissions sheet D/O grid is an access-dependency table. It does **not** create extra regulator action rows and does **not**, by itself, mean that one shared API action must be repeated once for every Grow/Processor/Lab/Sales family.
 - Do not multiply the 46 action rows into duplicate runs unless the workbook explicitly creates separate verification rows or Metrc explicitly instructs duplicate execution.
+- For a shared section that is valid in several D/O permission contexts, require an explicit facility-family context rather than silently choosing Grow or another family.
 - Grow, Processor, Lab, and Sales remain distinct permission/access contexts for diagnosing authorization and selecting valid fixtures/facilities.
 - Facility type/capability, API-user permission, vendor permission, fixture availability, credential validity, and request correctness are separate evidence categories.
 
