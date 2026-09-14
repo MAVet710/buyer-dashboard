@@ -7,9 +7,9 @@ diagnosed separately by `scripts/diagnose_local_username_login.py`.
 
 The command combines the two existing read-only Massachusetts diagnostics:
 
-- evaluation rebaseline: locations, items, plant batches, plants, harvests,
-  sales receipts/deliveries, outgoing transfer templates, available tags, and
-  live transfer types;
+- evaluation rebaseline: locations, strains, items, plant batches, plants,
+  harvests, sales receipts/deliveries, outgoing transfer templates, available
+  tags, and live transfer types;
 - resume diagnostic: facilities/capability evidence, active/lab packages,
   lab types, sales customer types, and incoming/outgoing/rejected transfers.
 
@@ -81,13 +81,13 @@ def _run_read_only(
 
 
 def _healthy(result: dict[str, Any]) -> bool:
+    # Ready means this invocation returned fresh facility evidence. Reusing a
+    # completed run ID is intentionally not treated as execution-ready because
+    # the returned sentinel does not contain the prior provider snapshot.
     return bool(
         result.get("read_only") is True
         and int(result.get("mutations_sent") or 0) == 0
-        and (
-            int(result.get("facility_count") or 0) > 0
-            or result.get("status") == "already_completed"
-        )
+        and int(result.get("facility_count") or 0) > 0
     )
 
 
@@ -138,7 +138,7 @@ def main() -> None:
         "blocker_snapshot_error_class": blocker_error,
         "coverage": {
             "facilities_and_task17_capability": True,
-            "locations_items_plant_batches_plants_harvests": True,
+            "locations_strains_items_plant_batches_plants_harvests": True,
             "active_and_lab_packages": True,
             "package_and_plant_tags": True,
             "lab_types_and_sales_customer_types": True,
