@@ -26,8 +26,9 @@ def test_app_import_never_starts_mutation_capable_metrc_evaluation_workers() -> 
     assert "_start_metrc_package_alt_item_if_requested" not in calls
 
 
-def test_app_import_keeps_only_get_only_metrc_resume_diagnostics_runtime_gated() -> None:
+def test_app_import_keeps_only_get_only_metrc_diagnostics_runtime_gated() -> None:
     calls = _top_level_calls("backend/app/__init__.py")
 
     assert "_start_metrc_resume_diagnostic_if_requested" in calls
     assert "_start_metrc_resume_detail_if_requested" in calls
+    assert "_start_metrc_evaluation_rebaseline_if_requested" in calls

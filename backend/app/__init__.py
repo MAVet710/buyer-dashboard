@@ -1,8 +1,8 @@
 """DoobieLogic HTTP API package.
 
-Only explicitly requested GET-only Massachusetts Metrc resume diagnostics may
-start as application import side effects. Mutation-capable package preparation
-and evaluation helpers must be invoked through an explicit operator-controlled
+Only explicitly requested GET-only Massachusetts Metrc diagnostics may start as
+application import side effects. Mutation-capable package preparation and
+evaluation helpers must be invoked through an explicit operator-controlled
 execution path; persistent environment variables must never replay them on a
 service restart or deployment.
 """
@@ -66,6 +66,31 @@ def _start_metrc_resume_detail_if_requested() -> None:
             logger.exception("METRC_RESUME_DETAIL_FAILED run_id=%s", run_id)
 
     threading.Thread(target=worker, name="metrc-resume-detail", daemon=True).start()
+
+
+def _start_metrc_evaluation_rebaseline_if_requested() -> None:
+    run_id = str(os.environ.get("METRC_EVALUATION_REBASELINE_RUN_ID") or "").strip()
+    if not run_id:
+        return
+
+    def worker() -> None:
+        time.sleep(8)
+        try:
+            from .config import get_settings
+            from .database import get_engine
+            from .services.metrc_evaluation_rebaseline import run_server_evaluation_rebaseline
+
+            result = run_server_evaluation_rebaseline(get_engine(), get_settings(), run_id)
+            logger.info(
+                "METRC_EVALUATION_REBASELINE_COMPLETE run_id=%s status=%s facilities=%s",
+                run_id,
+                result.get("status", "complete"),
+                result.get("facility_count", 0),
+            )
+        except Exception:
+            logger.exception("METRC_EVALUATION_REBASELINE_FAILED run_id=%s", run_id)
+
+    threading.Thread(target=worker, name="metrc-evaluation-rebaseline", daemon=True).start()
 
 
 def _start_metrc_package_alt_item_if_requested() -> None:
@@ -138,3 +163,4 @@ def _start_metrc_package_eval_if_requested() -> None:
 # environment variable must never replay an evaluation operation after restart.
 _start_metrc_resume_diagnostic_if_requested()
 _start_metrc_resume_detail_if_requested()
+_start_metrc_evaluation_rebaseline_if_requested()
