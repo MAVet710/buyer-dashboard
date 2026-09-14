@@ -5,6 +5,12 @@ The runner covers every Massachusetts-applicable task family in the 10.2025
 Generic Evaluation workbook. It never accepts an arbitrary provider method/path.
 Writes are sandbox-only reviewed adapters; list reads walk every provider page.
 Secrets are read from environment variables and never written to evidence files.
+
+The regulator workbook contains 46 explicit action rows. DoobieLogic retains one
+additional internal prerequisite entry for GET /facilities/v2 so historical
+evidence numbering remains stable. Evaluation reruns consume the existing saved
+vendor/user key pair only; provisioning and user-key generation are separate,
+explicit admin actions and are never invoked by this runner.
 """
 
 from __future__ import annotations
@@ -40,6 +46,10 @@ from services.metrc_evaluation_transfers import (
 from services.metrc_evaluation_verification import verify_transfer_workbook_read
 from services.metrc_evaluation_workbook import ma_workbook_plan
 from services.metrc_task17_preflight import TASK17_OPERATION, execute_task17_evaluation_action
+
+
+REGULATOR_ACTION_ROW_COUNT = 46
+INTERNAL_PREREQUISITE_COUNT = 1
 
 
 def _write_evidence(path: str, evidence: dict[str, Any]) -> None:
@@ -79,7 +89,7 @@ def _facilities(integrator_key: str, user_key: str) -> dict[str, Any]:
         "message": (
             "Metrc facilities returned HTTP 200 with verifiable facility/permission records."
             if passed
-            else str(result.get("message") or "The facilities workbook row requires at least one verifiable facility record.")
+            else str(result.get("message") or "The facilities prerequisite requires at least one verifiable facility record.")
         ),
     }
 
@@ -93,6 +103,35 @@ def _load_payload(path: str, *, required: bool) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise SystemExit("The payload file must contain one JSON object.")
     return raw
+
+
+def _annotate_workbook_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    plan["regulator_action_row_count"] = REGULATOR_ACTION_ROW_COUNT
+    plan["internal_prerequisite_count"] = INTERNAL_PREREQUISITE_COUNT
+    plan["internal_check_count"] = int(plan.get("applicable_task_count") or 0)
+    plan["counting_note"] = (
+        "Generic Evaluation 10.2025 contains 46 explicit regulator action rows. "
+        "DoobieLogic retains GET /facilities/v2 as one mandatory internal prerequisite, "
+        "so historical evidence uses 47 internal checks without claiming that the regulator workbook has 47 action rows."
+    )
+    plan["ma_open_loop_context"] = {
+        "closed_loop_environment_sheet_required_as_context": True,
+        "closed_loop_states_plantbatches_task_sheet_applicable": False,
+        "note": (
+            "Massachusetts is marked Open Loop=YES and the States sheet directs evaluators "
+            "to the Closed Loop Environment sheet for starting-inventory guidance."
+        ),
+    }
+    plan["credential_policy"] = {
+        "reuse_existing_user_api_key": True,
+        "generate_user_api_key": False,
+        "call_integrator_setup": False,
+        "note": (
+            "This runner is Postman-equivalent: it consumes the existing vendor key, existing user key, "
+            "exact licenseNumber, reviewed endpoint, and reviewed payload. It never provisions or rotates credentials."
+        ),
+    }
+    return plan
 
 
 def main() -> None:
@@ -114,11 +153,12 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.operation == "workbook_plan":
-        plan = ma_workbook_plan()
+        plan = _annotate_workbook_plan(ma_workbook_plan())
         plan["submission_context"] = ma_submission_context()
         _write_evidence(args.output, plan)
         print(f"Workbook sheets: {plan['sheet_count']}")
-        print(f"MA applicable task rows: {plan['applicable_task_count']}")
+        print(f"Regulator action rows: {plan['regulator_action_row_count']}")
+        print(f"Internal prerequisite checks: {plan['internal_prerequisite_count']}")
         return
 
     try:
