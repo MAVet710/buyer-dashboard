@@ -48,12 +48,14 @@ def resolve_ma_sandbox_evaluation_credentials(
     *,
     require_license: bool = True,
 ) -> MaSandboxEvaluationCredentials:
-    """Resolve one unambiguous credential set for all local MA evaluation tooling.
+    """Resolve the existing MA sandbox vendor/user credential pair.
 
-    Historical tooling used both generic evaluation names and MA-specific sandbox
-    names. GitHub workflows alias them to the same secret, but local shells may
-    retain different stale values. Never choose silently when both are populated
-    differently; an ambiguous credential pair is less safe than refusing to run.
+    User-key aliases are always checked for conflict because they represent the
+    credential itself.  A facility license is optional for discovery-driven
+    evaluation runs: the workbook contains multiple facility-specific sections,
+    so one process-global license must not be silently forced onto every task.
+    When a caller truly requires a fixed license, ``require_license=True`` keeps
+    the historical fail-closed alias behavior.
     """
 
     values = environ if environ is not None else os.environ
@@ -64,12 +66,19 @@ def resolve_ma_sandbox_evaluation_credentials(
         generic_name="METRC_USER_API_KEY",
         label="MA sandbox user API key environment variables",
     )
-    license_number, license_source = _aliased_value(
-        values,
-        scoped_name="METRC_MA_SANDBOX_LICENSE_NUMBER",
-        generic_name="METRC_LICENSE_NUMBER",
-        label="MA sandbox license environment variables",
-    )
+
+    if require_license:
+        license_number, license_source = _aliased_value(
+            values,
+            scoped_name="METRC_MA_SANDBOX_LICENSE_NUMBER",
+            generic_name="METRC_LICENSE_NUMBER",
+            label="MA sandbox license environment variables",
+        )
+    else:
+        # Discovery-driven callers intentionally do not inherit a stale global
+        # license.  An exact task license is selected from GET /facilities/v2 or
+        # supplied explicitly at the operation boundary.
+        license_number, license_source = "", ""
 
     missing: list[str] = []
     if not integrator:
