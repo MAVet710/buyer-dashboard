@@ -12,11 +12,15 @@ def test_local_doobielogic_runtime_uses_fastapi_8080_not_8000() -> None:
     vite = _read("frontend/vite.config.ts")
     env_example = _read("frontend/.env.example")
     diagnostic = _read("scripts/diagnose_local_username_login.py")
+    policy = _read("docs/PROJECT_INVARIANTS.md")
 
     assert '127.0.0.1:8080' in vite
     assert 'localhost:8000' not in vite
     assert 'VITE_API_URL=http://127.0.0.1:8080' in env_example
     assert 'DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8080"' in diagnostic
+    assert '127.0.0.1:8080' in policy
+    assert 'Cloudflare/Cloudflare Tunnel' in policy
+    assert 'Port `8000` is not part of the active DoobieLogic application-hosting contract' in policy
 
 
 def test_metrc_local_precheck_is_independent_from_doobielogic_login() -> None:
