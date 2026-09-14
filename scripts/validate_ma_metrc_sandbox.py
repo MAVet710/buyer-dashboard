@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Validate readiness for DoobieLogic's Massachusetts Metrc sandbox pilot.
+"""Validate the existing Massachusetts Metrc sandbox credential pair.
 
-The default command performs no network request and never prints credentials.
-Use ``--live-read`` only after real sandbox credentials are available to verify
-authentication with the read-only Facilities endpoint. This script deliberately
-has no write flag: the first provider mutation must flow through the application's
-human-approved durable action/traceability path so its audit evidence is kept.
+The live gate performs one read-only GET /facilities/v2 request.  It validates
+vendor/user authentication and reports the facilities visible to the existing
+API User Key.  It intentionally does not require one global license because the
+evaluation contains actions that belong in different facility contexts.
 """
 
 from __future__ import annotations
@@ -30,7 +29,6 @@ BASE_URL, _STATE_CODE = resolve_metrc_base_url("MA", environment=ENVIRONMENT)
 REQUIRED_ENV = (
     "METRC_INTEGRATOR_API_KEY",
     "METRC_MA_SANDBOX_USER_API_KEY",
-    "METRC_MA_SANDBOX_LICENSE_NUMBER",
 )
 
 
@@ -61,8 +59,6 @@ def readiness(environ: dict[str, str] | None = None) -> dict[str, Any]:
         missing.append("METRC_INTEGRATOR_API_KEY")
     if not (_value(values, "METRC_MA_SANDBOX_USER_API_KEY") or _value(values, "METRC_USER_API_KEY")):
         missing.append("METRC_MA_SANDBOX_USER_API_KEY")
-    if not (_value(values, "METRC_MA_SANDBOX_LICENSE_NUMBER") or _value(values, "METRC_LICENSE_NUMBER")):
-        missing.append("METRC_MA_SANDBOX_LICENSE_NUMBER")
     if not BASE_URL:
         missing.append("METRC_MA_SANDBOX_BASE_URL_VERIFICATION")
 
@@ -70,12 +66,11 @@ def readiness(environ: dict[str, str] | None = None) -> dict[str, Any]:
     credentials = None
     if not missing:
         try:
-            credentials = resolve_ma_sandbox_evaluation_credentials(values)
+            credentials = resolve_ma_sandbox_evaluation_credentials(values, require_license=False)
         except MetrcEvaluationCredentialError as exc:
             credential_error = str(exc)
 
     ready = not missing and not credential_error
-    license_number = credentials.license_number if credentials else ""
     return {
         "ready": ready,
         "status": (
@@ -91,17 +86,15 @@ def readiness(environ: dict[str, str] | None = None) -> dict[str, Any]:
         "missing": missing,
         "credential_error": credential_error,
         "user_key_source": credentials.user_key_source if credentials else "",
-        "license_source": credentials.license_source if credentials else "",
-        "license_configured": bool(license_number),
-        "license_mapping_verified": False,
+        "license_required_for_authentication": False,
         "credentials_echoed": False,
         "write_performed": False,
         "next_gate": (
-            "Run --live-read to verify authentication and exact facility/license mapping."
+            "Run --live-read to verify the existing key pair and discover the facilities visible to that user key."
             if ready
             else "Clear conflicting MA sandbox credential aliases before any provider request."
             if credential_error
-            else "Obtain Massachusetts Metrc sandbox credentials before provider validation."
+            else "Configure the existing Massachusetts Metrc sandbox credentials before provider validation."
         ),
     }
 
@@ -112,7 +105,7 @@ def live_read(environ: dict[str, str] | None = None, *, timeout_seconds: int = 1
     if not report["ready"]:
         return report
     try:
-        credentials = resolve_ma_sandbox_evaluation_credentials(values)
+        credentials = resolve_ma_sandbox_evaluation_credentials(values, require_license=False)
     except MetrcEvaluationCredentialError as exc:
         return report | {
             "ready": False,
@@ -154,35 +147,29 @@ def live_read(environ: dict[str, str] | None = None, *, timeout_seconds: int = 1
         payload = None
     rows = payload.get("Data") if isinstance(payload, dict) else payload
     facilities = rows if isinstance(rows, list) else []
-    facility_count = len(facilities)
-    configured_license = credentials.license_number.casefold()
-    matched_facility_count = sum(
-        1
-        for facility in facilities
-        if _facility_license_number(facility).casefold() == configured_license
-    )
-    if matched_facility_count < 1:
+    licenses = sorted({token for token in (_facility_license_number(row) for row in facilities) if token})
+    if not licenses:
         return report | {
             "ready": False,
-            "status": "license_mapping_not_found",
+            "status": "facilities_missing",
             "network_request_sent": True,
             "http_status": response.status_code,
-            "facility_count": facility_count,
-            "matched_facility_count": 0,
-            "license_mapping_verified": False,
+            "facility_count": 0,
             "write_performed": False,
-            "next_gate": "Set the MA sandbox license environment variable to a license returned by the authenticated Facilities response before loading live Facility Setup data.",
+            "next_gate": "The authenticated key pair returned no verifiable facility/license records.",
         }
     return report | {
         "ready": True,
         "status": "authenticated_read_verified",
         "network_request_sent": True,
         "http_status": response.status_code,
-        "facility_count": facility_count,
-        "matched_facility_count": matched_facility_count,
-        "license_mapping_verified": True,
+        "facility_count": len(facilities),
+        "license_count": len(licenses),
         "write_performed": False,
-        "next_gate": "Facility/license mapping is verified. Use DoobieLogic's bounded MA evaluation workflow for the next workbook operation; do not bypass the application action ledger for regulated mutations.",
+        "next_gate": (
+            "Authentication is verified. Select the exact facility per workbook operation from this Facilities response; "
+            "do not force one process-global license onto every evaluation task."
+        ),
     }
 
 
