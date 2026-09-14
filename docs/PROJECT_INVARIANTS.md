@@ -4,37 +4,48 @@ These are standing project rules. Treat them as contract, not suggestions. Any c
 
 ## Local-first execution
 
-- The active DoobieLogic development/evaluation environment is the user's local stack unless the user explicitly says otherwise.
+- The active DoobieLogic development/evaluation environment is Nelson's local Windows stack unless Nelson explicitly says otherwise.
 - Do not assume Render, Cloud Run, or another hosted environment is the execution target for local debugging or the Metrc evaluation.
-- Hosted deployment context may be inspected only when the user explicitly asks for hosted deployment work.
+- Hosted deployment context may be inspected only when the task is actually about hosted deployment or when hosted evidence is explicitly needed for comparison.
+- A local failure must be traced through the local frontend/backend/configuration path before making deployment changes.
+- Local React development uses Vite on port `5173`; `/api` and `/health` proxy to the local FastAPI backend on `127.0.0.1:8000` unless an explicit local override is configured.
 
 ## DoobieLogic username login
 
+- `God` is Nelson's DoobieLogic application username. It is unrelated to Metrc credentials, Metrc facilities, Metrc licenses, or the Metrc API User Key.
 - DoobieLogic supports durable username login through `POST /api/v1/account/username-login`.
-- Username matching is case-insensitive via `normalized_username`.
-- A username is resolved to the durable `app_users` row, then the linked Supabase auth identity is authenticated.
-- The returned Supabase auth user id must match the durable DoobieLogic `AppUser.id` before a session is issued.
+- Username matching is case-insensitive via `normalized_username`; `God` resolves through `god` while preserving the canonical durable user identity.
+- A username is resolved to the durable `app_users` row, then the linked Supabase Auth identity is authenticated.
+- The returned Supabase Auth user id must match the durable DoobieLogic `AppUser.id` before a session is issued.
+- The durable `app_users` row and linked `auth.users` identity must preserve the same UUID and linked email. Diagnose the existing identity/link/configuration before creating, recreating, or relinking a user.
 - Do not fabricate an email address from a username in the browser.
 - Do not silently switch a user from username login to email login.
 - Do not create a replacement DoobieLogic user simply because username login fails.
-- For the current owner/developer account, the intended local login username is `God`. This is a login identifier, not a password or secret. Never commit or log the corresponding password.
+- Never commit, log, or expose the password for `God` or any other user.
+- A local `God` login regression must be traced end to end: Vite `/api` request -> local FastAPI `/api/v1/account/username-login` -> local backend Supabase configuration -> linked Supabase Auth identity/session.
+- Do not assume a healthy durable user record proves local login is healthy. Verify that the local frontend reaches the intended local FastAPI process and that the local FastAPI process points to the intended Supabase project.
 
 ## Metrc evaluation credentials
 
-- The existing active Metrc Vendor/Integrator Key and existing active API User Key are reused for evaluation reruns.
+- Reuse Nelson's existing active Metrc Vendor/Integrator Key and existing active API User Key for evaluation reruns.
+- The existing API User Key is considered active/useable unless direct provider evidence proves otherwise.
 - Evaluation code must never call `POST /sandbox/v2/integrator/setup`.
 - Evaluation code must never generate, rotate, replace, or overwrite the API User Key.
-- A Metrc sandbox data reset does not imply credential invalidation.
+- `POST /sandbox/v2/integrator/setup` is a separate user-key bootstrap operation using the documented `x-metrc-key` vendor-key header; it is not part of an evaluation rerun.
+- A Metrc sandbox data reset does not imply credential invalidation; Metrc states that user/vendor keys are preserved through generic-data resets.
 - Never expose raw Metrc keys in logs, JSON evidence, Markdown, CI summaries, or Git history.
 - Credential fingerprints are allowed when needed for evidence.
+- An action-specific HTTP 401 must not automatically be classified as an invalid key. The workbook explicitly notes that 401 commonly indicates that the action permission is not enabled for the API user.
 
 ## Metrc evaluation source of truth
 
 - The actual regulator-provided `Generic_Evaluation_for_All_States_MASTER 10.2025` XLSX is the evaluation contract.
 - Current official Massachusetts Metrc v2 documentation is the API contract.
-- Live `GET /facilities/v2/` state is the facility/capability routing contract.
+- Postman is only an example client mentioned by Metrc. It is not a special evaluation mode or architecture requirement.
+- Live `GET /facilities/v2/` state is the facility/capability routing evidence.
 - Provider readback is required before an action can be credited as passed.
 - Unit tests, code readiness, or a locally valid payload do not count as regulator evidence.
+- Never promote an example, historical assumption, support hypothesis, or diagnostic convention into an evaluation rule without direct workbook/documentation support.
 
 ## Evaluation counting
 
@@ -43,38 +54,70 @@ These are standing project rules. Treat them as contract, not suggestions. Any c
 - Historical evidence numbering remains 47 internal checks for compatibility.
 - Reports must distinguish 46 regulator action rows from 47 internal checks.
 
-## Facility permissions
+## Facility permissions and routing
 
 - Do not force one global Metrc license onto the entire evaluation.
-- The workbook Permissions sheet controls which sections are required for Grow, Processor, Labs, and Sales.
-- Sections marked `D` are completed per applicable facility family.
-- Shared sections may therefore require execution/evidence in more than one facility family.
-- Facility selection must be data-driven from the authenticated Facilities response and the workbook permission matrix.
-- Processor, Grow, Lab, and Sales are separate permission families even when one physical sandbox facility exposes multiple capabilities.
+- Discover the facilities visible to the authenticated key pair and select/validate the exact facility appropriate to the specific workbook action.
+- The workbook Permissions sheet D/O grid is an access-dependency table. It does **not** create extra regulator action rows and does **not**, by itself, mean that one shared API action must be repeated once for every Grow/Processor/Lab/Sales family.
+- Do not multiply the 46 action rows into duplicate runs unless the workbook explicitly creates separate verification rows or Metrc explicitly instructs duplicate execution.
+- Grow, Processor, Lab, and Sales remain distinct permission/access contexts for diagnosing authorization and selecting valid fixtures/facilities.
+- Facility type/capability, API-user permission, vendor permission, fixture availability, credential validity, and request correctness are separate evidence categories.
+
+## Evaluation dependencies
+
+- Do not infer cross-task dependencies that the workbook does not state.
+- A blocked Task 17 does not automatically block every later Plants/Harvest task. Each action must be evaluated against the literal workbook wording and the provider objects it actually requires.
+- Where the workbook explicitly says "created in Step 1", "using the delivery created above", "package created in Step 1", or equivalent, preserve that exact object identity through subsequent steps and verify it by provider ID/readback.
+- Where the workbook allows an existing provider object, do not invent a dependency on an earlier evaluation-created object.
 
 ## Evaluation writes
 
 - Refresh current provider state before resuming a branch because generic sandbox data can reset.
-- Validate workbook semantics before dispatch, not merely the JSON schema.
+- Validate workbook semantics and required source state before dispatch, not merely the JSON schema.
 - Persist mutation intent before dispatch where the governed action ledger supports it.
 - Send a mutation once.
 - Never automatically replay POST, PUT, or DELETE after timeout, ambiguous connection failure, HTTP 429, or HTTP 5xx.
 - Ambiguous writes become `RECONCILIATION_REQUIRED` until provider state proves the outcome.
 - Do not mutate or delete generic provider data that the evaluation did not create unless the workbook or Metrc explicitly directs it.
+- Provider-changing evaluation workers must never run automatically on application import, startup, restart, or deployment.
+- HTTP 200 alone is insufficient when the workbook requires a specific field/state change; readback must prove the literal task.
+- Do not change the authoritative evaluation score from inferred provider state. Only centralized verified-pass scoring may advance it.
+
+## Literal workbook rules currently enforced
+
+- Plant Batches Step 1: create a new batch containing exactly 6 plants.
+- Plant Batches Step 2: package exactly 3 clones from the Step 1 batch.
+- Plant Batches Step 3: move exactly 2 plants to Vegetative using individual tags.
+- Plant Batches Step 4: destroy/delete exactly 1 plant.
+- Plants Step 1: move an existing Flowering Plant to a different location.
+- Plants Step 6: use exactly 2 remaining plants to create one harvest; both plants must use the exact same harvest name on the same calendar day.
+- Harvest Step 2: remove the remaining harvest weight as waste; moisture loss is explicitly not waste.
+- Packages Step 3: the adjustment must result in final package quantity 0 and provider readback must prove quantity 0.
+- Package finish/unfinish must operate on the exact evaluation package and verified preceding state.
+- Sales Delivery sequence is exactly 3 transactions -> remove 1 so 2 remain -> complete with exactly 1 accepted package and 1 returned package.
+- Lab Results requires an eligible existing package in the Lab.
+- Transfer/Wholesale find tasks require actual matching provider records; HTTP 200 with an empty result does not pass a find-record task.
+- Transfer Templates require two created templates, retrieval of both using the requested date search, required template-linked delivery evidence, and update of one template created in the evaluation.
 
 ## Task 17
 
-- Task 17 (`POST /plants/v2/plantbatch/packages`) is one example of the broader permission/facility problem, not the center of the project.
+- Task 17 (`POST /plants/v2/plantbatch/packages`) is one action in the evaluation, not the center of the evaluation architecture.
 - Do not mark it N/A.
-- Do not infer invalid credentials from an action-specific HTTP 401.
+- Do not infer invalid credentials from its action-specific HTTP 401.
 - Do not blindly retry it.
 - Keep facility capability, user permission, vendor permission, fixture readiness, request contract, and provider result as separate evidence categories.
 
 ## Workbook submission
 
-- Preserve the original 22-sheet workbook and exact sheet names.
+- Preserve the original 22-sheet workbook and exact sheet names, including intentional trailing spaces.
 - `Closed Loop Environment ` is Massachusetts open-loop setup context; `Closed Loop States PlantBatches` remains N/A for MA.
 - CompanyInformation alone is not a submission-complete workbook.
-- Populate evaluator-owned verification/result fields from real evidence.
-- Never modify `Metrc Use Only` cells.
+- Populate evaluator-owned verification/result fields from real evidence: result code, facility license, provider ID, last-modified value, required name/tag, request, and minified JSON/response as applicable.
+- Never modify `Metrc Use Only` cells, regulator formulas, formatting, or unrelated workbook content.
 - Raw keys may appear only in the private local submission workbook cells that explicitly require them, never in committed artifacts.
+
+## Regression discipline
+
+- Every confirmed root-cause fix should gain a regression test wherever practical.
+- A future agent must read this file before changing authentication, local execution, Metrc evaluation logic, facility routing, credentials, scoring, or workbook submission behavior.
+- If code, tests, docs, or prior chat context conflicts with these invariants, stop and resolve the conflict from the authoritative workbook/current docs rather than silently choosing one interpretation.
