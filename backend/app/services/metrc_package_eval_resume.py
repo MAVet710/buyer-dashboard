@@ -22,6 +22,7 @@ from services.metrc_existing_package_tag import (
     ExistingPackageTagError, load_existing_tag_allocation,
     verify_allocation_resume, verify_existing_tag_available,
 )
+from services.metrc_facility_capabilities import provider_capability
 from services.metrc_resume_response import (
     ResumeResponseError, collection_values, numeric, object_rows, package_record,
     reference_names, total_pages, validate_sandbox_url, verify_package,
@@ -81,6 +82,35 @@ def _sanitize(value: Any, secrets: tuple[str, ...]) -> Any:
             if secret:
                 value = value.replace(secret, "[REDACTED]")
     return value
+
+
+def _provider_error_summary(response: requests.Response, secrets: tuple[str, ...]) -> str:
+    """Keep a bounded provider error reason without preserving credentials or full bodies."""
+
+    value: Any = ""
+    if response.content:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            for key in ("Message", "message", "Error", "error", "Errors", "errors"):
+                if key in payload:
+                    value = payload.get(key)
+                    break
+        elif isinstance(payload, list):
+            value = payload[:3]
+        if not value:
+            try:
+                value = response.text
+            except Exception:
+                value = ""
+    safe = _sanitize(value, secrets)
+    if isinstance(safe, (dict, list)):
+        text_value = json.dumps(safe, sort_keys=True, default=str)
+    else:
+        text_value = str(safe or "")
+    return " ".join(text_value.split())[:500]
 
 
 @contextmanager
@@ -188,7 +218,12 @@ class _Provider:
         evidence = {"method": "GET", "path": path, "query": params,
                     "started_at": started, "completed_at": _now(), "http_status": response.status_code}
         if response.status_code != 200:
-            raise MetrcPackageResumeError(f"Read {path} returned HTTP {response.status_code}.")
+            detail = _provider_error_summary(
+                response,
+                (self.metrc.integrator_api_key, self.metrc.user_api_key),
+            )
+            suffix = f" Provider: {detail}" if detail else ""
+            raise MetrcPackageResumeError(f"Read {path} returned HTTP {response.status_code}.{suffix}")
         try:
             body = response.json()
         except ValueError as exc:
@@ -387,7 +422,7 @@ def run_package_tasks_25_26(engine: Engine, settings: Settings, run_id: str) -> 
                 "alternate_item": alternate, "tag_type_readback": type_read,
                 "available_tag_count": len(before), "sales_customer_types": customers,
                 "license_number": metrc.license_number,
-                "task17_capability": (selected[0].get("FacilityType") or {}).get("CanCreateImmaturePlantPackagesFromPlants"),
+                "task17_capability": provider_capability(selected[0], "CanCreateImmaturePlantPackagesFromPlants"),
                 "facility_discovery_http": facility_read["http_status"],
                 "dependency_basis": "Packages Step 1 explicitly permits an existing package; tasks 17-24 remain outstanding."})
             if config["mode"] != "execute":

@@ -20,6 +20,7 @@ from services.metrc_existing_package_tag import (
     ExistingPackageTagError, load_existing_tag_allocation,
     verify_allocation_resume, verify_existing_tag_available,
 )
+from services.metrc_facility_capabilities import provider_capability
 from services.metrc_resume_response import ResumeResponseError, object_rows, verify_package
 
 RUN = "TEST-PKG-RUN"
@@ -129,7 +130,8 @@ def runner_functions():
            "hashlib": hashlib, "ZoneInfo": ZoneInfo, "EVALUATION_BASE_RUN": BASE,
            "SOURCE_ITEM": BASE + "-Clones", "ENTITY_TYPE": "metrc_package_eval_resume",
            "TAG_PATTERN": re.compile(r"^[A-Z0-9]{20,32}$"), "object_rows": object_rows,
-           "verify_package": verify_package, "ResumeResponseError": ResumeResponseError,
+           "verify_package": verify_package, "provider_capability": provider_capability,
+           "ResumeResponseError": ResumeResponseError,
            "ExistingPackageTagError": ExistingPackageTagError,
            "load_existing_tag_allocation": load_existing_tag_allocation,
            "verify_existing_tag_available": verify_existing_tag_available,
