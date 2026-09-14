@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session
 from modules.coman.models import AuditEvent
 from modules.integrations.models import IntegrationConfiguration
 from modules.regulatory.registry import resolve_metrc_base_url
+from services.metrc_facility_capabilities import provider_capability
 from ..auth import RequestContext
 from ..config import Settings
 from .metrc_context import resolve_metrc_context
-from .metrc_resume_diagnostics import _get, _paged, _reference, _scope_user_id
+from .metrc_resume_diagnostics import _get, _paged, _reference, _rows, _scope_user_id
 
 MAX_CANDIDATES = 20
 
@@ -145,7 +146,7 @@ def run_server_resume_detail(engine: Engine, settings: Settings, run_id: str) ->
         auth = (metrc.integrator_api_key, metrc.user_api_key)
 
         facilities_status, facilities_payload = _get(base_url, "facilities/v2/", auth)
-        facility_rows = facilities_payload if isinstance(facilities_payload, list) else []
+        facility_rows = _rows(facilities_payload)
         provider_facility = next(
             (
                 row for row in facility_rows
@@ -154,7 +155,7 @@ def run_server_resume_detail(engine: Engine, settings: Settings, run_id: str) ->
             {},
         )
         facility_type = provider_facility.get("FacilityType") if isinstance(provider_facility.get("FacilityType"), dict) else {}
-        capability = facility_type.get("CanCreateImmaturePlantPackagesFromPlants") if isinstance(facility_type, dict) else None
+        capability = provider_capability(provider_facility, "CanCreateImmaturePlantPackagesFromPlants")
         if capability is True:
             true_count += 1
         elif capability is False:

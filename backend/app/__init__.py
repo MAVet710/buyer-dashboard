@@ -1,8 +1,10 @@
 """DoobieLogic HTTP API package.
 
-One-shot Massachusetts Metrc resume helpers are explicitly runtime-gated. The
-resume diagnostics are GET-only. Package-evaluation preparation and execution
-are absent unless their exact environment run IDs are deliberately set.
+Only explicitly requested GET-only Massachusetts Metrc resume diagnostics may
+start as application import side effects. Mutation-capable package preparation
+and evaluation helpers must be invoked through an explicit operator-controlled
+execution path; persistent environment variables must never replay them on a
+service restart or deployment.
 """
 
 from __future__ import annotations
@@ -67,6 +69,8 @@ def _start_metrc_resume_detail_if_requested() -> None:
 
 
 def _start_metrc_package_alt_item_if_requested() -> None:
+    """Legacy explicit helper; deliberately never called during app import."""
+
     run_id = str(os.environ.get("METRC_PACKAGE_ALT_ITEM_RUN_ID") or "").strip()
     if not run_id:
         return
@@ -97,6 +101,8 @@ def _start_metrc_package_alt_item_if_requested() -> None:
 
 
 def _start_metrc_package_eval_if_requested() -> None:
+    """Legacy explicit helper; deliberately never called during app import."""
+
     run_id = str(os.environ.get("METRC_PACKAGE_EVAL_RUN_ID") or "").strip()
     if not run_id:
         return
@@ -127,7 +133,8 @@ def _start_metrc_package_eval_if_requested() -> None:
     threading.Thread(target=worker, name="metrc-package-eval", daemon=True).start()
 
 
+# Import-time startup is limited to GET-only diagnostics. Package-evaluation and
+# alternate-item helpers are intentionally not called here: a persistent hosted
+# environment variable must never replay an evaluation operation after restart.
 _start_metrc_resume_diagnostic_if_requested()
 _start_metrc_resume_detail_if_requested()
-_start_metrc_package_alt_item_if_requested()
-_start_metrc_package_eval_if_requested()

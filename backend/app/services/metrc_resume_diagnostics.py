@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from modules.coman.models import AuditEvent
 from modules.integrations.models import IntegrationConfiguration
 from modules.regulatory.registry import resolve_metrc_base_url
+from services.metrc_facility_capabilities import provider_capability
 from ..auth import RequestContext
 from ..config import Settings
 from .metrc_context import resolve_metrc_context
@@ -219,8 +220,7 @@ def run_server_resume_diagnostic(engine: Engine, settings: Settings, run_id: str
             ),
             {},
         )
-        facility_type = facility.get("FacilityType") if isinstance(facility.get("FacilityType"), dict) else {}
-        capability = facility_type.get("CanCreateImmaturePlantPackagesFromPlants") if isinstance(facility_type, dict) else None
+        capability = provider_capability(facility, "CanCreateImmaturePlantPackagesFromPlants")
         if capability is True:
             true_count += 1
         elif capability is False:
