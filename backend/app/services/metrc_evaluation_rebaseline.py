@@ -20,6 +20,7 @@ ENTITY_TYPE = "metrc_evaluation_rebaseline"
 
 PAGED_RESOURCES: tuple[tuple[str, str], ...] = (
     ("locations", "locations/v2/active"),
+    ("strains", "strains/v2/active"),
     ("items", "items/v2/active"),
     ("plant_batches", "plantbatches/v2/active"),
     ("plants_vegetative", "plants/v2/vegetative"),
