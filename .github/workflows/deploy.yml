@@ -1,4 +1,4 @@
-name: Deploy to DoobieLogic
+name: Validate DoobieLogic PC-hosted Release
 
 on:
   push:
@@ -26,13 +26,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Enforce zero-cost deployment contract
+      - name: Enforce PC-hosted zero-cost deployment contract
         run: python scripts/verify_zero_cost_deployment.py
 
       - name: Block incomplete Streamlit parity from release
         run: python scripts/verify_streamlit_parity.py --mode release
 
-  zero-cost-release-gate:
+  local-runtime-release-gate:
     needs: parity-release-gate
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -54,44 +54,35 @@ jobs:
             exit 1
           fi
 
-      - name: Verify production API startup contract
+      - name: Verify PC-hosted API startup contract
         run: |
           docker run --rm \
             -e APP_ENV=production \
             -e DATABASE_URL=sqlite+pysqlite:///:memory: \
-            -e SUPABASE_URL=https://example.supabase.co \
-            -e SUPABASE_JWKS_URL=https://example.supabase.co/auth/v1/.well-known/jwks.json \
+            -e SUPABASE_URL=http://127.0.0.1:54321 \
+            -e SUPABASE_JWKS_URL=http://127.0.0.1:54321/auth/v1/.well-known/jwks.json \
             -e SUPABASE_PUBLISHABLE_KEY=test-publishable \
             -e INTEGRATION_ENCRYPTION_KEY=test \
             -e CORS_ORIGINS=https://doobielogic.io,https://ops.doobielogic.io \
-            -e ALLOWED_HOSTS=api.doobielogic.io,doobielogic-api.onrender.com \
+            -e ALLOWED_HOSTS=ops.doobielogic.io,doobielogic.io,localhost,127.0.0.1,testserver \
             -e AI_PROVIDER_MODE=disabled \
             -e AI_PROVIDER_ORDER=none \
             -e AI_ALLOW_CLOUD_FALLBACK=false \
             doobielogic-api-release-check python -c "import backend.app.main; assert backend.app.main.app"
 
-      - name: Verify Render handoff is exact-source and check-gated
-        shell: bash
-        run: |
-          set -euo pipefail
-          grep -q 'autoDeployTrigger: checksPass' render.yaml
-          grep -q 'RENDER_GIT_COMMIT' render.yaml
-          grep -q 'release.json' render.yaml
-          echo "Release identity: $RELEASE_ID"
-
-      - name: Record zero-cost release handoff
+      - name: Record PC-hosted release validation
         shell: bash
         run: |
           {
-            echo '## DoobieLogic zero-cost release gate'
+            echo '## DoobieLogic PC-hosted release validation'
             echo
             echo "- Release identity: \`$RELEASE_ID\`"
-            echo '- Frontend host: Render Static Site / CDN'
-            echo '- API host: Render Free web service'
-            echo '- Database/auth: existing Supabase Free project'
-            echo '- Render deployment handoff: checksPass only'
-            echo '- Paid Google deployment path: disabled'
+            echo '- Public operator URL: https://ops.doobielogic.io'
+            echo '- Public edge: Cloudflare Tunnel'
+            echo '- Local web edge: Caddy on 127.0.0.1:8080'
+            echo '- Local API: FastAPI on 127.0.0.1:8010'
+            echo '- Local auth gateway: Supabase on 127.0.0.1:54321'
             echo '- Cloud AI fallback: disabled'
             echo
-            echo 'After this gate and repository checks are green, the Render services defined in render.yaml are the canonical production deployment targets.'
+            echo 'No external deployment is performed by this workflow. Production remains hosted from the Windows PC and is exposed through Cloudflare Tunnel.'
           } >> "$GITHUB_STEP_SUMMARY"
