@@ -37,14 +37,14 @@ jobs:
 
           source = Path("backend/app/config.py").read_text(encoding="utf-8")
           required = (
-              'ai_provider_mode: str = "disabled"',
-              'ai_provider_order: str = "none"',
+              'ai_provider_mode: str = "local_only"',
+              'ai_provider_order: str = "local"',
               'ai_allow_cloud_fallback: bool = False',
           )
           missing = [value for value in required if value not in source]
           if missing:
               raise SystemExit("PC-hosted API AI defaults are incomplete or no longer fail-closed: " + ", ".join(missing))
-          print("PC-hosted API AI policy verified: disabled by default with no cloud fallback.")
+          print("PC-hosted API AI policy verified: local-only by default with no cloud fallback.")
           PY
 
       - name: Report optional workstation Local AI declaration
@@ -58,7 +58,7 @@ jobs:
           state="${LOCAL_AI_RUNTIME_STATE:-disabled}"
           case "$state" in
             disabled|"")
-              echo "Workstation Local AI is not declared active. PC-hosted API remains AI-disabled."
+              echo "No optional workstation model is declared. The API remains local-only and cannot fall back to paid cloud AI."
               ;;
             enabled)
               test -n "${LOCAL_LLM_BASE_URL:-}" || { echo "LOCAL_AI_RUNTIME_STATE=enabled but LOCAL_LLM_BASE_URL is empty."; exit 1; }
