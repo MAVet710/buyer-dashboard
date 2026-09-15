@@ -21,11 +21,11 @@ _NATIVE_PROVIDERS = {"local", "gemini", "openai"}
 def _runtime_dependencies() -> tuple[Any, ...]:
     """Load the AI/data-science graph only when an AI feature is actually used.
 
-    The FastAPI app imports the agent router during every Render cold start.  The
-    old module-level imports pulled pandas/numpy, retrieval, dataset builders and
-    provider SDK wrappers into *every* startup even when AI is disabled and the
-    operator is opening a normal inventory page.  Render Free only has 0.1 CPU,
-    so that eager graph was a disproportionate part of boot time.
+    The FastAPI app imports the agent router during ordinary application startup.
+    The old module-level imports pulled pandas/numpy, retrieval, dataset builders,
+    and provider SDK wrappers into every startup even when AI was unused and the
+    operator was opening a normal inventory page. Lazy loading keeps the active
+    PC-hosted runtime and constrained CI startup path lean.
 
     Imports remain process-global after first use through Python's module cache;
     this only moves their cost off the ordinary API startup path.
