@@ -87,7 +87,8 @@ def test_local_evaluation_launcher_can_be_invoked_by_file_path() -> None:
         timeout=20,
     )
     assert completed.returncode == 0, completed.stderr
-    assert "saved local Metrc connection" in completed.stdout
+    assert "--license-number" in completed.stdout
+    assert "--confirmation" in completed.stdout
     assert "ModuleNotFoundError" not in completed.stderr
 
 
