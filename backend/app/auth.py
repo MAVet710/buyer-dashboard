@@ -4,7 +4,7 @@ from functools import lru_cache
 import jwt
 from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import Engine, or_, select
+from sqlalchemy import Engine, and_, or_, select
 from sqlalchemy.orm import Session
 
 from modules.coman.models import AppUser, AppUserFacilityRole, Facility
@@ -102,6 +102,49 @@ def _password_change_path_allowed(path: str, settings: Settings) -> bool:
     }
 
 
+def _authorization_snapshot(
+    session: Session,
+    *,
+    app_user_id: str,
+    email: str,
+    organization_id: str,
+    facility_id: str,
+) -> tuple[AppUser | None, Facility | None, AppUserFacilityRole | None]:
+    """Load the complete authorization snapshot with one database statement.
+
+    Supabase is a network database and the Render Free API has only 0.1 CPU. The
+    old path fetched the user, then the facility, then (for most users) the role
+    assignment as separate round trips. This joined snapshot keeps every existing
+    authorization decision fresh on every request while reducing that network
+    chatter to one SELECT. No authorization state is cached across requests.
+    """
+    statement = (
+        select(AppUser, Facility, AppUserFacilityRole)
+        .select_from(AppUser)
+        .outerjoin(
+            Facility,
+            and_(
+                Facility.id == facility_id,
+                Facility.organization_id == organization_id,
+            ),
+        )
+        .outerjoin(
+            AppUserFacilityRole,
+            and_(
+                AppUserFacilityRole.user_id == AppUser.id,
+                AppUserFacilityRole.organization_id == organization_id,
+                AppUserFacilityRole.facility_id == facility_id,
+            ),
+        )
+        .where(or_(AppUser.id == app_user_id, AppUser.email == email))
+        .limit(1)
+    )
+    row = session.execute(statement).first()
+    if row is None:
+        return None, None, None
+    return row[0], row[1], row[2]
+
+
 def get_request_context(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
@@ -161,10 +204,15 @@ def get_request_context(
         email = str(claims.get("email") or "").strip().casefold()
         app_user_id = str(app_metadata.get("app_user_id") or user_id)
         with Session(engine) as session:
-            user = session.scalar(select(AppUser).where(or_(AppUser.id == app_user_id, AppUser.email == email)))
+            user, facility, assignment = _authorization_snapshot(
+                session,
+                app_user_id=app_user_id,
+                email=email,
+                organization_id=organization_id,
+                facility_id=facility_id,
+            )
             if not user or not user.active:
                 raise HTTPException(status_code=403, detail="This account is not active in Buyer Dash.")
-            facility = session.get(Facility, facility_id)
             if not facility or not facility.active or facility.organization_id != organization_id:
                 raise HTTPException(status_code=403, detail="The selected facility is not available in this organization.")
             capabilities = _facility_capabilities(facility)
@@ -176,13 +224,6 @@ def get_request_context(
                 if user.role == "admin":
                     role = "admin"
                 else:
-                    assignment = session.scalar(
-                        select(AppUserFacilityRole).where(
-                            AppUserFacilityRole.user_id == user.id,
-                            AppUserFacilityRole.organization_id == organization_id,
-                            AppUserFacilityRole.facility_id == facility_id,
-                        )
-                    )
                     if not assignment:
                         raise HTTPException(status_code=403, detail="This account is not assigned to the selected facility.")
                     role = assignment.role
