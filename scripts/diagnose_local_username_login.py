@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""Diagnose local DoobieLogic username login without exposing credentials.
+"""Diagnose PC-hosted DoobieLogic username login without exposing credentials.
 
-This script is intentionally local-first. It does not reset a password, create a
-user, change Supabase Auth, or print an email/key/token. It verifies the layers
-that must line up for username login to work:
+This script does not reset a password, create a user, change Supabase Auth, or
+print an email/key/token. It verifies the layers that must line up for username
+login to work:
 
 1. local FastAPI health and username-login route registration;
 2. durable AppUser username/active state;
 3. durable AppUser id <-> Supabase auth.users id linkage;
 4. server-side normal Supabase Auth configuration;
-5. presence (not values) of frontend local Supabase/API variables.
+5. server Auth target is the existing DoobieLogic hosted Supabase project;
+6. presence (not values) of frontend Supabase/API variables.
 
-The PC-hosted production chain is Cloudflare Tunnel -> Caddy on loopback 8080 ->
-FastAPI on loopback 8010. This diagnostic talks directly to FastAPI on 8010 so it
-can distinguish the backend from the Caddy edge. Port 8000 is not part of the
-active DoobieLogic PC-hosting contract.
+The production application chain is Cloudflare Tunnel -> Caddy on loopback 8080
+-> FastAPI on loopback 8010. Durable auth/data remain on the existing hosted
+DoobieLogic Supabase project. Port 8000 is not part of the active DoobieLogic
+PC-hosting contract.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from modules.coman.models import AppUser
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8010"
+EXPECTED_SUPABASE_URL = "https://fovxtygwcxubjzjgovva.supabase.co"
 
 
 def _http_json(url: str, timeout: float = 3.0) -> tuple[int, object | None]:
@@ -101,10 +103,10 @@ def diagnose(username: str, api_url: str) -> dict[str, object]:
         "password_read": False,
         "password_changed": False,
         "user_created": False,
-        "pc_hosting": {
+        "runtime": {
             "caddy_url": "http://127.0.0.1:8080",
             "fastapi_url": "http://127.0.0.1:8010",
-            "supabase_auth_url": "http://127.0.0.1:54321",
+            "supabase_auth_authority": EXPECTED_SUPABASE_URL,
         },
     }
 
@@ -124,8 +126,10 @@ def diagnose(username: str, api_url: str) -> dict[str, object]:
     )
 
     settings = Settings()
+    configured_supabase = settings.supabase_url.strip().rstrip("/")
     report["server_database_configured"] = settings.database_is_configured
-    report["server_supabase_url_configured"] = bool(settings.supabase_url.strip())
+    report["server_supabase_url_configured"] = bool(configured_supabase)
+    report["server_supabase_matches_expected_project"] = configured_supabase == EXPECTED_SUPABASE_URL
     report["server_supabase_normal_auth_key_configured"] = bool(settings.supabase_auth_api_key)
     report["frontend_env"] = _frontend_env_presence()
 
@@ -165,7 +169,7 @@ def diagnose(username: str, api_url: str) -> dict[str, object]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Diagnose the local DoobieLogic username-login path safely.")
+    parser = argparse.ArgumentParser(description="Diagnose the PC-hosted DoobieLogic username-login path safely.")
     parser.add_argument("--username", default="God")
     parser.add_argument("--api-url", default=DEFAULT_LOCAL_API_URL)
     args = parser.parse_args()
@@ -180,6 +184,7 @@ def main() -> None:
         and report.get("auth_identity_found")
         and report.get("identity_id_match")
         and report.get("server_supabase_url_configured")
+        and report.get("server_supabase_matches_expected_project")
         and report.get("server_supabase_normal_auth_key_configured")
     )
     raise SystemExit(0 if healthy else 2)
