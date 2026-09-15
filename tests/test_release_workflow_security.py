@@ -66,65 +66,28 @@ def test_all_action_workflows_are_free_of_google_control_plane_wiring():
             assert token.casefold() not in source.casefold(), (path.name, token)
 
 
-def test_render_blueprint_is_free_only_check_gated_and_non_ddl():
-    source = (ROOT / "render.yaml").read_text(encoding="utf-8")
-    assert "    domains:" not in source
-    api = source.split("name: doobielogic-api-rc", 1)[1].split("name: doobielogic-web-prod", 1)[0]
-    assert "name: doobielogic-api-rc" in source
-    assert "name: doobielogic-web-prod" in source
-    assert "runtime: python" in source
-    assert "runtime: static" in source
-    assert source.count("plan: free") == 1
-    assert source.count("autoDeployTrigger: checksPass") == 2
-    assert "healthCheckPath: /health/ready" in source
-    assert "api.doobielogic.io" in source
-    assert "ops.doobielogic.io" in source
-    assert "doobielogic.io" in source
-    assert "preDeployCommand" not in source
-    assert "alembic upgrade head" not in api
-    assert "RENDER_EXTERNAL_HOSTNAME" in api
-    assert "RENDER_GIT_COMMIT" in api
-    assert "backend/requirements.txt" in source
-    assert "staticPublishPath: ./frontend/dist" in source
-    assert "pnpm install --frozen-lockfile" in source
-    assert "source: /*" in source and "destination: /index.html" in source
-    assert "AI_ALLOW_CLOUD_FALLBACK" in source
-    assert '- key: AI_PROVIDER_MODE\n        value: disabled' in source
-    assert '- key: AI_PROVIDER_ORDER\n        value: none' in source
-    assert '- key: AI_ALLOW_CLOUD_FALLBACK\n        value: "false"' in source
-    assert "RESEND_API_KEY" in api
-    assert "SPACEMAIL_SMTP_PASSWORD" not in api
-    for key in (
-        "DATABASE_URL",
-        "SUPABASE_URL",
-        "SUPABASE_JWKS_URL",
-        "SUPABASE_PUBLISHABLE_KEY",
-        "INTEGRATION_ENCRYPTION_KEY",
-        "RESEND_API_KEY",
-        "VITE_SUPABASE_URL",
-        "VITE_SUPABASE_PUBLISHABLE_KEY",
-    ):
-        assert f"- key: {key}\n        sync: false" in source
-    assert "DATABASE_SEAL_PRIVATE_KEY" not in source
+def test_retired_hosting_blueprint_and_worker_are_absent():
+    retired = (
+        ROOT / ("ren" + "der.yaml"),
+        ROOT / "deploy" / "cloudflare" / "worker.mjs",
+        ROOT / "deploy" / "cloudflare" / "worker.test.mjs",
+        ROOT / "deploy" / "cloudflare" / "wrangler.jsonc",
+    )
+    for path in retired:
+        assert not path.exists(), path
+
+
+def test_pc_hosted_release_is_validation_only_and_preserves_operator_url():
+    source = _workflow("deploy.yml")
+    assert "Build API release image locally" in source
+    assert "Verify PC-hosted API startup contract" in source
+    assert "https://ops.doobielogic.io" in source
+    assert "Cloudflare Tunnel" in source
+    assert "Caddy on 127.0.0.1:8080" in source
+    assert "FastAPI on 127.0.0.1:8010" in source
+    assert "Supabase on 127.0.0.1:54321" in source
+    assert "No external deployment is performed by this workflow" in source
     assert "SUPABASE_SERVICE_ROLE_KEY" not in source
-
-
-def test_render_frontend_is_static_lockfile_reproducible_spa_safe_and_exactly_identified():
-    source = (ROOT / "render.yaml").read_text(encoding="utf-8")
-    static = source[source.index("name: doobielogic-web-prod") :]
-    assert "runtime: static" in static
-    assert "pnpm install --frozen-lockfile" in static
-    assert "pnpm build" in static
-    assert "staticPublishPath: ./frontend/dist" in static
-    assert "value: https://api.doobielogic.io" in static
-    assert "source: /*" in static
-    assert "destination: /index.html" in static
-    assert "RENDER_GIT_COMMIT" in static
-    assert "release.json" in static
-    assert "path: /release.json" in static
-    assert "no-store, no-cache, must-revalidate" in static
-    assert "Cache-Control" in static
-    assert not (ROOT / "netlify.toml").exists()
 
 
 def test_post_deploy_latency_gate_is_public_only_and_free_tier_aware():
@@ -138,14 +101,16 @@ def test_post_deploy_latency_gate_is_public_only_and_free_tier_aware():
     assert "password" not in source.casefold()
 
 
-def test_hosted_ai_audit_is_provider_neutral_and_fail_closed():
+def test_local_ai_audit_is_fail_closed_and_provider_neutral():
     source = _workflow("ai-runtime-revision-guard.yml")
     assert "python scripts/verify_zero_cost_deployment.py" in source
-    assert "AI_PROVIDER_MODE" in source
-    assert "AI_ALLOW_CLOUD_FALLBACK" in source
-    assert "GEMINI_API_KEY" in source
-    assert "OPENAI_API_KEY" in source
-    assert "hosted render api remains decoupled" in source.casefold()
+    assert 'ai_provider_mode: str = "local_only"' in source
+    assert 'ai_provider_order: str = "local"' in source
+    assert 'ai_allow_cloud_fallback: bool = False' in source
+    assert "LOCAL_AI_RUNTIME_STATE" in source
+    assert "LOCAL_LLM_BASE_URL" in source
+    assert "LOCAL_LLM_MODEL" in source
+    assert "paid cloud AI fallback" in source
 
 
 def test_database_mutation_workflows_are_manual_and_exactly_confirmed():
@@ -167,8 +132,7 @@ def test_database_mutation_workflows_are_manual_and_exactly_confirmed():
 def test_storefront_domain_workflow_is_validation_only():
     source = _workflow("storefront-domain-mappings.yml")
     assert "validate_storefront_domains.py" in source
-    assert "50-alias free-host operating limit" in source
-    assert "Cloudflare Worker routes to the free Render static site" in source
+    assert "Cloudflare Tunnel -> PC-hosted Caddy" in source
     assert "never creates DNS or cloud resources" in source
 
 
@@ -185,11 +149,13 @@ def test_release_and_rc_use_publishable_supabase_auth_not_service_role():
         assert "SUPABASE_SERVICE_ROLE_KEY" not in source
 
 
-def test_rc_proves_render_free_resource_envelope_without_external_preview():
+def test_rc_proves_constrained_local_resource_envelope_without_external_preview():
     source = _workflow("rc-preview.yml")
     assert "--memory=512m" in source
     assert "--cpus=0.10" in source
     assert "BILLABLE_CLOUD_RESOURCES=none" in source
+    assert "CI_MEMORY_ENVELOPE=512m" in source
+    assert "CI_CPU_ENVELOPE=0.10" in source
     assert "Smoke test local synthetic API and static frontend pair" in source
 
 
