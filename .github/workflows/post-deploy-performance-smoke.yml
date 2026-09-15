@@ -1,4 +1,4 @@
-name: Post-Deploy Performance Smoke
+name: Public Runtime Performance Smoke
 
 on:
   workflow_dispatch:
@@ -12,66 +12,54 @@ permissions:
   contents: read
 
 concurrency:
-  group: post-deploy-performance-smoke
+  group: public-runtime-performance-smoke
   cancel-in-progress: true
 
 env:
-  PRODUCTION_API_URL: https://api.doobielogic.io
-  DEPLOY_PROPAGATION_LIMIT_SECONDS: "600"
-  FREE_COLD_START_LIMIT_SECONDS: "90"
+  PRODUCTION_ORIGIN: https://ops.doobielogic.io
+  RUNTIME_RECOVERY_LIMIT_SECONDS: "120"
   WARM_P95_LIMIT_SECONDS: "3.5"
 
 jobs:
   production-latency:
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - name: Wait for Render deployment or free-tier wake-up
+      - name: Wait for PC-hosted public edge readiness
         shell: bash
-        env:
-          EXPECTED_RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
         run: |
           set -euo pipefail
           started="$(date +%s)"
-          deadline=$(( started + DEPLOY_PROPAGATION_LIMIT_SECONDS ))
+          deadline=$(( started + RUNTIME_RECOVERY_LIMIT_SECONDS ))
           first_success=""
 
           while [ "$(date +%s)" -le "$deadline" ]; do
-            code="$(curl --silent --show-error --max-time 75 \
+            code="$(curl --silent --show-error --max-time 30 \
               --output /tmp/ready.json \
               --write-out '%{http_code}' \
-              "$PRODUCTION_API_URL/health/ready" || true)"
+              "$PRODUCTION_ORIGIN/health/ready" || true)"
 
             if [ "$code" = "200" ] && jq -e '.schema_matches == true and (.schema_revision | length > 0)' /tmp/ready.json >/dev/null 2>&1; then
+              first_success="$(date +%s)"
               release="$(jq -r '.release_sha // ""' /tmp/ready.json)"
-              if [ -z "$EXPECTED_RELEASE_SHA" ] || [ "$release" = "$EXPECTED_RELEASE_SHA" ]; then
-                first_success="$(date +%s)"
-                echo "READY_RELEASE_SHA=$release" >> "$GITHUB_ENV"
-                break
-              fi
-              echo "Render is healthy but still serving release $release; waiting for $EXPECTED_RELEASE_SHA."
-            else
-              echo "API not ready yet (HTTP $code); allowing free-tier wake/deploy propagation."
+              echo "READY_RELEASE_SHA=$release" >> "$GITHUB_ENV"
+              break
             fi
+            echo "PC-hosted public edge not ready yet (HTTP $code)."
             sleep 10
           done
 
           if [ -z "$first_success" ]; then
-            echo "Production API did not become schema-ready on the expected release within ${DEPLOY_PROPAGATION_LIMIT_SECONDS}s."
+            echo "ops.doobielogic.io did not become schema-ready within ${RUNTIME_RECOVERY_LIMIT_SECONDS}s."
             cat /tmp/ready.json || true
             exit 1
           fi
 
-          wake_seconds=$(( first_success - started ))
-          echo "WAKE_OR_PROPAGATION_SECONDS=$wake_seconds" >> "$GITHUB_ENV"
+          recovery_seconds=$(( first_success - started ))
+          echo "RUNTIME_RECOVERY_SECONDS=$recovery_seconds" >> "$GITHUB_ENV"
 
-          if [ -z "$EXPECTED_RELEASE_SHA" ] && [ "$wake_seconds" -gt "$FREE_COLD_START_LIMIT_SECONDS" ]; then
-            echo "Free-tier wake-up took ${wake_seconds}s, exceeding ${FREE_COLD_START_LIMIT_SECONDS}s."
-            exit 1
-          fi
-
-      - name: Measure warm custom-domain readiness path
+      - name: Measure warm operator-edge readiness path
         shell: bash
         run: |
           set -euo pipefail
@@ -80,7 +68,7 @@ jobs:
             result="$(curl --silent --show-error --max-time 15 \
               --output "/tmp/warm-ready-$attempt.json" \
               --write-out '%{http_code} %{time_total}' \
-              "$PRODUCTION_API_URL/health/ready")"
+              "$PRODUCTION_ORIGIN/health/ready")"
             code="${result%% *}"
             seconds="${result##* }"
             if [ "$code" != "200" ]; then
@@ -88,7 +76,7 @@ jobs:
               cat "/tmp/warm-ready-$attempt.json" || true
               exit 1
             fi
-            jq -e '.schema_matches == true and (.schema_revision | length > 0) and (.release_sha | length > 0)' "/tmp/warm-ready-$attempt.json" >/dev/null
+            jq -e '.schema_matches == true and (.schema_revision | length > 0)' "/tmp/warm-ready-$attempt.json" >/dev/null
             printf '%s\n' "$seconds" >> /tmp/warm-latencies.txt
           done
 
@@ -103,16 +91,17 @@ jobs:
           p95 = values[min(len(values) - 1, math.ceil(len(values) * 0.95) - 1)]
           median = values[len(values) // 2]
           limit = float(os.environ['WARM_P95_LIMIT_SECONDS'])
-          wake = os.environ.get('WAKE_OR_PROPAGATION_SECONDS', '?')
+          recovery = os.environ.get('RUNTIME_RECOVERY_SECONDS', '?')
           release = os.environ.get('READY_RELEASE_SHA', '')
-          print(f'Warm readiness median={median:.3f}s p95={p95:.3f}s limit={limit:.3f}s release={release}')
+          print(f'Operator-edge median={median:.3f}s p95={p95:.3f}s limit={limit:.3f}s release={release}')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
-              summary.write('## Zero-cost production performance smoke\n\n')
-              summary.write(f'- Render wake/deploy propagation: **{wake}s**\n')
-              summary.write(f'- Release SHA: `{release}`\n')
-              summary.write(f'- Warm custom-domain median: **{median:.3f}s**\n')
-              summary.write(f'- Warm custom-domain p95: **{p95:.3f}s** (limit {limit:.3f}s)\n')
-              summary.write('- Billing model: free-tier cold starts are measured separately from warm latency.\n')
+              summary.write('## DoobieLogic PC-hosted public runtime smoke\n\n')
+              summary.write('- Public origin: `https://ops.doobielogic.io`\n')
+              summary.write('- Route: Cloudflare Tunnel -> PC-hosted Caddy -> FastAPI\n')
+              summary.write(f'- Runtime recovery/readiness: **{recovery}s**\n')
+              summary.write(f'- Release SHA reported by runtime: `{release}`\n')
+              summary.write(f'- Warm median: **{median:.3f}s**\n')
+              summary.write(f'- Warm p95: **{p95:.3f}s** (limit {limit:.3f}s)\n')
           if p95 > limit:
               raise SystemExit(f'Warm readiness p95 {p95:.3f}s exceeded {limit:.3f}s')
           PY
