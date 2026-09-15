@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import sys
 
 from scripts.run_local_metrc_execution_precheck import _healthy
 
@@ -37,9 +39,57 @@ def test_windows_precheck_inherits_the_existing_pc_host_environment() -> None:
     assert ". $bootstrap" in wrapper
     assert ".pilot-venv/Scripts/python.exe" in wrapper
     assert "run_local_metrc_execution_precheck.py" in wrapper
+    assert "$env:PYTHONPATH" in wrapper
     assert "METRC_INTEGRATOR_API_KEY" not in wrapper
     assert "METRC_USER_API_KEY" not in wrapper
     assert "integrator/setup" not in wrapper.casefold()
+
+
+def test_precheck_script_can_be_invoked_by_file_path_from_repo_root() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "run_local_metrc_execution_precheck.py"), "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "GET-only Massachusetts Metrc execution precheck" in completed.stdout
+    assert "ModuleNotFoundError" not in completed.stderr
+
+
+def test_local_evaluation_launcher_reuses_saved_trusted_credentials_without_printing_them() -> None:
+    source = _read("scripts/run_local_ma_metrc_evaluation.py")
+
+    assert "resolve_metrc_context" in source
+    assert 'metrc.trusted_mapping' in source
+    assert 'metrc.status.casefold() == "connected"' in source
+    assert 'metrc.environment.casefold() == "sandbox"' in source
+    assert 'metrc.state.upper() == "MA"' in source
+    assert 'metrc.license_number == wanted' in source
+    assert "--license-number" in source
+    assert "I_APPROVE_MA_SANDBOX_WRITE" in source
+    assert 'origin/main' in source
+    assert 'child_env["METRC_INTEGRATOR_API_KEY"] = integrator_key' in source
+    assert 'child_env["METRC_MA_SANDBOX_USER_API_KEY"] = user_key' in source
+    assert 'child_env.pop("METRC_USER_API_KEY", None)' in source
+    assert "integrator/setup" not in source.casefold()
+    assert "print(integrator_key" not in source
+    assert "print(user_key" not in source
+
+
+def test_local_evaluation_launcher_can_be_invoked_by_file_path() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "run_local_ma_metrc_evaluation.py"), "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "--license-number" in completed.stdout
+    assert "--confirmation" in completed.stdout
+    assert "ModuleNotFoundError" not in completed.stderr
 
 
 def test_metrc_local_precheck_is_independent_from_doobielogic_login() -> None:

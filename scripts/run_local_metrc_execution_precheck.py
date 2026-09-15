@@ -24,15 +24,20 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import subprocess
+import sys
 from typing import Any, Callable
+
+# When Python executes a file by path, sys.path[0] is the file's directory
+# (`scripts/`) rather than the repository root. Insert the root before importing
+# the application packages so this script works both from PowerShell and tests.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from backend.app.config import Settings
 from backend.app.database import get_engine
 from backend.app.services.metrc_evaluation_rebaseline import run_server_evaluation_rebaseline
 from backend.app.services.metrc_resume_diagnostics import run_server_resume_diagnostic
-
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def _git_sha() -> str:
