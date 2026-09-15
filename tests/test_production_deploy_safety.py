@@ -3,7 +3,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
-BLUEPRINT = (ROOT / "render.yaml").read_text(encoding="utf-8")
 
 
 def test_production_release_is_serialized_and_exactly_identified():
@@ -14,34 +13,32 @@ def test_production_release_is_serialized_and_exactly_identified():
     assert "gcloud " not in WORKFLOW
 
 
-def test_api_release_is_verified_before_render_check_gated_handoff():
+def test_api_release_is_verified_before_pc_hosted_handoff():
     assert "parity-release-gate:" in WORKFLOW
-    assert "zero-cost-release-gate:\n    needs: parity-release-gate" in WORKFLOW
+    assert "local-runtime-release-gate:\n    needs: parity-release-gate" in WORKFLOW
     assert "Build API release image locally" in WORKFLOW
     assert "Verify API image has exactly one Alembic head" in WORKFLOW
-    assert "Verify production API startup contract" in WORKFLOW
-    assert "Verify Render handoff is exact-source and check-gated" in WORKFLOW
-
-    api = BLUEPRINT.split("name: doobielogic-api-rc", 1)[1].split("name: doobielogic-web-prod", 1)[0]
-    assert "autoDeployTrigger: checksPass" in api
-    assert "healthCheckPath: /health/ready" in api
-    assert "RENDER_GIT_COMMIT" in api
-    # Migrations are proven before handoff; the public web runtime must not have
-    # schema-DDL authority. This keeps the Render database login least-privilege.
-    assert "alembic upgrade head" not in api
-    assert "preDeployCommand" not in api
+    assert "Verify PC-hosted API startup contract" in WORKFLOW
+    assert "No external deployment is performed by this workflow" in WORKFLOW
 
 
-def test_web_release_identity_is_built_from_exact_render_commit_and_not_cached():
-    static = BLUEPRINT.split("name: doobielogic-web-prod", 1)[1]
-    assert "runtime: static" in static
-    assert "autoDeployTrigger: checksPass" in static
-    assert "RENDER_GIT_COMMIT" in static
-    assert "release.json" in static
-    assert "path: /release.json" in static
-    assert "no-store, no-cache, must-revalidate" in static
-    assert "domains:" not in static
-    assert "deploy/cloudflare/wrangler.jsonc" in static
+def test_public_runtime_contract_is_cloudflare_tunnel_to_local_pc():
+    assert "https://ops.doobielogic.io" in WORKFLOW
+    assert "Cloudflare Tunnel" in WORKFLOW
+    assert "Caddy on 127.0.0.1:8080" in WORKFLOW
+    assert "FastAPI on 127.0.0.1:8010" in WORKFLOW
+    assert "Supabase on 127.0.0.1:54321" in WORKFLOW
+
+
+def test_retired_hosting_artifacts_are_absent():
+    retired = (
+        ROOT / ("ren" + "der.yaml"),
+        ROOT / "deploy" / "cloudflare" / "worker.mjs",
+        ROOT / "deploy" / "cloudflare" / "worker.test.mjs",
+        ROOT / "deploy" / "cloudflare" / "wrangler.jsonc",
+    )
+    for path in retired:
+        assert not path.exists(), path
 
 
 def test_production_release_has_no_billable_google_control_plane_dependency():
@@ -57,8 +54,3 @@ def test_production_release_has_no_billable_google_control_plane_dependency():
         source = path.read_text(encoding="utf-8")
         for token in forbidden:
             assert token.casefold() not in source.casefold(), (path.name, token)
-
-    assert "plan: free" in BLUEPRINT
-    assert "name: doobielogic-api-rc" in BLUEPRINT
-    assert "name: doobielogic-web-prod" in BLUEPRINT
-    assert "    domains:" not in BLUEPRINT
