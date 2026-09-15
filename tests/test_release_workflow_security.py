@@ -77,7 +77,7 @@ def test_retired_hosting_blueprint_and_worker_are_absent():
         assert not path.exists(), path
 
 
-def test_pc_hosted_release_is_validation_only_and_preserves_operator_url():
+def test_pc_hosted_release_is_validation_only_and_preserves_operator_url_and_supabase():
     source = _workflow("deploy.yml")
     assert "Build API release image locally" in source
     assert "Verify PC-hosted API startup contract" in source
@@ -85,8 +85,10 @@ def test_pc_hosted_release_is_validation_only_and_preserves_operator_url():
     assert "Cloudflare Tunnel" in source
     assert "Caddy on 127.0.0.1:8080" in source
     assert "FastAPI on 127.0.0.1:8010" in source
-    assert "Supabase on 127.0.0.1:54321" in source
-    assert "No external deployment is performed by this workflow" in source
+    assert "existing hosted DoobieLogic Supabase project" in source
+    assert "https://fovxtygwcxubjzjgovva.supabase.co" in source
+    assert "127.0.0.1:54321" not in source
+    assert "No external application deployment is performed by this workflow" in source
     assert "SUPABASE_SERVICE_ROLE_KEY" not in source
 
 
@@ -150,6 +152,7 @@ def test_release_and_rc_use_publishable_supabase_auth_not_service_role():
         source = _workflow(name)
         assert "SUPABASE_PUBLISHABLE_KEY" in source
         assert "SUPABASE_SERVICE_ROLE_KEY" not in source
+        assert "https://fovxtygwcxubjzjgovva.supabase.co" in source
 
 
 def test_rc_proves_constrained_local_resource_envelope_without_external_preview():

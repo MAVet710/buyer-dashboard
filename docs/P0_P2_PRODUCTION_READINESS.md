@@ -1,39 +1,44 @@
 # P0-P2 Production Readiness
 
-This document records the active production-readiness contract after the local-first cutover. `docs/PROJECT_INVARIANTS.md`, the PC-hosted runtime configuration, and the release-validation workflows are the authoritative sources of truth.
+This document records the active production-readiness contract after the local-first application cutover. `docs/PROJECT_INVARIANTS.md`, the PC-hosted runtime configuration, and the release-validation workflows are the authoritative sources of truth.
 
 ## Active production architecture
 
-DoobieLogic production is hosted from Nelson's Windows PC and exposed publicly through Cloudflare Tunnel.
+DoobieLogic application compute is hosted from Nelson's Windows PC and exposed publicly through Cloudflare Tunnel. Durable production auth/data remain on the existing hosted DoobieLogic Supabase project.
 
-The required request chain is:
+Application request chain:
 
-`browser -> https://ops.doobielogic.io -> Cloudflare Tunnel -> Caddy 127.0.0.1:8080 -> FastAPI 127.0.0.1:8010 -> local Supabase Auth 127.0.0.1:54321`
+`browser -> https://ops.doobielogic.io -> Cloudflare Tunnel -> Caddy 127.0.0.1:8080 -> FastAPI 127.0.0.1:8010`
+
+Auth/data authority:
+
+`browser/FastAPI -> https://fovxtygwcxubjzjgovva.supabase.co`
 
 - **Public operator URL:** `https://ops.doobielogic.io`.
 - **Public edge:** Cloudflare HTTPS/Tunnel.
 - **Web/reverse-proxy edge:** Caddy on loopback port `8080`.
 - **API:** FastAPI on loopback port `8010`.
-- **Auth:** local Supabase Auth gateway on loopback port `54321`.
+- **Auth/data:** existing hosted Supabase project `fovxtygwcxubjzjgovva`.
 - **Frontend API calls:** same-origin `/api/*` through `ops.doobielogic.io` in production.
+- **Frontend Auth calls:** direct to the existing hosted Supabase project.
 - **Workstation service calls:** direct loopback to `http://127.0.0.1:8010` where appropriate.
 - **AI:** local-only by default; cloud fallback remains disabled.
-- **Cost policy:** the active runtime must not add a paid cloud deployment merely to improve availability.
+- **Cost policy:** the active runtime must not add a paid cloud application deployment merely to improve availability.
 
-Remote browsers must never be configured to call `127.0.0.1`; that address would refer to the remote user's computer. Caddy is responsible for forwarding public same-origin application requests to the correct local services.
+PC-hosted application compute does not imply local Supabase. Production must not be silently moved to a fresh `127.0.0.1:54321` Auth instance.
 
 ## Retired hosting paths
 
-The previous hosted deployment path is retired and must not be restored implicitly.
+The previous hosted application deployment path is retired and must not be restored implicitly. Hosted Supabase is **not** part of that retired application hosting path; it remains the production auth/data authority.
 
-The repository guard requires these obsolete production-routing artifacts to remain absent:
+The repository guard requires these obsolete application-routing artifacts to remain absent:
 
 - the retired hosted deployment blueprint;
 - the old Cloudflare Worker origin proxy;
 - the Worker's tests; and
 - its Wrangler routing configuration.
 
-Operational code and workflows are also checked for obsolete hosted origins, provider-specific runtime environment variables, and the old automatic hosted-deployment trigger.
+Operational code and workflows are also checked for obsolete application origins, provider-specific runtime environment variables, and the old automatic hosted-deployment trigger.
 
 Any intentional future architecture change must first update `docs/PROJECT_INVARIANTS.md`, the release workflows, and `scripts/verify_zero_cost_deployment.py` in the same reviewed change.
 
@@ -41,18 +46,18 @@ Any intentional future architecture change must first update `docs/PROJECT_INVAR
 
 ### Main release validation
 
-`.github/workflows/deploy.yml` is a validation gate. It does **not** deploy production to an external host.
+`.github/workflows/deploy.yml` is a validation gate. It does **not** deploy application compute to an external host.
 
 It:
 
-1. enforces the PC-hosted zero-cost contract;
+1. enforces the PC-hosted application + hosted-Supabase contract;
 2. verifies release parity;
 3. builds the API image in CI;
 4. verifies exactly one Alembic head;
-5. proves the production application can initialize with the expected security configuration; and
-6. records the required public-to-local runtime chain.
+5. proves the production application can initialize with the expected security/Auth configuration; and
+6. records the required public-to-local application chain plus existing hosted Supabase authority.
 
-After checks pass, the workstation remains the production origin. Updating the running workstation is a local operational action, not an automatic handoff to a cloud application host.
+After checks pass, the workstation remains the application origin. Updating the running workstation is a local operational action, not an automatic handoff to a cloud application host.
 
 ### Release candidate
 
@@ -62,21 +67,23 @@ The resource limits in that workflow are CI stress constraints, not a contract w
 
 ## Authentication and Supabase
 
-The backend and frontend must use the same intended Supabase identity domain.
+The backend and frontend must use the same hosted Supabase identity domain.
 
-For the active workstation runtime:
+For the active production runtime:
 
-- FastAPI uses the configured local Supabase URL, normally `http://127.0.0.1:54321`.
-- Normal password authentication uses the publishable/anon client key, not a service-role credential.
+- FastAPI uses `SUPABASE_URL=https://fovxtygwcxubjzjgovva.supabase.co`.
+- FastAPI uses the matching JWKS endpoint under that project.
+- The production browser uses `VITE_SUPABASE_URL=https://fovxtygwcxubjzjgovva.supabase.co`.
+- Normal password authentication uses an enabled publishable/anon client key for that project, not a service-role credential.
 - The durable DoobieLogic `app_users` row and the linked Supabase Auth identity must share the same UUID.
 - `God` remains a durable DoobieLogic username and resolves through `POST /api/v1/account/username-login`.
-- A username-login failure must be traced through Cloudflare -> Caddy -> FastAPI -> local Supabase before identities are recreated or relinked.
+- A username-login failure must be traced through Cloudflare -> Caddy -> FastAPI -> the existing hosted Supabase project before identities are recreated or relinked.
 
-The production frontend should use same-origin API calls. Its Supabase browser URL must be a public route that Caddy/Tunnel can proxy to the local Auth gateway; it must not expose a workstation loopback address to remote browsers.
+The production frontend should use same-origin DoobieLogic API calls. The Supabase browser URL is separate from the DoobieLogic application origin.
 
 ## Database runtime contract
 
-`DATABASE_URL` must identify the durable application database intended for the active local stack. The API never silently invents a production database when the configured database is missing.
+`DATABASE_URL` / `COMAN_DATABASE_URL` must identify the durable application database for the existing DoobieLogic Supabase project. The API never silently invents a production database when the configured database is missing.
 
 The SQLAlchemy connection pool remains bounded so application traffic cannot exhaust the available PostgreSQL/Supabase connection budget. Pool sizing is controlled through:
 
@@ -88,7 +95,7 @@ Schema changes remain explicit administrative actions. Production readiness shou
 
 ## Backup and restore proof
 
-`.github/workflows/database-backup.yml` retains the dedicated backup-role design and encrypted artifact process.
+`.github/workflows/database-backup.yml` retains the dedicated backup-role design and encrypted artifact process against the existing hosted Supabase database.
 
 Every backup run must:
 
@@ -111,7 +118,8 @@ The backup workflow remains separate from application hosting and must not becom
 - Hook dependency warnings are correctness signals rather than globally suppressed.
 - Admin edit forms preserve unsaved operator input across same-record background refetches.
 - Playwright remains lockfile-controlled; CI must not mutate the dependency graph during runs.
-- Production API calls from the browser must remain same-origin unless an intentional, reviewed architecture change says otherwise.
+- Production DoobieLogic API calls from the browser remain same-origin.
+- Production Supabase Auth calls target the existing hosted Supabase project directly.
 
 ## MA Metrc sandbox
 
@@ -123,15 +131,15 @@ Do not claim Metrc provider validation has passed until live provider evidence p
 
 ## Public health and latency checks
 
-Public health/performance checks should use the active public operator edge so they exercise the real production chain into the workstation. They must not depend on a retired cloud origin.
+Public health/performance checks should use the active public operator edge so they exercise the real production application chain into the workstation. They must not depend on a retired cloud application origin.
 
-A health check is useful only when it confirms the expected application/schema state behind the active tunnel. A DNS response alone does not prove the workstation origin is healthy.
+A health check is useful only when it confirms the expected application/schema state behind the active tunnel. Supabase project health is a separate dependency.
 
 ## Local AI audit
 
 `.github/workflows/ai-runtime-revision-guard.yml` verifies that the API remains local-only by default and cannot silently fall back to paid cloud AI.
 
-Optional workstation model configuration may be declared separately, but it must remain compatible with the local-first runtime contract.
+Optional workstation model configuration may be declared separately, but it must remain compatible with the production runtime contract.
 
 ## Controlled database mutations
 
@@ -151,11 +159,12 @@ No mail credential may be committed to the repository or exposed to the browser.
 
 Before a production-facing runtime change is merged:
 
-- parity, browser, security, local-runtime, and relevant integration gates must be green;
+- parity, browser, security, runtime, and relevant integration gates must be green;
 - `ops.doobielogic.io` must remain the public operator URL unless Nelson explicitly changes it;
-- the workstation request chain must remain Cloudflare Tunnel -> Caddy :8080 -> FastAPI :8010 -> local Supabase Auth :54321;
+- the workstation application request chain must remain Cloudflare Tunnel -> Caddy :8080 -> FastAPI :8010;
+- production browser and FastAPI Auth configuration must remain on `https://fovxtygwcxubjzjgovva.supabase.co` unless Nelson explicitly changes the Supabase project;
 - production frontend API calls must remain safe for remote users;
 - required secrets must remain out of source; and
-- `scripts/verify_zero_cost_deployment.py` must reject any accidental reintroduction of the retired hosted deployment path.
+- `scripts/verify_zero_cost_deployment.py` must reject accidental reintroduction of retired application hosting or a fresh local production Supabase target.
 
-If the workstation or tunnel is unavailable, loss of availability is preferable to silently switching production to an unapproved paid or hosted fallback.
+If the workstation or tunnel is unavailable, loss of application availability is preferable to silently switching production to an unapproved application host. Hosted Supabase remains the approved durable auth/data dependency.

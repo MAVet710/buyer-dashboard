@@ -100,7 +100,7 @@ def test_api_surfaces_field_level_validation_errors():
     assert "One or more request fields are invalid" in api
 
 
-def test_web_release_keeps_ops_domain_on_pc_hosted_runtime():
+def test_web_release_keeps_ops_domain_on_pc_hosted_runtime_with_hosted_supabase():
     workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
     env_example = (ROOT / "deploy" / "frontend.env.example").read_text(encoding="utf-8")
 
@@ -108,6 +108,6 @@ def test_web_release_keeps_ops_domain_on_pc_hosted_runtime():
     assert "Cloudflare Tunnel" in workflow
     assert "Caddy on 127.0.0.1:8080" in workflow
     assert "FastAPI on 127.0.0.1:8010" in workflow
-    assert "No external deployment is performed by this workflow" in workflow
+    assert "No external application deployment is performed by this workflow" in workflow
     assert "VITE_API_URL=" in env_example
-    assert "VITE_SUPABASE_URL=https://ops.doobielogic.io" in env_example
+    assert "VITE_SUPABASE_URL=https://fovxtygwcxubjzjgovva.supabase.co" in env_example

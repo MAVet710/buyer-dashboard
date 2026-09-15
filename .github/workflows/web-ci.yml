@@ -178,15 +178,15 @@ jobs:
           docker run --rm
           -e APP_ENV=production
           -e DATABASE_URL=sqlite+pysqlite:///:memory:
-          -e SUPABASE_URL=http://127.0.0.1:54321
-          -e SUPABASE_JWKS_URL=http://127.0.0.1:54321/auth/v1/.well-known/jwks.json
+          -e SUPABASE_URL=https://fovxtygwcxubjzjgovva.supabase.co
+          -e SUPABASE_JWKS_URL=https://fovxtygwcxubjzjgovva.supabase.co/auth/v1/.well-known/jwks.json
           -e SUPABASE_PUBLISHABLE_KEY=test-publishable
           -e INTEGRATION_ENCRYPTION_KEY=test
           -e CORS_ORIGINS=https://ops.doobielogic.io
           -e ALLOWED_HOSTS=ops.doobielogic.io,doobielogic.io,localhost,127.0.0.1,testserver
           buyer-dash-api:ci python -c "import backend.app.main"
-      - name: Build frontend with same-origin production routing
-        run: docker build -f frontend/Dockerfile -t buyer-dash-web:ci --build-arg VITE_API_URL= --build-arg VITE_SUPABASE_URL=https://ops.doobielogic.io --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=test frontend
+      - name: Build frontend with same-origin API and hosted Supabase auth
+        run: docker build -f frontend/Dockerfile -t buyer-dash-web:ci --build-arg VITE_API_URL= --build-arg VITE_SUPABASE_URL=https://fovxtygwcxubjzjgovva.supabase.co --build-arg VITE_SUPABASE_PUBLISHABLE_KEY=test frontend
       - name: Scan API image for fixable high and critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

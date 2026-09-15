@@ -4,30 +4,34 @@ These are standing project rules. Treat them as contract, not suggestions. Any c
 
 ## Local-first execution
 
-- The **local stack** is the active DoobieLogic development/evaluation environment unless Nelson explicitly says otherwise; on Nelson's workstation this means the local Windows stack.
-- The active DoobieLogic application is hosted from Nelson's Windows PC and exposed publicly through Cloudflare/Cloudflare Tunnel unless Nelson explicitly changes that architecture.
-- The verified PC-hosted request chain is: browser -> Cloudflare HTTPS/Tunnel -> Windows Caddy on loopback `8080` -> built React assets and `/api/*` reverse proxy -> FastAPI on loopback `8010`. Required local Supabase Auth traffic is proxied to the local Auth gateway on `54321`.
+- The **local stack** is the active DoobieLogic development/evaluation environment unless Nelson explicitly says otherwise; on Nelson's workstation this means the local Windows application stack.
+- The active DoobieLogic application compute is hosted from Nelson's Windows PC and exposed publicly through Cloudflare/Cloudflare Tunnel unless Nelson explicitly changes that architecture.
+- The verified PC-hosted application request chain is: browser -> Cloudflare HTTPS/Tunnel -> Windows Caddy on loopback `8080` -> built React assets and `/api/*` reverse proxy -> FastAPI on loopback `8010`.
+- Durable DoobieLogic production auth/data remain on the existing hosted Supabase project `fovxtygwcxubjzjgovva` at `https://fovxtygwcxubjzjgovva.supabase.co` unless Nelson explicitly changes the data/auth architecture.
+- PC-hosted application compute and hosted Supabase auth/data are separate architecture decisions. Do **not** move Supabase Auth to a fresh local `127.0.0.1:54321` instance merely because FastAPI runs on the PC.
+- The production browser uses same-origin `/api/*` for DoobieLogic API calls through `ops.doobielogic.io`, while Supabase JS uses the existing hosted Supabase project directly for Auth/session operations.
+- The PC-hosted FastAPI backend and production browser must target the same Supabase project and compatible enabled publishable/anon client key.
 - Caddy `8080` is the local web/reverse-proxy edge. It is **not** the FastAPI listener. FastAPI is `127.0.0.1:8010`.
 - The separate loopback Vite preview uses `4173`; Vite development on `5173` should proxy `/api` and `/health` directly to FastAPI `8010` unless explicitly overridden.
 - Port `8000` is not part of the active DoobieLogic PC-hosting contract and must not be assumed to be FastAPI.
-- Do not assume Render, Cloud Run, or another hosted environment is the execution target for local debugging, the live operator app, or the Metrc evaluation unless Nelson explicitly says the hosting architecture changed.
-- Hosted deployment context may be inspected only when the task is actually about that hosted environment or when hosted evidence is explicitly needed for comparison.
-- A local failure must be traced through the PC-hosted frontend/Caddy/FastAPI/Auth/configuration path before making deployment changes.
+- Do not assume Render, Cloud Run, or another hosted application environment is the execution target for local debugging, the live operator app, or the Metrc evaluation unless Nelson explicitly says the hosting architecture changed.
+- Hosted **Supabase** is not a retired application host; it remains the production auth/data authority.
+- A local failure must be traced through the PC-hosted frontend/Caddy/FastAPI configuration and the existing hosted Supabase project before making deployment or identity changes.
 
 ## DoobieLogic username login
 
 - `God` is Nelson's DoobieLogic application username. It is unrelated to Metrc credentials, Metrc facilities, Metrc licenses, or the Metrc API User Key.
 - DoobieLogic supports durable username login through `POST /api/v1/account/username-login`.
 - Username matching is case-insensitive via `normalized_username`; `God` resolves through `god` while preserving the canonical durable user identity.
-- A username is resolved to the durable `app_users` row, then the linked Supabase Auth identity is authenticated.
+- A username is resolved to the durable `app_users` row, then the linked Supabase Auth identity is authenticated in the existing hosted DoobieLogic Supabase project.
 - The returned Supabase Auth user id must match the durable DoobieLogic `AppUser.id` before a session is issued.
 - The durable `app_users` row and linked `auth.users` identity must preserve the same UUID and linked email. Diagnose the existing identity/link/configuration before creating, recreating, or relinking a user.
 - Do not fabricate an email address from a username in the browser.
 - Do not silently switch a user from username login to email login.
 - Do not create a replacement DoobieLogic user simply because username login fails.
 - Never commit, log, or expose the password for `God` or any other user.
-- A live `God` login regression must be traced end to end: browser -> Cloudflare Tunnel -> Caddy `8080` -> FastAPI `8010` `/api/v1/account/username-login` -> local Supabase Auth gateway `54321` -> linked auth identity/session.
-- Do not assume a healthy durable user record proves login is healthy. Verify the browser reaches the intended PC-hosted FastAPI process and that FastAPI points to the intended local Auth/database stack.
+- A live `God` login regression must be traced end to end: browser -> Cloudflare Tunnel -> Caddy `8080` -> FastAPI `8010` `/api/v1/account/username-login` -> hosted Supabase Auth project `fovxtygwcxubjzjgovva` -> linked auth identity/session.
+- Do not assume a healthy durable user record proves login is healthy. Verify the browser reaches the intended PC-hosted FastAPI process and that FastAPI/browser both point to `https://fovxtygwcxubjzjgovva.supabase.co` with the intended client Auth key.
 
 ## Metrc evaluation credentials
 

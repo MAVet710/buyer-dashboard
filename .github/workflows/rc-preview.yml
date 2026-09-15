@@ -43,8 +43,8 @@ jobs:
             --cpus=0.10 \
             -e APP_ENV=production \
             -e DATABASE_URL=sqlite+pysqlite:///:memory: \
-            -e SUPABASE_URL=http://127.0.0.1:54321 \
-            -e SUPABASE_JWKS_URL=http://127.0.0.1:54321/auth/v1/.well-known/jwks.json \
+            -e SUPABASE_URL=https://fovxtygwcxubjzjgovva.supabase.co \
+            -e SUPABASE_JWKS_URL=https://fovxtygwcxubjzjgovva.supabase.co/auth/v1/.well-known/jwks.json \
             -e SUPABASE_PUBLISHABLE_KEY=test-publishable \
             -e INTEGRATION_ENCRYPTION_KEY=test \
             -e CORS_ORIGINS=https://ops.doobielogic.io \
@@ -162,7 +162,8 @@ jobs:
             echo '- Account context: passed'
             echo '- Seeded inventory: passed'
             echo '- Constrained CI startup envelope: 512 MB / 0.1 CPU passed'
-            echo '- Production architecture: Cloudflare Tunnel -> PC-hosted Caddy/FastAPI/Supabase'
+            echo '- Production compute: Cloudflare Tunnel -> PC-hosted Caddy/FastAPI'
+            echo '- Production auth/data: existing hosted DoobieLogic Supabase project'
             echo '- External cloud preview resources: none'
           } >> "$GITHUB_STEP_SUMMARY"
 

@@ -59,8 +59,8 @@ jobs:
           docker run --rm \
             -e APP_ENV=production \
             -e DATABASE_URL=sqlite+pysqlite:///:memory: \
-            -e SUPABASE_URL=http://127.0.0.1:54321 \
-            -e SUPABASE_JWKS_URL=http://127.0.0.1:54321/auth/v1/.well-known/jwks.json \
+            -e SUPABASE_URL=https://fovxtygwcxubjzjgovva.supabase.co \
+            -e SUPABASE_JWKS_URL=https://fovxtygwcxubjzjgovva.supabase.co/auth/v1/.well-known/jwks.json \
             -e SUPABASE_PUBLISHABLE_KEY=test-publishable \
             -e INTEGRATION_ENCRYPTION_KEY=test \
             -e CORS_ORIGINS=https://doobielogic.io,https://ops.doobielogic.io \
@@ -81,8 +81,8 @@ jobs:
             echo '- Public edge: Cloudflare Tunnel'
             echo '- Local web edge: Caddy on 127.0.0.1:8080'
             echo '- Local API: FastAPI on 127.0.0.1:8010'
-            echo '- Local auth gateway: Supabase on 127.0.0.1:54321'
+            echo '- Auth/data authority: existing hosted DoobieLogic Supabase project'
             echo '- Cloud AI fallback: disabled'
             echo
-            echo 'No external deployment is performed by this workflow. Production remains hosted from the Windows PC and is exposed through Cloudflare Tunnel.'
+            echo 'No external application deployment is performed by this workflow. Production application compute remains on the Windows PC while durable Supabase auth/data remain on the existing Supabase project.'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+SUPABASE_PROJECT_URL = "https://fovxtygwcxubjzjgovva.supabase.co"
 
 
 def _read(path: str) -> str:
@@ -17,16 +18,19 @@ def _require(condition: bool, message: str) -> None:
 
 
 def _verify_pc_hosted_contract() -> None:
-    invariants = _read("docs/PROJECT_INVARIANTS.md")
     api_client = _read("frontend/src/lib/api.ts")
     auth_gate = _read("frontend/src/components/AuthGate.tsx")
+    api_env = _read("deploy/api.env.example")
+    frontend_env = _read("deploy/frontend.env.example")
 
-    _require("Cloudflare HTTPS/Tunnel" in invariants, "PC-hosted Cloudflare Tunnel invariant is missing.")
-    _require("Caddy on loopback `8080`" in invariants, "Caddy :8080 invariant is missing.")
-    _require("FastAPI on loopback `8010`" in invariants, "FastAPI :8010 invariant is missing.")
-    _require("Auth gateway on `54321`" in invariants, "Local Supabase Auth :54321 invariant is missing.")
     _require('const API_URL = import.meta.env.VITE_API_URL ?? "";' in api_client, "Production API client must retain same-origin support.")
     _require('/api/v1/account/username-login' in auth_gate, "Durable username login route is missing from the frontend.")
+    _require(f"SUPABASE_URL={SUPABASE_PROJECT_URL}" in api_env, "PC-hosted FastAPI must use the existing hosted DoobieLogic Supabase project.")
+    _require(f"SUPABASE_JWKS_URL={SUPABASE_PROJECT_URL}/auth/v1/.well-known/jwks.json" in api_env, "Backend JWKS must use the existing hosted DoobieLogic Supabase project.")
+    _require("VITE_API_URL=" in frontend_env, "Production browser API calls must remain same-origin through ops.doobielogic.io.")
+    _require(f"VITE_SUPABASE_URL={SUPABASE_PROJECT_URL}" in frontend_env, "Browser auth must use the same hosted DoobieLogic Supabase project as FastAPI.")
+    _require("127.0.0.1:54321" not in api_env, "Production backend auth must not be redirected to a fresh local Supabase instance.")
+    _require("VITE_SUPABASE_URL=https://ops.doobielogic.io" not in frontend_env, "Supabase Auth must not be confused with the PC-hosted application origin.")
 
     for path in (
         "doobie_settings.py",
@@ -76,11 +80,12 @@ def _verify_release_workflow_is_validation_only() -> None:
     source = _read(".github/workflows/deploy.yml")
     _require("name: Deploy to DoobieLogic" in source, "Release workflow name changed and would break workflow_run consumers.")
     _require("PC-hosted" in source, "Release workflow must be explicitly PC-hosted.")
-    _require("python scripts/verify_zero_cost_deployment.py" in source, "Release workflow must enforce the local-first deployment contract.")
+    _require("python scripts/verify_zero_cost_deployment.py" in source, "Release workflow must enforce the production runtime contract.")
     _require("Build API release image locally" in source, "Release workflow must validate the API build locally in CI.")
-    _require("No external deployment is performed by this workflow" in source, "Release workflow must state that GitHub does not deploy production.")
+    _require("No external application deployment is performed by this workflow" in source, "Release workflow must state that GitHub does not deploy application compute.")
     _require("ops.doobielogic.io" in source, "Operator hostname must remain part of the release contract.")
-    _require("127.0.0.1" in source, "Local runtime contract must remain represented in the release workflow.")
+    _require("127.0.0.1:8010" in source, "Local FastAPI runtime contract must remain represented in the release workflow.")
+    _require(SUPABASE_PROJECT_URL in source, "Release validation must preserve the existing hosted Supabase authority.")
 
 
 def _verify_no_billable_google_workflows() -> None:
@@ -132,8 +137,8 @@ def main() -> None:
     _verify_manual_database_mutations_are_gated()
     _verify_storefront_alias_workflow_is_validation_only()
     print(
-        "Zero-cost deployment contract verified: ops.doobielogic.io -> Cloudflare Tunnel -> "
-        "PC-hosted Caddy :8080 -> FastAPI :8010 -> local Supabase Auth :54321; no retired hosted deployment wiring."
+        "Production contract verified: ops.doobielogic.io -> Cloudflare Tunnel -> PC-hosted Caddy :8080 -> "
+        "FastAPI :8010, with durable auth/data on the existing hosted DoobieLogic Supabase project."
     )
 
 

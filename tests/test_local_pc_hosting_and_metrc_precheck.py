@@ -12,24 +12,27 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_local_doobielogic_runtime_distinguishes_caddy_8080_from_fastapi_8010() -> None:
+def test_local_doobielogic_runtime_distinguishes_app_compute_from_supabase_authority() -> None:
     vite = _read("frontend/vite.config.ts")
     env_example = _read("frontend/.env.example")
     diagnostic = _read("scripts/diagnose_local_username_login.py")
-    policy = _read("docs/PROJECT_INVARIANTS.md")
+    api_env = _read("deploy/api.env.example")
+    frontend_prod_env = _read("deploy/frontend.env.example")
 
     assert '127.0.0.1:8010' in vite
     assert '127.0.0.1:8080' not in vite
     assert 'localhost:8000' not in vite
     assert 'VITE_API_URL=http://127.0.0.1:8010' in env_example
     assert 'DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8010"' in diagnostic
+    assert 'EXPECTED_SUPABASE_URL = "https://fovxtygwcxubjzjgovva.supabase.co"' in diagnostic
     assert '"caddy_url": "http://127.0.0.1:8080"' in diagnostic
     assert '"fastapi_url": "http://127.0.0.1:8010"' in diagnostic
-    assert '"supabase_auth_url": "http://127.0.0.1:54321"' in diagnostic
-    assert 'Caddy on loopback `8080`' in policy
-    assert 'FastAPI on loopback `8010`' in policy
-    assert 'Auth gateway on `54321`' in policy
-    assert 'Port `8000` is not part of the active DoobieLogic PC-hosting contract' in policy
+    assert '"supabase_auth_authority": EXPECTED_SUPABASE_URL' in diagnostic
+    assert 'SUPABASE_URL=https://fovxtygwcxubjzjgovva.supabase.co' in api_env
+    assert 'SUPABASE_JWKS_URL=https://fovxtygwcxubjzjgovva.supabase.co/auth/v1/.well-known/jwks.json' in api_env
+    assert 'VITE_API_URL=' in frontend_prod_env
+    assert 'VITE_SUPABASE_URL=https://fovxtygwcxubjzjgovva.supabase.co' in frontend_prod_env
+    assert '127.0.0.1:54321' not in api_env
 
 
 def test_windows_precheck_inherits_the_existing_pc_host_environment() -> None:

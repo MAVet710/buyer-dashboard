@@ -19,15 +19,17 @@ def test_api_release_is_verified_before_pc_hosted_handoff():
     assert "Build API release image locally" in WORKFLOW
     assert "Verify API image has exactly one Alembic head" in WORKFLOW
     assert "Verify PC-hosted API startup contract" in WORKFLOW
-    assert "No external deployment is performed by this workflow" in WORKFLOW
+    assert "No external application deployment is performed by this workflow" in WORKFLOW
 
 
-def test_public_runtime_contract_is_cloudflare_tunnel_to_local_pc():
+def test_public_runtime_contract_is_cloudflare_tunnel_to_local_pc_with_hosted_supabase():
     assert "https://ops.doobielogic.io" in WORKFLOW
     assert "Cloudflare Tunnel" in WORKFLOW
     assert "Caddy on 127.0.0.1:8080" in WORKFLOW
     assert "FastAPI on 127.0.0.1:8010" in WORKFLOW
-    assert "Supabase on 127.0.0.1:54321" in WORKFLOW
+    assert "existing hosted DoobieLogic Supabase project" in WORKFLOW
+    assert "https://fovxtygwcxubjzjgovva.supabase.co" in WORKFLOW
+    assert "127.0.0.1:54321" not in WORKFLOW
 
 
 def test_retired_hosting_artifacts_are_absent():
