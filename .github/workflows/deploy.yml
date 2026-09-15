@@ -1,4 +1,4 @@
-name: Validate DoobieLogic PC-hosted Release
+name: Deploy to DoobieLogic
 
 on:
   push:
