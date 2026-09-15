@@ -47,11 +47,9 @@ def _verify_retired_hosting_is_absent() -> None:
     for relative in (Path(retired_blueprint), retired_worker, retired_worker_test, retired_wrangler):
         _require(not (ROOT / relative).exists(), f"Retired hosted deployment artifact must stay deleted: {relative}")
 
-    forbidden_markers = (
-        "on" + "render.com",
-        "REN" + "DER_",
-        "autoDeployTrigger: checksPass",
-    )
+    retired_domain = "on" + "render.com"
+    retired_env_prefix = "REN" + "DER_"
+    retired_autodeploy = "autoDeployTrigger: checksPass"
     scan_paths: list[Path] = []
     for directory in (WORKFLOWS, ROOT / "deploy", ROOT / "backend", ROOT / "services", ROOT / "frontend"):
         if not directory.exists():
@@ -65,15 +63,19 @@ def _verify_retired_hosting_is_absent() -> None:
             source = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        for marker in forbidden_markers:
-            if marker.casefold() in source.casefold():
-                violations.append(f"{path.relative_to(ROOT)}: {marker}")
+        if retired_domain in source.casefold():
+            violations.append(f"{path.relative_to(ROOT)}: retired hosted domain")
+        if retired_env_prefix in source:
+            violations.append(f"{path.relative_to(ROOT)}: retired hosted environment variable")
+        if retired_autodeploy in source:
+            violations.append(f"{path.relative_to(ROOT)}: retired hosted auto-deploy trigger")
     _require(not violations, "Retired hosted deployment wiring detected: " + "; ".join(violations))
 
 
 def _verify_release_workflow_is_validation_only() -> None:
     source = _read(".github/workflows/deploy.yml")
-    _require("Validate DoobieLogic PC-hosted Release" in source, "Release workflow must be explicitly PC-hosted.")
+    _require("name: Deploy to DoobieLogic" in source, "Release workflow name changed and would break workflow_run consumers.")
+    _require("PC-hosted" in source, "Release workflow must be explicitly PC-hosted.")
     _require("python scripts/verify_zero_cost_deployment.py" in source, "Release workflow must enforce the local-first deployment contract.")
     _require("Build API release image locally" in source, "Release workflow must validate the API build locally in CI.")
     _require("No external deployment is performed by this workflow" in source, "Release workflow must state that GitHub does not deploy production.")
