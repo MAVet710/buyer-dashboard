@@ -10,8 +10,6 @@ from scripts.validate_storefront_domains import load_domains
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "deploy" / "storefront-domains.txt"
 WORKFLOW = (ROOT / ".github" / "workflows" / "storefront-domain-mappings.yml").read_text(encoding="utf-8")
-BLUEPRINT = (ROOT / "render.yaml").read_text(encoding="utf-8")
-CLOUDFLARE = (ROOT / "deploy" / "cloudflare" / "wrangler.jsonc").read_text(encoding="utf-8")
 
 
 def test_cowboy_kush_is_an_explicit_approved_storefront_domain():
@@ -37,10 +35,9 @@ def test_storefront_domain_validator_rejects_wildcards_reserved_and_noncanonical
         load_domains(path)
 
 
-def test_storefront_domain_workflow_validates_before_cloudflare_route_handoff():
+def test_storefront_domain_workflow_validates_for_pc_hosted_tunnel_routing():
     assert 'python scripts/validate_storefront_domains.py "$DOMAIN_CONFIG"' in WORKFLOW
-    assert "50-alias free-host operating limit" in WORKFLOW
-    assert "Cloudflare Worker routes to the free Render static site" in WORKFLOW
+    assert "Cloudflare Tunnel -> PC-hosted Caddy" in WORKFLOW
     assert "never creates DNS or cloud resources" in WORKFLOW
     assert "gcloud " not in WORKFLOW
 
@@ -55,10 +52,10 @@ def test_storefront_domain_workflow_is_validation_only_and_main_scoped():
     assert "--to-latest" not in WORKFLOW
 
 
-def test_cloudflare_owns_platform_domains_without_render_custom_domains_or_wildcards():
-    static = BLUEPRINT.split("name: doobielogic-web-prod", 1)[1]
-    assert "runtime: static" in static
-    assert "domains:" not in static
-    for host in ("doobielogic.io", "ops.doobielogic.io", "cowboykush.doobielogic.io", "api.doobielogic.io"):
-        assert f'"pattern": "{host}/*"' in CLOUDFLARE
-    assert '"*.doobielogic.io/*"' not in CLOUDFLARE
+def test_retired_cloudflare_worker_files_stay_absent():
+    for path in (
+        ROOT / "deploy" / "cloudflare" / "worker.mjs",
+        ROOT / "deploy" / "cloudflare" / "worker.test.mjs",
+        ROOT / "deploy" / "cloudflare" / "wrangler.jsonc",
+    ):
+        assert not path.exists(), path
