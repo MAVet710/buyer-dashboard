@@ -9,9 +9,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.units import inch
-from reportlab.pdfgen import canvas
 from sqlalchemy import Engine
 
 from services.web_buyer_parity import buyer_intelligence, forecast_view, records, sku_inventory_view
@@ -133,6 +130,14 @@ def review_lines(payload: POReviewRequest, target_doh: int = Query(21, ge=1, le=
 
 
 def _pdf(payload: POPdfRequest) -> bytes:
+    # ReportLab is intentionally imported only when an operator exports a PO.
+    # The router itself is part of every API cold start, while PDF generation is
+    # an infrequent action. Keeping this dependency off the import path saves
+    # scarce Render Free CPU without changing the generated document contract.
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.pdfgen import canvas
+
     buffer = BytesIO(); pdf = canvas.Canvas(buffer, pagesize=letter); width, height = letter
     left_margin = 0.7 * inch; right_margin = width - 0.7 * inch; top_margin = height - 0.75 * inch; y = top_margin
     pdf.setFont("Helvetica-Bold", 16); pdf.drawString(left_margin, y, "MAVet710 - Purchase Order"); y -= 0.25 * inch
