@@ -9,7 +9,9 @@ from services.doobie_config import resolve_doobie_config
 
 LICENSE_VALIDATE_PATH = "/api/v1/license/validate"
 DEFAULT_TIMEOUT_SECONDS = 8
-DEFAULT_DOOBIE_BASE_URL = "https://doobie-api.onrender.com"
+# Local service clients talk directly to the active PC-hosted FastAPI process.
+# Public browser traffic reaches the same application through ops.doobielogic.io.
+DEFAULT_DOOBIE_BASE_URL = "http://127.0.0.1:8010"
 
 
 def _base_url() -> str:
