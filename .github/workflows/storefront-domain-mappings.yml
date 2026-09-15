@@ -1,4 +1,4 @@
-name: Hosted Storefront Domains
+name: Storefront Domain Validation
 
 on:
   push:
@@ -33,16 +33,12 @@ jobs:
       - name: Validate approved storefront domains
         run: python scripts/validate_storefront_domains.py "$DOMAIN_CONFIG"
 
-      - name: Verify aliases fit the free static-host model
+      - name: Verify storefront aliases stay outside reserved platform hosts
         shell: bash
         run: |
           set -euo pipefail
           mapfile -t domains < <(python scripts/validate_storefront_domains.py "$DOMAIN_CONFIG" --print)
           count="${#domains[@]}"
-          if [ "$count" -gt 50 ]; then
-            echo "Approved storefront aliases ($count) exceed the conservative 50-alias free-host operating limit."
-            exit 1
-          fi
 
           for domain in "${domains[@]}"; do
             case "$domain" in
@@ -62,5 +58,5 @@ jobs:
               echo "- \`$domain\`"
             done
             echo
-            echo 'These hosts are routed by the React storefront host boundary and must be attached as Cloudflare Worker routes to the free Render static site. This workflow validates only; it never creates DNS or cloud resources.'
+            echo 'These hostnames belong to the active Cloudflare Tunnel -> PC-hosted Caddy routing model and the React storefront host boundary. This workflow validates only; it never creates DNS or cloud resources.'
           } >> "$GITHUB_STEP_SUMMARY"
