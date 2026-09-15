@@ -32,14 +32,43 @@ if (-not (Test-Path $launcher)) {
     throw 'The local MA Metrc evaluation launcher is missing.'
 }
 
+# Normalize Windows-created JSON to UTF-8 without BOM before the Python runner
+# reads it. Validate the JSON here so malformed files fail before credential
+# resolution or provider preflight.
+$normalizedPayload = $PayloadFile
+if ($PayloadFile) {
+    $payloadPath = [System.IO.Path]::GetFullPath((Join-Path $root $PayloadFile))
+    if (-not (Test-Path $payloadPath)) {
+        throw "Payload file does not exist: $PayloadFile"
+    }
+    $payloadText = [System.IO.File]::ReadAllText($payloadPath)
+    try {
+        $payloadObject = $payloadText | ConvertFrom-Json
+    } catch {
+        throw 'Payload file is not valid JSON.'
+    }
+    if ($Operation -eq 'package_create') {
+        $location = [string]$payloadObject.location
+        if ([string]::IsNullOrWhiteSpace($location)) {
+            throw 'Package create requires location. Metrc previously rejected this evaluation request with HTTP 400 because Location was omitted.'
+        }
+    }
+    [System.IO.File]::WriteAllText(
+        $payloadPath,
+        ($payloadObject | ConvertTo-Json -Depth 30),
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+    $normalizedPayload = $payloadPath
+}
+
 $arguments = @(
     $launcher,
     '--operation', $Operation,
     '--output', $Output,
     '--license-number', $LicenseNumber
 )
-if ($PayloadFile) {
-    $arguments += @('--payload-file', $PayloadFile)
+if ($normalizedPayload) {
+    $arguments += @('--payload-file', $normalizedPayload)
 }
 if ($FacilityFamily) {
     $arguments += @('--facility-family', $FacilityFamily)
