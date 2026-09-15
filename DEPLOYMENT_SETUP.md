@@ -1,198 +1,84 @@
-# 🚀 Deployment Setup for DoobieLogic
+# DoobieLogic Production Runtime
 
-This guide sets up automatic deployment to `ops.doobielogic.io` on every push to main.
+DoobieLogic production is **PC-hosted**. `https://ops.doobielogic.io` is the public operator URL and Cloudflare Tunnel carries traffic to the Windows workstation.
 
-## Prerequisites
+## Authoritative request chain
 
-- Google Cloud Project with billing enabled
-- Workload Identity Federation configured (for GitHub Actions)
-- Cloud Run, Artifact Registry, Secret Manager enabled
+`browser -> https://ops.doobielogic.io -> Cloudflare Tunnel -> Caddy 127.0.0.1:8080 -> FastAPI 127.0.0.1:8010 -> local Supabase Auth 127.0.0.1:54321`
 
-## Step 1: Set Up Workload Identity Federation
+Caddy is the only public-facing application edge on the workstation. It serves the built React frontend and reverse-proxies `/api/*` to FastAPI. Required browser-facing Supabase Auth traffic is also proxied through the public edge to the local Supabase gateway.
 
-```bash
-gcloud iam workload-identity-pools create "github" \
-  --project=$PROJECT_ID \
-  --location=global \
-  --display-name="GitHub Actions"
+## Required local services
 
-# Get the pool resource name
-WORKLOAD_IDENTITY_POOL_ID=$(gcloud iam workload-identity-pools describe "github" \
-  --project=$PROJECT_ID \
-  --location=global \
-  --format='value(name)')
+- Caddy: `127.0.0.1:8080`
+- FastAPI: `127.0.0.1:8010`
+- local Supabase gateway/Auth: `127.0.0.1:54321`
+- public operator app: `https://ops.doobielogic.io`
 
-gcloud iam workload-identity-pools providers create-oidc "github" \
-  --project=$PROJECT_ID \
-  --location=global \
-  --workload-identity-pool="github" \
-  --display-name="GitHub" \
-  --attribute-mapping="google.subject=sub,attribute.aud=aud,attribute.repository=repository" \
-  --issuer-uri="https://token.actions.githubusercontent.com"
+FastAPI should be started with the canonical application module used by the current local stack. Do not introduce a second hosted API process to work around a local failure.
+
+## Frontend production configuration
+
+The public frontend must use same-origin API requests:
+
+```text
+VITE_API_URL=
+VITE_SUPABASE_URL=https://ops.doobielogic.io
+VITE_SUPABASE_PUBLISHABLE_KEY=<normal client publishable/anon key>
 ```
 
-## Step 2: Create Service Account
+Do **not** build the public frontend with `VITE_API_URL=http://127.0.0.1:8010`; a remote browser would interpret that address as its own device.
 
-```bash
-gcloud iam service-accounts create buyer-dash-deployer \
-  --project=$PROJECT_ID \
-  --display-name="DoobieLogic Deployer"
+## Backend configuration
 
-gcloud iam service-accounts add-iam-policy-binding \
-  buyer-dash-deployer@$PROJECT_ID.iam.gserviceaccount.com \
-  --project=$PROJECT_ID \
-  --role=roles/iam.workloadIdentityUser \
-  --member="principalSet://iam.googleapis.com/$WORKLOAD_IDENTITY_POOL_ID/attribute.repository/MAVet710/buyer-dashboard"
+Use `deploy/api.env.example` as the template. The active backend points at the local Supabase stack, including:
+
+```text
+SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_JWKS_URL=http://127.0.0.1:54321/auth/v1/.well-known/jwks.json
+CORS_ORIGINS=https://ops.doobielogic.io
 ```
 
-## Step 3: Grant Service Account Permissions
+Keep database, encryption, mail, Metrc, and privileged Supabase credentials server-side. Normal sign-in must use the publishable/anon client key rather than requiring a service-role key.
 
-```bash
-# Cloud Run deploy
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member=serviceAccount:buyer-dash-deployer@$PROJECT_ID.iam.gserviceaccount.com \
-  --role=roles/run.admin
+## GitHub Actions
 
-# Artifact Registry push
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member=serviceAccount:buyer-dash-deployer@$PROJECT_ID.iam.gserviceaccount.com \
-  --role=roles/artifactregistry.writer
+`.github/workflows/deploy.yml` is a **validation gate**, not a cloud deployment job. It verifies the application build and local-first production contract. Passing the workflow does not move production to an external host.
 
-# Secret Manager access
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member=serviceAccount:buyer-dash-deployer@$PROJECT_ID.iam.gserviceaccount.com \
-  --role=roles/secretmanager.secretAccessor
+`scripts/verify_zero_cost_deployment.py` fails closed if retired hosted deployment artifacts or origins are reintroduced.
 
-# Service account passthrough
-gcloud iam service-accounts add-iam-policy-binding \
-  buyer-dash-deployer@$PROJECT_ID.iam.gserviceaccount.com \
-  --project=$PROJECT_ID \
-  --role=roles/iam.serviceAccountUser \
-  --member=serviceAccount:buyer-dash-deployer@$PROJECT_ID.iam.gserviceaccount.com
+## Cloudflare
+
+Cloudflare must route `ops.doobielogic.io` to the tunnel connected to the workstation Caddy edge. Do not point the operator hostname at a separate hosted frontend or API origin.
+
+## Health checks
+
+Public runtime checks should exercise the real operator path:
+
+```text
+https://ops.doobielogic.io/health/ready
 ```
 
-## Step 4: Create Secrets in Secret Manager
+That verifies the public Cloudflare-to-PC chain rather than a retired or alternate API origin.
 
-```bash
-# Database connection
-echo -n "postgresql://user:pass@host/db" | \
-  gcloud secrets create buyer-dash-database-url \
-  --data-file=- --project=$PROJECT_ID
+## Authentication invariant
 
-# Supabase config
-echo -n "https://your-project.supabase.co" | \
-  gcloud secrets create buyer-dash-supabase-url \
-  --data-file=- --project=$PROJECT_ID
+`God` is a durable DoobieLogic username. Username login resolves the `app_users` row and authenticates the linked Supabase identity. The durable user UUID and Supabase Auth UUID must match.
 
-echo -n "https://your-project.supabase.co/auth/v1/.well-known/jwks.json" | \
-  gcloud secrets create buyer-dash-supabase-jwks-url \
-  --data-file=- --project=$PROJECT_ID
+A login failure must be traced in this order:
 
-echo -n "your-service-role-key" | \
-  gcloud secrets create buyer-dash-supabase-service-role \
-  --data-file=- --project=$PROJECT_ID
+`browser -> Cloudflare Tunnel -> Caddy -> FastAPI /api/v1/account/username-login -> local Supabase Auth -> linked identity`
 
-# Integration encryption key
-echo -n "your-encryption-key" | \
-  gcloud secrets create buyer-dash-integration-encryption-key \
-  --data-file=- --project=$PROJECT_ID
-```
+Do not recreate the user merely because login fails.
 
-## Step 5: Add GitHub Secrets
+## Architecture changes
 
-Go to: **Settings → Secrets and variables → Actions**
+Any intentional change away from this topology must update all of the following in the same reviewed change:
 
-Add these secrets:
+- `docs/PROJECT_INVARIANTS.md`
+- `DEPLOYMENT_SETUP.md`
+- `docs/P0_P2_PRODUCTION_READINESS.md`
+- `scripts/verify_zero_cost_deployment.py`
+- release/runtime regression tests
 
-| Secret | Value |
-|--------|-------|
-| `GCP_PROJECT_ID` | Your Google Cloud Project ID |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github` |
-| `GCP_SERVICE_ACCOUNT` | `buyer-dash-deployer@PROJECT_ID.iam.gserviceaccount.com` |
-| `VITE_SUPABASE_URL` | Your Supabase project URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Your Supabase publishable key |
-
-## Step 6: Set Up Cloud Run Services
-
-Create the services first (deployment will update them):
-
-```bash
-# Create API service
-gcloud run create buyer-dash-api \
-  --region us-east1 \
-  --image gcr.io/cloudrun/hello \
-  --allow-unauthenticated \
-  --port 8080 \
-  --platform managed \
-  --project=$PROJECT_ID
-
-# Create web service
-gcloud run create buyer-dash-web \
-  --region us-east1 \
-  --image gcr.io/cloudrun/hello \
-  --allow-unauthenticated \
-  --port 8080 \
-  --platform managed \
-  --project=$PROJECT_ID
-```
-
-## Step 7: Configure DNS
-
-Point these domains to your Cloud Run services:
-
-- `ops.doobielogic.io` → buyer-dash-web Cloud Run URL
-- `api.doobielogic.io` → buyer-dash-api Cloud Run URL
-
-Use Cloud Run domain mapping or update DNS records to point to the Cloud Run URLs.
-
-## Step 8: Test Deployment
-
-Push a commit to main:
-
-```bash
-git commit --allow-empty -m "Test deployment"
-git push origin main
-```
-
-Watch the deployment in GitHub Actions → Deploy workflow.
-
-## Monitoring
-
-### Check deployment logs:
-```bash
-gcloud run services describe buyer-dash-api --region us-east1
-gcloud run services describe buyer-dash-web --region us-east1
-```
-
-### View Cloud Run logs:
-```bash
-gcloud run logs read buyer-dash-api --region us-east1 --limit 50
-gcloud run logs read buyer-dash-web --region us-east1 --limit 50
-```
-
-### Check Cloud Build:
-```bash
-gcloud builds log --limit=50
-```
-
-## Troubleshooting
-
-### Deployment fails with auth error:
-- Verify service account has correct roles
-- Check Workload Identity Pool configuration
-
-### Images won't push:
-- Verify Artifact Registry repository exists
-- Check service account has `artifactregistry.writer` role
-
-### Environment variables not set:
-- Verify secrets exist in Secret Manager
-- Check service account can access secrets
-
-### DNS not resolving:
-- Wait 24-48 hours for DNS propagation
-- Verify Cloud Run domain mapping is correct
-
----
-
-**Done!** Every push to `main` now automatically deploys to `ops.doobielogic.io` and `api.doobielogic.io`.
+Until then, the PC-hosted topology above is the production contract.

@@ -1,10 +1,10 @@
 """Bounded performance caches for the CPU-heavy Buyer analytics path.
 
-Render Free provides 0.1 CPU. Buyer Dashboard, overview, market intelligence,
-and exports can otherwise parse the same files and rebuild the same pandas
-forecast at nearly the same time. These caches share that immutable derived work
-by tenant/facility, source fingerprint, and controls without changing business
-logic or persistence semantics.
+Buyer Dashboard, overview, market intelligence, and exports can otherwise parse
+the same files and rebuild the same pandas forecast at nearly the same time.
+These caches share that immutable derived work by tenant/facility, source
+fingerprint, and controls without changing business logic or persistence
+semantics. This remains useful on the PC-hosted runtime and constrained CI.
 """
 
 from __future__ import annotations
@@ -152,9 +152,9 @@ def install_buyer_model_cache(module: Any) -> Callable[..., Any]:
             if cached is not None:
                 _CACHE.pop(key, None)
 
-            # Keep an identical miss under the lock. Parallel pandas copies on
-            # 0.1 CPU only contend with one another; the waiting endpoint is
-            # faster receiving the completed shared model than rebuilding it.
+            # Keep an identical miss under the lock. Parallel pandas copies on a
+            # constrained runtime only contend with one another; the waiting
+            # endpoint is faster receiving the completed shared model than rebuilding it.
             result = current(context, engine, target_doh, velocity_adjustment, sales_days)
             _CACHE[key] = (monotonic(), result)
             _CACHE.move_to_end(key)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 
@@ -17,56 +16,71 @@ def _require(condition: bool, message: str) -> None:
         raise SystemExit(message)
 
 
-def _verify_render() -> None:
-    source = _read("render.yaml")
-    lowered = source.casefold()
-    api = source.split("name: doobielogic-api-rc", 1)[1].split("name: doobielogic-web-prod", 1)[0] if "name: doobielogic-api-rc" in source and "name: doobielogic-web-prod" in source else ""
-    static = source.split("name: doobielogic-web-prod", 1)[1] if "name: doobielogic-web-prod" in source else ""
+def _verify_pc_hosted_contract() -> None:
+    invariants = _read("docs/PROJECT_INVARIANTS.md")
+    api_client = _read("frontend/src/lib/api.ts")
+    auth_gate = _read("frontend/src/components/AuthGate.tsx")
 
-    _require("name: doobielogic-api-rc" in source, "Render API service is missing.")
-    _require("name: doobielogic-web-prod" in source, "Render static frontend is missing.")
-    _require("runtime: python" in source, "Render API must use the lean native Python runtime.")
-    _require("runtime: static" in source, "Render frontend must be a static site.")
-    plans = re.findall(r"^\s*plan:\s*([^#\n]+)", source, flags=re.MULTILINE)
-    _require(plans == ["free"], f"Render compute must define exactly one free plan, found: {plans}")
-    _require(source.count("autoDeployTrigger: checksPass") == 2, "Both Render services must wait for GitHub checks.")
-    _require(not re.search(r"^\s*domains:", source, re.MULTILINE), "Public domains must use Cloudflare, not billable Render custom-domain attachments.")
-    _require("api.doobielogic.io" in source, "Public API hostname is missing.")
-    _require("ops.doobielogic.io" in source and "cowboykush.doobielogic.io" in source, "Production browser CORS origins are incomplete.")
-    _require("healthCheckPath: /health/ready" in source, "Render API must use database-backed readiness.")
-    _require("predeploycommand" not in lowered, "Render free services cannot depend on paid pre-deploy commands.")
-    _require("alembic upgrade head" not in api, "The public Render web runtime must not receive schema-DDL authority.")
-    _require("RENDER_EXTERNAL_HOSTNAME" in api, "Render startup must trust the provider-assigned hostname without hardcoding it.")
-    _require("RENDER_GIT_COMMIT" in api, "Render API must expose the exact deployed commit as release identity.")
-    _require("backend/requirements.txt" in source, "Render API must not install the oversized Streamlit root environment.")
-    _require('- key: DATABASE_POOL_SIZE\n        value: "1"' in api, "Render Free API must reserve Supabase headroom with a one-connection pool.")
-    _require('- key: DATABASE_MAX_OVERFLOW\n        value: "0"' in api, "Render Free API must not overflow the Supabase connection pool.")
-    _require("--workers" not in api, "Render Free API must not multiply database connections with extra Uvicorn workers.")
-    _require("pnpm install --frozen-lockfile" in source and "pnpm build" in source, "Render static frontend must use the locked production build.")
-    _require("staticPublishPath: ./frontend/dist" in source, "Render must publish the Vite dist directory.")
-    _require("source: /*" in source and "destination: /index.html" in source, "Render SPA fallback rewrite is missing.")
-    _require("RENDER_GIT_COMMIT" in static and "release.json" in static, "Render static frontend must publish exact commit identity.")
-    _require("path: /release.json" in static and "no-store, no-cache, must-revalidate" in static, "Static release identity must never be served from cache.")
-    _require("AI_ALLOW_CLOUD_FALLBACK" in source and 'value: "false"' in source, "Cloud AI fallback must stay disabled.")
-    _require("RESEND_API_KEY" in api, "Render API must use HTTPS transactional mail instead of blocked SMTP egress.")
-    _require("SPACEMAIL_SMTP_PASSWORD" not in api, "Render Free API must not depend on SMTP credentials.")
+    _require("Cloudflare HTTPS/Tunnel" in invariants, "PC-hosted Cloudflare Tunnel invariant is missing.")
+    _require("Caddy on loopback `8080`" in invariants, "Caddy :8080 invariant is missing.")
+    _require("FastAPI on loopback `8010`" in invariants, "FastAPI :8010 invariant is missing.")
+    _require("Auth gateway on `54321`" in invariants, "Local Supabase Auth :54321 invariant is missing.")
+    _require('const API_URL = import.meta.env.VITE_API_URL ?? "";' in api_client, "Production API client must retain same-origin support.")
+    _require('/api/v1/account/username-login' in auth_gate, "Durable username login route is missing from the frontend.")
 
-    for key in (
-        "DATABASE_URL",
-        "SUPABASE_URL",
-        "SUPABASE_JWKS_URL",
-        "SUPABASE_PUBLISHABLE_KEY",
-        "INTEGRATION_ENCRYPTION_KEY",
-        "RESEND_API_KEY",
-        "VITE_SUPABASE_URL",
-        "VITE_SUPABASE_PUBLISHABLE_KEY",
+    for path in (
+        "doobie_settings.py",
+        "services/doobie_connection.py",
+        "services/doobie_config.py",
+        "services/license_client.py",
     ):
-        pattern = rf"- key: {re.escape(key)}\n\s+sync: false"
-        _require(re.search(pattern, source) is not None, f"{key} must be supplied out-of-band to Render.")
+        source = _read(path)
+        _require('DEFAULT_DOOBIE_BASE_URL = "http://127.0.0.1:8010"' in source, f"{path} must default to the local FastAPI listener.")
 
-    _require("SEALED_DATABASE_URL" not in source and "DATABASE_SEAL_PRIVATE_KEY" not in source, "Database secrets must remain in Render's protected environment, not repository envelopes.")
-    _require("SUPABASE_SERVICE_ROLE_KEY" not in source, "The baseline hosted runtime must not require a privileged Supabase service-role key.")
-    _require(not (ROOT / "netlify.toml").exists(), "Netlify config must not coexist with the canonical Render deployment contract.")
+
+def _verify_retired_hosting_is_absent() -> None:
+    retired_blueprint = "ren" + "der.yaml"
+    retired_worker = Path("deploy") / "cloudflare" / "worker.mjs"
+    retired_worker_test = Path("deploy") / "cloudflare" / "worker.test.mjs"
+    retired_wrangler = Path("deploy") / "cloudflare" / "wrangler.jsonc"
+
+    for relative in (Path(retired_blueprint), retired_worker, retired_worker_test, retired_wrangler):
+        _require(not (ROOT / relative).exists(), f"Retired hosted deployment artifact must stay deleted: {relative}")
+
+    retired_domain = "on" + "render.com"
+    retired_env_prefix = "REN" + "DER_"
+    retired_autodeploy = "autoDeployTrigger: checksPass"
+    scan_paths: list[Path] = []
+    for directory in (WORKFLOWS, ROOT / "deploy", ROOT / "backend", ROOT / "services", ROOT / "frontend"):
+        if not directory.exists():
+            continue
+        scan_paths.extend(path for path in directory.rglob("*") if path.is_file())
+    scan_paths.extend(ROOT / name for name in ("doobie_settings.py", "Dockerfile.api") if (ROOT / name).exists())
+
+    violations: list[str] = []
+    for path in scan_paths:
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if retired_domain in source.casefold():
+            violations.append(f"{path.relative_to(ROOT)}: retired hosted domain")
+        if retired_env_prefix in source:
+            violations.append(f"{path.relative_to(ROOT)}: retired hosted environment variable")
+        if retired_autodeploy in source:
+            violations.append(f"{path.relative_to(ROOT)}: retired hosted auto-deploy trigger")
+    _require(not violations, "Retired hosted deployment wiring detected: " + "; ".join(violations))
+
+
+def _verify_release_workflow_is_validation_only() -> None:
+    source = _read(".github/workflows/deploy.yml")
+    _require("name: Deploy to DoobieLogic" in source, "Release workflow name changed and would break workflow_run consumers.")
+    _require("PC-hosted" in source, "Release workflow must be explicitly PC-hosted.")
+    _require("python scripts/verify_zero_cost_deployment.py" in source, "Release workflow must enforce the local-first deployment contract.")
+    _require("Build API release image locally" in source, "Release workflow must validate the API build locally in CI.")
+    _require("No external deployment is performed by this workflow" in source, "Release workflow must state that GitHub does not deploy production.")
+    _require("ops.doobielogic.io" in source, "Operator hostname must remain part of the release contract.")
+    _require("127.0.0.1" in source, "Local runtime contract must remain represented in the release workflow.")
 
 
 def _verify_no_billable_google_workflows() -> None:
@@ -106,19 +120,20 @@ def _verify_manual_database_mutations_are_gated() -> None:
 def _verify_storefront_alias_workflow_is_validation_only() -> None:
     source = (WORKFLOWS / "storefront-domain-mappings.yml").read_text(encoding="utf-8")
     _require("validate_storefront_domains.py" in source, "Storefront alias workflow must validate the approved domain file.")
-    _require("Cloudflare Worker routes to the free Render static site" in source, "Storefront alias workflow must describe the free-host handoff.")
-    _require("50-alias free-host operating limit" in source, "Storefront alias workflow must bound the approved alias set.")
+    _require("Cloudflare Tunnel" in source and "PC-hosted Caddy" in source, "Storefront aliases must describe the active tunnel-to-PC routing model.")
     _require("never creates DNS or cloud resources" in source, "Storefront domain validation must remain non-mutating.")
 
 
 def main() -> None:
-    _verify_render()
+    _verify_pc_hosted_contract()
+    _verify_retired_hosting_is_absent()
+    _verify_release_workflow_is_validation_only()
     _verify_no_billable_google_workflows()
     _verify_manual_database_mutations_are_gated()
     _verify_storefront_alias_workflow_is_validation_only()
     print(
-        "Zero-cost deployment contract verified: Render static frontend + Render free API + Supabase; "
-        "protected direct database configuration, HTTPS transactional email, no web-runtime DDL, no Google control-plane/registry wiring, and explicitly gated data mutations."
+        "Zero-cost deployment contract verified: ops.doobielogic.io -> Cloudflare Tunnel -> "
+        "PC-hosted Caddy :8080 -> FastAPI :8010 -> local Supabase Auth :54321; no retired hosted deployment wiring."
     )
 
 

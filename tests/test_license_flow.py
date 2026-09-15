@@ -115,7 +115,7 @@ def test_default_doobie_base_url_fallback(monkeypatch):
     monkeypatch.setattr(license_client.requests, "post", _fake_post)
     result = license_client.validate_license_key("lic_default")
     assert result["ok"] is True
-    assert captured["args"][0] == "https://doobie-api.onrender.com/api/v1/license/validate"
+    assert captured["args"][0] == "http://127.0.0.1:8010/api/v1/license/validate"
 
 
 def test_stale_key_triggers_recheck():

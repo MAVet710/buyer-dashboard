@@ -15,7 +15,7 @@ DOOBIE_SERVICE_API_KEY = "DOOBIE_SERVICE_API_KEY"
 DOOBIE_LICENSE_KEY = "DOOBIE_LICENSE_KEY"
 DOOBIE_ADMIN_API_KEY = "DOOBIE_ADMIN_API_KEY"
 METRC_API_KEY = "METRC_API_KEY"
-DEFAULT_DOOBIE_BASE_URL = "https://doobie-api.onrender.com"
+DEFAULT_DOOBIE_BASE_URL = "http://127.0.0.1:8010"
 DEFAULT_SERVICE_AUTH_TIMEOUT_SECONDS = 75
 DEFAULT_TRANSIENT_FAILURE_CACHE_SECONDS = 5
 TRANSIENT_CONNECTION_STATUSES = {"timeout", "server_unavailable", "waking_up"}
@@ -216,9 +216,10 @@ def sync_doobie_service_connection(
 ) -> dict[str, str | bool] | None:
     """Authenticate configured app-to-Doobie credentials once per session window.
 
-    Render's free service can need roughly a minute to wake after an idle period.
-    Successful and credential failures may be cached normally, but transient
-    network/cold-start failures are cached only briefly so the app self-heals.
+    The PC-hosted service can be temporarily unreachable while the local stack or
+    Cloudflare Tunnel is restarting. Successful and credential failures may be
+    cached normally, but transient connection failures are cached only briefly
+    so the app self-heals as soon as the local service is back.
     """
 
     config = resolve_doobie_config()

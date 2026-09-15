@@ -21,17 +21,11 @@ def test_authorization_reuses_shared_database_engine(monkeypatch):
     assert "create_coman_engine" not in source
 
 
-def test_render_free_api_reserves_supabase_session_headroom():
-    blueprint = Path("render.yaml").read_text(encoding="utf-8")
-    api = blueprint.split("name: doobielogic-api-rc", 1)[1].split("name: doobielogic-web-prod", 1)[0]
+def test_pc_hosted_api_keeps_supabase_connection_pool_bounded():
+    source = Path("modules/coman/db.py").read_text(encoding="utf-8")
 
-    # The free API runs one Uvicorn worker and may open only one pooled database
-    # connection. No overflow means a traffic spike queues instead of exhausting
-    # the Supabase Free session budget.
-    assert "plan: free" in api
-    assert '- key: DATABASE_POOL_SIZE\n        value: "1"' in api
-    assert '- key: DATABASE_MAX_OVERFLOW\n        value: "0"' in api
-    assert '- key: DATABASE_POOL_TIMEOUT\n        value: "30"' in api
-    assert "exec uvicorn backend.app.main:app" in api
-    assert "--workers" not in api
-    assert "autoDeployTrigger: checksPass" in api
+    assert 'options["pool_size"] = _int_setting("DATABASE_POOL_SIZE", 2, minimum=1)' in source
+    assert 'options["max_overflow"] = _int_setting("DATABASE_MAX_OVERFLOW", 0, minimum=0)' in source
+    assert 'options["pool_timeout"] = _int_setting("DATABASE_POOL_TIMEOUT", 30, minimum=1)' in source
+    assert 'options["pool_use_lifo"] = True' in source
+    assert 'options["pool_recycle"] = 300' in source

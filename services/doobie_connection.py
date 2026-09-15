@@ -8,7 +8,9 @@ from urllib.parse import urlparse
 import requests
 
 
-DEFAULT_DOOBIE_BASE_URL = "https://doobie-api.onrender.com"
+# The active DoobieLogic API runs on Nelson's PC at FastAPI loopback :8010.
+# Public users reach it through ops.doobielogic.io -> Cloudflare Tunnel -> Caddy.
+DEFAULT_DOOBIE_BASE_URL = "http://127.0.0.1:8010"
 
 
 def _utc_now_iso() -> str:

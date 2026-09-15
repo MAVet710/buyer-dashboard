@@ -1,7 +1,10 @@
 import os
 
 
-DEFAULT_DOOBIE_BASE_URL = "https://doobie-api.onrender.com"
+# Local-first DoobieLogic runtime. Remote operator traffic reaches this PC-hosted
+# API through ops.doobielogic.io/Cloudflare; internal service-to-service calls
+# should stay on loopback unless DOOBIE_BASE_URL explicitly overrides it.
+DEFAULT_DOOBIE_BASE_URL = "http://127.0.0.1:8010"
 
 
 def get_doobie_url() -> str:
