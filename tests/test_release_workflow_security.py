@@ -90,13 +90,16 @@ def test_pc_hosted_release_is_validation_only_and_preserves_operator_url():
     assert "SUPABASE_SERVICE_ROLE_KEY" not in source
 
 
-def test_post_deploy_latency_gate_is_public_only_and_free_tier_aware():
+def test_public_runtime_latency_gate_uses_ops_domain_and_pc_hosted_path():
     source = _workflow("post-deploy-performance-smoke.yml")
-    assert "/health/ready" in source
-    assert "github.event.workflow_run.head_sha" in source
-    assert "FREE_COLD_START_LIMIT_SECONDS" in source
+    assert "PRODUCTION_ORIGIN: https://ops.doobielogic.io" in source
+    assert "$PRODUCTION_ORIGIN/health/ready" in source
+    assert "RUNTIME_RECOVERY_LIMIT_SECONDS" in source
     assert "WARM_P95_LIMIT_SECONDS" in source
     assert "schema_matches == true" in source
+    assert "Cloudflare Tunnel -> PC-hosted Caddy -> FastAPI" in source
+    assert "api.doobielogic.io" not in source
+    assert "github.event.workflow_run.head_sha" not in source
     assert "DATABASE_URL" not in source
     assert "password" not in source.casefold()
 
