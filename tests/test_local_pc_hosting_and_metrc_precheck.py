@@ -10,19 +10,36 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_local_doobielogic_runtime_uses_fastapi_8080_not_8000() -> None:
+def test_local_doobielogic_runtime_distinguishes_caddy_8080_from_fastapi_8010() -> None:
     vite = _read("frontend/vite.config.ts")
     env_example = _read("frontend/.env.example")
     diagnostic = _read("scripts/diagnose_local_username_login.py")
     policy = _read("docs/PROJECT_INVARIANTS.md")
 
-    assert '127.0.0.1:8080' in vite
+    assert '127.0.0.1:8010' in vite
+    assert '127.0.0.1:8080' not in vite
     assert 'localhost:8000' not in vite
-    assert 'VITE_API_URL=http://127.0.0.1:8080' in env_example
-    assert 'DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8080"' in diagnostic
-    assert '127.0.0.1:8080' in policy
-    assert 'Cloudflare/Cloudflare Tunnel' in policy
-    assert 'Port `8000` is not part of the active DoobieLogic application-hosting contract' in policy
+    assert 'VITE_API_URL=http://127.0.0.1:8010' in env_example
+    assert 'DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8010"' in diagnostic
+    assert '"caddy_url": "http://127.0.0.1:8080"' in diagnostic
+    assert '"fastapi_url": "http://127.0.0.1:8010"' in diagnostic
+    assert '"supabase_auth_url": "http://127.0.0.1:54321"' in diagnostic
+    assert 'Caddy on loopback `8080`' in policy
+    assert 'FastAPI on loopback `8010`' in policy
+    assert 'Auth gateway on `54321`' in policy
+    assert 'Port `8000` is not part of the active DoobieLogic PC-hosting contract' in policy
+
+
+def test_windows_precheck_inherits_the_existing_pc_host_environment() -> None:
+    wrapper = _read("scripts/run_local_metrc_execution_precheck.ps1")
+
+    assert "start_local_authenticated.ps1" in wrapper
+    assert ". $bootstrap" in wrapper
+    assert ".pilot-venv/Scripts/python.exe" in wrapper
+    assert "run_local_metrc_execution_precheck.py" in wrapper
+    assert "METRC_INTEGRATOR_API_KEY" not in wrapper
+    assert "METRC_USER_API_KEY" not in wrapper
+    assert "integrator/setup" not in wrapper.casefold()
 
 
 def test_metrc_local_precheck_is_independent_from_doobielogic_login() -> None:

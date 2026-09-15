@@ -11,8 +11,10 @@ that must line up for username login to work:
 4. server-side normal Supabase Auth configuration;
 5. presence (not values) of frontend local Supabase/API variables.
 
-DoobieLogic's current local FastAPI runtime is port 8080. Port 8000 is not part
-of the DoobieLogic application-hosting contract on Nelson's workstation.
+The PC-hosted production chain is Cloudflare Tunnel -> Caddy on loopback 8080 ->
+FastAPI on loopback 8010. This diagnostic talks directly to FastAPI on 8010 so it
+can distinguish the backend from the Caddy edge. Port 8000 is not part of the
+active DoobieLogic PC-hosting contract.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from modules.coman.models import AppUser
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8080"
+DEFAULT_LOCAL_API_URL = "http://127.0.0.1:8010"
 
 
 def _http_json(url: str, timeout: float = 3.0) -> tuple[int, object | None]:
@@ -99,6 +101,11 @@ def diagnose(username: str, api_url: str) -> dict[str, object]:
         "password_read": False,
         "password_changed": False,
         "user_created": False,
+        "pc_hosting": {
+            "caddy_url": "http://127.0.0.1:8080",
+            "fastapi_url": "http://127.0.0.1:8010",
+            "supabase_auth_url": "http://127.0.0.1:54321",
+        },
     }
 
     base = str(api_url or DEFAULT_LOCAL_API_URL).rstrip("/")
