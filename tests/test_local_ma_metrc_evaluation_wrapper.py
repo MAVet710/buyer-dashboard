@@ -15,6 +15,8 @@ def test_local_ma_metrc_wrapper_bootstraps_and_normalizes_payloads() -> None:
     assert "UTF8Encoding($false)" in source
     assert "ConvertFrom-Json" in source
     assert "Package create requires location" in source
+    assert "[System.IO.Path]::IsPathRooted($PayloadFile)" in source
+    assert "[System.IO.Path]::GetFullPath($PayloadFile)" in source
     assert "METRC_INTEGRATOR_API_KEY" not in source
     assert "METRC_USER_API_KEY" not in source
     assert "integrator/setup" not in source.casefold()

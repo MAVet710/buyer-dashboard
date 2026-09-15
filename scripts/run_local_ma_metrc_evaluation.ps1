@@ -34,10 +34,15 @@ if (-not (Test-Path $launcher)) {
 
 # Normalize Windows-created JSON to UTF-8 without BOM before the Python runner
 # reads it. Validate the JSON here so malformed files fail before credential
-# resolution or provider preflight.
+# resolution or provider preflight. Accept either an absolute Windows path or a
+# path relative to the repository root.
 $normalizedPayload = $PayloadFile
 if ($PayloadFile) {
-    $payloadPath = [System.IO.Path]::GetFullPath((Join-Path $root $PayloadFile))
+    if ([System.IO.Path]::IsPathRooted($PayloadFile)) {
+        $payloadPath = [System.IO.Path]::GetFullPath($PayloadFile)
+    } else {
+        $payloadPath = [System.IO.Path]::GetFullPath((Join-Path $root $PayloadFile))
+    }
     if (-not (Test-Path $payloadPath)) {
         throw "Payload file does not exist: $PayloadFile"
     }
