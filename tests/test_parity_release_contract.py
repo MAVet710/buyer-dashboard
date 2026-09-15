@@ -23,15 +23,17 @@ def test_production_release_is_blocked_until_strict_and_legacy_evidence_are_comp
     assert "local-runtime-release-gate:\n    needs: parity-release-gate" in workflow
 
 
-def test_pc_hosted_release_preserves_runtime_identity_without_external_deployment():
+def test_pc_hosted_release_preserves_runtime_identity_without_external_application_deployment():
     workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
 
     assert "RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}" in workflow
     assert "Cloudflare Tunnel" in workflow
     assert "Caddy on 127.0.0.1:8080" in workflow
     assert "FastAPI on 127.0.0.1:8010" in workflow
-    assert "Supabase on 127.0.0.1:54321" in workflow
-    assert "No external deployment is performed by this workflow" in workflow
+    assert "existing hosted DoobieLogic Supabase project" in workflow
+    assert "https://fovxtygwcxubjzjgovva.supabase.co" in workflow
+    assert "No external application deployment is performed by this workflow" in workflow
+    assert "127.0.0.1:54321" not in workflow
 
 
 def test_pc_hosted_runtime_preserves_secrets_as_out_of_band_configuration():
