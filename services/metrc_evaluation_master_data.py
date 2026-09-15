@@ -69,6 +69,14 @@ def _response_payload(response: Any) -> Any:
 
 
 def _provider_id(value: Any) -> str:
+    if isinstance(value, dict):
+        for key in ("Ids", "ids"):
+            ids = value.get(key)
+            if isinstance(ids, list):
+                for item in ids:
+                    if item is not None and str(item).strip():
+                        return str(item).strip()
+
     candidates: list[dict[str, Any]] = []
     if isinstance(value, dict):
         candidates.append(value)
