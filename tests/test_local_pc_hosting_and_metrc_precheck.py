@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import sys
 
 from scripts.run_local_metrc_execution_precheck import _healthy
 
@@ -37,9 +39,23 @@ def test_windows_precheck_inherits_the_existing_pc_host_environment() -> None:
     assert ". $bootstrap" in wrapper
     assert ".pilot-venv/Scripts/python.exe" in wrapper
     assert "run_local_metrc_execution_precheck.py" in wrapper
+    assert "$env:PYTHONPATH" in wrapper
     assert "METRC_INTEGRATOR_API_KEY" not in wrapper
     assert "METRC_USER_API_KEY" not in wrapper
     assert "integrator/setup" not in wrapper.casefold()
+
+
+def test_precheck_script_can_be_invoked_by_file_path_from_repo_root() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "run_local_metrc_execution_precheck.py"), "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "GET-only Massachusetts Metrc execution precheck" in completed.stdout
+    assert "ModuleNotFoundError" not in completed.stderr
 
 
 def test_metrc_local_precheck_is_independent_from_doobielogic_login() -> None:
