@@ -1,7 +1,7 @@
 """Database configuration for the Co-Man workspace.
 
-Co-Man data must never silently fall back to an ephemeral database in a hosted
-deployment. Callers must provide a durable PostgreSQL URL explicitly.
+Co-Man data must never silently fall back to an ephemeral database in the active
+runtime. Callers must provide a durable PostgreSQL URL explicitly.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ def resolve_database_url(explicit_url: str | None = None) -> str:
     ).strip()
     if not database_url:
         # Root-level Streamlit secrets remain supported for local/community
-        # hosting, but production FastAPI never silently falls back to SQLite.
+        # compatibility, but production FastAPI never silently falls back to SQLite.
         try:
             import streamlit as st
 
@@ -62,9 +62,8 @@ def create_coman_engine(database_url: str | None = None) -> Engine:
     if resolved.startswith("sqlite"):
         options["connect_args"] = {"check_same_thread": False}
     else:
-        # Supabase session-mode pooling has a finite server-side connection
-        # budget. Keep every process on a small, bounded pool so the Render Free
-        # service cannot exhaust the database session ceiling.
+        # Supabase/PostgreSQL has a finite connection budget. Keep each process
+        # on a small bounded pool so the PC-hosted API cannot exhaust sessions.
         options["pool_size"] = _int_setting("DATABASE_POOL_SIZE", 2, minimum=1)
         options["max_overflow"] = _int_setting("DATABASE_MAX_OVERFLOW", 0, minimum=0)
         options["pool_timeout"] = _int_setting("DATABASE_POOL_TIMEOUT", 30, minimum=1)
