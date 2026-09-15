@@ -22,6 +22,15 @@ if (-not (Test-Path $python)) {
     throw 'The PC-hosted DoobieLogic Python runtime is missing: .pilot-venv/Scripts/python.exe'
 }
 
+# Python invoked by script path normally places only scripts\ on sys.path. Add
+# the repository root explicitly so backend/, modules/, and services/ resolve in
+# the same way they do when the application is started from the repo root.
+if ($env:PYTHONPATH) {
+    $env:PYTHONPATH = "$root;$env:PYTHONPATH"
+} else {
+    $env:PYTHONPATH = $root
+}
+
 $arguments = @((Join-Path $PSScriptRoot 'run_local_metrc_execution_precheck.py'))
 if ($RunId) {
     $arguments += @('--run-id', $RunId)
