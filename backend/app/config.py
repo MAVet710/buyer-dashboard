@@ -29,7 +29,11 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     integration_encryption_key: str = ""
     metrc_integrator_key: str = ""
-    allowed_hosts: str = "localhost,127.0.0.1,testserver,ops.doobielogic.io,doobielogic.io"
+    # Public storefronts intentionally use tenant subdomains such as
+    # cowboykush.doobielogic.io. Starlette TrustedHostMiddleware supports a
+    # leading-wildcard domain pattern, so trust only the DoobieLogic zone rather
+    # than a global "*" host.
+    allowed_hosts: str = "localhost,127.0.0.1,testserver,doobielogic.io,*.doobielogic.io"
 
     # HTTPS transactional email can be used when configured. Spacemail SMTP/IMAP
     # remains available to the PC-hosted runtime; mail transport does not define
