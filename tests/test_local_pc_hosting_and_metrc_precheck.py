@@ -30,6 +30,18 @@ def test_local_doobielogic_runtime_distinguishes_caddy_8080_from_fastapi_8010() 
     assert 'Port `8000` is not part of the active DoobieLogic PC-hosting contract' in policy
 
 
+def test_windows_precheck_inherits_the_existing_pc_host_environment() -> None:
+    wrapper = _read("scripts/run_local_metrc_execution_precheck.ps1")
+
+    assert "start_local_authenticated.ps1" in wrapper
+    assert ". $bootstrap" in wrapper
+    assert ".pilot-venv/Scripts/python.exe" in wrapper
+    assert "run_local_metrc_execution_precheck.py" in wrapper
+    assert "METRC_INTEGRATOR_API_KEY" not in wrapper
+    assert "METRC_USER_API_KEY" not in wrapper
+    assert "integrator/setup" not in wrapper.casefold()
+
+
 def test_metrc_local_precheck_is_independent_from_doobielogic_login() -> None:
     source = _read("scripts/run_local_metrc_execution_precheck.py")
 
