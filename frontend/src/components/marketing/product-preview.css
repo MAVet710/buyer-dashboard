@@ -1,0 +1,178 @@
+/* Deliberately scoped to the marketing page; no app or shared UI overrides. */
+.mh-page .mh-preview-dialog {
+  width: min(1440px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #705038;
+  border-radius: 12px;
+  background: #121516;
+  color: #f7f3ed;
+  box-shadow: 0 24px 100px #0009;
+}
+
+.mh-page .mh-preview-dialog::backdrop {
+  background: rgba(4, 6, 7, 0.88);
+}
+
+.mh-page .mh-preview-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px;
+  border-bottom: 1px solid #38312b;
+  background: #121516;
+}
+
+.mh-page .mh-preview-heading h2 {
+  margin: 7px 0 0;
+  font-size: clamp(18px, 3vw, 25px);
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+}
+
+.mh-page .mh-preview-description {
+  margin: 0;
+  padding: 16px 24px 0;
+  color: #c1b7ad;
+  font-size: 13px;
+}
+
+.mh-page .mh-preview-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 16px 24px;
+}
+
+.mh-page .mh-preview-tools > span {
+  color: #c1b7ad;
+  font-size: 12px;
+}
+
+.mh-page .mh-preview-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #705038;
+  border-radius: 5px;
+  background: #231d18;
+  color: #ffbf91;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mh-page .mh-preview-control:hover:not(:disabled) {
+  border-color: #f6a46d;
+  background: #30231a;
+}
+
+.mh-page .mh-preview-control:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mh-page .mh-preview-dialog :focus-visible {
+  outline: 2px solid #ffbf91;
+  outline-offset: 3px;
+}
+
+.mh-page .mh-preview-stage {
+  height: min(60vh, 1000px);
+  height: min(60dvh, 1000px);
+  margin: 0 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #38312b;
+  border-radius: 5px;
+  background: #080b0d;
+}
+
+.mh-page .mh-preview-stage img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.mh-page .mh-preview-stage.is-zoomed img {
+  width: 1440px;
+  max-width: none;
+  height: 1000px;
+}
+
+.mh-page .mh-preview-stage > p {
+  padding: 24px;
+}
+
+.mh-page .mh-preview-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 18px 24px;
+}
+
+.mh-page .mh-preview-footer p {
+  margin: 0;
+  color: #c1b7ad;
+  font-size: 13px;
+}
+
+/* Supersedes the hidden legacy caption without changing other marketing pages. */
+.mh-page .mh-product-caption {
+  display: block;
+  padding: 16px 20px;
+  border-top: 1px solid #38312b;
+}
+
+.mh-page .mh-product-caption strong {
+  color: #f7f3ed;
+  font-size: 14px;
+}
+
+.mh-page .mh-product-caption p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .mh-page .mh-preview-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+    border-radius: 8px;
+  }
+
+  .mh-page .mh-preview-heading,
+  .mh-page .mh-preview-description,
+  .mh-page .mh-preview-tools,
+  .mh-page .mh-preview-footer {
+    padding-inline: 14px;
+  }
+
+  .mh-page .mh-preview-stage {
+    margin-inline: 14px;
+    height: 48vh;
+    height: 48dvh;
+  }
+
+  .mh-page .mh-preview-heading .mh-label {
+    font-size: 8px;
+  }
+}

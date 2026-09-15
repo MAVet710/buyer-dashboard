@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useCallback, useState, type MouseEvent } from "react";
 import { ArrowUpRight, ChartNoAxesCombined, PackageSearch } from "lucide-react";
 import { trackMarketingEvent } from "../../lib/marketingAnalytics";
+import { ProductPreviewDialog } from "./ProductPreviewDialog";
 
 const views = [
   {
@@ -27,7 +28,31 @@ const views = [
 
 export function ProductShowcase() {
   const [active, setActive] = useState(0);
+  const [preview, setPreview] = useState<(typeof views)[number] | null>(null);
+  const closePreview = useCallback(() => setPreview(null), []);
   const view = views[active];
+
+  function inspectPreview(event: MouseEvent<HTMLAnchorElement>) {
+    // Preserve modified clicks and the original-image fallback in older browsers.
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      typeof HTMLDialogElement === "undefined" ||
+      typeof HTMLDialogElement.prototype.showModal !== "function"
+    ) {
+      return;
+    }
+    event.preventDefault();
+    setPreview(view);
+    trackMarketingEvent("product_tour_start", {
+      placement: "product",
+      item: `${view.id}-inspect`,
+    });
+  }
+
   return (
     <div className="mh-product-showcase">
       <div className="mh-product-toolbar">
@@ -61,6 +86,8 @@ export function ProductShowcase() {
           target="_blank"
           rel="noreferrer"
           aria-label={`Open full-size ${view.name} screenshot`}
+          aria-haspopup="dialog"
+          onClick={inspectPreview}
         >
           <img
             src={`/marketing/${view.image}`}
@@ -74,7 +101,13 @@ export function ProductShowcase() {
         </a>
         <figcaption>
           <span>Actual product interface · Synthetic demo data · Beta</span>
-          <a href={`/marketing/${view.image}`} target="_blank" rel="noreferrer">
+          <a
+            href={`/marketing/${view.image}`}
+            target="_blank"
+            rel="noreferrer"
+            aria-haspopup="dialog"
+            onClick={inspectPreview}
+          >
             View full size <ArrowUpRight size={14} />
           </a>
         </figcaption>
@@ -83,6 +116,15 @@ export function ProductShowcase() {
         <strong>{view.title}</strong>
         <p>{view.description}</p>
       </div>
+      {preview && (
+        <ProductPreviewDialog
+          name={preview.name}
+          image={preview.image}
+          alt={preview.alt}
+          description={preview.description}
+          onClose={closePreview}
+        />
+      )}
     </div>
   );
 }
