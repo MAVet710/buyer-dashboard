@@ -29,10 +29,11 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     integration_encryption_key: str = ""
     metrc_integrator_key: str = ""
-    allowed_hosts: str = "localhost,127.0.0.1,testserver"
+    allowed_hosts: str = "localhost,127.0.0.1,testserver,ops.doobielogic.io,doobielogic.io"
 
-    # HTTPS transactional email. Render Free blocks outbound SMTP ports, so the
-    # hosted runtime prefers Resend's HTTPS API. Keep the API key server-side.
+    # HTTPS transactional email can be used when configured. Spacemail SMTP/IMAP
+    # remains available to the PC-hosted runtime; mail transport does not define
+    # the application hosting architecture. Keep all credentials server-side.
     resend_api_key: str = ""
     resend_api_url: str = "https://api.resend.com"
     resend_timeout_seconds: float = 12.0
