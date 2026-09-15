@@ -100,17 +100,14 @@ def test_api_surfaces_field_level_validation_errors():
     assert "One or more request fields are invalid" in api
 
 
-def test_web_release_publishes_exact_render_commit_identity():
-    blueprint = (ROOT / "render.yaml").read_text(encoding="utf-8")
-    static = blueprint.split("name: doobielogic-web-prod", 1)[1]
+def test_web_release_keeps_ops_domain_on_pc_hosted_runtime():
     workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    env_example = (ROOT / "deploy" / "frontend.env.example").read_text(encoding="utf-8")
 
-    assert "runtime: static" in static
-    assert "autoDeployTrigger: checksPass" in static
-    assert "RENDER_GIT_COMMIT" in static
-    assert "release.json" in static
-    assert "path: /release.json" in static
-    assert "no-store, no-cache, must-revalidate" in static
-    assert "domains:" not in static
-    assert "deploy/cloudflare/wrangler.jsonc" in static
-    assert "Verify Render handoff is exact-source and check-gated" in workflow
+    assert "https://ops.doobielogic.io" in workflow
+    assert "Cloudflare Tunnel" in workflow
+    assert "Caddy on 127.0.0.1:8080" in workflow
+    assert "FastAPI on 127.0.0.1:8010" in workflow
+    assert "No external deployment is performed by this workflow" in workflow
+    assert "VITE_API_URL=" in env_example
+    assert "VITE_SUPABASE_URL=https://ops.doobielogic.io" in env_example
