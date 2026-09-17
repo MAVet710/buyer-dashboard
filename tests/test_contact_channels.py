@@ -26,15 +26,15 @@ def test_public_contact_copy_stays_human_and_does_not_expose_mail_vendor():
     assert "Need us? Pick an inbox." in channels
     assert "A real person will see it." in channels
     assert "Spacemail" not in channels
-    assert "Cannabis ops without the spreadsheet circus" in marketing
+    assert "Cannabis operations, minus the scavenger hunt" in marketing
     assert "Good weed deserves better operations." in marketing
 
 
 def test_public_hero_copy_is_clear_and_avoids_overwritten_phrasing():
     marketing = (ROOT / "frontend" / "src" / "pages" / "MarketingHome.tsx").read_text(encoding="utf-8")
 
-    assert "and compliance from one place." in marketing
-    assert "one clear view of the work that keeps a licensed facility moving" in marketing
+    assert "and compliance without stitching the story together by hand." in marketing
+    assert "DoobieLogic puts purchasing, receiving, production, extraction, wholesale, traceability, reporting, and compliance in the same operating view" in marketing
     assert "without losing the plot" not in marketing
     assert "five exports and a prayer" not in marketing
 
