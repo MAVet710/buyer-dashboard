@@ -113,7 +113,7 @@ Respect the disclosed first-touch limitation without opt-in. Verify actual produ
 
 ## 16. Git commits
 
-No commit hash, branch publication, PR or merge URL is asserted by this report. The release lead will record the exact final Git identity and any created PR after verification. The implementation is reviewed from the active integration working tree, which also contains unrelated work; this report does not authorize bundling unrelated changes.
+Implementation commit: `6c9c3537a84763f849e4c409402b1adb19af1527` on `codex/advisory-growth-system`. Pull request: https://github.com/MAVet710/buyer-dashboard/pull/574 (open; not merged). A subsequent documentation-only commit records the final live verification. The isolated release checkout excludes unrelated active backend edits. Publication uses the existing PC-hosted integration build; it does not depend on merging the PR.
 
 ## 17. Final URLs
 

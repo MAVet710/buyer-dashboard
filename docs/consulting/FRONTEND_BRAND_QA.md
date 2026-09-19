@@ -41,3 +41,11 @@ TypeScript passed after integration. ESLint passed on all four changed page/navi
 The rebuilt preview passed all 90 combinations: **zero horizontal overflow, zero header overflow, zero duplicate IDs, zero page runtime errors, and zero axe violations**. Report: `.local/consulting-browser-qa/report.json`. The 320px lead form and inventory tool now fit their containers. The tool breadcrumb uses the shared horizontal breadcrumb layout. A final visual inspection of the complete 320px diagnostic page confirms its service content, form and footer fit without clipping.
 
 After this pass, two nonvisual analytics handlers were added as required: diagnostic hub CTA emits `audit_cta_clicked`; homepage service cards emit `service_internal_link_clicked`. Both use fixed content slugs and the existing consent-gated event function. No form values are included. Page source is now frozen for the parent agent's combined build/tests.
+
+## Published copy verification — 2026-09-19 23:34 UTC
+
+Read-only Playwright checks against `https://doobielogic.io/consulting` passed at **320, 390, 768 and 1440px**: the revised “Your cannabis operation shouldn’t need guesswork.” headline and supplied experience statement are present; no horizontal overflow or page runtime errors; canonical URL remains correct. Inspected the 390px hero and experience-section screenshots: text wraps cleanly, the primary button fits, and the existing charcoal/copper visual hierarchy is preserved.
+
+Homepage and consulting navigation labels and destinations match exactly. `https://ops.doobielogic.io/home` retains the **DoobieLogic Ops** title and sign-in screen. Every non-GET/HEAD request was blocked by the browser harness; zero such requests occurred and zero leads were submitted.
+
+Evidence: `.local/consulting-browser-qa/live-final-public.json`, `live-final-390-hero.png`, and `live-final-390-trust.png`. Harness: `.local/verify-consulting-live-final.cjs`. No production source changes were made for this verification.
