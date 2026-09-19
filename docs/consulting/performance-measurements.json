@@ -1,0 +1,422 @@
+{
+  "measuredAt": "2026-09-19T23:23:20.760Z",
+  "method": "Local filesystem response interception, Chrome headless, 1440x1000, three fresh contexts each, no network/CPU throttling",
+  "results": [
+    {
+      "label": "baseline-home",
+      "path": "/",
+      "dist": "C:\\Users\\ndasi\\.codex\\worktrees\\ceec\\integration\\.local\\public-releases\\20260919T162253Z-beta\\dist",
+      "runs": [
+        {
+          "fcp": 164,
+          "lcp": 468,
+          "dom": 49.599999994039536,
+          "h1": "Your team shouldn'tbe the integration.",
+          "blocked": 0,
+          "js": 446507,
+          "css": 168635,
+          "gzip": 170634,
+          "assets": [
+            "assets\\index-DlFRVPi0.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\MarketingHome-DGbQNoKa.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\marketingAnalytics-DYKwHeIn.js",
+            "assets\\createLucideIcon-DRsHwpGd.js",
+            "assets\\x-CTHjCiAQ.js",
+            "assets\\store-unpVAREE.js",
+            "assets\\ContactChannels-DFJ2uxgg.js",
+            "assets\\arrow-down-BmIvV5DQ.js"
+          ]
+        },
+        {
+          "fcp": 56,
+          "lcp": 444,
+          "dom": 44.29999999701977,
+          "h1": "Your team shouldn'tbe the integration.",
+          "blocked": 0,
+          "js": 446507,
+          "css": 168635,
+          "gzip": 170634,
+          "assets": [
+            "assets\\index-DlFRVPi0.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\MarketingHome-DGbQNoKa.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\marketingAnalytics-DYKwHeIn.js",
+            "assets\\createLucideIcon-DRsHwpGd.js",
+            "assets\\x-CTHjCiAQ.js",
+            "assets\\store-unpVAREE.js",
+            "assets\\ContactChannels-DFJ2uxgg.js",
+            "assets\\arrow-down-BmIvV5DQ.js"
+          ]
+        },
+        {
+          "fcp": 56,
+          "lcp": 432,
+          "dom": 42.20000000298023,
+          "h1": "Your team shouldn'tbe the integration.",
+          "blocked": 0,
+          "js": 446507,
+          "css": 168635,
+          "gzip": 170634,
+          "assets": [
+            "assets\\index-DlFRVPi0.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\MarketingHome-DGbQNoKa.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\marketingAnalytics-DYKwHeIn.js",
+            "assets\\createLucideIcon-DRsHwpGd.js",
+            "assets\\x-CTHjCiAQ.js",
+            "assets\\store-unpVAREE.js",
+            "assets\\ContactChannels-DFJ2uxgg.js",
+            "assets\\arrow-down-BmIvV5DQ.js"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "new-home",
+      "path": "/",
+      "dist": "C:\\Users\\ndasi\\.codex\\worktrees\\ceec\\integration\\frontend\\dist",
+      "runs": [
+        {
+          "fcp": 56,
+          "lcp": 444,
+          "dom": 44.400000005960464,
+          "h1": "Your team shouldn'tbe the integration.",
+          "blocked": 0,
+          "js": 466070,
+          "css": 171883,
+          "gzip": 179344,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\MarketingHome-DRM-rkqy.js",
+            "assets\\consultingServices-DOMk29Nq.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\sprout-BbAoQSPZ.js",
+            "assets\\store-CByIbh4j.js",
+            "assets\\arrow-right-D0dP-rGB.js",
+            "assets\\ContactChannels-3VxXmkOb.js",
+            "assets\\arrow-down-2zXGT2Jf.js",
+            "assets\\bot-Cl1w1kzk.js"
+          ]
+        },
+        {
+          "fcp": 56,
+          "lcp": 428,
+          "dom": 41.900000005960464,
+          "h1": "Your team shouldn'tbe the integration.",
+          "blocked": 0,
+          "js": 466070,
+          "css": 171883,
+          "gzip": 179344,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\MarketingHome-DRM-rkqy.js",
+            "assets\\consultingServices-DOMk29Nq.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\sprout-BbAoQSPZ.js",
+            "assets\\store-CByIbh4j.js",
+            "assets\\arrow-right-D0dP-rGB.js",
+            "assets\\ContactChannels-3VxXmkOb.js",
+            "assets\\arrow-down-2zXGT2Jf.js",
+            "assets\\bot-Cl1w1kzk.js"
+          ]
+        },
+        {
+          "fcp": 60,
+          "lcp": 436,
+          "dom": 43.5,
+          "h1": "Your team shouldn'tbe the integration.",
+          "blocked": 0,
+          "js": 466070,
+          "css": 171883,
+          "gzip": 179344,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\MarketingHome-DRM-rkqy.js",
+            "assets\\consultingServices-DOMk29Nq.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\sprout-BbAoQSPZ.js",
+            "assets\\store-CByIbh4j.js",
+            "assets\\arrow-right-D0dP-rGB.js",
+            "assets\\ContactChannels-3VxXmkOb.js",
+            "assets\\arrow-down-2zXGT2Jf.js",
+            "assets\\bot-Cl1w1kzk.js"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "consulting",
+      "path": "/consulting",
+      "dist": "C:\\Users\\ndasi\\.codex\\worktrees\\ceec\\integration\\frontend\\dist",
+      "runs": [
+        {
+          "fcp": 56,
+          "lcp": 420,
+          "dom": 42.79999999701977,
+          "h1": "Better decisions.Closer to the work.",
+          "blocked": 1,
+          "js": 470747,
+          "css": 174955,
+          "gzip": 182014,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\ConsultingPages-DthTHDUY.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\ConsultingLeadForm-B7vO1XlT.js",
+            "assets\\ConsultingLeadForm-Cc-N_poV.css",
+            "assets\\consultingServices-DOMk29Nq.js",
+            "assets\\arrow-right-D0dP-rGB.js"
+          ]
+        },
+        {
+          "fcp": 60,
+          "lcp": 412,
+          "dom": 43.599999994039536,
+          "h1": "Better decisions.Closer to the work.",
+          "blocked": 1,
+          "js": 470747,
+          "css": 174955,
+          "gzip": 182014,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\ConsultingPages-DthTHDUY.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\ConsultingLeadForm-B7vO1XlT.js",
+            "assets\\ConsultingLeadForm-Cc-N_poV.css",
+            "assets\\consultingServices-DOMk29Nq.js",
+            "assets\\arrow-right-D0dP-rGB.js"
+          ]
+        },
+        {
+          "fcp": 60,
+          "lcp": 412,
+          "dom": 42.399999998509884,
+          "h1": "Better decisions.Closer to the work.",
+          "blocked": 1,
+          "js": 470747,
+          "css": 174955,
+          "gzip": 182014,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\ConsultingPages-DthTHDUY.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\ConsultingLeadForm-B7vO1XlT.js",
+            "assets\\ConsultingLeadForm-Cc-N_poV.css",
+            "assets\\consultingServices-DOMk29Nq.js",
+            "assets\\arrow-right-D0dP-rGB.js"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "resource",
+      "path": "/resources/days-on-hand-for-cannabis-inventory",
+      "dist": "C:\\Users\\ndasi\\.codex\\worktrees\\ceec\\integration\\frontend\\dist",
+      "runs": [
+        {
+          "fcp": 56,
+          "lcp": 396,
+          "dom": 41.80000000447035,
+          "h1": "Days on hand: a practical inventory review",
+          "blocked": 0,
+          "js": 470747,
+          "css": 174955,
+          "gzip": 182014,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\ConsultingPages-DthTHDUY.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\ConsultingLeadForm-B7vO1XlT.js",
+            "assets\\ConsultingLeadForm-Cc-N_poV.css",
+            "assets\\consultingServices-DOMk29Nq.js",
+            "assets\\arrow-right-D0dP-rGB.js"
+          ]
+        },
+        {
+          "fcp": 60,
+          "lcp": 396,
+          "dom": 42.5,
+          "h1": "Days on hand: a practical inventory review",
+          "blocked": 0,
+          "js": 470747,
+          "css": 174955,
+          "gzip": 182014,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\ConsultingPages-DthTHDUY.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\ConsultingLeadForm-B7vO1XlT.js",
+            "assets\\ConsultingLeadForm-Cc-N_poV.css",
+            "assets\\consultingServices-DOMk29Nq.js",
+            "assets\\arrow-right-D0dP-rGB.js"
+          ]
+        },
+        {
+          "fcp": 60,
+          "lcp": 396,
+          "dom": 43,
+          "h1": "Days on hand: a practical inventory review",
+          "blocked": 0,
+          "js": 470747,
+          "css": 174955,
+          "gzip": 182014,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\ConsultingPages-DthTHDUY.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\ConsultingLeadForm-B7vO1XlT.js",
+            "assets\\ConsultingLeadForm-Cc-N_poV.css",
+            "assets\\consultingServices-DOMk29Nq.js",
+            "assets\\arrow-right-D0dP-rGB.js"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "tool",
+      "path": "/tools/inventory-health-check",
+      "dist": "C:\\Users\\ndasi\\.codex\\worktrees\\ceec\\integration\\frontend\\dist",
+      "runs": [
+        {
+          "fcp": 60,
+          "lcp": 400,
+          "dom": 42,
+          "h1": "A clearer read on your inventory.",
+          "blocked": 0,
+          "js": 456869,
+          "css": 174955,
+          "gzip": 178127,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\AdvisoryTools-Bx7dRCfl.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\ConsultingLeadForm-B7vO1XlT.js",
+            "assets\\ConsultingLeadForm-Cc-N_poV.css"
+          ]
+        },
+        {
+          "fcp": 64,
+          "lcp": 404,
+          "dom": 47.900000005960464,
+          "h1": "A clearer read on your inventory.",
+          "blocked": 0,
+          "js": 456869,
+          "css": 174955,
+          "gzip": 178127,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\AdvisoryTools-Bx7dRCfl.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\ConsultingLeadForm-B7vO1XlT.js",
+            "assets\\ConsultingLeadForm-Cc-N_poV.css"
+          ]
+        },
+        {
+          "fcp": 60,
+          "lcp": 396,
+          "dom": 42.69999999552965,
+          "h1": "A clearer read on your inventory.",
+          "blocked": 0,
+          "js": 456869,
+          "css": 174955,
+          "gzip": 178127,
+          "assets": [
+            "assets\\index-rawdMMpV.js",
+            "assets\\index-BYF134ql.css",
+            "assets\\advisoryAnalytics-D4riePGi.js",
+            "assets\\marketingAnalytics-C19ESJA6.js",
+            "assets\\AdvisoryTools-Bx7dRCfl.js",
+            "assets\\MarketingPage-CTp1enEv.js",
+            "assets\\brand-BjatdyGf.js",
+            "assets\\x-DeCtekZj.js",
+            "assets\\createLucideIcon-CqMm1bnY.js",
+            "assets\\MarketingPage-CSp1qMzg.css",
+            "assets\\ConsultingLeadForm-B7vO1XlT.js",
+            "assets\\ConsultingLeadForm-Cc-N_poV.css"
+          ]
+        }
+      ]
+    }
+  ]
+}

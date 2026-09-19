@@ -1,0 +1,180 @@
+/* Consulting layouts inherit the public homepage's palette, type and components. */
+.advisory-page .advisory-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-block: 24px 0;
+  font-size: 13px;
+  color: var(--mh-muted);
+  background: transparent;
+  border: 0;
+}
+.advisory-page .advisory-breadcrumbs a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.advisory-page .mh-hero h1 {
+  overflow-wrap: break-word;
+}
+.advisory-page .mh-integration-grid {
+  gap: 1px;
+}
+.advisory-page .mh-integration-grid article {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.advisory-page .mh-integration-grid article > .mh-text-link:last-child {
+  margin-top: auto;
+  padding-top: 24px;
+}
+.advisory-page .mh-integration-grid h3 a {
+  color: inherit;
+}
+.advisory-page .advisory-scope {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  border-top: 1px solid var(--mh-line);
+}
+.advisory-page .advisory-list {
+  list-style: none;
+  padding: 0;
+  margin: 30px 0;
+}
+.advisory-page .advisory-list li {
+  display: flex;
+  gap: 14px;
+  padding-block: 16px;
+  border-bottom: 1px solid var(--mh-line);
+}
+.advisory-page .advisory-list svg {
+  flex-shrink: 0;
+  margin-top: 6px;
+  color: var(--mh-copper);
+}
+.advisory-page .advisory-reading-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 760px);
+  justify-content: space-between;
+  gap: 72px;
+}
+.advisory-page .advisory-reading-layout aside nav {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  position: sticky;
+  top: 115px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.advisory-page .advisory-reading-layout aside a {
+  line-height: 1.5;
+}
+.advisory-page .advisory-prose section {
+  padding-bottom: 48px;
+}
+.advisory-page .advisory-prose h2 {
+  font-size: clamp(27px, 3vw, 36px);
+  margin-bottom: 24px;
+}
+.advisory-page .advisory-prose p,
+.advisory-page .advisory-prose li {
+  font-size: 16px;
+  line-height: 1.85;
+}
+.advisory-page .advisory-prose li {
+  margin-bottom: 12px;
+}
+.advisory-page .advisory-scope-note {
+  border-left: 2px solid var(--mh-copper);
+  padding-left: 24px;
+  margin-bottom: 40px;
+}
+.advisory-page .advisory-article > .mh-hero {
+  padding-bottom: 64px;
+}
+.advisory-page .advisory-article .mh-hero-copy {
+  max-width: 1040px;
+}
+.advisory-page .advisory-article h1 {
+  font-size: clamp(40px, 5.5vw, 72px);
+}
+@media (min-width: 901px) and (max-width: 1200px) {
+  .mh-page .mh-nav {
+    gap: 20px;
+  }
+  .mh-page .mh-nav-links {
+    gap: 12px;
+  }
+  .mh-page .mh-nav-actions {
+    gap: 12px;
+  }
+  .mh-page .mh-nav-links a {
+    font-size: 12px;
+  }
+}
+@media (max-width: 900px) {
+  .advisory-page .advisory-scope {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+  .advisory-page .advisory-reading-layout {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  .advisory-page .advisory-reading-layout aside nav {
+    position: static;
+  }
+}
+@media (max-width: 600px) {
+  .advisory-page .advisory-breadcrumbs {
+    gap: 8px;
+    padding-top: 16px;
+  }
+  .advisory-page .advisory-prose p,
+  .advisory-page .advisory-prose li {
+    font-size: 15px;
+  }
+  .advisory-page .advisory-article h1 {
+    font-size: 39px;
+  }
+  .advisory-page .advisory-article > .mh-hero {
+    padding-bottom: 40px;
+  }
+}
+.mh-page .analytics-consent {
+  border-top: 1px solid var(--mh-line);
+  padding-block: 24px;
+  max-width: 760px;
+}
+.mh-page .analytics-consent label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  font-size: 13px;
+}
+.mh-page .analytics-consent input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  flex: none;
+  accent-color: var(--mh-copper);
+}
+.mh-page .analytics-consent input:focus-visible {
+  outline: 3px solid #ffb67d !important;
+  outline-offset: 4px;
+}
+.mh-page .analytics-consent p {
+  font-size: 12px;
+  color: var(--mh-muted);
+  line-height: 1.7;
+  margin: 8px 0 0;
+}

@@ -5,6 +5,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    doobielogic_advisory_organization_id: str = ""
+    doobielogic_advisory_booking_url: str = ""
+    doobielogic_advisory_trusted_proxy_cidrs: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "Buyer Dash API"
