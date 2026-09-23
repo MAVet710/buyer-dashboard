@@ -330,10 +330,10 @@ def test_retail_sales_import_is_durable_idempotent_and_audited():
     headers = {"X-Organization-Id": "org-1", "X-Facility-Id": "facility-1", "X-User-Id": "buyer@example.com"}
     payload = {
         "source_system": "Dutchie",
-        "import_batch_id": "sales-2026-08-21",
+        "import_batch_id": "sales-2026-09-21",
         "lines": [{
             "source_record_id": "sale-line-1",
-            "sold_at": "2026-08-21T15:00:00Z",
+            "sold_at": "2026-09-21T15:00:00Z",
             "quantity": 3,
             "product_id": "product-1",
             "sku": "BD-BULK",
