@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ProductionActualMaterials } from "../components/ProductionActualMaterials";
 import { RegulatoryDetailPanel } from "../components/RegulatoryDetailPanel";
 import { apiGet, apiPost } from "../lib/api";
@@ -12,59 +13,23 @@ type QA = { id:string; event_type:string; result:string; notes:string; actor:str
 type Bom = { id:string; version:number; output_quantity:number; expected_loss_pct:number; active:boolean };
 type Standard = { id:string; bom_id:string; standard_labor_hours:number; standard_machine_hours:number; standard_cycle_hours:number; resource_category:string; qa_required:boolean; compliance_checkpoint:string; created_by:string; updated_by:string };
 type Variance = {
-  expected_output:number;
-  actual_output:number;
-  output_variance:number;
-  output_variance_pct:number|null;
-  expected_loss_pct:number;
-  expected_labor_hours:number;
-  actual_labor_hours:number;
-  labor_variance_hours:number;
-  labor_variance_pct:number|null;
-  expected_machine_hours:number;
-  actual_machine_hours:number;
-  machine_variance_hours:number;
-  machine_variance_pct:number|null;
-  expected_cycle_hours:number;
-  actual_cycle_hours:number|null;
-  cycle_variance_hours:number|null;
-  cycle_variance_pct:number|null;
-  qa_required:boolean;
-  qa_ready:boolean;
-  compliance_checkpoint:string;
-  resource_category:string;
-  standard_configured:boolean;
+  expected_output:number; actual_output:number; output_variance:number; output_variance_pct:number|null; expected_loss_pct:number;
+  expected_labor_hours:number; actual_labor_hours:number; labor_variance_hours:number; labor_variance_pct:number|null;
+  expected_machine_hours:number; actual_machine_hours:number; machine_variance_hours:number; machine_variance_pct:number|null;
+  expected_cycle_hours:number; actual_cycle_hours:number|null; cycle_variance_hours:number|null; cycle_variance_pct:number|null;
+  qa_required:boolean; qa_ready:boolean; compliance_checkpoint:string; resource_category:string; standard_configured:boolean;
 };
 type Detail = {
   order:{ id:string; order_number:string; product_name:string; sku:string; product_format:string; requested_units:number; priority:string; status:string; notes:string; due_at:string|null };
-  bom:Bom|null;
-  standard:Standard|null;
-  variance:Variance;
-  requirements:Array<Record<string,unknown>>;
-  reservations:Reservation[];
-  outputs:Output[];
-  events:Event[];
-  qa_events:QA[];
-  cogs:Record<string,number>;
-  planned_output:number;
-  actual_output:number;
-  attainment_pct:number;
+  bom:Bom|null; standard:Standard|null; variance:Variance; requirements:Array<Record<string,unknown>>; reservations:Reservation[];
+  outputs:Output[]; events:Event[]; qa_events:QA[]; cogs:Record<string,number>; planned_output:number; actual_output:number; attainment_pct:number;
 };
 type Product = { id:string; sku:string; name:string; item_type:string; base_unit:string };
 type ProductionWorkspace = Product[];
 type StandardForm = { standard_labor_hours:number; standard_machine_hours:number; standard_cycle_hours:number; resource_category:string; qa_required:boolean; compliance_checkpoint:string };
 type Consequence = { label:string; before:string; after:string };
 type PreviewWarning = { severity:"info"|"warning"|"blocker"|string; message:string };
-type MutationPreview = {
-  action_type:string;
-  title:string;
-  summary:string;
-  consequences:Consequence[];
-  warnings:PreviewWarning[];
-  blocker_count:number;
-  preview_key:string;
-  details?:Record<string,unknown>;
-};
+type MutationPreview = { action_type:string; title:string; summary:string; consequences:Consequence[]; warnings:PreviewWarning[]; blocker_count:number; preview_key:string; details?:Record<string,unknown> };
 type PendingPreview = { action_type:string; payload:Record<string,unknown>; scope:string };
 
 const RISKY_RUN_EVENTS = new Set(["hold","release","completed","waste","rework"]);
@@ -79,27 +44,37 @@ const standardValues = (standard:Standard|null):StandardForm => ({
 
 export function ProductionRun360Page({ onNavigate, initialOrderId="" }:{ onNavigate:(page:string)=>void; initialOrderId?:string }) {
   const client = useQueryClient();
+  const location = useLocation();
+  const navigateRoute = useNavigate();
   const queue = useQuery({ queryKey:["production-run-queue"], queryFn:({signal})=>apiGet<QueueRow[]>("/api/v1/production/orders",signal) });
   const workspace = useQuery({ queryKey:["inventory-products"], queryFn:({signal})=>apiGet<ProductionWorkspace>("/api/v1/inventory/products",signal) });
   const [selected,setSelected] = useState(initialOrderId);
   useEffect(()=>{ if(initialOrderId) setSelected(initialOrderId); },[initialOrderId]);
-  const selectedExists = !selected || !queue.data?.length || queue.data.some(row=>row.order_id===selected);
-  const orderId = (selected && selectedExists ? selected : "") || queue.data?.[0]?.order_id || "";
-  const detail = useQuery({ queryKey:["production-run-360",orderId], enabled:Boolean(orderId), queryFn:({signal})=>apiGet<Detail>(`/api/v1/production/orders/${orderId}`,signal) });
-  useEffect(()=>{ if(queue.data?.length && selected && !queue.data.some(row=>row.order_id===selected)) setSelected(""); },[queue.data,selected]);
+  // Queue membership is not authority to replace a requested record. The scoped detail endpoint decides access.
+  const orderId = selected || initialOrderId || queue.data?.[0]?.order_id || "";
+  const detail = useQuery({ queryKey:["production-run-360",orderId], enabled:Boolean(orderId), retry:false, queryFn:({signal})=>apiGet<Detail>(`/api/v1/production/orders/${encodeURIComponent(orderId)}`,signal) });
+  const selectRun = (id:string) => {
+    setSelected(id);
+    // Keep a floor-workspace modal in place, but make standalone run selections reloadable and shareable.
+    if (/^\/production\/runs(?:\/[^/]+)?\/?$/.test(location.pathname)) navigateRoute(`/production/runs/${encodeURIComponent(id)}${location.search}`);
+  };
   const refresh = async()=>Promise.all([
     client.invalidateQueries({queryKey:["production-run-queue"]}),
     client.invalidateQueries({queryKey:["production-run-360",orderId]}),
     client.invalidateQueries({queryKey:["inventory-products"]}),
+    client.invalidateQueries({queryKey:["inventory"]}),
+    client.invalidateQueries({queryKey:["production-decision-plan"]}),
+    client.invalidateQueries({queryKey:["home-summary"]}),
+    client.invalidateQueries({queryKey:["operations-inbox"]}),
   ]);
   return <div className="page production-run-360">
     <div className="page-heading"><div><div className="eyebrow">PRODUCTION · RUN 360</div><h1>Plan, execute, cost, QA, and release the run.</h1><p>Routine floor entries stay fast. Actions that move inventory, QA, run state, or COGS show their exact consequences before they are applied.</p></div><div className="heading-actions"><button className="secondary" onClick={()=>onNavigate("Production")}>Production planning</button><button className="secondary" onClick={()=>onNavigate("Package 360")}>Package 360</button></div></div>
     {queue.isLoading?<div className="state">Loading production queue…</div>:null}
     {queue.isError?<div className="warning-banner">{queue.error.message}</div>:null}
-    {queue.data?.length?<section className="inventory-panel"><label>Production run<select value={orderId} onChange={event=>setSelected(event.target.value)}>{queue.data.map(row=><option value={row.order_id} key={row.order_id}>{row.Order} · {row.Product} · {row.Status} · {row.Attention}</option>)}</select></label></section>:!queue.isLoading?<div className="info-banner">No production orders exist yet. Create a production job first.</div>:null}
+    {queue.data?.length?<section className="inventory-panel"><label>Production run<select aria-label="Production run" value={orderId} onChange={event=>selectRun(event.target.value)}>{orderId&&!queue.data.some(row=>row.order_id===orderId)?<option value={orderId}>Requested run · {orderId}</option>:null}{queue.data.map(row=><option value={row.order_id} key={row.order_id}>{row.Order} · {row.Product} · {row.Status} · {row.Attention}</option>)}</select></label></section>:!queue.isLoading&&!orderId?<div className="info-banner">No production orders exist yet. Create a production job first.</div>:null}
     {detail.isLoading?<div className="state">Building Run 360…</div>:null}
-    {detail.isError?<div className="warning-banner">{detail.error.message}</div>:null}
-    {detail.data?<RunDetail detail={detail.data} products={workspace.data??[]} onChanged={refresh}/>:null}
+    {detail.isError?<div className="warning-banner">The requested production run could not be opened. No other run was selected in its place. {detail.error.message}</div>:null}
+    {detail.data&&!detail.isError?<RunDetail key={detail.data.order.id} detail={detail.data} products={workspace.data??[]} onChanged={refresh}/>:null}
   </div>;
 }
 
@@ -117,21 +92,10 @@ function RunDetail({ detail, products, onChanged }:{ detail:Detail; products:Pro
       if(!pending||!preview) throw new Error("Review the exact change preview first.");
       return apiPost<{status:string;summary:string}>(`/api/v1/production/orders/${detail.order.id}/mutations/commit`,{action_type:pending.action_type,payload:pending.payload,preview_key:preview.preview_key});
     },
-    onSuccess:async(data)=>{
-      setAppliedMessage(data.summary||"Operational change applied.");
-      setPending(null);
-      setPreview(null);
-      await onChanged();
-    },
+    onSuccess:async(data)=>{setAppliedMessage(data.summary||"Operational change applied.");setPending(null);setPreview(null);await onChanged();},
   });
   const requestPreview = (action_type:string,payload:Record<string,unknown>,scope:string)=>{
-    const request={action_type,payload,scope};
-    setAppliedMessage("");
-    setPending(request);
-    setPreview(null);
-    previewMutation.reset();
-    commitMutation.reset();
-    previewMutation.mutate(request);
+    const request={action_type,payload,scope};setAppliedMessage("");setPending(request);setPreview(null);previewMutation.reset();commitMutation.reset();previewMutation.mutate(request);
   };
   const resetPreviewMutation = previewMutation.reset;
   const resetCommitMutation = commitMutation.reset;
@@ -162,16 +126,11 @@ function RunDetail({ detail, products, onChanged }:{ detail:Detail; products:Pro
     <RegulatoryDetailPanel entityType="production_order" entityId={detail.order.id}/>
 
     {tab==="Execute"?<section className="inventory-panel"><div className="eyebrow">RUN EVENT</div><h2>Record what actually happened</h2><p>Measurements, notes, and starting work post immediately. Hold, release, completion, waste, and rework show the exact run-state consequence first.</p><div className="form-grid three"><label>Event<select value={event.event_type} onChange={e=>{setEvent({...event,event_type:e.target.value});cancelPreview();}}>{["started","measurement","note","hold","release","completed","waste","rework"].map(v=><option key={v} value={v}>{title(v)}</option>)}</select></label><label>Stage<input value={event.stage_key} onChange={e=>setEvent({...event,stage_key:e.target.value})}/></label><label>Quantity<input type="number" min="0" value={event.quantity} onChange={e=>setEvent({...event,quantity:e.target.value})}/></label><label>Unit<input value={event.unit} onChange={e=>setEvent({...event,unit:e.target.value})}/></label><label>Waste quantity<input type="number" min="0" value={event.waste_quantity} onChange={e=>setEvent({...event,waste_quantity:e.target.value})}/></label><label>Labor hours<input type="number" min="0" value={event.labor_hours} onChange={e=>setEvent({...event,labor_hours:e.target.value})}/></label><label>Machine hours<input type="number" min="0" value={event.machine_hours} onChange={e=>setEvent({...event,machine_hours:e.target.value})}/></label><label className="full">Notes<textarea value={event.notes} onChange={e=>setEvent({...event,notes:e.target.value})}/></label></div>{riskyEvent?<button className="primary" disabled={previewMutation.isPending} onClick={()=>requestPreview("run_event",numbers(event),"run-event")}>Preview change</button>:<button className="primary" disabled={postRoutineEvent.isPending} onClick={()=>postRoutineEvent.mutate()}>Post run event</button>}<MutationState rows={[postRoutineEvent]}/>{pending?.scope==="run-event"?<PreviewState preview={preview} previewing={previewMutation.isPending} previewError={previewMutation.error} applying={commitMutation.isPending} applyError={commitMutation.error} onApply={()=>commitMutation.mutate()} onCancel={cancelPreview}/>:null}</section>:null}
-
     {tab==="Standards"?<StandardsPanel detail={detail} value={standardForm} setValue={setStandardForm} save={saveStandard}/>:null}
-
     {tab==="Materials"?<><section className="inventory-panel"><div className="eyebrow">BOM + RESERVATIONS</div><h2>Required vs reserved materials</h2><p>Preview shows the exact FIFO lots and quantities that will be reserved. Shortages remain Buyer Review only; this action never creates a PO.</p>{detail.requirements.length?<DataTable rows={detail.requirements}/>:<div className="info-banner">No active BOM requirements are linked to this production order.</div>}<button className="primary submit" disabled={!detail.requirements.length||previewMutation.isPending} onClick={()=>requestPreview("reserve_materials",{},"materials")}>Preview reservations</button>{pending?.scope==="materials"?<PreviewState preview={preview} previewing={previewMutation.isPending} previewError={previewMutation.error} applying={commitMutation.isPending} applyError={commitMutation.error} onApply={()=>commitMutation.mutate()} onCancel={cancelPreview}/>:null}<h3>Current reservations</h3>{detail.reservations.length?<DataTable rows={detail.reservations}/>:<div className="info-banner">No materials reserved yet.</div>}</section><ProductionActualMaterials orderId={detail.order.id} requirements={detail.requirements} reservations={detail.reservations} onChanged={onChanged}/></>:null}
-
     {tab==="Outputs"?<section className="inventory-panel"><div className="eyebrow">MULTI-OUTPUT EXECUTION</div><h2>Planned and actual outputs</h2><p>Posting a measured actual previews attainment, the exact inventory-ledger delta, finished-lot creation, and whether QA quarantine will be re-applied.</p>{detail.outputs.length?<div className="table-wrap"><table><thead><tr><th>Output</th><th>Planned</th><th>Actual</th><th>Status</th><th>Lot code</th><th>Change</th></tr></thead><tbody>{detail.outputs.map(row=><tr key={row.id}><td>{row.position}. {row.label}</td><td>{number(row.planned_quantity)} {row.unit}</td><td><input type="number" min="0" value={actuals[row.id]??String(row.actual_quantity)} onChange={e=>setActuals({...actuals,[row.id]:e.target.value})}/></td><td>{title(row.status)}</td><td><input value={lotCodes[row.id]??""} placeholder={row.lot_id?"Existing lot":"Finished lot code required"} onChange={e=>setLotCodes({...lotCodes,[row.id]:e.target.value})}/></td><td><button className="secondary" disabled={previewMutation.isPending} onClick={()=>requestPreview("record_output_actual",{output_id:row.id,actual_quantity:Number(actuals[row.id]??row.actual_quantity),lot_code:lotCodes[row.id]??""},`output:${row.id}`)}>Preview actual</button></td></tr>)}</tbody></table></div>:<div className="info-banner">No output rows exist yet.</div>}{pending?.scope.startsWith("output:")?<PreviewState preview={preview} previewing={previewMutation.isPending} previewError={previewMutation.error} applying={commitMutation.isPending} applyError={commitMutation.error} onApply={()=>commitMutation.mutate()} onCancel={cancelPreview}/>:null}<h3>Add planned output</h3><div className="form-grid three"><label>Product<select value={output.product_id} onChange={e=>{const p=products.find(row=>row.id===e.target.value);setOutput({...output,product_id:e.target.value,unit:p?.base_unit??output.unit});}}>{products.map(row=><option value={row.id} key={row.id}>{row.sku} · {row.name}</option>)}</select></label><label>Planned quantity<input type="number" min="0" value={output.planned_quantity} onChange={e=>setOutput({...output,planned_quantity:Number(e.target.value)})}/></label><label>Unit<input value={output.unit} onChange={e=>setOutput({...output,unit:e.target.value})}/></label><label>Label<input value={output.label} onChange={e=>setOutput({...output,label:e.target.value})}/></label></div><button className="primary" disabled={!output.product_id||addOutput.isPending} onClick={()=>addOutput.mutate()}>Add planned output</button><MutationState rows={[addOutput]}/></section>:null}
     {tab==="QA"?<section className="inventory-panel"><div className="eyebrow">QA HOLD / RELEASE</div><h2>Release only with an auditable decision</h2><p>The preview shows every output and inventory lot that will become quarantined or available before the QA decision is committed.</p><div className="form-grid three"><label>Decision<select value={qa.event_type} onChange={e=>{setQa({...qa,event_type:e.target.value});cancelPreview();}}>{["hold","sample","pass","fail","release","retest","deviation","remediation"].map(v=><option key={v} value={v}>{title(v)}</option>)}</select></label><label>Result<select value={qa.result} onChange={e=>{setQa({...qa,result:e.target.value});cancelPreview();}}>{["pending","passed","failed","not_applicable"].map(v=><option key={v} value={v}>{title(v)}</option>)}</select></label><label>Output<select value={qa.output_id} onChange={e=>setQa({...qa,output_id:e.target.value})}><option value="">Whole run</option>{detail.outputs.map(row=><option value={row.id} key={row.id}>{row.label}</option>)}</select></label><label>Document / COA<input value={qa.document_reference} onChange={e=>setQa({...qa,document_reference:e.target.value})}/></label><label className="full">Notes<textarea value={qa.notes} onChange={e=>setQa({...qa,notes:e.target.value})}/></label></div><button className="primary" disabled={previewMutation.isPending} onClick={()=>requestPreview("qa_decision",{...qa,output_id:qa.output_id||null},"qa")}>Preview QA decision</button>{pending?.scope==="qa"?<PreviewState preview={preview} previewing={previewMutation.isPending} previewError={previewMutation.error} applying={commitMutation.isPending} applyError={commitMutation.error} onApply={()=>commitMutation.mutate()} onCancel={cancelPreview}/>:null}<h3>QA history</h3>{detail.qa_events.length?<DataTable rows={detail.qa_events}/>:<div className="info-banner">No QA decisions recorded.</div>}</section>:null}
-
     {tab==="Costs"?<section className="inventory-panel"><div className="eyebrow">TRUE RUN COGS</div><h2>Cost the actual run</h2><p>Preview shows total COGS and cost per actual unit before and after the new event.</p><section className="metrics four">{Object.entries(detail.cogs).map(([key,value])=><Metric key={key} label={title(key)} value={money(value)}/>)}</section><div className="form-grid three"><label>Category<select value={cost.category} onChange={e=>setCost({...cost,category:e.target.value})}>{["material","packaging","labor","machine","overhead","waste","other"].map(v=><option value={v} key={v}>{title(v)}</option>)}</select></label><label>Amount<input type="number" min="0" step="0.01" value={cost.amount_usd} onChange={e=>setCost({...cost,amount_usd:Number(e.target.value)})}/></label><label>Quantity<input type="number" min="0" value={cost.quantity} onChange={e=>setCost({...cost,quantity:e.target.value})}/></label><label>Unit<input value={cost.unit} onChange={e=>setCost({...cost,unit:e.target.value})}/></label><label>Source reference<input value={cost.source_id} onChange={e=>setCost({...cost,source_id:e.target.value})}/></label><label>Notes<input value={cost.notes} onChange={e=>setCost({...cost,notes:e.target.value})}/></label></div><button className="primary" disabled={cost.amount_usd<0||previewMutation.isPending} onClick={()=>requestPreview("cost_event",{...cost,quantity:cost.quantity?Number(cost.quantity):null},"cost")}>Preview cost</button>{pending?.scope==="cost"?<PreviewState preview={preview} previewing={previewMutation.isPending} previewError={previewMutation.error} applying={commitMutation.isPending} applyError={commitMutation.error} onApply={()=>commitMutation.mutate()} onCancel={cancelPreview}/>:null}</section>:null}
-
     {tab==="Timeline"?<section className="inventory-panel"><div className="eyebrow">EXECUTION EVIDENCE</div><h2>Run timeline</h2>{detail.events.length?detail.events.slice().reverse().map(row=><article className="commercial-order-card" key={row.id}><div><strong>{title(row.event_type)}</strong><span className="status-pill">{row.stage_key}</span></div><p>{row.notes||"Production event"}</p><small>{new Date(row.occurred_at).toLocaleString()} · {row.actor}{row.quantity!=null?` · ${number(row.quantity)} ${row.unit}`:""}{row.waste_quantity!=null?` · waste ${number(row.waste_quantity)} ${row.unit}`:""}</small></article>):<div className="info-banner">No run events recorded.</div>}</section>:null}
   </>;
 }
@@ -187,37 +146,20 @@ function StandardsPanel({ detail, value, setValue, save }:{ detail:Detail; value
   if(!detail.bom) return <section className="inventory-panel"><div className="eyebrow">PRODUCTION STANDARDS</div><h2>No active BOM is linked</h2><div className="info-banner">Create an active Product BOM first. Production standards are intentionally version-bound to the canonical BOM rather than stored in a separate recipe system.</div></section>;
   const variance = detail.variance;
   return <section className="inventory-panel">
-    <div className="eyebrow">PRODUCTION STANDARDS · BOM V{detail.bom.version}</div>
-    <h2>Expected vs actual execution</h2>
+    <div className="eyebrow">PRODUCTION STANDARDS · BOM V{detail.bom.version}</div><h2>Expected vs actual execution</h2>
     <p>Standards are stored once per BOM version and automatically scaled to this run's requested quantity. Actuals come from the existing Run 360 event history.</p>
-    <section className="metrics four">
-      <Metric label="Output variance" value={signedPercent(variance.output_variance_pct)}/>
-      <Metric label="Labor variance" value={signedPercent(variance.labor_variance_pct)}/>
-      <Metric label="Machine variance" value={signedPercent(variance.machine_variance_pct)}/>
-      <Metric label="Cycle variance" value={signedPercent(variance.cycle_variance_pct)}/>
-    </section>
+    <section className="metrics four"><Metric label="Output variance" value={signedPercent(variance.output_variance_pct)}/><Metric label="Labor variance" value={signedPercent(variance.labor_variance_pct)}/><Metric label="Machine variance" value={signedPercent(variance.machine_variance_pct)}/><Metric label="Cycle variance" value={signedPercent(variance.cycle_variance_pct)}/></section>
     <div className="table-wrap"><table><thead><tr><th>Standard</th><th>Expected for this run</th><th>Actual</th><th>Variance</th></tr></thead><tbody>
       <tr><td>Finished output</td><td>{number(variance.expected_output)}</td><td>{number(variance.actual_output)}</td><td>{signedPercent(variance.output_variance_pct)}</td></tr>
       <tr><td>Labor hours</td><td>{hours(variance.expected_labor_hours)}</td><td>{hours(variance.actual_labor_hours)}</td><td>{signedHours(variance.labor_variance_hours)}</td></tr>
       <tr><td>Machine hours</td><td>{hours(variance.expected_machine_hours)}</td><td>{hours(variance.actual_machine_hours)}</td><td>{signedHours(variance.machine_variance_hours)}</td></tr>
       <tr><td>Cycle time</td><td>{hours(variance.expected_cycle_hours)}</td><td>{variance.actual_cycle_hours==null?"Not started":hours(variance.actual_cycle_hours)}</td><td>{variance.cycle_variance_hours==null?"—":signedHours(variance.cycle_variance_hours)}</td></tr>
     </tbody></table></div>
-    <div className="form-grid three">
-      <label>BOM recipe output<input value={detail.bom.output_quantity} disabled/></label>
-      <label>Expected process loss %<input value={detail.bom.expected_loss_pct} disabled/></label>
-      <label>Resource category<input value={value.resource_category} placeholder="Extraction, Filling, Packaging…" onChange={e=>setValue({...value,resource_category:e.target.value})}/></label>
-      <label>Standard labor hours / BOM batch<input type="number" min="0" step="0.25" value={value.standard_labor_hours} onChange={e=>setValue({...value,standard_labor_hours:Number(e.target.value)})}/></label>
-      <label>Standard machine hours / BOM batch<input type="number" min="0" step="0.25" value={value.standard_machine_hours} onChange={e=>setValue({...value,standard_machine_hours:Number(e.target.value)})}/></label>
-      <label>Standard cycle hours / BOM batch<input type="number" min="0" step="0.25" value={value.standard_cycle_hours} onChange={e=>setValue({...value,standard_cycle_hours:Number(e.target.value)})}/></label>
-      <label><input type="checkbox" checked={value.qa_required} onChange={e=>setValue({...value,qa_required:e.target.checked})}/> QA release required</label>
-      <label className="full">Compliance checkpoint<textarea value={value.compliance_checkpoint} placeholder="Required compliance evidence or checkpoint before release" onChange={e=>setValue({...value,compliance_checkpoint:e.target.value})}/></label>
-    </div>
+    <div className="form-grid three"><label>BOM recipe output<input value={detail.bom.output_quantity} disabled/></label><label>Expected process loss %<input value={detail.bom.expected_loss_pct} disabled/></label><label>Resource category<input value={value.resource_category} placeholder="Extraction, Filling, Packaging…" onChange={e=>setValue({...value,resource_category:e.target.value})}/></label><label>Standard labor hours / BOM batch<input type="number" min="0" step="0.25" value={value.standard_labor_hours} onChange={e=>setValue({...value,standard_labor_hours:Number(e.target.value)})}/></label><label>Standard machine hours / BOM batch<input type="number" min="0" step="0.25" value={value.standard_machine_hours} onChange={e=>setValue({...value,standard_machine_hours:Number(e.target.value)})}/></label><label>Standard cycle hours / BOM batch<input type="number" min="0" step="0.25" value={value.standard_cycle_hours} onChange={e=>setValue({...value,standard_cycle_hours:Number(e.target.value)})}/></label><label><input type="checkbox" checked={value.qa_required} onChange={e=>setValue({...value,qa_required:e.target.checked})}/> QA release required</label><label className="full">Compliance checkpoint<textarea value={value.compliance_checkpoint} placeholder="Required compliance evidence or checkpoint before release" onChange={e=>setValue({...value,compliance_checkpoint:e.target.value})}/></label></div>
     <div className={variance.qa_ready?"info-banner":"warning-banner"}>QA readiness: {variance.qa_ready?"Ready":"Required before release"}{variance.resource_category?` · Resource: ${variance.resource_category}`:""}{variance.compliance_checkpoint?` · Compliance: ${variance.compliance_checkpoint}`:""}</div>
-    <button className="primary" disabled={save.isPending} onClick={()=>save.mutate()}>{detail.standard?"Update production standard":"Save production standard"}</button>
-    <MutationState rows={[save]}/>
+    <button className="primary" disabled={save.isPending} onClick={()=>save.mutate()}>{detail.standard?"Update production standard":"Save production standard"}</button><MutationState rows={[save]}/>
   </section>;
 }
-
 function numbers(value:{event_type:string;stage_key:string;quantity:string;unit:string;waste_quantity:string;labor_hours:string;machine_hours:string;notes:string}) { return {...value,quantity:value.quantity?Number(value.quantity):null,waste_quantity:value.waste_quantity?Number(value.waste_quantity):null,labor_hours:value.labor_hours?Number(value.labor_hours):null,machine_hours:value.machine_hours?Number(value.machine_hours):null}; }
 function MutationState({rows}:{rows:Array<{isError:boolean;isSuccess:boolean;error:Error|null}>}) { const error=rows.find(row=>row.isError)?.error; return <>{error?<div className="form-error">{error.message}</div>:null}{rows.some(row=>row.isSuccess)?<div className="success-banner">Operational record saved.</div>:null}</>; }
 function DataTable({rows}:{rows:Array<Record<string,unknown>>|Reservation[]|QA[]}) { if(!rows.length)return null; const normalized=rows as Array<Record<string,unknown>>; const columns=Object.keys(normalized[0]); return <div className="table-wrap"><table><thead><tr>{columns.map(col=><th key={col}>{title(col)}</th>)}</tr></thead><tbody>{normalized.map((row,index)=><tr key={index}>{columns.map(col=><td key={col}>{format(row[col])}</td>)}</tr>)}</tbody></table></div>; }
