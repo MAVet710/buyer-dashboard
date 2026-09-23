@@ -27,9 +27,9 @@ def purchase_orders():
         org_id,facility_id,sibling_id,other_id,product_id=org.id,facility.id,sibling.id,other.id,product.id
     repository=CommercialRepository(engine)
     vendor=repository.create_trade_partner(org_id,name="Continuity vendor",partner_type="both",actor="tester")
-    order=repository.create_order(organization_id=org_id,facility_id=facility_id,partner_id=vendor.id,order_number="PO-CONTINUITY-001",order_type="purchase",order_date=date(2026,9,23),lines=[{"product_id":product_id,"quantity":3,"unit":"unit","unit_price":12.5,"description":"Saved product description"}],actor="tester",notes="Preserve this note")
-    sibling_order=repository.create_order(organization_id=org_id,facility_id=sibling_id,partner_id=vendor.id,order_number="PO-SIBLING-001",order_type="purchase",order_date=date(2026,9,23),lines=[{"product_id":product_id,"quantity":1,"unit":"unit","unit_price":12.5,"description":"Sibling"}],actor="tester")
-    sale=repository.create_order(organization_id=org_id,facility_id=facility_id,partner_id=vendor.id,order_number="SO-CONTINUITY-001",order_type="sales",order_date=date(2026,9,23),lines=[{"product_id":product_id,"quantity":1,"unit":"unit","unit_price":12.5,"description":"Sale"}],actor="tester")
+    order=repository.create_order(organization_id=org_id,facility_id=facility_id,partner_id=vendor.id,order_number="PO-CONTINUITY-001",order_type="purchase",order_date=date(2026,9,23),due_date=None,lines=[{"product_id":product_id,"quantity":3,"unit":"unit","unit_price":12.5,"description":"Saved product description"}],actor="tester",notes="Preserve this note")
+    sibling_order=repository.create_order(organization_id=org_id,facility_id=sibling_id,partner_id=vendor.id,order_number="PO-SIBLING-001",order_type="purchase",order_date=date(2026,9,23),due_date=None,lines=[{"product_id":product_id,"quantity":1,"unit":"unit","unit_price":12.5,"description":"Sibling"}],actor="tester")
+    sale=repository.create_order(organization_id=org_id,facility_id=facility_id,partner_id=vendor.id,order_number="SO-CONTINUITY-001",order_type="sales",order_date=date(2026,9,23),due_date=None,lines=[{"product_id":product_id,"quantity":1,"unit":"unit","unit_price":12.5,"description":"Sale"}],actor="tester")
     yield engine, (org_id,facility_id,sibling_id,other_id,product_id,order.id,sibling_order.id,sale.id)
     engine.dispose()
 
