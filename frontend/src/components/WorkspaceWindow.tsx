@@ -6,7 +6,11 @@ import "./workspace-window.css";
 type Position = { left: number; top: number };
 type DragState = Position & { pointerId: number; width: number; height: number; startX: number; startY: number };
 
-let workspaceWindowZIndex = 90;
+// The sticky application header is at 120 and search menus reach 200.
+// Nested dialogs cannot escape this window's isolated stacking context, so
+// starting below the header leaves their Close buttons covered after reload.
+const WORKSPACE_WINDOW_BASE_Z_INDEX = 300;
+let workspaceWindowZIndex = WORKSPACE_WINDOW_BASE_Z_INDEX;
 const workspaceWindowRegistry = new Map<string, number>();
 function nextWorkspaceWindowZIndex() {
   workspaceWindowZIndex += 1;
