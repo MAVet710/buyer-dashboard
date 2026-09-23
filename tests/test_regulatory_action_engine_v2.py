@@ -287,7 +287,9 @@ def test_marketing_surfaces_current_product_pillars():
     home = Path("frontend/src/pages/HomePage.tsx").read_text(encoding="utf-8")
     for content in (marketing, beta, home):
         assert "Doobie Agent" in content
-        assert "Wholesale" in content
+    assert "Commercial" in marketing
+    assert "Wholesale" in beta
+    assert "Wholesale" in home
     assert "<Solutions />" in marketing
     assert "marketingFaqs" in marketing
     for operation in ("Cultivation", "Production / Manufacturing", "Retail Operations", "Vertically Integrated"):
