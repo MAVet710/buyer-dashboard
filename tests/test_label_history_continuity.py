@@ -13,6 +13,11 @@ from modules.label_studio_workflow import LabelProductionEvent, LabelProductionR
 
 @pytest.fixture
 def saved_labels():
+    # These are integrated persistence tests. Register the same full model graph
+    # as the API, including transfer/cultivation FK targets loaded by its guards.
+    # Importing the app does not enter its lifespan or connect to a runtime DB.
+    from backend.app.main import app as _registered_app  # noqa: F401
+
     engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     with Session(engine) as session, session.begin():

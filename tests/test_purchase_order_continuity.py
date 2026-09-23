@@ -14,6 +14,10 @@ from services.purchase_order_pdf import money_value, render_saved_purchase_order
 
 @pytest.fixture
 def purchase_orders():
+    # Use the API's complete model registration for these integrated persistence
+    # tests. This imports definitions only, without entering the app lifespan.
+    from backend.app.main import app as _registered_app  # noqa: F401
+
     engine=create_engine("sqlite+pysqlite:///:memory:",connect_args={"check_same_thread":False},poolclass=StaticPool)
     Base.metadata.create_all(engine)
     with Session(engine) as session, session.begin():
