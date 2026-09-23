@@ -1,0 +1,55 @@
+name: Current inventory continuity
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'modules/**'
+      - 'services/**'
+      - 'frontend/**'
+      - 'tests/**'
+      - '.github/workflows/current-inventory-continuity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-inventory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Capture tracked source for reproducible review
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          from zipfile import ZipFile, ZIP_DEFLATED
+          roots = {'backend', 'modules', 'services', 'tests', 'frontend', 'docs', 'scripts', 'migrations', 'reports', 'views', '.github'}
+          suffixes = {'.py', '.md', '.ts', '.tsx', '.js', '.cjs', '.mjs', '.json', '.css', '.yml', '.yaml', '.toml', '.ini', '.txt', '.html', '.svg'}
+          files = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          with ZipFile('/tmp/inventory-source-evidence.zip', 'w', ZIP_DEFLATED) as archive:
+              for value in files:
+                  path = Path(value)
+                  if not value or not path.is_file() or path.is_symlink():
+                      continue
+                  if len(path.parts) > 1 and path.parts[0] not in roots:
+                      continue
+                  if any(part in {'artifacts', 'node_modules', 'test-results', 'playwright-report'} for part in path.parts):
+                      continue
+                  if any(word in path.name.casefold() for word in ('secret', 'credential')):
+                      continue
+                  if path.suffix in suffixes or path.name.startswith('Dockerfile'):
+                      archive.write(path, value)
+              archive.writestr('SOURCE_COMMIT.txt', subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode())
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inventory-source-evidence
+          path: /tmp/inventory-source-evidence.zip
+          retention-days: 1
