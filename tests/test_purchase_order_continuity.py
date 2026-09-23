@@ -9,14 +9,15 @@ from sqlalchemy.pool import StaticPool
 from backend.app.services.purchase_order_continuity import get_saved_purchase_order, list_saved_purchase_orders
 from modules.coman.models import Base, CommercialOrder, Facility, InventoryTransaction, Organization, Product
 from modules.commercial.repository import CommercialRepository
-# Register the canonical FK targets before create_all, including when this
-# file is collected alone rather than after the full API test collection.
-from modules.cultivation import models as _cultivation_models  # noqa: F401
 from services.purchase_order_pdf import money_value, render_saved_purchase_order, saved_order_total
 
 
 @pytest.fixture
 def purchase_orders():
+    # Use the API's complete model registration for these integrated persistence
+    # tests. This imports definitions only, without entering the app lifespan.
+    from backend.app.main import app as _registered_app  # noqa: F401
+
     engine=create_engine("sqlite+pysqlite:///:memory:",connect_args={"check_same_thread":False},poolclass=StaticPool)
     Base.metadata.create_all(engine)
     with Session(engine) as session, session.begin():
