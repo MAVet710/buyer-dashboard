@@ -278,7 +278,7 @@ class ToolRegistry:
 
     def _vendor_performance(self, args):
         frame = vendor_performance(self._frame("purchase_orders"), self._frame("purchase_order_lines"), self._frame("purchase_receipts"), self._frame("vendors"))
-        return {"method": "deterministic", "rows": records(frame, limit=int(args.get("limit") or 30))}
+        return {"method": "deterministic", "rows": records(frame, limit=int(args.get("limit") or 50))}
 
     def _audit_variance(self, args):
         return {"method": "deterministic", "rows": records(audit_metrics(self._frame("audit_lines")), limit=int(args.get("limit") or 50))}
@@ -286,7 +286,7 @@ class ToolRegistry:
     def _audit_recount(self, args):
         frame = audit_metrics(self._frame("audit_lines"))
         frame = frame.loc[frame["recount_priority"] != "normal"].sort_values("absolute_variance", ascending=False)
-        return {"method": "deterministic", "rows": records(frame, limit=int(args.get("limit") or 30))}
+        return {"method": "deterministic", "rows": records(frame, limit=int(args.get("limit") or 50))}
 
     def _production_attainment(self, args):
         return {"method": "deterministic", "rows": records(production_attainment(self._frame("production_orders"), self._frame("production_actuals")), limit=int(args.get("limit") or 50))}
@@ -318,7 +318,7 @@ class ToolRegistry:
         balance_by_lot = pd.DataFrame({"lot_id": tx[lot_t].astype(str), "balance": pd.to_numeric(tx[qty_t], errors="coerce").fillna(0.0)}).groupby("lot_id", as_index=False)["balance"].sum()
         merged = reserved_by_lot.merge(balance_by_lot, on="lot_id", how="left").fillna({"balance": 0.0})
         merged["unreserved_balance"] = merged["balance"] - merged["reserved"]
-        exceptions = merged.loc[merged["unreserved_balance"] < 0].sort_values("absolute_variance" if "absolute_variance" in merged else "unreserved_balance")
+        exceptions = merged.loc[merged["unreserved_balance"] < 0].sort_values("unreserved_balance")
         return {"method": "deterministic", "rows": records(exceptions, limit=int(args.get("limit") or 30)), "missing_data": ["Exact BOM-to-production-order material requirements are not linked in the current durable schema; shortage demand cannot be fabricated."]}
 
     def _extraction_analysis(self, args):
