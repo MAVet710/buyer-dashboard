@@ -46,7 +46,11 @@ jobs:
           cache: pip
       - run: python -m pip install -r backend/requirements.txt pytest httpx
       - name: Migrate only the disposable PostgreSQL service
-        run: python -m alembic upgrade head
+        run: |
+          mkdir -p artifacts/pc-postgres
+          git rev-parse HEAD > artifacts/pc-postgres/tested-commit.txt
+          set -o pipefail
+          python -m alembic upgrade head 2>&1 | tee artifacts/pc-postgres/migration.log
       - name: Exercise real JWT authorization and saved workflows
         run: |
           mkdir -p artifacts/pc-postgres

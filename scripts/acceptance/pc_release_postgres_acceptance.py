@@ -40,6 +40,8 @@ def release_case():
         from alembic.script import ScriptDirectory
         expected = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
         assert conn.scalar(text("SELECT version_num FROM alembic_version")) == expected
+        capacity = conn.scalar(text("SELECT character_maximum_length FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='alembic_version' AND column_name='version_num'"))
+        assert capacity is None or capacity >= 33
         assert conn.scalar(select(func.count()).select_from(InventoryTransaction)) == 0
     org, other, facility, sibling, alien = [str(uuid4()) for _ in range(5)]
     buyer, reader, foreign = [str(uuid4()) for _ in range(3)]

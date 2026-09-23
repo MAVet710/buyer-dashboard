@@ -6,6 +6,7 @@ from alembic import context
 
 from modules.coman.db import resolve_database_url
 from modules.coman.models import Base
+from migrations.version_table import widen_existing_version_table
 
 config = context.config
 if config.config_file_name is not None:
@@ -35,7 +36,8 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-    with connectable.connect() as connection:
+    with connectable.begin() as connection:
+        widen_existing_version_table(connection)
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
         with context.begin_transaction():
             context.run_migrations()
