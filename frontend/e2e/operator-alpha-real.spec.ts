@@ -40,6 +40,34 @@ async function clickViewTabs(root: Page | Locator, page: Page) {
   }
 }
 
+async function inspectExtractionWindow(dialog: Locator, page: Page) {
+  const selectedRunId = new URL(page.url()).searchParams.get("extractionRun");
+  // Advanced now opens the exact selected record. Inspect the active modal
+  // before attempting to use the parent tabs behind its intentional backdrop.
+  const inspectSelectedRun = async () => {
+    if (!selectedRunId) return;
+    const detail = dialog.locator('.modal[role="dialog"]');
+    await expect(detail).toBeVisible();
+    const tabs = detail.locator(".extraction-run-tabs button");
+    await expect(tabs).toHaveCount(7);
+    await clickViewTabs(detail, page);
+    expect(new URL(page.url()).searchParams.get("extractionRun")).toBe(selectedRunId);
+    await detail.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(detail).toHaveCount(0);
+    await expect(page).toHaveURL(/extractionPanel=board/);
+  };
+  await inspectSelectedRun();
+  await dialog.getByRole("button", { name: "Management & Compliance", exact: true }).click();
+  const management = dialog.locator(".workspace-window-body > .page");
+  await expect(management.getByRole("heading", { name: "Extraction Command Center Parity", exact: true })).toBeVisible();
+  await clickViewTabs(management, page);
+  await dialog.getByRole("button", { name: "Run 360", exact: true }).click();
+  await inspectSelectedRun();
+  await dialog.getByRole("button", { name: "Close window", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.get("extractionRun")).toBe(selectedRunId);
+}
+
 test.describe("strict real-stack operator alpha", () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
@@ -75,8 +103,7 @@ test.describe("strict real-stack operator alpha", () => {
           await advanced.click();
           const dialog = page.getByRole("dialog", { name: "Advanced Extraction Run 360" });
           await expect(dialog).toBeVisible();
-          await clickViewTabs(dialog, page);
-          await dialog.getByRole("button", { name: "Close" }).click();
+          await inspectExtractionWindow(dialog, page);
         }
       }
 
