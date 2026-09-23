@@ -8,6 +8,9 @@ from sqlalchemy.pool import StaticPool
 
 from backend.app.services.label_run_history import list_label_run_history
 from modules.coman.models import Base, Facility, InventoryTransaction, Organization, Product
+# Register the canonical FK targets explicitly; isolated collection must not
+# depend on unrelated API tests importing the cultivation model graph first.
+from modules.cultivation import models as _cultivation_models  # noqa: F401
 from modules.label_studio_workflow import LabelProductionEvent, LabelProductionRun, LabelProductionWorkflowService
 
 
