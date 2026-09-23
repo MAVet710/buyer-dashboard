@@ -1,11 +1,131 @@
 export type ScoreQuestion = { id: string; category: string; text: string };
 export const scoreQuestions: ScoreQuestion[] = [
-  ["inventory-1","Inventory","Inventory counts are reconciled on a defined cadence."],["inventory-2","Inventory","Inventory age and slow movers are reviewed."],["inventory-3","Inventory","Reorder decisions use documented demand or stock-cover inputs."],["inventory-4","Inventory","Inventory variances have an investigation and resolution process."],["inventory-5","Inventory","Product, package and location records have clear ownership."],
-  ["purchasing-1","Purchasing","Purchasing follows a repeatable review cadence."],["purchasing-2","Purchasing","Vendor performance is reviewed with consistent criteria."],["purchasing-3","Purchasing","Assortment decisions consider stockouts and overstock."],["purchasing-4","Purchasing","Purchase decisions and follow-ups are documented."],["purchasing-5","Purchasing","Buying authority and approval limits are clear."],
-  ["process-1","Process","Core workflows have current SOPs or checklists."],["process-2","Process","Exceptions and escalation paths are documented."],["process-3","Process","Handoffs between teams have named owners."],["process-4","Process","Training is refreshed when workflows change."],["process-5","Process","Corrective actions have owners and review dates."],
-  ["technology-1","Technology","System-of-record boundaries are understood."],["technology-2","Technology","Data imports and integrations are validated."],["technology-3","Technology","Access follows job responsibilities."],["technology-4","Technology","Integration failures have an exception process."],["technology-5","Technology","Important operational reports have known data sources."],
-  ["review-1","Review","Leaders review operational metrics on a defined cadence."],["review-2","Review","Teams can identify the current source of truth."],["review-3","Review","Operational risks are tracked to resolution."],["review-4","Review","Changes are checked after implementation."],["review-5","Review","Teams know who owns unresolved operational questions."],
-].map(([id,category,text]) => ({id,category,text}));
+  {
+    "id": "inventory-1",
+    "category": "Inventory",
+    "text": "Stock records are checked against physical counts on a defined schedule."
+  },
+  {
+    "id": "inventory-2",
+    "category": "Inventory",
+    "text": "Aging stock is reviewed with a named owner and a next action."
+  },
+  {
+    "id": "inventory-3",
+    "category": "Inventory",
+    "text": "Receiving captures quantities, product identity and discrepancies before stock is released."
+  },
+  {
+    "id": "inventory-4",
+    "category": "Inventory",
+    "text": "Unavailable, held and sellable stock can be distinguished in reports."
+  },
+  {
+    "id": "inventory-5",
+    "category": "Inventory",
+    "text": "Inventory adjustments have a reason, supporting evidence and review."
+  },
+  {
+    "id": "purchasing-1",
+    "category": "Purchasing",
+    "text": "Reorder decisions use a known sales window and current available stock."
+  },
+  {
+    "id": "purchasing-2",
+    "category": "Purchasing",
+    "text": "Purchasing considers open orders and expected receipt dates."
+  },
+  {
+    "id": "purchasing-3",
+    "category": "Purchasing",
+    "text": "Category and vendor performance are reviewed before buying."
+  },
+  {
+    "id": "purchasing-4",
+    "category": "Purchasing",
+    "text": "Stockouts and excess stock inform the next purchasing cycle."
+  },
+  {
+    "id": "purchasing-5",
+    "category": "Purchasing",
+    "text": "Purchasing responsibilities, spending boundaries and review cadence are clear."
+  },
+  {
+    "id": "processes-1",
+    "category": "Processes",
+    "text": "Current SOPs describe the work people actually perform."
+  },
+  {
+    "id": "processes-2",
+    "category": "Processes",
+    "text": "Receiving, transfer and reconciliation exceptions have an escalation path."
+  },
+  {
+    "id": "processes-3",
+    "category": "Processes",
+    "text": "Operational compliance checks reference the applicable state and license scope."
+  },
+  {
+    "id": "processes-4",
+    "category": "Processes",
+    "text": "Records needed for internal review are organized and retrievable."
+  },
+  {
+    "id": "processes-5",
+    "category": "Processes",
+    "text": "Corrective actions have an owner, due date and follow-up."
+  },
+  {
+    "id": "people-production-1",
+    "category": "People & production",
+    "text": "Each shift has clear responsibilities and handoff records."
+  },
+  {
+    "id": "people-production-2",
+    "category": "People & production",
+    "text": "Staff are trained on current procedures and changes are communicated."
+  },
+  {
+    "id": "people-production-3",
+    "category": "People & production",
+    "text": "Production inputs, outputs and losses can be traced to a run or batch."
+  },
+  {
+    "id": "people-production-4",
+    "category": "People & production",
+    "text": "Production capacity and material availability inform scheduling."
+  },
+  {
+    "id": "people-production-5",
+    "category": "People & production",
+    "text": "Production or service handoffs identify the next owner and release criteria."
+  },
+  {
+    "id": "technology-1",
+    "category": "Technology & controls",
+    "text": "Core systems use consistent identifiers for products, locations and records."
+  },
+  {
+    "id": "technology-2",
+    "category": "Technology & controls",
+    "text": "Reconciliation differences between systems are investigated before adjustment."
+  },
+  {
+    "id": "technology-3",
+    "category": "Technology & controls",
+    "text": "Access reflects job responsibilities and is reviewed when roles change."
+  },
+  {
+    "id": "technology-4",
+    "category": "Technology & controls",
+    "text": "Management reports define their source, refresh time and calculation."
+  },
+  {
+    "id": "technology-5",
+    "category": "Technology & controls",
+    "text": "Important operational decisions can be explained from an audit trail."
+  }
+];
 export type ScoreAnswers = Record<string, number | null>;
 export function operationsScore(answers: ScoreAnswers) {
   if (Object.keys(answers).length !== scoreQuestions.length || scoreQuestions.some(q => !(q.id in answers))) throw new Error("Answer every question, including not applicable where appropriate.");
