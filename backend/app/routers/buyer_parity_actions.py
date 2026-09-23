@@ -124,6 +124,11 @@ def _buyer_slice(payload: BuyerSliceRequest, context: RequestContext, engine: En
         raise HTTPException(422, "No Buyer rows match the selected inventory slice.")
 
     source = {
+        "classification": "uploaded_historical_snapshot",
+        "current_inventory": False,
+        "inventory_published_at": str(inventory_source.activated_at),
+        "sales_published_at": str(sales_source.activated_at),
+        "interpretation": "Analyze this historical uploaded slice only. It is not current stock. Publication dates do not establish sales coverage or verified stock-to-sales unit conversion. Do not present these reorder quantities as a live purchase instruction.",
         "inventory_filename": inventory_source.filename,
         "sales_filename": sales_source.filename,
         "selected_categories": payload.categories,

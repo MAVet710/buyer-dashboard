@@ -4,9 +4,13 @@ on:
   pull_request:
     paths:
       - 'backend/app/services/**'
-      - 'backend/app/routers/buyer_parity.py'
-      - 'tests/**'
+      - 'backend/app/routers/buyer*.py'
+      - 'tests/test_buyer_current_inventory.py'
+      - 'frontend/src/components/BuyerCurrentInventory.tsx'
       - 'frontend/src/pages/BuyerOperationsPage.tsx'
+      - 'frontend/src/pages/BuyerCommandCenterPage.tsx'
+      - 'frontend/e2e/buyer-current-inventory.spec.ts'
+      - 'frontend/e2e/parity-browser.spec.ts'
       - '.github/workflows/inventory-source-continuity.yml'
 
 permissions:
@@ -17,21 +21,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  source-evidence:
+  buyer-current-backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          persist-credentials: false
-      - name: Record the tracked candidate source only
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r backend/requirements.txt pytest httpx
+      - name: Check canonical parity, evidence and isolation
+        env:
+          PYTHONHASHSEED: '0'
         run: |
-          git rev-parse HEAD > "$RUNNER_TEMP/source-commit.txt"
-          git archive --format=tar.gz --output="$RUNNER_TEMP/continuity-source.tar.gz" HEAD
-      - uses: actions/upload-artifact@v4
+          mkdir -p artifacts/buyer-current-inventory
+          git rev-parse HEAD > artifacts/buyer-current-inventory/tested-commit.txt
+          python -m pytest -q tests/test_buyer_current_inventory.py tests/test_ai_inventory_continuity.py tests/test_ai_inventory_tool_contract.py --junitxml=artifacts/buyer-current-inventory/results.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: inventory-continuity-source
-          path: |
-            ${{ runner.temp }}/continuity-source.tar.gz
-            ${{ runner.temp }}/source-commit.txt
-          retention-days: 1
+          name: buyer-current-backend-evidence
+          path: artifacts/buyer-current-inventory
+          retention-days: 7
+
+  buyer-current-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec eslint . --max-warnings=0
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Verify current stock and retained historical workflow in a browser
+        run: |
+          pnpm exec vite --host 127.0.0.1 --port 4173 > /tmp/buyer-stock-vite.log 2>&1 &
+          VITE_PID=$!
+          trap 'kill "$VITE_PID" 2>/dev/null || true' EXIT
+          READY=0
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then READY=1; break; fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then cat /tmp/buyer-stock-vite.log; exit 1; fi
+          pnpm exec playwright test --config=playwright.config.ts e2e/buyer-current-inventory.spec.ts e2e/parity-browser.spec.ts
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buyer-current-browser-evidence
+          path: frontend/test-results/browser-parity
+          retention-days: 7
+          if-no-files-found: ignore
