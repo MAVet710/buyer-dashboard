@@ -13,6 +13,7 @@ on:
       - 'tests/test_purchase_order_continuity.py'
       - 'tests/test_dev_sandbox_label_print_contract.py'
       - 'tests/test_label_production_workflow_contract.py'
+      - 'tests/test_web_inventory_api.py'
       - '.github/workflows/workflow-continuity.yml'
 
 permissions:
@@ -26,6 +27,8 @@ jobs:
   saved-workflows-backend:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    env:
+      PYTHONHASHSEED: '0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,10 +37,24 @@ jobs:
           cache: pip
       - name: Install repository test dependencies
         run: python -m pip install -r requirements.txt -r backend/requirements.txt pytest httpx
-      - name: Verify saved records, scopes, bounded reads and non-mutating reprints
-        env:
-          PYTHONHASHSEED: '0'
-        run: python -m pytest -q tests/test_label_history_continuity.py tests/test_purchase_order_continuity.py tests/test_dev_sandbox_label_print_contract.py tests/test_label_production_workflow_contract.py
+      # Separate processes prevent unrelated test collection from accidentally
+      # registering a missing model and hiding an isolated-fixture regression.
+      - name: Verify label history in an isolated test process
+        run: python -m pytest -q tests/test_label_history_continuity.py --junitxml=artifacts/workflow-continuity/labels.xml
+      - name: Verify saved purchase orders in an isolated test process
+        run: python -m pytest -q tests/test_purchase_order_continuity.py --junitxml=artifacts/workflow-continuity/purchase-orders.xml
+      - name: Preserve sandbox restrictions and label workflow contracts
+        run: python -m pytest -q tests/test_dev_sandbox_label_print_contract.py tests/test_label_production_workflow_contract.py --junitxml=artifacts/workflow-continuity/label-contracts.xml
+      - name: Verify sales reporting window without changing durable inventory
+        run: python -m pytest -q tests/test_web_inventory_api.py::test_retail_sales_import_is_durable_idempotent_and_audited --junitxml=artifacts/workflow-continuity/sales-window.xml
+      - name: Save backend continuity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: saved-workflow-backend-evidence
+          path: artifacts/workflow-continuity/*.xml
+          retention-days: 7
+          if-no-files-found: ignore
 
   saved-workflows-browser:
     runs-on: ubuntu-latest
