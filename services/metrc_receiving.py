@@ -62,6 +62,10 @@ def _paged_resource_get(
             user_api_key=user_api_key,
             integrator_api_key=integrator_api_key,
             path=plan.path,
+            # Forward the requested environment. Omitting it silently inherited
+            # _metrc_get's production default, so a sandbox-scoped read was sent
+            # to the production API host and surfaced as a misleading 401.
+            environment=environment,
             params=plan.params,
             timeout_seconds=timeout_seconds,
         )

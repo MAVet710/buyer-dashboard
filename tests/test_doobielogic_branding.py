@@ -53,7 +53,13 @@ def test_public_site_uses_brand_image_for_favicon_and_share_preview():
     assert (ROOT / "frontend" / "public" / "marketing" / "brand.webp").is_file()
     assert 'IMG_7158.PNG' not in index
     assert '<MarketingNav />' in marketing
-    assert '<MarketingBrand />' in marketing
+    # The approved Advisory layout moved the shared brand into MarketingFooter.
+    footer = (ROOT / "frontend" / "src" / "components" / "marketing" / "MarketingPage.tsx").read_text(encoding="utf-8")
+    assert 'import { MarketingFooter } from "../components/marketing/MarketingPage"' in marketing
+    assert '<MarketingFooter />' in marketing
+    assert 'export function MarketingFooter()' in footer
+    assert '<MarketingBrand />' in footer
+    assert 'from "./MarketingNav"' in footer
     assert 'src="/marketing/brand.webp"' in marketing_nav
     assert 'aria-label="DoobieLogic home"' in marketing_nav
     assert 'raw.githubusercontent.com' not in marketing_nav

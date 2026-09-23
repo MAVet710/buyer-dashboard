@@ -182,7 +182,11 @@ async def add_security_response_headers(request: Request, call_next):
 @app.middleware("http")
 async def enforce_buyer_data_mode(request: Request, call_next):
     data_mode = str(request.headers.get("X-DoobieLogic-Data-Mode") or "Uploads").strip().casefold()
-    if data_mode in {"dutchie live", "dutchie_live", "live"} and request.url.path.startswith(_BUYER_UPLOAD_BACKED_PREFIXES):
+    # This exact GET reads the canonical database ledger, never a Dutchie live
+    # request or an uploaded fallback. Its route still enforces normal auth,
+    # tenant scope and retail capability; all upload-backed routes stay guarded.
+    current_inventory_read = request.method == "GET" and request.url.path == f"{settings.api_prefix}/buyer-parity/current-inventory"
+    if data_mode in {"dutchie live", "dutchie_live", "live"} and request.url.path.startswith(_BUYER_UPLOAD_BACKED_PREFIXES) and not current_inventory_read:
         return JSONResponse(
             status_code=409,
             content={

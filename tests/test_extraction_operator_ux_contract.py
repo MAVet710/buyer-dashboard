@@ -11,13 +11,16 @@ def read(path: str) -> str:
 def test_extraction_uses_job_first_four_surface_navigation():
     unified = read("frontend/src/pages/ExtractionUnifiedPage.tsx")
 
-    assert 'useState<View>("today")' in unified
+    # URL state replaces the former local-only selector while retaining Today
+    # as the default and exactly the same four primary operator surfaces.
+    assert 'const requestedView=params.get("extractionView");' in unified
+    assert 'const view:View=requestedView==="runs"||requestedView==="inventory"||requestedView==="analytics"?requestedView:"today";' in unified
     for label in ("Today", "Runs", "Inventory", "Analytics"):
         assert f">{label}</button>" in unified
     assert "Run Floor" not in unified
     assert "Command Center</button>" not in unified
-    assert '<ExtractionOperatorWorkspace mode="today"' in unified
-    assert '<ExtractionOperatorWorkspace mode="runs"' in unified
+    assert 'view==="today"||view==="runs"?<ExtractionOperatorWorkspace mode={view}' in unified
+    assert 'selectedRunId={selectedRunId} onSelectRun={selectRun}' in unified
     assert "<ExtractionAnalyticsWorkspace" in unified
     assert "<ExtractionCommandCenterPage" in unified
 
@@ -65,10 +68,14 @@ def test_new_run_plans_and_reserves_without_automatic_consumption():
 def test_selected_run_and_new_run_are_mutually_exclusive():
     floor = read("frontend/src/pages/ExtractionOperatorWorkspace.tsx")
 
-    assert 'const selectRun=(runId:string)=>{setSelected(runId);setCreating(false)};' in floor
-    assert 'const openNewRun=()=>{setSelected("");setCreating(true)};' in floor
-    assert "if (selected || creating) return;" in floor
+    # Controlled URL selection and standalone local selection must both clear
+    # the create form; creating must clear both sources of selected identity.
+    assert 'const selected=selectedRunId??localSelected;' in floor
+    assert 'const selectRun=useCallback((runId:string,replace=false)=>{selectionPending.current=Boolean(onSelectRun);setLocalSelected(runId);onSelectRun?.(runId,replace);setCreating(false)},[onSelectRun]);' in floor
+    assert 'const openNewRun=()=>{setLocalSelected("");onSelectRun?.("");setCreating(true)};' in floor
+    assert "if (selected || creating || selectionPending.current) return;" in floor
     assert "onSelect={selectRun}" in floor
+    assert '<CurrentRun key={`${scope}:${selected}`}' in floor
 
 
 def test_floor_has_explicit_preflight_before_consumption_and_start():

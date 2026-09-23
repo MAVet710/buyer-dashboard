@@ -18,6 +18,7 @@ COPY backend backend
 COPY modules modules
 COPY services services
 COPY reports reports
+COPY shared shared
 COPY migrations migrations
 COPY alembic.ini ./
 COPY compliance_engine.py doobielogic_client.py delivery_impact.py ./
