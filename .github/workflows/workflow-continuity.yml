@@ -54,7 +54,7 @@ jobs:
             sleep 1
           done
           if [ "$READY" -ne 1 ]; then cat /tmp/doobielogic-continuity-vite.log; exit 1; fi
-          pnpm exec playwright test --config=playwright.config.ts e2e/label-history-reprints.spec.ts e2e/purchase-order-continuity.spec.ts
+          pnpm exec playwright test --config=playwright.config.ts e2e/label-history-reprints.spec.ts e2e/label-history-continuity.spec.ts e2e/purchase-order-continuity.spec.ts
       - name: Save browser failure evidence
         if: always()
         uses: actions/upload-artifact@v4

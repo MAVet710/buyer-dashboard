@@ -39,15 +39,19 @@ export function LabelRunHistory({ organizationId, facilityId, canWrite, selected
     queryKey: ["label-run-history-detail", ...scope, selectedRunId],
     queryFn: ({ signal }) => apiGet<LabelRun>(`/api/v1/label-printing/production-runs/${encodeURIComponent(selectedRunId)}`, signal),
     enabled: Boolean(organizationId && facilityId && selectedRunId),
+    staleTime: 0,
     retry: false,
     refetchOnWindowFocus: false,
   });
   if (!organizationId || !facilityId) return <div className="info-banner">Choose a facility to view saved labels.</div>;
   if (selectedRunId) return <section className="page label-history-detail">
     <div className="heading-actions"><button className="secondary" type="button" onClick={() => onSelect("")}>Back to label history</button></div>
-    {detail.isLoading ? <div className="state">Loading the original saved label…</div> : null}
+    {detail.isFetching ? <div className="state">Loading the original saved label…</div> : null}
     {detail.isError ? <div className="state error">This saved label could not be opened in the selected facility. {detail.error.message}<button className="secondary" type="button" onClick={() => void detail.refetch()}>Retry</button></div> : null}
-    {detail.data && !detail.isError ? <InventoryDrivenLabelWorkflow key={`${organizationId}:${facilityId}:${detail.data.id}`} restoredRun={detail.data} canWrite={canWrite} onStartNew={onStartNew} /> : null}
+    {/* The renderer owns editable local state. Do not initialize it from a stale
+        cached response while a reopen request is still fetching. A later fresh
+        response must reset that local state, including the print audit trail. */}
+    {detail.data && !detail.isError && !detail.isFetching ? <InventoryDrivenLabelWorkflow key={`${organizationId}:${facilityId}:${detail.data.id}:${detail.dataUpdatedAt}`} restoredRun={detail.data} canWrite={canWrite} onStartNew={onStartNew} /> : null}
   </section>;
   return <section className="page label-run-history">
     <div className="page-heading"><div><div className="eyebrow">LABEL STUDIO · SAVED RUNS</div><h2>History &amp; Reprints</h2><p>Find a saved label by finished tag, source package, product, SKU, batch, or date. Reprints use the original saved facts and design, not today's Product Master or COA.</p></div><button className="secondary" type="button" onClick={() => void history.refetch()} disabled={history.isFetching || !datesValid}>Refresh history</button></div>
