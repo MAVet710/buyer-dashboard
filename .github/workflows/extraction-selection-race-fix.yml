@@ -1,0 +1,70 @@
+name: Apply reviewed Extraction selection race fix
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/extraction-selection-race-fix.yml'
+permissions:
+  contents: read
+concurrency:
+  group: extraction-selection-race-fix
+  cancel-in-progress: true
+jobs:
+  apply-reviewed-fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/current-inventory-continuity'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Apply exact source and regression changes
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          expected = {
+              'frontend/src/pages/ExtractionOperatorWorkspace.tsx': 'c43d552a1789126fdfabbab7b82e73892e3d4c39',
+              'tests/test_extraction_operator_ux_contract.py': '06823d73796f3f5419cbbfbae4e3af785c6f2724',
+              'frontend/e2e/operator-alpha-real.spec.ts': 'ecd748b3cfa7f68adfa178974d76d7ef485c68ca',
+          }
+          for name, sha in expected.items():
+              assert subprocess.check_output(['git', 'hash-object', name]).decode().strip() == sha, f'Reconcile concurrent changes in {name}'
+          def replace_once(text, old, new):
+              assert text.count(old) == 1, f'Expected exactly one patch target: {old}'
+              return text.replace(old, new)
+          page = Path('frontend/src/pages/ExtractionOperatorWorkspace.tsx')
+          s = page.read_text()
+          s = replace_once(s, 'useCallback, useEffect, useMemo, useState', 'useCallback, useEffect, useMemo, useRef, useState')
+          s = replace_once(s, '  const selected=selectedRunId??localSelected;', '''  const selected=selectedRunId??localSelected;
+            // Local state can commit before React Router finishes a URL transition.
+            // Do not let the default queue selection overwrite an explicit choice.
+            const selectionPending=useRef(false);
+            useEffect(()=>{selectionPending.current=false},[selectedRunId]);''')
+          old = 'const selectRun=useCallback((runId:string,replace=false)=>{setLocalSelected(runId);onSelectRun?.(runId,replace);setCreating(false)},[onSelectRun]);'
+          new = 'const selectRun=useCallback((runId:string,replace=false)=>{selectionPending.current=Boolean(onSelectRun);setLocalSelected(runId);onSelectRun?.(runId,replace);setCreating(false)},[onSelectRun]);'
+          s = replace_once(s, old, new)
+          s = replace_once(s, 'if (selected || creating) return;', 'if (selected || creating || selectionPending.current) return;')
+          page.write_text(s)
+          contract = Path('tests/test_extraction_operator_ux_contract.py')
+          s = replace_once(contract.read_text(), old, new)
+          s = replace_once(s, 'if (selected || creating) return;', 'if (selected || creating || selectionPending.current) return;')
+          contract.write_text(s)
+          spec = Path('frontend/e2e/operator-alpha-real.spec.ts')
+          s = spec.read_text()
+          old = '    await expect(page.getByRole("heading", { name: "OA-BROWSER-EXTRACTION-0001" })).toBeVisible();'
+          new = '''    // The selected URL must identify the newly persisted run, never queue[0].
+              const createdRunId = new URL(reservationResponse.url()).pathname.split("/").at(-2);
+              expect(createdRunId).toBeTruthy();
+              await expect.poll(() => new URL(page.url()).searchParams.get("extractionRun")).toBe(createdRunId);
+          ''' + old
+          s = replace_once(s, old, new)
+          spec.write_text(s)
+      - name: Commit to the isolated branch and remove this write-capable helper
+        run: |
+          git diff --check
+          git add frontend/src/pages/ExtractionOperatorWorkspace.tsx tests/test_extraction_operator_ux_contract.py frontend/e2e/operator-alpha-real.spec.ts
+          git rm .github/workflows/extraction-selection-race-fix.yml
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Prevent queue auto-selection from replacing a newly created Extraction run during URL transition'
+          git push origin HEAD:refs/heads/codex/current-inventory-continuity
