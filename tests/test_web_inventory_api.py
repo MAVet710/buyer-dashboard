@@ -323,7 +323,10 @@ def test_unpassed_receipt_enters_hold_inventory():
     assert response.json()["status"] == "hold"
 
 
-def test_retail_sales_import_is_durable_idempotent_and_audited():
+def test_retail_sales_import_is_durable_idempotent_and_audited(monkeypatch):
+    # Freeze only this read model's clock. The fixed sale must be recent when
+    # asserting sold_30d, regardless of the actual CI execution date.
+    monkeypatch.setattr("backend.app.services.inventory.utc_now", lambda: datetime(2026, 8, 22, tzinfo=timezone.utc))
     engine = _engine()
     app.dependency_overrides[get_engine] = lambda: engine
     client = TestClient(app)
@@ -345,18 +348,33 @@ def test_retail_sales_import_is_durable_idempotent_and_audited():
         first = client.post("/api/v1/inventory/retail/sales/import", headers=headers, json=payload)
         second = client.post("/api/v1/inventory/retail/sales/import", headers=headers, json=payload)
         inventory = client.get("/api/v1/inventory/retail/packages", headers=headers)
+        # Aging a sale out of the reporting window must not delete the sale
+        # or mutate stock. Keep both sides of the rolling-window contract.
+        monkeypatch.setattr("backend.app.services.inventory.utc_now", lambda: datetime(2026, 9, 23, tzinfo=timezone.utc))
+        aged_inventory = client.get("/api/v1/inventory/retail/packages", headers=headers)
     finally:
         app.dependency_overrides.clear()
     assert first.status_code == 201
     assert first.json() == {"imported": 1, "skipped_duplicates": 0, "unmapped_products": 0}
     assert second.status_code == 201
     assert second.json() == {"imported": 0, "skipped_duplicates": 1, "unmapped_products": 0}
+    assert inventory.status_code == aged_inventory.status_code == 200
     item = inventory.json()["items"][0]
     assert item["sold_30d"] == 3
     assert item["daily_velocity"] == 0.1
     assert item["on_hand"] == 100
     assert item["available"] == 85
     assert item["days_on_hand"] == 850
+    aged = aged_inventory.json()["items"][0]
+    assert aged["sold_30d"] == 0
+    assert aged["daily_velocity"] == 0
+    assert aged["on_hand"] == item["on_hand"]
+    assert aged["available"] == item["available"]
+    with Session(engine) as session:
+        sales = list(session.scalars(select(RetailSale).where(RetailSale.organization_id == "org-1", RetailSale.facility_id == "facility-1")))
+        assert len(sales) == 1
+        assert sales[0].source_record_id == "sale-line-1"
+        assert sales[0].quantity == 3
 
 
 def test_adjustment_posts_correcting_transaction_and_protects_reservations():
@@ -618,8 +636,7 @@ def test_data_hub_upload_is_durable_versioned_and_facility_scoped():
         listing = client.get("/api/v1/data-hub/datasets", headers=headers)
         isolated = client.get("/api/v1/data-hub/datasets", headers={**headers, "X-Facility-Id": "other-facility"})
         archived = client.post("/api/v1/data-hub/archive", headers=headers, json={})
-    finally:
-        app.dependency_overrides.clear()
+    finally: app.dependency_overrides.clear()
     assert uploaded.status_code == 201
     assert uploaded.json()["quality"] == "Ready"
     assert uploaded.json()["row_count"] == 1
