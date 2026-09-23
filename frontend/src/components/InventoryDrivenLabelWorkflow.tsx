@@ -110,7 +110,9 @@ function LabelHeader({label}:{label:Record<string,string>}){
   return <header className="printed-label-header"><h3>{label.product_name||"Finished product"}</h3><strong>{label.net_contents||label.package_size}</strong>{label.package_composition?<span>{label.package_composition}</span>:null}</header>;
 }
 
-function CompactSingleLabel({run,index,sources}:{run:LabelRun;index:number;sources:SourceSnapshot[]}){
+function tagSuffix(run:LabelRun){return run.metrc_package_tag.slice(-5)}
+
+function CompactSingleLabel({run,sources}:{run:LabelRun;sources:SourceSnapshot[]}){
   const label=run.snapshot.label??{};
   const source=sources[0];
   const sourceLabel=source?.label??{};
@@ -123,11 +125,11 @@ function CompactSingleLabel({run,index,sources}:{run:LabelRun;index:number;sourc
       <AnalyteList title="Terpenes" rows={analytes(source,"terpenes",6)} total={source?.coa.total_terpenes}/>
     </div>
     <div className="printed-footer"><div><p>Cultivated by {sourceLabel.cultivated_by||"—"}</p><p>{sourceLabel.cultivator_license}</p><p>Manufactured by {label.manufacturer||sourceLabel.manufacturer||label.facility_name}</p><p>{label.license_number}</p></div><img src={graphicDataUri(run.traceability.qr)} alt="METRC QR"/></div>
-    <div className="printed-unit-id">#{index+1} / {run.quantity}</div>
+    <div className="printed-unit-id">{tagSuffix(run)}</div>
   </>;
 }
 
-function CompactSplitLabel({run,index,sources}:{run:LabelRun;index:number;sources:SourceSnapshot[]}){
+function CompactSplitLabel({run,sources}:{run:LabelRun;sources:SourceSnapshot[]}){
   const label=run.snapshot.label??{};
   const primary=sources[0];
   const primaryLabel=primary?.label??{};
@@ -139,22 +141,22 @@ function CompactSplitLabel({run,index,sources}:{run:LabelRun;index:number;source
       <div className="printed-split-sources"><section className="label-source-panel"><AnalyteList title="Cannabinoids" rows={analytes(primary,"cannabinoids",9)} total={primary?.coa.total_cannabinoids}/></section><section className="label-source-panel"><AnalyteList title="Terpenes" rows={analytes(primary,"terpenes",8)} total={primary?.coa.total_terpenes}/><p className="source-party">Cultivated by {primaryLabel.cultivated_by}<br/>{primaryLabel.cultivator_license}<br/>Manufactured by {label.manufacturer||label.facility_name}<br/>{label.license_number}</p></section></div>
     </>}
     <div className="printed-footer compact-split-footer"><div><p>{label.warning_text}</p></div><img src={graphicDataUri(run.traceability.qr)} alt="METRC QR"/></div>
-    <div className="printed-unit-id">#{index+1} / {run.quantity}</div>
+    <div className="printed-unit-id">{tagSuffix(run)}</div>
   </>;
 }
 
-function BulkBarcodeLabel({run,index,sources}:{run:LabelRun;index:number;sources:SourceSnapshot[]}){
+function BulkBarcodeLabel({run,sources}:{run:LabelRun;sources:SourceSnapshot[]}){
   const label=run.snapshot.label??{};
   const source=sources[0];
   const sourceLabel=source?.label??{};
   return <div className="bulk-label-grid">
     <div className="bulk-barcode"><img src={graphicDataUri(run.traceability.barcode)} alt="METRC barcode"/><strong>{run.metrc_package_tag}</strong></div>
     <div className="bulk-main"><h3>{label.product_name}</h3><div className="bulk-meta"><span>Tested: {displayDate(sourceLabel.test_date||source?.coa.date_tested)}</span><span>Packed: {displayDate(run.created_at)}</span><span>Net Wgt: {label.net_contents||label.package_size}</span><span>Batch: {sourceLabel.batch_number||source?.lot_code}</span></div><div className="bulk-potency"><span>TAC: {label.total_cannabinoids||"—"}</span><span>THC: {label.total_thc||"—"}</span><span>CBD: {label.total_cbd||"—"}</span><span>Total Terpenes: {label.total_terpenes||"—"}</span></div><small>Cultivated by {sourceLabel.cultivated_by} {sourceLabel.cultivator_license} · Packaged by {label.manufacturer||label.facility_name} {label.license_number}</small></div>
-    <div className="printed-unit-id">{index+1}/{run.quantity}</div>
+    <div className="printed-unit-id">{tagSuffix(run)}</div>
   </div>;
 }
 
-function customContents(run:LabelRun,index=0):LabelContents {
+function customContents(run:LabelRun):LabelContents {
   const label=run.snapshot.label??{};
   const sources=run.snapshot.sources?.length?run.snapshot.sources:[run.snapshot.source];
   const source=sources[0];
@@ -178,7 +180,7 @@ function customContents(run:LabelRun,index=0):LabelContents {
     qr:run.metrc_package_tag?<img src={graphicDataUri(run.traceability.qr)} alt="METRC QR"/>:"QR after tag assignment",
     barcode:run.metrc_package_tag?<img src={graphicDataUri(run.traceability.barcode)} alt="METRC barcode"/>:"Barcode after tag assignment",
     tag:run.metrc_package_tag||"Tag after assignment",
-    unit:`${index+1} / ${run.quantity}`,
+    unit:tagSuffix(run),
   };
 }
 
@@ -267,7 +269,7 @@ export function InventoryDrivenLabelWorkflow({sandboxTestPass=false}:{sandboxTes
       {["printed","applied","released","fulfilled"].includes(run.status)?<div style={{marginTop:16}}><div className="inline-form"><input aria-label="Reprint reason" placeholder="Reason required for reprint" value={reprintReason} onChange={event=>setReprintReason(event.target.value)}/><button className="secondary" disabled={!reprintReason.trim()||print.isPending||printBlocked} onClick={()=>print.mutate()}>Reprint {run.quantity}</button>{nextStatus?<button className="primary" disabled={transition.isPending} onClick={()=>transition.mutate(nextStatus)}>{nextAction}</button>:null}</div></div>:null}
     </div>:null}
 
-    {run?.metrc_package_tag?<div className="production-label-print-batch" aria-label="Printable retail labels">{copies.map(index=><div className={`production-label-copy layout-${printLayout.layout}${customDesign?" has-custom-design":""}`} key={index} data-layout={printLayout.layout} data-label-width={printLayout.width_in} data-label-height={printLayout.height_in}>{customDesign?<LabelDesignCanvas design={customDesign} contents={customContents(run,index)}/>:printLayout.layout==="compact_split"?<CompactSplitLabel run={run} index={index} sources={sources}/>:printLayout.layout==="bulk_barcode"?<BulkBarcodeLabel run={run} index={index} sources={sources}/>:<CompactSingleLabel run={run} index={index} sources={sources}/>}</div>)}</div>:null}
+    {run?.metrc_package_tag?<div className="production-label-print-batch" aria-label="Printable retail labels">{copies.map(index=><div className={`production-label-copy layout-${printLayout.layout}${customDesign?" has-custom-design":""}`} key={index} data-layout={printLayout.layout} data-label-width={printLayout.width_in} data-label-height={printLayout.height_in}>{customDesign?<LabelDesignCanvas design={customDesign} contents={customContents(run)}/>:printLayout.layout==="compact_split"?<CompactSplitLabel run={run} sources={sources}/>:printLayout.layout==="bulk_barcode"?<BulkBarcodeLabel run={run} sources={sources}/>:<CompactSingleLabel run={run} sources={sources}/>}</div>)}</div>:null}
 
     {run?<div style={{marginTop:18}}><h3>Audit trail</h3>{run.events.map(event=><div className="label-audit-row" key={event.id}><strong>{eventLabel(event.event_type)}</strong><span>{event.from_status&&event.to_status?`${event.from_status} → ${event.to_status}`:event.to_status||event.from_status}</span><small>{event.actor} · {new Date(event.occurred_at).toLocaleString()}</small></div>)}</div>:null}
     {error?<div className="form-error">{error.message}</div>:null}

@@ -13,6 +13,7 @@ from modules.cultivation.service import CultivationService
 from modules.regulatory.metrc_process_compliance import MetrcProcessComplianceService
 from modules.regulatory.metrc_process_models import CultivationRegulatoryIdentity
 from modules.traceability.backoffice import TraceabilityBackofficeRepository
+from modules.traceability.action_registry import get_traceability_action
 from modules.traceability.object_links import TraceabilityObjectLinkRepository
 from services.metrc_client import fetch_metrc_resource
 from services.metrc_evaluation_lifecycle import (
@@ -231,6 +232,9 @@ class MetrcCultivationActionService:
         operation = str(operation_type or "").strip().casefold()
         if operation not in PROMOTED_CULTIVATION_ACTIONS:
             raise MetrcCultivationActionError("This cultivation action has not passed the current operator promotion gate.")
+        registered = get_traceability_action(operation)
+        if registered is None or registered.execution_path != "specialized_verified":
+            raise MetrcCultivationActionError("This cultivation action is not enabled in the canonical traceability action registry.")
         entity = str(entity_id or "").strip()
         action_date = str(actual_date or "").strip()
         if not entity or not action_date:
@@ -654,6 +658,13 @@ class MetrcCultivationActionService:
             },
             local_state=prepared["fingerprint_context"],
             reason=str(reason or f"Authorized operator confirmed {prepared['summary']['title'].lower()}.").strip(),
+            correlation_id=confirmation_id,
+            source="cultivation_workflow",
+            external_tag=str(prepared.get("provider_payload", {}).get("starting_tag") or prepared.get("provider_payload", {}).get("tag") or ""),
+            related_entities=[
+                {"type": "plant", "id": str(plant_id)}
+                for plant_id in prepared.get("fingerprint_context", {}).get("plant_ids", [])
+            ],
         )
         transaction, claimed = self.traceability.claim_transition_logged(
             organization_id=organization_id,
