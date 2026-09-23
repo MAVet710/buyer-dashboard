@@ -27,9 +27,10 @@ export function seoPage(marketing: boolean, pathname: string) {
 export function marketingStructuredData(pathname = "/") {
   const page = seoPage(true, pathname);
   const graph: Record<string, unknown>[] = [
-    { "@type": "Organization", "@id": `${MARKETING_ORIGIN}/#organization`, name: "DoobieLogic", url: `${MARKETING_ORIGIN}/`, logo: SOCIAL_IMAGE },
+    { "@type": "Organization", "@id": `${MARKETING_ORIGIN}/#organization`, name: "DoobieLogic", alternateName: "Doobie Logic", url: `${MARKETING_ORIGIN}/`, logo: SOCIAL_IMAGE, description: MARKETING_DESCRIPTION },
   ];
   if (page.homepage) {
+    graph.push({ "@type": "WebSite", "@id": `${MARKETING_ORIGIN}/#website`, name: "DoobieLogic", alternateName: "Doobie Logic", url: `${MARKETING_ORIGIN}/`, publisher: { "@id": `${MARKETING_ORIGIN}/#organization` } });
     graph.push({ "@type": "SoftwareApplication", "@id": `${MARKETING_ORIGIN}/#software`, name: "DoobieLogic", url: `${MARKETING_ORIGIN}/`, applicationCategory: "BusinessApplication", operatingSystem: "Web", description: MARKETING_DESCRIPTION, publisher: { "@id": `${MARKETING_ORIGIN}/#organization` } });
     graph.push({ "@type": "FAQPage", "@id": `${MARKETING_ORIGIN}/#faq`, mainEntity: marketingFaqs.map(({ question, answer }) => ({ "@type": "Question", name: question, acceptedAnswer: { "@type": "Answer", text: answer } })) });
     return { "@context": "https://schema.org", "@graph": graph };
