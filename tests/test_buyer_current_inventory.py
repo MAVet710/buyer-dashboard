@@ -186,3 +186,13 @@ def test_query_count_stays_constant_as_packages_grow(inventory_case):
     assert scaled <= baseline + 1
     assert result["total"] == 67 and len(result["items"]) == 50 and result["has_more"]
     assert result["summary"]["totals_by_unit"][0]["on_hand"] == 165
+
+
+def test_live_mode_still_blocks_uploaded_forecasts_and_cannot_bypass_scope(scoped_client):
+    client, headers = scoped_client
+    live = {**headers, "X-DoobieLogic-Data-Mode": "Dutchie Live"}
+    for path in ("dashboard", "legacy-overview", "uploaded-source-evidence"):
+        assert client.get(f"/api/v1/buyer-parity/{path}", headers=live).status_code == 409
+    for path in ("inventory-check", "buyer-brief", "current-inventory"):
+        assert client.post(f"/api/v1/buyer-parity/{path}", headers=live, json={}).status_code == 409
+    assert client.get("/api/v1/buyer-parity/current-inventory", headers={**live, "X-Organization-Id": "org-other"}).status_code == 403

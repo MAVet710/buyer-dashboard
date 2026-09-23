@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'backend/app/services/**'
+      - 'backend/app/main.py'
       - 'backend/app/routers/buyer*.py'
       - 'tests/test_buyer_current_inventory.py'
       - 'frontend/src/components/BuyerCurrentInventory.tsx'
