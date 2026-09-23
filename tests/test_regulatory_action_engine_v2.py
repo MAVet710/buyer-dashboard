@@ -287,12 +287,19 @@ def test_marketing_surfaces_current_product_pillars():
     home = Path("frontend/src/pages/HomePage.tsx").read_text(encoding="utf-8")
     for content in (marketing, beta, home):
         assert "Doobie Agent" in content
+    for content in (beta, home):
         assert "Wholesale" in content
+    # The approved homepage describes this domain as Commercial in its
+    # rendered lifecycle rather than requiring an obsolete literal headline.
+    assert '["Commercial", "Inventory and buying context"]' in marketing
+    assert 'lifecycle.map(' in marketing
     assert "<Solutions />" in marketing
     assert "marketingFaqs" in marketing
     for operation in ("Cultivation", "Production / Manufacturing", "Retail Operations", "Vertically Integrated"):
         assert operation in marketing_content
-    assert "Metrc integration is in validation." in marketing_content
-    assert "AI runtime tools are read-only; governed actions use separate controls." in marketing_content
+    assert "Metrc-aware workflows are in validation." in marketing_content
+    assert "not a claim of certification, universal production readiness or support in every state" in marketing_content
+    assert "read-oriented tools help your team" in marketing_content
+    assert "governed actions stay under separate human controls" in marketing_content
     assert "Customer Portal" in beta
     assert "Customer Portal" in home

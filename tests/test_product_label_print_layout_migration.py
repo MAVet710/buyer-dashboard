@@ -3,11 +3,13 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LATEST_REVISION = "0077_dev_reference_metrc_tags"
+LATEST_REVISION = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini"))).get_current_head()
+assert LATEST_REVISION is not None
 SUPPLIER_TABLES = {"supplier_portal_grants", "supplier_offers", "supplier_offer_lines"}
 
 
@@ -34,6 +36,7 @@ def test_product_label_print_layout_migration_round_trip(tmp_path, monkeypatch):
     assert "integration_provider_snapshots" in tables
     assert "integration_hydration_page_checkpoints" in tables
     assert SUPPLIER_TABLES <= tables
+    assert {"advisory_leads", "advisory_daily_events"} <= tables
 
     command.downgrade(config, "0068_label_production_workflow")
     with engine.connect() as connection:
@@ -47,6 +50,7 @@ def test_product_label_print_layout_migration_round_trip(tmp_path, monkeypatch):
     assert "integration_provider_snapshots" not in tables
     assert "integration_hydration_page_checkpoints" not in tables
     assert not SUPPLIER_TABLES.intersection(tables)
+    assert not {"advisory_leads", "advisory_daily_events"}.intersection(tables)
 
     command.upgrade(config, "head")
     with engine.connect() as connection:
@@ -56,4 +60,5 @@ def test_product_label_print_layout_migration_round_trip(tmp_path, monkeypatch):
     assert "integration_provider_snapshots" in tables
     assert "integration_hydration_page_checkpoints" in tables
     assert SUPPLIER_TABLES <= tables
+    assert {"advisory_leads", "advisory_daily_events"} <= tables
     engine.dispose()

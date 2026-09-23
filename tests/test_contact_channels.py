@@ -28,7 +28,7 @@ def test_public_contact_copy_stays_human_and_does_not_expose_mail_vendor():
     assert "Need us? Pick an inbox." in channels
     assert "A real person will see it." in channels
     assert "Spacemail" not in channels
-    assert "One clear picture." in marketing
+    assert "One shared picture." in marketing
     assert "Good weed deserves better operations." in marketing
 
 
@@ -36,8 +36,9 @@ def test_public_hero_copy_is_clear_and_avoids_overwritten_phrasing():
     marketing = (ROOT / "frontend" / "src" / "pages" / "MarketingHome.tsx").read_text(encoding="utf-8")
 
     copy = " ".join(marketing.split())
-    assert "Cannabis ERP in beta for cultivation, production, retail and vertically integrated teams." in copy
-    assert "Access follows beta fit review." in copy
+    assert "DoobieLogic is cannabis operations software for teams who are done stitching together cultivation, extraction, production, inventory and buying" in copy
+    assert "Built for licensed operators. Beta access is scoped around the workflows that matter to your team." in copy
+    assert "Approved beta partners evaluate the agreed workspace" in copy
     assert 'href="/beta#apply"' in marketing
     assert "without losing the plot" not in marketing
     assert "five exports and a prayer" not in marketing
