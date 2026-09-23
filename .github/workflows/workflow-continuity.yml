@@ -1,0 +1,65 @@
+name: Workflow continuity acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/app/services/label_run_history.py'
+      - 'backend/app/services/purchase_order_continuity.py'
+      - 'backend/app/routers/label_printing.py'
+      - 'backend/app/routers/purchasing.py'
+      - 'services/purchase_order_pdf.py'
+      - '.github/workflows/workflow-continuity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-continuity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  saved-workflows-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec eslint . --max-warnings=0
+      - run: pnpm build
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-1.55.0
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Exercise saved workflow history and reload continuity
+        run: |
+          pnpm exec vite --host 127.0.0.1 --port 4173 > /tmp/doobielogic-continuity-vite.log 2>&1 &
+          VITE_PID=$!
+          trap 'kill "$VITE_PID" 2>/dev/null || true' EXIT
+          READY=0
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then READY=1; break; fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then cat /tmp/doobielogic-continuity-vite.log; exit 1; fi
+          pnpm exec playwright test --config=playwright.config.ts e2e/label-history-reprints.spec.ts e2e/purchase-order-continuity.spec.ts
+      - name: Save browser failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: saved-workflow-browser-evidence
+          path: frontend/test-results/browser-parity
+          retention-days: 7
+          if-no-files-found: ignore
