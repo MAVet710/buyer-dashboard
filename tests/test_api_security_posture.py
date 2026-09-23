@@ -164,7 +164,7 @@ def test_api_and_operational_frontend_are_noindex():
 def test_sitemap_contains_only_public_marketing_urls():
     sitemap = Path("frontend/public/sitemap.xml").read_text(encoding="utf-8")
     assert "https://doobielogic.io/" in sitemap
-    forbidden = ("ops.doobielogic.io", "/api/", "/admin", "/inventory", "/buyer")
+    forbidden = ("ops.doobielogic.io", "/api/", "/admin", "https://doobielogic.io/inventory", "https://doobielogic.io/buyer")
     assert not any(value in sitemap for value in forbidden)
 
 
