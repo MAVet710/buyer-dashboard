@@ -101,6 +101,7 @@ async function installApiMocks(page: Page) {
     let body: unknown = {};
     if (path === "/api/v1/account/context") body = accountContext;
     else if (path === "/api/v1/account/access-options") body = accessOptions;
+    else if (path === "/api/v1/buyer-parity/uploaded-source-evidence") body = { state: "available", items: [], message: "Historical fixture" };
     else if (path === "/api/v1/buyer-parity/dashboard") body = buyerDashboard;
     else if (path === "/api/v1/buyer-parity/legacy-overview") body = buyerLegacyOverview;
     else if (path === "/api/v1/inventory/retail/packages") body = retailInventory;
@@ -151,9 +152,10 @@ for (const width of WIDTHS) {
       if (!localStorage.getItem("buyer-dash-operation")) localStorage.setItem("buyer-dash-operation", "Retail Ops");
       if (!sessionStorage.getItem("buyer-dash-pending-page")) sessionStorage.setItem("buyer-dash-pending-page", "Buyer Operations");
     });
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.goto("/buying?buyerView=forecast", { waitUntil: "domcontentloaded" });
 
-    // Operator-recorded Buyer command center: keep the recovered evidence in one continuous surface.
+    // The recorded upload-based workflow is retained under an explicit historical-source tab.
+    await page.getByRole("tab", { name: "Uploaded forecast analysis", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Buyer Dashboard" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Sales Trend" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Revenue by Category" })).toBeVisible();

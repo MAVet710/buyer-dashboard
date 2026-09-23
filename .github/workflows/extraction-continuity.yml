@@ -1,20 +1,17 @@
-name: Current inventory continuity
+name: Extraction handoff continuity
 
 on:
   pull_request:
     paths:
-      - 'backend/**'
-      - 'modules/**'
-      - 'services/**'
       - 'frontend/**'
       - 'tests/**'
-      - '.github/workflows/current-inventory-continuity.yml'
+      - '.github/workflows/extraction-continuity.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: current-inventory-${{ github.ref }}
+  group: extraction-continuity-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -34,7 +31,7 @@ jobs:
           roots = {'backend', 'modules', 'services', 'tests', 'frontend', 'docs', 'scripts', 'migrations', 'reports', 'views', '.github'}
           suffixes = {'.py', '.md', '.ts', '.tsx', '.js', '.cjs', '.mjs', '.json', '.css', '.yml', '.yaml', '.toml', '.ini', '.txt', '.html', '.svg'}
           files = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
-          with ZipFile('/tmp/inventory-source-evidence.zip', 'w', ZIP_DEFLATED) as archive:
+          with ZipFile('/tmp/extraction-source-evidence.zip', 'w', ZIP_DEFLATED) as archive:
               for value in files:
                   path = Path(value)
                   if not value or not path.is_file() or path.is_symlink():
@@ -50,6 +47,6 @@ jobs:
               archive.writestr('SOURCE_COMMIT.txt', subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode())
       - uses: actions/upload-artifact@v4
         with:
-          name: inventory-source-evidence
-          path: /tmp/inventory-source-evidence.zip
+          name: extraction-source-evidence
+          path: /tmp/extraction-source-evidence.zip
           retention-days: 1

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Callable, Iterable
 
 import pandas as pd
@@ -99,7 +100,16 @@ class DatasetRegistry:
             )
             if safe.empty and len(raw) > 0 and len(safe.columns) == 0:
                 continue
-            output[spec.key] = LoadedDataset(spec, safe, spec.freshness)
+            # Trusted loaders may supply a SHA-256 of business content. The
+            # runtime's existing source-version key includes freshness, so
+            # stock changes invalidate answers even when row counts do not.
+            # Never carry arbitrary loader metadata (or exception text) into
+            # provider prompts, telemetry or cache keys.
+            version = raw.attrs.get("source_version")
+            freshness = spec.freshness
+            if isinstance(version, str) and re.fullmatch(r"[0-9a-f]{64}", version):
+                freshness = f"{freshness}; source_version={version}"
+            output[spec.key] = LoadedDataset(spec, safe, freshness)
         return output
 
     def describe(self, agent_key: str, context: DatasetAccessContext) -> list[dict[str, Any]]:
