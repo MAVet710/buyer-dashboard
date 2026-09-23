@@ -1,6 +1,11 @@
-import questionnaire from "../../../shared/advisory_score.json";
-
-export const scoreQuestions = questionnaire.questions;
+export type ScoreQuestion = { id: string; category: string; text: string };
+export const scoreQuestions: ScoreQuestion[] = [
+  ["inventory-1","Inventory","Inventory counts are reconciled on a defined cadence."],["inventory-2","Inventory","Inventory age and slow movers are reviewed."],["inventory-3","Inventory","Reorder decisions use documented demand or stock-cover inputs."],["inventory-4","Inventory","Inventory variances have an investigation and resolution process."],["inventory-5","Inventory","Product, package and location records have clear ownership."],
+  ["purchasing-1","Purchasing","Purchasing follows a repeatable review cadence."],["purchasing-2","Purchasing","Vendor performance is reviewed with consistent criteria."],["purchasing-3","Purchasing","Assortment decisions consider stockouts and overstock."],["purchasing-4","Purchasing","Purchase decisions and follow-ups are documented."],["purchasing-5","Purchasing","Buying authority and approval limits are clear."],
+  ["process-1","Process","Core workflows have current SOPs or checklists."],["process-2","Process","Exceptions and escalation paths are documented."],["process-3","Process","Handoffs between teams have named owners."],["process-4","Process","Training is refreshed when workflows change."],["process-5","Process","Corrective actions have owners and review dates."],
+  ["technology-1","Technology","System-of-record boundaries are understood."],["technology-2","Technology","Data imports and integrations are validated."],["technology-3","Technology","Access follows job responsibilities."],["technology-4","Technology","Integration failures have an exception process."],["technology-5","Technology","Important operational reports have known data sources."],
+  ["review-1","Review","Leaders review operational metrics on a defined cadence."],["review-2","Review","Teams can identify the current source of truth."],["review-3","Review","Operational risks are tracked to resolution."],["review-4","Review","Changes are checked after implementation."],["review-5","Review","Teams know who owns unresolved operational questions."],
+].map(([id,category,text]) => ({id,category,text}));
 export type ScoreAnswers = Record<string, number | null>;
 export function operationsScore(answers: ScoreAnswers) {
   if (Object.keys(answers).length !== scoreQuestions.length || scoreQuestions.some(q => !(q.id in answers))) throw new Error("Answer every question, including not applicable where appropriate.");
