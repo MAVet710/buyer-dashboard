@@ -1,0 +1,48 @@
+name: Inventory AI continuity acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'backend/app/services/ai_inventory.py'
+      - 'backend/app/services/ai_datasets.py'
+      - 'backend/app/services/inventory.py'
+      - 'services/ai/**'
+      - 'tests/test_ai_inventory_continuity.py'
+      - '.github/workflows/inventory-ai-continuity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-ai-continuity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  canonical-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install repository test dependencies
+        run: python -m pip install -r requirements.txt -r backend/requirements.txt pytest httpx
+      - name: Verify dependency consistency
+        run: python -m pip check
+      - name: Verify canonical inventory parity and evidence failures
+        env:
+          PYTHONHASHSEED: '0'
+        run: |
+          mkdir -p artifacts/inventory-ai-continuity
+          git rev-parse HEAD > artifacts/inventory-ai-continuity/tested-commit.txt
+          python -m pytest -q tests/test_ai_inventory_continuity.py --junitxml=artifacts/inventory-ai-continuity/results.xml
+      - name: Retain acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventory-ai-continuity-evidence
+          path: artifacts/inventory-ai-continuity
+          retention-days: 7
+          if-no-files-found: error
