@@ -17,7 +17,7 @@ const SlowMoversPage = lazy(() => import("./pages/SlowMoversPage").then(module =
 const DeliveryImpactPage = lazy(() => import("./pages/DeliveryImpactPage").then(module => ({ default: module.DeliveryImpactPage })));
 const BuyingRecommendationsPage = lazy(() => import("./pages/BuyingRecommendationsPage").then(module => ({ default: module.BuyingRecommendationsPage })));
 const BuyingBudgetPage = lazy(() => import("./pages/BuyingBudgetPage").then(module => ({ default: module.BuyingBudgetPage })));
-const PurchaseOrdersParityPage = lazy(() => import("./pages/PurchaseOrdersParityPage").then(module => ({ default: module.PurchaseOrdersParityPage })));
+const PurchaseOrdersWorkspacePage = lazy(() => import("./pages/PurchaseOrdersWorkspacePage").then(module => ({ default: module.PurchaseOrdersWorkspacePage })));
 const ProductMasterPage = lazy(() => import("./pages/ProductMasterPage").then(module => ({ default: module.ProductMasterPage })));
 const RetailProduct360Page = lazy(() => import("./pages/RetailProduct360Page").then(module => ({ default: module.RetailProduct360Page })));
 const RetailInsightsPage = lazy(() => import("./pages/RetailInsightsPage").then(module => ({ default: module.RetailInsightsPage })));
@@ -65,18 +65,21 @@ export default function App() {
   const entity = entityContextForPath(location.pathname);
   const productId = entity?.kind === "product" ? entity.id : "";
   const packageCode = entity?.kind === "package" ? entity.id : "";
+  const productionRunId = entity?.kind === "production-run" ? entity.id : "";
 
   const openProductionRun360 = (orderId = "") => {
     setRun360OrderId(orderId);
     setRun360Open(true);
   };
-
   const navigate = (nextPage: string) => {
     if (nextPage === "Production Run 360" && page !== "Production Run 360") {
       openProductionRun360();
       return;
     }
-    routerNavigate(pathForPage(nextPage));
+    setRun360Open(false);
+    setRun360OrderId("");
+    // Allow only known same-app paths, preserving explicit entity/query context.
+    routerNavigate(nextPage.startsWith("/") && pageForPath(nextPage) ? nextPage : pathForPage(nextPage));
   };
   const setPage = navigate;
 
@@ -84,16 +87,12 @@ export default function App() {
     const pending = sessionStorage.getItem("buyer-dash-pending-page");
     if (pending) {
       const pendingPath = pathForPage(pending);
-      if (pendingPath === location.pathname) {
-        sessionStorage.removeItem("buyer-dash-pending-page");
-      } else {
-        routerNavigate(pendingPath, { replace: true });
-      }
+      if (pendingPath === location.pathname) sessionStorage.removeItem("buyer-dash-pending-page");
+      else routerNavigate(pendingPath, { replace: true });
       return;
     }
     if (location.pathname === "/") routerNavigate("/home", { replace: true });
   }, [location.pathname, routerNavigate]);
-
   useEffect(() => {
     const refreshForDataMode = () => { void client.invalidateQueries(); };
     window.addEventListener("buyer-dash-data-mode", refreshForDataMode);
@@ -115,7 +114,7 @@ export default function App() {
     : page === "Delivery Performance" ? <DeliveryImpactPage />
     : page === "Buying Recommendations" ? <BuyingRecommendationsPage />
     : page === "Buying Budget" ? <BuyingBudgetPage />
-    : page === "Purchase Orders" ? <PurchaseOrdersParityPage onNavigate={navigate} />
+    : page === "Purchase Orders" ? <PurchaseOrdersWorkspacePage onNavigate={navigate} />
     : page === "Retail Product 360" || page === "Retail Product Master" ? <RetailProduct360Page onNavigate={navigate} initialProductId={productId} />
     : page === "Retail Catalog Admin" ? <ProductMasterPage key="retail-product-master" initialOperation="retail" />
     : page === "Production Product Master" ? <ProductMasterPage key="production-product-master" initialOperation="production" />
@@ -123,7 +122,7 @@ export default function App() {
     : page === "Reports" ? <RetailInsightsPage />
     : page === "Production" ? <ProductionPlanningWorkspace onOpenRun={openProductionRun360} />
     : page === "Production Calendar" ? <ProductionPlanningWorkspace onOpenRun={openProductionRun360} initialView="Calendar" />
-    : page === "Production Run 360" ? <ProductionRun360Page onNavigate={navigate} initialOrderId={run360OrderId} />
+    : page === "Production Run 360" ? <ProductionRun360Page key={productionRunId || "run-picker"} onNavigate={navigate} initialOrderId={productionRunId} />
     : page === "Wholesale Ops" ? <WholesaleOpsPage onNavigate={navigate} />
     : page === "Extraction" ? <ExtractionUnifiedPage onNavigate={navigate} />
     : page === "White Label / Repack" ? <WhiteLabelRepackPage />
@@ -151,7 +150,7 @@ export default function App() {
       <Suspense fallback={<div className="state">Loading workspace…</div>}>{content}</Suspense>
     </AppShell>
     <WorkspaceWindow open={run360Open} onClose={() => { setRun360Open(false); setRun360OrderId(""); }} eyebrow="PRODUCTION · RUN 360" title="Production Run 360" subtitle="Inspect and work the run without leaving the production workspace." ariaLabel="Production Run 360" windowKey="production-run-360">
-      <Suspense fallback={<div className="state">Loading Production Run 360…</div>}><ProductionRun360Page onNavigate={navigate} initialOrderId={run360OrderId}/></Suspense>
+      <Suspense fallback={<div className="state">Loading Production Run 360…</div>}><ProductionRun360Page key={run360OrderId || "modal-run-picker"} onNavigate={navigate} initialOrderId={run360OrderId}/></Suspense>
     </WorkspaceWindow>
   </>;
 }

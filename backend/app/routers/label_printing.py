@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import json
 from typing import Any
 from urllib.parse import quote
@@ -408,5 +409,28 @@ def complete_browser_job(job_id: str, payload: PrintCompletePayload, context: Re
     try:
         row = LabelPrintingService(engine).complete_job(context.organization_id, context.facility_id, job_id, context.user_id, success=payload.success, error=payload.error)
         return _job(row)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/history")
+def label_run_history(
+    search: str = Query(default="", max_length=160),
+    status: str = Query(default="", max_length=24),
+    created_from: date | None = None,
+    created_to: date | None = None,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    context: RequestContext = Depends(get_request_context),
+    engine: Engine = Depends(get_engine),
+):
+    from ..services.label_run_history import list_label_run_history
+
+    try:
+        return list_label_run_history(
+            engine, context.organization_id, context.facility_id,
+            search=search, status=status, created_from=created_from,
+            created_to=created_to, offset=offset, limit=limit,
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc

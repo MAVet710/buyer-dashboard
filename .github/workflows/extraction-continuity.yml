@@ -1,0 +1,95 @@
+name: Extraction handoff continuity
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/app/routers/extraction.py'
+      - 'modules/extraction/**'
+      - 'tests/test_web_extraction_run360.py'
+      - 'tests/test_extraction_inventory_eligibility.py'
+      - 'tests/test_extraction_stage_atomicity.py'
+      - 'tests/test_operator_acceptance_retail_extraction.py'
+      - 'tests/test_extraction_operator_ux_contract.py'
+      - '.github/workflows/extraction-continuity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extraction-continuity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extraction-existing-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.txt -r backend/requirements.txt pytest httpx
+      - name: Preserve run controls and transaction safeguards
+        env:
+          PYTHONHASHSEED: '0'
+        run: |
+          mkdir -p artifacts/extraction-continuity
+          git rev-parse HEAD > artifacts/extraction-continuity/tested-commit.txt
+          python -m pytest -q tests/test_web_extraction_run360.py tests/test_extraction_inventory_eligibility.py tests/test_extraction_stage_atomicity.py tests/test_operator_acceptance_retail_extraction.py tests/test_extraction_operator_ux_contract.py --junitxml=artifacts/extraction-continuity/extraction-contracts.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extraction-backend-evidence
+          path: artifacts/extraction-continuity
+          retention-days: 7
+          if-no-files-found: error
+
+  extraction-handoff-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec eslint . --max-warnings=0
+      - run: pnpm build
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-1.55.0
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Exercise exact-run handoffs and prior responsive parity
+        env:
+          PLAYWRIGHT_JUNIT_OUTPUT_NAME: test-results/extraction/extraction-browser.xml
+        run: |
+          mkdir -p test-results/extraction
+          git rev-parse HEAD > test-results/extraction/tested-commit.txt
+          pnpm exec vite --host 127.0.0.1 --port 4173 > /tmp/extraction-vite.log 2>&1 &
+          VITE_PID=$!
+          trap 'kill "$VITE_PID" 2>/dev/null || true' EXIT
+          READY=0
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then READY=1; break; fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then cat /tmp/extraction-vite.log; exit 1; fi
+          pnpm exec playwright test --config=playwright.config.ts --reporter=list,junit e2e/extraction-run-continuity.spec.ts e2e/parity-browser.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extraction-browser-evidence
+          path: frontend/test-results
+          retention-days: 7
+          if-no-files-found: error

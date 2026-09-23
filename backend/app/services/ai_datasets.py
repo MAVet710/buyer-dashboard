@@ -23,6 +23,7 @@ from services.extraction_agent import build_extraction_derived_datasets
 
 from ..auth import RequestContext
 from ..routers.buyer_parity import _model
+from .ai_inventory import register_current_inventory
 
 
 ALL = ("ops", "buyer", "purchasing", "inventory", "audit", "compliance", "nomenclature", "repack", "coman", "extraction", "commercial", "commercial_finance", "cultivation", "data_hub")
@@ -76,16 +77,30 @@ def build_dataset_registry(context: RequestContext, engine: Engine, *, operation
                 buyer_cache.update({
                     "buyer_forecast": detail,
                     "buyer_product_forecast": product,
-                    "inventory": inventory,
+                    "buyer_inventory_snapshot": inventory,
                     "sales": sales,
                     "buyer_sources": pd.DataFrame([
-                        {"dataset": "inventory", "filename": inventory_source.filename, "rows": inventory_source.row_count, "freshness": inventory_source.activated_at},
-                        {"dataset": "product_sales", "filename": sales_source.filename, "rows": sales_source.row_count, "freshness": sales_source.activated_at},
+                        {"dataset": "buyer_inventory_snapshot", "filename": inventory_source.filename, "rows": inventory_source.row_count, "freshness": inventory_source.activated_at, "state": "available", "message": "Uploaded inventory snapshot for historical forecast analysis; not current stock."},
+                        {"dataset": "sales", "filename": sales_source.filename, "rows": sales_source.row_count, "freshness": sales_source.activated_at, "state": "available", "message": "Uploaded historical sales. Publication time does not establish sales-period completeness."},
                     ]),
                 })
             except Exception:
-                buyer_cache.update({key: pd.DataFrame() for key in ("buyer_forecast", "buyer_product_forecast", "inventory", "sales", "buyer_sources")})
+                # Keep a failed uploaded forecast distinct from a valid empty
+                # dataset, and never leak SQL/connection details to the model.
+                buyer_cache.update({
+                    "unavailable": True,
+                    "buyer_sources": pd.DataFrame([
+                        {"dataset": key, "filename": "", "rows": None, "freshness": None, "state": "unavailable", "message": "Uploaded buyer inventory/sales evidence could not be loaded. This does not determine current inventory or establish zero sales."}
+                        for key in ("buyer_inventory_snapshot", "sales")
+                    ]),
+                })
         return buyer_cache
+
+    def buyer_frame(key: str) -> pd.DataFrame:
+        data = buyer_data()
+        if data.get("unavailable") and key != "buyer_sources":
+            raise ValueError("Uploaded buyer forecast evidence is unavailable; consult buyer_sources.")
+        return _frame(data.get(key))
 
     def planning() -> dict[str, Any]:
         if not planning_cache:
@@ -148,9 +163,10 @@ def build_dataset_registry(context: RequestContext, engine: Engine, *, operation
     def reg(**kwargs):
         registry.register(DatasetSpec(**kwargs))
 
-    for key, description in (("inventory", "Current authorized retail inventory"), ("sales", "Authorized historical retail sales"), ("buyer_forecast", "Buyer forecast details"), ("buyer_product_forecast", "Buyer product-level forecast")):
-        reg(key=key, domain="retail", description=description, loader=lambda access, k=key: _frame(buyer_data().get(k)), allowed_agents=RETAIL, required_capabilities=("retail",), allow_business_columns=True, freshness="active Data Hub source", max_tool_rows=50)
-    reg(key="buyer_sources", domain="data_hub", description="Provenance for active Buyer source files", loader=lambda access: _frame(buyer_data().get("buyer_sources")), allowed_agents=RETAIL, required_capabilities=("retail",), allowed_columns=("dataset", "filename", "rows", "freshness"), freshness="active Data Hub metadata", max_tool_rows=20)
+    register_current_inventory(registry, context, engine, RETAIL)
+    for key, description in (("buyer_inventory_snapshot", "Uploaded inventory snapshot used by legacy Buyer forecasts; NOT current inventory"), ("sales", "Authorized uploaded historical retail sales"), ("buyer_forecast", "Historical Buyer forecast from uploaded inventory and sales, not current stock"), ("buyer_product_forecast", "Historical product-level forecast from uploaded inventory and sales, not current stock")):
+        reg(key=key, domain="retail", description=description, loader=lambda access, k=key: buyer_frame(k), allowed_agents=RETAIL, required_capabilities=("retail",), allow_business_columns=True, freshness="uploaded Data Hub snapshot; see buyer_sources", max_tool_rows=50)
+    reg(key="buyer_sources", domain="data_hub", description="Availability and separate publication times of uploaded Buyer inventory/sales sources; not current inventory provenance", loader=lambda access: buyer_frame("buyer_sources"), allowed_agents=RETAIL, required_capabilities=("retail",), allowed_columns=("dataset", "filename", "rows", "freshness", "state", "message"), freshness="active Data Hub metadata", max_tool_rows=20)
 
     reg(key="purchase_recommendations", domain="purchasing", description="Deterministic replenishment recommendations using durable retail planning policies", loader=lambda access: pd.DataFrame(planning().get("recommendations") or []), allowed_agents=("ops", "buyer", "purchasing", "inventory"), allowed_roles=PURCHASE_ROLES, required_capabilities=("retail",), allowed_columns=("product_id", "sku", "product_name", "category", "unit", "unit_cost", "on_hand", "inbound", "sold", "daily_velocity", "days_on_hand", "target_doh", "safety_stock", "reorder_point", "minimum_order_quantity", "case_pack", "velocity_window_days", "preferred_vendor_id", "preferred_vendor_name", "suggested_quantity", "suggested_cost", "needs_reorder"), freshness="live retail planning workspace", max_tool_rows=50)
     reg(key="vendors", domain="purchasing", description="Authorized vendor terms and identities", loader=lambda access: pd.DataFrame(planning().get("vendors") or []), allowed_agents=("ops", "buyer", "purchasing"), allowed_roles=PURCHASE_ROLES, required_capabilities=("retail",), allowed_columns=("id", "name", "license_or_registration", "payment_terms"), freshness="live commercial partner ledger", max_tool_rows=50)

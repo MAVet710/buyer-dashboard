@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Engine
 
 from services.web_buyer_parity import records, sku_inventory_view
@@ -173,3 +173,27 @@ def legacy_overview(
             "units_sold": float(sold.sum()),
         },
     }
+
+
+@router.get("/current-inventory")
+def current_inventory(
+    search: str = Query("", max_length=160), status: str = Query("", max_length=64),
+    unit: str = Query("", max_length=32), offset: int = Query(0, ge=0, le=10000),
+    limit: int = Query(50, ge=1, le=100),
+    context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine),
+):
+    from ..services.ai_inventory import InventoryEvidenceUnavailable
+    from ..services.buyer_current_inventory import current_buyer_inventory
+
+    try:
+        return current_buyer_inventory(context, engine, search=search, status=status, unit=unit, offset=offset, limit=limit)
+    except InventoryEvidenceUnavailable as exc:
+        raise HTTPException(503, str(exc)) from None
+
+
+@router.get("/uploaded-source-evidence")
+def uploaded_sources(
+    context: RequestContext = Depends(get_request_context), engine: Engine = Depends(get_engine),
+):
+    from ..services.buyer_current_inventory import uploaded_source_evidence
+    return uploaded_source_evidence(engine, context, include_inventory=True)
