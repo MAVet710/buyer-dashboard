@@ -6,7 +6,7 @@ async function install(page: Page, empty = false) {
   const paths: string[] = [];
   await page.addInitScript(() => {
     localStorage.setItem("buyer-dash-organization", "stock-org");
-    localStorage.setItem("buyer-dash-facility", "stock-facility");
+    if (!localStorage.getItem("buyer-dash-facility")) localStorage.setItem("buyer-dash-facility", "stock-facility");
     localStorage.setItem("buyer-dash-operation", "Retail Ops");
     localStorage.setItem("buyer-dash-data-mode", "Uploads");
   });
@@ -43,7 +43,7 @@ async function install(page: Page, empty = false) {
   return { paths, fail: () => { unavailable = true; }, recover: () => { unavailable = false; available = 75; } };
 }
 
-for (const width of [390, 1440]) test(`current Buyer inventory works without uploaded sources at ${width}px`, async ({ page }) => {
+for (const width of [390, 1440]) test(`current Buyer inventory works without uploaded sources at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 1000 });
   const state = await install(page);
   await page.goto("/buying");
@@ -58,6 +58,7 @@ for (const width of [390, 1440]) test(`current Buyer inventory works without upl
   await expect(page.getByRole("link", { name: "CURRENT-TAG-G" })).toHaveAttribute("href", "/inventory/packages/lot-g");
   await expect(page.getByRole("link", { name: "Current source flower" })).toHaveAttribute("href", "/inventory/products/product-g");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath(`buyer-current-${width}.png`), fullPage: true, animations: "disabled" });
 });
 
 test("failed refresh removes stale stock and retry reads new committed quantities", async ({ page }) => {
