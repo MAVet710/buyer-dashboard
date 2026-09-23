@@ -162,3 +162,19 @@ test("an Advanced note is saved only to the selected run and survives reopening"
   expect(state.notes.first).toBe("First run note");
   expect(state.writes).toEqual([{ path: "/api/v1/extraction/runs/second/notes", body: { notes: "QA continuity note" } }]);
 });
+
+test("browser Back closes a new-run form before restoring the prior run", async ({ page }) => {
+  const state = await install(page);
+  await page.goto("/production/extraction?extractionView=runs&extractionRun=second");
+  const floor = page.locator(".extraction-operator-workspace");
+  await expect(floor.getByRole("heading", { name: "BATCH-SECOND", exact: true })).toBeVisible();
+  await floor.getByRole("button", { name: "New run", exact: true }).click();
+  await expect(floor.getByRole("heading", { name: "Reserve source material", exact: true })).toBeVisible();
+  await expect(floor.getByRole("heading", { name: "BATCH-SECOND", exact: true })).toHaveCount(0);
+  await page.goBack();
+  await expect(page).toHaveURL(/extractionRun=second/);
+  await expect(floor.getByRole("heading", { name: "BATCH-SECOND", exact: true })).toBeVisible();
+  await expect(floor.getByRole("heading", { name: "Reserve source material", exact: true })).toHaveCount(0);
+  await expect(floor.getByRole("button", { name: "New run", exact: true })).toBeVisible();
+  expect(state.writes).toEqual([]);
+});

@@ -46,6 +46,8 @@ export function ExtractionOperatorWorkspace({ mode, onOpenAdvanced, selectedRunI
   const [search, setSearch] = useState("");
   const [showClosed, setShowClosed] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Browser history can restore a run without calling the click handler.
+  useEffect(()=>{if(selectedRunId)setCreating(false)},[selectedRunId]);
 
   const runs = useQuery({ queryKey:["extraction-runs",scope], queryFn:({signal})=>apiGet<Run[]>("/api/v1/extraction/runs", signal) });
   const detail = useQuery({ queryKey:["extraction-run", selected, scope], enabled:Boolean(selected), retry:false, staleTime:0, refetchOnMount:"always", refetchOnWindowFocus:false, queryFn:({signal})=>apiGet<Detail>(`/api/v1/extraction/runs/${encodeURIComponent(selected)}`, signal) });
