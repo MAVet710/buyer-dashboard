@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "../lib/api";
 
 type OperatorMode = "today" | "runs";
@@ -36,15 +36,21 @@ const emptyForm = ():StageForm => ({
   terpene_type:"", terpene_source:"", terpene_percentage:0, terpene_weight_g:0,
 });
 
-export function ExtractionOperatorWorkspace({ mode, onOpenAdvanced }: { mode:OperatorMode; onOpenAdvanced:(runId?:string)=>void }) {
+export function ExtractionOperatorWorkspace({ mode, onOpenAdvanced, selectedRunId, onSelectRun, scope="" }: {
+  mode:OperatorMode; onOpenAdvanced:(runId?:string)=>void; selectedRunId?:string;
+  onSelectRun?:(runId:string,replace?:boolean)=>void; scope?:string;
+}) {
   const client = useQueryClient();
-  const [selected, setSelected] = useState("");
+  const [localSelected, setLocalSelected] = useState("");
+  const selected=selectedRunId??localSelected;
   const [search, setSearch] = useState("");
   const [showClosed, setShowClosed] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  const runs = useQuery({ queryKey:["extraction-runs"], queryFn:({signal})=>apiGet<Run[]>("/api/v1/extraction/runs", signal) });
-  const detail = useQuery({ queryKey:["extraction-run", selected], enabled:Boolean(selected), queryFn:({signal})=>apiGet<Detail>(`/api/v1/extraction/runs/${selected}`, signal) });
+  const runs = useQuery({ queryKey:["extraction-runs",scope], queryFn:({signal})=>apiGet<Run[]>("/api/v1/extraction/runs", signal) });
+  const detail = useQuery({ queryKey:["extraction-run", selected, scope], enabled:Boolean(selected), retry:false, staleTime:0, refetchOnMount:"always", refetchOnWindowFocus:false, queryFn:({signal})=>apiGet<Detail>(`/api/v1/extraction/runs/${encodeURIComponent(selected)}`, signal) });
+  const wrongRecord=Boolean(detail.data&&detail.data.run.id!==selected);
+  const detailUnavailable=detail.isError||wrongRecord;
 
   const openRuns = useMemo(() => (runs.data ?? []).filter(row => !CLOSED.has(row.status)), [runs.data]);
   const attentionRuns = useMemo(() => openRuns.filter(row => ["hold", "qa"].includes(row.status)), [openRuns]);
@@ -56,14 +62,14 @@ export function ExtractionOperatorWorkspace({ mode, onOpenAdvanced }: { mode:Ope
     return [row.batch_number, row.strain, row.method, row.current_stage_key, row.status].join(" ").toLowerCase().includes(search.trim().toLowerCase());
   }), [runs.data, search, showClosed]);
 
-  const selectRun=(runId:string)=>{setSelected(runId);setCreating(false)};
-  const openNewRun=()=>{setSelected("");setCreating(true)};
+  const selectRun=useCallback((runId:string,replace=false)=>{setLocalSelected(runId);onSelectRun?.(runId,replace);setCreating(false)},[onSelectRun]);
+  const openNewRun=()=>{setLocalSelected("");onSelectRun?.("");setCreating(true)};
 
   useEffect(() => {
     if (selected || creating) return;
     const preferred = attentionRuns[0] ?? runningRuns[0] ?? nextRuns[0] ?? filtered[0];
-    if (preferred) setSelected(preferred.id);
-  }, [attentionRuns, creating, filtered, nextRuns, runningRuns, selected]);
+    if (preferred) selectRun(preferred.id,true);
+  }, [attentionRuns, creating, filtered, nextRuns, runningRuns, selected, selectRun]);
 
   const refreshAll = (runId = selected) => {
     void client.invalidateQueries({ queryKey:["extraction-runs"] });
@@ -108,8 +114,8 @@ export function ExtractionOperatorWorkspace({ mode, onOpenAdvanced }: { mode:Ope
     </section>
 
     {detail.isLoading && selected ? <div className="state">Loading run…</div> : null}
-    {detail.isError ? <div className="state error">{detail.error.message}</div> : null}
-    {detail.data ? <CurrentRun detail={detail.data} onSaved={()=>refreshAll(detail.data!.run.id)} onOpenAdvanced={()=>onOpenAdvanced(detail.data!.run.id)}/> : null}
+    {detailUnavailable ? <div className="state error" role="alert">The requested extraction run could not be opened. No other run was selected in its place. <button className="secondary" type="button" onClick={()=>void detail.refetch()}>Retry requested run</button></div> : null}
+    {selected&&detail.data&&!detailUnavailable ? <CurrentRun key={`${scope}:${selected}`} detail={detail.data} onSaved={()=>refreshAll(detail.data!.run.id)} onOpenAdvanced={()=>onOpenAdvanced(detail.data!.run.id)}/> : null}
   </div>;
 }
 
