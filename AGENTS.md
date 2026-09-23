@@ -62,3 +62,17 @@ Never invent regulations. Do not claim an external traceability mutation succeed
 - Add regression coverage for material workflow or performance changes.
 - Database changes must follow the repository migration rules and remain rolling-deployment safe.
 - A change is not complete because the page renders: functionality, permissions, auditability, realistic-data performance, mobile/browser behavior, migrations, and failure/recovery paths must still pass their applicable gates.
+
+## Mandatory PC-hosted delivery
+
+Nelson's standing delivery requirement, recorded September 23, 2026: **the PC-hosted release is part of every authorized application change, not an optional follow-up after GitHub work.** Read `docs/PRODUCTION_DEPLOYMENT.md` before release work.
+
+- The finish line is validated source -> integrated release candidate -> actual Windows-PC release -> verification through `ops.doobielogic.io`. A commit, PR, merge, CI pass, or downloadable handoff alone is not a completed application delivery.
+- After applicable final-candidate gates pass, continue through the established authorized PC release procedure. Do not routinely ask Nelson to repeat an already authorized deployment request. Respect explicit review-only, no-deploy, maintenance-window, or other scope restrictions.
+- Preserve the PC/Cloudflare Tunnel/Caddy/FastAPI architecture and existing hosted Supabase auth/data. Do not substitute Render, Cloud Run, new hosting charges, a new Supabase project, or a replacement user identity.
+- Verify the exact deployed frontend/API release identities, local health/readiness, and the affected authenticated public workflow. A passing GitHub build is not evidence of what the PC is serving.
+- Use `RELEASED_VERIFIED` only after observed deployment and public acceptance. Until then use `CODE_READY`, `RELEASE_PENDING_PC`, `RELEASE_BLOCKED`, or `ROLLED_BACK`, with the exact unfinished gate.
+- If PC access is absent/offline or a release gate fails, keep the release open and identify the concrete blocker. Never bypass authorization, expose secrets, force a broken release, silently change hosting, or claim that deployment happened. Resolve delivery blockers before starting unrelated feature work.
+- Discover and verify a protected, owner-authorized machine connection before attempting PC execution. Do not assume a self-hosted runner exists or expose the production PC to untrusted PR workflows. Never install persistent access or relax protection silently.
+- Preserve uncommitted workstation changes, local-only launchers/configuration and a recoverable previous release. Do not blindly reset the working tree or reverse production migrations.
+- Documentation-only updates may be reported as `DOCUMENTATION_UPDATED`; they do not require a production restart and must not be reported as an application release. Every application-delivery handoff must carry the actual release status and remaining PC acceptance gates.
