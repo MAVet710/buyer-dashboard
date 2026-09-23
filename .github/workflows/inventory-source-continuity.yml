@@ -1,0 +1,37 @@
+name: Inventory source continuity
+
+on:
+  pull_request:
+    paths:
+      - 'backend/app/services/**'
+      - 'backend/app/routers/buyer_parity.py'
+      - 'tests/**'
+      - 'frontend/src/pages/BuyerOperationsPage.tsx'
+      - '.github/workflows/inventory-source-continuity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-source-continuity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record the tracked candidate source only
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/source-commit.txt"
+          git archive --format=tar.gz --output="$RUNNER_TEMP/continuity-source.tar.gz" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inventory-continuity-source
+          path: |
+            ${{ runner.temp }}/continuity-source.tar.gz
+            ${{ runner.temp }}/source-commit.txt
+          retention-days: 1
