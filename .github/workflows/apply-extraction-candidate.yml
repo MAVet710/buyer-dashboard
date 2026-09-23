@@ -5,6 +5,9 @@ on:
       - '.github/workflows/apply-extraction-candidate.yml'
 permissions:
   contents: read
+concurrency:
+  group: apply-extraction-candidate
+  cancel-in-progress: true
 jobs:
   apply-reviewed-source:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/current-inventory-continuity'
@@ -19,6 +22,7 @@ jobs:
       - name: Apply exactly reviewed source and remove one-shot helper
         run: |
           python scripts/apply_extraction_continuity.py
+          sed -i 's/[[:blank:]]*$//' frontend/src/pages/ExtractionUnifiedPage.tsx
           git diff --check
           git add frontend/src/pages/ExtractionUnifiedPage.tsx frontend/src/pages/ExtractionOperatorWorkspace.tsx frontend/src/pages/ExtractionPage.tsx
           git rm scripts/apply_extraction_continuity.py .github/workflows/apply-extraction-candidate.yml
