@@ -44,7 +44,7 @@ def release_case():
         assert capacity is None or capacity >= 33
         assert conn.scalar(select(func.count()).select_from(InventoryTransaction)) == 0
     org, other, facility, sibling, alien = [str(uuid4()) for _ in range(5)]
-    buyer, reader, foreign = [str(uuid4()) for _ in range(3)]
+    buyer, reader, foreign, label_operator = [str(uuid4()) for _ in range(4)]
     product, foreign_product, label, foreign_label, lot, foreign_lot = [str(uuid4()) for _ in range(6)]
     tag = "1A4000000000000000007001"
     snapshot = {"product":{"name":"Saved QA label","sku":"PG-QA"},"label":{"product_name":"Saved QA label"},
@@ -55,7 +55,7 @@ def release_case():
                          Organization(id=other,name="Other QA",slug="release-qa-other")]); session.flush()
         session.add_all([Facility(id=f,organization_id=o,name=f,code=f[:8],retail_enabled=True,production_enabled=True)
                          for f,o in [(facility,org),(sibling,org),(alien,other)]]); session.flush()
-        for user,organization,fac,role in [(buyer,org,facility,"buyer"),(reader,org,facility,"read_only"),(foreign,other,alien,"buyer")]:
+        for user,organization,fac,role in [(buyer,org,facility,"buyer"),(reader,org,facility,"read_only"),(foreign,other,alien,"buyer"),(label_operator,org,facility,"operator")]:
             session.add(AppUser(id=user,organization_id=organization,username=user,normalized_username=user,
                                 password_hash="not-a-login-password",email=f"{user}@example.test",role=role,
                                 must_change_password=False,active=True)); session.flush()
@@ -86,13 +86,13 @@ def release_case():
     app.dependency_overrides[get_authorization_engine] = lambda: engine
     app.dependency_overrides[get_settings] = lambda: settings
     def headers(user=buyer, organization=org, fac=facility):
-        token = jwt.encode({"sub":user,"iss":settings.supabase_url+"/auth/v1","aud":settings.jwt_audience,
+        token = jwt.encode({"sub":user,"iss":settings.supabase_url+"/auth/v1","aud":settings.supabase_jwt_audience,
                             "iat":int(time.time()),"exp":int(time.time())+600},secret,algorithm="HS256")
         return {"Authorization":"Bearer "+token,"X-Organization-Id":organization,"X-Facility-Id":fac}
     client = TestClient(app)  # Deliberately do not enter startup/seed lifespan.
     try:
         yield dict(client=client,engine=engine,headers=headers,org=org,other=other,facility=facility,
-                   sibling=sibling,alien=alien,buyer=buyer,reader=reader,foreign=foreign,product=product,
+                   sibling=sibling,alien=alien,buyer=buyer,reader=reader,foreign=foreign,label_operator=label_operator,product=product,
                    label=label,foreign_label=foreign_label,tag=tag,snapshot=snapshot,lot=lot,order=order.id)
     finally:
         client.close(); app.dependency_overrides.clear(); app.dependency_overrides.update(previous); engine.dispose()
@@ -117,7 +117,7 @@ def test_production_auth_and_persisted_facility_membership(release_case):
 
 
 def test_saved_labels_reprint_without_stock_or_identity_mutation(release_case):
-    x=release_case; client=x["client"]; h=x["headers"](); path=f'/api/v1/label-printing/production-runs/{x["label"]}'
+    x=release_case; client=x["client"]; h=x["headers"](user=x["label_operator"]); path=f'/api/v1/label-printing/production-runs/{x["label"]}'
     page=client.get("/api/v1/label-printing/history",headers=h)
     assert page.status_code==200 and [r["id"] for r in page.json()["items"]]==[x["label"]]
     before=client.get(path,headers=h); assert before.status_code==200
