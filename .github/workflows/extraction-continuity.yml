@@ -10,6 +10,7 @@ on:
       - 'tests/test_extraction_inventory_eligibility.py'
       - 'tests/test_extraction_stage_atomicity.py'
       - 'tests/test_operator_acceptance_retail_extraction.py'
+      - 'tests/test_extraction_operator_ux_contract.py'
       - '.github/workflows/extraction-continuity.yml'
 
 permissions:
@@ -36,7 +37,7 @@ jobs:
         run: |
           mkdir -p artifacts/extraction-continuity
           git rev-parse HEAD > artifacts/extraction-continuity/tested-commit.txt
-          python -m pytest -q tests/test_web_extraction_run360.py tests/test_extraction_inventory_eligibility.py tests/test_extraction_stage_atomicity.py tests/test_operator_acceptance_retail_extraction.py --junitxml=artifacts/extraction-continuity/extraction-contracts.xml
+          python -m pytest -q tests/test_web_extraction_run360.py tests/test_extraction_inventory_eligibility.py tests/test_extraction_stage_atomicity.py tests/test_operator_acceptance_retail_extraction.py tests/test_extraction_operator_ux_contract.py --junitxml=artifacts/extraction-continuity/extraction-contracts.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
