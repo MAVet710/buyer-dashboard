@@ -150,14 +150,15 @@ test("an Advanced note is saved only to the selected run and survives reopening"
   await page.goto(deepLink("second"));
   let detail = page.getByRole("dialog", { name: "BATCH-SECOND", exact: true });
   await detail.getByText("Run notes", { exact: true }).click();
-  await expect(detail.getByLabel("Notes", { exact: true })).toHaveValue("Second run note");
-  await detail.getByLabel("Notes", { exact: true }).fill("QA continuity note");
+  // Match the existing editor's accessible role/name, not nested label text.
+  await expect(detail.getByRole("textbox", { name: "Notes", exact: true })).toHaveValue("Second run note");
+  await detail.getByRole("textbox", { name: "Notes", exact: true }).fill("QA continuity note");
   await detail.getByRole("button", { name: "Save notes", exact: true }).click();
   await expect.poll(() => state.notes.second).toBe("QA continuity note");
   await page.reload();
   detail = page.getByRole("dialog", { name: "BATCH-SECOND", exact: true });
   await detail.getByText("Run notes", { exact: true }).click();
-  await expect(detail.getByLabel("Notes", { exact: true })).toHaveValue("QA continuity note");
+  await expect(detail.getByRole("textbox", { name: "Notes", exact: true })).toHaveValue("QA continuity note");
   expect(state.notes.first).toBe("First run note");
   expect(state.writes).toEqual([{ path: "/api/v1/extraction/runs/second/notes", body: { notes: "QA continuity note" } }]);
 });
