@@ -1,4 +1,8 @@
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
+from xml.etree import ElementTree
+
+import pytest
 
 from fastapi import APIRouter
 from fastapi.routing import APIRoute
@@ -10,6 +14,11 @@ from backend.app.main import app, settings
 
 
 PERMITTED_PUBLIC_API_ROUTES = {
+    # Public marketing intake only. Administration remains context/DEV protected.
+    ("POST", f"{settings.api_prefix}/advisory/leads"),
+    ("POST", f"{settings.api_prefix}/advisory/score"),
+    ("POST", f"{settings.api_prefix}/advisory/events"),
+    ("GET", f"{settings.api_prefix}/advisory/booking"),
     ("POST", f"{settings.api_prefix}/trial/activate"),
     ("POST", f"{settings.api_prefix}/beta/apply"),
     ("POST", f"{settings.api_prefix}/account/username-login"),
@@ -153,11 +162,45 @@ def test_api_and_operational_frontend_are_noindex():
     assert "Sitemap: https://doobielogic.io/sitemap.xml" in nginx_source
 
 
+def _is_public_marketing_url(value: str) -> bool:
+    url = urlsplit(value)
+    path = unquote(url.path)
+    roots = {"consulting", "resources", "tools", "beta"}
+    root = path.strip("/").split("/", 1)[0]
+    return (url.scheme == "https" and url.netloc == "doobielogic.io"
+            and not url.query and not url.fragment and ".." not in path.split("/")
+            and "\\" not in path and (path == "/" or root in roots))
+
+
 def test_sitemap_contains_only_public_marketing_urls():
-    sitemap = Path("frontend/public/sitemap.xml").read_text(encoding="utf-8")
-    assert "https://doobielogic.io/" in sitemap
-    forbidden = ("ops.doobielogic.io", "/api/", "/admin", "/inventory", "/buyer", "/production")
-    assert not any(value in sitemap for value in forbidden)
+    tree = ElementTree.fromstring(Path("frontend/public/sitemap.xml").read_text(encoding="utf-8"))
+    urls = [node.text or "" for node in tree.findall("{*}url/{*}loc")]
+    assert "https://doobielogic.io/" in urls
+    assert all(_is_public_marketing_url(url) for url in urls)
+
+
+@pytest.mark.parametrize("url", [
+    "https://ops.doobielogic.io/consulting", "https://doobielogic.io.evil.test/",
+    "https://doobielogic.io/api/v1/advisory/score", "https://doobielogic.io/admin",
+    "https://doobielogic.io/inventory", "https://doobielogic.io/buyer",
+    "https://doobielogic.io/production", "https://doobielogic.io/consulting/../admin",
+    "https://doobielogic.io/resources/%2e%2e/admin", "http://doobielogic.io/",
+    "https://doobielogic.io/tools?token=not-public",
+])
+def test_sitemap_rejects_operational_or_untrusted_urls(url):
+    assert not _is_public_marketing_url(url)
+
+
+def test_advisory_admin_routes_are_not_public_exceptions():
+    security = _api_route_security()
+    for method, path in (("GET", "/admin/leads"), ("GET", "/admin/leads/{lead_id}"),
+                         ("PATCH", "/admin/leads/{lead_id}"), ("GET", "/admin/metrics")):
+        key = (method, f"{settings.api_prefix}/advisory{path}")
+        assert security[key] is True
+        assert key not in PERMITTED_PUBLIC_API_ROUTES
+    from backend.app.routers.advisory import AdvisoryRoute, router
+    for route in router.routes:
+        assert isinstance(route, AdvisoryRoute), "Public intake must retain its abuse guard"
 
 
 def test_post_supabase_hardening_ai_tables_remain_data_api_locked_down():

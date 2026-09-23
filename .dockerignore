@@ -10,3 +10,12 @@ frontend/node_modules
 frontend/dist
 tests
 tmp
+
+# Root-context builds must not capture workstation/runtime material.
+**/.env*
+**/.pilot-*
+**/node_modules
+**/dist
+**/test-results
+**/playwright-report
+artifacts
