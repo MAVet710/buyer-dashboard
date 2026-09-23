@@ -19,6 +19,7 @@ from .analytics import (
     vendor_performance,
 )
 from .datasets import LoadedDataset
+from .inventory_contract import CURRENT_TOOLS, canonical_inventory_result
 from .sanitization import norm, records
 
 
@@ -67,7 +68,11 @@ class ToolRegistry:
         if tool is None:
             return {"error": "tool_unavailable", "tool": name}
         try:
-            return tool.handler(dict(arguments or {}))
+            args = dict(arguments or {})
+            guarded = canonical_inventory_result(name, args, self.datasets)
+            if guarded is not None:
+                return guarded
+            return tool.handler(args)
         except Exception as exc:
             return {"error": "tool_failed", "tool": name, "detail": exc.__class__.__name__}
 
@@ -102,6 +107,18 @@ class ToolRegistry:
             self._register(ToolSpec("inventory_slow_movers", "Find deterministic slow-moving inventory.", bounded, self._inventory_slow))
             self._register(ToolSpec("inventory_aging", "Rank aging inventory and approaching expirations.", bounded, self._inventory_aging))
             self._register(ToolSpec("inventory_reorder_candidates", "Calculate reorder candidates using sales velocity, inventory and open PO quantity where available.", {"type": "object", "properties": {"target_days": {"type": "integer", "minimum": 1, "maximum": 120}, "lead_time_days": {"type": "integer", "minimum": 0, "maximum": 120}, "limit": {"type": "integer", "minimum": 1, "maximum": 50}}}, self._inventory_reorder))
+        if "inventory_evidence" in self.datasets:
+            for name in CURRENT_TOOLS:
+                description = (
+                    "Summarize current physical, available and reserved stock separately by original unit. No uploaded inventory or sales required." if name == "inventory_availability" else
+                    "Rank current package aging/expiration without a sales dependency." if name == "inventory_aging" else
+                    "Check current inventory evidence and explain missing verified sales product/unit mapping; never invent a velocity or reorder quantity."
+                )
+                self._register(ToolSpec(name, description, bounded, lambda args, n=name: canonical_inventory_result(n, args, self.datasets) or {"error": "inventory_contract_unavailable"}))
+            if "buyer_inventory_snapshot" in self.datasets and "sales" in self.datasets:
+                for name in CURRENT_TOOLS:
+                    if name != "inventory_availability":
+                        self._register(ToolSpec(f"uploaded_snapshot_{name}", "Historical uploaded-snapshot analysis only, NOT current stock or an operational purchase instruction.", bounded, lambda args, n=name: self._uploaded_snapshot_inventory(n, args)))
         if "purchase_recommendations" in self.datasets:
             self._register(ToolSpec("purchase_recommendations", "Return canonical deterministic RetailPlanningService replenishment recommendations.", bounded, self._purchase_recommendations))
         if {"purchase_orders", "purchase_order_lines", "purchase_receipts"}.issubset(self.datasets):
@@ -129,6 +146,15 @@ class ToolRegistry:
             self._register(ToolSpec("data_quality_report", "Summarize source freshness, mapping completeness and validation exceptions without exposing raw uploaded rows.", bounded, self._data_quality))
         if "product_master" in self.datasets:
             self._register(ToolSpec("catalog_naming_exceptions", "Find deterministic missing naming attributes and normalized duplicate-name candidates.", bounded, self._catalog_naming))
+
+    def _uploaded_snapshot_inventory(self, name, args):
+        # Reuse the existing calculation against ONLY its original uploaded
+        # inputs. In particular, do not blend current PO commitments into it.
+        legacy = ToolRegistry({"inventory": self.datasets["buyer_inventory_snapshot"], "sales": self.datasets["sales"]})
+        result = legacy.execute(name, args)
+        result["basis"] = "uploaded_snapshot"
+        result["warnings"] = [*result.get("warnings", []), "Historical uploaded inventory/sales snapshot; not current stock or an operational purchase instruction. Sales unit and reporting-period assumptions remain those of the legacy analysis."]
+        return result
 
     def _describe_dataset(self, args: dict[str, Any]) -> dict[str, Any]:
         name = str(args.get("dataset") or "").casefold()
@@ -252,7 +278,7 @@ class ToolRegistry:
 
     def _vendor_performance(self, args):
         frame = vendor_performance(self._frame("purchase_orders"), self._frame("purchase_order_lines"), self._frame("purchase_receipts"), self._frame("vendors"))
-        return {"method": "deterministic", "rows": records(frame, limit=int(args.get("limit") or 30))}
+        return {"method": "deterministic", "rows": records(frame, limit=int(args.get("limit") or 50))}
 
     def _audit_variance(self, args):
         return {"method": "deterministic", "rows": records(audit_metrics(self._frame("audit_lines")), limit=int(args.get("limit") or 50))}
@@ -260,7 +286,7 @@ class ToolRegistry:
     def _audit_recount(self, args):
         frame = audit_metrics(self._frame("audit_lines"))
         frame = frame.loc[frame["recount_priority"] != "normal"].sort_values("absolute_variance", ascending=False)
-        return {"method": "deterministic", "rows": records(frame, limit=int(args.get("limit") or 30))}
+        return {"method": "deterministic", "rows": records(frame, limit=int(args.get("limit") or 50))}
 
     def _production_attainment(self, args):
         return {"method": "deterministic", "rows": records(production_attainment(self._frame("production_orders"), self._frame("production_actuals")), limit=int(args.get("limit") or 50))}
