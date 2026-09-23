@@ -71,9 +71,9 @@ def test_selected_run_and_new_run_are_mutually_exclusive():
     # Controlled URL selection and standalone local selection must both clear
     # the create form; creating must clear both sources of selected identity.
     assert 'const selected=selectedRunId??localSelected;' in floor
-    assert 'const selectRun=useCallback((runId:string,replace=false)=>{setLocalSelected(runId);onSelectRun?.(runId,replace);setCreating(false)},[onSelectRun]);' in floor
+    assert 'const selectRun=useCallback((runId:string,replace=false)=>{selectionPending.current=Boolean(onSelectRun);setLocalSelected(runId);onSelectRun?.(runId,replace);setCreating(false)},[onSelectRun]);' in floor
     assert 'const openNewRun=()=>{setLocalSelected("");onSelectRun?.("");setCreating(true)};' in floor
-    assert "if (selected || creating) return;" in floor
+    assert "if (selected || creating || selectionPending.current) return;" in floor
     assert "onSelect={selectRun}" in floor
     assert '<CurrentRun key={`${scope}:${selected}`}' in floor
 

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../lib/api";
 
 type OperatorMode = "today" | "runs";
@@ -43,6 +43,10 @@ export function ExtractionOperatorWorkspace({ mode, onOpenAdvanced, selectedRunI
   const client = useQueryClient();
   const [localSelected, setLocalSelected] = useState("");
   const selected=selectedRunId??localSelected;
+  // Local state can commit before React Router finishes a URL transition.
+  // Do not let the default queue selection overwrite an explicit choice.
+  const selectionPending=useRef(false);
+  useEffect(()=>{selectionPending.current=false},[selectedRunId]);
   const [search, setSearch] = useState("");
   const [showClosed, setShowClosed] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -64,11 +68,11 @@ export function ExtractionOperatorWorkspace({ mode, onOpenAdvanced, selectedRunI
     return [row.batch_number, row.strain, row.method, row.current_stage_key, row.status].join(" ").toLowerCase().includes(search.trim().toLowerCase());
   }), [runs.data, search, showClosed]);
 
-  const selectRun=useCallback((runId:string,replace=false)=>{setLocalSelected(runId);onSelectRun?.(runId,replace);setCreating(false)},[onSelectRun]);
+  const selectRun=useCallback((runId:string,replace=false)=>{selectionPending.current=Boolean(onSelectRun);setLocalSelected(runId);onSelectRun?.(runId,replace);setCreating(false)},[onSelectRun]);
   const openNewRun=()=>{setLocalSelected("");onSelectRun?.("");setCreating(true)};
 
   useEffect(() => {
-    if (selected || creating) return;
+    if (selected || creating || selectionPending.current) return;
     const preferred = attentionRuns[0] ?? runningRuns[0] ?? nextRuns[0] ?? filtered[0];
     if (preferred) selectRun(preferred.id,true);
   }, [attentionRuns, creating, filtered, nextRuns, runningRuns, selected, selectRun]);

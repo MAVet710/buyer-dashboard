@@ -196,6 +196,10 @@ test.describe("strict real-stack operator alpha", () => {
       `Extraction Quick Start reservation failed: ${reservationBody}`,
     ).toBe(201);
 
+    // The selected URL must identify the newly persisted run, never queue[0].
+    const createdRunId = new URL(reservationResponse.url()).pathname.split("/").at(-2);
+    expect(createdRunId).toBeTruthy();
+    await expect.poll(() => new URL(page.url()).searchParams.get("extractionRun")).toBe(createdRunId);
     await expect(page.getByRole("heading", { name: "OA-BROWSER-EXTRACTION-0001" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Ready to start this run?" })).toBeVisible();
     await page.getByLabel("Source package/material verified").check();
