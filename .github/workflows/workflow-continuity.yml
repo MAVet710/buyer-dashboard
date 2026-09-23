@@ -9,6 +9,8 @@ on:
       - 'backend/app/routers/label_printing.py'
       - 'backend/app/routers/purchasing.py'
       - 'services/purchase_order_pdf.py'
+      - 'tests/test_label_history_continuity.py'
+      - 'tests/test_purchase_order_continuity.py'
       - '.github/workflows/workflow-continuity.yml'
 
 permissions:
@@ -19,6 +21,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  saved-workflows-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install repository test dependencies
+        run: python -m pip install -r requirements.txt -r backend/requirements.txt pytest httpx
+      - name: Verify saved records, scopes, bounded reads and non-mutating reprints
+        env:
+          PYTHONHASHSEED: '0'
+        run: python -m pytest -q tests/test_label_history_continuity.py tests/test_purchase_order_continuity.py
+
   saved-workflows-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -54,7 +72,7 @@ jobs:
             sleep 1
           done
           if [ "$READY" -ne 1 ]; then cat /tmp/doobielogic-continuity-vite.log; exit 1; fi
-          pnpm exec playwright test --config=playwright.config.ts e2e/label-history-reprints.spec.ts e2e/purchase-order-continuity.spec.ts
+          pnpm exec playwright test --config=playwright.config.ts e2e/label-history-reprints.spec.ts e2e/purchase-order-continuity.spec.ts e2e/production-run-continuity.spec.ts
       - name: Save browser failure evidence
         if: always()
         uses: actions/upload-artifact@v4
