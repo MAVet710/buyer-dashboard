@@ -294,7 +294,7 @@ def test_marketing_surfaces_current_product_pillars():
     assert "marketingFaqs" in marketing
     for operation in ("Cultivation", "Production / Manufacturing", "Retail Operations", "Vertically Integrated"):
         assert operation in marketing_content
-    assert "Metrc integration is in validation." in marketing_content
+    assert "Metrc-aware workflows are in validation." in marketing_content
     assert "AI runtime tools are read-only; governed actions use separate controls." in marketing_content
     assert "Customer Portal" in beta
     assert "Customer Portal" in home
