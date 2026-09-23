@@ -1,3 +1,4 @@
+from html import unescape
 from pathlib import Path
 
 
@@ -100,10 +101,20 @@ def test_label_studio_workspace_integrates_simple_and_advanced_workflows():
     wrapper = _read("frontend/src/pages/LabelStudioWorkspacePage.tsx")
     workflow = _read("frontend/src/components/InventoryDrivenLabelWorkflow.tsx")
     app = _read("frontend/src/App.tsx")
-    assert 'const [mode,setMode]=useState<LabelStudioMode>("create")' in wrapper
+    # A saved-run deep link now initializes history, while an unqualified entry
+    # still starts in create mode before the existing role-specific default.
+    assert 'type LabelStudioMode = "create" | "history" | "advanced";' in wrapper
+    assert 'useState<LabelStudioMode>(selectedRunId||requestedMode==="history"?"history":requestedMode==="advanced"?"advanced":"create")' in wrapper
+    assert 'params.get("labelRun")' in wrapper
+    assert 'params.get("labelMode")' in wrapper
     assert "Create labels" in wrapper
-    assert "Advanced LabelGuard & templates" in wrapper
-    assert "<InventoryDrivenLabelWorkflow sandboxTestPass={sandboxTestPass}/>" in wrapper
+    assert "History & Reprints" in unescape(wrapper)
+    assert "Advanced LabelGuard & templates" in unescape(wrapper)
+    assert '<InventoryDrivenLabelWorkflow key={`${scope}:${sourceLotId}`}' in wrapper
+    assert 'sandboxTestPass={sandboxTestPass} canWrite={WRITE_ROLES.has(role)}' in wrapper
+    assert '<LabelRunHistory key={scope}' in wrapper
+    assert 'organizationId={organizationId} facilityId={facilityId}' in wrapper
+    assert 'selectedRunId={selectedRunId} onSelect={selectRun}' in wrapper
     assert "<LabelStudioPage />" in wrapper
     assert 'page === "Label Studio" ? <LabelStudioWorkspacePage />' in app
     for step in ("1. Source batch", "2. End product", "3. Finished quantity", "4. Build & validate label preview", "5. Scan METRC package tag", "6. Finalize & print"):

@@ -43,9 +43,10 @@ def test_advanced_labelguard_printing_keeps_real_tenant_guards():
 def test_label_studio_makes_sandbox_data_and_test_pass_unmistakable():
     workspace = _read("frontend/src/pages/LabelStudioWorkspacePage.tsx")
     workflow = _read("frontend/src/components/InventoryDrivenLabelWorkflow.tsx")
-    assert 'toLowerCase()==="dev"' in workspace
-    assert 'toLowerCase()==="dev-sandbox"' in workspace
-    assert 'toUpperCase()==="SANDBOX"' in workspace
+    # Normalization was extracted into role so history can reuse the same
+    # permission context. Preserve the complete three-part sandbox restriction.
+    assert 'const role=String(context.data?.user?.role??"").trim().toLowerCase();' in workspace
+    assert 'const sandboxTestPass=role==="dev"&&String(context.data?.organization?.slug??"").trim().toLowerCase()==="dev-sandbox"&&String(selectedFacility?.code??"").trim().toUpperCase()==="SANDBOX";' in workspace
     assert "ALL OPERATIONAL DATA IS TEST DATA" in workspace
     assert "Production and customer-tenant safeguards are not changed." in workspace
     assert "sandboxTestPass={sandboxTestPass}" in workspace

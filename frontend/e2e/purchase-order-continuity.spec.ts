@@ -36,7 +36,7 @@ test("inventory handoff creates one saved PO that reopens and exports from its r
   await expect(page.getByRole("heading",{name:"Draft purchase order",exact:true})).toBeVisible();
   await expect(page.getByLabel("Quantity for ONE")).toHaveValue("3");
   await expect(page.getByLabel("Price for ONE")).toHaveValue("12.5");
-  await page.getByLabel("Vendor",{exact:true}).selectOption("vendor-one");
+  await page.getByRole("combobox",{name:/^Vendor/}).selectOption("vendor-one");
   await page.getByLabel("PO number",{exact:true}).fill("PO-TEST-ONE");
   await page.getByLabel("Notes",{exact:true}).fill("Preserve delivery instructions");
   await page.getByRole("checkbox",{name:/I reviewed the facility/}).check();
